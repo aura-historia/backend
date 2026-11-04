@@ -1,8 +1,8 @@
 {
-  "run": "cn-2026-11-04-138",
-  "observedAt": "2026-11-04T10:48:46.168130+00:00",
+  "run": "cn-2026-11-04-141",
+  "observedAt": "2026-11-04T11:06:39.507642+00:00",
   "scope": "incremental",
-  "lastFullReadbackRun": "cn-2026-11-04-135",
+  "lastFullReadbackRun": "cn-2026-11-04-140",
   "status": "FAILED_INGESTION_DRIFT",
   "lastPassingStandardVerificationRun": "cn-2026-11-03-093",
   "counts": {
@@ -14,7 +14,7 @@
     "deliveryProfiles": 3,
     "emptyIngestionMethods": 2,
     "excluded": 46,
-    "deferred": 264
+    "deferred": 266
   },
   "exceptions": [
     {
@@ -170,7 +170,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "b01c96e488ea624c58c8a676a956c673405335d25f3ee6aebcc2518ecb2830da",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:52.924549+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:50.731036+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -184,7 +184,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "218db0beab27329b0392cb6f6c5d3881886946627475acc458057f16f5e3ea8d",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:52.668324+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:50.448919+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -198,7 +198,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "0ee8e27d26725139cb835d1eb9a10342e4c95670bab22b493544acaf18bc5cbb",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:52.686305+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:50.446724+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -212,7 +212,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "95c5c9dff861074537d0e42418f3be5197accdb6ef856a36dc2f63d1ac1b205d",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.273202+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.111960+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -226,7 +226,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "4190b062fd667c4b67719efd72a4e6b11fec19b3df18aa3f25cd3a5ba2181ef2",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.120829+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:50.854149+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -240,7 +240,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "1dcb744e487528e9035e8f749b4c9a6d9c425c0f782547f43e5acf1af64f1d8b",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.413165+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.292734+00:00",
       "ingestionMethods": [],
       "sourceUpdated": "2026-11-03T13:38:39.923491Z",
       "ingestionConstraintPassed": true
@@ -252,7 +252,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "b97bb6af7f3e29c3295e38e23c9e58c2a97575608e5ca69f36dab4d8d17178d0",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.458683+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.297944+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -266,7 +266,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "04e65b709187ff2bb260327d282a3d57d03524e72ef4872102a073d6aa6f64ae",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.669521+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.538498+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -280,7 +280,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "a6ad7db38271045f4dbf8b9af7a9bdfd50ac145426a45d6717300e178859915d",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.953820+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.796819+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -294,7 +294,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "65288ede04b35a77adbafd169618300751f37bf91283bde90c276b830d3c4251",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:53.869711+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.698599+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -308,7 +308,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "17f7a87e8b9ffea9ba7e6cccc2690613424b3ecb1f85085316b07d83fc8a27e7",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.093366+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:51.941680+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -322,7 +322,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "4bd418703a7ef24114c1b4e2c199f9356b8a3b7708bfac2af638c59be29928f0",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.234071+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.057271+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -336,7 +336,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "0d1183e213282f4ae813c4d8817eccc6d5f2d22a608dc9cef49fdc2b8fcc4fbd",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.391494+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.285784+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -350,7 +350,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "a7b694625e79113d0ef3f1a5198890216bd0b9331170c0931fc85b985c09f695",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.506172+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.395120+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -364,7 +364,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "2efbbdfe723e0d13d38113f8e8d5474b1f43855d990dd185ea0c9341fa4e08af",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.656078+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.472374+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -378,7 +378,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "16ee98401c1a3522715564a7fdbfe1997b5bb838e53c7e5b63561e1909e1e55b",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.803887+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.695546+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -392,7 +392,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "bc15744e7a2a36800d1ee38999952ed869c92c45b0c7bd2824c3b6ae2db3739b",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:54.910561+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.808164+00:00",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
@@ -406,7 +406,7 @@
       "identityLocationShippingChecks": "PASSED",
       "observationDigest": "6653acdb1eaca1fcec4e8b0851d4cbacaf0005376f659cac923097c8bc3070f2",
       "resourcesCheckedThisRun": false,
-      "resourceVerifiedAt": "2026-11-04T10:33:55.161408+00:00",
+      "resourceVerifiedAt": "2026-11-04T10:59:52.959767+00:00",
       "ingestionMethods": [],
       "sourceUpdated": "2026-11-03T22:37:23.315383Z",
       "ingestionConstraintPassed": true

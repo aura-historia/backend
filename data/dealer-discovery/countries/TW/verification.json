@@ -1,25 +1,25 @@
 {
   "environment": "https://api.aura-historia.com",
   "environmentCounts": {
-    "parties": 4186,
-    "listingSources": 4224
+    "parties": 4249,
+    "listingSources": 4288
   },
-  "run": "tw-2026-11-04-115",
-  "verifiedAt": "2026-11-04T10:45:14.154117Z",
-  "scope": "FULL",
+  "run": "tw-2026-11-04-117",
+  "verifiedAt": "2026-11-04T11:15:09.586944Z",
+  "scope": "INCREMENTAL",
   "fullVerifiedAt": "2026-11-04T10:44:48.568121Z",
-  "dealersCheckedThisRun": 139,
-  "dealersReused": 0,
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 142,
   "counts": {
-    "parties": 139,
-    "listingSources": 139,
+    "parties": 142,
+    "listingSources": 142,
     "locations": 86,
-    "logos": 96,
-    "identifiedPlatforms": 124,
+    "logos": 97,
+    "identifiedPlatforms": 127,
     "deliveryProfiles": 49,
-    "emptyIngestionMethods": 77,
+    "emptyIngestionMethods": 80,
     "preservedExternalIngestionMethods": 62,
-    "excluded": 33,
+    "excluded": 34,
     "deferred": 182
   },
   "paidDataSpendUsd": 0,
@@ -35,1009 +35,1030 @@
     {
       "ledger": "data/dealer-discovery/countries/TW/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/verification-root.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.287501Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:55.566412Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.287501Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/141vintage/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/141vintage/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:48.568121Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:55.521406Z",
       "fullVerifiedAt": "2026-11-04T10:44:48.568121Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/176lab/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/176lab/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:48.576745Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:55.520395Z",
       "fullVerifiedAt": "2026-11-04T10:44:48.576745Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/1983fine/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/1983fine/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:48.858869Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:55.839414Z",
       "fullVerifiedAt": "2026-11-04T10:44:48.858869Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/1j/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/1j/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:49.169784Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:55.863022Z",
       "fullVerifiedAt": "2026-11-04T10:44:49.169784Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/9514/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/9514/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:49.437766Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:55.873804Z",
       "fullVerifiedAt": "2026-11-04T10:44:49.437766Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ada/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ada/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:49.925758Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.109418Z",
       "fullVerifiedAt": "2026-11-04T10:44:49.925758Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/akiraillustrationstudio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/akiraillustrationstudio/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:49.699188Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.171442Z",
       "fullVerifiedAt": "2026-11-04T10:44:49.699188Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/anglia/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/anglia/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:50.274541Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.145081Z",
       "fullVerifiedAt": "2026-11-04T10:44:50.274541Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/annesbijoux/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/annesbijoux/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:50.202411Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.415612Z",
       "fullVerifiedAt": "2026-11-04T10:44:50.202411Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/annieshih/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/annieshih/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:50.462816Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.433820Z",
       "fullVerifiedAt": "2026-11-04T10:44:50.462816Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/antiqueaunt/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/antiqueaunt/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:50.842599Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.526142Z",
       "fullVerifiedAt": "2026-11-04T10:44:50.842599Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/aphrodite/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/aphrodite/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:50.728406Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.713425Z",
       "fullVerifiedAt": "2026-11-04T10:44:50.728406Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/art-taster-studio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/art-taster-studio/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:51.322906Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.709279Z",
       "fullVerifiedAt": "2026-11-04T10:44:51.322906Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/asuma/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/asuma/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:51.102300Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:56.821460Z",
       "fullVerifiedAt": "2026-11-04T10:44:51.102300Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/atdantique/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/atdantique/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:51.360760Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.026638Z",
       "fullVerifiedAt": "2026-11-04T10:44:51.360760Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/atelier50/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/atelier50/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:51.599234Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.032625Z",
       "fullVerifiedAt": "2026-11-04T10:44:51.599234Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/bab-restore/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/bab-restore/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:51.623979Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.149962Z",
       "fullVerifiedAt": "2026-11-04T10:44:51.623979Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/baoshan/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/baoshan/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:51.868837Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.310362Z",
       "fullVerifiedAt": "2026-11-04T10:44:51.868837Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/birdsthing/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/birdsthing/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:52.222050Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.321786Z",
       "fullVerifiedAt": "2026-11-04T10:44:52.222050Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/bogood/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/bogood/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:52.124785Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.453088Z",
       "fullVerifiedAt": "2026-11-04T10:44:52.124785Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/boodrun/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/boodrun/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:52.391767Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.630842Z",
       "fullVerifiedAt": "2026-11-04T10:44:52.391767Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/brunswick/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/brunswick/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:52.485021Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.600474Z",
       "fullVerifiedAt": "2026-11-04T10:44:52.485021Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/bumachi/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/bumachi/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:52.660891Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.738915Z",
       "fullVerifiedAt": "2026-11-04T10:44:52.660891Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/caiyi/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/caiyi/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:52.757713Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.898493Z",
       "fullVerifiedAt": "2026-11-04T10:44:52.757713Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/catchme/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/catchme/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:53.237967Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:57.947647Z",
       "fullVerifiedAt": "2026-11-04T10:44:53.237967Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ccy777/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ccy777/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:53.005145Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.063424Z",
       "fullVerifiedAt": "2026-11-04T10:44:53.005145Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/chanchan/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/chanchan/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:53.593992Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.189617Z",
       "fullVerifiedAt": "2026-11-04T10:44:53.593992Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/charming/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/charming/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:53.803618Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.230535Z",
       "fullVerifiedAt": "2026-11-04T10:44:53.803618Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ckcamera/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ckcamera/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:53.841183Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.368552Z",
       "fullVerifiedAt": "2026-11-04T10:44:53.841183Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/cobalt/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/cobalt/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:54.072130Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.485894Z",
       "fullVerifiedAt": "2026-11-04T10:44:54.072130Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/comfortrain/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/comfortrain/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:54.398944Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.516224Z",
       "fullVerifiedAt": "2026-11-04T10:44:54.398944Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ct-antique/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ct-antique/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:54.634838Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.658043Z",
       "fullVerifiedAt": "2026-11-04T10:44:54.634838Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/dairui/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/dairui/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.034863Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.798663Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.034863Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/damngoodvintage/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/damngoodvintage/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.274154Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.831391Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.274154Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/decocollect/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/decocollect/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.299252Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:58.937703Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.299252Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/deeptime/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/deeptime/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.545775Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.089532Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.545775Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/delicate/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/delicate/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.564950Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.131242Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.564950Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/destijl/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/destijl/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.816089Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.249952Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.816089Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/dorali/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/dorali/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:55.825899Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.391480Z",
       "fullVerifiedAt": "2026-11-04T10:44:55.825899Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/downstreamart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/downstreamart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:56.371784Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.426554Z",
       "fullVerifiedAt": "2026-11-04T10:44:56.371784Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/drawlyrics/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/drawlyrics/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:56.411461Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.558957Z",
       "fullVerifiedAt": "2026-11-04T10:44:56.411461Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/earl/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/earl/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:56.747054Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.689864Z",
       "fullVerifiedAt": "2026-11-04T10:44:56.747054Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/erezyuyifang/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/erezyuyifang/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:57.055337Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.716410Z",
       "fullVerifiedAt": "2026-11-04T10:44:57.055337Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/everday/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/everday/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:57.327222Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.875155Z",
       "fullVerifiedAt": "2026-11-04T10:44:57.327222Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/fanyongorientalart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/fanyongorientalart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:57.311059Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:14:59.985821Z",
       "fullVerifiedAt": "2026-11-04T10:44:57.311059Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/fishinthepool/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/fishinthepool/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:57.564548Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.018999Z",
       "fullVerifiedAt": "2026-11-04T10:44:57.564548Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/frenchuncle/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/frenchuncle/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:57.594437Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.172245Z",
       "fullVerifiedAt": "2026-11-04T10:44:57.594437Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/fucheng/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/fucheng/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:57.828500Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.259343Z",
       "fullVerifiedAt": "2026-11-04T10:44:57.828500Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/gdlittlething/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/gdlittlething/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:58.272026Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.294401Z",
       "fullVerifiedAt": "2026-11-04T10:44:58.272026Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ggdesign/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ggdesign/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:58.486458Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.430165Z",
       "fullVerifiedAt": "2026-11-04T10:44:58.486458Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/goodsense/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/goodsense/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:58.839980Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.529242Z",
       "fullVerifiedAt": "2026-11-04T10:44:58.839980Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/goodtime/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/goodtime/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:58.743468Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.562612Z",
       "fullVerifiedAt": "2026-11-04T10:44:58.743468Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/goodtoking/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/goodtoking/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.007044Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.700911Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.007044Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/goyoung/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/goyoung/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.099776Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.807586Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.099776Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/grasswarehouse/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/grasswarehouse/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.285241Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.862379Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.285241Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/hale/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/hale/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.814365Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:00.984609Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.814365Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/haoriji/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/haoriji/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.876236Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.080227Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.876236Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/hiplease/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/hiplease/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.592268Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.133673Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.592268Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/historysurvivors/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/historysurvivors/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:44:59.860777Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.260495Z",
       "fullVerifiedAt": "2026-11-04T10:44:59.860777Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/homeplusart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/homeplusart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:00.916713Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.344738Z",
       "fullVerifiedAt": "2026-11-04T10:45:00.916713Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/huntergoods/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/huntergoods/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:00.132640Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.401119Z",
       "fullVerifiedAt": "2026-11-04T10:45:00.132640Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/husfun/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/husfun/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:00.162468Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.551197Z",
       "fullVerifiedAt": "2026-11-04T10:45:00.162468Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/hyakuyama/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/hyakuyama/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:00.421376Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.624819Z",
       "fullVerifiedAt": "2026-11-04T10:45:00.421376Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/iammiriamart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/iammiriamart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:01.023969Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.687613Z",
       "fullVerifiedAt": "2026-11-04T10:45:01.023969Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/iching/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/iching/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:01.155183Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.821578Z",
       "fullVerifiedAt": "2026-11-04T10:45:01.155183Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/immanence-art-studio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/immanence-art-studio/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:01.563984Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.892173Z",
       "fullVerifiedAt": "2026-11-04T10:45:01.563984Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/jsvs/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/jsvs/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:01.815560Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:01.948659Z",
       "fullVerifiedAt": "2026-11-04T10:45:01.815560Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/TW/hosted/junmo168/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/TW/hosted/junmo168/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.114299Z",
+      "fullVerifiedAt": "2026-11-04T11:05:11.726207Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/justgarden/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/justgarden/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:01.419954Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.166704Z",
       "fullVerifiedAt": "2026-11-04T10:45:01.419954Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/kami/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/kami/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.041246Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.225126Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.041246Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/kuku/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/kuku/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.301479Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.412803Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.301479Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/lagakobi/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/lagakobi/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.091604Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.439823Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.091604Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/lbsy/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/lbsy/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.670707Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.499601Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.670707Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/lillico/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/lillico/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.337791Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.673340Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.337791Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/lilyart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/lilyart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.903278Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.721612Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.903278Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/liutian/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/liutian/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.075883Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.770855Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.075883Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/lovewood/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/lovewood/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:02.940930Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:02.962335Z",
       "fullVerifiedAt": "2026-11-04T10:45:02.940930Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/mbmore/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/mbmore/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.529597Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.021958Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.529597Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/mengyue/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/mengyue/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.222328Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.077788Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.222328Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/mezzoprint/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/mezzoprint/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.671320Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.280460Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.671320Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/mimi-secret/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/mimi-secret/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.479916Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.329578Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.479916Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/miniamer/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/miniamer/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.733883Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.356475Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.733883Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/monat/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/monat/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:04.178070Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.592836Z",
       "fullVerifiedAt": "2026-11-04T10:45:04.178070Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/monetlin/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/monetlin/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:03.976302Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.625553Z",
       "fullVerifiedAt": "2026-11-04T10:45:03.976302Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/mooitrouve/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/mooitrouve/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:04.000196Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.696490Z",
       "fullVerifiedAt": "2026-11-04T10:45:04.000196Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/muer/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/muer/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:04.235632Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.863859Z",
       "fullVerifiedAt": "2026-11-04T10:45:04.235632Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/nada/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/nada/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:04.269505Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.914878Z",
       "fullVerifiedAt": "2026-11-04T10:45:04.269505Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/nangua/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/nangua/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:04.443209Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:03.990135Z",
       "fullVerifiedAt": "2026-11-04T10:45:04.443209Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/nantun/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/nantun/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.021880Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.145379Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.021880Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/niaokongjian/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/niaokongjian/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:04.544544Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.201358Z",
       "fullVerifiedAt": "2026-11-04T10:45:04.544544Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/no55/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/no55/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.131036Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.285678Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.131036Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/noahark/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/noahark/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.160865Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.471933Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.160865Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldgoods/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldgoods/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.311542Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.510438Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.311542Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldlight/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldlight/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.866680Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.599987Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.866680Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldmary/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldmary/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.442891Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.796529Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.442891Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldpaper/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldpaper/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.571131Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.847651Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.571131Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldpie/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldpie/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:05.715835Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:04.904806Z",
       "fullVerifiedAt": "2026-11-04T10:45:05.715835Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldtime/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldtime/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:06.372861Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.123073Z",
       "fullVerifiedAt": "2026-11-04T10:45:06.372861Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldtime-vintage/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldtime-vintage/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:06.441321Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.161222Z",
       "fullVerifiedAt": "2026-11-04T10:45:06.441321Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/oldtime-workstation/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/oldtime-workstation/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:06.493996Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.245365Z",
       "fullVerifiedAt": "2026-11-04T10:45:06.493996Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ostarry/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ostarry/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:07.039808Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.411487Z",
       "fullVerifiedAt": "2026-11-04T10:45:07.039808Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/peaceinmu/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/peaceinmu/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:06.720068Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.433361Z",
       "fullVerifiedAt": "2026-11-04T10:45:06.720068Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/perpetuation/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/perpetuation/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:06.780212Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.519593Z",
       "fullVerifiedAt": "2026-11-04T10:45:06.780212Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/pickers/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/pickers/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:07.320629Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.687352Z",
       "fullVerifiedAt": "2026-11-04T10:45:07.320629Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/pinyan/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/pinyan/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:07.416355Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.702226Z",
       "fullVerifiedAt": "2026-11-04T10:45:07.416355Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/qiashun/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/qiashun/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:07.297445Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.791266Z",
       "fullVerifiedAt": "2026-11-04T10:45:07.297445Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/qinjing/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/qinjing/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:07.580662Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.981930Z",
       "fullVerifiedAt": "2026-11-04T10:45:07.580662Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/renran/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/renran/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.025765Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:05.999655Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.025765Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/rewen-shop/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/rewen-shop/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.120335Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.073598Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.120335Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ringo/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ringo/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.170044Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.271347Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.170044Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/ruminant/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/ruminant/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.623478Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.269290Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.623478Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sagw/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sagw/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.716847Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.351932Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.716847Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sallychao/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sallychao/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.772093Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.555076Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.772093Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sandy8922/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sandy8922/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:09.231058Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.565296Z",
       "fullVerifiedAt": "2026-11-04T10:45:09.231058Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sclivesale/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sclivesale/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:08.987115Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.642368Z",
       "fullVerifiedAt": "2026-11-04T10:45:08.987115Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/shanchiart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/shanchiart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:09.504497Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.820814Z",
       "fullVerifiedAt": "2026-11-04T10:45:09.504497Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/shimmering/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/shimmering/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:09.591186Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.848041Z",
       "fullVerifiedAt": "2026-11-04T10:45:09.591186Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/shiny-s/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/shiny-s/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:09.486202Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:06.907034Z",
       "fullVerifiedAt": "2026-11-04T10:45:09.486202Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/shueido/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/shueido/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:09.751272Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.089224Z",
       "fullVerifiedAt": "2026-11-04T10:45:09.751272Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/slowprintstudio/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/slowprintstudio/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.178049Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.125736Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.178049Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/smithtrue/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/smithtrue/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:09.870846Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.233391Z",
       "fullVerifiedAt": "2026-11-04T10:45:09.870846Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/softroom/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/softroom/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.341449Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.374926Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.341449Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/TW/hosted/songwrite/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/TW/hosted/songwrite/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.420984Z",
+      "fullVerifiedAt": "2026-11-04T11:05:17.140038Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sonnet/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sonnet/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.128595Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.521461Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.128595Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/starstarshop/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/starstarshop/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.427676Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.646176Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.427676Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/stoprains/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/stoprains/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.449326Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.691003Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.449326Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sumie-kingdom/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sumie-kingdom/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.954190Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.789019Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.954190Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/sumiewatercolor/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/sumiewatercolor/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:10.707409Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.914246Z",
       "fullVerifiedAt": "2026-11-04T10:45:10.707409Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/summerose/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/summerose/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:11.077218Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:07.972831Z",
       "fullVerifiedAt": "2026-11-04T10:45:11.077218Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/tangqing/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/tangqing/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:11.403155Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.070595Z",
       "fullVerifiedAt": "2026-11-04T10:45:11.403155Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/time-vintage/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/time-vintage/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:11.556718Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.186417Z",
       "fullVerifiedAt": "2026-11-04T10:45:11.556718Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/tsubaki/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/tsubaki/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:11.688049Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.243756Z",
       "fullVerifiedAt": "2026-11-04T10:45:11.688049Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/underobject/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/underobject/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.090324Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.337503Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.090324Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/urbanscent/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/urbanscent/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:11.821777Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.457770Z",
       "fullVerifiedAt": "2026-11-04T10:45:11.821777Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/verachen/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/verachen/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.324101Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.508175Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.324101Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/versammeln/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/versammeln/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.083864Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.616920Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.083864Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/vintageamericana/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/vintageamericana/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.355824Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.726972Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.355824Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/vtgkiosk/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/vtgkiosk/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.832617Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.782789Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.832617Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/wander-forest-art/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/wander-forest-art/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.973955Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.882800Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.973955Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/wareway/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/wareway/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:12.952279Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:08.994102Z",
       "fullVerifiedAt": "2026-11-04T10:45:12.952279Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/water888/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/water888/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:13.661701Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:09.064292Z",
       "fullVerifiedAt": "2026-11-04T10:45:13.661701Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/yam-yum-yi-pin/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/yam-yum-yi-pin/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:13.267104Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:09.165584Z",
       "fullVerifiedAt": "2026-11-04T10:45:13.267104Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/yesterday/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/yesterday/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:13.622535Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:09.305603Z",
       "fullVerifiedAt": "2026-11-04T10:45:13.622535Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/youngpowerart/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/youngpowerart/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:13.516495Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:09.373306Z",
       "fullVerifiedAt": "2026-11-04T10:45:13.516495Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/TW/hosted/yuersartgallery/dealers.jsonl",
+      "verification": "data/dealer-discovery/countries/TW/hosted/yuersartgallery/verification.json",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:09.462565Z",
+      "fullVerifiedAt": "2026-11-04T11:05:19.384382Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/TW/hosted/yuuuna/dealers.jsonl",
       "verification": "data/dealer-discovery/countries/TW/hosted/yuuuna/verification.json",
-      "scope": "FULL",
-      "verifiedAt": "2026-11-04T10:45:14.133374Z",
+      "scope": "INCREMENTAL",
+      "verifiedAt": "2026-11-04T11:15:09.567995Z",
       "fullVerifiedAt": "2026-11-04T10:45:14.133374Z"
     }
   ],
@@ -2573,6 +2594,21 @@
     },
     {
       "domain": "pinkoi.com",
+      "listingSourceId": "ls_01m6k3j4tyep3amfs8e6v0x7ca",
+      "partyId": "pty_01m6k3j4tfekdbv9v3ac5c0s8k",
+      "locations": 0,
+      "logo": true,
+      "platform": "PINKOI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:05:11.725947Z",
+      "observationDigest": "a39cc6762fb128560321c311c0e74d3e01695db48921ff3a485af14abf54d2c5",
+      "externalIngestionConfigurationPreserved": false,
+      "ledger": "data/dealer-discovery/countries/TW/hosted/junmo168/dealers.jsonl"
+    },
+    {
+      "domain": "pinkoi.com",
       "listingSourceId": "ls_01m6hpt62zepab33jgk972h2j1",
       "partyId": "pty_01m6hpt62eehxsrgw7m7gqmw4k",
       "locations": 0,
@@ -3040,6 +3076,21 @@
     },
     {
       "domain": "pinkoi.com",
+      "listingSourceId": "ls_01m6k3me6yeb1sm8tjr9g5sndj",
+      "partyId": "pty_01m6k3me6ge8y886nx6h16j5kp",
+      "locations": 0,
+      "logo": false,
+      "platform": "PINKOI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:05:17.139770Z",
+      "observationDigest": "b2d26dc841cb194f47451720def902a9b0697eafe6406b6a322122622c8297f1",
+      "externalIngestionConfigurationPreserved": false,
+      "ledger": "data/dealer-discovery/countries/TW/hosted/songwrite/dealers.jsonl"
+    },
+    {
+      "domain": "pinkoi.com",
       "listingSourceId": "ls_01m6jytppsexp8j0mvj186y23g",
       "partyId": "pty_01m6jytpp5ethsedfa729d3zsn",
       "locations": 0,
@@ -3235,6 +3286,21 @@
       "observationDigest": "4ecc366f2244d9bfbd4937806a516c041f699d2ded7886da9aa0f63a32fbe81e",
       "externalIngestionConfigurationPreserved": true,
       "ledger": "data/dealer-discovery/countries/TW/hosted/yesterday/dealers.jsonl"
+    },
+    {
+      "domain": "pinkoi.com",
+      "listingSourceId": "ls_01m6k3nb76ey49wsn1f4szwz9t",
+      "partyId": "pty_01m6k3nb6hecmv0ngvqjkb4w08",
+      "locations": 0,
+      "logo": false,
+      "platform": "PINKOI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:05:19.384149Z",
+      "observationDigest": "cacc217d42542d795d2f4aea1919f965918bbc1c544c88c75253f1c54320b0fa",
+      "externalIngestionConfigurationPreserved": false,
+      "ledger": "data/dealer-discovery/countries/TW/hosted/yuersartgallery/dealers.jsonl"
     },
     {
       "domain": "pinkoi.com",

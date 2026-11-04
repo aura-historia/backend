@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "be-2026-11-04-094",
-  "observedAt": "2026-11-04T10:26:37.980064Z",
+  "run": "be-2026-11-04-098",
+  "observedAt": "2026-11-04T11:15:20.361731Z",
   "counts": {
-    "parties": 170,
-    "listingSources": 171,
-    "locations": 232,
-    "logos": 102,
-    "identifiedPlatforms": 109,
-    "deliveryProfiles": 84,
-    "emptyIngestionMethods": 171,
-    "excluded": 35,
-    "deferred": 287
+    "parties": 177,
+    "listingSources": 178,
+    "locations": 241,
+    "logos": 105,
+    "identifiedPlatforms": 116,
+    "deliveryProfiles": 88,
+    "emptyIngestionMethods": 178,
+    "excluded": 36,
+    "deferred": 291
   },
   "verification": "PASSED_INCREMENTAL",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "countryCoverage": "OPEN",
-  "description": "Initial Tongeren municipal31-lead triage complete. Last cohort: one existing owner retained and six frontier deferrals; no additions or country exclusions. Current Luxembourg auction exclusion queued for its owner. All seven ledgers audited, indexed and incrementally verified. Broader exact hosted-dealer roster now in progress."
+  "description": "No additions or exclusions: three new own-domain deferrals, three hosted legal-identity deferrals, and two existing owners retained. Current first-party rug-restoration services and empty catalogues were not treated as available antique sale stock; Antic Arts now has hosted-stock evidence but its operator gap remains. All nine ledgers audited, indexed and incrementally verified;177 Parties/178 sources and all ingestion empty. Next roster offset32–40 is under research; country remains open."
 }

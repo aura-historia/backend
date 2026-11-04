@@ -1,13 +1,13 @@
 {
-  "currentRun": "2026-11-04-fr-305",
+  "currentRun": "2026-11-04-fr-310",
   "status": "RESEARCH",
   "lastVerifiedRun": "2026-11-03-fr-251",
   "lastFullVerifiedRun": "2026-11-03-fr-250",
   "ongoingUntilUserStops": true,
   "candidateDomains": [
-    "lehangart.com",
-    "celiaf-art.com",
-    "galerie-libre-est-lart.com"
+    "cjungalerie.com",
+    "kaxu.fr",
+    "marie-helene-burgeat.com"
   ],
   "researchCache": "/tmp/aura-dealer-discovery/FR",
   "currentFetchFiles": [
@@ -23,7 +23,7 @@
     "Recheck effetssinguliers.com and lartetlafacon.fr after 2026-12-03.",
     "Retry didascalies.art after 2026-12-03 only with normal TLS hostname validation.",
     "Recheck deferred current-stock/legal candidates at their scheduled dates.",
-    "Next full managed-country readback FULL310.",
+    "Next full managed-country readback FULL315.",
     "Continue until explicit user stop."
   ],
   "assetVerification": "data/dealer-discovery/countries/FR/asset-verification.json",
@@ -74,16 +74,16 @@
       "note": "Current partners Olivier Baltzinger/Philippe Henry and company VAT appear in complete member profiles. No private website is linked. Do not substitute the federation or Livre Rare Book for a merchant Source or create former founder Jean-Luc Moresi as a current operator."
     }
   ],
-  "lastResearchCheckpoint": "2026-11-04-fr-305",
+  "lastResearchCheckpoint": "2026-11-04-fr-310",
   "qualificationScope": "Only dealers with direct art and antiques relevance; unrelated modern secondhand, collectibles and general decorative retail are insufficient.",
   "verificationIssue": {
     "status": "FAILED_EXTERNAL_INGESTION_DRIFT",
-    "observedAt": "2026-11-04T10:52:09.305573Z",
+    "observedAt": "2026-11-04T11:11:55.742732Z",
     "affectedObserved": 105,
     "otherMetadataDifferences": 0,
     "record": "verification-attempt.json",
     "lastPassedRun": "2026-11-03-fr-251"
   },
-  "lastCompleteResourceReviewRun": "2026-11-04-fr-305",
+  "lastCompleteResourceReviewRun": "2026-11-04-fr-310",
   "strictFullVerificationPending": "External ingestion changes; last passing full readback FULL250"
 }

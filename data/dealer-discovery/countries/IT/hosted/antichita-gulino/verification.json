@@ -1,6 +1,6 @@
 {
-  "run": "2026-11-02-it-194",
-  "verifiedAt": "2026-11-04T10:39:40.440228Z",
+  "run": "2026-11-02-it-195",
+  "verifiedAt": "2026-11-04T10:57:52.496311Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
   "fullVerifiedAt": "2026-11-04T10:24:02.330960Z",
@@ -18,8 +18,8 @@
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 4183,
-    "listingSources": 4221
+    "parties": 4213,
+    "listingSources": 4251
   },
   "paidDataSpendUsd": 0.0,
   "checks": [

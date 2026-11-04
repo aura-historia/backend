@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-04-126",
-  "observedAt": "2026-11-04T10:52:12.570236Z",
+  "run": "jp-2026-11-04-130",
+  "observedAt": "2026-11-04T11:14:17.561720Z",
   "status": "FAILED_EXTERNAL_INGESTION_DRIFT",
-  "managedSourcesChecked": 253,
+  "managedSourcesChecked": 257,
   "sourcesWithNonemptyIngestion": 66,
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",
@@ -738,5 +738,5 @@
       "reference": "https://api.aura-historia.com/v1/admin/listing-sources/ls_01m6gw58xfes3ry1b195rhxj2e"
     }
   ],
-  "rawSnapshot": "/tmp/aura-dealer-discovery/JP/drift126.json"
+  "rawSnapshot": "/tmp/aura-dealer-discovery/JP/drift130.json"
 }

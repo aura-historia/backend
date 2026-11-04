@@ -1,29 +1,29 @@
 {
-  "run": "2026-11-03-us-118",
-  "verifiedAt": "2026-11-04T10:46:56.574600Z",
+  "run": "2026-11-03-us-121",
+  "verifiedAt": "2026-11-04T11:13:25.639100Z",
   "scope": "INCREMENTAL",
   "status": "PASSED_WITH_AUTHORIZED_EXTERNAL_INGESTION",
   "environment": "https://api.aura-historia.com",
   "ledger": "data/dealer-discovery/countries/US/dealers.jsonl",
   "exceptionDeclaration": "data/dealer-discovery/countries/US/ingestion-exceptions.json",
-  "fullVerifiedAt": "2026-11-04T10:32:07.114663Z",
-  "dealersCheckedThisRun": 1,
-  "dealersReused": 244,
+  "fullVerifiedAt": "2026-11-04T11:03:41.921728Z",
+  "dealersCheckedThisRun": 3,
+  "dealersReused": 247,
   "counts": {
-    "parties": 244,
-    "listingSources": 245,
-    "locations": 289,
-    "logos": 206,
-    "identifiedPlatforms": 202,
-    "deliveryProfiles": 131,
-    "emptyIngestionMethods": 197,
+    "parties": 249,
+    "listingSources": 250,
+    "locations": 294,
+    "logos": 209,
+    "identifiedPlatforms": 207,
+    "deliveryProfiles": 132,
+    "emptyIngestionMethods": 202,
     "authorizedExternalIngestionSources": 48,
     "excluded": 32,
-    "deferred": 148
+    "deferred": 152
   },
   "environmentCounts": {
-    "parties": 4189,
-    "listingSources": 4227
+    "parties": 4249,
+    "listingSources": 4288
   },
   "paidDataSpendUsd": 0,
   "checks": [
@@ -42,10 +42,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.256255Z",
+      "verifiedAt": "2026-11-04T11:03:17.329314Z",
       "observationDigest": "04e270ee548d233f2379f70da3bca1fed7bf1ef774cd5cd95ea467e4e92bc1dd",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -57,10 +57,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.255374Z",
+      "verifiedAt": "2026-11-04T11:03:17.320473Z",
       "observationDigest": "e29cb50eafd87539b82edbe9d4bc266f5958d4cd8b8b9e4fd0a288ce216219ee",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -72,10 +72,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.237267Z",
+      "verifiedAt": "2026-11-04T11:03:17.343970Z",
       "observationDigest": "2d9a1058a899c9b0678c94af33a0ae8f067273801af0707ec7b8007088502007",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -87,12 +87,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.573391Z",
+      "verifiedAt": "2026-11-04T11:03:17.657921Z",
       "observationDigest": "a8a84cc3bdffaa41654e639eb93db42fc69d0385f108faa0ef8185c4d5d251bc",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -104,10 +104,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.691092Z",
+      "verifiedAt": "2026-11-04T11:03:17.735377Z",
       "observationDigest": "2aea69834f98ead665d57356738dfbe93ebf108fb70153160fe389cedd98f10c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -119,10 +119,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.586199Z",
+      "verifiedAt": "2026-11-04T11:03:17.659881Z",
       "observationDigest": "9284f4fe1b1b85495bdb858dbb3514b136fa2dada9904134781b58946a044e62",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -134,10 +134,10 @@
       "platform": "BIGCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.919793Z",
+      "verifiedAt": "2026-11-04T11:03:17.979387Z",
       "observationDigest": "45ce946789cdea3963848950b2bcf52e479a68e2abbf5dc24eb99101be81de52",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -149,10 +149,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:41.862047Z",
+      "verifiedAt": "2026-11-04T11:03:17.912180Z",
       "observationDigest": "fb6e638e6e937a0b21335a2e73ba4b21525b28a97279183a2f43a396bcc46487",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -164,10 +164,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.539671Z",
+      "verifiedAt": "2026-11-04T11:03:18.325306Z",
       "observationDigest": "6a6bd57328619db5e4b9efe651adcb1498257c020846a12a05f32fb775b3ac46",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -179,10 +179,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.308912Z",
+      "verifiedAt": "2026-11-04T11:03:18.150899Z",
       "observationDigest": "abaffbbcc12f2ea74c0fc1570481d647103c0b869af96bdd8e111c9c994599e6",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -194,10 +194,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.474792Z",
+      "verifiedAt": "2026-11-04T11:03:18.332068Z",
       "observationDigest": "e9680f851384d3063c169f7539c946eb00f3cfb52653f3e66f2aae2d1d512055",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -209,10 +209,10 @@
       "platform": "WIX",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.694221Z",
+      "verifiedAt": "2026-11-04T11:03:18.406254Z",
       "observationDigest": "b01f991eb838daaadc9765b6a1846943654477fb064cf1c4de0efc850209fae3",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -224,10 +224,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.740819Z",
+      "verifiedAt": "2026-11-04T11:03:18.560750Z",
       "observationDigest": "4e00b671886e01b921f258454476717d53087f89f0e413a78ebd89dc390d0604",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -239,10 +239,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.786928Z",
+      "verifiedAt": "2026-11-04T11:03:18.564043Z",
       "observationDigest": "56a31aec1db27aed4b7c90f2655fac85028889d33ec1c1c1bc93faa07d1ece2b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -254,10 +254,10 @@
       "platform": "WIX",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:42.939737Z",
+      "verifiedAt": "2026-11-04T11:03:18.653408Z",
       "observationDigest": "3a69260ace1334e4832a0a3df8540b792051abce94c73314d30302c6e695d9ba",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -269,12 +269,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.056486Z",
+      "verifiedAt": "2026-11-04T11:03:18.867509Z",
       "observationDigest": "37555a54b5a19fbaaab4c5f62b48bacf22582d7be6f65f14e76e12085bf4e9f1",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -286,10 +286,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.142143Z",
+      "verifiedAt": "2026-11-04T11:03:18.886031Z",
       "observationDigest": "d49d7b96f99ee628038b73faabd1977555a576859b1383059f043768f9edc393",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -301,10 +301,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.273004Z",
+      "verifiedAt": "2026-11-04T11:03:18.972057Z",
       "observationDigest": "1f6e7f800a18506c01dd24e5cdc777e0511d2a0b602a60a8a3225d633321e106",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -316,10 +316,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.407408Z",
+      "verifiedAt": "2026-11-04T11:03:19.180596Z",
       "observationDigest": "2876ce98a93ae790c31f7e0926173c81d9c0add52c110fc82585983eef9658c1",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -331,10 +331,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.471968Z",
+      "verifiedAt": "2026-11-04T11:03:19.194216Z",
       "observationDigest": "4222af61f03a10eea6f4d3b04e03bbb0c6474384ec492dd06d458b5280673915",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -346,10 +346,10 @@
       "platform": "DRUPAL",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.586377Z",
+      "verifiedAt": "2026-11-04T11:03:19.272911Z",
       "observationDigest": "fe2cf0354bf75f31d2b0816b4bc972a6b00f0f7a3234603e7f043d1e996dc3b7",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -361,10 +361,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.649469Z",
+      "verifiedAt": "2026-11-04T11:03:19.408698Z",
       "observationDigest": "8e9233d440942e2f643b5dab7bbf3fbf1b2706a1c0e464dc06dbc1e3962ae944",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -376,10 +376,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.724710Z",
+      "verifiedAt": "2026-11-04T11:03:19.410129Z",
       "observationDigest": "8d6084f84dd79346edd81073f843bbeea4663ad4866769166af16f320680a73e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -391,10 +391,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.916001Z",
+      "verifiedAt": "2026-11-04T11:03:19.561576Z",
       "observationDigest": "bdc2d37b54978800cb5933ce7adee8019cbe1b88ce6c59407db4f867e8808290",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -406,10 +406,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.987174Z",
+      "verifiedAt": "2026-11-04T11:03:19.713454Z",
       "observationDigest": "0ee6f4754d402fd13eac3f820ce56a3c8961ab3f6e5cf9e107edfebef2620f7a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -421,10 +421,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:43.998437Z",
+      "verifiedAt": "2026-11-04T11:03:19.636403Z",
       "observationDigest": "5ac1e56e13014c6981b1782e6c9c60102d3d6a5ec70b7df9675a458ba30cc735",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -436,12 +436,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.250342Z",
+      "verifiedAt": "2026-11-04T11:03:19.859231Z",
       "observationDigest": "a9cf2ad83e9a7804b25671fa2d58268bf411e658e1212d8de69b861f0caa0406",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -453,10 +453,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.329044Z",
+      "verifiedAt": "2026-11-04T11:03:19.935496Z",
       "observationDigest": "4d6a972c81e1d061a191e7bb9a8fbfa32770f3c7587351c944fc0536e7e0dbf1",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -468,12 +468,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.264004Z",
+      "verifiedAt": "2026-11-04T11:03:19.932943Z",
       "observationDigest": "b6068b957a01ef4268339096c783fbdde9b39795195237e4c37001cff3e36944",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -485,10 +485,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.504524Z",
+      "verifiedAt": "2026-11-04T11:03:20.123597Z",
       "observationDigest": "2b42c96190c6f0033e50ace97073c83179394d184c68d838bd717ab74e6a7533",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -500,10 +500,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.512506Z",
+      "verifiedAt": "2026-11-04T11:03:20.144378Z",
       "observationDigest": "b1ac5abfdaaca75b7e629f0a4383b44b31f1d3cb1caf8ef58716c49058807e7e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -515,10 +515,10 @@
       "platform": "BIGCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.579958Z",
+      "verifiedAt": "2026-11-04T11:03:20.200158Z",
       "observationDigest": "e81c5e6f4e62c61868f807aac54aa1968f1ee300a1b9bd41feb4057265ea56d9",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -530,10 +530,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.765158Z",
+      "verifiedAt": "2026-11-04T11:03:20.394964Z",
       "observationDigest": "fd6211b5109402f3d960f59cf19bcf67e8a96fb4d4429103c89821495b2a64f2",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -545,10 +545,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.776890Z",
+      "verifiedAt": "2026-11-04T11:03:20.387507Z",
       "observationDigest": "f4313b56b06069e1196761f68f426673795bfc8b8075dd0edb57a3acf3fb1db7",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -560,10 +560,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:44.822518Z",
+      "verifiedAt": "2026-11-04T11:03:20.440473Z",
       "observationDigest": "eb43cbd43e3988307676a47f14e261e8ca3dc7b5e0007eb03fd8ea2b83399c22",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -575,10 +575,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.258378Z",
+      "verifiedAt": "2026-11-04T11:03:20.714451Z",
       "observationDigest": "36b6aee4244f6b89d6d22bded628cbb858627b550532b3b46838dd130b851d6a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -590,10 +590,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.241531Z",
+      "verifiedAt": "2026-11-04T11:03:20.729291Z",
       "observationDigest": "0711f1e9c28df63f0fa382c58c4fcf71c7f0e94ac7acd2a85163b822f5a12ead",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -605,10 +605,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.476904Z",
+      "verifiedAt": "2026-11-04T11:03:20.831193Z",
       "observationDigest": "d7d460ca4af8d6521ee3efd7912512f85e4527b6c72fe6c76a728486116dafa5",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -620,10 +620,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.633772Z",
+      "verifiedAt": "2026-11-04T11:03:21.054614Z",
       "observationDigest": "6b6915601df802655acd9ce375bf6309104284eb8b412cea768f164c1634daf9",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -635,10 +635,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.646965Z",
+      "verifiedAt": "2026-11-04T11:03:21.048283Z",
       "observationDigest": "d267f3b80accaa572785856d313474383757ed859fe67912f5ae588e64b042cf",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -650,10 +650,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.812337Z",
+      "verifiedAt": "2026-11-04T11:03:21.170486Z",
       "observationDigest": "e26f5d1a7955fa5eb7b061790f7c8fd224fcbbaf396eedbe7cd54f657ba294d5",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -665,12 +665,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.901962Z",
+      "verifiedAt": "2026-11-04T11:03:21.301566Z",
       "observationDigest": "6d0dfaface0aae38d1734d140515c6c9703790e28b964e9f5131d3ad81d93d64",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -682,10 +682,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:45.978963Z",
+      "verifiedAt": "2026-11-04T11:03:21.390598Z",
       "observationDigest": "cfb7eecfc6ac7d3a6f23cae91e0320f3cc19946a29018ca835aeb25daff18708",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -697,10 +697,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.137620Z",
+      "verifiedAt": "2026-11-04T11:03:21.524893Z",
       "observationDigest": "51d55b61eea6a2bc9626cc9a0c354584a52122867943e047bf674dae649cec27",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -712,10 +712,10 @@
       "platform": "LIGHTSPEED",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.234339Z",
+      "verifiedAt": "2026-11-04T11:03:21.640998Z",
       "observationDigest": "64bdf64436b7426e62a6e04a4fd7d856b37818b9c7ad139b46a9b19ab7d51b2a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -727,10 +727,10 @@
       "platform": "BIGCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.216848Z",
+      "verifiedAt": "2026-11-04T11:03:21.641967Z",
       "observationDigest": "267a46e2c507907ad33f7764038e8ac00fb740a9d4331fc7919551f637a12276",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -742,10 +742,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.480297Z",
+      "verifiedAt": "2026-11-04T11:03:21.869532Z",
       "observationDigest": "f0a01b0baf76a6399de4a843b928d98626a5e5657146832fc1cabfa09a9f011e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -757,10 +757,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.546870Z",
+      "verifiedAt": "2026-11-04T11:03:21.956934Z",
       "observationDigest": "2043f7a0141f01717b96b30f2408bd623ad4166bd7ff791165af6503d97c5634",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -772,10 +772,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.570841Z",
+      "verifiedAt": "2026-11-04T11:03:21.970991Z",
       "observationDigest": "88e3d41cd32b4b5728b78a1c00dda61c1118fda9faa1a2e89bc2c15c1d74cdf3",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -787,12 +787,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.836530Z",
+      "verifiedAt": "2026-11-04T11:03:22.226839Z",
       "observationDigest": "a507f67f2feb25ce768180360b8f38808c66ed4684ac647ee9d1956c939f1ab2",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -804,10 +804,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.820656Z",
+      "verifiedAt": "2026-11-04T11:03:22.234216Z",
       "observationDigest": "980e86a63c4dfdf4700e2150a9abe3a119929f755184147bb79753de5225848f",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -819,10 +819,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:46.897889Z",
+      "verifiedAt": "2026-11-04T11:03:22.299017Z",
       "observationDigest": "aea49b3453c9cfa61fc1312683955340ad12993ae43de81a965366c02468380c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -834,10 +834,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.184720Z",
+      "verifiedAt": "2026-11-04T11:03:22.544438Z",
       "observationDigest": "bc0ee2fdc1aa17593896c1fa0f7bf882956fd34eeae4bac6f1a2eaabafe0363c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -849,10 +849,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.167012Z",
+      "verifiedAt": "2026-11-04T11:03:22.564173Z",
       "observationDigest": "498fe1539bd60fa3f85037f20d20376888191c6f80bb8225556454b8626bc434",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -864,12 +864,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.171637Z",
+      "verifiedAt": "2026-11-04T11:03:22.553836Z",
       "observationDigest": "11c0376391c3c05b4a72392114d1a3e7ee96ecb35bea16dc46d533100e54c0bb",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -881,12 +881,12 @@
       "platform": "WEBADOR",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.515646Z",
+      "verifiedAt": "2026-11-04T11:03:22.885401Z",
       "observationDigest": "fd0962cfb6eccf4a13c15923642a908c09ffa71a2d1aa0d098dead21b98c9b1e",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -898,10 +898,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.526540Z",
+      "verifiedAt": "2026-11-04T11:03:22.882619Z",
       "observationDigest": "54a863b480d2caa0858577886c975a3d1dddf13b772c52b45ce836103a5b509a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -913,10 +913,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.508459Z",
+      "verifiedAt": "2026-11-04T11:03:22.891145Z",
       "observationDigest": "def757b350463ec47de7863e9bbc06e960edf1af482094321e3edf74a4db3dd3",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -928,10 +928,10 @@
       "platform": "WIX",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.765793Z",
+      "verifiedAt": "2026-11-04T11:03:23.136551Z",
       "observationDigest": "fe43da5383acc5fb77d127870071ebd6367226ba3689c0cc8b1261911c5a80b5",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -943,10 +943,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.871274Z",
+      "verifiedAt": "2026-11-04T11:03:23.197162Z",
       "observationDigest": "614c9057de16be342c61fef6cf6eadd353ea99e1ab04f9a455fd9e899a489c9b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -958,10 +958,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:47.879021Z",
+      "verifiedAt": "2026-11-04T11:03:23.215565Z",
       "observationDigest": "69d73d768e4c298cf5927ff14e82f5977970368e8a0ba5769b4eef9e947f2e8e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -973,10 +973,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.167945Z",
+      "verifiedAt": "2026-11-04T11:03:23.554158Z",
       "observationDigest": "b989707e5d58b86603c99cc7343406de21ec6acbc7b45ddc5141592014b7e133",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -988,10 +988,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.223694Z",
+      "verifiedAt": "2026-11-04T11:03:23.545021Z",
       "observationDigest": "5693c43b79181179b3043cabe5e28996a6e8930020d8314cb7913b67d4710d22",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1003,10 +1003,10 @@
       "platform": "WIX",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.221177Z",
+      "verifiedAt": "2026-11-04T11:03:23.534705Z",
       "observationDigest": "667becc16891c79e717e74a692bdacf6945360a1b0c7e67388cd6b7421ca402d",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1018,10 +1018,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.406408Z",
+      "verifiedAt": "2026-11-04T11:03:23.792064Z",
       "observationDigest": "2273a02f7809cc5fb567ea0b5c40949a0424104e7ac78ad4aa9e42e47d16bb1c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1033,10 +1033,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.547357Z",
+      "verifiedAt": "2026-11-04T11:03:23.878829Z",
       "observationDigest": "608cc98c397933217174d08e1f9140e22df31a836ca6c33212aaf6d1f8479dcf",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1048,10 +1048,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.490066Z",
+      "verifiedAt": "2026-11-04T11:03:23.811367Z",
       "observationDigest": "68b4e78ff2896745c52111b83a141b399816c888435e3327e0843d67b27b775b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1063,12 +1063,12 @@
       "platform": "GODADDY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.675731Z",
+      "verifiedAt": "2026-11-04T11:03:24.065866Z",
       "observationDigest": "2bbf5b4183faea83a5695ccc03e3371dfce8adb776b1ff3e9f6300e976594b6a",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1080,10 +1080,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.727714Z",
+      "verifiedAt": "2026-11-04T11:03:24.067870Z",
       "observationDigest": "12349115ee966e608d9075292cb3d6e10de56cd96294aededd23c70ad821d3b6",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1095,12 +1095,12 @@
       "platform": "GODADDY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:48.826811Z",
+      "verifiedAt": "2026-11-04T11:03:24.145680Z",
       "observationDigest": "366fa285b5ce09650f4f45180b1c98604c665bb434e39fcd0ad9f0c6dfceab7f",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1112,10 +1112,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.020992Z",
+      "verifiedAt": "2026-11-04T11:03:24.392880Z",
       "observationDigest": "012de09a990086c6347e3a4f7591e7a6b93b1e8b8f3319984ed37d07fbe74e17",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1127,10 +1127,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.070786Z",
+      "verifiedAt": "2026-11-04T11:03:24.396543Z",
       "observationDigest": "5373feb53d5d11feb8cab8767fa7e880738cf67f0e5445cd9051746c195b7e8c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1142,10 +1142,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.088233Z",
+      "verifiedAt": "2026-11-04T11:03:24.379288Z",
       "observationDigest": "33783976221023b35e018ff443b0d2aaf223c85b973e3e4a3523c08cf1c89258",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1157,12 +1157,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.265470Z",
+      "verifiedAt": "2026-11-04T11:03:24.622768Z",
       "observationDigest": "0fa4c2a85a5f6abc191410bafab2db1b315bb667ee26cbe42bf2d266138649f3",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1174,12 +1174,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.398840Z",
+      "verifiedAt": "2026-11-04T11:03:24.709006Z",
       "observationDigest": "4a9ad2a9c80664a9f3f247f6d19a10b01a0542c2a7f7101873f3bae0be91fa76",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1191,10 +1191,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.395236Z",
+      "verifiedAt": "2026-11-04T11:03:24.714144Z",
       "observationDigest": "1b0dbcf19b00d5b0bc95cb1fdbcbe19b9ad9a0ddd5226d91d0a62ba6357d20cb",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1206,12 +1206,12 @@
       "platform": "GODADDY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.520608Z",
+      "verifiedAt": "2026-11-04T11:03:24.859553Z",
       "observationDigest": "a5cd81d2a799262844a38113a42b8d342daba69264a5540bfabaa1ef5f9d8800",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1223,10 +1223,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.738540Z",
+      "verifiedAt": "2026-11-04T11:03:25.011318Z",
       "observationDigest": "bd5d21d456b4b5c184ddc8494f3b0457fcdc569ba129039478058460dc01efb5",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1238,10 +1238,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.645292Z",
+      "verifiedAt": "2026-11-04T11:03:24.942230Z",
       "observationDigest": "8ecced2d46dfb9d2918e94070f3af9104ac3c5fdce0527d93e8998e1ce9c81b3",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1253,12 +1253,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.029315Z",
+      "verifiedAt": "2026-11-04T11:03:25.317493Z",
       "observationDigest": "e81cf57fa83c40d68b6ebe5f94b05a6670299827258083af4e9568bdad98306f",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1270,12 +1270,12 @@
       "platform": "BIBLIOPOLIS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:49.952157Z",
+      "verifiedAt": "2026-11-04T11:03:25.248579Z",
       "observationDigest": "f6b78dd4072d51fd811312d8501a36c4a70e05aef2dedc515fb9711fa8ff6dd9",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1287,12 +1287,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.064100Z",
+      "verifiedAt": "2026-11-04T11:03:25.328878Z",
       "observationDigest": "f054d7635fb03885c2c53ad4b77cf6338fd57a218f7a78e1e758ebb0238b7721",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1304,12 +1304,12 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.290491Z",
+      "verifiedAt": "2026-11-04T11:03:25.546453Z",
       "observationDigest": "5f4077fcf3487ce6312ad87d9782d4af00a948f03129eb82353a823fbe39c603",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1321,12 +1321,12 @@
       "platform": "BIBLIOPOLIS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.390832Z",
+      "verifiedAt": "2026-11-04T11:03:25.643288Z",
       "observationDigest": "468b66463cb0f733243660843d1e41c7373800bf01e1795420857ce7f4443dd8",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1338,12 +1338,12 @@
       "platform": "BIBLIOPOLIS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.296580Z",
+      "verifiedAt": "2026-11-04T11:03:25.554170Z",
       "observationDigest": "27c1281b69b12f21b713ef72e665a6996885cd77c1bfbee5cbee650e673feb74",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1355,10 +1355,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.525966Z",
+      "verifiedAt": "2026-11-04T11:03:25.786872Z",
       "observationDigest": "11c0587b1e37caf3e0a16ce9a8316f106d61d447c6e8d131ac10d5e5c8e60ce4",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1370,10 +1370,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.618176Z",
+      "verifiedAt": "2026-11-04T11:03:25.857373Z",
       "observationDigest": "bdeb1ae1020341358971779c286a9a5d8995e327412b6d8c88043572e64f0307",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1385,10 +1385,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.720831Z",
+      "verifiedAt": "2026-11-04T11:03:25.933513Z",
       "observationDigest": "7eda48decbd1efec70ea95c9546477d35f420aa58e7855ee5ed90eeaa617b761",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1400,10 +1400,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.867807Z",
+      "verifiedAt": "2026-11-04T11:03:26.093519Z",
       "observationDigest": "cc16af21ca0ff84b47c7a0afaa1557f006f5ef887da17305f96e78274ca27e68",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1415,10 +1415,10 @@
       "platform": "BIGCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:50.919851Z",
+      "verifiedAt": "2026-11-04T11:03:26.165190Z",
       "observationDigest": "2ed5917b6af382647d47a9f2cfef0c7f81a3460ae26c8622c5612b86a452d1ae",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1430,10 +1430,10 @@
       "platform": "WIX",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.071534Z",
+      "verifiedAt": "2026-11-04T11:03:26.225208Z",
       "observationDigest": "4f7e16b19c03cc0f64ef94d50e08279d0873ca1c99cf5265024eaed0a28ebfdb",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1445,10 +1445,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.392168Z",
+      "verifiedAt": "2026-11-04T11:03:26.540653Z",
       "observationDigest": "7b0e78b70a7e646eaf65d2396a6c9a7dbb170518702cf47684508388bcfae749",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1460,10 +1460,10 @@
       "platform": "WIX",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.262227Z",
+      "verifiedAt": "2026-11-04T11:03:26.490532Z",
       "observationDigest": "4c60521ede7acdf35011faf0abd72912867a29a2cbd141baaf3b8941ff6a8cd2",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1475,10 +1475,10 @@
       "platform": "MAGENTO",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.407433Z",
+      "verifiedAt": "2026-11-04T11:03:26.537653Z",
       "observationDigest": "897652c284aa19340e87b2b39f969d01a735633ee7d62523c006f12826bee1d4",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1490,10 +1490,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.580835Z",
+      "verifiedAt": "2026-11-04T11:03:26.790496Z",
       "observationDigest": "0a744cb103cb6fc9d5fd1295e6d12977dfe68be996e348b49f633a29c5ab42d7",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1505,10 +1505,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.713288Z",
+      "verifiedAt": "2026-11-04T11:03:26.872302Z",
       "observationDigest": "0e2c5d9cfa0003270ae86c2ec77246de5f50f184a56b44f894b2b2e53e1892af",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1520,10 +1520,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.729614Z",
+      "verifiedAt": "2026-11-04T11:03:26.859212Z",
       "observationDigest": "502fce70ebf7d448587215ba15198c9a3db1ea4f9771cfc0a8d0ee1d23e8d30e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1535,10 +1535,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:51.905602Z",
+      "verifiedAt": "2026-11-04T11:03:27.119613Z",
       "observationDigest": "f6c121765f189c609ad4c6ca0fce6b1cc03f25ac093e7d82768dcb5be78c0b10",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1550,10 +1550,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.174426Z",
+      "verifiedAt": "2026-11-04T11:03:27.267827Z",
       "observationDigest": "802a00eed9d814285d6a6dc011071ef8c6d70defe46dfe93ba61245c8dd40941",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1565,10 +1565,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.065415Z",
+      "verifiedAt": "2026-11-04T11:03:27.199791Z",
       "observationDigest": "426404d9a42c188a6734cc31a3d86e3def2010b18375d727cffa06b04b371662",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1580,10 +1580,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.251913Z",
+      "verifiedAt": "2026-11-04T11:03:27.433278Z",
       "observationDigest": "53cc8f562f8f9ee0c0bae2591a0217c2468a7c34ecf42b5d83ea643eb24eda74",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1595,12 +1595,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.441688Z",
+      "verifiedAt": "2026-11-04T11:03:27.513962Z",
       "observationDigest": "03b1de51ea51701c338cbbd52a14521a7796f9db17c59c61d5d7e79243eeaf3f",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1612,12 +1612,12 @@
       "platform": "CART7",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.522308Z",
+      "verifiedAt": "2026-11-04T11:03:27.584487Z",
       "observationDigest": "4820372c43a697a0ad7f964dd1b73a7c8e459e8e6c6b302e88a7f01bba4e3517",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1629,12 +1629,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.591491Z",
+      "verifiedAt": "2026-11-04T11:03:27.750808Z",
       "observationDigest": "2c7baf82ee0f196f07c2a69ab6182ffe1ef9449577199d1f1fd00d070bb1a5e1",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1646,10 +1646,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.776345Z",
+      "verifiedAt": "2026-11-04T11:03:27.840270Z",
       "observationDigest": "66fac80917108465ef1dd8570ebe0b7a95d169fb7f78dbc8fd818c0762297384",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1661,10 +1661,10 @@
       "platform": "WIX",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.849245Z",
+      "verifiedAt": "2026-11-04T11:03:27.903139Z",
       "observationDigest": "6ea91d979de912d2d2a0acc57df874a17ba8805d24c0f2460567e726969ffeea",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1676,12 +1676,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:52.927497Z",
+      "verifiedAt": "2026-11-04T11:03:28.058431Z",
       "observationDigest": "61a306c7e8e949c20d004674e4265200c802d1a152041c6bedcba1743acc607c",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1693,10 +1693,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.131951Z",
+      "verifiedAt": "2026-11-04T11:03:28.156226Z",
       "observationDigest": "01138e1da77a34d22ddc249ee029c643e51679065c3116541ab357dd38134e40",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1708,10 +1708,10 @@
       "platform": "DRUPAL",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.097156Z",
+      "verifiedAt": "2026-11-04T11:03:28.130194Z",
       "observationDigest": "cd39d8dd4d2f2bcb729cdda687af23890918c132ee8ee050e68b0fc0be2ab129",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1723,12 +1723,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.279394Z",
+      "verifiedAt": "2026-11-04T11:03:28.396352Z",
       "observationDigest": "3630f4bea50145cf4354d095038ecb407ba9156199cc95b4a50eb42f994fa6c0",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1740,12 +1740,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.352771Z",
+      "verifiedAt": "2026-11-04T11:03:28.376511Z",
       "observationDigest": "ee05ce4306250beee846d9cf21b18c01d6dd3e1050421146e5d9bc55c13456b9",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1757,10 +1757,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.547396Z",
+      "verifiedAt": "2026-11-04T11:03:28.529685Z",
       "observationDigest": "e869649592d5e489352cbca87a288407c90911660c1cc5327433b0cf11570f31",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1772,12 +1772,12 @@
       "platform": "ARTCLOUD",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.598113Z",
+      "verifiedAt": "2026-11-04T11:03:28.708657Z",
       "observationDigest": "4e8de998063290cebbf066060bd609181940289dab4c093895d54a3f08037850",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1789,10 +1789,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.665622Z",
+      "verifiedAt": "2026-11-04T11:03:28.711841Z",
       "observationDigest": "272c2729b2d2e3a8b1471e8364686d9bcc0406e29d06f3c2c8f3b0f11c41a758",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1804,10 +1804,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.907484Z",
+      "verifiedAt": "2026-11-04T11:03:28.832443Z",
       "observationDigest": "069c6d543ca970f9e8f33469003bb716bd94b12924512e77f261bf6afb7d6df3",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1819,10 +1819,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.946662Z",
+      "verifiedAt": "2026-11-04T11:03:29.011705Z",
       "observationDigest": "26a8c879791712f3fdca01c7c1bb9c4f05e8c389951c8fa7078f8747444dbe2f",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1834,12 +1834,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:53.983134Z",
+      "verifiedAt": "2026-11-04T11:03:29.025156Z",
       "observationDigest": "9a8b06c8eab5f1535f40a2509683f6c32a53bc27bc0a011484e2269983a59bbb",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1851,10 +1851,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.304631Z",
+      "verifiedAt": "2026-11-04T11:03:29.276885Z",
       "observationDigest": "d1f8248c083b0e91f2a62c07779db5e0a8f210ef6205b6d9dc03afca83bb0f38",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1866,10 +1866,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.200911Z",
+      "verifiedAt": "2026-11-04T11:03:29.244543Z",
       "observationDigest": "67e8d4ea89b98ea5db67f225fd316ecf574984a9ccc1233242b5284abcc7e30a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1881,10 +1881,10 @@
       "platform": "DRUPAL",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.402348Z",
+      "verifiedAt": "2026-11-04T11:03:29.410986Z",
       "observationDigest": "caa03355aaf59e5c3a927d6d41dfb41aa08094dca4430cad0f6c9ec616e23a2d",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1896,10 +1896,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.588502Z",
+      "verifiedAt": "2026-11-04T11:03:29.557867Z",
       "observationDigest": "a6aad0fbd7cc6f642a6742831e155fe8671c6a3330c2a134dfaf70296180d5a4",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1911,10 +1911,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.654357Z",
+      "verifiedAt": "2026-11-04T11:03:29.594185Z",
       "observationDigest": "c5046568f1c968438b8d1eb3e3c5f9be9e8df559ab826dd2fa227a7b6de36486",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1926,10 +1926,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.731333Z",
+      "verifiedAt": "2026-11-04T11:03:29.720666Z",
       "observationDigest": "35c12c1a515a3dc5c9d283d497337315309f290d6014eb0f16ae2a25609d5750",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1941,10 +1941,10 @@
       "platform": "DRUPAL",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.903948Z",
+      "verifiedAt": "2026-11-04T11:03:29.853950Z",
       "observationDigest": "eaecceecfd7fb962de54211c9f11ccc56ac86c773846f2203449a0e8607479f4",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1956,12 +1956,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:54.912858Z",
+      "verifiedAt": "2026-11-04T11:03:29.842163Z",
       "observationDigest": "502cee3cbfa54a799fcd8aac0318f3d8256c04b96b2b25b081d871359eddd9f7",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -1973,10 +1973,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.070530Z",
+      "verifiedAt": "2026-11-04T11:03:30.130523Z",
       "observationDigest": "9ca2919a27f280a699eff1181927f8ce08ec6d7e025393d10c85b194d5f3f561",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -1988,10 +1988,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.077588Z",
+      "verifiedAt": "2026-11-04T11:03:30.033906Z",
       "observationDigest": "7fd7d145f180b04b5eee7e8d13e82e27865a3a0faa3b108a7d65e6dd09006501",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2003,12 +2003,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.247855Z",
+      "verifiedAt": "2026-11-04T11:03:30.205890Z",
       "observationDigest": "5d89f5ee5aff9b3b60bfd23cb931fea275e7a98361f68f436f650cd80993a8e1",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2020,10 +2020,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.413112Z",
+      "verifiedAt": "2026-11-04T11:03:30.373299Z",
       "observationDigest": "e9efab0ef77a73689c134cffec5c724603402f5e8a83cb1fdab04b4c10cc9c95",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2035,10 +2035,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.640987Z",
+      "verifiedAt": "2026-11-04T11:03:30.601410Z",
       "observationDigest": "6ce2eb05dbfd51179147272edc9b23cc521f1e01805384d240be6bff148b70b1",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2050,12 +2050,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.591534Z",
+      "verifiedAt": "2026-11-04T11:03:30.529512Z",
       "observationDigest": "75620f7d1efc91278e4c6b27d47f7c220c675982341c0b12e8e9862653346954",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2067,12 +2067,12 @@
       "platform": "GOOGLE_SITES",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.659903Z",
+      "verifiedAt": "2026-11-04T11:03:30.608273Z",
       "observationDigest": "a88defc9440dd8466912fdc0f0fc55e171bd2b45a3649e4b75b5add0ce9b9b14",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2084,10 +2084,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.006223Z",
+      "verifiedAt": "2026-11-04T11:03:30.934456Z",
       "observationDigest": "f14350702f145a5a0609584f4e22a17d8a302655e3c6ceb84cbf0c57f580600e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2099,10 +2099,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:55.963165Z",
+      "verifiedAt": "2026-11-04T11:03:30.941695Z",
       "observationDigest": "f03bffe9408ea5fde4f29c7081af5d84e9c7e2ef31ef9390c08253413b2d6e8b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2114,10 +2114,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.173641Z",
+      "verifiedAt": "2026-11-04T11:03:31.120147Z",
       "observationDigest": "a4f065c22853f07f78adca02240efbfe0ef270349d0e2691ee5c145b510f185d",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2129,10 +2129,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.215717Z",
+      "verifiedAt": "2026-11-04T11:03:31.212969Z",
       "observationDigest": "32e72eb0bdd910f549ed62e0580185b447702101440c377ee610011134c01bb5",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2144,10 +2144,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.261190Z",
+      "verifiedAt": "2026-11-04T11:03:31.194080Z",
       "observationDigest": "1dca31d6cfb8683bdb6fb2a62e1bc42f8a75a746cb1b1f5147fa96530af56732",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2159,12 +2159,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.417823Z",
+      "verifiedAt": "2026-11-04T11:03:31.360924Z",
       "observationDigest": "c6077d5a306574e02966f0b5a897b2967b758ef3cc765792ee04cb24a71d9a72",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2176,10 +2176,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.511111Z",
+      "verifiedAt": "2026-11-04T11:03:31.458728Z",
       "observationDigest": "18feeb17bc706d81ce0cdaf953789c612b82edd42589910a52b13f2184b5248a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2191,10 +2191,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.592683Z",
+      "verifiedAt": "2026-11-04T11:03:31.537019Z",
       "observationDigest": "3f52693f1227723b0a7ac349e9953df904c9fe4803dadda8ce5cdd6b7e5b9166",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2206,10 +2206,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.736867Z",
+      "verifiedAt": "2026-11-04T11:03:31.682341Z",
       "observationDigest": "6135ea92e92db80cc7dc8179d39c6b05f15a7335f6c5ac45d201e9a70f2b9adf",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2221,12 +2221,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.766190Z",
+      "verifiedAt": "2026-11-04T11:03:31.691118Z",
       "observationDigest": "411379a43065dad2fcae8e1b77abd5d90a552098c87344198065a10beacdee97",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2238,10 +2238,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:56.958727Z",
+      "verifiedAt": "2026-11-04T11:03:31.856297Z",
       "observationDigest": "1d934b50d799c86c2b7d9611875225d6da4836503199515e9a13e0800d09ac35",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2253,10 +2253,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.079858Z",
+      "verifiedAt": "2026-11-04T11:03:32.002988Z",
       "observationDigest": "048cf53a5b89c7bf7656f9e0b95470bf5d65f3d98714fb74bc4d077c06096c9f",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2268,10 +2268,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.021795Z",
+      "verifiedAt": "2026-11-04T11:03:31.950634Z",
       "observationDigest": "7d167b4829bc8f409a4c39a070932670d4c6b2a1cfc417feac6a13240c3e545e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2283,10 +2283,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.304673Z",
+      "verifiedAt": "2026-11-04T11:03:32.219874Z",
       "observationDigest": "7689c92fa16af269993b8b07a44c8244ccb0d7fc87ab04bd1e7bbe2b06446536",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2298,12 +2298,12 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.276289Z",
+      "verifiedAt": "2026-11-04T11:03:32.236991Z",
       "observationDigest": "a3bd477a4c41f7eaae424707a249b4c30881ee9e6da3b759b47169d9af1d61da",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2315,12 +2315,12 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.409514Z",
+      "verifiedAt": "2026-11-04T11:03:32.316283Z",
       "observationDigest": "be5dfe8475f7bfad76b419d41eb12a3f63799f3d8243df707d6e451aee23faa8",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2332,12 +2332,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.544407Z",
+      "verifiedAt": "2026-11-04T11:03:32.442364Z",
       "observationDigest": "6420311b6a343ae2bbd883b44f0bfe0e1d059bd5fb384cdf8b77d79d43a245c5",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2349,10 +2349,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.551662Z",
+      "verifiedAt": "2026-11-04T11:03:32.509296Z",
       "observationDigest": "5215cf5d3ac2f0d8832545eff170b20a8f2524fcccdffbe3f307a34d2468e92f",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2364,10 +2364,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.685034Z",
+      "verifiedAt": "2026-11-04T11:03:32.553315Z",
       "observationDigest": "acb4cfd42d3a16e170fcfa54fba9ae23cdede8e847e4bd1aaa27cfc365ed1201",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2379,12 +2379,12 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.802184Z",
+      "verifiedAt": "2026-11-04T11:03:32.676292Z",
       "observationDigest": "124e8c70fcd8609fbfbc83c20673c921ee26f2c8e213660b5ffef2e98e8c13cb",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2396,12 +2396,12 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.796645Z",
+      "verifiedAt": "2026-11-04T11:03:32.771634Z",
       "observationDigest": "2826df7acbe51cb880727482b03a95eec53b9f83e5cddb4918fecf92c0f0cb23",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2413,12 +2413,12 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:57.942745Z",
+      "verifiedAt": "2026-11-04T11:03:32.830983Z",
       "observationDigest": "b7cf021633547787802b81f46b29e1e102b88c6d8636171213ab41a899f92c9d",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2430,10 +2430,10 @@
       "platform": "WIX",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.127516Z",
+      "verifiedAt": "2026-11-04T11:03:32.976752Z",
       "observationDigest": "0995664349e2bd3be3fed7a9cf1c986c54c2413fe1af247252b4ecceaf5bf356",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2445,10 +2445,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.064494Z",
+      "verifiedAt": "2026-11-04T11:03:33.000541Z",
       "observationDigest": "00de9ba6da075e16cff9eba8a81580248b53fa90b9ca8af6196e391f35a775c2",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2460,10 +2460,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.279992Z",
+      "verifiedAt": "2026-11-04T11:03:33.160461Z",
       "observationDigest": "3726a27d60c785e3273316ab74c0065ed14e0c287f38f53963a50a39d0b68ba6",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2475,10 +2475,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.311393Z",
+      "verifiedAt": "2026-11-04T11:03:33.221842Z",
       "observationDigest": "48c416b57343f212c649befc233f7cd3f3bee2e1f0fc62331060d2521f35ed07",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2490,12 +2490,12 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.536706Z",
+      "verifiedAt": "2026-11-04T11:03:33.431945Z",
       "observationDigest": "2d957476b01865e9786a19723e7607327f293292aef42f9c06e97a8c2e937d4b",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2507,10 +2507,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.625153Z",
+      "verifiedAt": "2026-11-04T11:03:33.497789Z",
       "observationDigest": "bcd28ef6a19d8839fffca9b278edd8d9353814b8159333940c893be39940173c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2522,10 +2522,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.655199Z",
+      "verifiedAt": "2026-11-04T11:03:33.553450Z",
       "observationDigest": "37369d727f1a0dca61f0bf33a2bec60286c7498fab043f3611faa81aefdbd556",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2537,12 +2537,12 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.796530Z",
+      "verifiedAt": "2026-11-04T11:03:33.665919Z",
       "observationDigest": "65b2c0a9d382d1048c1a683074fb29e492c9506b22dce982509c27bb81765712",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2554,12 +2554,12 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.913899Z",
+      "verifiedAt": "2026-11-04T11:03:33.746735Z",
       "observationDigest": "99283c44f57502c79642bfc9d284d75f5eac8f82aa4bfa808aaeb9fc88741ede",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2571,10 +2571,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:58.911646Z",
+      "verifiedAt": "2026-11-04T11:03:33.796870Z",
       "observationDigest": "11c08cff17f1989151f52786f178e6898744c110a6f532ff94b97ab489649920",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2586,12 +2586,12 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.135768Z",
+      "verifiedAt": "2026-11-04T11:03:34.004964Z",
       "observationDigest": "7d797202c427cd5d969588468347154b6188aafe5dcc1e2bff1fb3f6cd5ef314",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2603,10 +2603,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.259386Z",
+      "verifiedAt": "2026-11-04T11:03:34.063745Z",
       "observationDigest": "54c3a9ca728538a67cc6a1787b318ac682bceaf167a0311683b453c163d7b384",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2618,10 +2618,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.332186Z",
+      "verifiedAt": "2026-11-04T11:03:34.212825Z",
       "observationDigest": "b323977a9fd476800618a48914b549aa0edbafbfa46f3ad88d0df1363cb5b2ff",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2633,10 +2633,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.459588Z",
+      "verifiedAt": "2026-11-04T11:03:34.307433Z",
       "observationDigest": "c333fde4eef3e1dbca18ea447018e39eeac494aedade8c372fcbdc472fa003a1",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2648,12 +2648,12 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.582641Z",
+      "verifiedAt": "2026-11-04T11:03:34.387393Z",
       "observationDigest": "f57e987181c48f020ecd62035abeb703ad49dcddbf64e611583d2e50ea7c322a",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2665,10 +2665,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.580196Z",
+      "verifiedAt": "2026-11-04T11:03:34.470287Z",
       "observationDigest": "1959645d523e137f4a34872d9f4181f6a2c037eef6bb4d4c255f95d8be6aed7a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2680,10 +2680,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.770419Z",
+      "verifiedAt": "2026-11-04T11:03:34.663982Z",
       "observationDigest": "392ac58eb009100d9f53745ff5bf1a2d24ca931bd020216fc37cd43056034a00",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2695,12 +2695,12 @@
       "platform": "PH9",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.840029Z",
+      "verifiedAt": "2026-11-04T11:03:34.611621Z",
       "observationDigest": "99a4a4d5c113e2e79c826613c580ea4816d9cbff083e75864a12e8e118275f14",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2712,12 +2712,12 @@
       "platform": "ARTSYSTEMS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:31:59.898301Z",
+      "verifiedAt": "2026-11-04T11:03:34.802999Z",
       "observationDigest": "d97f0c1ca16493f1ec3e88729e37bd5bedde17010d701b0c34275fea59d51866",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2729,10 +2729,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.259016Z",
+      "verifiedAt": "2026-11-04T11:03:34.945663Z",
       "observationDigest": "50d4b82204b73b46f0dddbb5ee1fd4db10522923912e0d5adfd719af02ab8d11",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2744,10 +2744,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.318918Z",
+      "verifiedAt": "2026-11-04T11:03:35.030328Z",
       "observationDigest": "09eed9bc096bcd1e0484ffbaa0286f6d126a19fc4b677a6677fc0b26ad0f6e6e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2759,12 +2759,12 @@
       "platform": "PH9",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.256120Z",
+      "verifiedAt": "2026-11-04T11:03:35.041078Z",
       "observationDigest": "b43970730bc76bedc5e514ce9f384c66fa99abb2de8fd885c667b2db194a963c",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2776,10 +2776,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.545974Z",
+      "verifiedAt": "2026-11-04T11:03:35.177850Z",
       "observationDigest": "c2687e6d924ef7a2d6c9596040608ecdc080aeb7192c9c516303ca0db6d0b123",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2791,12 +2791,12 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.599210Z",
+      "verifiedAt": "2026-11-04T11:03:35.341842Z",
       "observationDigest": "43e57db1da62f8615e185c57a411f5974d8f17fedeeff9f1cd97e864ad120bc5",
       "ingestionMethods": [
         "WEB_CRAWL"
       ],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": true
     },
     {
@@ -2808,10 +2808,10 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.619446Z",
+      "verifiedAt": "2026-11-04T11:03:35.278808Z",
       "observationDigest": "4fff21596a0f7df3663b315b8595ecbef5a23934c76aac119e9679abdd1b53bf",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2823,10 +2823,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.964746Z",
+      "verifiedAt": "2026-11-04T11:03:35.580106Z",
       "observationDigest": "b9f5fba5b003a37f23959f1192c457946f7c94fb35a87b6fd2a20932b8d3b9a0",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2838,10 +2838,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.866910Z",
+      "verifiedAt": "2026-11-04T11:03:35.516065Z",
       "observationDigest": "c3ee75c38640363d969da0757173bfa9b1f777c2e5eef7af0938d923986b4221",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2853,10 +2853,10 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:00.871410Z",
+      "verifiedAt": "2026-11-04T11:03:35.608748Z",
       "observationDigest": "e920909fcf346ad2713678cc71f45b9b1325f6c8c6769b71e496b3d363fa7c19",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2868,10 +2868,10 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.128188Z",
+      "verifiedAt": "2026-11-04T11:03:35.757293Z",
       "observationDigest": "0685ca9ba9fe2f925db135ad2d73cc17a94f875b0e66d33f4dad97de0344175f",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2883,10 +2883,10 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.102018Z",
+      "verifiedAt": "2026-11-04T11:03:35.832244Z",
       "observationDigest": "a8c454690075b280f6216ecbd5db740643492f348ebff52f31532ca696a83326",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2898,10 +2898,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.208017Z",
+      "verifiedAt": "2026-11-04T11:03:35.844226Z",
       "observationDigest": "d9e9876534629d90bb172ef35b7cdf2b47080fef9493df75b2a9b130bd011a90",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2913,10 +2913,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.368812Z",
+      "verifiedAt": "2026-11-04T11:03:35.987295Z",
       "observationDigest": "e03e22ee6f656e7b2d11f06d2b2830e3f4d1dac2cffbb752e50ae24cf21ca8a4",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2928,10 +2928,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.562878Z",
+      "verifiedAt": "2026-11-04T11:03:36.220378Z",
       "observationDigest": "695b78eb4be591eff7fbc84e9317c907fdbfa311b68a0c6d2e7228c636e8d580",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2943,10 +2943,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.614563Z",
+      "verifiedAt": "2026-11-04T11:03:36.262941Z",
       "observationDigest": "7b4285955fb23832d3769cd70e73d66106b0b5334bd90dd154774fdb79b4b153",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2958,10 +2958,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.633714Z",
+      "verifiedAt": "2026-11-04T11:03:36.250749Z",
       "observationDigest": "615b3a667cb466249c038bb33bcd0c7554a1473b1377eb03923341073f939b6d",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2973,10 +2973,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.802584Z",
+      "verifiedAt": "2026-11-04T11:03:36.444835Z",
       "observationDigest": "776f53bd98e830e7be4e10ddf86955e7c7a907b8f03382f289cbabe0d9058a23",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -2988,10 +2988,10 @@
       "platform": "ICOMPENDIUM",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:01.954410Z",
+      "verifiedAt": "2026-11-04T11:03:36.593312Z",
       "observationDigest": "ac850e3ad767eaa7eabb2a4b56a042b8d2641231151bfce086d2f66faf683715",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3003,10 +3003,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.010560Z",
+      "verifiedAt": "2026-11-04T11:03:36.584874Z",
       "observationDigest": "2a77327be4bd07a441c9fff06992bb5d7770c04ec8a6e14c2096bf614feab474",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3018,10 +3018,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.038930Z",
+      "verifiedAt": "2026-11-04T11:03:36.681921Z",
       "observationDigest": "c9f483a0681a38b718181697f534747c6e7ecdebb3a583a4545ade7db98f806e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3033,10 +3033,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.207789Z",
+      "verifiedAt": "2026-11-04T11:03:36.817287Z",
       "observationDigest": "18e8735983176da6ae614ac7ba91c0e3b46e9be1873b7cae9ef12e70e667b6bc",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3048,10 +3048,10 @@
       "platform": "X_CART",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.364843Z",
+      "verifiedAt": "2026-11-04T11:03:36.912494Z",
       "observationDigest": "1b94f26eb986f10dbc578c4a37653cd6bffd965a9328466f1ef36ac923bff401",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3063,10 +3063,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.369772Z",
+      "verifiedAt": "2026-11-04T11:03:37.004883Z",
       "observationDigest": "544c37fcfb0064ad9bd6f513dc967bfc75d6e400857bbfaef713750946dfa927",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3078,10 +3078,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.542959Z",
+      "verifiedAt": "2026-11-04T11:03:37.159443Z",
       "observationDigest": "a8e7117722a29355b946ab2dcdc39290d73f8ccc8ea78bb35b1cc8cb58ac448c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3093,10 +3093,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.706797Z",
+      "verifiedAt": "2026-11-04T11:03:37.240503Z",
       "observationDigest": "6c76150551ad4ad7064da44edce1bbb40a01a8d757f7730d1bc82bcc08aa4138",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3108,10 +3108,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.605237Z",
+      "verifiedAt": "2026-11-04T11:03:37.241677Z",
       "observationDigest": "2d4c4c0f8383cd7582e422c61c8bdea86d24be8e3fbd573076739fde4f4097cf",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3123,10 +3123,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.872020Z",
+      "verifiedAt": "2026-11-04T11:03:37.487000Z",
       "observationDigest": "6aaa14be102edeedc360610ace9f9b0869c3ad14d7534399c2979fecea89fda1",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3138,10 +3138,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:02.964722Z",
+      "verifiedAt": "2026-11-04T11:03:37.565859Z",
       "observationDigest": "f33d133f224b4c897a6456233626b6aacfa3e48f9d560f2926ddd0057a138473",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3153,10 +3153,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.049917Z",
+      "verifiedAt": "2026-11-04T11:03:37.562777Z",
       "observationDigest": "b74cae6a45582bf8945c260f873e3e2611f27bd5ea25fca794eef812e6ba7f70",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3168,10 +3168,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.135939Z",
+      "verifiedAt": "2026-11-04T11:03:37.723507Z",
       "observationDigest": "a761e73f7a3eef69c89d2e597ea9d7a68f02031364ff0a37a7b5fbc0f9bad02b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3183,10 +3183,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.294150Z",
+      "verifiedAt": "2026-11-04T11:03:37.898699Z",
       "observationDigest": "dbedebd5659dec0cffe51e564b534a04e55bc61b99506e40ac95cd5c5a3c74ce",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3198,10 +3198,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.400610Z",
+      "verifiedAt": "2026-11-04T11:03:37.890735Z",
       "observationDigest": "257f7ab37c460d414cbc58c30d34ca67359c66357380f2b60748826846537f14",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3213,10 +3213,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.394963Z",
+      "verifiedAt": "2026-11-04T11:03:37.966852Z",
       "observationDigest": "b2ab78e7837e9785aca83d6432f141d09eb8592b3b2852b564cf75e937a20619",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3228,10 +3228,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.613476Z",
+      "verifiedAt": "2026-11-04T11:03:38.245880Z",
       "observationDigest": "2b8ff776a73b9ba2042c4c8ed882ebd169d5f4dde447437a53d264cc279f7a30",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3243,10 +3243,10 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.631663Z",
+      "verifiedAt": "2026-11-04T11:03:38.152292Z",
       "observationDigest": "03e3548ead393ec2856e2869903aeae4ffdb54cfa19a6aa9ce79b563725b17e0",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3258,10 +3258,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.720199Z",
+      "verifiedAt": "2026-11-04T11:03:38.333329Z",
       "observationDigest": "6ae4c8d42a54284c18581c4608e26bc27ce5366cdc943c157c4bc2bb26820e80",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3273,10 +3273,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.832535Z",
+      "verifiedAt": "2026-11-04T11:03:38.386324Z",
       "observationDigest": "c42ac19b8d4afbb53ff83ea7528b9d23d32dc24ac13a9b31b3115748c6deddd5",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3288,10 +3288,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:03.883229Z",
+      "verifiedAt": "2026-11-04T11:03:38.491069Z",
       "observationDigest": "e38f9cd55e92a6678908a94c33095fbf6aa4443ee52d739d7bda92857c30853b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3303,10 +3303,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.083732Z",
+      "verifiedAt": "2026-11-04T11:03:38.635001Z",
       "observationDigest": "0c54f280b80e292796af098ed19ba9894534b9ef129352ebdc624394e4122024",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3318,10 +3318,10 @@
       "platform": "PH9",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.154248Z",
+      "verifiedAt": "2026-11-04T11:03:38.636196Z",
       "observationDigest": "5f6948872e7bbcc553054e006f41361853deb91bdd30ec5ec6800187074f0449",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3333,10 +3333,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.194998Z",
+      "verifiedAt": "2026-11-04T11:03:38.722041Z",
       "observationDigest": "c796e531abe6b2e958803d9104b63916bda52c404ee2fb43d79e55f36b550b10",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3348,10 +3348,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.343351Z",
+      "verifiedAt": "2026-11-04T11:03:38.861004Z",
       "observationDigest": "d8883a5409b492ddef8ff43bd2eed3a2d2c1b0bcad3c0fd7e735cebbebaf1575",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3363,10 +3363,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.410987Z",
+      "verifiedAt": "2026-11-04T11:03:38.883440Z",
       "observationDigest": "2a7cec9b61e74dd35dc68faf47f553e034b76b34ad742cae93766052311d524f",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3378,10 +3378,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.467026Z",
+      "verifiedAt": "2026-11-04T11:03:38.962136Z",
       "observationDigest": "f1310314339acdb5d7d40d402b168278b22d0f4cd0fd6ee7624beaac2e9ac957",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3393,10 +3393,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.615152Z",
+      "verifiedAt": "2026-11-04T11:03:39.112693Z",
       "observationDigest": "3bf5bd71112aca67919dfdf8b790fb0f4928b1feae6e8be155fbae2f935c3686",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3408,10 +3408,10 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.659853Z",
+      "verifiedAt": "2026-11-04T11:03:39.142183Z",
       "observationDigest": "831b6ffd783e68996b9f6ea9186ec1bf472a9f47ce153f4670d76fcfc03e3f44",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3423,10 +3423,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.800623Z",
+      "verifiedAt": "2026-11-04T11:03:39.293474Z",
       "observationDigest": "928724ea882e049f703ac41de0d48c5b4aa6d93942dd7df6cfd815de7575823e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3438,10 +3438,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.006241Z",
+      "verifiedAt": "2026-11-04T11:03:39.479576Z",
       "observationDigest": "7959b18c0ed5a87274b34391b674e9bc8860e006517cd4bfa27115caa79b7264",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3453,10 +3453,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:04.917603Z",
+      "verifiedAt": "2026-11-04T11:03:39.368049Z",
       "observationDigest": "183087b505567a5393704af577dddee6ac024426d50fb66d09c812f13de8c214",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3468,10 +3468,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.304074Z",
+      "verifiedAt": "2026-11-04T11:03:39.781170Z",
       "observationDigest": "1f8588661dd47a389565a167257f87ecf3916cce3f2528b21418bc9efda82e56",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3483,10 +3483,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.251707Z",
+      "verifiedAt": "2026-11-04T11:03:39.721661Z",
       "observationDigest": "2a2ed6a4dcefa139a365be4a715029d5323da55dc950b07f71af9e4053f2b805",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3498,10 +3498,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.507852Z",
+      "verifiedAt": "2026-11-04T11:03:39.961224Z",
       "observationDigest": "6102b79883d1b8fb700c83c5b9152ce0e8d61d9507947d69051a3dcdd88b8f24",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3513,10 +3513,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.601522Z",
+      "verifiedAt": "2026-11-04T11:03:40.047204Z",
       "observationDigest": "5253e68a8c22f4a59b3027e76ce867de0f095a1577933c881899c10645b2ab3e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3528,10 +3528,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.639445Z",
+      "verifiedAt": "2026-11-04T11:03:40.093654Z",
       "observationDigest": "1697407c0d16247c9666d0dc854daafe9e144a1756043c18e457cc00b5b3135b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3543,10 +3543,10 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.771962Z",
+      "verifiedAt": "2026-11-04T11:03:40.188464Z",
       "observationDigest": "004e9bd4704cd04a0189ba0e74c0f82000718ed3339de61c3302ec279232904a",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3558,10 +3558,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.860899Z",
+      "verifiedAt": "2026-11-04T11:03:40.279458Z",
       "observationDigest": "617f001f429ba36dc3a1559a2f7024893fd0295669df95029f2054d7ece7d4b3",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3573,10 +3573,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:05.893094Z",
+      "verifiedAt": "2026-11-04T11:03:40.314242Z",
       "observationDigest": "50954e9338a32f297e3c797e54d1d4ea5782f739c6447e8a757cd95bb4c745d4",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3588,10 +3588,10 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.123464Z",
+      "verifiedAt": "2026-11-04T11:03:40.524208Z",
       "observationDigest": "f5577204e95ffcbde74640e17f2c221e8bd08bcbf84814185e63286d41642d3d",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3603,10 +3603,10 @@
       "platform": "ARTCLOUD",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.150479Z",
+      "verifiedAt": "2026-11-04T11:03:40.530018Z",
       "observationDigest": "d7c0adf9d019dd43e4aa035cd2ac9e2bf83a3e8017058700330ea5a90643ffe7",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3618,10 +3618,10 @@
       "platform": "SQUARESPACE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.146068Z",
+      "verifiedAt": "2026-11-04T11:03:40.544947Z",
       "observationDigest": "1a1b1ffb373fa5e98afbeaaf8cc8accd6eb1ba8ee772dd66b56739c472c6655e",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3633,10 +3633,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.373199Z",
+      "verifiedAt": "2026-11-04T11:03:40.767018Z",
       "observationDigest": "e610440d4318487f35f49dc58465aa9a307fa25f2dc7ab93b3793752525d4688",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3648,10 +3648,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.449468Z",
+      "verifiedAt": "2026-11-04T11:03:40.859695Z",
       "observationDigest": "715042c0593aeaa80e24aa1146d78c3578e3a3cc14ab2df908bea42c77e2e949",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3663,10 +3663,10 @@
       "platform": null,
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.477187Z",
+      "verifiedAt": "2026-11-04T11:03:40.871890Z",
       "observationDigest": "6e9dc9f819aafdf8fe69d9d200926ca7829955022bb6ea1d588fcb3d7f90fa6b",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3678,10 +3678,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.606261Z",
+      "verifiedAt": "2026-11-04T11:03:40.983372Z",
       "observationDigest": "90d6de45448e02c76cf8717d4f5afa516a8df8057955b8728a2f6851a584526c",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3693,10 +3693,10 @@
       "platform": "SHOPIFY",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.771447Z",
+      "verifiedAt": "2026-11-04T11:03:41.162990Z",
       "observationDigest": "e2a66254fdb0b4228b3b5f88f360fe88817c7f45484943e71505a49f7743f248",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3708,10 +3708,10 @@
       "platform": null,
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.733900Z",
+      "verifiedAt": "2026-11-04T11:03:41.111827Z",
       "observationDigest": "83db8bbd3e9e37a0ea9282739af587167aff3b0dadf297c83266814febe21d07",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3723,10 +3723,10 @@
       "platform": "ARTLOGIC",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:06.837295Z",
+      "verifiedAt": "2026-11-04T11:03:41.220637Z",
       "observationDigest": "3f840253a604b21eb109c32b68755ec394cafc412b10436ccd6136f3bc7a8f68",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3738,10 +3738,10 @@
       "platform": "WOOCOMMERCE",
       "deliveryProfile": true,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:32:07.114267Z",
+      "verifiedAt": "2026-11-04T11:03:41.523490Z",
       "observationDigest": "b47648c114e9d6dc20c8215cb2195ce7f5c718645bca59b747333f3696dae3a2",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3753,10 +3753,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:38:02.768069Z",
+      "verifiedAt": "2026-11-04T11:03:41.372146Z",
       "observationDigest": "96287e290d5d5f062af9e75250d97ac57bee34759d0b5a1e877b54253c3819df",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3768,10 +3768,10 @@
       "platform": "EXHIBIT_E",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:38:02.759163Z",
+      "verifiedAt": "2026-11-04T11:03:41.479269Z",
       "observationDigest": "720293cf1e45cbd731adaee3669cd39359bfc24628f6927c909bd229335b997d",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3783,10 +3783,10 @@
       "platform": "WORDPRESS",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:42:06.814837Z",
+      "verifiedAt": "2026-11-04T11:03:41.608660Z",
       "observationDigest": "4c52ec40c626985bf04513e808bbe89781e2d3c10ad16b352e7c339aa677c0f7",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     },
     {
@@ -3798,10 +3798,85 @@
       "platform": "WEBFLOW",
       "deliveryProfile": false,
       "verified": true,
-      "verifiedAt": "2026-11-04T10:46:56.574031Z",
+      "verifiedAt": "2026-11-04T11:03:41.719543Z",
       "observationDigest": "ade48a6f4a1dc900d5b6b4b28df82ea9fadae66c00217ae7020e77d8a6da0ac0",
       "ingestionMethods": [],
-      "ingestionVerifiedAt": "2026-11-04T10:46:56.574600Z",
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
+      "authorizedExternalIngestion": false
+    },
+    {
+      "domain": "jrusselljinishiangallery.com",
+      "listingSourceId": "ls_01m6k32tdweh7vnkekxtqvvbft",
+      "partyId": "pty_01m6k32tdgegma59j3p6terk6h",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:03:41.777182Z",
+      "observationDigest": "6863a3f2b84897669fa9e59151d39d8faa7fa2e985b4efe21c36bb516138edc4",
+      "ingestionMethods": [],
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
+      "authorizedExternalIngestion": false
+    },
+    {
+      "domain": "beauchampantiques.com",
+      "listingSourceId": "ls_01m6k3kcpbew18mbxnsgyb1ses",
+      "partyId": "pty_01m6k3kcnre1nadcmh9vv60ajs",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:03:41.921021Z",
+      "observationDigest": "4fd80bdd0c9bd26334a21077d665c9bdd81a775d3190e8cf9d25a78d617733c8",
+      "ingestionMethods": [],
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
+      "authorizedExternalIngestion": false
+    },
+    {
+      "domain": "rmchait.com",
+      "listingSourceId": "ls_01m6k45ab5e4j85svv0dp815r3",
+      "partyId": "pty_01m6k45aa9e99s0ne2x3yq4e6h",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:13:25.624650Z",
+      "observationDigest": "56846603830466591326cf4b8a6465a3f78571e2e64a7df3ef6483258a1a2906",
+      "ingestionMethods": [],
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
+      "authorizedExternalIngestion": false
+    },
+    {
+      "domain": "dwigmore.com",
+      "listingSourceId": "ls_01m6k45c7xem38b9tbwpq3p7qr",
+      "partyId": "pty_01m6k45c7aeett0jwdb5d02c12",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:13:25.622149Z",
+      "observationDigest": "e334668633e894a932a03f70bf22cd16d78ce80b80abd363b1853acaa7f267af",
+      "ingestionMethods": [],
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
+      "authorizedExternalIngestion": false
+    },
+    {
+      "domain": "ophirgallery.com",
+      "listingSourceId": "ls_01m6k45e30e54asecg9642aepx",
+      "partyId": "pty_01m6k45e2ee05svbn1v7gtg4q8",
+      "locations": 1,
+      "logo": true,
+      "platform": "EXHIBIT_E",
+      "deliveryProfile": false,
+      "verified": true,
+      "verifiedAt": "2026-11-04T11:13:25.638782Z",
+      "observationDigest": "5dea1c811af6bb0429fede34d2ae1706eefab13ed4ba6713e9bc85e95a47c797",
+      "ingestionMethods": [],
+      "ingestionVerifiedAt": "2026-11-04T11:13:25.639100Z",
       "authorizedExternalIngestion": false
     }
   ]

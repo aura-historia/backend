@@ -1,25 +1,25 @@
 {
-  "run": "2026-11-02-it-194",
-  "verifiedAt": "2026-11-04T10:39:16.470936Z",
+  "run": "2026-11-02-it-195",
+  "verifiedAt": "2026-11-04T10:57:27.669277Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
   "fullVerifiedAt": "2026-11-04T10:24:21.316119Z",
   "dealersCheckedThisRun": 1,
-  "dealersReused": 291,
+  "dealersReused": 292,
   "counts": {
-    "parties": 292,
-    "listingSources": 292,
-    "locations": 340,
-    "logos": 252,
-    "identifiedPlatforms": 227,
+    "parties": 293,
+    "listingSources": 293,
+    "locations": 341,
+    "logos": 253,
+    "identifiedPlatforms": 228,
     "deliveryProfiles": 162,
-    "emptyIngestionMethods": 292,
+    "emptyIngestionMethods": 293,
     "excluded": 26,
     "deferred": 93
   },
   "environmentCounts": {
-    "parties": 4183,
-    "listingSources": 4221
+    "parties": 4213,
+    "listingSources": 4251
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -3825,6 +3825,19 @@
       "verified": true,
       "verifiedAt": "2026-11-04T10:39:16.469722Z",
       "observationDigest": "c33b631fdcd90fb91be6ca75eed8d1c35dc201d34971206963a0650536d571d1"
+    },
+    {
+      "domain": "antiquescamellini.com",
+      "listingSourceId": "ls_01m6k377f6ew79gnyjrcwccbhr",
+      "partyId": "pty_01m6k377ete589sbhgf44k1kqr",
+      "locations": 1,
+      "logo": true,
+      "platform": "NOPCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T10:57:27.667479Z",
+      "observationDigest": "b61bb945d003c1f4e027df0777f77798350f4cea9112a54ca244e3b084105d0f"
     }
   ]
 }

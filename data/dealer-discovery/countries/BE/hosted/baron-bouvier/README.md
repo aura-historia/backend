@@ -1,0 +1,3 @@
+# Antiquités du Baron Bouvier exact hosted catalogue
+
+Owns only https://www.proantic.com/galerie/baronbouvier/ for Marc De Leener (0655513330), verified Belgian business home through current own legal statement and matching current merchant contacts. The independent merchant's in-stock original historical object and actual photograph were reviewed before mutation. The verified private identity-domain alias is an information/service channel, with no separate managed catalogue. No platform-root ownership, ingestion, unverified logo/shipping, or inventory/dispatch/pickup inheritance. Included in explicit country audits, indexes and verification; raw evidence remains outside repository.

@@ -18,9 +18,9 @@ Hosted catalogues have separate ledgers and readbacks under `hosted/`, with owne
 
 ## Current checkpoint
 
-ch-2026-11-04-153, 2026-11-04T10:46:20.675153Z. Country totals: 226 ADDED, 251 DEFERRED, 56 EXCLUDED. Paid-data spend USD 0. Country remains open.
+ch-2026-11-04-160, 2026-11-04T11:15:48.359701Z. Country totals: 230 ADDED, 256 DEFERRED, 57 EXCLUDED. Paid-data spend USD 0. Country remains open.
 
-Added Guido Lötscher original oil paintings and Kunstgalerie Opincaru original paintings under their exact Swiss sellers. Specific current artworks and native original photos inspected; two supported studio/legal locations, one original logo and limited shipment facts created. Provider SaatchiArt logo rejected, historical/foreign partners not merged, appointment viewing not inferred as pickup. Ricompralo deferred for a specific current genuine antique/original-art unit. Both empty-ingestion sources and defaults passed readbacks. Country audit/index/strict verification checkpointed; external ingestion preserved, no paid data and research continues.
+Directory/ownership research batch: Swissportail80entries sampled, no directory statements imported. Servan,Votano and2ndLife held in frontier for current primary seller/stock; separateKlangcatalogue country/operator relationship unresolved, existingCHSchatzsuche identity not duplicated. Antik4you/Petrollampen/Puppenland already DEowned, fetches skipped. No new dealer/API mutations. Full resource160 initiated at required fifth-batch interval; explicit audit/index/verification preserve external ingestion and honest dates. Country remains open; free research continues.
 
 Strict root and hosted verification failed: 70 sources now have externally configured ingestion. All sources were created with empty ingestion; this workflow preserves external changes. See `country-verification.json` for current observations and actual last successful verification. New resource/default creation readbacks passed. This limits country-wide verification, not independent research. Latest full resource integrity readback: `resource-verification.json` (its own dates/counts apply).
 

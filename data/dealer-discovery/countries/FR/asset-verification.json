@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-04-fr-305",
-  "observedAt": "2026-11-04T10:50:40.479484Z",
+  "run": "2026-11-04-fr-310",
+  "observedAt": "2026-11-04T11:10:35.413233Z",
   "scope": "CACHED_ORIGINAL_ASSET_METADATA",
   "notes": [
     "Checks the already downloaded and visually reviewed original files against current owned-ledger metadata; this is not a fresh network/logo-availability claim.",
     "Raster pixels, SVG viewBox/rounded extents, binary media format and exact cached bytes are checked. API source URLs and original image URLs are unchanged."
   ],
-  "verifiedCount": 385,
+  "verifiedCount": 391,
   "mismatches": [],
   "resources": [
     {
@@ -4916,6 +4916,78 @@
         "kind": "RASTER_PIXELS",
         "width": 209,
         "height": 209
+      }
+    },
+    {
+      "domain": "celiaf-art.com",
+      "listingSourceId": "ls_01m6k359g0ebrtkrjexqpk3dkc",
+      "url": "https://www.celiaf-art.com/wp-content/uploads/2026/05/Celia-F-artiste-peintre.png",
+      "mediaType": "image/png",
+      "bytes": 8032,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 500
+      }
+    },
+    {
+      "domain": "galerie-libre-est-lart.com",
+      "listingSourceId": "ls_01m6k35bfge8eapdd62yc4w5zs",
+      "url": "https://i0.wp.com/galerie-libre-est-lart.com/wp-content/uploads/2018/07/io.jpg?fit=207%2C177&ssl=1",
+      "mediaType": "image/jpeg",
+      "bytes": 27900,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 207,
+        "height": 177
+      }
+    },
+    {
+      "domain": "artdeclairegalerie.com",
+      "listingSourceId": "ls_01m6k3d7wve1nvdvjb3bvdm667",
+      "url": "https://artdeclairegalerie.com/wp-content/uploads/2023/07/art-de-claire-galerie-var.png",
+      "mediaType": "image/png",
+      "bytes": 9604,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 470,
+        "height": 60
+      }
+    },
+    {
+      "domain": "lesartistestemoins.com",
+      "listingSourceId": "ls_01m6k3da3ae5pbex953knbk8t1",
+      "url": "https://lesartistestemoins.com/wp-content/uploads/2022/02/logo-artistes-temoins.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 28477,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 542,
+        "height": 80
+      }
+    },
+    {
+      "domain": "annatschopp.com",
+      "listingSourceId": "ls_01m6k3dc37eegrk8deg78dxd2k",
+      "url": "https://image.jimcdn.com/app/cms/image/transf/none/path/s3821b949df3f2b71/image/i0e0e04fe7dda431a/version/1710427715/image.png",
+      "mediaType": "image/png",
+      "bytes": 53331,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1200,
+        "height": 329
+      }
+    },
+    {
+      "domain": "galeriedutilleul.com",
+      "listingSourceId": "ls_01m6k40y20ezg8qv30kkcnptqe",
+      "url": "https://www.galeriedutilleul.com/img/logo-1721657137.jpg",
+      "mediaType": "image/png",
+      "bytes": 7522,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 289,
+        "height": 90
       }
     }
   ]

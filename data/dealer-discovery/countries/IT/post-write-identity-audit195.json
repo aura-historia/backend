@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-195",
+  "country": "IT",
+  "observedAt": "2026-11-04T11:01:53.181355Z",
+  "result": "PASSED",
+  "rawJournalFiles": 251,
+  "rawJournalRecordsScanned": 56941,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "antiquescamellini.com",
+      "IT:ANTICOANTICO:2155",
+      "IT:ANTICOANTICO:2334"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot195-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T10:58:49.758566Z",
+    "fullVerifiedAt": "2026-11-04T10:23:35.753339Z",
+    "counts": {
+      "parties": 340,
+      "listingSources": 340,
+      "locations": 388,
+      "logos": 254,
+      "identifiedPlatforms": 275,
+      "deliveryProfiles": 169,
+      "emptyIngestionMethods": 340,
+      "excluded": 26,
+      "deferred": 98
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Camellini current full SRL/VAT positively validated; working bare HTTPS native catalogue, original logo and nopCommerce verified. Actual framed Magnasco landscape inspected, private-collection label and explicit dealer availability retained without title/possession/source-wide inventory claims. Native showroom and Scandiano tax base distinct. A secondary auction-directory label was investigated against current first-party retail/about/legal/navigation and targeted searches; no owned auction service identified. No unverified founder/daughter operators, .it alias, TLS bypass or stock-unavailable inference from Skype footer.",
+    "Enrica current complete proprietor explicit and positive official validation. Actual second original eighteenth-century-labelled Madonna painting crop inspected; frame/reverse and bg_processed first image not claimed inspected. Probably Polish artwork origin is not an imported fact or business-home assignment. Old native DNS failure not closure, source/alias or historic-email proof. Alessandria business and official tax addresses distinct; no stock/dispatch/pickup inferred.",
+    "Fava current full proprietor business/VAT positive; actual religious painting original inspected, with title/observed wider Nativity-type composition retained without independent iconographic reconciliation or invented empty-description details. Current Sombrico address, Via Roma tax and secondary Statuto address distinct. Direct antique art qualifies independently of salvage/tools/vinyl/design categories; no guessed native domain, email/logo/shipping or extra proprietor Party.",
+    "All country activityReview fields were scanned as of the current date: no due activity review. Future observations, including Pera’s November 10 follow-up, remain dated rather than automatically assumed resolved. This is separate from API resource verification and is not a new live-stock check of every older business."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

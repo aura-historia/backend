@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-04-126",
-  "observedAt": "2026-11-04T10:52:12.570236Z",
+  "run": "jp-2026-11-04-130",
+  "observedAt": "2026-11-04T11:14:17.561720Z",
   "statuses": {
-    "ADDED": 253,
-    "DEFERRED": 203,
+    "ADDED": 257,
+    "DEFERRED": 208,
     "EXCLUDED": 44
   },
   "paidDataSpendUsd": 0,
-  "summary": "Batch 126 added Yoseido Gallery’s current Wix Stores original-art catalogue under verified 有限会社 阿部養清堂. Inspected an available edition-one woodblock and a separate drawing; current rebuilt Ginza premises remain distinct from the expired temporary address. Domestic and unspecified international delivery retain null rates. Separate BASE catalogue queued under the same owner; migrated Shinseido and Soumeido leads resolved to existing Japan owners. One addition, no exclusions or deferrals. Country totals 253 added, 203 deferred, 44 excluded. Audit/index passed; explicit incremental verification failed on the same 66 external ingestion changes confirmed by fresh readbacks. Dated PASS070 retained. USD 0; no pending mutations or global blocker; research continues.",
+  "summary": "Batch 130 added UNFASHION’s independent own-stock antique/original-art catalogue after bounded public inventory and individual detail checks. Inspected an available framed lithograph and advertised nineteenth-century bronze; seller attributions remain claims and the print-title/body discrepancy was not imported as verified artwork identity. Verified Otawara shop/operator/public phone. Preserved item/country/transport restrictions and unknown freight; omitted masked email, unverified logo and uncertain commerce classification. Current fixed-price stock and outside auction selling were not confused with own auction operation. One addition; no exclusions or deferrals. Country totals 257 added, 208 deferred, 44 excluded. Audit/index passed; scheduled explicit full verification failed on the same 66 external ingestion changes, confirmed by fresh source readbacks. Dated PASS070 retained. USD 0; no pending mutations or global blocker; research continues.",
   "verification": "FAILED_EXTERNAL_INGESTION_DRIFT",
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",
