@@ -51,7 +51,7 @@ mod faker {
 )]
 pub struct ProductCssSelectorSchema {
     #[schemars(
-        description = "ID of the product on the ListingSource website. Optional: leave null only when the page has no stable product ID. Check for one first: a hidden input or data attribute such as product-id, data-product-id or data-id, a form id, itemprop productID or sku, or the JSON-LD Product with the json_ld_product kind."
+        description = "ID of the product on the ListingSource website. Optional: leave null only when the page has no stable product ID. Check for one first: a hidden input or data attribute such as product-id, data-product-id or data-id, a form id, or itemprop productID or sku; a manually authored schema can also read the JSON-LD Product's productID or sku with the json_ld_product kind."
     )]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub source_listing_id: Option<ExtractionRule>,
