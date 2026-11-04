@@ -1,5 +1,8 @@
 use application::error::{box_error, static_error};
-use aws_sdk_geoplaces::{operation::geocode::GeocodeOutput, types::GeocodeResultItem};
+use aws_sdk_geoplaces::{
+    operation::geocode::GeocodeOutput,
+    types::{Country, GeocodeResultItem},
+};
 use geo::{
     CountryCode, DerivedGeography, GeoPoint, GeographicDescription, PostalCode, SpatialPosition,
     SpatialPrecision, SubdivisionCode, country_from_code, reference::ReferenceRelease,
@@ -33,7 +36,7 @@ pub(crate) fn map_response(
         ));
     }
     let candidates = items
-        .into_iter()
+        .iter()
         .map(|item| map_candidate(item, request))
         .collect::<Result<Vec<_>, _>>()?;
     if retention.permits_storage() {
@@ -61,7 +64,7 @@ pub(crate) fn map_response(
 }
 
 fn map_candidate(
-    item: GeocodeResultItem,
+    item: &GeocodeResultItem,
     request: &GeocodingRequest,
 ) -> Result<GeocodingCandidate, GeocodingError> {
     if item.place_id.is_empty()
@@ -84,19 +87,7 @@ fn map_candidate(
         // report either as a supplied score. Nonzero scores still retain their meaning.
         .filter(|score| score.value() != 0.0);
     let country_data = item.address.as_ref().and_then(|a| a.country.as_ref());
-    // Code2 and Code3 are documented ISO country fields. Only use Code3 on actual
-    // Code2 absence, never to conceal an invalid present Code2.
-    let country = country_data.and_then(|c| match c.code2.as_deref() {
-        Some(code) => country_from_code(code, ReferenceRelease::CURRENT).ok(),
-        None => c
-            .code3
-            .as_deref()
-            .filter(|code| code.len() == 3 && code.bytes().all(|b| b.is_ascii_uppercase()))
-            .and_then(|code| CountryCode::for_alpha3(code).ok())
-            .and_then(|country| {
-                country_from_code(country.alpha2(), ReferenceRelease::CURRENT).ok()
-            }),
-    });
+    let country = country_data.and_then(returned_country);
     if country.is_none() {
         issues.push(CandidateIssue::UnsupportedCountry);
     }
@@ -240,10 +231,33 @@ fn map_candidate(
             data_source: "AMAZON_LOCATION_DEFAULT",
             region: super::REGION.to_owned(),
             interpretation_profile: super::TERMS_PROFILE,
-            external_reference: item.place_id,
+            external_reference: item.place_id.clone(),
             attribution_url: "https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html",
         },
     ))
+}
+
+/// Code2 and Code3 are documented ISO country fields. Only use Code3 on actual Code2
+/// absence, never to conceal an invalid present Code2.
+fn returned_country(country: &Country) -> Option<CountryCode> {
+    match country.code2.as_deref() {
+        Some(code) => country_from_alpha2(code),
+        None => country.code3.as_deref().and_then(country_from_alpha3),
+    }
+}
+
+fn country_from_alpha2(code: &str) -> Option<CountryCode> {
+    country_from_code(code, ReferenceRelease::CURRENT).ok()
+}
+
+/// Strict ISO alpha-3 lookup limited to countries of the pinned reference release.
+fn country_from_alpha3(code: &str) -> Option<CountryCode> {
+    if code.len() != 3 || !code.bytes().all(|b| b.is_ascii_uppercase()) {
+        return None;
+    }
+    CountryCode::for_alpha3(code)
+        .ok()
+        .and_then(|country| country_from_alpha2(country.alpha2()))
 }
 
 fn invalid_response(message: &'static str) -> GeocodingError {
