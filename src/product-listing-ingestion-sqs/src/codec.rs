@@ -51,7 +51,8 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
 
 pub const SCHEMA_VERSION: u8 = 2;
-const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+/// Largest encoded message the queue contract accepts.
+pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 const GROUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-group.v1";
 const DEDUP_DOMAIN: &[u8] = b"aura.product-listing-ingestion.fifo-dedup.v1";
 const FINGERPRINT_DOMAIN: &[u8] = b"aura.product-listing-ingestion.semantic.v1";
@@ -856,11 +857,21 @@ pub fn envelope(message: &ProductListingIngestionMessage) -> Result<IngestionEnv
 
 /// Encodes an already prepared service message. No lossy fallback or debug serialization.
 pub fn encode(message: &ProductListingIngestionMessage) -> Result<String> {
-    let value = serde_json::to_string(&envelope(message)?).map_err(|_| CodecError::Invalid)?;
+    let value = serialize(message)?;
     if value.len() > MAX_MESSAGE_BYTES {
         return Err(CodecError::TooLarge);
     }
     Ok(value)
+}
+
+/// Encoded size in bytes of a prepared message, without applying [`MAX_MESSAGE_BYTES`], so callers
+/// can report how far an oversized message exceeds the limit.
+pub fn encoded_len(message: &ProductListingIngestionMessage) -> Result<usize> {
+    serialize(message).map(|value| value.len())
+}
+
+fn serialize(message: &ProductListingIngestionMessage) -> Result<String> {
+    serde_json::to_string(&envelope(message)?).map_err(|_| CodecError::Invalid)
 }
 
 /// Rejects unknown fields, unsupported versions, mismatched source IDs and invalid typed leaves.
@@ -1080,6 +1091,22 @@ mod tests {
             );
             assert!(decoded.prepared_at().unwrap() <= OffsetDateTime::now_utc());
         }
+    }
+
+    #[test]
+    fn encoded_len_matches_the_encoded_message_length() {
+        let capture = golden_fixtures().remove(4);
+        let message = decode(&capture.to_string())
+            .unwrap()
+            .into_service_envelope()
+            .unwrap()
+            .message;
+
+        assert_eq!(
+            encoded_len(&message).unwrap(),
+            encode(&message).unwrap().len()
+        );
+        assert!(encoded_len(&message).unwrap() < MAX_MESSAGE_BYTES);
     }
 
     #[test]
