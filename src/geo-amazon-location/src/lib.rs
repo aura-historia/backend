@@ -715,7 +715,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn storage_rejects_japan_constraints_and_unverifiable_returned_countries() {
+    async fn storage_rejects_japan_constraints_and_results_without_a_retainable_candidate() {
         let server = MockServer::start().await;
         let provider = provider(
             &server,
