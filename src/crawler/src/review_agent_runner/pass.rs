@@ -11,6 +11,9 @@
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
+use super::decision_cap::{
+    DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended, report_shows_decision_cap,
+};
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
@@ -21,7 +24,7 @@ use super::queue::{
 };
 use super::reports::{AgentReport, AuthorAction};
 use super::settings::{RunnerSettings, effort_flag};
-use super::state::{Cooldown, Pause, RunnerState, save_state};
+use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
 use super::wire_name as name;
 use crate::review::agent_decisions::AgentLimits;
@@ -49,6 +52,9 @@ pub struct PassSummary {
     /// Reviews this pass worked that waited for a human after the author's pass, so no reviewer
     /// process started for them.
     pub handed_to_human: usize,
+    /// Reviews this pass worked whose reviewer process did not start because the reviewers pause
+    /// after the agents' decision cap.
+    pub reviewers_held_back: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -203,20 +209,119 @@ impl Pass<'_> {
             self.cool_down(&review);
             return;
         }
+        if let Some(until) = self.reviewer_pause_until(OffsetDateTime::now_utc()) {
+            self.hold_back_reviewer(&review, until);
+            return;
+        }
         let reviewer_started = OffsetDateTime::now_utc();
         match self.run_process(AgentRole::Reviewer, &review).await {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {}
-            Step::Reported(_) | Step::NoDecision => {
-                if self.reviewer_decided(&review, reviewer_started).await {
-                    self.with(|shared| shared.summary.decided += 1);
-                } else if !self
-                    .waits_for_human_after(AgentRole::Reviewer, &review)
-                    .await
-                {
-                    self.cool_down(&review);
+            Step::Reported(report) => {
+                self.pause_reviewers_at_decision_cap(&report).await;
+                self.finish_reviewer_pass(&review, reviewer_started).await;
+            }
+            Step::NoDecision => self.finish_reviewer_pass(&review, reviewer_started).await,
+        }
+    }
+
+    /// Counts the reviewer's decision, or cools the review down when it made none and does not
+    /// wait for a human.
+    async fn finish_reviewer_pass(&self, review: &QueuedReview, reviewer_started: OffsetDateTime) {
+        if self.reviewer_decided(review, reviewer_started).await {
+            self.with(|shared| shared.summary.decided += 1);
+        } else if !self
+            .waits_for_human_after(AgentRole::Reviewer, review)
+            .await
+        {
+            self.cool_down(review);
+        }
+    }
+
+    /// Until when the reviewers pause at `now`, if they do. A pause that ended is forgotten and its
+    /// end logged here, the first time a pass looks after it.
+    fn reviewer_pause_until(&self, now: OffsetDateTime) -> Option<OffsetDateTime> {
+        self.with(|shared| {
+            if let Some(pause) = shared.state.reviewer_pause_at(now) {
+                return Some(pause.until);
+            }
+            let ended = shared.state.reviewer_paused.take()?;
+            log_reviewer_pause_ended(ended);
+            self.keep_state(&shared.state);
+            None
+        })
+    }
+
+    /// The review's author staged, but no reviewer starts: it cools down like a review whose
+    /// reviewer ended without a decision, so the pass does not run its author again while the
+    /// reviewers pause.
+    fn hold_back_reviewer(&self, review: &QueuedReview, until: OffsetDateTime) {
+        info!(
+            review_id = %review.review_id,
+            reviewers_paused_until = %timestamp(until),
+            "No reviewer process starts: the reviewers pause after the agents' decision cap"
+        );
+        self.with(|shared| shared.summary.reviewers_held_back += 1);
+        self.cool_down(review);
+    }
+
+    /// Pauses the reviewers when `report` shows the console's cap on the agents' decisions, until
+    /// the time the console computes for its refusal. A trail the runner cannot read in full leaves
+    /// that time unknown, and the pause then lasts the whole window the cap counts in.
+    async fn pause_reviewers_at_decision_cap(&self, report: &AgentReport) {
+        let AgentReport::Reviewer(report) = report else {
+            return;
+        };
+        if !report_shows_decision_cap(report) {
+            return;
+        }
+        let now = OffsetDateTime::now_utc();
+        let until = match review_events_since(self.console, now - DECISION_WINDOW).await {
+            Ok(trail) if !trail.truncated => {
+                match decision_cap_resumes_at(&trail.events, &self.limits, now) {
+                    Some(until) => until,
+                    None => {
+                        warn!(
+                            review_id = %report.review_id,
+                            "A reviewer reported the agents' decision cap, but the event trail shows room under it; the reviewers do not pause"
+                        );
+                        return;
+                    }
                 }
             }
-        }
+            Ok(_) => {
+                warn!(
+                    "The event trail of the last hour is cut short; the reviewers pause for the whole hour"
+                );
+                now + DECISION_WINDOW
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read the event trail for the agents' decision cap; the reviewers pause for the whole hour"
+                );
+                now + DECISION_WINDOW
+            }
+        };
+        self.pause_reviewers(until, now);
+    }
+
+    /// Records the reviewer pause and logs its start, unless a pause that lasts as long is in force.
+    fn pause_reviewers(&self, until: OffsetDateTime, now: OffsetDateTime) {
+        self.with(|shared| {
+            let in_force = shared.state.reviewer_pause_at(now);
+            if in_force.is_some_and(|pause| pause.until >= until) {
+                return;
+            }
+            shared.state.reviewer_paused = Some(ReviewerPause { until });
+            self.keep_state(&shared.state);
+            if in_force.is_none() {
+                info!(
+                    resumes_at = %timestamp(until),
+                    "The agents reached the console's decision cap; no reviewer process starts until it resumes, authors keep running"
+                );
+            }
+        });
     }
 
     /// Whether `review` waits for a human after `role`'s pass, such as after a needs-repair
