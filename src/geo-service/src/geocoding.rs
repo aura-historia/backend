@@ -210,16 +210,18 @@ pub struct GeocodingCandidate {
 }
 
 impl GeocodingCandidate {
+    /// A candidate withheld from storage never carries geography or a score.
     pub fn new(
         geography: Option<DerivedGeography>,
         issues: Vec<CandidateIssue>,
         score: Option<ProviderMatchScore>,
         provenance: GeocodingProvenance,
     ) -> Self {
+        let retainable = !issues.contains(&CandidateIssue::StorageNotPermitted);
         Self {
-            geography,
+            geography: geography.filter(|_| retainable),
             issues,
-            score,
+            score: score.filter(|_| retainable),
             provenance,
         }
     }
@@ -235,13 +237,12 @@ impl GeocodingCandidate {
     pub fn provenance(&self) -> &GeocodingProvenance {
         &self.provenance
     }
-    /// Drops the geography and score but keeps the candidate's place in its set, so a
-    /// candidate whose retention the provider terms forbid still counts toward ambiguity.
+    /// For a candidate whose retention the provider terms forbid. It keeps its place in the
+    /// set, so it still counts toward ambiguity, and its provenance, so the set still names
+    /// one interpretation profile; nothing retainable remains.
     pub fn withhold_from_storage(mut self) -> Self {
-        self.geography = None;
-        self.score = None;
         self.issues.push(CandidateIssue::StorageNotPermitted);
-        self
+        Self::new(self.geography, self.issues, self.score, self.provenance)
     }
     pub fn is_withheld_from_storage(&self) -> bool {
         self.issues.contains(&CandidateIssue::StorageNotPermitted)
@@ -325,6 +326,7 @@ impl CandidateSet {
 pub struct GeocodingResult {
     pub outcome: GeocodingOutcome,
     /// Applies to all provider-derived components, including country-only evidence.
+    /// Candidates withheld from storage carry none.
     pub retention: ResultRetention,
 }
 
@@ -503,10 +505,14 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_only_the_set_position_when_a_candidate_is_withheld_from_storage() {
-        let japan = geo::GeographicDescription::new(None, Some(CountryCode::JPN), None, None);
+    fn should_drop_geography_and_score_when_a_candidate_is_withheld_from_storage() {
+        let japan = || {
+            let description =
+                geo::GeographicDescription::new(None, Some(CountryCode::JPN), None, None);
+            DerivedGeography::new(description.unwrap(), None)
+        };
         let withheld = GeocodingCandidate::new(
-            DerivedGeography::new(japan.unwrap(), None),
+            japan(),
             vec![CandidateIssue::UnsupportedSubdivision],
             ProviderMatchScore::new(0.9),
             candidate().provenance().clone(),
@@ -524,6 +530,14 @@ mod tests {
         );
         assert_eq!(CandidateUsability::Unsupported, withheld.usability());
         assert!(!candidate().is_withheld_from_storage());
+        let constructed = GeocodingCandidate::new(
+            japan(),
+            vec![CandidateIssue::StorageNotPermitted],
+            ProviderMatchScore::new(0.9),
+            candidate().provenance().clone(),
+        );
+        assert_eq!(None, constructed.geography());
+        assert_eq!(None, constructed.score());
     }
 
     #[test]
