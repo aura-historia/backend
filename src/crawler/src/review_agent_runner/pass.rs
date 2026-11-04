@@ -12,7 +12,8 @@
 //! with their cost; their reviews do not cool down.
 
 use super::decision_cap::{
-    DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended, report_shows_decision_cap,
+    CLOCK_MARGIN, DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended,
+    report_shows_decision_cap,
 };
 use super::digest::timestamp;
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
@@ -251,9 +252,9 @@ impl Pass<'_> {
         })
     }
 
-    /// The review's author staged, but no reviewer starts: it cools down like a review whose
-    /// reviewer ended without a decision, so the pass does not run its author again while the
-    /// reviewers pause.
+    /// The review's author staged, but no reviewer starts: it cools down until the reviewers'
+    /// pause ends, so the pass does not run its author again while the reviewers pause and the
+    /// review is workable again as soon as they resume.
     fn hold_back_reviewer(&self, review: &QueuedReview, until: OffsetDateTime) {
         info!(
             review_id = %review.review_id,
@@ -261,7 +262,7 @@ impl Pass<'_> {
             "No reviewer process starts: the reviewers pause after the agents' decision cap"
         );
         self.with(|shared| shared.summary.reviewers_held_back += 1);
-        self.cool_down(review);
+        self.cool_down_until(review, until);
     }
 
     /// Pauses the reviewers when `report` shows the console's cap on the agents' decisions, until
@@ -275,7 +276,9 @@ impl Pass<'_> {
             return;
         }
         let now = OffsetDateTime::now_utc();
-        let until = match review_events_since(self.console, now - DECISION_WINDOW).await {
+        let until = match review_events_since(self.console, now - DECISION_WINDOW - CLOCK_MARGIN)
+            .await
+        {
             Ok(trail) if !trail.truncated => {
                 match decision_cap_resumes_at(&trail.events, &self.limits, now) {
                     Some(until) => until,
@@ -575,7 +578,11 @@ impl Pass<'_> {
     }
 
     fn cool_down(&self, review: &QueuedReview) {
-        let until = OffsetDateTime::now_utc() + self.settings.cooldown;
+        self.cool_down_until(review, OffsetDateTime::now_utc() + self.settings.cooldown);
+    }
+
+    /// Lets `review` wait until `until` before its next pass.
+    fn cool_down_until(&self, review: &QueuedReview, until: OffsetDateTime) {
         info!(
             review_id = %review.review_id,
             until = %timestamp(until),

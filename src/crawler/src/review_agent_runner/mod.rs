@@ -1371,8 +1371,18 @@ echo "end $role $review" >> "$dir/order.log"
             "the cap's oldest decisions just happened: {pause:?}"
         );
         assert_eq!(state.paused, None, "the usage-limit pause is another one");
-        assert!(state.cooldowns.contains_key(&refused.review_id));
-        assert!(state.cooldowns.contains_key(&held_back.review_id));
+        assert!(
+            state
+                .cooldowns
+                .get(&refused.review_id)
+                .is_some_and(|cooldown| cooldown.until > pause.until),
+            "the refused review keeps its normal cooldown: {state:?}"
+        );
+        assert_eq!(
+            state.cooldowns.get(&held_back.review_id).map(|c| c.until),
+            Some(pause.until),
+            "the held-back review is workable again when the reviewers resume"
+        );
 
         forget_cooldowns(&fixture);
         let second_run = summary(&run_with(&settings).await);

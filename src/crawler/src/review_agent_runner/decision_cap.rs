@@ -3,8 +3,8 @@
 //! no further reviewer process can decide until the rolling hour has room again, so the runner
 //! pauses its reviewers until then.
 //!
-//! The report carries the refusal only as free text (`server_answer.detail`) and no retry time, and
-//! the console answers the retry time to the reviewer, not to the runner. The runner therefore
+//! The report carries the refusal only as its kind and free text (`server_answer`) and no retry
+//! time, and the console answers the retry time to the reviewer, not to the runner. The runner therefore
 //! computes the time the console computes: the agents' approvals and rejections of the last hour
 //! come from the event trail it already reads, the cap from the console's limits, and the wait
 //! ends when enough of the oldest decisions leave the hour (`agent_decision_wait` in
@@ -26,20 +26,36 @@ pub const DECISION_LIMIT_REASON: &str = "AGENT_DECISION_LIMIT";
 /// The window the console counts the agents' decisions in.
 pub const DECISION_WINDOW: Duration = Duration::hours(1);
 
+/// How much further back than the window the runner reads the trail, so a runner clock ahead of
+/// the console's database misses none of the decisions the console still counts.
+pub const CLOCK_MARGIN: Duration = Duration::minutes(5);
+
+/// The console's error kind of a refusal with status 429.
+const RATE_LIMITED: &str = "RATE_LIMITED";
+
+/// The reason of the console's other 429, for its live jobs, which no verdict answers.
+const LIVE_JOBS_BUSY: &str = "LIVE_JOBS_BUSY";
+
 /// Whether the reviewer's report says the console refused its verdict, or it saw the refusal
-/// coming, because of the agents' decision cap. A refusal of another kind, such as `RATE_LIMITED`
-/// with `LIVE_JOBS_BUSY` or a `CONFLICT`, is not the cap.
+/// coming, because of the agents' decision cap: the report names the cap's reason, or the console
+/// refused the verdict as `RATE_LIMITED`, which an approval or rejection answers only at the cap.
+/// A refusal of another kind, such as a `CONFLICT`, or `RATE_LIMITED` with `LIVE_JOBS_BUSY` from a
+/// live job, is not the cap. The event trail decides whether, and how long, the reviewers pause.
 pub fn report_shows_decision_cap(report: &ReviewerReport) -> bool {
     let answer = &report.server_answer;
-    answer.outcome != ServerOutcome::Accepted
-        && (answer.detail.contains(DECISION_LIMIT_REASON)
-            || answer.kind.contains(DECISION_LIMIT_REASON))
+    let names = |reason: &str| answer.detail.contains(reason) || answer.kind.contains(reason);
+    match answer.outcome {
+        ServerOutcome::Accepted => false,
+        ServerOutcome::Refused if answer.kind.trim() == RATE_LIMITED => !names(LIVE_JOBS_BUSY),
+        ServerOutcome::Refused | ServerOutcome::NotSent => names(DECISION_LIMIT_REASON),
+    }
 }
 
-/// When the agents' next decision is taken at the earliest: once enough of their decisions of the
-/// hour before `now` leave it to get below `limits.max_decisions_per_hour`, as the console
-/// computes its `retry_after_secs`. `None` while the trail shows fewer decisions than the cap.
-/// `events` is the trail since `now - DECISION_WINDOW`, oldest first.
+/// When the agents' next decision is taken at the earliest: once enough of their decisions leave
+/// the hour to get below `limits.max_decisions_per_hour`, as the console computes its
+/// `retry_after_secs`. `None` while the cap has room at `now`. `events` is the trail since at least
+/// `now - DECISION_WINDOW`, oldest first; decisions that already left the hour do not change the
+/// answer, so a trail read from further back is safe against a runner clock ahead of the console.
 pub fn decision_cap_resumes_at(
     events: &[ReviewEventEntry],
     limits: &AgentLimits,
@@ -47,13 +63,13 @@ pub fn decision_cap_resumes_at(
 ) -> Option<OffsetDateTime> {
     let mut decided: Vec<OffsetDateTime> = events
         .iter()
-        .filter(|event| is_counted_decision(event) && event.created > now - DECISION_WINDOW)
+        .filter(|event| is_counted_decision(event))
         .map(|event| event.created)
         .collect();
     decided.sort_unstable();
     let cap = usize::try_from(limits.max_decisions_per_hour.get()).unwrap_or(usize::MAX);
     let last_to_leave = decided.len().checked_sub(cap)?;
-    Some(decided[last_to_leave] + DECISION_WINDOW)
+    Some(decided[last_to_leave] + DECISION_WINDOW).filter(|resumes| *resumes > now)
 }
 
 /// Logs, once, that the reviewer pause `ended` is over and reviewers start again.
@@ -138,17 +154,26 @@ mod tests {
             "RATE_LIMITED, reason AGENT_DECISION_LIMIT, retry after 2872 seconds",
         );
 
+        let paraphrased = report(
+            ServerOutcome::Refused,
+            "RATE_LIMITED",
+            "the agents made their decisions of the hour",
+        );
+
         assert!(report_shows_decision_cap(&refused));
         assert!(report_shows_decision_cap(&not_sent));
+        assert!(report_shows_decision_cap(&paraphrased));
     }
 
     #[test]
     fn should_not_take_other_refusals_or_accepted_decisions_for_the_cap() {
         let busy = report(ServerOutcome::Refused, "RATE_LIMITED", "LIVE_JOBS_BUSY");
+        let busy_not_sent = report(ServerOutcome::NotSent, "RATE_LIMITED", "console busy");
         let conflict = report(ServerOutcome::Refused, "CONFLICT", "HUMAN_REQUIRED");
         let accepted = report(ServerOutcome::Accepted, "", "AGENT_DECISION_LIMIT");
 
         assert!(!report_shows_decision_cap(&busy));
+        assert!(!report_shows_decision_cap(&busy_not_sent));
         assert!(!report_shows_decision_cap(&conflict));
         assert!(!report_shows_decision_cap(&accepted));
     }
@@ -166,6 +191,35 @@ mod tests {
         // Three decisions against a cap of 2: the two oldest must leave the hour before one more
         // fits, so the wait ends when the second oldest does.
         assert_eq!(resume, Some(NOW - Duration::minutes(20) + DECISION_WINDOW));
+    }
+
+    #[test]
+    fn should_answer_the_same_time_from_a_trail_read_further_back() {
+        let in_the_hour = [
+            event(ReviewActor::AgentReviewer, ReviewEventAction::Approved, 40),
+            event(ReviewActor::AgentReviewer, ReviewEventAction::Approved, 30),
+        ];
+        let from_further_back = [
+            event(ReviewActor::AgentReviewer, ReviewEventAction::Rejected, 63),
+            event(ReviewActor::AgentReviewer, ReviewEventAction::Approved, 61),
+            in_the_hour[0].clone(),
+            in_the_hour[1].clone(),
+        ];
+
+        let expected = Some(NOW - Duration::minutes(40) + DECISION_WINDOW);
+        assert_eq!(
+            decision_cap_resumes_at(&in_the_hour, &limits(2), NOW),
+            expected
+        );
+        assert_eq!(
+            decision_cap_resumes_at(&from_further_back, &limits(2), NOW),
+            expected
+        );
+        assert_eq!(
+            decision_cap_resumes_at(&from_further_back[..2], &limits(2), NOW),
+            None,
+            "decisions that all left the hour leave room"
+        );
     }
 
     #[test]
