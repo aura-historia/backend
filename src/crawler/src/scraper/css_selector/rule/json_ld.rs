@@ -5,7 +5,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::review::product_markup::top_level_products;
+mod schema_org_product;
+
+pub(crate) use schema_org_product::{is_product_iri, top_level_products};
 
 /// How deep the search follows nested objects, `@graph` entries and offers, so a hostile
 /// document cannot make extraction recurse without bound.
