@@ -109,7 +109,7 @@ impl fmt::Debug for ChildEnvironment {
 
 /// A role's prompt and report schema, which change together.
 pub(super) struct RoleContract {
-    /// The version the process ledger and the log name, such as `author.v2`; it changes with the
+    /// The version the process ledger and the log name, such as `author.v3`; it changes with the
     /// prompt or the report schema.
     pub(super) version: &'static str,
     prompt: &'static str,
@@ -119,8 +119,8 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v2",
-            prompt: include_str!("prompts/author.v2.md"),
+            version: "author.v3",
+            prompt: include_str!("prompts/author.v3.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
@@ -509,6 +509,25 @@ mod tests {
         );
     }
 
+    /// The author is told to look for a listing ID, in markup and in JSON-LD, before it leaves
+    /// `source_listing_id` null.
+    #[test]
+    fn should_tell_the_author_to_look_for_a_listing_id_before_leaving_the_rule_out() {
+        let prompt = role_contract(AgentRole::Author).prompt(&review(), &AgentLimits::default());
+        for term in [
+            "source_listing_id",
+            "input[name=product-id]",
+            "data-product-id",
+            "product_form_<id>",
+            "itemprop=\"productID\"",
+            "json_ld_product",
+            "json_ld_product_ids",
+            "evaluate_candidate",
+        ] {
+            assert!(prompt.contains(term), "{term}");
+        }
+    }
+
     /// Both agents know what `human_required` and the console's refusals of live work mean
     /// (`HUMAN_REQUIRED`, `LIVE_JOBS_BUSY`, `NO_MATRIX`), and the reviewer what a rejection does
     /// to a product-schema review's pages.
@@ -536,7 +555,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v2", "reviewer.v2"]
+            ["author.v3", "reviewer.v2"]
         );
     }
 

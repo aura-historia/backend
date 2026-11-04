@@ -3,13 +3,26 @@
 //! inspects a page, such as the review agents labelling a URL sample, and decides no approval
 //! (`docs/crawler/extraction-and-review.md`, approval guard).
 
+use crate::scraper::css_selector::rule::{JsonLdProductProperty, json_ld_product_value};
+use schemars::JsonSchema;
 use scraper::{ElementRef, Html, Selector};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 static SCRIPTS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("script[type]").unwrap_or_else(|error| panic!("{error}")));
+
+/// The JSON-LD `Product` identifiers a `json_ld_product` rule can read from a page; `None` for
+/// one the page does not carry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct JsonLdProductIds {
+    /// `productID`, as the `product_id` property reads it.
+    pub product_id: Option<String>,
+    /// `sku`, as the `sku` property reads it.
+    pub sku: Option<String>,
+}
 
 /// Whether `html` describes exactly one schema.org `Product` as a top-level item of its JSON-LD or
 /// of its microdata, and no more than one in either. A JSON-LD item is top-level as a script's
@@ -36,7 +49,7 @@ fn json_ld_products(document: &Html) -> usize {
         .collect();
     let mut nodes = Vec::new();
     for value in &scripts {
-        collect_top_level_products(value, &ActiveContext::initial(), &mut nodes);
+        nodes.extend(top_level_products(value));
     }
     let identified: BTreeSet<String> = nodes.iter().filter_map(|node| identity(node)).collect();
     let anonymous = nodes.iter().filter(|node| identity(node).is_none()).count();
@@ -49,6 +62,33 @@ fn json_ld_scripts(document: &Html) -> impl Iterator<Item = String> + '_ {
         .select(&SCRIPTS)
         .filter(|script| script.attr("type").is_some_and(is_json_ld_type))
         .map(|script| script.text().collect::<String>())
+}
+
+/// The top-level schema.org `Product` nodes of one JSON-LD document, as
+/// [`describes_one_product`] counts them. Shared with the `json_ld_product` extraction kind, so
+/// the rule reads the node this module reports.
+pub(crate) fn top_level_products(value: &Value) -> Vec<&Map<String, Value>> {
+    let mut products = Vec::new();
+    collect_top_level_products(value, &ActiveContext::initial(), &mut products);
+    products
+}
+
+/// The identifiers of the page's top-level JSON-LD `Product` that the `json_ld_product`
+/// extraction kind reads, each as a rule on the page's first `ld+json` script with a value would
+/// read it. They are in no element the projection keeps, so the review agents are shown them
+/// beside it.
+pub fn json_ld_product_ids(html: &str) -> JsonLdProductIds {
+    let document = Html::parse_document(html);
+    let scripts: Vec<String> = json_ld_scripts(&document).collect();
+    let read = |property| {
+        scripts
+            .iter()
+            .find_map(|script| json_ld_product_value(script, property))
+    };
+    JsonLdProductIds {
+        product_id: read(JsonLdProductProperty::ProductId),
+        sku: read(JsonLdProductProperty::Sku),
+    }
 }
 
 /// What names the product a node describes: its `url`, or else its `@id`.

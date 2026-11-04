@@ -435,7 +435,7 @@ mod tests {
         let variants = rule["oneOf"]
             .as_array()
             .unwrap_or_else(|| panic!("flattened extraction kind should be represented by oneOf"));
-        assert_eq!(variants.len(), 5);
+        assert_eq!(variants.len(), 6);
         assert!(
             variants
                 .iter()
@@ -457,6 +457,7 @@ mod tests {
                 "attribute",
                 "attribute_or_text",
                 "json_ld_offer",
+                "json_ld_product",
                 "image_url"
             ]
         );

@@ -13,6 +13,7 @@ use crate::review::model::{
     RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, UrlPatternDecision,
     UrlPatternReviewCandidate,
 };
+use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -208,6 +209,10 @@ pub struct PageProjectionView {
     /// Whether the page's JSON-LD or microdata describes exactly one schema.org `Product`. A hint,
     /// never proof: the projection strips this markup with the scripts.
     pub describes_one_product: bool,
+    /// The `productID` and `sku` of the page's top-level JSON-LD `Product`, null for one the page
+    /// does not carry: the values a `json_ld_product` rule with property `product_id` or `sku`
+    /// reads. The projection strips the script they are in, so they show nowhere else.
+    pub json_ld_product_ids: JsonLdProductIds,
     /// The page as YAML: the elements, attributes and text the schema generation prompt shows,
     /// without scripts, styles, navigation, header and footer.
     pub projection: String,
@@ -499,6 +504,7 @@ impl PageProjectionView {
             url: projection.url,
             final_url: projection.final_url,
             describes_one_product: projection.describes_one_product,
+            json_ld_product_ids: projection.json_ld_product_ids,
             projection: text,
             projection_offset: offset,
             projection_chars,
@@ -717,6 +723,7 @@ mod tests {
                     final_url: "https://antiques.example/item/1".to_owned(),
                     projection: projection.clone(),
                     describes_one_product: true,
+                    json_ld_product_ids: JsonLdProductIds::default(),
                 },
                 offset,
             )
@@ -757,6 +764,7 @@ mod tests {
                 final_url: String::new(),
                 projection: "page_dsl: {}\n".to_owned(),
                 describes_one_product: false,
+                json_ld_product_ids: JsonLdProductIds::default(),
             },
             0,
         );
@@ -776,6 +784,7 @@ mod tests {
                     final_url: "https://antiques.example/item/1".to_owned(),
                     projection: projection.clone(),
                     describes_one_product: false,
+                    json_ld_product_ids: JsonLdProductIds::default(),
                 },
                 offset,
             )
