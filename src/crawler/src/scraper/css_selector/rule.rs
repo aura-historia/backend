@@ -13,7 +13,13 @@ mod image_url;
 mod json_ld;
 mod visible_text;
 
-pub use json_ld::JsonLdOfferProperty;
+pub use json_ld::{JsonLdOfferProperty, JsonLdProductProperty};
+
+/// `property` of the top-level schema.org `Product` of the JSON-LD document `json`, as a
+/// `json_ld_product` rule reads it.
+pub(crate) fn json_ld_product_value(json: &str, property: JsonLdProductProperty) -> Option<String> {
+    json_ld::product_value(json, property)
+}
 
 macro_rules! local_string_newtype {
     ($name:ident) => {
@@ -116,6 +122,13 @@ pub enum ExtractionKind {
     /// property is blank.
     JsonLdOffer {
         property: JsonLdOfferProperty,
+    },
+    /// A property of the top-level schema.org `Product` in the JSON-LD document that the
+    /// matched `<script type="application/ld+json">` element holds, such as the `productID`
+    /// or `sku` that is in no element the page shows. The first non-blank value in document
+    /// order wins; an element whose JSON does not parse or holds no such value is blank.
+    JsonLdProduct {
+        property: JsonLdProductProperty,
     },
     ImageUrl,
 }
@@ -533,6 +546,11 @@ fn extract_from_element(
             *property,
         )
         .unwrap_or_default()),
+        ExtractionKind::JsonLdProduct { property } => Ok(json_ld::product_value(
+            &element.text().collect::<String>(),
+            *property,
+        )
+        .unwrap_or_default()),
         ExtractionKind::ImageUrl => {
             image_url_candidate_group(element).ok_or_else(|| ExtractionError::MissingAttribute {
                 selector: selector_str.to_owned(),
@@ -543,7 +561,7 @@ fn extract_from_element(
 }
 
 /// Whether a text-like rule can take a non-blank value from `element`: visible text, an
-/// attribute or text alternative, or a JSON-LD offer property.
+/// attribute or text alternative, a JSON-LD offer property, or a JSON-LD product property.
 fn element_shows_value(element: &scraper::ElementRef<'_>, kind: &ExtractionKind) -> bool {
     match kind {
         ExtractionKind::Text => has_visible_text(element),
@@ -556,6 +574,9 @@ fn element_shows_value(element: &scraper::ElementRef<'_>, kind: &ExtractionKind)
         }
         ExtractionKind::JsonLdOffer { property } => {
             json_ld::offer_value(&element.text().collect::<String>(), *property).is_some()
+        }
+        ExtractionKind::JsonLdProduct { property } => {
+            json_ld::product_value(&element.text().collect::<String>(), *property).is_some()
         }
         ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => true,
     }
@@ -2543,6 +2564,57 @@ mod tests {
         ));
     }
 
+    const LD_PRODUCT_SCRIPT: &str = r#"<script type="application/ld+json">{"@type":"Product","productID":"9441317814427","sku":"R-1"}</script>"#;
+
+    #[rstest]
+    #[case(JsonLdProductProperty::ProductId, "9441317814427")]
+    #[case(JsonLdProductProperty::Sku, "R-1")]
+    fn should_read_json_ld_product_identifiers(
+        #[case] property: JsonLdProductProperty,
+        #[case] expected: &str,
+    ) {
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            ExtractionKind::JsonLdProduct { property },
+            ExtractionCardinality::First,
+        );
+        assert_eq!(
+            rule.apply(&html(LD_PRODUCT_SCRIPT)).unwrap(),
+            vec![expected]
+        );
+    }
+
+    #[test]
+    fn should_skip_a_json_ld_script_without_the_product_value_for_the_next_one() {
+        let page = html(&format!(
+            r#"<script type="application/ld+json">{{"@type":"BreadcrumbList"}}</script>{LD_PRODUCT_SCRIPT}"#
+        ));
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            ExtractionKind::JsonLdProduct {
+                property: JsonLdProductProperty::Sku,
+            },
+            ExtractionCardinality::First,
+        );
+        assert_eq!(rule.apply(&page).unwrap(), vec!["R-1"]);
+    }
+
+    #[test]
+    fn should_fail_a_json_ld_product_rule_on_unparseable_json_as_empty() {
+        let page = html(r#"<script type="application/ld+json">{"@type":"Product",</script>"#);
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            ExtractionKind::JsonLdProduct {
+                property: JsonLdProductProperty::ProductId,
+            },
+            ExtractionCardinality::First,
+        );
+        assert!(matches!(
+            rule.apply(&page).unwrap_err(),
+            ExtractionError::EmptyValue { .. }
+        ));
+    }
+
     #[rstest]
     #[case::attribute_or_text(
         attribute_or_text("value"),
@@ -2600,6 +2672,18 @@ mod tests {
                 r#"{"selector":"s","type":"json_ld_offer","property":"price"}"#,
                 json_ld(JsonLdOfferProperty::Price),
             ),
+            (
+                r#"{"selector":"s","type":"json_ld_product","property":"product_id"}"#,
+                ExtractionKind::JsonLdProduct {
+                    property: JsonLdProductProperty::ProductId,
+                },
+            ),
+            (
+                r#"{"selector":"s","type":"json_ld_product","property":"sku"}"#,
+                ExtractionKind::JsonLdProduct {
+                    property: JsonLdProductProperty::Sku,
+                },
+            ),
         ] {
             let rule: ExtractionRule = serde_json::from_str(json).unwrap();
             assert_eq!(rule.extract, kind);
@@ -2607,5 +2691,17 @@ mod tests {
                 serde_json::from_value(serde_json::to_value(&rule).unwrap()).unwrap();
             assert_eq!(round_trip, rule);
         }
+    }
+
+    #[rstest]
+    #[case::unknown_property(r#"{"selector":"s","type":"json_ld_product","property":"gtin"}"#)]
+    #[case::screaming_case(r#"{"selector":"s","type":"json_ld_product","property":"PRODUCT_ID"}"#)]
+    #[case::wire_key(r#"{"selector":"s","type":"json_ld_product","property":"productID"}"#)]
+    #[case::no_property(r#"{"selector":"s","type":"json_ld_product"}"#)]
+    fn should_refuse_a_json_ld_product_rule_without_a_known_property(#[case] json: &str) {
+        assert!(
+            serde_json::from_str::<ExtractionRule>(json).is_err(),
+            "{json}"
+        );
     }
 }

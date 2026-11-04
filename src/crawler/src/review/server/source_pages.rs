@@ -85,6 +85,7 @@ impl ReviewServer {
             final_url: fetched.final_url.to_string(),
             projection: projected.projection,
             describes_one_product: projected.describes_one_product,
+            json_ld_product_ids: projected.json_ld_product_ids,
         })
     }
 
