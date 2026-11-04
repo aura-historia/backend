@@ -31,10 +31,8 @@ pub fn describes_one_product(html: &str) -> bool {
 /// How many distinct products the top-level JSON-LD `Product` nodes describe: one per `url`, or
 /// else per `@id`, and one per node naming neither.
 fn json_ld_products(document: &Html) -> usize {
-    let scripts: Vec<Value> = document
-        .select(&SCRIPTS)
-        .filter(|script| script.attr("type").is_some_and(is_json_ld_type))
-        .filter_map(|script| serde_json::from_str(&script.text().collect::<String>()).ok())
+    let scripts: Vec<Value> = json_ld_scripts(document)
+        .filter_map(|script| serde_json::from_str(&script).ok())
         .collect();
     let mut nodes = Vec::new();
     for value in &scripts {
@@ -43,6 +41,14 @@ fn json_ld_products(document: &Html) -> usize {
     let identified: BTreeSet<String> = nodes.iter().filter_map(|node| identity(node)).collect();
     let anonymous = nodes.iter().filter(|node| identity(node).is_none()).count();
     identified.len() + anonymous
+}
+
+/// The text of each `<script type="application/ld+json">` of the page, in document order.
+fn json_ld_scripts(document: &Html) -> impl Iterator<Item = String> + '_ {
+    document
+        .select(&SCRIPTS)
+        .filter(|script| script.attr("type").is_some_and(is_json_ld_type))
+        .map(|script| script.text().collect::<String>())
 }
 
 /// What names the product a node describes: its `url`, or else its `@id`.
