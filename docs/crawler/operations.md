@@ -36,6 +36,8 @@ The crawler scheduler is deployed as a single process. Its spider and scraper wo
 
 [`src/crawler/docker-compose.yml`](../../src/crawler/docker-compose.yml) starts PostgreSQL 16. The Linux and Windows scripts both create the crawler server and demo databases, migrate them, report their status, reset them, and stop the container. Keep both script sets aligned.
 
+The container runs Postgres with `max_connections=200`. The crawler's connection pool defaults to the sum of the spider and scraper concurrency plus 10, which is 120 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pool size plus the sessions you open yourself.
+
 The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From `src/crawler`, use the matching scripts in `scripts/linux/` or `scripts/windows/`:
 
 - `db-up` starts Postgres and creates local databases.
