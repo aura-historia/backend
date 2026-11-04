@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-188",
+  "country": "IT",
+  "observedAt": "2026-11-04T08:59:11.218956Z",
+  "result": "PASSED",
+  "rawJournalFiles": 214,
+  "rawJournalRecordsScanned": 54246,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "bernavasebastiano.com",
+      "bisgart.com",
+      "bisiantichita.it"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:688"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot188-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T08:52:43.344325Z",
+    "fullVerifiedAt": "2026-11-04T08:51:31.520957Z",
+    "counts": {
+      "parties": 321,
+      "listingSources": 321,
+      "locations": 369,
+      "logos": 247,
+      "identifiedPlatforms": 258,
+      "deliveryProfiles": 163,
+      "emptyIngestionMethods": 321,
+      "excluded": 26,
+      "deferred": 95
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Bernava monthly Arezzo reference/fair stand has roles [], distinct from Capolona tax address. Historical Swedish work and French exhibitions establish no foreign business home. Actual antique religious textile and original transparent logo inspected; no shipping/pickup policy invented.",
+    "Bisgart .it redirect is an alias of actual .com, with exact full native/VAT operator corroboration. VirtueMart directly identified. Worldwide delivery explicit; safe handling is not insurance/tracking. Original transparent logo inspected in local browser.",
+    "Bisi current native civic 46 differs from hosted 48 and Sirmione tax address. Product/variant available true and InStock resolve generic sold badge extraction. Partial Italy/conditional unspecified international shipping, packing/tracking and advertised handling/Italian transit retained; price-mode ambiguity, foreign transit, insurance, dispatch and collection remain unknown.",
+    "Bonatelli antique painting inspected, but complete current partnership denomination and conflicting phone digits remain unresolved. Deferred without imported facts or API; retired Milan shop is distinct from current Garbagnate warehouse/workshop. Negative VIES only concerns intra-EU scope.",
+    "A temporary preparation race omitted Bernava from the first dry plan; this was caught before any write, the complete observation restored, and the three-dealer plan verified before separate fresh per-dealer ownership/API checks. No uncertain write or duplicate resource resulted."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

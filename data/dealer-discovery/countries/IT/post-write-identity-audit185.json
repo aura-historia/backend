@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-185",
+  "country": "IT",
+  "observedAt": "2026-11-04T08:18:08.059215Z",
+  "result": "PASSED",
+  "rawJournalFiles": 207,
+  "rawJournalRecordsScanned": 53160,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "artantico.com",
+      "IT:ANTICOANTICO:2359"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot185-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T08:17:36.165993Z",
+    "fullVerifiedAt": "2026-11-03T22:52:45.686753Z",
+    "counts": {
+      "parties": 313,
+      "listingSources": 313,
+      "locations": 361,
+      "logos": 241,
+      "identifiedPlatforms": 250,
+      "deliveryProfiles": 161,
+      "emptyIngestionMethods": 313,
+      "excluded": 26,
+      "deferred": 92
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Artantico native JavaScript navigation is an ordinary route to a working catalogue. Native religious painting and exact hosted sculpture images were inspected, but dating/attribution remain seller claims. One native source only; exact 2177 is corroboration.",
+    "Original AA monogram SVG has fractional intrinsic 566.93 x 566.93 dimensions, retained without invented integer pixels. Nicepage is the directly identified builder; no commerce engine or native AnticoAntico hosting inferred.",
+    "Atena is the exact published VAT/company, not unrelated namesakes. Fossano business contact remains separate from Canale tax address. Export container/air service supports partial unspecified international geography, not worldwide/domestic coverage, rates, insurance, timing or collection.",
+    "B&Facchini exact 864 is already managed in Italy and receives no duplicate or enrichment mutation. Arte Antica 2382 primary routes return 404; suspected Romanian identity remains an unverified frontier lead with no country assignment or API write."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-02-it-194",
+  "verifiedAt": "2026-11-04T10:39:40.603942Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-04T10:24:10.215748Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 1,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 4183,
+    "listingSources": 4221
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "anticoantico.com",
+      "listingSourceId": "ls_01m6hqrnjre14tnkvd5xfhzhr1",
+      "partyId": "pty_01m6hqrnj3edm9wa6pnhzwr46a",
+      "locations": 1,
+      "logo": false,
+      "platform": "ANTICOANTICO",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T10:24:10.215211Z",
+      "observationDigest": "975499569b27543268cd6219e6395876518e2fc3532abbf582869fa55f39d472"
+    }
+  ]
+}

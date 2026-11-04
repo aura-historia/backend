@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "be-2026-11-03-068",
-  "observedAt": "2026-11-03T21:10:09.626391Z",
+  "run": "be-2026-11-04-094",
+  "observedAt": "2026-11-04T10:26:37.980064Z",
   "counts": {
-    "parties": 128,
-    "listingSources": 129,
-    "locations": 176,
-    "logos": 81,
-    "identifiedPlatforms": 92,
-    "deliveryProfiles": 62,
-    "emptyIngestionMethods": 129,
-    "excluded": 22,
-    "deferred": 178
+    "parties": 170,
+    "listingSources": 171,
+    "locations": 232,
+    "logos": 102,
+    "identifiedPlatforms": 109,
+    "deliveryProfiles": 84,
+    "emptyIngestionMethods": 171,
+    "excluded": 35,
+    "deferred": 287
   },
   "verification": "PASSED_INCREMENTAL",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "countryCoverage": "OPEN",
-  "description": "No additions. Excluded Loeckx, Het Pand, Élysée and DVC for current first-party auction operation, and Bigs Brocante for multi-dealer market scope. Deferred inaccessible Broc-Events, retaining historical marketplace references as leads without claiming closure or alias. All five ledgers audited, indexes regenerated and incrementally verified:128 Parties,129 sources,176 locations,62 shipping profiles, all ingestion empty. No paid data, pending writes or country blocker. Continue final unreviewed national art-directory websites, then remaining BAS2026 frontier; next periodic full verification070."
+  "description": "Initial Tongeren municipal31-lead triage complete. Last cohort: one existing owner retained and six frontier deferrals; no additions or country exclusions. Current Luxembourg auction exclusion queued for its owner. All seven ledgers audited, indexed and incrementally verified. Broader exact hosted-dealer roster now in progress."
 }

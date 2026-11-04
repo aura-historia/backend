@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-178",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:10:49.172574Z",
+  "result": "PASSED",
+  "rawJournalFiles": 179,
+  "rawJournalRecordsScanned": 51165,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "ritatuci.com",
+      "IT:ANTICOANTICO:2054",
+      "IT:ANTICOANTICO:894"
+    ],
+    "excluded": [],
+    "deferred": [
+      "antichitafirenze.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot178-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T22:10:23.795858Z",
+    "fullVerifiedAt": "2026-11-03T22:09:41.578051Z",
+    "counts": {
+      "parties": 289,
+      "listingSources": 289,
+      "locations": 336,
+      "logos": 235,
+      "identifiedPlatforms": 227,
+      "deliveryProfiles": 156,
+      "emptyIngestionMethods": 289,
+      "excluded": 25,
+      "deferred": 91
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Rita nativeHTTPS request failed; advertised workingHTTP/nativeoriginalPNG used withoutTLSbypass. No shipping/purchasedcollection policy inferred from restoration/installation. API added rootURLtrailing slash: returned IDs and directGET reconciled, row canonicalURL journaled; resumed only absent location/default, no duplicateParty/source.",
+    "Pardini/Bertacchi negativeVIES retained only as failed intra-EU validation, not domesticinvalidity/closure. Full native businessoperators/contact evidence preserved. No unverified shipping/logo/email or stock/dispatch defaults.",
+    "RiccardoChiavacci directantiques/currentstock verified, but genuineVAT/fulllegalbusinessform unresolved. Placeholder0123456789/commented000000000 omitted withoutrepair. Deferred once, no surname/familymerge with existingDittaChiavacci, noAPIresources."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

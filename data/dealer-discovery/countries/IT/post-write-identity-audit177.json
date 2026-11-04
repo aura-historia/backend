@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-177",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:03:14.607724Z",
+  "result": "PASSED",
+  "rawJournalFiles": 175,
+  "rawJournalRecordsScanned": 50819,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "antichitalapieve.it",
+      "antichitaischia.it",
+      "IT:ANTICOANTICO:2304"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot177-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T22:02:45.953602Z",
+    "fullVerifiedAt": "2026-11-03T20:38:08.548711Z",
+    "counts": {
+      "parties": 286,
+      "listingSources": 286,
+      "locations": 333,
+      "logos": 234,
+      "identifiedPlatforms": 224,
+      "deliveryProfiles": 156,
+      "emptyIngestionMethods": 286,
+      "excluded": 25,
+      "deferred": 90
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "LaPieve incomplete Milan warehouse omitted; collection remains unbound across multiple warehouse options. Packing included, insurance only by agreement, no universal delivery duration or stock/dispatch default.",
+    "Ischia exact EnricaLeoni operator retained; distinct taxaddress/personalCF omitted. Europe-only restriction and gallery pickup appointment preserved; no uncertain native platform or delivery-time generalization.",
+    "Gulino civic7versus7/8 omitted; native site rebuild is not closure. Exact Antico2304 only source, Proantic corroboration only. No unverified email or shipping policy."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

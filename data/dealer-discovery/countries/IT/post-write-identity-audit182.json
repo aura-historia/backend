@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-182",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:44:11.515071Z",
+  "result": "PASSED",
+  "rawJournalFiles": 196,
+  "rawJournalRecordsScanned": 52179,
+  "apiWriteAttemptsThisRun": 12,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2144",
+      "IT:ANTICOANTICO:2254",
+      "IT:ANTICOANTICO:2312",
+      "IT:ANTICOANTICO:2175"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot182-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T22:43:07.079536Z",
+    "fullVerifiedAt": "2026-11-03T22:09:41.578051Z",
+    "counts": {
+      "parties": 304,
+      "listingSources": 304,
+      "locations": 351,
+      "logos": 238,
+      "identifiedPlatforms": 242,
+      "deliveryProfiles": 158,
+      "emptyIngestionMethods": 304,
+      "excluded": 25,
+      "deferred": 92
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Davide portrait226537 was excluded from current stock because its inspected image says VENDUTO despite a listed price. Two separate nineteenth-century art offers and unmarked original photos qualify the dealer; broadly dated furniture is not the basis. Business contacts Erica/Elisa are not owner Parties.",
+    "Taddei stylistic references to Ribera, Reni and Guercino remain qualified seller claims, not authenticated attribution. Native Masini135 is distinct from tax Ballerini12 int8. No extra commerce-channel source or inferred fulfillment.",
+    "Antichità68 full current operator is Zamfir Camelia; Italian business home comes from verified business/contact evidence. No nationality inference. Native Lecce contact is distinct from incomplete Melendugno tax address. Porcelain EXPORT wording is not shipping coverage; no independent maker/date/condition or print-signature guarantee.",
+    "Cantini current unmarked tureen qualifies; explicitly SOLD/VENDUTO items and recent Venini2016 are excluded. Pozzetto1 contact remains distinct from tax RivieraBerica288int1. Porcelain/maiolica category ambiguity is not silently repaired. No unverified merchant logos, emails, shipping or inventory/dispatch defaults."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

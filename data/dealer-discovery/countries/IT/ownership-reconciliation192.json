@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-192",
+  "country": "IT",
+  "result": "DISTINCT_BUSINESSES_CONFIRMED",
+  "reviewedHits": [
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "debbiantichita.it",
+      "run": "2026-11-02-it-192",
+      "status": "REVIEWED",
+      "vat": "02695370367",
+      "operator": "Debbia Antichità S.r.l.",
+      "backend": {},
+      "matched": [
+        "03178400366",
+        "debbia daniel"
+      ]
+    }
+  ],
+  "interpretation": "The only prewrite duplicate-text hit is the new Debbia SRL review explicitly comparing a distinct Daniel Debbia business. Current primary full names, exact VATs, addresses and phones are different. It is a related-business research reference, not another ledger managing merchant 937. Narrow temporary guards allow only this country/run/domain with exact distinct reviewed VAT/operator. Every other raw match still blocks; fresh live source/Party checks and normal readback remain unchanged.",
+  "identities": [
+    {
+      "ledger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+      "domain": "debbiantichita.it",
+      "operator": "Debbia Antichità S.r.l.",
+      "vat": "02695370367",
+      "evidence": [
+        "https://debbiantichita.it/privacy-policy/",
+        "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/02695370367"
+      ]
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/IT/hosted/mobili-epoca-debbia-daniel/dealers.jsonl",
+      "entityKey": "IT:ANTICOANTICO:937",
+      "operator": "Mobili d'Epoca di Debbia Daniel",
+      "vat": "03178400366",
+      "evidence": [
+        "https://www.anticoantico.com/espositori/default.asp?idantiquario=937&lingua=ita"
+      ]
+    }
+  ],
+  "noOtherCountryMutations": true
+}

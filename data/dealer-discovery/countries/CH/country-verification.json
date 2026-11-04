@@ -1,6 +1,6 @@
 {
-  "run": "ch-2026-11-03-108",
-  "checkedAt": "2026-11-03T21:13:59.617491Z",
+  "run": "ch-2026-11-04-153",
+  "checkedAt": "2026-11-04T10:46:20.675153Z",
   "verified": false,
   "status": "VERIFICATION_FAILED",
   "scope": "ROOT_AND_HOSTED_COUNTRY",
@@ -21,52 +21,52 @@
     }
   },
   "ledgerCounts": {
-    "parties": 174,
-    "listingSources": 177,
-    "locations": 206,
-    "logos": 127,
-    "identifiedPlatforms": 135,
-    "deliveryProfiles": 94,
-    "excluded": 43,
-    "deferred": 159
+    "parties": 222,
+    "listingSources": 226,
+    "locations": 264,
+    "logos": 163,
+    "identifiedPlatforms": 176,
+    "deliveryProfiles": 125,
+    "excluded": 56,
+    "deferred": 251
   },
   "liveIngestionCounts": {
-    "checked": 177,
-    "empty": 107,
+    "checked": 226,
+    "empty": 156,
     "externallyConfigured": 70
   },
   "strictVerificationAttempts": [
     {
       "ledger": "data/dealer-discovery/countries/CH/dealers.jsonl",
       "output": "data/dealer-discovery/countries/CH/verification.json",
-      "run": "ch-2026-11-03-108",
+      "run": "ch-2026-11-04-153",
       "passed": false,
       "failure": "INGESTION_METHODS_NOT_EMPTY",
-      "observedAt": "2026-11-03T21:13:31.483068Z"
+      "observedAt": "2026-11-04T10:45:47.556662Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/CH/hosted/blinks/dealers.jsonl",
       "output": "data/dealer-discovery/countries/CH/hosted/blinks/verification.json",
-      "run": "ch-2026-11-03-108",
+      "run": "ch-2026-11-04-153",
       "passed": false,
       "failure": "INGESTION_METHODS_NOT_EMPTY",
-      "observedAt": "2026-11-03T21:13:38.968724Z"
+      "observedAt": "2026-11-04T10:45:56.954245Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/CH/hosted/castellino/dealers.jsonl",
       "output": "data/dealer-discovery/countries/CH/hosted/castellino/verification.json",
-      "run": "ch-2026-11-03-108",
+      "run": "ch-2026-11-04-153",
       "passed": false,
       "failure": "INGESTION_METHODS_NOT_EMPTY",
-      "observedAt": "2026-11-03T21:13:47.106257Z"
+      "observedAt": "2026-11-04T10:46:05.823613Z"
     },
     {
       "ledger": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/dealers.jsonl",
       "output": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/verification.json",
-      "run": "ch-2026-11-03-108",
+      "run": "ch-2026-11-04-153",
       "passed": false,
       "failure": "INGESTION_METHODS_NOT_EMPTY",
-      "observedAt": "2026-11-03T21:13:54.887502Z"
+      "observedAt": "2026-11-04T10:46:14.386487Z"
     }
   ],
   "externalConfigurationObservations": [
@@ -78,7 +78,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.001042Z"
+      "observedAt": "2026-11-04T10:46:14.511801Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -88,7 +88,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.073148Z"
+      "observedAt": "2026-11-04T10:46:14.599640Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -98,7 +98,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.178967Z"
+      "observedAt": "2026-11-04T10:46:14.675578Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -108,7 +108,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.324845Z"
+      "observedAt": "2026-11-04T10:46:14.859415Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -118,7 +118,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.346768Z"
+      "observedAt": "2026-11-04T10:46:14.886374Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -128,7 +128,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.416877Z"
+      "observedAt": "2026-11-04T10:46:14.941739Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -138,7 +138,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.438312Z"
+      "observedAt": "2026-11-04T10:46:14.969683Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -148,7 +148,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.487183Z"
+      "observedAt": "2026-11-04T10:46:15.070965Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -158,7 +158,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.567049Z"
+      "observedAt": "2026-11-04T10:46:15.153593Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -168,7 +168,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.581562Z"
+      "observedAt": "2026-11-04T10:46:15.157259Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -178,7 +178,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.649378Z"
+      "observedAt": "2026-11-04T10:46:15.256415Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -188,7 +188,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.721811Z"
+      "observedAt": "2026-11-04T10:46:15.321796Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -198,7 +198,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:55.959440Z"
+      "observedAt": "2026-11-04T10:46:15.582313Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -208,7 +208,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.022822Z"
+      "observedAt": "2026-11-04T10:46:15.645594Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -218,7 +218,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.035166Z"
+      "observedAt": "2026-11-04T10:46:15.667278Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -228,7 +228,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.065317Z"
+      "observedAt": "2026-11-04T10:46:15.671973Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -238,7 +238,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.175635Z"
+      "observedAt": "2026-11-04T10:46:15.816505Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -248,7 +248,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.259652Z"
+      "observedAt": "2026-11-04T10:46:15.903183Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -258,7 +258,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.392569Z"
+      "observedAt": "2026-11-04T10:46:16.055943Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -268,7 +268,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.415132Z"
+      "observedAt": "2026-11-04T10:46:16.056901Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -278,7 +278,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.455573Z"
+      "observedAt": "2026-11-04T10:46:16.085941Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -288,7 +288,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.486236Z"
+      "observedAt": "2026-11-04T10:46:16.151381Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -298,7 +298,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.526918Z"
+      "observedAt": "2026-11-04T10:46:16.215014Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -308,7 +308,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.653566Z"
+      "observedAt": "2026-11-04T10:46:16.328379Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -318,7 +318,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.682560Z"
+      "observedAt": "2026-11-04T10:46:16.321241Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -328,7 +328,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.681711Z"
+      "observedAt": "2026-11-04T10:46:16.389382Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -338,7 +338,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.760836Z"
+      "observedAt": "2026-11-04T10:46:16.406478Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -348,7 +348,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.809490Z"
+      "observedAt": "2026-11-04T10:46:16.490360Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -358,7 +358,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.840215Z"
+      "observedAt": "2026-11-04T10:46:16.494135Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -368,7 +368,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.835960Z"
+      "observedAt": "2026-11-04T10:46:16.559585Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -378,7 +378,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.907896Z"
+      "observedAt": "2026-11-04T10:46:16.575002Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -388,7 +388,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.920471Z"
+      "observedAt": "2026-11-04T10:46:16.631145Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -398,7 +398,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:56.995218Z"
+      "observedAt": "2026-11-04T10:46:16.716905Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -408,7 +408,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.084068Z"
+      "observedAt": "2026-11-04T10:46:16.730510Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -418,7 +418,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.085377Z"
+      "observedAt": "2026-11-04T10:46:16.733465Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -428,7 +428,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.134418Z"
+      "observedAt": "2026-11-04T10:46:16.793996Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -438,7 +438,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.187722Z"
+      "observedAt": "2026-11-04T10:46:16.801888Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -448,7 +448,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.158755Z"
+      "observedAt": "2026-11-04T10:46:16.814262Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -458,7 +458,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.262956Z"
+      "observedAt": "2026-11-04T10:46:16.935722Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -468,7 +468,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.330676Z"
+      "observedAt": "2026-11-04T10:46:17.011974Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -478,7 +478,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.399399Z"
+      "observedAt": "2026-11-04T10:46:17.053567Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -488,7 +488,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.466193Z"
+      "observedAt": "2026-11-04T10:46:17.108153Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -498,7 +498,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.475838Z"
+      "observedAt": "2026-11-04T10:46:17.192314Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -508,7 +508,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.560582Z"
+      "observedAt": "2026-11-04T10:46:17.279554Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -518,7 +518,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.698910Z"
+      "observedAt": "2026-11-04T10:46:17.363553Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -528,7 +528,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.773422Z"
+      "observedAt": "2026-11-04T10:46:17.444832Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -538,7 +538,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.858676Z"
+      "observedAt": "2026-11-04T10:46:17.593395Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -548,7 +548,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:57.934642Z"
+      "observedAt": "2026-11-04T10:46:17.674689Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -558,7 +558,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.007710Z"
+      "observedAt": "2026-11-04T10:46:17.699135Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -568,7 +568,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.006946Z"
+      "observedAt": "2026-11-04T10:46:17.745523Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -578,7 +578,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.076333Z"
+      "observedAt": "2026-11-04T10:46:17.774836Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -588,7 +588,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.340714Z"
+      "observedAt": "2026-11-04T10:46:18.083359Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -598,7 +598,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.404224Z"
+      "observedAt": "2026-11-04T10:46:18.124820Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -608,7 +608,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.476010Z"
+      "observedAt": "2026-11-04T10:46:18.214660Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -618,7 +618,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.600240Z"
+      "observedAt": "2026-11-04T10:46:18.347182Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -628,7 +628,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.616303Z"
+      "observedAt": "2026-11-04T10:46:18.387329Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -638,7 +638,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.754497Z"
+      "observedAt": "2026-11-04T10:46:18.504496Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -648,7 +648,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.829760Z"
+      "observedAt": "2026-11-04T10:46:18.605040Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -658,7 +658,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.883271Z"
+      "observedAt": "2026-11-04T10:46:18.653654Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -668,7 +668,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:58.955324Z"
+      "observedAt": "2026-11-04T10:46:18.739973Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -678,7 +678,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.021335Z"
+      "observedAt": "2026-11-04T10:46:18.787912Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -688,7 +688,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.115545Z"
+      "observedAt": "2026-11-04T10:46:18.859574Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -698,7 +698,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.134900Z"
+      "observedAt": "2026-11-04T10:46:18.902842Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -708,7 +708,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.197623Z"
+      "observedAt": "2026-11-04T10:46:18.946303Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -718,7 +718,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.211560Z"
+      "observedAt": "2026-11-04T10:46:18.975159Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -728,7 +728,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.213852Z"
+      "observedAt": "2026-11-04T10:46:18.978945Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/dealers.jsonl",
@@ -738,7 +738,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.279212Z"
+      "observedAt": "2026-11-04T10:46:19.024928Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/hosted/blinks/dealers.jsonl",
@@ -748,7 +748,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.557820Z"
+      "observedAt": "2026-11-04T10:46:20.629045Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/hosted/castellino/dealers.jsonl",
@@ -758,7 +758,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.585029Z"
+      "observedAt": "2026-11-04T10:46:20.638384Z"
     },
     {
       "ownerLedger": "data/dealer-discovery/countries/CH/hosted/degussa-swiss/dealers.jsonl",
@@ -768,7 +768,7 @@
       "methodTypes": [
         "WEB_CRAWL"
       ],
-      "observedAt": "2026-11-03T21:13:59.615991Z"
+      "observedAt": "2026-11-04T10:46:20.674165Z"
     }
   ],
   "paidDataSpendUsd": 0,
@@ -778,14 +778,14 @@
     "Strict country verification failed because sources changed externally from empty ingestion to WEB_CRAWL after their creation/readback. External configuration preserved; this workflow never enabled ingestion. Prior verification files retain their actual last-success dates. New onboarded resources received independent creation/default readbacks. This is not a global research blocker."
   ],
   "lastResourceIntegrityReadback": {
-    "run": "ch-2026-11-03-105",
-    "checkedAt": "2026-11-03T20:55:22.791099Z",
+    "run": "ch-2026-11-04-150",
+    "checkedAt": "2026-11-04T10:30:56.469384Z",
     "resourceIntegrityPassed": true,
     "strictCountryVerificationPassed": false,
     "counts": {
-      "sourcesRead": 174,
+      "sourcesRead": 223,
       "resourceFailures": 0,
-      "emptyIngestion": 104,
+      "emptyIngestion": 153,
       "externallyConfiguredIngestion": 70
     },
     "file": "resource-verification.json"

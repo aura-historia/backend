@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-03-078",
-  "observedAt": "2026-11-03T21:15:58.909135Z",
+  "run": "jp-2026-11-04-126",
+  "observedAt": "2026-11-04T10:52:12.570236Z",
   "statuses": {
-    "ADDED": 198,
-    "DEFERRED": 137,
-    "EXCLUDED": 23
+    "ADDED": 253,
+    "DEFERRED": 203,
+    "EXCLUDED": 44
   },
   "paidDataSpendUsd": 0,
-  "summary": "Batch78 added KeiseiArt (敬誠株式会社) through a current priced original OldNoritake vase and recent2026trade evidence; new resources/defaults read back with empty ingestion. Abiko gallery distinguished from unlocated warehouse and shipping fee exceptions preserved without universal free rate. Garage24 deferred for missing current own retail stock/legal identity; KahmArt excluded for explicit own auctions. Existing Genroku, MoriokaBijutsu and Morimiya ownership retained without duplicate sources. Audit/index passed; country verification still fails for66 external WEB_CRAWL sources, freshly confirmed read-only and preserved. Last passing full result remains batch70. No pending writes/global research blocker, USD0; continuing directory expansion.",
+  "summary": "Batch 126 added Yoseido Gallery’s current Wix Stores original-art catalogue under verified 有限会社 阿部養清堂. Inspected an available edition-one woodblock and a separate drawing; current rebuilt Ginza premises remain distinct from the expired temporary address. Domestic and unspecified international delivery retain null rates. Separate BASE catalogue queued under the same owner; migrated Shinseido and Soumeido leads resolved to existing Japan owners. One addition, no exclusions or deferrals. Country totals 253 added, 203 deferred, 44 excluded. Audit/index passed; explicit incremental verification failed on the same 66 external ingestion changes confirmed by fresh readbacks. Dated PASS070 retained. USD 0; no pending mutations or global blocker; research continues.",
   "verification": "FAILED_EXTERNAL_INGESTION_DRIFT",
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",

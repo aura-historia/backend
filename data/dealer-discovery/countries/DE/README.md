@@ -23,10 +23,10 @@ each dealer still requires its own qualification.
 [searches.jsonl](searches.jsonl) records recent queries and duplicate-filter results.
 Check it before repeating regional searches; search results remain leads, not import evidence.
 
-Current production checkpoint `2026-11-03-de-210`: **639 Parties and 642 listing sources**,
-**727 locations**, **399 original logo URLs**, **412 advertised-delivery profiles/defaults**,
-and **567 identified platforms**. Discovery created every ingestion list empty.
-The latest live read finds **355 empty** and **287 nonempty** lists; older records now
+Current production checkpoint `2026-11-04-de-249`: **707 Parties and 711 listing sources**,
+**815 locations**, **454 original logo URLs**, **445 advertised-delivery profiles/defaults**,
+and **622 identified platforms**. Discovery created every ingestion list empty.
+The latest live read finds **424 empty** and **287 nonempty** lists; older records now
 contain `WEB_CRAWL`. Standard country verification therefore fails its all-empty
 assertion, while identity, presentation and dated location/profile/default readbacks
 match. Discovery has not changed those live ingestion settings. A Party
@@ -34,7 +34,7 @@ represents the business/operator; the API has no additional organization-create 
 This workflow has not submitted product listings. Paid search, Places, lead verification
 and treg spend: **$0**.
 
-The ledger currently records **120 excluded** and **334 deferred** domains. Use the compact
+The ledger currently records **131 excluded** and **384 deferred** domains. Use the compact
 index for names, IDs, platforms and decision codes, and the ledger for evidence, omissions
 and revisit dates. Research deferrals are not fraud findings. Primary closure notices
 exclude inactive businesses; a closed historic branch or showroom does not by itself
@@ -49,6 +49,11 @@ or an actual blocking condition, preserving enough evidence and IDs to resume.
 - Check the live legal notice and contracting terms after a business takeover: indexed
   search results and founder biographies can still name the former proprietor. A temporary renovation or maintenance notice establishes
   neither permanent closure nor inspectable current stock.
+- Follow exact public redirects and meta-refresh targets. A failed legacy deep link can
+  coexist with a working replacement shop root; verify its primary legal identity before
+  treating it as an alias. Check every country owner after reaching a new canonical host.
+- Retained WordPress media folders can be served by an active static Astro frontend.
+  Runtime assets and native commerce behavior establish platform technology.
 - Native product availability and enabled purchase controls can resolve hidden universal
   “sold out” template text. Inspect the actual offer, while keeping sold archives and
   model examples separate. Bidder clauses in a retail shop’s terms require an operator-wide
@@ -286,3 +291,6 @@ checks are separate from new discovery; no paid provider is currently necessary.
 - Large destination tables must respect the API limit of 64 areas per shipping zone. Split verified destinations into disjoint zones with identical reviewed terms; retain ambiguous legacy labels separately. After a rejected profile write, confirm the live profile collection and default before correcting input and reusing existing resource IDs.
 
 - Batch 190: a legacy German domain can redirect to a legally distinct French gallery. Queue the verified current home country and redirect evidence for its owner; historical directories and family names do not prove a transferred business, current German premises or shared operator.
+
+- Collection arrangements use tagged objects such as `{"kind":"CONTACT_TO_ARRANGE"}`; a bare string is invalid. Reconcile rejected profile creation with the source’s live profile array and default before resuming with retained IDs. Explicit Germany-only delivery supports complete country coverage; unknown pickup streets need no invented site reference.
+- Shipping class codes require real per-item crawler assignments. Keep item-specific furniture, parcel and digital-goods restrictions in observations when assignments do not exist; use unknown service eligibility where source-wide availability cannot be supported. Put a free-shipping threshold on its service and retain an unknown-price fallback. These observations do not authorize ingestion.

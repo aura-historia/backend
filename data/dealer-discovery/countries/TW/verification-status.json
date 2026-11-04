@@ -1,22 +1,22 @@
 {
   "schemaVersion": 1,
-  "run": "tw-2026-11-03-072",
-  "observedAt": "2026-11-03T21:16:19.709871Z",
+  "run": "tw-2026-11-04-115",
+  "observedAt": "2026-11-04T10:46:48.131101Z",
   "status": "PASS_WITH_PRESERVED_EXTERNAL_INGESTION",
   "strictEmptyIngestionForAllSources": false,
   "verification": "verification.json",
   "externalIngestionAuthorization": "external-ingestion-observations.json",
   "reason": "All managed metadata/default checks pass. Empty ingestion is required for new/unexcepted sources; exact externally configured method sets are preserved by explicit user instruction.",
   "counts": {
-    "parties": 103,
-    "listingSources": 103,
-    "locations": 69,
-    "logos": 76,
-    "identifiedPlatforms": 91,
-    "deliveryProfiles": 46,
-    "emptyIngestionMethods": 41,
+    "parties": 139,
+    "listingSources": 139,
+    "locations": 86,
+    "logos": 96,
+    "identifiedPlatforms": 124,
+    "deliveryProfiles": 49,
+    "emptyIngestionMethods": 77,
     "preservedExternalIngestionMethods": 62,
-    "excluded": 28,
-    "deferred": 144
+    "excluded": 33,
+    "deferred": 182
   }
 }

@@ -1,0 +1,627 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-04-at-123",
+  "attemptedAt": "2026-11-04T10:49:22.357156Z",
+  "observedAt": "2026-11-04T10:48:48.004278Z",
+  "status": "FAILED_EXTERNAL_INGESTION_CHANGE",
+  "country": "AT",
+  "managedSources": 194,
+  "emptyIngestionMethods": 127,
+  "affectedSources": 67,
+  "reason": "Strict country verification found nonempty ingestion on sources that discovery originally created empty. Existing external settings were observed, not changed. New resources were individually read back with empty ingestion.",
+  "lastPassedRun": "2026-11-03-at-103",
+  "lastPassedAt": "2026-11-03T20:11:25.800277Z",
+  "lastPassedFullVerifiedAt": "2026-11-03T19:59:40.645621Z",
+  "affected": [
+    {
+      "domain": "apfel-antik.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6ge2fmbe3n98cehs2rywpc3",
+      "partyId": "pty_01m6ge2fkzee4vcw8s43vj17xp",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquitaeten-kral.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6ge959aepv99w0xhaxjasgz",
+      "partyId": "pty_01m6ge958xe429btr10bp30s43",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antik-grandits.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gee7t8efvsjs4bazsp0cgt",
+      "partyId": "pty_01m6gee7sxej8vwkgw1z13wc24",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "kovacek.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gews0aez5t5b5mangrx3g7",
+      "partyId": "pty_01m6gews00epea4dqpffmatmhf",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "gieseundschweiger.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gewwz6ekca6wxdznrtt5t0",
+      "partyId": "pty_01m6gewwytey7b7yrx73qxqq79",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "kunsthaus-wiesinger.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gfpa95ektry2hzjf1ek6sg",
+      "partyId": "pty_01m6gfpa8kej4b54tva5nnxygs",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquitaeten-reisch.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gfpc5heg08hm4bq0zkzy0s",
+      "partyId": "pty_01m6gfpc52esf9hcv0w2y4y4e5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antik-strassner.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gghatkexdbs80yfc279nbj",
+      "partyId": "pty_01m6gghat4e4nvcqfp54dkzxt5",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "w-k.art",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6ggnnwaefwryw10n3nfcsf8",
+      "partyId": "pty_01m6ggnnvxe20ttkwec451758s",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antikstadl.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6ggvnpnec5tnt021xzzwz1b",
+      "partyId": "pty_01m6ggvnp9ew692f4r4vhf4v0w",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galeriesommer.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gh1v6ke5w82xcxd4kkty8p",
+      "partyId": "pty_01m6gh1v5vee4vk7k413ejfk7c",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "kunstwelt.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gh1xnwetxvw97xdzvb36d9",
+      "partyId": "pty_01m6gh1xmze5ps70tr5g7rvj7s",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "kunsthandel-zoechling.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gh1zqcetvsj7ppbz318xdm",
+      "partyId": "pty_01m6gh1zpkecwsbmsy1ma0ve0h",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "altekunst-vienna.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6ghakkdey6avd1km7x6br2j",
+      "partyId": "pty_01m6ghakjwe11v5z24svp0b765",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquitaeten-ankauf.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6ghpta2ecjrsej8ghwn61ac",
+      "partyId": "pty_01m6ghpt9gesd8aew82qfx4hfd",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie-felixhoeller.shop",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gjpzz5ernvtmjn504wsk4f",
+      "partyId": "pty_01m6gjpzyge048je0749d49a11",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquitaeten-tsantilas.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gk2zjfeh3tbhypjcc888mk",
+      "partyId": "pty_01m6gk2zhreeavpwvdx2e1etpb",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "arsartis.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gk31kse1ptd3gp72mp7mc0",
+      "partyId": "pty_01m6gk31k5evf8f21n16bwv1ym",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "ruberl.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gka1z2ewvbb4wqgq9b8gty",
+      "partyId": "pty_01m6gka1ydeaet8agk7ede16fr",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "altebaustoffe.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gkw0bje0kr2gkdkcyj7r4d",
+      "partyId": "pty_01m6gkw0b7eqfbkff0gbzchxf8",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antikebaustoffe.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gkw2szebtvt8ntkn72er5f",
+      "partyId": "pty_01m6gkw2skegh8nff0dcapcky6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "pammersteine.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gm412xe8bb48k4qnckta5k",
+      "partyId": "pty_01m6gm412detjs777twg3fhvaf",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "uniantiquariat.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gmq00ve9wv8mq9h5qr2rtf",
+      "partyId": "pty_01m6gmq00defnsvv6h5608pewh",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galeriemaximilianhutz.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gnrhrveyht7t06aewvf9rs",
+      "partyId": "pty_01m6gnrhr9ed3arwp7z9p5h457",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "woka.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gp2vcxehztz0n48t4xv080",
+      "partyId": "pty_01m6gp2vcme49sq2sm27ejjn5g",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "hackl-antik.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gpa4rcefvsdhvhmxbtv0n6",
+      "partyId": "pty_01m6gpa4r0ezht5586rjfq5n4x",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquari.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gqctmre36skpez2t0k6xed",
+      "partyId": "pty_01m6gqctmceg0s99vaxr9x3fmb",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galeriehochdruck.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gr6mesekqbaez0hq9rhzx7",
+      "partyId": "pty_01m6gr6me8e72sgc0ctp7f44cy",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "vintagetoysnnerdstuff.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gs5rn0e45bhkx2w2b8ksb6",
+      "partyId": "pty_01m6gs5rmgejxsez38eyqm9wcb",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "shop.buerscher.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gs5tzre0xtq0eshncmptba",
+      "partyId": "pty_01m6gs5tz9e6rt6183a50kcv1r",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "briefmarken-stari.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gsf7mfesys6wbsdjp892cg",
+      "partyId": "pty_01m6gsf7kqeb3sy4j35nbhbza6",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie-leonhard.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gvd4z3ed8a2tnf66t66bjj",
+      "partyId": "pty_01m6gvd4ynee1twfxf2318amgx",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "art-michael-alexander-seywald.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gxp7aceewam5jajv577krf",
+      "partyId": "pty_01m6gxp7a2edztf5k01vjx3fjb",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "kunsthandel-fiedler.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6gy8xtee3csg5mp0g2s2qjp",
+      "partyId": "pty_01m6gy8xssehjagsxbngqht9fp",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquariat-loewenstein.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h0rxz0e3rv06j4taqg5hg8",
+      "partyId": "pty_01m6h0rxyee4carwyzj2vyhyqv",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "anzenbergergallery-bookshop.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h1e1mcescb9e46tvbapks6",
+      "partyId": "pty_01m6h1e1kpea2989z9b11zjr5n",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "anzenbergergallery.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h1f9ece6wa6tvzxbc2epgb",
+      "partyId": "pty_01m6h1e1kpea2989z9b11zjr5n",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "reginaanzenberger.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h1fbche3z8cgzgh42s13as",
+      "partyId": "pty_01m6h1e1kpea2989z9b11zjr5n",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "hilger.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h1m969e6st76kv3vrmya40",
+      "partyId": "pty_01m6h1m95se5hvfn6zh1ctwdp7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "orientteppich-koppensteiner.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h1r1mfenebeswamthxtcv2",
+      "partyId": "pty_01m6h1r1kve888a6fbenvne3r0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie3.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h21jcjevjb6zp8gf4t0g5g",
+      "partyId": "pty_01m6h21jb5ecp9bz58vnqgb4x0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "raritaeten-shop.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h27pj2ev2adqe3xzxy7sg0",
+      "partyId": "pty_01m6h27pgtegqa8q03adr6fgax",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie-trafela.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h27rrxeeza277qg905vtbp",
+      "partyId": "pty_01m6h27rrdew9r14zshj6kvmpt",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "antiquitaetenrestaurator.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h2dx6mevyvm454mtc3fr49",
+      "partyId": "pty_01m6h2dx62e4jtw2rm0c1eewej",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "timeclassics.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h2dzp9eg2t7pby3kp85j2b",
+      "partyId": "pty_01m6h2dznpet2s3a5rtwrtmsq0",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "goldinvest.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h46c6ye51s7xdteqnp0v9v",
+      "partyId": "pty_01m6h46c6je8ds6tkqyxpfs57r",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "msmozart.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h46ebdegva09e7vejjacd7",
+      "partyId": "pty_01m6h46eatecmvhx0z290yadx7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "marcwalter-numismatik.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h46gh7e1ksmgy1f7qt3s3d",
+      "partyId": "pty_01m6h46ggve6jvrzmen6n6ajr9",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "numidas.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h50srte3ctd049x9nhctsw",
+      "partyId": "pty_01m6h50sr7epka8je1v28spcg1",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "coiny-joe.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h50w0reaxbs5b4mzv4enbz",
+      "partyId": "pty_01m6h50w0fefzr8yx193ssbejx",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "secondhand.united-camera.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h6fej1ezr9qtx348qbnqkr",
+      "partyId": "pty_01m6h6fehnehstptvrhhff2hbc",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "kk-vs.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7cnghewrs5q0rb040n0xj",
+      "partyId": "pty_01m6h7cng3e8w86xycwbrktq03",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "flashmusic.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6h7cqzde6f92p88kgz55daw",
+      "partyId": "pty_01m6h7cqz0eh4ayk6c1zzhnd76",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "bananas.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6has17yeekrqmvjt6gn9b81",
+      "partyId": "pty_01m6has17ge51s8bjkfcpd6t76",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "burn-in.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hbqth1eyg9wp176gfz02v3",
+      "partyId": "pty_01m6hbqtgmepm9q4572vb1n9mn",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie-augustin.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hbqwxberj9vsb9r0gzq9q3",
+      "partyId": "pty_01m6hbqwwxeqkvn1r1jct7a5m7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie3034.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hcj2d1ejv8n4skr9apmnqx",
+      "partyId": "pty_01m6hcj2cge0sbzwygvcm0pby7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie-altnoeder.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdgwq8e4cbes74y1gv1pt8",
+      "partyId": "pty_01m6hdgwpve4t8hwgv1t08dshd",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "judith-artdesign.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdgzyfe60ba7gk8yenzqkm",
+      "partyId": "pty_01m6hdgzxzen1aj6f7vk3y5ywe",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "hias86.bigcartel.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdpdh4e73s9np9g3z6w2zv",
+      "partyId": "pty_01m6hdpdgpetqaxr2ym765xcb7",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "artziwna.com",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hdvzh4e7tsrcvsdvk7c3vz",
+      "partyId": "pty_01m6hdvzgqewkvwedv1b1f7v4s",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "amart.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6he1mvsez4vz56hp6ekge45",
+      "partyId": "pty_01m6he1mvfe0f9za6wwv76am6h",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "artforyou.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hf9jayeckb9vjhmcf3bs12",
+      "partyId": "pty_01m6hf9ja6eetst3eazdt86c19",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "galerie-krinzinger-shop.at",
+      "ledger": "data/dealer-discovery/countries/AT/dealers.jsonl",
+      "listingSourceId": "ls_01m6hg5xz4e8t9hnpbwan2rj6m",
+      "partyId": "pty_01m6hg5xyqef7vmwc20ccj4yqn",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "willhaben.at",
+      "ledger": "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl",
+      "listingSourceId": "ls_01m6gk3k6nedvbgxqnxgkjqm6f",
+      "partyId": "pty_01m6gk3k62ekj93tz5nerw0nv4",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "zvab.com",
+      "ledger": "data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl",
+      "listingSourceId": "ls_01m6gpq9xae15br30srbpha6h8",
+      "partyId": "pty_01m6gpq9wmeax9qsxyec6v20ac",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    },
+    {
+      "domain": "willhaben.at",
+      "ledger": "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl",
+      "listingSourceId": "ls_01m6ghxxr5epnvnt6cvvfmsemg",
+      "partyId": "pty_01m6ghxxqne6fvmfdtj1tr146g",
+      "ingestionMethods": [
+        "WEB_CRAWL"
+      ]
+    }
+  ],
+  "ledgerComponents": [
+    "data/dealer-discovery/countries/AT/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/mayrhofer/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/nostalgie-antik/dealers.jsonl",
+    "data/dealer-discovery/countries/AT/hosted/schrattenecker/dealers.jsonl"
+  ],
+  "paidDataSpendUsd": 0
+}

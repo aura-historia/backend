@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-183",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:55:06.652493Z",
+  "result": "PASSED",
+  "rawJournalFiles": 200,
+  "rawJournalRecordsScanned": 52553,
+  "apiWriteAttemptsThisRun": 17,
+  "decisions": {
+    "added": [
+      "arabafenicelucca.it",
+      "arcutifineart.com",
+      "IT:ANTICOANTICO:2079",
+      "IT:ANTICOANTICO:2245"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot183-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-03T22:53:39.192903Z",
+    "fullVerifiedAt": "2026-11-03T22:52:45.686753Z",
+    "counts": {
+      "parties": 308,
+      "listingSources": 308,
+      "locations": 356,
+      "logos": 240,
+      "identifiedPlatforms": 245,
+      "deliveryProfiles": 160,
+      "emptyIngestionMethods": 308,
+      "excluded": 25,
+      "deferred": 92
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Araba Fenice’s specific desk needs restoration despite general restored-sales language. Native catalogue works despite public debug output; no precise CMS inferred. White original logo250x95 inspected on dark background; original PNG imported. Historical sourcing at auctions is not operating auctions.",
+    "Arcuti gallery unit D/F conflict remains unresolved: common building37 retained, no guessed suffix or extra gallery. Roma appointment studio and government tax address remain distinct. Actual selected product is instock; related outofstock works are not qualification. China/late19th-century subtitle conflicts with painting body, so no independent object dating/attribution/provenance is imported. Worldwide delivery explicit; fees/features/timing/collection unknown.",
+    "Cherubini common contactMadonna387 retained; government C and other-channel B suffixes are not chosen. Current actual eighteenth-century watch is inspected, functioning claims not independently guaranteed. EU coverage, CH exclusion and outside-EU contact prerequisite preserved without ANYWHERE, unsupported country group, guessed members, fees or insurance.",
+    "aRitroso native Brescia contact is distinct from tax Polpenazze address. Actual Palermo painting inspected; Karl Kaufmann/Charles Marchand attribution remains seller claim, not nationality/home-country evidence. No unverified logos, emails or fulfillment imported."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

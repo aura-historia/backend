@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-192",
+  "country": "IT",
+  "observedAt": "2026-11-04T10:18:40.104925Z",
+  "result": "PASSED",
+  "rawJournalFiles": 240,
+  "rawJournalRecordsScanned": 56038,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "debbiantichita.it",
+      "IT:ANTICOANTICO:2198",
+      "IT:ANTICOANTICO:937"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot192-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T10:17:23.395361Z",
+    "fullVerifiedAt": "2026-11-04T08:51:31.520957Z",
+    "counts": {
+      "parties": 332,
+      "listingSources": 332,
+      "locations": 380,
+      "logos": 252,
+      "identifiedPlatforms": 268,
+      "deliveryProfiles": 167,
+      "emptyIngestionMethods": 332,
+      "excluded": 26,
+      "deferred": 97
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Native Debbia Antichità SRL exact full name/VAT positively validated, current explicit showroom adopted, actual seventeenth-century chest photo and original 522 x 148 logo inspected; WooCommerce verified. Founder/sons are not extra Parties. No source-wide inventory/dispatch or purchased pickup inferred from showroom and restoration.",
+    "Damasco full current SRL identity explicit in exact hosted 2198 despite negative intra-EU-only VAT. Native www and bare URLs HTTP404 do not prove closure; only working exact hosted catalogue created. Actual own late eighteenth-century carved-panel pair original inspected, selected item not the gallery’s explicitly sold potiches or ordinary fashion/design. Neutral-background composite presentation accurately retained.",
+    "Daniel Debbia current full sole-trader business explicit in exact hosted 937 despite negative intra-EU-only VAT. Actual nineteenth-century walnut chest inspected, props are not offered stock. Primary civic 650 B and current contacts not repaired from secondary 650/652/other mobile. No verified native domain/logo/shipping/pickup imported.",
+    "A read-only duplicate check initially flagged the new SRL note comparing the distinct Daniel business. All raw hits were reconciled: only the own new SRL row, exact different VAT/operator and no competing owner. Narrow temporary guards allow that exact same-run distinct-business reference while every other owner match still blocks and fresh live Party/source identity checks remain. Durable ownership-reconciliation192.json preserves the evidence; no operator merge or other-country mutation.",
+    "No current seller-specific fulfillment policy verified for these three businesses. Unknown shipping/collection omitted, not prohibited; no art-price freight inference or ingestion."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

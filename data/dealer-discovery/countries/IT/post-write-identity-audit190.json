@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-190",
+  "country": "IT",
+  "observedAt": "2026-11-04T10:02:20.141869Z",
+  "result": "PASSED",
+  "rawJournalFiles": 234,
+  "rawJournalRecordsScanned": 55708,
+  "apiWriteAttemptsThisRun": 8,
+  "decisions": {
+    "added": [
+      "mybuildingarts.com",
+      "IT:ANTICOANTICO:2093"
+    ],
+    "excluded": [],
+    "deferred": [
+      "antichitapassioniesegreti.com"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot190-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T10:02:07.188953Z",
+    "fullVerifiedAt": "2026-11-04T08:51:31.520957Z",
+    "counts": {
+      "parties": 326,
+      "listingSources": 326,
+      "locations": 374,
+      "logos": 249,
+      "identifiedPlatforms": 263,
+      "deliveryProfiles": 165,
+      "emptyIngestionMethods": 326,
+      "excluded": 26,
+      "deferred": 97
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Building Arts qualifies through native current nineteenth-century oil paintings, independently of its general design/props trade. Explicit full legal business and VAT positive; native original logo and WooCommerce verified. Brusnengo business and Verolengo operator/tax address remain distinct. Generic conditional thirty-day delivery clause and customer reviews do not establish destinations or universal freight facts; no shipping/default pickup invented.",
+    "Catellani exact merchant 2093 and positively validated full proprietor qualified through an actually inspected pair of eighteenth-century cartagloria frames converted into mirrors in the 1960s, with later feet disclosed. Partial unresolved local/neighbouring-province and distant specialist delivery assistance retained without guessed countries, features, rates, times, origin or pickup. Current Crispi address and official Anna Magnani tax address distinct. Earlier guessed unrelated item URL was discarded and supplies no evidence.",
+    "Passioni e Segreti own antique still life is inspectable, but positive official VAT response truncates the corporate name while native privacy identifies a branded personal controller. Deferred without backend facts/resources; no Brunella sole-trader Party or secondary-directory company-name expansion. Recheck December 4.",
+    "Capozzi exact 794 resolves to its existing main-ledger batch 110 exclusion for the family group’s auction operation. No duplicate new exclusion, enrichment, Party or repair of native/hosted VAT-digit discrepancy."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

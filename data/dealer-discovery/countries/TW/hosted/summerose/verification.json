@@ -1,0 +1,50 @@
+{
+  "run": "tw-2026-11-04-115",
+  "verifiedAt": "2026-11-04T10:45:11.077218Z",
+  "scope": "FULL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-04T10:45:11.077218Z",
+  "dealersCheckedThisRun": 1,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 0,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "preservedExternalIngestionMethods": 0,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 4186,
+    "listingSources": 4224
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts, source presentation/platform/image and ownership match reviewed evidence.",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks.",
+    "New and unexcepted managed ingestion lists are empty. Exact external configurations explicitly preserved by user are checked against source-ID/method-set observations. Discovery has issued no enabling request.",
+    "Profile terms and active defaults match reviewed observations.",
+    "Inventory inheritance requires explicit separate evidence."
+  ],
+  "externalIngestionAuthorization": "external-ingestion-observations.json",
+  "dealers": [
+    {
+      "domain": "pinkoi.com",
+      "listingSourceId": "ls_01m6k2ht1eem4889tbbz0j0rw0",
+      "partyId": "pty_01m6k2ht10ewvv4bk9y30jf2dd",
+      "locations": 0,
+      "logo": false,
+      "platform": "PINKOI",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T10:45:11.076978Z",
+      "observationDigest": "d49e958a6ee047d32d0f09ed0306129e8736424bcf3b1c8e74842c7f2c626c58",
+      "externalIngestionConfigurationPreserved": false
+    }
+  ]
+}

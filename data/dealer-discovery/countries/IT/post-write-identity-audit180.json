@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-180",
+  "country": "IT",
+  "observedAt": "2026-11-03T22:24:55.342598Z",
+  "result": "PASSED",
+  "rawJournalFiles": 188,
+  "rawJournalRecordsScanned": 51645,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:1054",
+      "IT:ANTICOANTICO:764",
+      "IT:ANTICOANTICO:2438"
+    ],
+    "excluded": [],
+    "deferred": [
+      "antichitasandrea.it"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot180-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-03T22:24:09.396451Z",
+    "fullVerifiedAt": "2026-11-03T22:09:41.578051Z",
+    "counts": {
+      "parties": 296,
+      "listingSources": 296,
+      "locations": 343,
+      "logos": 236,
+      "identifiedPlatforms": 234,
+      "deliveryProfiles": 157,
+      "emptyIngestionMethods": 296,
+      "excluded": 25,
+      "deferred": 92
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Palladio replacementmirrorpanes, missingoriginalback/cimasa andrestorations disclosed; no all-original/authenticity/conditionguarantee or separatefounder/partnerParty. No unverifiedfulfillment/logo/email.",
+    "Pampuro originalputtoimages403remainuninspected afternormalboundedretry; actualdifferentownlandscapepaintingJPEG541x461 inspected normally. Sellerfilename.removebgpreview.png isactualJPEG; notrawuneditedphoto, importedlogo or expandedresolution. NativeCasalecontact distinctfromSanGiorgiotax.",
+    "Perla ownportraitattribution andpossiblyperiodorstylereproductionframe remainuncertain. NativeHTTPS timeout doesnotestablishclosure; exacthosted2438onlysource, no native/globalalias or guessedshipping.",
+    "SAndrea fullSASidentity/directantiquerelevance confirmed but advertised.itframeleads.cloudwith extensiveunrelatedcasinospamamidretainedantiquesUI. DEFERREDsiteintegrity untilreview2026-11-10; no gamblingoperator/fraud/closure inference, nofollowunrelatedlinks, no APIresources."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

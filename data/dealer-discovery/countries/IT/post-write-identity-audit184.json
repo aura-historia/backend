@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-184",
+  "country": "IT",
+  "observedAt": "2026-11-04T08:11:18.107188Z",
+  "result": "PASSED",
+  "rawJournalFiles": 206,
+  "rawJournalRecordsScanned": 52963,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "IT:ANTICOANTICO:2179",
+      "IT:ANTICOANTICO:1011",
+      "IT:ANTICOANTICO:2183"
+    ],
+    "excluded": [
+      "arsantiquasrl.com"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot184-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T08:10:49.142234Z",
+    "fullVerifiedAt": "2026-11-03T22:52:45.686753Z",
+    "counts": {
+      "parties": 311,
+      "listingSources": 311,
+      "locations": 359,
+      "logos": 240,
+      "identifiedPlatforms": 248,
+      "deliveryProfiles": 160,
+      "emptyIngestionMethods": 311,
+      "excluded": 26,
+      "deferred": 92
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Cascino current exact proprietor-business identity retained; historical SAS/founder history does not override current operator. Turin shop is distinct from Vinovo tax address; visits do not establish purchased collection.",
+    "Urbani only exact working hosted 1011 catalogue adopted. Broken advertised .com and historical .net are not working aliases or closure. Territorial marketing cities and Valdagno tax address are not new premises.",
+    "ArtAntica is operated by explicitly published Società Immobiliare GI.A SRL, not an inferred private collector. Negative VIES concerns intra-EU scope only. Cascina contact has no inferred registered/showroom/warehouse/stock/dispatch role.",
+    "No original merchant logos or shipping/purchased collection terms were verified for the three additions. Ars Antiqua explicitly advertises operating online auctions and is excluded without API mutation."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}
