@@ -259,6 +259,11 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       },
       DeletionPolicy: lifecycle, UpdateReplacePolicy: lifecycle,
     });
+    // Only the production crawler, resolved from SSM at deploy time, may send from outside the account.
+    const crawlerSend = {
+      Sid: "AllowCrawlerSendMessage", Action: "sqs:SendMessage", Effect: "Allow",
+      Principal: { AWS: "{{resolve:ssm:/crawler/prod/principal-arn}}" }, Resource: source.arn,
+    };
     for (const queue of [source, dlq]) {
       const policies = Object.values(data.findResources("AWS::SQS::QueuePolicy"))
         .filter((policy) => JSON.stringify(policy.Properties.Queues) === JSON.stringify([queue.url]));
@@ -268,7 +273,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         Statement: [{
           Action: "sqs:*", Effect: "Deny", Principal: { AWS: "*" }, Resource: queue.arn,
           Condition: { Bool: { "aws:SecureTransport": "false" } },
-        }],
+        }, ...(stage === "prod" && queue === source ? [crawlerSend] : [])],
       });
     }
     expect(data.toJSON().Outputs.ProductListingIngestionQueueUrl).toEqual({ Value: source.url });
