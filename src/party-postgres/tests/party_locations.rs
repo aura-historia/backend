@@ -1237,7 +1237,8 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_exp
     )
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))

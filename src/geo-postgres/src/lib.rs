@@ -490,25 +490,37 @@ impl ResolutionRepository for Repository<'_> {
             r.evidence(&input)?;
             return Ok(ClaimOutcome::Complete);
         }
-        if r.status != "PENDING"
-            || !control.enabled
+        // Settled work runs again only after expiry, revocation, recovery or Retry advances
+        // its generation, which publishes a new wake-up.
+        if ResolutionStatus::from_code(&r.status).ok_or_else(corrupt)? != ResolutionStatus::Pending
+        {
+            return Ok(ClaimOutcome::Complete);
+        }
+        if r.lease_until.is_some_and(|until| until > now) {
+            return Ok(ClaimOutcome::Deferred);
+        }
+        // A crashed fifth reservation is exhausted once its lease expires; cleanup fails it.
+        if r.attempts >= 5 {
+            return Ok(ClaimOutcome::Complete);
+        }
+        if !control.enabled
             || !control.storage_permitted
             || control.open_until.is_some_and(|until| until > now)
-            || r.attempts >= 5
-            || r.next_attempt_at > now
-            || r.lease_until.is_some_and(|until| until > now)
         {
+            return Ok(ClaimOutcome::ProviderGated);
+        }
+        if r.next_attempt_at > now {
             return Ok(ClaimOutcome::Deferred);
         }
         let usage = self.budget_usage(profile, &r.scope_key, now).await?;
-        if usage.calls >= control.daily_limit
-            || usage.scope_calls >= control.scope_daily_limit
-            || usage.active >= i64::from(control.concurrency_limit)
+        if usage.calls >= control.daily_limit || usage.scope_calls >= control.scope_daily_limit {
+            return Ok(ClaimOutcome::ProviderGated);
+        }
+        if usage.active >= i64::from(control.concurrency_limit)
             || usage.scope_active >= i64::from(control.scope_concurrency_limit)
         {
             return Ok(ClaimOutcome::Deferred);
         }
-        // A crashed fifth reservation is exhausted once its lease expires.
         let token = Uuid::now_v7();
         sqlx::query("UPDATE geo_resolutions SET lease_token=$2,lease_until=$3,attempts=attempts+1 WHERE resolution_id=$1").bind(w.id.into_uuid()).bind(token).bind(now+Duration::seconds(60)).execute(&mut *self.connection).await.map_err(sql_error)?;
         sqlx::query("UPDATE geo_resolution_provider_controls SET calls=calls+1 WHERE profile=$1")
@@ -529,7 +541,7 @@ impl ResolutionRepository for Repository<'_> {
         &mut self,
         c: &ResolutionClaim,
         completion: ResolutionCompletion,
-    ) -> Result<bool, ResolutionError> {
+    ) -> Result<CompletionOutcome, ResolutionError> {
         let control = self.controls(&c.profile).await?;
         let Some(r) = self.row(c.work.id).await? else {
             return Err(ResolutionError::Missing);
@@ -538,12 +550,13 @@ impl ResolutionRepository for Repository<'_> {
             if r.lease_token == Some(c.token) {
                 self.release_lease(c.work.id).await?;
             }
-            return Ok(true);
+            return Ok(CompletionOutcome::Stale);
         }
         let persisted_input = r.input()?;
         let now = self.clock().await?;
-        if persisted_input.fingerprint(&c.profile) != c.input.fingerprint(&c.profile)
-            || r.generation as u64 != c.work.generation
+        let superseded = persisted_input.fingerprint(&c.profile) != c.input.fingerprint(&c.profile)
+            || r.generation as u64 != c.work.generation;
+        if superseded
             || r.lease_token != Some(c.token)
             || r.lease_until.is_none_or(|until| until <= now)
         {
@@ -553,11 +566,15 @@ impl ResolutionRepository for Repository<'_> {
             if r.lease_token == Some(c.token) {
                 self.release_lease(c.work.id).await?;
             }
-            return Ok(false);
+            return Ok(if superseded {
+                CompletionOutcome::Stale
+            } else {
+                CompletionOutcome::LeaseLost
+            });
         }
         if !self.is_bound(c.work.id).await? {
             self.release_lease(c.work.id).await?;
-            return Ok(true);
+            return Ok(CompletionOutcome::Stale);
         }
         let completion = if !control.storage_permitted {
             ResolutionCompletion::Failure(GeocodingFailure::StorageNotPermitted)
@@ -586,10 +603,10 @@ impl ResolutionRepository for Repository<'_> {
                 ).bind(c.work.id.into_uuid()).bind(e.status.as_str()).bind(data).bind(now+retention).execute(&mut *self.connection).await.map_err(sql_error)?;
                 sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL WHERE profile=$1").bind(&c.profile).execute(&mut *self.connection).await.map_err(sql_error)?;
                 self.signal(c.work, "RESOLVED", None).await?;
-                Ok(true)
+                Ok(CompletionOutcome::Recorded(e.status))
             }
             ResolutionCompletion::Failure(kind) => {
-                let status = ResolutionStatus::after_failure(kind, r.attempts as u32).as_str();
+                let status = ResolutionStatus::after_failure(kind, r.attempts as u32);
                 let backoff = retry_delay(r.attempts as u32);
                 sqlx::query(
                     r#"
@@ -597,7 +614,7 @@ impl ResolutionRepository for Repository<'_> {
                     status=$2,last_failure=$3,next_attempt_at=$4,lease_token=NULL,lease_until=NULL,evidence=NULL,valid_until=NULL
                     WHERE resolution_id=$1
                     "#,
-                ).bind(c.work.id.into_uuid()).bind(status).bind(kind.as_str()).bind(now+backoff).execute(&mut *self.connection).await.map_err(sql_error)?;
+                ).bind(c.work.id.into_uuid()).bind(status.as_str()).bind(kind.as_str()).bind(now+backoff).execute(&mut *self.connection).await.map_err(sql_error)?;
                 // An unsupported address or country-specific retention refusal says
                 // nothing about provider health and must not block unrelated inputs.
                 if !matches!(
@@ -607,8 +624,7 @@ impl ResolutionRepository for Repository<'_> {
                     let failures = control.consecutive_failures.saturating_add(1).min(100000);
                     sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=$2,open_until=$3 WHERE profile=$1").bind(&c.profile).bind(failures).bind(if failures>=3 {Some(now+Duration::minutes(5))} else {control.open_until}).execute(&mut *self.connection).await.map_err(sql_error)?;
                 }
-                // Operational/configuration failures keep transport failure custody.
-                Ok(false)
+                Ok(CompletionOutcome::Recorded(status))
             }
         }
     }

@@ -25,7 +25,7 @@ const PROFILE: &str = "WORKER_TEST_V1";
 struct Provider {
     pool: PgPool,
     calls: AtomicUsize,
-    fail: bool,
+    failure: Option<GeocodingFailure>,
 }
 #[async_trait::async_trait]
 impl GeocodingProvider for Provider {
@@ -39,9 +39,9 @@ impl GeocodingProvider for Provider {
         .await
         .unwrap()
         .unwrap();
-        if self.fail {
+        if let Some(kind) = self.failure {
             return Err(GeocodingError {
-                kind: GeocodingFailure::Unavailable,
+                kind,
                 source: Box::new(std::io::Error::other("isolated provider failure")),
             });
         }
@@ -51,7 +51,9 @@ impl GeocodingProvider for Provider {
         })
     }
 }
-async fn setup(fail: bool) -> (PgPool, Arc<Provider>, ResolutionBinding, ResolutionWork) {
+async fn setup(
+    failure: Option<GeocodingFailure>,
+) -> (PgPool, Arc<Provider>, ResolutionBinding, ResolutionWork) {
     let fixture = get_postgres_client().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(&fixture)
@@ -71,7 +73,7 @@ async fn setup(fail: bool) -> (PgPool, Arc<Provider>, ResolutionBinding, Resolut
     let provider = Arc::new(Provider {
         pool: pool.clone(),
         calls: AtomicUsize::new(0),
-        fail,
+        failure,
     });
     let binding = ResolutionBinding {
         subject: ResolutionSubject::new(RetentionPurpose::UserLocation, Uuid::now_v7()).unwrap(),
@@ -162,7 +164,7 @@ async fn view(pool: &PgPool, binding: ResolutionBinding) -> ResolutionView {
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_authority() {
-    let (pool, provider, binding, work) = setup(false).await;
+    let (pool, provider, binding, work) = setup(None).await;
     let use_case = compose(&pool, &provider);
     assert_eq!(
         vec!["malformed"],
@@ -285,7 +287,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
-    let (pool, provider, binding, work) = setup(true).await;
+    let (pool, provider, binding, work) = setup(Some(GeocodingFailure::Unavailable)).await;
     let use_case = compose(&pool, &provider);
     let context = OperationContext {
         principal: Principal::Service("worker-test".into()),
@@ -314,4 +316,22 @@ async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
         process([("backoff", job(work))], &use_case).await
     );
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn blocked_completion_and_its_redelivery_acknowledge_without_another_call() {
+    let (pool, provider, binding, work) = setup(Some(GeocodingFailure::UnsupportedInput)).await;
+    let use_case = compose(&pool, &provider);
+
+    let retained = process(
+        [("blocked", job(work)), ("blocked-redelivery", job(work))],
+        &use_case,
+    )
+    .await;
+
+    assert!(retained.is_empty(), "retained {retained:?}");
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+    let current = view(&pool, binding).await;
+    assert_eq!(ResolutionStatus::Blocked, current.status);
+    assert_eq!(Some("UNSUPPORTED_INPUT"), current.last_failure.as_deref());
 }

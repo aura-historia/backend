@@ -316,7 +316,8 @@ async fn dispatch_uses_only_current_permitted_derived_country_without_projection
     };
     evidence.candidates.push(evidence.candidates[0].clone());
     evidence.accepted_index = Some(1);
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         geo_postgres::SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))
