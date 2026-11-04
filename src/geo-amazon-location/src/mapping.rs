@@ -244,20 +244,8 @@ fn retain_or_withhold(
     candidate: GeocodingCandidate,
     item: &GeocodeResultItem,
 ) -> GeocodingCandidate {
-    let country = candidate
-        .geography()
-        .and_then(DerivedGeography::description)
-        .and_then(GeographicDescription::country);
-    let reason = match country {
-        Some(CountryCode::JPN) => "JAPAN",
-        Some(_) => return candidate,
-        None if candidate
-            .issues()
-            .contains(&CandidateIssue::InconsistentComponents) =>
-        {
-            "CONTRADICTORY_COUNTRY"
-        }
-        None => "UNVERIFIABLE_COUNTRY",
+    let Some(reason) = withholding_reason(&candidate) else {
+        return candidate;
     };
     let fields = item.address.as_ref().and_then(|a| a.country.as_ref());
     tracing::info!(
@@ -269,8 +257,26 @@ fn retain_or_withhold(
     candidate.withhold_from_storage()
 }
 
-/// Reports a provider country field without disclosing a recognized country: only a
-/// well-formed code that the pinned reference release lacks is named verbatim.
+fn withholding_reason(candidate: &GeocodingCandidate) -> Option<&'static str> {
+    let country = candidate
+        .geography()
+        .and_then(DerivedGeography::description)
+        .and_then(GeographicDescription::country);
+    match country {
+        Some(CountryCode::JPN) => Some("JAPAN"),
+        Some(_) => None,
+        None if candidate
+            .issues()
+            .contains(&CandidateIssue::InconsistentComponents) =>
+        {
+            Some("CONTRADICTORY_COUNTRY")
+        }
+        None => Some("UNVERIFIABLE_COUNTRY"),
+    }
+}
+
+/// Reports a provider country field without echoing a recognized code: only a well-formed
+/// code that the pinned reference release lacks is named verbatim, never arbitrary text.
 fn country_code_diagnostic(
     code: Option<&str>,
     length: usize,
@@ -321,6 +327,110 @@ fn invalid_response(message: &'static str) -> GeocodingError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_sdk_geoplaces::types::{Address, PlaceType};
+    use geo::AddressText;
+
+    fn request() -> GeocodingRequest {
+        GeocodingRequest::new(AddressText::new("Synthetic dealer address").unwrap())
+    }
+
+    fn item(place_id: &str, code2: Option<&str>, code3: Option<&str>) -> GeocodeResultItem {
+        let country = Country::builder()
+            .set_code2(code2.map(Into::into))
+            .set_code3(code3.map(Into::into))
+            .build();
+        GeocodeResultItem::builder()
+            .place_id(place_id)
+            .place_type(PlaceType::Locality)
+            .title("synthetic")
+            .set_position(Some(vec![13.4, 52.5]))
+            .address(Address::builder().country(country).build())
+            .build()
+            .unwrap()
+    }
+
+    fn map(
+        items: Vec<GeocodeResultItem>,
+        retention: ResultRetention,
+    ) -> Result<Vec<GeocodingCandidate>, GeocodingError> {
+        let response = GeocodeOutput::builder()
+            .pricing_bucket("Stored")
+            .set_result_items(Some(items))
+            .build()
+            .unwrap();
+        Ok(
+            match map_response(response, &request(), retention)?.outcome {
+                GeocodingOutcome::Candidates(set) => set.as_slice().to_vec(),
+                GeocodingOutcome::NoMatch => vec![],
+            },
+        )
+    }
+
+    /// Kosovo's user-assigned `XK` is outside ISO 3166-1 and therefore the reference release.
+    fn mixed() -> Vec<GeocodeResultItem> {
+        vec![
+            item("synthetic-de", Some("DE"), Some("DEU")),
+            item("synthetic-xk", Some("XK"), Some("XKX")),
+            item("synthetic-jp", Some("JP"), Some("JPN")),
+            item("synthetic-contradiction", Some("CA"), Some("USA")),
+        ]
+    }
+
+    #[test]
+    fn should_withhold_only_unretainable_candidates_when_a_retained_result_is_mixed() {
+        let withheld = |candidates: Vec<GeocodingCandidate>| {
+            candidates
+                .iter()
+                .map(GeocodingCandidate::is_withheld_from_storage)
+                .collect::<Vec<_>>()
+        };
+        let retained = map(mixed(), ResultRetention::Storage).unwrap();
+        assert_eq!(vec![false, true, true, true], withheld(retained.clone()));
+        assert_eq!(
+            Some(CountryCode::DEU),
+            retained[0]
+                .geography()
+                .and_then(DerivedGeography::description)
+                .and_then(GeographicDescription::country)
+        );
+        let single_use = map(mixed(), ResultRetention::SingleUse).unwrap();
+        assert_eq!(vec![false; 4], withheld(single_use));
+    }
+
+    #[test]
+    fn should_refuse_storage_when_no_returned_candidate_is_retainable() {
+        let unretainable = mixed().split_off(1);
+        assert_eq!(
+            GeocodingFailure::StorageNotPermitted,
+            map(unretainable.clone(), ResultRetention::Storage)
+                .unwrap_err()
+                .kind
+        );
+        assert_eq!(
+            3,
+            map(unretainable, ResultRetention::SingleUse).unwrap().len()
+        );
+        assert!(map(vec![], ResultRetention::Storage).unwrap().is_empty());
+    }
+
+    #[test]
+    fn should_classify_why_a_candidate_is_withheld() {
+        for (code2, code3, expected) in [
+            (Some("DE"), Some("DEU"), None),
+            (Some("JP"), Some("JPN"), Some("JAPAN")),
+            (Some("XK"), Some("XKX"), Some("UNVERIFIABLE_COUNTRY")),
+            (Some("ca"), Some("CAN"), Some("UNVERIFIABLE_COUNTRY")),
+            (None, None, Some("UNVERIFIABLE_COUNTRY")),
+            (Some("CA"), Some("USA"), Some("CONTRADICTORY_COUNTRY")),
+        ] {
+            let candidate = map_candidate(&item("synthetic", code2, code3), &request()).unwrap();
+            assert_eq!(
+                expected,
+                withholding_reason(&candidate),
+                "{code2:?}/{code3:?}"
+            );
+        }
+    }
 
     #[test]
     fn should_name_only_unrecognized_codes_when_diagnosing_a_withheld_country() {
