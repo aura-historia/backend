@@ -274,12 +274,7 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
                     return ImageValidation::Unknown;
                 }
             };
-        let response = match client
-            .get(current_url.clone())
-            .header(reqwest::header::RANGE, IMAGE_PROBE_BYTES)
-            .send()
-            .await
-        {
+        let response = match range_probe(&client, &current_url).send().await {
             Ok(response) => response,
             Err(err) => {
                 tracing::debug!(
@@ -336,6 +331,17 @@ async fn probe_image_dimensions(url: &Url) -> ImageValidation {
             ImageValidation::Unknown
         }
     }
+}
+
+/// The request for the first bytes of an image. It asks for the identity encoding, overriding
+/// the transfer encodings the crawler client names: a range applies to the encoded
+/// representation, so the first bytes of a compressed image would be a truncated stream that
+/// does not decode, not the image header the probe reads its dimensions from.
+fn range_probe(client: &reqwest::Client, url: &Url) -> reqwest::RequestBuilder {
+    client
+        .get(url.clone())
+        .header(reqwest::header::RANGE, IMAGE_PROBE_BYTES)
+        .header(reqwest::header::ACCEPT_ENCODING, "identity")
 }
 
 fn image_validation_for_target_error(error: PublicTargetError) -> ImageValidation {
@@ -437,6 +443,54 @@ mod tests {
             probes.load(Ordering::SeqCst),
             3,
             "valid and invalid sizes are served from the cache"
+        );
+    }
+
+    /// A range probe asks for the identity encoding on the wire, so the bytes it reads are the
+    /// image's own first bytes, while the crawler client names gzip and brotli for pages.
+    #[tokio::test]
+    async fn range_probe_should_ask_for_the_identity_encoding() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = Url::parse(&format!(
+            "http://{}/image.jpg",
+            listener.local_addr().unwrap()
+        ))
+        .unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.unwrap();
+                assert_ne!(read, 0, "request ended before its headers");
+                request.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8(request).unwrap().to_ascii_lowercase()
+        });
+        let client = crate::network::policy::crawler_client_builder(RequestTimeouts::uniform(
+            std::time::Duration::from_secs(5),
+        ))
+        .unwrap()
+        .build()
+        .unwrap();
+
+        range_probe(&client, &url).send().await.unwrap();
+
+        let request = server.await.unwrap();
+        let mut headers = request
+            .lines()
+            .filter(|line| line.starts_with("accept-encoding:") || line.starts_with("range:"))
+            .collect::<Vec<_>>();
+        headers.sort_unstable();
+        assert_eq!(
+            headers,
+            vec!["accept-encoding: identity", "range: bytes=0-32767"]
         );
     }
 

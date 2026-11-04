@@ -64,6 +64,9 @@ pub struct CrawledPage {
     /// What the page's head says about its canonical URL and shop system; empty for a page
     /// whose body the crawl did not read.
     pub identity: PageIdentityEvidence,
+    /// Whether the shop answered this URL with a bot challenge instead of the page, so the
+    /// crawl is judged on the challenges it met before its diagnostics are known.
+    pub bot_challenge: bool,
 }
 
 impl CrawledPage {
@@ -71,7 +74,13 @@ impl CrawledPage {
         Self {
             url,
             identity: PageIdentityEvidence::default(),
+            bot_challenge: false,
         }
+    }
+
+    pub fn challenged(mut self, bot_challenge: bool) -> Self {
+        self.bot_challenge = bot_challenge;
+        self
     }
 
     pub fn with_identity(mut self, identity: PageIdentityEvidence) -> Self {
@@ -1778,7 +1787,11 @@ async fn relay_library_pages(
                 } else {
                     PageIdentityEvidence::default()
                 };
-                pending.push_back(CrawledPage::new(url).with_identity(identity));
+                pending.push_back(
+                    CrawledPage::new(url)
+                        .with_identity(identity)
+                        .challenged(challenge.is_some()),
+                );
             }
             Err(rejection) => diagnostics.count_rejection(rejection),
         }
@@ -1889,7 +1902,8 @@ fn bot_challenge_signal(challenge: BotChallenge) -> DiagnosticSignal {
             CrawlFailureKind::CloudflareChallenge,
             "bot_challenge_root_page",
         ),
-        ChallengeVendor::AwsWaf
+        ChallengeVendor::Akamai
+        | ChallengeVendor::AwsWaf
         | ChallengeVendor::DataDome
         | ChallengeVendor::SiteGround
         | ChallengeVendor::Unattributed => {

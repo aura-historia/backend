@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use spider::reqwest::header::{HeaderMap, RETRY_AFTER};
 
-use crate::network::policy::parse_retry_after;
+use crate::network::policy::{MAX_RETRY_AFTER, parse_retry_after};
 
 /// Pages Spider delivered, counted by the status class of their final answer
 /// (after Spider's own retries). Bounded by the crawl page budget.
@@ -46,7 +46,8 @@ impl StatusCounts {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RateLimitSignal {
     pub status: u16,
-    /// The shop's `Retry-After`, when it sent a usable one.
+    /// The wait the shop asked for: its usable `Retry-After`, else the reset of its `RateLimit`
+    /// policies, capped like every other wait.
     pub retry_after: Option<Duration>,
 }
 
@@ -58,6 +59,9 @@ const QUOTA_REMAINING_HEADERS: [&str; 2] = ["ratelimit-remaining", "x-ratelimit-
 /// policies, each with the quota units it has left as its `r` parameter, such
 /// as `"default";r=0;t=30`.
 const QUOTA_POLICIES_HEADER: &str = "ratelimit";
+
+/// The draft's earlier reset header: the seconds until the quota resets.
+const RESET_HEADER: &str = "ratelimit-reset";
 
 impl RateLimitSignal {
     /// The rate-limit answer a page with `status` and the response `headers`
@@ -74,7 +78,10 @@ impl RateLimitSignal {
         };
         asks_to_wait.then(|| Self {
             status,
-            retry_after: headers.get(RETRY_AFTER).and_then(parse_retry_after),
+            retry_after: headers
+                .get(RETRY_AFTER)
+                .and_then(parse_retry_after)
+                .or_else(|| quota_reset(headers)),
         })
     }
 }
@@ -89,6 +96,71 @@ fn quota_spent(headers: &HeaderMap) -> bool {
             .is_some_and(|value| value.trim() == "0")
     });
     remaining_spent || policies_field(headers).is_some_and(|field| names_a_spent_policy(&field))
+}
+
+/// The wait until the client's quota resets, when the shop gave no usable `Retry-After`: the `t`
+/// parameter of the `RateLimit` field's policies, the longest of the spent ones' (`r=0`), none when
+/// a spent one has no `t`, or, when none is spent, the longest of all; else the delta seconds of the draft's earlier `RateLimit-Reset`.
+/// `X-RateLimit-Reset` is not read: shops send it as an epoch or as seconds. A malformed field
+/// says nothing. The wait is capped at [`MAX_RETRY_AFTER`].
+fn quota_reset(headers: &HeaderMap) -> Option<Duration> {
+    let seconds = policies_field(headers)
+        .and_then(|field| policies_reset_seconds(&field))
+        .or_else(|| {
+            let value = headers.get(RESET_HEADER)?.to_str().ok()?.trim();
+            all_digits(value).then(|| value.parse().ok()).flatten()
+        })?;
+    Some(Duration::from_secs(seconds).min(MAX_RETRY_AFTER))
+}
+
+/// The reset seconds a `RateLimit` field value names, see [`quota_reset`].
+fn policies_reset_seconds(field: &str) -> Option<u64> {
+    let members = split_outside_strings(field, b',')?;
+    if members.iter().any(|member| member.trim().is_empty()) {
+        return None;
+    }
+    let policies: Vec<(bool, Option<u64>)> = members
+        .into_iter()
+        .map(|member| {
+            (
+                remaining_quota(member) == Some(0),
+                parameter_seconds(member, "t"),
+            )
+        })
+        .collect();
+    // Another policy's reset says nothing about when a spent quota resets, so a spent policy
+    // without `t` leaves the wait unknown.
+    let spent: Vec<Option<u64>> = policies
+        .iter()
+        .filter(|(spent, _)| *spent)
+        .map(|(_, reset)| *reset)
+        .collect();
+    match spent.is_empty() {
+        true => policies.iter().filter_map(|(_, reset)| *reset).max(),
+        false => spent
+            .into_iter()
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .max(),
+    }
+}
+
+/// The last occurrence of parameter `name` of a `RateLimit` member, when it is a non-negative
+/// integer.
+fn parameter_seconds(member: &str, name: &str) -> Option<u64> {
+    let (_, value) = split_outside_strings(member, b';')?
+        .into_iter()
+        .skip(1)
+        .map(|parameter| {
+            let parameter = parameter.trim();
+            parameter.split_once('=').unwrap_or((parameter, ""))
+        })
+        .rfind(|(key, _)| *key == name)?;
+    all_digits(value).then(|| value.parse().ok()).flatten()
+}
+
+fn all_digits(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 /// The `RateLimit` field value with its field lines combined, as a
@@ -120,19 +192,7 @@ fn names_a_spent_policy(field: &str) -> bool {
 /// integer: its last occurrence, since a repeated structured-field parameter
 /// overwrites the earlier ones.
 fn remaining_quota(member: &str) -> Option<u64> {
-    let (_, value) = split_outside_strings(member, b';')?
-        .into_iter()
-        .skip(1)
-        .map(|parameter| {
-            let parameter = parameter.trim();
-            parameter.split_once('=').unwrap_or((parameter, ""))
-        })
-        .rfind(|(key, _)| *key == "r")?;
-    value
-        .bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| value.parse().ok())
-        .flatten()
+    parameter_seconds(member, "r")
 }
 
 /// `value` split at each ASCII `separator` outside a structured-field string,
@@ -307,13 +367,17 @@ mod tests {
     /// policy is enough, whichever field line or member carries it.
     #[test]
     fn should_signal_a_503_whose_ratelimit_field_lists_a_spent_policy() {
-        for field_lines in [
-            &[r#""default";r=0;t=30"#][..],
-            &["default;r=0"],
-            &[r#""per-minute";r=42;t=10, "daily, all";r=0;t=3600"#],
-            &[r#""a\";b";r=0"#],
-            &[r#""default";r=5;r=0"#],
-            &[r#""default";r=12;t=30"#, r#""daily";r=0"#],
+        let wait = |secs| Some(Duration::from_secs(secs));
+        for (field_lines, expected) in [
+            (&[r#""default";r=0;t=30"#][..], wait(30)),
+            (&["default;r=0"], None),
+            (
+                &[r#""per-minute";r=42;t=10, "daily, all";r=0;t=3600"#],
+                wait(3600),
+            ),
+            (&[r#""a\";b";r=0"#], None),
+            (&[r#""default";r=5;r=0"#], None),
+            (&[r#""default";r=12;t=30"#, r#""daily";r=0"#], None),
         ] {
             let mut spent = ratelimit_field(field_lines);
             spent.insert(
@@ -322,7 +386,7 @@ mod tests {
             );
             assert_eq!(
                 RateLimitSignal::from_page(503, Some(&spent)),
-                signal(503, None),
+                signal(503, expected),
                 "{field_lines:?}"
             );
         }
@@ -341,5 +405,69 @@ mod tests {
             RateLimitSignal::from_page(503, Some(&headers)),
             signal(503, None)
         );
+    }
+
+    /// Both header styles carry the wait when the shop sent no `Retry-After`: the structured
+    /// field's `t` and the draft's earlier `RateLimit-Reset`, capped like `Retry-After`.
+    #[test]
+    fn should_wait_for_the_ratelimit_reset_without_a_retry_after() {
+        let seconds = |secs| signal(429, Some(Duration::from_secs(secs)));
+        for (field_lines, expected) in [
+            (&[r#""default";r=0;t=30"#][..], 30),
+            (&[r#""per-minute";r=42;t=10, "daily";r=0;t=3600"#], 3600),
+            (&[r#""a";r=0;t=5"#, r#""b";r=0;t=45"#], 45),
+            (&[r#""default";r=3;t=20"#], 20),
+            (&[r#""default";r=0;t=999999999"#], 86_400),
+        ] {
+            assert_eq!(
+                RateLimitSignal::from_page(429, Some(&ratelimit_field(field_lines))),
+                seconds(expected),
+                "{field_lines:?}"
+            );
+        }
+        let mut reset = HeaderMap::new();
+        reset.insert("ratelimit-reset", HeaderValue::from_static(" 17 "));
+        assert_eq!(RateLimitSignal::from_page(429, Some(&reset)), seconds(17));
+        reset.insert("ratelimit-reset", HeaderValue::from_static("9999999"));
+        assert_eq!(
+            RateLimitSignal::from_page(429, Some(&reset)),
+            seconds(86_400)
+        );
+
+        let mut spent = ratelimit_field(&[r#""default";r=0;t=30"#]);
+        assert_eq!(
+            RateLimitSignal::from_page(503, Some(&spent)),
+            signal(503, Some(Duration::from_secs(30)))
+        );
+        spent.insert(RETRY_AFTER, HeaderValue::from_static("120"));
+        assert_eq!(
+            RateLimitSignal::from_page(503, Some(&spent)),
+            signal(503, Some(Duration::from_secs(120)))
+        );
+    }
+
+    #[test]
+    fn should_not_wait_for_a_reset_that_is_not_usable() {
+        for field_lines in [
+            &[r#""default";r=0;t=soon"#][..],
+            &[r#""default";r=0;t=-3"#],
+            &[r#""default";r=0"#],
+            &[r#""default";r=0;t=30, "#],
+            &[r#""default";r=0;t=30, "daily"#],
+            &[r#""per-minute";r=42;t=10, "daily";r=0"#],
+        ] {
+            let signal = RateLimitSignal::from_page(429, Some(&ratelimit_field(field_lines)));
+            assert_eq!(signal.and_then(|s| s.retry_after), None, "{field_lines:?}");
+        }
+        let mut reset = HeaderMap::new();
+        for value in ["soon", "-5", "", "1.5"] {
+            reset.insert("ratelimit-reset", HeaderValue::from_str(value).unwrap());
+            reset.insert("x-ratelimit-reset", HeaderValue::from_static("1793704838"));
+            assert_eq!(
+                RateLimitSignal::from_page(429, Some(&reset)),
+                signal(429, None),
+                "{value}"
+            );
+        }
     }
 }

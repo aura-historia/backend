@@ -67,11 +67,24 @@ pub(super) fn www_twin(url: &Url) -> Option<Url> {
     Some(twin)
 }
 
+/// What one page is counted under: its [page spelling](CrawledUrl::page_spelling) without the
+/// scheme, in lower case, since the crawl does not fetch a page twice for `http` and `https` or
+/// for links that differ only in letter case.
+fn page_key(url: &CrawledUrl) -> String {
+    let spelling = url.page_spelling();
+    let without_scheme = spelling
+        .as_str()
+        .split_once("://")
+        .map_or(spelling.as_str(), |(_, rest)| rest);
+    without_scheme.to_ascii_lowercase()
+}
+
 /// Where the crawl should run from instead of `root`, judged by the links of the root page `html`:
 /// on its twin host when they name at least [`MIN_TWIN_LINKS`] distinct pages there, and more
 /// than on the root's own host. A page counts once however often the root page links it, in
-/// whichever of its spellings ([`CrawledUrl::page_spelling`]), so one product in a slider, the
-/// menu and the footer does not tip the balance. A link counts where Spider resolves it: against
+/// whichever of its spellings ([`CrawledUrl::page_spelling`]) and under either scheme or letter
+/// case ([`page_key`]), so one product in a slider, the menu and the footer does not tip the
+/// balance. A link counts where Spider resolves it: against
 /// the page's first absolute `<base href>` when it has one, as shops that link `www.` through a
 /// `<base>` element and relative links do. Links the crawler never follows
 /// ([blacklisted](CrawledUrl::is_blacklisted) ones such as the cart or the account) and links to
@@ -97,7 +110,7 @@ pub(super) fn dominant_twin(root: &Url, html: &[u8]) -> Option<RootReroot> {
             Some(host) if Some(host) == twin.host_str() => &mut twin_pages,
             _ => continue,
         };
-        pages.insert(url.page_spelling());
+        pages.insert(page_key(&url));
     }
     let (root_links, twin_links) = (root_pages.len(), twin_pages.len());
     (twin_links >= MIN_TWIN_LINKS && twin_links > root_links).then(|| RootReroot {
@@ -178,6 +191,70 @@ mod tests {
 
     /// Spellings of one page a shop links it under.
     const SPELLINGS: [&str; 4] = ["", "/", "?utm_source=newsletter", "#top"];
+
+    /// A root page linking `pages` distinct twin pages, each `copies` times in the spelling
+    /// `link(origin, i, copy)` gives.
+    fn twin_links_counted(
+        pages: usize,
+        copies: usize,
+        link: impl Fn(usize, usize) -> String,
+    ) -> Option<usize> {
+        let anchors = (0..pages)
+            .flat_map(|i| (0..copies).map(move |copy| (i, copy)))
+            .map(|(i, copy)| format!(r#"<a href="{}">x</a>"#, link(i, copy)))
+            .collect::<String>();
+        dominant_twin(
+            &Url::parse("https://example.com/").unwrap(),
+            format!("<html><body>{anchors}</body></html>").as_bytes(),
+        )
+        .map(|moved| moved.twin_links)
+    }
+
+    #[test]
+    fn should_count_a_page_once_whatever_its_scheme_or_letter_case() {
+        let spelled = |i: usize, copy: usize| match copy {
+            0 => format!("https://www.example.com/antiques/{i}"),
+            1 => format!("http://www.example.com/antiques/{i}"),
+            2 => format!("https://WWW.Example.com/Antiques/{i}"),
+            _ => format!("HTTP://www.example.com/ANTIQUES/{i}"),
+        };
+
+        // One below the threshold in distinct pages, however often each is linked.
+        assert_eq!(twin_links_counted(MIN_TWIN_LINKS - 1, 4, spelled), None);
+        assert_eq!(
+            twin_links_counted(MIN_TWIN_LINKS, 4, spelled),
+            Some(MIN_TWIN_LINKS)
+        );
+    }
+
+    #[test]
+    fn should_weigh_pages_that_differ_only_in_scheme_or_case_as_one_against_the_roots_own() {
+        let page = format!(
+            "<html><body>{}{}</body></html>",
+            (0..=MIN_TWIN_LINKS)
+                .map(|i| format!(r#"<a href="https://www.example.com/a/{i}">x</a>"#))
+                .collect::<String>(),
+            // One page fewer on the root's host, each linked under four spellings.
+            (0..MIN_TWIN_LINKS)
+                .flat_map(|i| {
+                    [
+                        "/b/",
+                        "/B/",
+                        "http://example.com/b/",
+                        "http://EXAMPLE.com/B/",
+                    ]
+                    .map(|prefix| format!(r#"<a href="{prefix}{i}">x</a>"#))
+                })
+                .collect::<String>()
+        );
+
+        let moved = dominant_twin(
+            &Url::parse("https://example.com/").unwrap(),
+            page.as_bytes(),
+        )
+        .map(|moved| (moved.twin_links, moved.root_links));
+        assert_eq!(moved, Some((MIN_TWIN_LINKS + 1, MIN_TWIN_LINKS)));
+    }
 
     /// The link counts of the move a root page asks for that links `twin` distinct pages on
     /// `www.example.com` and `own` on the root's host, each page under every spelling of its

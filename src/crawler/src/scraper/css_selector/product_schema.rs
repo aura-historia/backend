@@ -1388,7 +1388,8 @@ mod tests {
                 .apply(&html)
                 .unwrap();
 
-            assert_eq!(result.source_listing_id, "");
+            // As written, like the blank a `first` rule yields; the blank check reports it.
+            assert_eq!(result.source_listing_id, " ");
         }
     }
 
@@ -2289,21 +2290,27 @@ mod tests {
         assert!(!result.raw_attributes.contains_key("rawOriginNote"));
     }
 
-    /// A `first` attribute rule whose every match is blank yields its blank for the optional
-    /// `description` and raw attributes too, so the blank check reports it, while the page
-    /// still applies.
-    #[test]
-    fn should_extract_the_blank_of_first_attribute_description_and_raw_attribute_rules() {
+    /// An attribute rule whose every match is blank yields its blank for the optional
+    /// `description`, `price` and raw attributes too, with either cardinality, so the blank
+    /// check reports it, while the page still applies.
+    #[rstest::rstest]
+    #[case::first(attr_rule)]
+    #[case::all(attr_rule_all)]
+    fn should_extract_the_blank_of_attribute_description_and_raw_attribute_rules(
+        #[case] attr_rule: fn(&str, &str) -> ExtractionRule,
+    ) {
         let html = Html::parse_document(
             r#"<html><head><meta name="description" content="  "><meta name="description" content=""></head><body>
               <span id="product-id">X</span><h1>Chair</h1><span id="state">ok</span>
               <img src="/chair.jpg">
               <span class="year" data-year="&nbsp;"></span>
               <span class="material" data-material="Oak"></span>
+              <span class="price" data-price=" "></span>
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
             description: Some(attr_rule("meta[name='description']", "content")),
+            price: Some(attr_rule(".price", "data-price")),
             raw_attributes: [
                 ("rawYear".to_string(), attr_rule(".year", "data-year")),
                 (
@@ -2318,6 +2325,7 @@ mod tests {
         let result = schema.apply(&html).unwrap();
 
         assert_eq!(result.description, vec![""]);
+        assert_eq!(result.price.as_deref(), Some(""));
         assert_eq!(
             result.raw_attributes,
             BTreeMap::from([
@@ -2331,6 +2339,10 @@ mod tests {
             [
                 PlausibilityFinding {
                     field: PlausibilityField::Description,
+                    check: PlausibilityCheck::Blank,
+                },
+                PlausibilityFinding {
+                    field: PlausibilityField::Price,
                     check: PlausibilityCheck::Blank,
                 },
                 PlausibilityFinding {
@@ -2409,6 +2421,83 @@ mod tests {
         assert_eq!(
             schema.unregistered_raw_attribute_keys().collect::<Vec<_>>(),
             vec!["rawFoo", "rawZed"]
+        );
+    }
+
+    // ─── raw state capture and JSON-LD offers ─────────────────────────
+
+    const STATE_TEXT_PAGE: &str = r#"<html><body><span id="product-id">1</span><h1>Chair</h1>
+        <input id="state" type="submit" value="Secure this piece"><img src="/a.jpg"></body></html>"#;
+
+    #[test]
+    fn should_capture_the_state_text_raw() {
+        let (_, mut schema) = minimal_schema("");
+        schema.state.extract = ExtractionKind::AttributeOrText {
+            name: "value".into(),
+        };
+        let extraction = schema
+            .extract(&Html::parse_document(STATE_TEXT_PAGE))
+            .unwrap();
+        assert_eq!(extraction.raw.state, "Secure this piece");
+    }
+
+    fn json_ld_schema() -> ProductCssSelectorSchema {
+        use crate::scraper::css_selector::rule::JsonLdOfferProperty;
+        let (_, mut schema) = minimal_schema("");
+        let script = r#"script[type="application/ld+json"]"#;
+        schema.state.selector = script.into();
+        schema.state.extract = ExtractionKind::JsonLdOffer {
+            property: JsonLdOfferProperty::Availability,
+        };
+        let mut price = schema.title.clone();
+        price.selector = script.into();
+        price.extract = ExtractionKind::JsonLdOffer {
+            property: JsonLdOfferProperty::Price,
+        };
+        schema.price = Some(price);
+        schema
+    }
+
+    fn json_ld_page(offer: &str) -> Html {
+        Html::parse_document(&format!(
+            r#"<html><head><script type="application/ld+json">{{"@type":"Product","offers":{offer}}}</script></head>
+            <body><span id="product-id">1</span><h1>Chair</h1><img src="/a.jpg"></body></html>"#
+        ))
+    }
+
+    #[test]
+    fn should_take_state_and_price_with_its_currency_from_json_ld() {
+        let page = json_ld_page(
+            r#"{"price":"1850.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}"#,
+        );
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.price.as_deref(), Some("1850.00 USD"));
+        assert!(PlausibilityFindings::of(&raw).as_slice().is_empty());
+    }
+
+    #[test]
+    fn should_capture_no_price_for_a_zero_json_ld_offer_price() {
+        // Shopify publishes `0.00` for a price-on-request item; the page shows no price.
+        let page = json_ld_page(
+            r#"{"price":"0.00","priceCurrency":"GBP","availability":"https://schema.org/InStock"}"#,
+        );
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.price, None);
+    }
+
+    #[test]
+    fn should_check_a_json_ld_value_like_any_other() {
+        let page = json_ld_page(r#"{"price":"1850.00","availability":" "}"#);
+        let raw = json_ld_schema().extract(&page).unwrap().raw;
+        assert!(
+            PlausibilityFindings::of(&raw)
+                .as_slice()
+                .contains(&PlausibilityFinding {
+                    field: PlausibilityField::State,
+                    check: PlausibilityCheck::Blank,
+                })
         );
     }
 }

@@ -10,7 +10,10 @@ pub(crate) use image_url::{
 };
 
 mod image_url;
+mod json_ld;
 mod visible_text;
+
+pub use json_ld::JsonLdOfferProperty;
 
 macro_rules! local_string_newtype {
     ($name:ident) => {
@@ -97,8 +100,32 @@ local_string_newtype!(HtmlAttributeName);
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExtractionKind {
     Text,
-    Attribute { name: HtmlAttributeName },
+    Attribute {
+        name: HtmlAttributeName,
+    },
+    /// The value of attribute `name`, or the visible text of the element when that
+    /// attribute is missing or blank. One rule reads an `<input type="submit" value>`
+    /// and a `<button>` label, or a text-less image's `alt` and a text label, as
+    /// alternatives for the same field.
+    AttributeOrText {
+        name: HtmlAttributeName,
+    },
+    /// A property of the `offers` in the JSON-LD document that the matched
+    /// `<script type="application/ld+json">` element holds. The first non-blank value in
+    /// document order wins; an element whose JSON does not parse or holds no such offer
+    /// property is blank.
+    JsonLdOffer {
+        property: JsonLdOfferProperty,
+    },
     ImageUrl,
+}
+
+impl ExtractionKind {
+    /// Whether a blank match is a miss like a text rule's, that is, whether the kind yields
+    /// a value from what an element shows, not from an attribute it must carry.
+    fn is_text_like(&self) -> bool {
+        !matches!(self, Self::Attribute { .. } | Self::ImageUrl)
+    }
 }
 
 pub(crate) const IMAGE_CANDIDATE_SEPARATOR: char = '\u{1f}';
@@ -176,7 +203,8 @@ impl ExtractionRule {
         for selector in self.selectors() {
             parse_selector(selector)?;
         }
-        if let ExtractionKind::Attribute { name } = &self.extract
+        if let ExtractionKind::Attribute { name } | ExtractionKind::AttributeOrText { name } =
+            &self.extract
             && name.as_ref().trim().is_empty()
         {
             return Err(ExtractionError::MissingAttribute {
@@ -209,7 +237,7 @@ impl ExtractionRule {
     ///
     /// When no selector yields a non-blank value, a text rule with cardinality `first`,
     /// or a rule with cardinality `all`, that matched only empty elements returns
-    /// `Err(EmptyValue)`, while an attribute rule with cardinality `first` returns the
+    /// `Err(EmptyValue)`, while an attribute rule with either cardinality returns the
     /// first blank value it matched, so the blank plausibility check reports it; a rule
     /// that matched no element returns `Err(NoElementMatched)`.
     pub fn apply(&self, html: &Html) -> Result<Vec<String>, ExtractionError> {
@@ -290,12 +318,10 @@ impl ExtractionRule {
             }
         }
 
-        match (first_blank, &self.extract) {
-            (None, _) => Err(self.no_element_matched()),
-            (Some((selector, _)), ExtractionKind::Text) => Err(empty_value(selector)),
-            (Some((_, value)), ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl) => {
-                Ok(single_value(value))
-            }
+        match first_blank {
+            None => Err(self.no_element_matched()),
+            Some((selector, _)) if self.extract.is_text_like() => Err(empty_value(selector)),
+            Some((_, value)) => Ok(single_value(value)),
         }
     }
 
@@ -312,6 +338,7 @@ impl ExtractionRule {
         let mut extracted = ExtractedElements::new();
         let mut first_non_placeholder_error = None;
         let mut first_selector_with_empty_elements = None;
+        let mut first_blank_attribute = None;
 
         for css_selector in self.selectors() {
             let parsed = parse_selector(css_selector)?;
@@ -323,9 +350,15 @@ impl ExtractionRule {
                 if extracted.contains_any(overlapping_elements) {
                     continue;
                 }
-                let value = extract_from_element(&element, &self.extract, css_selector, layout)
-                    .and_then(|value| non_empty(value, css_selector));
-                match value {
+                let value = extract_from_element(&element, &self.extract, css_selector, layout);
+                if let Ok(blank) = &value
+                    && is_blank(blank)
+                    && without_value == ElementWithoutValue::Fails
+                    && matches!(self.extract, ExtractionKind::Attribute { .. })
+                {
+                    first_blank_attribute.get_or_insert_with(|| blank.clone());
+                }
+                match value.and_then(|value| non_empty(value, css_selector)) {
                     Ok(value) => {
                         extracted.insert(element.id());
                         extraction.values.push(value);
@@ -349,10 +382,14 @@ impl ExtractionRule {
         }
 
         if extraction.values.is_empty() {
-            return match first_non_placeholder_error {
-                Some(error) => Err(error),
-                None if extraction.skipped_elements > 0 => Ok(extraction),
-                None => Err(match first_selector_with_empty_elements {
+            // An attribute rule whose matches are all blank yields its first blank, as a
+            // `first` rule does, so the blank plausibility check reports the field instead
+            // of it reading as unmatched.
+            return match (first_non_placeholder_error, first_blank_attribute) {
+                (Some(error), _) => Err(error),
+                (None, _) if extraction.skipped_elements > 0 => Ok(extraction),
+                (None, Some(blank)) => Ok(single_value(blank)),
+                (None, None) => Err(match first_selector_with_empty_elements {
                     Some(selector) => empty_value(selector),
                     None => self.no_element_matched(),
                 }),
@@ -378,9 +415,12 @@ impl ExtractionRule {
     /// includes the elements it skips.
     pub(crate) fn match_count(&self, html: &Html, selector: &Selector) -> usize {
         let elements = html.select(selector);
-        match self.extract {
-            ExtractionKind::Text => elements.filter(has_visible_text).count(),
-            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => elements.count(),
+        if self.extract.is_text_like() {
+            elements
+                .filter(|element| element_shows_value(element, &self.extract))
+                .count()
+        } else {
+            elements.count()
         }
     }
 
@@ -388,12 +428,12 @@ impl ExtractionRule {
     /// the elements [`Self::match_count`] leaves out. `0` for attribute and image URL
     /// rules, whose match count includes every element.
     pub(crate) fn empty_element_count(&self, html: &Html, selector: &Selector) -> usize {
-        match self.extract {
-            ExtractionKind::Text => html
-                .select(selector)
-                .filter(|element| !has_visible_text(element))
-                .count(),
-            ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => 0,
+        if self.extract.is_text_like() {
+            html.select(selector)
+                .filter(|element| !element_shows_value(element, &self.extract))
+                .count()
+        } else {
+            0
         }
     }
 }
@@ -477,12 +517,47 @@ fn extract_from_element(
                 TextLayout::AsWritten => attr_value.to_owned(),
             })
         }
+        ExtractionKind::AttributeOrText { name } => {
+            let attr_value = element
+                .value()
+                .attr(name.as_ref())
+                .map(|value| match layout {
+                    TextLayout::Rendered => collapse_whitespace(value).trim().to_owned(),
+                    TextLayout::AsWritten => value.to_owned(),
+                })
+                .filter(|value| !is_blank(value));
+            Ok(attr_value.unwrap_or_else(|| visible_text(element, layout).trim().to_owned()))
+        }
+        ExtractionKind::JsonLdOffer { property } => Ok(json_ld::offer_value(
+            &element.text().collect::<String>(),
+            *property,
+        )
+        .unwrap_or_default()),
         ExtractionKind::ImageUrl => {
             image_url_candidate_group(element).ok_or_else(|| ExtractionError::MissingAttribute {
                 selector: selector_str.to_owned(),
                 attribute: "image URL candidate".to_owned(),
             })
         }
+    }
+}
+
+/// Whether a text-like rule can take a non-blank value from `element`: visible text, an
+/// attribute or text alternative, or a JSON-LD offer property.
+fn element_shows_value(element: &scraper::ElementRef<'_>, kind: &ExtractionKind) -> bool {
+    match kind {
+        ExtractionKind::Text => has_visible_text(element),
+        ExtractionKind::AttributeOrText { name } => {
+            element
+                .value()
+                .attr(name.as_ref())
+                .is_some_and(|value| !is_blank(value))
+                || has_visible_text(element)
+        }
+        ExtractionKind::JsonLdOffer { property } => {
+            json_ld::offer_value(&element.text().collect::<String>(), *property).is_some()
+        }
+        ExtractionKind::Attribute { .. } | ExtractionKind::ImageUrl => true,
     }
 }
 
@@ -1504,6 +1579,25 @@ mod tests {
         }
 
         #[test]
+        fn should_yield_the_first_blank_when_every_attribute_match_of_an_all_rule_is_blank() {
+            let doc = html("<meta content=\"  \"><meta content=\"\">");
+            let r = rule("meta", attr_kind("content"), ExtractionCardinality::All);
+
+            assert_eq!(r.apply(&doc).unwrap(), vec![""]);
+        }
+
+        #[test]
+        fn should_still_fail_an_all_text_rule_whose_matches_are_all_empty() {
+            let doc = html("<p> </p><p></p>");
+            let r = rule("p", text_kind(), ExtractionCardinality::All);
+
+            assert!(matches!(
+                r.apply(&doc),
+                Err(ExtractionError::EmptyValue { .. })
+            ));
+        }
+
+        #[test]
         fn should_drop_blank_attribute_values_for_all_cardinality() {
             let doc = html("<meta content=\"  \"><meta content=\"Oak\"><meta content=\"\">");
             let r = rule("meta", attr_kind("content"), ExtractionCardinality::All);
@@ -1563,16 +1657,14 @@ mod tests {
         }
 
         #[test]
-        fn should_report_empty_elements_when_every_identity_item_of_an_all_rule_is_blank() {
+        fn should_yield_the_first_blank_when_every_identity_item_of_an_all_attribute_rule_is_blank()
+        {
             let doc = html(
                 "<span class=\"sku\" data-sku=\" \"></span><span class=\"sku\" data-sku=\"\"></span>",
             );
             let r = rule(".sku", attr_kind("data-sku"), ExtractionCardinality::All);
 
-            assert!(matches!(
-                r.apply_as_identity(&doc),
-                Err(ExtractionError::EmptyValue { selector }) if selector == ".sku"
-            ));
+            assert_eq!(r.apply_as_identity(&doc).unwrap(), vec![" "]);
         }
 
         #[test]
@@ -2355,5 +2447,165 @@ mod tests {
             ExtractionCardinality::First,
         );
         assert_eq!(r.apply(&doc).unwrap(), vec!["primary1.jpg"]);
+    }
+
+    // ─── attribute-or-text and JSON-LD sources ─────────────────────────
+
+    fn attribute_or_text(name: &str) -> ExtractionKind {
+        ExtractionKind::AttributeOrText { name: name.into() }
+    }
+
+    fn json_ld(property: JsonLdOfferProperty) -> ExtractionKind {
+        ExtractionKind::JsonLdOffer { property }
+    }
+
+    #[rstest]
+    #[case::attribute_wins(
+        r#"<input class="cta" type="submit" value="  Add   to enquiry ">"#,
+        "Add to enquiry"
+    )]
+    #[case::text_when_attribute_missing(r#"<button class="cta">Reserve</button>"#, "Reserve")]
+    #[case::text_when_attribute_blank(
+        r#"<button class="cta" value=" ">Buy now</button>"#,
+        "Buy now"
+    )]
+    fn should_read_an_attribute_or_else_the_text(#[case] markup: &str, #[case] expected: &str) {
+        let rule = rule(
+            ".cta",
+            attribute_or_text("value"),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(rule.apply(&html(markup)).unwrap(), vec![expected]);
+    }
+
+    #[test]
+    fn should_fail_an_attribute_or_text_rule_whose_elements_show_nothing_as_empty() {
+        let rule = rule(
+            ".cta",
+            attribute_or_text("value"),
+            ExtractionCardinality::First,
+        );
+        let error = rule
+            .apply(&html(r#"<button class="cta"></button>"#))
+            .unwrap_err();
+        assert!(matches!(error, ExtractionError::EmptyValue { .. }));
+    }
+
+    #[test]
+    fn should_mix_attribute_and_text_elements_with_cardinality_all() {
+        let rule = rule(".cta", attribute_or_text("alt"), ExtractionCardinality::All);
+        let page =
+            html(r#"<img class="cta" alt="ITEM HAS BEEN SOLD"><span class="cta">Enquire</span>"#);
+        assert_eq!(
+            rule.apply(&page).unwrap(),
+            vec!["ITEM HAS BEEN SOLD", "Enquire"]
+        );
+    }
+
+    const LD_SCRIPT: &str = r#"<script type="application/ld+json">{"@type":"Product","offers":{"price":"2800","availability":"https://schema.org/InStock"}}</script>"#;
+
+    #[rstest]
+    #[case(JsonLdOfferProperty::Availability, "https://schema.org/InStock")]
+    #[case(JsonLdOfferProperty::Price, "2800")]
+    fn should_read_json_ld_offers(#[case] property: JsonLdOfferProperty, #[case] expected: &str) {
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            json_ld(property),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(rule.apply(&html(LD_SCRIPT)).unwrap(), vec![expected]);
+    }
+
+    #[test]
+    fn should_take_the_first_script_that_holds_an_offer() {
+        let page = html(&format!(
+            r#"<script type="application/ld+json">{{"@type":"BreadcrumbList"}}</script>{LD_SCRIPT}"#
+        ));
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            json_ld(JsonLdOfferProperty::Price),
+            ExtractionCardinality::First,
+        );
+        assert_eq!(rule.apply(&page).unwrap(), vec!["2800"]);
+    }
+
+    #[test]
+    fn should_fail_a_json_ld_rule_without_an_offer_value_as_empty() {
+        let page = html(r#"<script type="application/ld+json">{"@type":"Product"}</script>"#);
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            json_ld(JsonLdOfferProperty::Availability),
+            ExtractionCardinality::First,
+        );
+        assert!(matches!(
+            rule.apply(&page).unwrap_err(),
+            ExtractionError::EmptyValue { .. }
+        ));
+    }
+
+    #[rstest]
+    #[case::attribute_or_text(
+        attribute_or_text("value"),
+        r#"<button class="v" value=" "></button>"#
+    )]
+    #[case::json_ld(
+        json_ld(JsonLdOfferProperty::Price),
+        r#"<script class="v" type="application/ld+json">{"offers":{"price":"0.00"}}</script>"#
+    )]
+    fn should_report_an_all_rule_of_a_text_like_kind_without_values_as_empty(
+        #[case] kind: ExtractionKind,
+        #[case] markup: &str,
+    ) {
+        // Like a text rule, and unlike an attribute rule, which yields its first blank.
+        let rule = rule(".v", kind, ExtractionCardinality::All);
+        assert!(matches!(
+            rule.apply(&html(markup)).unwrap_err(),
+            ExtractionError::EmptyValue { .. }
+        ));
+    }
+
+    #[test]
+    fn should_count_only_elements_with_a_value_as_matches() {
+        let page = html(&format!(
+            r#"<script type="application/ld+json">{{}}</script>{LD_SCRIPT}"#
+        ));
+        let rule = rule(
+            r#"script[type="application/ld+json"]"#,
+            json_ld(JsonLdOfferProperty::Price),
+            ExtractionCardinality::First,
+        );
+        let selector = Selector::parse(&rule.selector).unwrap();
+        assert_eq!(rule.match_count(&page, &selector), 1);
+        assert_eq!(rule.empty_element_count(&page, &selector), 1);
+    }
+
+    #[test]
+    fn should_read_back_stored_rules_unchanged_and_the_new_kinds() {
+        let stored: ExtractionRule =
+            serde_json::from_str(r#"{"selector":"h1","type":"attribute","name":"content"}"#)
+                .unwrap();
+        assert_eq!(
+            stored.extract,
+            ExtractionKind::Attribute {
+                name: "content".into()
+            }
+        );
+
+        for (json, kind) in [
+            (
+                r#"{"selector":"s","type":"attribute_or_text","name":"value"}"#,
+                attribute_or_text("value"),
+            ),
+            (
+                r#"{"selector":"s","type":"json_ld_offer","property":"price"}"#,
+                json_ld(JsonLdOfferProperty::Price),
+            ),
+        ] {
+            let rule: ExtractionRule = serde_json::from_str(json).unwrap();
+            assert_eq!(rule.extract, kind);
+            let round_trip: ExtractionRule =
+                serde_json::from_value(serde_json::to_value(&rule).unwrap()).unwrap();
+            assert_eq!(round_trip, rule);
+        }
     }
 }

@@ -301,12 +301,14 @@ pub fn network_error_kind_for_public_target_error(error: PublicTargetError) -> N
     }
 }
 
+/// Longest wait a shop's request for less traffic is honoured for, whichever header carries it.
+pub const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
+
 pub fn parse_retry_after(value: &HeaderValue) -> Option<Duration> {
     parse_retry_after_at(value, SystemTime::now())
 }
 
 pub fn parse_retry_after_at(value: &HeaderValue, now: SystemTime) -> Option<Duration> {
-    const MAX_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
     let value = value.to_str().ok()?.trim();
 
     if let Ok(seconds) = value.parse::<u64>() {
@@ -517,7 +519,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// Every crawler request identifies the crawler and sends the crawler
-    /// request headers, nothing else; the scraper, image probes and review
+    /// request headers and the transfer encodings the client decodes, nothing else; the scraper, image probes and review
     /// inspection all build their clients from this base.
     #[tokio::test]
     async fn crawler_client_builder_should_send_the_crawler_identity_and_request_headers() {
@@ -558,6 +560,7 @@ mod tests {
             headers,
             std::collections::BTreeMap::from([
                 ("accept".to_owned(), crate::network::CRAWLER_ACCEPT),
+                ("accept-encoding".to_owned(), "gzip,br"),
                 ("user-agent".to_owned(), crate::network::CRAWLER_USER_AGENT),
             ])
         );

@@ -1399,7 +1399,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET scrape_failure_streak = $2,
                  last_scrape_error_kind = $3,
                  last_scrape_status_code = $4,
-                 next_scrape_at = $5
+                 next_scrape_at = $5,
+                 scrape_failing_since = CASE
+                     WHEN scrape_failure_streak = 0
+                          OR last_scrape_error_kind IS DISTINCT FROM $3 THEN NOW()
+                     ELSE scrape_failing_since
+                 END
              WHERE domain_id = $1
                AND scrape_failure_streak = $6
                AND next_scrape_at IS NOT DISTINCT FROM $7
@@ -1455,7 +1460,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET scrape_failure_streak = 0,
                  last_scrape_error_kind = NULL,
                  last_scrape_status_code = NULL,
-                 next_scrape_at = NULL
+                 next_scrape_at = NULL,
+                 scrape_failing_since = NULL
              WHERE domain_id = $1
                AND scrape_failure_streak = $2
                AND next_scrape_at IS NOT DISTINCT FROM $3

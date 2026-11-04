@@ -59,6 +59,8 @@ CREATE TABLE listing_source_domains (
     last_scrape_error_kind TEXT,
     last_scrape_status_code INT,
     next_scrape_at TIMESTAMPTZ,
+    -- When the current same-kind scrape failure streak began; NULL while the streak is 0.
+    scrape_failing_since TIMESTAMPTZ,
     UNIQUE (listing_source_domain),
     CHECK (listing_source_domain = lower(listing_source_domain)),
     CHECK (listing_source_domain = rtrim(listing_source_domain, '.')),
