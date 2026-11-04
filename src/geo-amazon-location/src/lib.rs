@@ -715,7 +715,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn storage_rejects_japan_constraints_and_unverifiable_returned_countries() {
+    async fn storage_rejects_japan_constraints_and_results_without_a_retainable_candidate() {
         let server = MockServer::start().await;
         let provider = provider(
             &server,
@@ -746,6 +746,77 @@ mod tests {
                 provider.geocode(&request).await.unwrap_err().kind
             );
         }
+        server.reset().await;
+        mount(&server, success(mixed_countries(false), "Stored"), 1).await;
+        assert_eq!(
+            GeocodingFailure::StorageNotPermitted,
+            provider.geocode(&request).await.unwrap_err().kind
+        );
+    }
+
+    /// Kosovo's user-assigned `XK` is outside ISO 3166-1 and therefore the reference release.
+    fn mixed_countries(with_verified: bool) -> Value {
+        let mut items = vec![
+            json!({"PlaceId": "synthetic-xk", "PlaceType": "Locality", "Position": [21.17, 42.67],
+            "Address": {"Country": {"Code2": "XK", "Code3": "XKX"}}, "MatchScores": {"Overall": 0.9}}),
+            json!({"PlaceId": "synthetic-jp", "PlaceType": "Locality", "Position": [139.77, 35.68],
+            "Address": {"Country": {"Code2": "JP", "Code3": "JPN"}}, "MatchScores": {"Overall": 0.8}}),
+        ];
+        if with_verified {
+            items.insert(0, canada()["ResultItems"][0].clone());
+        }
+        json!({ "ResultItems": items })
+    }
+
+    #[tokio::test]
+    async fn should_withhold_only_unretainable_candidates_when_a_retained_result_is_mixed() {
+        let server = MockServer::start().await;
+        mount(&server, success(mixed_countries(true), "Stored"), 1).await;
+        let result = provider(
+            &server,
+            AmazonLocationConfig::default().with_retention(ResultRetention::Storage),
+        )
+        .geocode(&request())
+        .await
+        .unwrap();
+        assert!(result.retention.permits_storage());
+        let [verified, unverifiable, japanese] = candidates(&result) else {
+            panic!("every returned candidate keeps its place in the set");
+        };
+        assert!(!verified.is_withheld_from_storage());
+        assert_eq!(
+            Some(CountryCode::CAN),
+            verified
+                .geography()
+                .and_then(DerivedGeography::description)
+                .and_then(GeographicDescription::country)
+        );
+        for withheld in [unverifiable, japanese] {
+            assert!(withheld.is_withheld_from_storage());
+            assert_eq!(None, withheld.geography());
+            assert_eq!(None, withheld.score());
+        }
+        assert!(
+            unverifiable
+                .issues()
+                .contains(&CandidateIssue::UnsupportedCountry)
+        );
+
+        server.reset().await;
+        mount(&server, success(mixed_countries(true), "Core"), 1).await;
+        let result = provider(&server, AmazonLocationConfig::default())
+            .geocode(&request())
+            .await
+            .unwrap();
+        let japanese = &candidates(&result)[2];
+        assert!(!japanese.is_withheld_from_storage());
+        assert_eq!(
+            Some(CountryCode::JPN),
+            japanese
+                .geography()
+                .and_then(DerivedGeography::description)
+                .and_then(GeographicDescription::country)
+        );
     }
 
     #[tokio::test]

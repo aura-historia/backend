@@ -161,6 +161,8 @@ pub enum CandidateIssue {
     UnverifiedConstraint,
     SubmittedCountryMismatch,
     SubmittedSubdivisionMismatch,
+    /// Provider terms forbid retaining anything derived from this candidate.
+    StorageNotPermitted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +234,17 @@ impl GeocodingCandidate {
     }
     pub fn provenance(&self) -> &GeocodingProvenance {
         &self.provenance
+    }
+    /// Drops the geography and score but keeps the candidate's place in its set, so a
+    /// candidate whose retention the provider terms forbid still counts toward ambiguity.
+    pub fn withhold_from_storage(mut self) -> Self {
+        self.geography = None;
+        self.score = None;
+        self.issues.push(CandidateIssue::StorageNotPermitted);
+        self
+    }
+    pub fn is_withheld_from_storage(&self) -> bool {
+        self.issues.contains(&CandidateIssue::StorageNotPermitted)
     }
     pub fn usability(&self) -> CandidateUsability {
         if self
@@ -487,6 +500,30 @@ mod tests {
                 handler.geocode(&smaller_request).await.unwrap_err().kind
             );
         }
+    }
+
+    #[test]
+    fn should_keep_only_the_set_position_when_a_candidate_is_withheld_from_storage() {
+        let japan = geo::GeographicDescription::new(None, Some(CountryCode::JPN), None, None);
+        let withheld = GeocodingCandidate::new(
+            DerivedGeography::new(japan.unwrap(), None),
+            vec![CandidateIssue::UnsupportedSubdivision],
+            ProviderMatchScore::new(0.9),
+            candidate().provenance().clone(),
+        )
+        .withhold_from_storage();
+        assert!(withheld.is_withheld_from_storage());
+        assert_eq!(None, withheld.geography());
+        assert_eq!(None, withheld.score());
+        assert_eq!(
+            [
+                CandidateIssue::UnsupportedSubdivision,
+                CandidateIssue::StorageNotPermitted
+            ],
+            withheld.issues()
+        );
+        assert_eq!(CandidateUsability::Unsupported, withheld.usability());
+        assert!(!candidate().is_withheld_from_storage());
     }
 
     #[test]

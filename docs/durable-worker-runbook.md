@@ -556,7 +556,10 @@ CAS and resolution generation. Unchanged completed retries reuse evidence; force
 invalidates derivatives/selections and cannot bypass budgets. Private addresses expose
 ordinary replacement/read APIs; corrected configuration gates allow bounded background
 recovery, while exhausted or invalid inputs require cause correction and changed input or
-approved operational recovery.
+approved operational recovery. Cleanup requeues only private browsing blocks: business
+resolutions blocked as `STORAGE_NOT_PERMITTED` stay blocked after a retention-rule or
+reference-release correction until protected Retry or changed input, each a paid call within
+budgets that blocks again when no candidate is retainable.
 
 Redrive a small approved DLQ sample with original identities/generations: superseded work
 completes as stale, completed work reuses evidence, active leases defer and malformed jobs

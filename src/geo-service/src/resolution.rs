@@ -964,6 +964,27 @@ mod tests {
         assert!(!e.candidates[0].acceptable);
     }
     #[test]
+    fn should_count_but_not_retain_a_withheld_alternative_when_evaluating_evidence() {
+        let a = input("123 Street", Uuid::now_v7());
+        let e = evidence(
+            &a,
+            vec![
+                candidate(CountryCode::DEU, None),
+                candidate(CountryCode::JPN, Some(SpatialPrecision::Premises))
+                    .withhold_from_storage(),
+            ],
+        );
+        assert_eq!(ResolutionStatus::Ambiguous, e.status);
+        assert!(e.accepted_index.is_none());
+        let [retained] = e.candidates.as_slice() else {
+            panic!("only the verified candidate is retained");
+        };
+        assert_eq!(
+            Some(CountryCode::DEU),
+            retained.geography.description().and_then(|d| d.country())
+        );
+    }
+    #[test]
     fn single_use_and_changed_provider_profiles_never_become_retained_evidence() {
         let a = input("test", Uuid::now_v7());
         let error = evaluate(

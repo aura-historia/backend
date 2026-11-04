@@ -37,23 +37,23 @@ pub(crate) fn map_response(
     }
     let candidates = items
         .iter()
-        .map(|item| map_candidate(item, request))
-        .collect::<Result<Vec<_>, _>>()?;
-    if retention.permits_storage() {
-        // Country must be verifiable so prohibited Japanese data cannot acquire a
-        // persistence permission, including when the provider ignored a country filter.
-        if candidates.iter().any(|candidate| {
-            let country = candidate
-                .geography()
-                .and_then(DerivedGeography::description)
-                .and_then(GeographicDescription::country);
-            country.is_none() || country == Some(CountryCode::JPN)
-        }) {
-            return Err(GeocodingError {
-                kind: GeocodingFailure::StorageNotPermitted,
-                source: static_error("returned country does not permit retained geocoding"),
-            });
-        }
+        .map(|item| {
+            let candidate = map_candidate(item, request)?;
+            Ok(match retention {
+                ResultRetention::SingleUse => candidate,
+                ResultRetention::Storage => retain_or_withhold(candidate, item),
+            })
+        })
+        .collect::<Result<Vec<_>, GeocodingError>>()?;
+    if !candidates.is_empty()
+        && candidates
+            .iter()
+            .all(GeocodingCandidate::is_withheld_from_storage)
+    {
+        return Err(GeocodingError {
+            kind: GeocodingFailure::StorageNotPermitted,
+            source: static_error("no returned candidate permits retained geocoding"),
+        });
     }
     let outcome = if candidates.is_empty() {
         GeocodingOutcome::NoMatch
@@ -237,6 +237,53 @@ fn map_candidate(
     ))
 }
 
+/// Japanese data cannot be retained, and an unverifiable country cannot prove a candidate
+/// is not Japanese, including when the provider ignored a country filter. Withholding only
+/// such candidates keeps their verified alternatives retainable.
+fn retain_or_withhold(
+    candidate: GeocodingCandidate,
+    item: &GeocodeResultItem,
+) -> GeocodingCandidate {
+    let country = candidate
+        .geography()
+        .and_then(DerivedGeography::description)
+        .and_then(GeographicDescription::country);
+    let reason = match country {
+        Some(CountryCode::JPN) => "JAPAN",
+        Some(_) => return candidate,
+        None if candidate
+            .issues()
+            .contains(&CandidateIssue::InconsistentComponents) =>
+        {
+            "CONTRADICTORY_COUNTRY"
+        }
+        None => "UNVERIFIABLE_COUNTRY",
+    };
+    let fields = item.address.as_ref().and_then(|a| a.country.as_ref());
+    tracing::info!(
+        metric = "geocoding_candidate_withheld",
+        reason,
+        code2 = country_code_diagnostic(fields.and_then(Country::code2), 2, country_from_alpha2),
+        code3 = country_code_diagnostic(fields.and_then(Country::code3), 3, country_from_alpha3),
+    );
+    candidate.withhold_from_storage()
+}
+
+/// Reports a provider country field without disclosing a recognized country: only a
+/// well-formed code that the pinned reference release lacks is named verbatim.
+fn country_code_diagnostic(
+    code: Option<&str>,
+    length: usize,
+    recognize: fn(&str) -> Option<CountryCode>,
+) -> &str {
+    match code {
+        None => "ABSENT",
+        Some(code) if !is_code_shaped(code, length) => "MALFORMED",
+        Some(code) if recognize(code).is_some() => "RECOGNIZED",
+        Some(code) => code,
+    }
+}
+
 /// Code2 and Code3 are documented ISO country fields. Only use Code3 on actual Code2
 /// absence, never to conceal an invalid present Code2.
 fn returned_country(country: &Country) -> Option<CountryCode> {
@@ -252,7 +299,7 @@ fn country_from_alpha2(code: &str) -> Option<CountryCode> {
 
 /// Strict ISO alpha-3 lookup limited to countries of the pinned reference release.
 fn country_from_alpha3(code: &str) -> Option<CountryCode> {
-    if code.len() != 3 || !code.bytes().all(|b| b.is_ascii_uppercase()) {
+    if !is_code_shaped(code, 3) {
         return None;
     }
     CountryCode::for_alpha3(code)
@@ -260,9 +307,48 @@ fn country_from_alpha3(code: &str) -> Option<CountryCode> {
         .and_then(|country| country_from_alpha2(country.alpha2()))
 }
 
+fn is_code_shaped(code: &str, length: usize) -> bool {
+    code.len() == length && code.bytes().all(|b| b.is_ascii_uppercase())
+}
+
 fn invalid_response(message: &'static str) -> GeocodingError {
     GeocodingError {
         kind: GeocodingFailure::InvalidResponse,
         source: static_error(message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_name_only_unrecognized_codes_when_diagnosing_a_withheld_country() {
+        for (code, expected) in [
+            (None, "ABSENT"),
+            (Some("ca"), "MALFORMED"),
+            (Some("CAN"), "MALFORMED"),
+            (Some("Ä"), "MALFORMED"),
+            (Some("CA"), "RECOGNIZED"),
+            (Some("JP"), "RECOGNIZED"),
+            (Some("XK"), "XK"),
+        ] {
+            assert_eq!(
+                expected,
+                country_code_diagnostic(code, 2, country_from_alpha2)
+            );
+        }
+        for (code, expected) in [
+            (None, "ABSENT"),
+            (Some("CA"), "MALFORMED"),
+            (Some("can"), "MALFORMED"),
+            (Some("CAN"), "RECOGNIZED"),
+            (Some("XKX"), "XKX"),
+        ] {
+            assert_eq!(
+                expected,
+                country_code_diagnostic(code, 3, country_from_alpha3)
+            );
+        }
     }
 }

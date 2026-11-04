@@ -170,10 +170,12 @@ map display or waiver of personal-data erasure. Review [current pricing](https:/
 when approving paid evaluation or production volume.
 
 The adapter conservatively applies the HERE Japan storage prohibition to all default data:
-Japan-constrained retained requests fail before I/O; Japanese, missing or contradictory
-result countries fail before retained evidence is released. Other providers/products/regions
-need separate review. Supplier processing may occur outside the AWS region; endpoint region
-alone is not a data-residency guarantee.
+Japan-constrained retained requests fail before I/O. A returned candidate whose country is
+Japanese, missing, outside the reference release or contradictory is withheld: nothing
+derived from it is retained, yet it still counts toward ambiguity, so verified alternatives
+stay reviewable. A result without a retainable candidate fails storage. Other
+providers/products/regions need separate review. Supplier processing may occur outside the
+AWS region; endpoint region alone is not a data-residency guarantee.
 
 Persistence owners check storage permission before retaining any derivatives and preserve
 reference release, provenance, attribution and profile. Private reuse stays isolated to its
@@ -184,8 +186,10 @@ cached evidence usable. End-user terms/product documentation must conspicuously 
 and retain required supplier notices. Maps require additional review.
 
 Logs exclude queries, private coordinates, provider identifiers/messages/payloads and
-credentials. Public diagnostics are redacted; original causes remain available for controlled
-diagnosis and must not be dumped into logs. Keep SDK HTTP/body tracing disabled.
+credentials. A withheld candidate logs only its reason and any well-formed country code the
+reference release lacks. Public diagnostics are redacted; original causes remain available
+for controlled diagnosis and must not be dumped into logs. Keep SDK HTTP/body tracing
+disabled.
 
 ## Durable resolution and Party integration (#2002)
 
