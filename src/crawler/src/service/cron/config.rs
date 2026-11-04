@@ -34,12 +34,9 @@ pub struct CrawlerCronConfig {
     pub push_queue_capacity: usize,
     /// Maximum age of the oldest item in a partial product-push batch.
     pub push_max_batch_age: Duration,
-    /// Maximum number of unique ProductListing upsert transactions executed in parallel
-    /// by one product-push batch.
+    /// Maximum number of ListingSources whose raw observations one product-push batch submits
+    /// to the ingestion queue in parallel.
     pub push_max_concurrency: usize,
-    /// Maximum connections in the authoritative business Postgres pool used by
-    /// canonical ListingSource reads and ProductListing writes.
-    pub business_db_max_connections: u32,
     pub spider_concurrency: usize,
     /// Per-site in-flight crawl limit for spider::Website.
     pub spider_site_concurrency_limit: usize,
@@ -79,7 +76,6 @@ impl Default for CrawlerCronConfig {
             push_queue_capacity: 100,
             push_max_batch_age: Duration::from_secs(5),
             push_max_concurrency: 4,
-            business_db_max_connections: 8,
             spider_concurrency: 3,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
@@ -129,20 +125,6 @@ impl CrawlerCronConfig {
 
     pub fn effective_push_max_concurrency(&self) -> usize {
         self.push_max_concurrency.max(1)
-    }
-
-    pub fn effective_business_db_max_connections(&self) -> u32 {
-        self.business_db_max_connections.max(3)
-    }
-
-    pub fn validate_business_capacity(&self) {
-        let push = self.effective_push_max_concurrency() as u32;
-        let pool = self.effective_business_db_max_connections();
-
-        assert!(
-            push + 2 <= pool,
-            "product push concurrency must leave business database headroom"
-        );
     }
 
     pub fn effective_db_max_connections(&self) -> u32 {
@@ -219,7 +201,6 @@ mod tests {
             push_queue_capacity: 0,
             push_max_batch_age: Duration::ZERO,
             push_max_concurrency: 0,
-            business_db_max_connections: 0,
             ..CrawlerCronConfig::default()
         };
 
@@ -230,29 +211,5 @@ mod tests {
             Duration::from_millis(1)
         );
         assert_eq!(config.effective_push_max_concurrency(), 1);
-        assert!(config.effective_business_db_max_connections() >= 3);
-    }
-
-    #[test]
-    #[should_panic]
-    fn should_reject_business_pool_without_push_headroom() {
-        let config = CrawlerCronConfig {
-            push_max_concurrency: 8,
-            business_db_max_connections: 8,
-            ..Default::default()
-        };
-
-        config.validate_business_capacity();
-    }
-
-    #[test]
-    fn should_accept_business_pool_with_push_headroom() {
-        let config = CrawlerCronConfig {
-            push_max_concurrency: 4,
-            business_db_max_connections: 8,
-            ..Default::default()
-        };
-
-        config.validate_business_capacity();
     }
 }

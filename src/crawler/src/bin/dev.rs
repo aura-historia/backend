@@ -86,7 +86,7 @@ use crawler::service::cron::{
     CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
 };
 use crawler::service::listing_source_registration::{
-    ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
+    FallbackCurrency, ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
@@ -135,7 +135,7 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
             listing_source_slug: listing_source_core::ListingSourceSlugId::raw(listing_source_slug)
                 .unwrap_or_else(|error| panic!("invalid demo ListingSource slug: {error}")),
             crawl_enabled: true,
-            fallback_currency: None,
+            fallback_currency: FallbackCurrency::Supplied(None),
         },
     )
     .collect()

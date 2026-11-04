@@ -1,9 +1,10 @@
 //! Production server binary for the crawler.
 //!
-//! Sets up logging with optional CloudWatch export, crawler-local Postgres, and authoritative
-//! business Postgres, then hands the production profile to [`crawler::runtime`]. The runtime
-//! continuously spiders ListingSource websites, scrapes product pages, and captures changed raw
-//! ProductListing observations for asynchronous normalization. SIGTERM and SIGINT stop it
+//! Sets up logging with optional CloudWatch export and crawler-local Postgres, then hands the
+//! production profile to [`crawler::runtime`]. The runtime continuously spiders ListingSource
+//! websites, scrapes product pages, and submits changed raw ProductListing observations to the
+//! shared ingestion queue for asynchronous capture and normalization. The crawler scope comes
+//! from the admin API; the host holds no business database credentials. SIGTERM and SIGINT stop it
 //! gracefully; see `docs/crawler/operations.md#stopping-the-crawler`.
 //!
 //! # Connection pool sizing
@@ -17,7 +18,9 @@
 //! | Variable                        | Purpose                                                        |
 //! |---------------------------------|----------------------------------------------------------------|
 //! | `LOCAL_DB_URL`                  | Required crawler-local Postgres connection URL, e.g. `postgres://crawler:<password>@127.0.0.1:5432/crawler_server`. The operator creates the database; `server` only applies crawler-local migrations to it. |
-//! | `BUSINESS_DATABASE_URL`         | Required authoritative Postgres URL for listing_sources and products |
+//! | `AURA_API_BASE_URL`             | Required base URL of the Aura Historia API; `https`, or `http` for a loopback host only |
+//! | `CRAWLER_API_TOKEN`             | Required bearer token that may read admin ListingSources (`GET /v1/admin/listing-sources`); never logged |
+//! | `PRODUCT_LISTING_INGESTION_QUEUE_URL` | Required URL of the product-listing ingestion FIFO queue |
 //! | `SPIDER_MAX_SIZE_BYTES`         | Required Spider transport page-body ceiling; set to `8388608`  |
 //! | `CRAWLER_AUTHORING_MODE`        | `auto`, `review`, `manual` or `agent`; unset or blank means `review`. `agent` needs `CRAWLER_REVIEW_AUTH_TOKEN` and writes the review agents' tokens to `review-agent-tokens.json` in the working directory |
 //! | `VERTEX_AI_PROJECT_ID`          | Google Cloud project for Vertex AI; required unless `CRAWLER_AUTHORING_MODE` is `manual` or `agent` |
@@ -34,6 +37,11 @@
 //! With `CRAWLER_AUTHORING_MODE` `manual` or `agent` no Vertex AI or LLM setting is read
 //! ([`CrawlerRuntimeConfig::from_env`]). The review console settings are in
 //! `docs/crawler/operations.md#review-service`.
+//!
+//! # IAM permissions
+//!
+//! The crawler's AWS credentials need `sqs:SendMessage` on the ingestion FIFO queue and nothing
+//! broader.
 //!
 //! # CloudWatch IAM permissions
 //!
@@ -62,61 +70,18 @@ use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::cron::{
     CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
 };
-use crawler::service::listing_source_registration::{
-    ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
+use crawler::service::listing_source_api::{
+    ApiListingSourceRegistrationSource, ListingSourceApiConfig,
 };
 use crawler::service::raw_capture::ProductListingRawCaptureServiceImpl;
-use listing_source_postgres::SqlxListingSourceReaders;
-use listing_source_service::ports::WebCrawlSourceReader;
-use platform_postgres::SqlxUnitOfWork;
-use product_listing_postgres::{
-    SqlxPartnerProductListingAuthorizerFactory, SqlxProductListingRawCaptureWriterFactory,
-};
-use product_listing_service::use_cases::CaptureProductListingRawObservationHandler;
-use sqlx::postgres::PgPoolOptions;
+use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
+use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{Instrument, info};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-
-// ---------------------------------------------------------------------------
-// ListingSourceRegistrationSource backed only by WebCrawlSourceReader.
-// ---------------------------------------------------------------------------
-
-struct PostgresWebCrawlSource {
-    sources: Box<dyn WebCrawlSourceReader>,
-}
-
-impl PostgresWebCrawlSource {
-    fn new(sources: Box<dyn WebCrawlSourceReader>) -> Self {
-        Self { sources }
-    }
-}
-
-#[async_trait]
-impl ListingSourceRegistrationSource for PostgresWebCrawlSource {
-    async fn fetch_registered_listing_sources(
-        &self,
-    ) -> Result<Vec<RegisteredListingSource>, ListingSourceSyncError> {
-        self.sources
-            .list_sources()
-            .await
-            .map_err(|error| ListingSourceSyncError::FetchError(error.to_string()))?
-            .into_iter()
-            .map(|source| {
-                Ok(RegisteredListingSource {
-                    listing_source_id: source.listing_source_id,
-                    listing_source_name: source.listing_source_name,
-                    listing_source_slug: source.listing_source_slug,
-                    crawl_enabled: source.web_crawl_enabled,
-                    fallback_currency: source.fallback_currency,
-                })
-            })
-            .collect()
-    }
-}
 
 struct AwsSdkCloudWatchBootstrapClient {
     client: CloudWatchLogsClient,
@@ -173,6 +138,8 @@ fn map_create_log_stream_error(error: &CreateLogStreamError) -> CloudWatchBootst
         CloudWatchBootstrapError::Other(error.to_string())
     }
 }
+
+const INGESTION_QUEUE_URL_ENV: &str = "PRODUCT_LISTING_INGESTION_QUEUE_URL";
 
 fn build_log_filter() -> EnvFilter {
     let configured_log_level = std::env::var("LOG_LEVEL").ok();
@@ -292,7 +259,6 @@ async fn main() {
             push_queue_capacity: 2000,
             push_max_batch_age: Duration::from_secs(5),
             push_max_concurrency: 4,
-            business_db_max_connections: 8,
             mass_removal_confirmed_domains: mass_removal_confirmed_domains(
                 std::env::var(MASS_REMOVAL_CONFIRMED_DOMAINS_ENV)
                     .ok()
@@ -303,8 +269,6 @@ async fn main() {
             }),
             ..Default::default()
         };
-
-        config.validate_business_capacity();
 
         info!(
             spider_interval_s = config.spider_interval.as_secs(),
@@ -324,7 +288,6 @@ async fn main() {
             push_queue_capacity = config.effective_push_queue_capacity(),
             push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis(),
             push_max_concurrency = config.effective_push_max_concurrency(),
-            business_db_max_connections = config.effective_business_db_max_connections(),
             mass_removal_confirmed_domains = ?config.mass_removal_confirmed_domains,
             "Crawler cron configuration loaded"
         );
@@ -347,38 +310,31 @@ async fn main() {
         // 3. Apply pending crawler-local migrations.
         apply_local_migrations(&pool).await;
 
-        let business_database_url = std::env::var("BUSINESS_DATABASE_URL")
-            .expect("BUSINESS_DATABASE_URL environment variable must be set");
-        let business_db_max_connections = config.effective_business_db_max_connections();
-        let business_pool = PgPoolOptions::new()
-            .max_connections(business_db_max_connections)
-            .acquire_timeout(Duration::from_secs(30))
-            .connect(&business_database_url)
-            .await
-            .expect("Failed to connect to authoritative business Postgres");
-        info!(
-            max_connections = business_db_max_connections,
-            raw_capture_max_concurrency = config.effective_push_max_concurrency(),
-            "Connected to authoritative business Postgres"
-        );
-
         let review_config = ReviewServerConfig::from_env().unwrap_or_else(|error| {
             panic!("invalid crawler review console configuration: {error}")
         });
         let runtime_config = CrawlerRuntimeConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
 
-        // 4. Sync crawler scope from authoritative WebCrawl sources.
-        let listing_source_source = Box::new(PostgresWebCrawlSource::new(Box::new(
-            SqlxListingSourceReaders::new(business_pool.clone()),
-        )));
+        // 4. Sync crawler scope from the admin API's WEB_CRAWL ListingSources.
+        let api_config = ListingSourceApiConfig::from_env()
+            .unwrap_or_else(|error| panic!("invalid crawler API configuration: {error}"));
+        let listing_source_source = Box::new(
+            ApiListingSourceRegistrationSource::new(api_config)
+                .unwrap_or_else(|error| panic!("invalid crawler API configuration: {error}")),
+        );
 
-        // 5. Capture changed crawler evidence through the operational raw-capture use case.
+        // 5. Submit changed crawler evidence to the shared ingestion queue.
+        let queue_url = std::env::var(INGESTION_QUEUE_URL_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| panic!("{INGESTION_QUEUE_URL_ENV} must be set"));
         let raw_capture = Box::new(ProductListingRawCaptureServiceImpl::new(
-            Arc::new(CaptureProductListingRawObservationHandler::new(
-                SqlxUnitOfWork::new(business_pool.clone()),
-                SqlxProductListingRawCaptureWriterFactory::new(),
-                SqlxPartnerProductListingAuthorizerFactory::new(),
+            Arc::new(SubmitInternalProductListingIngestionHandler::new(
+                SqsProductListingIngestionPublisher::new(
+                    aws_sdk_sqs::Client::new(&aws_config),
+                    queue_url,
+                ),
             )),
             config.effective_push_max_concurrency(),
         ));
