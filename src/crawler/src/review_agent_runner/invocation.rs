@@ -510,7 +510,7 @@ mod tests {
     }
 
     /// The author is told to look for a listing ID, in markup and in JSON-LD, before it leaves
-    /// `source_listing_id` null.
+    /// `source_listing_id` null, and to leave it null rather than take a variant's ID.
     #[test]
     fn should_tell_the_author_to_look_for_a_listing_id_before_leaving_the_rule_out() {
         let prompt = role_contract(AgentRole::Author).prompt(&review(), &AgentLimits::default());
@@ -523,6 +523,8 @@ mod tests {
             "json_ld_product",
             "json_ld_product_ids",
             "evaluate_candidate",
+            "never that of a variant or option",
+            "a missing ID is better than an unstable one",
         ] {
             assert!(prompt.contains(term), "{term}");
         }

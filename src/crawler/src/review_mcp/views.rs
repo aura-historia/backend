@@ -211,7 +211,8 @@ pub struct PageProjectionView {
     pub describes_one_product: bool,
     /// The `productID` and `sku` of the page's top-level JSON-LD `Product`, null for one the page
     /// does not carry: the values a `json_ld_product` rule with property `product_id` or `sku`
-    /// reads. The projection strips the script they are in, so they show nowhere else.
+    /// reads, each cut to [`MAX_VALUE_CHARS`] so the projection window keeps its share of the answer
+    /// bound. The projection strips the script they are in, so they show nowhere else.
     pub json_ld_product_ids: JsonLdProductIds,
     /// The page as YAML: the elements, attributes and text the schema generation prompt shows,
     /// without scripts, styles, navigation, header and footer.
@@ -504,7 +505,14 @@ impl PageProjectionView {
             url: projection.url,
             final_url: projection.final_url,
             describes_one_product: projection.describes_one_product,
-            json_ld_product_ids: projection.json_ld_product_ids,
+            json_ld_product_ids: JsonLdProductIds {
+                product_id: projection
+                    .json_ld_product_ids
+                    .product_id
+                    .as_deref()
+                    .map(value),
+                sku: projection.json_ld_product_ids.sku.as_deref().map(value),
+            },
             projection: text,
             projection_offset: offset,
             projection_chars,
@@ -820,6 +828,42 @@ mod tests {
                 .is_some_and(|rest| rest.starts_with(&continued)),
             "{}",
             next.projection.chars().take(100).collect::<String>()
+        );
+    }
+
+    #[test]
+    fn should_cut_a_long_json_ld_product_id_so_the_projection_window_stays_whole() {
+        let projection = format!("page_dsl:\n{}", "  - tag: p\n".repeat(5_000));
+        let view = PageProjectionView::of(
+            wire::PageProjection {
+                review_id: CrawlerReviewId::new(),
+                review_page_id: None,
+                url: "https://antiques.example/item/1".to_owned(),
+                final_url: "https://antiques.example/item/1".to_owned(),
+                projection,
+                describes_one_product: true,
+                json_ld_product_ids: JsonLdProductIds {
+                    product_id: Some("9".repeat(20_000)),
+                    sku: Some("R-1".to_owned()),
+                },
+            },
+            0,
+        );
+
+        assert_eq!(view.json_ld_product_ids.sku.as_deref(), Some("R-1"));
+        assert!(
+            view.json_ld_product_ids
+                .product_id
+                .as_deref()
+                .is_some_and(|id| id.ends_with("[truncated: 300 of 20000 characters]"))
+        );
+        let answer = json!(view);
+        assert_eq!(
+            crate::review_mcp::bounds::bound_answer(
+                answer.clone(),
+                crate::review_mcp::bounds::MAX_TOOL_OUTPUT_BYTES
+            ),
+            Ok(answer)
         );
     }
 }

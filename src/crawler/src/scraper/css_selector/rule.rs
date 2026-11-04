@@ -2692,4 +2692,16 @@ mod tests {
             assert_eq!(round_trip, rule);
         }
     }
+
+    #[rstest]
+    #[case::unknown_property(r#"{"selector":"s","type":"json_ld_product","property":"gtin"}"#)]
+    #[case::screaming_case(r#"{"selector":"s","type":"json_ld_product","property":"PRODUCT_ID"}"#)]
+    #[case::wire_key(r#"{"selector":"s","type":"json_ld_product","property":"productID"}"#)]
+    #[case::no_property(r#"{"selector":"s","type":"json_ld_product"}"#)]
+    fn should_refuse_a_json_ld_product_rule_without_a_known_property(#[case] json: &str) {
+        assert!(
+            serde_json::from_str::<ExtractionRule>(json).is_err(),
+            "{json}"
+        );
+    }
 }
