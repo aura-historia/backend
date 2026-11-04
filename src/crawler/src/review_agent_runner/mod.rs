@@ -14,6 +14,7 @@
 //! `docs/crawler/operations.md` (review agent runner).
 
 mod child;
+mod decision_cap;
 mod digest;
 mod envelope;
 mod invocation;
@@ -166,7 +167,9 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     );
     let started = OffsetDateTime::now_utc();
     let mut state = load_state(&settings.state_dir)?;
-    state.expire(started);
+    if let Some(ended) = state.expire(started) {
+        decision_cap::log_reviewer_pause_ended(ended);
+    }
     let mut ledger = ProcessLedger::open(&settings.state_dir)?;
     ledger.prune(started - LEDGER_RETENTION)?;
 
@@ -179,6 +182,7 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
         pending = summary.pending,
         waiting_for_human = summary.waiting_for_human,
         handed_to_human = summary.handed_to_human,
+        reviewers_held_back = summary.reviewers_held_back,
         cooling_down = summary.cooling_down,
         worked = summary.worked,
         processes = summary.processes,
@@ -242,6 +246,7 @@ async fn write_digest(
         paused_until: state
             .pause_at(now)
             .map(|pause| (pause.until, usage_limit_name(pause.limit).to_owned())),
+        reviewers_paused_until: state.reviewer_pause_at(now).map(|pause| pause.until),
     };
     let digest = Digest::of(
         from,
@@ -311,6 +316,7 @@ mod tests {
     use crate::review_agent_runner::ledger::LEDGER_FILE;
     use crate::review_agent_runner::ledger::tests::{StateDirectory, write_executable};
     use crate::review_agent_runner::settings::RunnerLocation;
+    use crate::review_agent_runner::state::ReviewerPause;
     use listing_source_core::ListingSourceId;
     use serde_json::{Value, json};
     use std::collections::HashMap;
@@ -1303,6 +1309,126 @@ echo "end $role $review" >> "$dir/order.log"
         assert_eq!(second_run.processes, 0);
         assert_eq!(second_run.stopped, Some(PassStop::Paused(pause.until)));
         assert_eq!(fixture.ledger()[0]["usage_limit"], "WEEKLY");
+    }
+
+    /// A reviewer that reports the console's decision cap pauses the reviewers until the time the
+    /// event trail gives, which a restart keeps: authors still run, no reviewer starts, and the
+    /// reviewers start again once the pause ended.
+    #[tokio::test]
+    async fn should_pause_the_reviewers_at_the_decision_cap_while_authors_keep_running() {
+        let refused = review("PENDING_REVIEW", true);
+        let held_back = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![refused.clone(), held_back.clone()]).await;
+        let mut capped = reviewer_envelope("APPROVE", "REFUSED", 0.2);
+        capped["structured_output"]["server_answer"]["kind"] = json!("RATE_LIMITED");
+        capped["structured_output"]["server_answer"]["failed_checks"] = json!([]);
+        capped["structured_output"]["server_answer"]["detail"] = json!("AGENT_DECISION_LIMIT");
+        fixture
+            .claude
+            .answer(&format!("{}-reviewer", refused.review_id), capped);
+        fixture.claude.decide(&refused.review_id.to_string(), "");
+        let cap_reached = AgentLimits::default().max_decisions_per_hour.get();
+        std::fs::write(
+            fixture.claude.directory.path().join("decided.log"),
+            (0..cap_reached)
+                .map(|_| format!("{} APPROVED\n", CrawlerReviewId::new()))
+                .collect::<String>(),
+        )
+        .unwrap_or_default();
+        let settings = fixture.settings(&[], &[]);
+        let roles = |fixture: &Fixture| -> Vec<(String, String)> {
+            fixture
+                .ledger()
+                .iter()
+                .map(|record| {
+                    (
+                        record["review_id"].as_str().unwrap_or_default().to_owned(),
+                        record["role"].as_str().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect()
+        };
+        let forget_cooldowns = |fixture: &Fixture| {
+            let mut state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+            state.cooldowns.clear();
+            save_state(fixture.state.path(), &state).unwrap_or_else(|e| panic!("{e}"));
+        };
+
+        let first_run = summary(&run_with(&settings).await);
+
+        assert_eq!(
+            (first_run.processes, first_run.reviewers_held_back),
+            (3, 1),
+            "two authors and the one reviewer that ran before the cap showed"
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        let pause = state
+            .reviewer_paused
+            .unwrap_or_else(|| panic!("no reviewer pause: {state:?}"));
+        let in_an_hour = OffsetDateTime::now_utc() + Duration::hours(1);
+        assert!(
+            (in_an_hour - pause.until).abs() < Duration::minutes(2),
+            "the cap's oldest decisions just happened: {pause:?}"
+        );
+        assert_eq!(state.paused, None, "the usage-limit pause is another one");
+        assert!(
+            state
+                .cooldowns
+                .get(&refused.review_id)
+                .is_some_and(|cooldown| cooldown.until > pause.until),
+            "the refused review keeps its normal cooldown: {state:?}"
+        );
+        assert_eq!(
+            state.cooldowns.get(&held_back.review_id).map(|c| c.until),
+            Some(pause.until),
+            "the held-back review is workable again when the reviewers resume"
+        );
+
+        forget_cooldowns(&fixture);
+        let second_run = summary(&run_with(&settings).await);
+
+        assert_eq!(
+            (
+                second_run.processes,
+                second_run.worked,
+                second_run.reviewers_held_back
+            ),
+            (2, 2, 2),
+            "a restart keeps the pause: both authors run, no reviewer"
+        );
+        let after_second: Vec<_> = roles(&fixture).split_off(3);
+        assert!(
+            after_second.iter().all(|(_, role)| role == "author"),
+            "{after_second:?}"
+        );
+        assert_eq!(
+            load_state(fixture.state.path())
+                .unwrap_or_default()
+                .reviewer_paused,
+            Some(pause)
+        );
+
+        let mut ended = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        ended.cooldowns.clear();
+        ended.reviewer_paused = Some(ReviewerPause {
+            until: OffsetDateTime::now_utc() - Duration::seconds(1),
+        });
+        save_state(fixture.state.path(), &ended).unwrap_or_else(|e| panic!("{e}"));
+        let third_run = summary(&run_with(&settings).await);
+
+        assert_eq!(
+            (third_run.processes, third_run.reviewers_held_back),
+            (3, 1),
+            "the first review's reviewer starts once the pause ended, then shows the cap again"
+        );
+        let renewed = load_state(fixture.state.path())
+            .unwrap_or_default()
+            .reviewer_paused
+            .map(|pause| pause.until);
+        assert!(
+            renewed.is_some_and(|until| until > OffsetDateTime::now_utc()),
+            "the first review's reviewer shows the cap again against the same trail"
+        );
     }
 
     /// A process stopped at its timeout, or killed, before its result envelope reported no cost:
