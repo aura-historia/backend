@@ -17,7 +17,9 @@ services:
     mem_limit: ${OPENSEARCH_MEMORY_LIMIT:-32g}
     mem_reservation: ${OPENSEARCH_MEMORY_RESERVATION:-24g}
     memswap_limit: ${OPENSEARCH_MEMORY_LIMIT:-32g}
-    cpus: ${OPENSEARCH_CPUS:-4.0}
+    cpus: ${OPENSEARCH_CPUS:-8.0}
+    cpuset: ${OPENSEARCH_CPUSET:-2-5,8-11}
+    cgroup_parent: auraopensearch.slice
     cpu_shares: 2048
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]

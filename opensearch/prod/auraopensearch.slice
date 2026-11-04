@@ -1,0 +1,9 @@
+[Unit]
+Description=Aura Historia production OpenSearch CPU allocation
+Before=docker.service
+
+[Slice]
+AllowedCPUs=2-5 8-11
+
+[Install]
+WantedBy=multi-user.target
