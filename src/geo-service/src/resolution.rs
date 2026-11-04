@@ -637,8 +637,9 @@ pub enum ResolveOutcome {
     Deferred,
 }
 impl ResolveOutcome {
-    /// Transient provider failures keep their error so redelivery retries them after
-    /// backoff. A recorded terminal status or a stale reply settles the wake-up regardless.
+    /// Transient provider failures, recorded as `PENDING`, keep their error so redelivery
+    /// retries them after backoff. A recorded terminal status or a stale reply settles the
+    /// wake-up regardless.
     fn after_completion(
         completion: CompletionOutcome,
         evidence: Result<ResolutionEvidence, GeocodingError>,
@@ -849,71 +850,6 @@ mod tests {
         assert_eq!(None, ResolutionStatus::Failed.retention_period());
     }
 
-    fn provider_failure(kind: GeocodingFailure) -> Result<ResolutionEvidence, GeocodingError> {
-        Err(GeocodingError {
-            kind,
-            source: static_error("synthetic provider failure"),
-        })
-    }
-
-    #[test]
-    fn should_settle_the_wake_up_when_completion_records_a_durable_result_or_is_stale() {
-        for status in [
-            ResolutionStatus::Accepted,
-            ResolutionStatus::Ambiguous,
-            ResolutionStatus::NoMatch,
-            ResolutionStatus::Failed,
-            ResolutionStatus::Blocked,
-        ] {
-            assert_eq!(
-                ResolveOutcome::Complete,
-                ResolveOutcome::after_completion(
-                    CompletionOutcome::Recorded(status),
-                    provider_failure(GeocodingFailure::StorageNotPermitted),
-                )
-                .unwrap(),
-                "{status:?}"
-            );
-        }
-        assert_eq!(
-            ResolveOutcome::Complete,
-            ResolveOutcome::after_completion(
-                CompletionOutcome::Stale,
-                provider_failure(GeocodingFailure::Timeout),
-            )
-            .unwrap()
-        );
-    }
-
-    #[test]
-    fn should_keep_the_wake_up_retryable_when_a_retry_is_scheduled_or_the_lease_was_lost() {
-        for completion in [
-            CompletionOutcome::Recorded(ResolutionStatus::Pending),
-            CompletionOutcome::LeaseLost,
-        ] {
-            let error = ResolveOutcome::after_completion(
-                completion,
-                provider_failure(GeocodingFailure::Timeout),
-            )
-            .unwrap_err();
-            assert!(
-                matches!(&error, ResolutionError::Provider(e) if e.kind == GeocodingFailure::Timeout),
-                "{completion:?} must keep the provider failure: {error:?}"
-            );
-        }
-        assert_eq!(
-            ResolveOutcome::Deferred,
-            ResolveOutcome::after_completion(
-                CompletionOutcome::LeaseLost,
-                Ok(ResolutionEvidence {
-                    status: ResolutionStatus::NoMatch,
-                    candidates: vec![],
-                    accepted_index: None,
-                }),
-            )
-            .unwrap()
-        );
-    }
     use geo::{
         AddressText, CountryCode, GeoPoint, SpatialPosition, SubdivisionCode, SubmittedGeography,
     };
@@ -1196,5 +1132,71 @@ mod tests {
             assert_eq!(ResolutionStatus::Ambiguous, e.status);
             assert!(e.accepted_index.is_none());
         }
+    }
+
+    fn provider_failure(kind: GeocodingFailure) -> Result<ResolutionEvidence, GeocodingError> {
+        Err(GeocodingError {
+            kind,
+            source: static_error("synthetic provider failure"),
+        })
+    }
+
+    #[test]
+    fn should_settle_the_wake_up_when_completion_records_a_durable_result_or_is_stale() {
+        for status in [
+            ResolutionStatus::Accepted,
+            ResolutionStatus::Ambiguous,
+            ResolutionStatus::NoMatch,
+            ResolutionStatus::Failed,
+            ResolutionStatus::Blocked,
+        ] {
+            assert_eq!(
+                ResolveOutcome::Complete,
+                ResolveOutcome::after_completion(
+                    CompletionOutcome::Recorded(status),
+                    provider_failure(GeocodingFailure::StorageNotPermitted),
+                )
+                .unwrap(),
+                "{status:?}"
+            );
+        }
+        assert_eq!(
+            ResolveOutcome::Complete,
+            ResolveOutcome::after_completion(
+                CompletionOutcome::Stale,
+                provider_failure(GeocodingFailure::Timeout),
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn should_keep_the_wake_up_retryable_when_a_retry_is_scheduled_or_the_lease_was_lost() {
+        for completion in [
+            CompletionOutcome::Recorded(ResolutionStatus::Pending),
+            CompletionOutcome::LeaseLost,
+        ] {
+            let error = ResolveOutcome::after_completion(
+                completion,
+                provider_failure(GeocodingFailure::Timeout),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&error, ResolutionError::Provider(e) if e.kind == GeocodingFailure::Timeout),
+                "{completion:?} must keep the provider failure: {error:?}"
+            );
+        }
+        assert_eq!(
+            ResolveOutcome::Deferred,
+            ResolveOutcome::after_completion(
+                CompletionOutcome::LeaseLost,
+                Ok(ResolutionEvidence {
+                    status: ResolutionStatus::NoMatch,
+                    candidates: vec![],
+                    accepted_index: None,
+                }),
+            )
+            .unwrap()
+        );
     }
 }

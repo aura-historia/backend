@@ -309,10 +309,34 @@ async fn terminal_and_exhausted_work_settles_redeliveries_without_reserving_call
         )
         .await
     );
-    // The fifth reservation crashed; cleanup records FAILED once it runs.
-    let exhausted = bind(&pool, &input(Uuid::now_v7(), "exhausted input"), binding()).await;
-    sqlx::query("UPDATE geo_resolutions SET attempts=5,lease_token=$2,lease_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
-        .bind(exhausted.id.into_uuid()).bind(Uuid::now_v7()).execute(&pool).await.unwrap();
+    // The fifth reservation crashed, or its late completion released the expired lease.
+    let mut exhausted = vec![];
+    for (query, lease) in [
+        (
+            "crashed fifth call",
+            "UPDATE geo_resolutions SET attempts=5,lease_token=gen_random_uuid(),lease_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1",
+        ),
+        (
+            "released fifth call",
+            "UPDATE geo_resolutions SET attempts=5,lease_token=NULL,lease_until=NULL WHERE resolution_id=$1",
+        ),
+    ] {
+        let w = bind(&pool, &input(Uuid::now_v7(), query), binding()).await;
+        sqlx::query(lease)
+            .bind(w.id.into_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+        exhausted.push(w);
+    }
+    let in_flight = bind(
+        &pool,
+        &input(Uuid::now_v7(), "fifth call in flight"),
+        binding(),
+    )
+    .await;
+    sqlx::query("UPDATE geo_resolutions SET attempts=5,lease_token=gen_random_uuid(),lease_until=clock_timestamp()+interval '1 minute' WHERE resolution_id=$1")
+        .bind(in_flight.id.into_uuid()).execute(&pool).await.unwrap();
     let reserved = provider_calls(&pool).await;
 
     for enabled in [true, false] {
@@ -321,15 +345,35 @@ async fn terminal_and_exhausted_work_settles_redeliveries_without_reserving_call
             .execute(&pool)
             .await
             .unwrap();
-        for w in [blocked, failed, exhausted] {
+        for &w in [blocked, failed].iter().chain(&exhausted) {
             assert!(
                 matches!(claim(&pool, w).await, ClaimOutcome::Complete),
                 "terminal work must settle with the provider enabled={enabled}"
             );
         }
+        assert!(matches!(
+            claim(&pool, in_flight).await,
+            ClaimOutcome::Deferred
+        ));
     }
 
     assert_eq!(reserved, provider_calls(&pool).await);
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .recover_pending(10)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    for w in exhausted {
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM geo_resolutions WHERE resolution_id=$1")
+                .bind(w.id.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!("FAILED", status);
+    }
 }
 
 async fn mutation_before_inspection_lock_order(operation: &'static str) {
@@ -1195,8 +1239,17 @@ async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
         .await;
     }
     assert!(matches!(claim(&pool, b).await, ClaimOutcome::ProviderGated));
-    sqlx::query("UPDATE geo_resolution_provider_controls SET open_until=NULL,scope_daily_limit=1,daily_limit=3").execute(&pool).await.unwrap();
-    assert!(matches!(claim(&pool, b).await, ClaimOutcome::ProviderGated));
+    // Three calls were reserved, one of them in b's scope; each daily budget gates on its own.
+    for limits in [
+        "UPDATE geo_resolution_provider_controls SET open_until=NULL,daily_limit=3",
+        "UPDATE geo_resolution_provider_controls SET daily_limit=100,scope_daily_limit=1",
+    ] {
+        sqlx::query(limits).execute(&pool).await.unwrap();
+        assert!(
+            matches!(claim(&pool, b).await, ClaimOutcome::ProviderGated),
+            "{limits}"
+        );
+    }
     let state: (String, i32) =
         sqlx::query_as("SELECT last_failure,attempts FROM geo_resolutions WHERE resolution_id=$1")
             .bind(a.id.into_uuid())

@@ -637,7 +637,7 @@ impl ResolutionRepository for Repository<'_> {
             r#"
             WITH exhausted AS (
                 SELECT resolution_id FROM geo_resolutions
-                WHERE status='PENDING' AND attempts=5 AND lease_until<=$1
+                WHERE status='PENDING' AND attempts=5 AND (lease_until IS NULL OR lease_until<=$1)
                 ORDER BY lease_until LIMIT $2 FOR NO KEY UPDATE SKIP LOCKED
             )
             UPDATE geo_resolutions r SET

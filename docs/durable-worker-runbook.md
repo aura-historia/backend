@@ -547,13 +547,14 @@ listing search accepts projection lag while removal propagates.
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
 deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
 counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
-provisioned metric filters; BLOCKED/FAILED work never reaches the DLQ, so inspect the recorded
-`geo_resolution_outcome` and resolution state for it. Never include private input or provider
-payloads in logs, operator evidence or replay messages.
+provisioned metric filters; BLOCKED/FAILED work is acknowledged rather than retained, so inspect
+the recorded `geo_resolution_outcome` and resolution state for it. Never include private input
+or provider payloads in logs, operator evidence or replay messages.
 
 Transport custody follows what a redelivery could still achieve. The worker acknowledges a
-wake-up whose generation is settled: resolved, `BLOCKED`, `FAILED`, out of attempts, erased,
-unbound or superseded. A redelivery of settled work makes no provider call. It retains a
+wake-up whose generation is settled: resolved, `BLOCKED` (also when controls change during the
+call), `FAILED`, out of attempts, erased, unbound or superseded. A redelivery of settled work
+makes no provider call. It retains a
 wake-up whose lease another claim holds, whose concurrency budget is saturated or whose retry
 backoff is running, and a transient provider failure with its diagnostic. Provider-gated
 wake-ups (provider disabled, storage not permitted, circuit open or a daily budget exhausted)

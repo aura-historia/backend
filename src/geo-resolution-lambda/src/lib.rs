@@ -105,7 +105,7 @@ pub async fn handler(
                 )
             };
         }
-        // Contention and operator-set provider controls are expected states, not failures.
+        // Contention and provider controls are expected states, not failures.
         if matches!(
             attempt.outcome,
             RecordOutcome::Completed(JobOutcome::Deferred(_) | JobOutcome::ProviderGated(_))
