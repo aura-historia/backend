@@ -151,7 +151,7 @@ struct RetentionFacts {
 }
 /// Whether persisted evidence still serves the bindings of its resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EvidenceCurrency {
+enum EvidenceEligibility {
     /// No evidence, revoked storage rights or an unreviewed passed reconsideration deadline.
     Ineligible,
     /// Unreviewed evidence serves until this reconsideration deadline.
@@ -159,7 +159,7 @@ enum EvidenceCurrency {
     /// A current review retains the evidence without a reconsideration deadline.
     Reviewed,
 }
-impl EvidenceCurrency {
+impl EvidenceEligibility {
     fn is_current(self) -> bool {
         self != Self::Ineligible
     }
@@ -228,12 +228,12 @@ impl ResolutionRow {
     }
     /// Storage rights gate all evidence. A current review retains it without a deadline;
     /// unreviewed evidence lapses at its reconsideration deadline.
-    fn currency(&self, facts: &RetentionFacts, now: OffsetDateTime) -> EvidenceCurrency {
+    fn eligibility(&self, facts: &RetentionFacts, now: OffsetDateTime) -> EvidenceEligibility {
         match self.valid_until {
-            Some(_) if !facts.storage_permitted => EvidenceCurrency::Ineligible,
-            Some(_) if facts.reviewed => EvidenceCurrency::Reviewed,
-            Some(until) if until > now => EvidenceCurrency::Until(until),
-            _ => EvidenceCurrency::Ineligible,
+            Some(_) if !facts.storage_permitted => EvidenceEligibility::Ineligible,
+            Some(_) if facts.reviewed => EvidenceEligibility::Reviewed,
+            Some(until) if until > now => EvidenceEligibility::Until(until),
+            _ => EvidenceEligibility::Ineligible,
         }
     }
 }
@@ -298,13 +298,13 @@ impl Repository<'_> {
         ).bind(profile).fetch_optional(&mut *self.connection).await.map_err(sql_error)?.ok_or_else(corrupt)
     }
     /// Read the resolution-wide facts that decide whether `r`'s evidence is current.
-    async fn evidence_currency(
+    async fn evidence_eligibility(
         &mut self,
         r: &ResolutionRow,
         now: OffsetDateTime,
-    ) -> Result<EvidenceCurrency, ResolutionError> {
+    ) -> Result<EvidenceEligibility, ResolutionError> {
         if r.valid_until.is_none() {
-            return Ok(EvidenceCurrency::Ineligible);
+            return Ok(EvidenceEligibility::Ineligible);
         }
         let facts: RetentionFacts = sqlx::query_as(concat!(
             "SELECT c.storage_permitted,",
@@ -317,7 +317,7 @@ impl Repository<'_> {
         .fetch_one(&mut *self.connection)
         .await
         .map_err(sql_error)?;
-        Ok(r.currency(&facts, now))
+        Ok(r.eligibility(&facts, now))
     }
     async fn is_bound(&mut self, id: ResolutionId) -> Result<bool, ResolutionError> {
         sqlx::query_scalar(
@@ -488,7 +488,7 @@ impl ResolutionRepository for Repository<'_> {
             }
         }
         let now = self.clock().await?;
-        if source_changed && self.evidence_currency(&row, now).await?.is_current() {
+        if source_changed && self.evidence_eligibility(&row, now).await?.is_current() {
             row.evidence(&stored_input)?;
             // A cached result has no new completion or CDC wake-up. Notify
             // dependents when it becomes current for a new source binding.
@@ -817,7 +817,7 @@ impl ResolutionRepository for Repository<'_> {
         let input = r.input()?;
         let now = self.clock().await?;
         if r.generation as u64 != w.generation
-            || !self.evidence_currency(&r, now).await?.is_current()
+            || !self.evidence_eligibility(&r, now).await?.is_current()
         {
             return Err(ResolutionError::Conflict);
         }
@@ -927,14 +927,14 @@ impl ResolutionRow {
         if binding.subject_kind != input.purpose().as_str() {
             return Err(corrupt());
         }
-        let currency = self.currency(&binding.retention, now);
-        let evidence = if currency.is_current() {
+        let eligibility = self.eligibility(&binding.retention, now);
+        let evidence = if eligibility.is_current() {
             self.evidence(&input)?
         } else {
             None
         };
         let selected =
-            if binding.selected_generation == Some(self.generation) && currency.is_current() {
+            if binding.selected_generation == Some(self.generation) && eligibility.is_current() {
                 binding
                     .selected_candidate
                     .map(|i| usize::try_from(i).map_err(invalid))
@@ -958,7 +958,7 @@ impl ResolutionRow {
             guard: u64::try_from(binding.guard).map_err(invalid)?,
             status: ResolutionStatus::from_code(&self.status).ok_or_else(corrupt)?,
             evidence,
-            valid_until: currency.deadline(),
+            valid_until: eligibility.deadline(),
             selected_candidate: selected,
             last_failure: self.last_failure.clone(),
             attempts: self.attempts as u32,
