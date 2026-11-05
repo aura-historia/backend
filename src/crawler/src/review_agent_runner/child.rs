@@ -7,7 +7,10 @@
 //! agents' token file, which `dev` writes to the directory the runner starts in.
 
 use super::invocation::{PASSED_ENV, PASSED_PLATFORM_ENV};
-use super::settings::{INTERVAL_SECONDS_ENV, STATE_DIR_ENV};
+use super::settings::{
+    COOLDOWN_MINUTES_ENV, INTERVAL_SECONDS_ENV, MAX_PROCESSES_ENV, MAX_REVIEWS_PER_RUN_ENV,
+    STATE_DIR_ENV,
+};
 use super::stop::STOP_DEADLINE;
 use crate::review_mcp::REVIEW_CONSOLE_URL_ENV;
 use std::ffi::OsString;
@@ -25,6 +28,14 @@ const RUNNER_SETTING_PREFIX: &str = "CRAWLER_REVIEW_AGENT_";
 /// The interval of `dev`'s runner unless set: an idle run costs one console request, and a
 /// developer is waiting for the agents.
 const DEV_INTERVAL_SECONDS: &str = "30";
+/// The reviews one run of `dev`'s runner works and its agent processes at once unless set: a
+/// development round registers many shops at once, whose reviews would otherwise queue for hours
+/// behind the service's defaults, sized for a production host's steady trickle.
+const DEV_MAX_REVIEWS_PER_RUN: &str = "12";
+const DEV_MAX_PROCESSES: &str = "4";
+/// How long a review of `dev`'s runner that ended without a decision waits unless set, so a
+/// development round sees the agents retry it.
+const DEV_COOLDOWN_MINUTES: &str = "30";
 /// Where `dev`'s runner keeps its lock, state, ledger and digests unless set, relative to `dev`'s
 /// working directory: under the git-ignored build directory.
 const DEV_STATE_DIR: &str = "target/review-agents";
@@ -44,8 +55,8 @@ pub fn runner_executable_next_to(executable: &Path) -> PathBuf {
 /// The environment `dev` starts the runner with: of `dev`'s `vars`, the runner's settings
 /// (`CRAWLER_REVIEW_AGENT_*`, `CRAWLER_REVIEW_CONSOLE_URL`, `LOG_LEVEL`) and the variables its CLI
 /// children may take over ([`PASSED_ENV`], [`PASSED_PLATFORM_ENV`]), then `dev`'s defaults for
-/// those of the console on `console_port`, the interval and the state directory that are unset or
-/// empty. A variable that is not valid Unicode is left out; the runner could not read it.
+/// those of the console on `console_port`, the interval, the reviews per run, the processes at
+/// once, the cooldown and the state directory that are unset or empty. A variable that is not valid Unicode is left out; the runner could not read it.
 pub fn runner_env(
     vars: impl IntoIterator<Item = (OsString, OsString)>,
     console_port: u16,
@@ -59,6 +70,9 @@ pub fn runner_env(
     for (name, default) in [
         (REVIEW_CONSOLE_URL_ENV, console_url.as_str()),
         (INTERVAL_SECONDS_ENV, DEV_INTERVAL_SECONDS),
+        (MAX_REVIEWS_PER_RUN_ENV, DEV_MAX_REVIEWS_PER_RUN),
+        (MAX_PROCESSES_ENV, DEV_MAX_PROCESSES),
+        (COOLDOWN_MINUTES_ENV, DEV_COOLDOWN_MINUTES),
         (STATE_DIR_ENV, DEV_STATE_DIR),
     ] {
         if !env.iter().any(|(set, _)| same_name(set, name)) {
@@ -215,6 +229,9 @@ mod tests {
                 ("LOG_LEVEL", "debug"),
                 ("CRAWLER_REVIEW_CONSOLE_URL", "http://127.0.0.1:7979"),
                 ("CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS", "30"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "12"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES", "4"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES", "30"),
                 (
                     "CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR",
                     "target/review-agents"
@@ -230,6 +247,9 @@ mod tests {
             vars(&[
                 ("CRAWLER_REVIEW_CONSOLE_URL", "http://127.0.0.1:7878"),
                 ("CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS", "5"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "2"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES", "1"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES", "180"),
                 ("CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR", " "),
             ]),
             7979,
@@ -240,6 +260,9 @@ mod tests {
             [
                 ("CRAWLER_REVIEW_CONSOLE_URL", "http://127.0.0.1:7878"),
                 ("CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS", "5"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "2"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES", "1"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES", "180"),
                 (
                     "CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR",
                     "target/review-agents"

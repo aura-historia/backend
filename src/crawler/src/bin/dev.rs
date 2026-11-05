@@ -38,7 +38,7 @@
 //! | `CRAWLER_REVIEW_BIND_ADDR` | Review UI bind address        | `127.0.0.1:7878`                                |
 //! | `CRAWLER_REVIEW_AUTH_TOKEN` | Optional bearer token for the review UI/API; unset allows same-origin local mutations as a human, in `agent` mode too | unset |
 //! | `CRAWLER_REVIEW_MAX_CONCURRENT_LIVE_JOBS` | How many live matrix refreshes, candidate evaluations and page projections, which fetch shop pages, the review console runs at once for all reviews, humans and agents together | `4` |
-//! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The review agents' approvals plus rejections per rolling hour in `agent` mode | `20` |
+//! | `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` | The review agents' approvals plus rejections per rolling hour in `agent` mode; `server` defaults it to `20` | `200` |
 //! | `CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES` | How old the live matrix an agent approval of product schemas rests on may be | `30` |
 //! | `CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS` | How many sample URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many `NOT_PRODUCT` | `3` |
 //! | `CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS` | How many needs-repair verdicts the review agents give one review, counted since a human last changed or judged it, before it waits for a human in `agent` mode | `3` |
@@ -75,6 +75,7 @@ use crawler::local_db::{
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
+use crawler::review::agent_decisions::AGENT_MAX_DECISIONS_PER_HOUR_ENV;
 use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
@@ -146,6 +147,10 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
 const SPIDER_MAX_SIZE_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
 /// The crawler's own response-body limit: the largest accepted value.
 const DEV_SPIDER_MAX_SIZE_BYTES: &str = "8388608";
+/// The review agents' approvals plus rejections per rolling hour unless set: a development round
+/// registers many shops at once, each opening a URL-pattern and a product-schema review, which the
+/// service's default of 20 would hold back for hours.
+const DEV_AGENT_MAX_DECISIONS_PER_HOUR: &str = "200";
 /// Whether `agent` mode starts the review agent runner as this binary's child.
 const START_REVIEW_AGENT_RUNNER_ENV: &str = "CRAWLER_DEV_START_REVIEW_AGENT_RUNNER";
 
@@ -154,6 +159,7 @@ async fn main() {
     dotenvy::dotenv().ok();
     init_logging();
     default_spider_body_limit();
+    default_agent_decision_cap();
     let database = DevDatabase::from_env(DEMO_DB_NAME)
         .unwrap_or_else(|error| panic!("invalid crawler-local database configuration: {error}"));
     let span = tracing::info_span!(
@@ -386,11 +392,33 @@ fn default_spider_body_limit() {
     );
 }
 
+/// Gives an unset or empty `CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR` the dev default; an
+/// explicit value, valid or not, is left for the runtime configuration to validate.
+fn default_agent_decision_cap() {
+    if env::var(AGENT_MAX_DECISIONS_PER_HOUR_ENV).is_ok_and(|value| !value.trim().is_empty()) {
+        return;
+    }
+    // SAFETY: runs at startup, like `default_spider_body_limit`, before the runtime executes any
+    // task that reads the environment.
+    unsafe {
+        env::set_var(
+            AGENT_MAX_DECISIONS_PER_HOUR_ENV,
+            DEV_AGENT_MAX_DECISIONS_PER_HOUR,
+        )
+    };
+    info!(
+        variable = AGENT_MAX_DECISIONS_PER_HOUR_ENV,
+        value = DEV_AGENT_MAX_DECISIONS_PER_HOUR,
+        "Review agent decision cap unset; using the dev default"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_spider_body_limit,
-        demo_listing_sources, starts_review_agent_runner,
+        AGENT_MAX_DECISIONS_PER_HOUR_ENV, DEV_AGENT_MAX_DECISIONS_PER_HOUR,
+        DEV_SPIDER_MAX_SIZE_BYTES, SPIDER_MAX_SIZE_BYTES_ENV, default_agent_decision_cap,
+        default_spider_body_limit, demo_listing_sources, starts_review_agent_runner,
     };
     use std::env;
 
@@ -431,9 +459,9 @@ mod tests {
         assert!(starts_review_agent_runner(Some("off".to_owned())).is_err());
     }
 
-    /// One test owns the variable: parallel tests would race on process state.
+    /// One test owns the variables: parallel tests would race on process state.
     #[test]
-    fn should_default_the_spider_body_limit_only_while_unset() {
+    fn should_default_the_dev_settings_only_while_unset() {
         // SAFETY: the only test in this binary that touches the environment.
         unsafe { env::remove_var(SPIDER_MAX_SIZE_BYTES_ENV) };
         default_spider_body_limit();
@@ -449,5 +477,20 @@ mod tests {
             Ok("1048576")
         );
         unsafe { env::remove_var(SPIDER_MAX_SIZE_BYTES_ENV) };
+
+        unsafe { env::set_var(AGENT_MAX_DECISIONS_PER_HOUR_ENV, " ") };
+        default_agent_decision_cap();
+        assert_eq!(
+            env::var(AGENT_MAX_DECISIONS_PER_HOUR_ENV).as_deref(),
+            Ok(DEV_AGENT_MAX_DECISIONS_PER_HOUR)
+        );
+
+        unsafe { env::set_var(AGENT_MAX_DECISIONS_PER_HOUR_ENV, "5") };
+        default_agent_decision_cap();
+        assert_eq!(
+            env::var(AGENT_MAX_DECISIONS_PER_HOUR_ENV).as_deref(),
+            Ok("5")
+        );
+        unsafe { env::remove_var(AGENT_MAX_DECISIONS_PER_HOUR_ENV) };
     }
 }
