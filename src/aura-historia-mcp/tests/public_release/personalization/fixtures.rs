@@ -21,6 +21,7 @@ use product_listing_core::{
     source_listing_id::SourceListingId,
     title::Title,
 };
+use product_listing_service::listing_text::ListingText;
 use product_listing_service::{
     ports::*, shipping::ShippingEnrichment, use_cases::*, user_state::*,
 };
@@ -94,12 +95,10 @@ impl ListingFixture {
                 event_id: "evt_01k6k0w000e008000000000007".parse().unwrap(),
                 source: self.source(),
                 source_listing_id: SourceListingId::try_from("merchant:42").unwrap(),
-                title: Some(
-                    product_listing_service::listing_text::ListingText::localized(Localized::new(
-                        Language::En,
-                        Title::from("Cabinet"),
-                    )),
-                ),
+                title: Some(ListingText::localized(Localized::new(
+                    Language::En,
+                    Title::from("Cabinet"),
+                ))),
                 description: None,
                 pricing: ProductListingPricing {
                     price: Some(Price::new(125_u64.into(), Currency::Eur).into()),

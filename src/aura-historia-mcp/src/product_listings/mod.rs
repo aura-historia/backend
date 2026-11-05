@@ -224,6 +224,7 @@ mod tests {
         listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
         product_listing::ProductListingPricing, source_listing_id::SourceListingId, title::Title,
     };
+    use product_listing_service::listing_text::ListingText;
     use product_listing_service::{ports::ListingSourceSummary, use_cases::*};
     use serde_json::{Value, json};
     use std::sync::{Arc, Mutex};
@@ -704,12 +705,10 @@ mod tests {
                 event_id: "evt_01k6k0w000e008000000000007".parse().unwrap(),
                 source: source(),
                 source_listing_id: SourceListingId::try_from("merchant:local/42").unwrap(),
-                title: Some(
-                    product_listing_service::listing_text::ListingText::localized(Localized::new(
-                        Language::En,
-                        Title::from("Cabinet"),
-                    )),
-                ),
+                title: Some(ListingText::localized(Localized::new(
+                    Language::En,
+                    Title::from("Cabinet"),
+                ))),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {

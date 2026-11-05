@@ -355,6 +355,7 @@ impl From<ProductListingPricingPresentationError> for ListWatchlistError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use product_listing_service::listing_text::ListingText;
 
     use application::error::box_error;
     use application::operation_context::{CorrelationId, Principal, RequestId};
@@ -648,11 +649,11 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                title: product_listing_service::listing_text::ListingText::select(
+                title: ListingText::select(
                     Some(Localized::new(Language::En, Title::from("ProductListing"))),
                     None,
                 ),
-                description: product_listing_service::listing_text::ListingText::select(
+                description: ListingText::select(
                     Some(Localized::new(
                         Language::En,
                         Description::from("Description"),

@@ -24,6 +24,7 @@ use product_listing_core::{
     product_listing::ProductListingPricing, product_listing_id::ProductListingId,
     product_listing_price::ProductListingPrice, source_listing_id::SourceListingId, title::Title,
 };
+use product_listing_service::listing_text::ListingText;
 use product_listing_service::{
     ports::{AuctionCatalogueCursor, ListingSourceSummary},
     use_cases::*,
@@ -346,12 +347,10 @@ fn details_view() -> PersonalizedProductListingDetailsView {
             event_id: "evt_01k6k0w000e008000000000007".parse().unwrap(),
             source: source(),
             source_listing_id: SourceListingId::try_from("merchant:local/42").unwrap(),
-            title: Some(
-                product_listing_service::listing_text::ListingText::localized(Localized::new(
-                    Language::En,
-                    Title::from("Cabinet"),
-                )),
-            ),
+            title: Some(ListingText::localized(Localized::new(
+                Language::En,
+                Title::from("Cabinet"),
+            ))),
             description: None,
             pricing: ProductListingPricingPresentation {
                 source: ProductListingPricing {

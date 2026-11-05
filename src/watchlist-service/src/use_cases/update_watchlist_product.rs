@@ -420,6 +420,7 @@ impl From<WatchlistRepositoryError> for UpdateWatchlistProductListingError {
 #[cfg(test)]
 mod tests {
     #![allow(dead_code)]
+    use product_listing_service::listing_text::ListingText;
 
     use super::*;
 
@@ -1121,11 +1122,11 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .expect("valid source listing ID"),
-                title: product_listing_service::listing_text::ListingText::select(
+                title: ListingText::select(
                     Some(Localized::new(language, Title::from("Product"))),
                     Some(Localized::new(language, Title::from("Listing"))),
                 ),
-                description: product_listing_service::listing_text::ListingText::select(
+                description: ListingText::select(
                     Some(Localized::new(language, Description::from("Description"))),
                     None,
                 ),

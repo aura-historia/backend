@@ -50,7 +50,6 @@ pub struct PersonalizedData<ItemData, UserStateData> {
 use time::OffsetDateTime;
 use url::Url;
 
-/// `Shipping` follows the response purpose: details by default, summaries in collections.
 /// A listing text as the source published it and as shown for the requested language.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +76,7 @@ impl<T: Into<String>> From<ListingText<T>> for ListingTextData {
     }
 }
 
+/// `Shipping` follows the response purpose: details by default, summaries in collections.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingDetailsData<Shipping = ListingShippingDetailData> {

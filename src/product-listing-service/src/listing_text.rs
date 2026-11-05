@@ -14,8 +14,9 @@ pub struct ListingText<T> {
 impl<T: Clone> ListingText<T> {
     /// Pairs the original with the selected text, or `None` when there is neither.
     ///
-    /// The original stands in when no selected text is available, so a listing with an
-    /// original always has a text to show.
+    /// The original stands in when no selected text is available, such as when the selected
+    /// translation normalizes to an empty text, so a listing with an original always has a text
+    /// to show.
     pub fn select(
         original: Option<Localized<Language, T>>,
         selected: Option<Localized<Language, T>>,

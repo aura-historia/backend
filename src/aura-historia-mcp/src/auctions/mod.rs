@@ -133,6 +133,7 @@ mod tests {
         use_cases::{GetPublicAuctionResult, GetPublicAuctionUseCase, ListAuctionsHandler},
     };
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+    use product_listing_service::listing_text::ListingText;
     use product_listing_service::use_cases::GetAuctionCatalogueError;
     use product_listing_service::{
         ports::AuctionCatalogueCursor,
@@ -301,7 +302,7 @@ mod tests {
                 "lot-1",
             )
             .unwrap(),
-            title: Some(product_listing_service::listing_text::ListingText::localized(localization::Localized::new(
+            title: Some(ListingText::localized(localization::Localized::new(
                 localization::Language::De,
                 product_listing_core::title::Title::from("Schrank"),
             ))),

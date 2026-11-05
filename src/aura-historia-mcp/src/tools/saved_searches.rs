@@ -280,6 +280,7 @@ mod tests {
         patch_field::PatchField,
     };
     use aura_historia_contracts::saved_searches::matches_cursor_value;
+    use product_listing_service::listing_text::ListingText;
     use search_filter_core::search_filter_state::SearchFilterState;
     use search_filter_service::ports::{
         SearchFilterMatchCursor, SearchFilterMatchView, SearchFilterReadError, SearchFilterReader,
@@ -1080,11 +1081,10 @@ mod tests {
                         slug_id: listing_source_core::ListingSourceSlugId::raw("source").unwrap(),
                     },
                     source_listing_id: "merchant:local/42".try_into().unwrap(),
-                    title: Some(
-                        product_listing_service::listing_text::ListingText::localized(
-                            localization::Localized::new(language, "Schrank".into()),
-                        ),
-                    ),
+                    title: Some(ListingText::localized(localization::Localized::new(
+                        language,
+                        "Schrank".into(),
+                    ))),
                     description: None,
                     pricing: ProductListingPricingPresentation {
                         source: product_listing_core::product_listing::ProductListingPricing {

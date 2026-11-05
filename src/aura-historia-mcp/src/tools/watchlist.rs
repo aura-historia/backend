@@ -218,6 +218,7 @@ mod tests {
         source_listing_id::SourceListingId,
         title::Title,
     };
+    use product_listing_service::listing_text::ListingText;
     use product_listing_service::{
         ports::{ListingSourceSummary, ProductListingWatchlistDetailsCursor},
         use_cases::*,
@@ -415,12 +416,10 @@ mod tests {
                     slug_id: ListingSourceSlugId::raw("watchlist-source").unwrap(),
                 },
                 source_listing_id: SourceListingId::try_from("source:item/42").unwrap(),
-                title: Some(
-                    product_listing_service::listing_text::ListingText::localized(Localized::new(
-                        Language::De,
-                        Title::from("Watchlist-Schrank"),
-                    )),
-                ),
+                title: Some(ListingText::localized(Localized::new(
+                    Language::De,
+                    Title::from("Watchlist-Schrank"),
+                ))),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {
