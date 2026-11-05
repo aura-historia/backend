@@ -344,6 +344,7 @@ impl ListData {
 pub struct PageData {
     pub items: Vec<LocationData>,
     #[schemars(schema_with = "crate::wire::schema::optional_party_location_id")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<PartyLocationId>,
 }
 impl From<PartyLocationsPage> for PageData {

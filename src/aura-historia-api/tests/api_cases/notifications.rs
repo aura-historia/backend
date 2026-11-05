@@ -325,10 +325,7 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         serde_json::json!(1000),
         price_change["payload"]["change"]["oldPrice"]["amount"]
     );
-    assert_eq!(
-        serde_json::json!({ "url": null }),
-        price_change["payload"]["image"]
-    );
+    assert_eq!(serde_json::json!({}), price_change["payload"]["image"]);
     assert!(
         price_change["payload"]["productListingId"]
             .as_str()
@@ -507,7 +504,7 @@ async fn should_present_notification_images_from_immutable_snapshot_and_current_
         2,
         hidden_images
             .iter()
-            .filter(|image| **image == serde_json::json!({ "url": null }))
+            .filter(|image| **image == serde_json::json!({}))
             .count()
     );
 

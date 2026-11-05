@@ -60,13 +60,17 @@ struct ProductListingDiscoveryHistoryData {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
     pricing: ProductListingPricingData,
-    #[serde(with = "crate::wire::listing::availability_option")]
+    #[serde(
+        with = "crate::wire::listing::availability_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
     availability: Option<ListingAvailability>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
     #[schemars(range(max = u64::MAX))]
     image_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     auction: Option<ProductListingAuctionData>,
 }
 
@@ -84,31 +88,47 @@ struct ProductListingChangedHistoryData {
 )]
 enum ProductListingHistoryChangeData {
     TitleChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
         previous: Option<LocalizedTextData>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<LocalizedTextData>,
     },
     DescriptionChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
         previous: Option<LocalizedTextData>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<LocalizedTextData>,
     },
     DeliveryChanged,
     MainPriceChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
         previous: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<ProductListingHistoryPriceData<ProductListingPriceData>>,
     },
     MinimumEstimateChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
         previous: Option<ProductListingHistoryPriceData<PriceData>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<ProductListingHistoryPriceData<PriceData>>,
     },
     MaximumEstimateChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
         previous: Option<ProductListingHistoryPriceData<PriceData>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<ProductListingHistoryPriceData<PriceData>>,
     },
     AvailabilityChanged {
-        #[serde(with = "crate::wire::listing::availability_option")]
+        #[serde(
+            with = "crate::wire::listing::availability_option",
+            skip_serializing_if = "Option::is_none"
+        )]
         #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         previous: Option<ListingAvailability>,
-        #[serde(with = "crate::wire::listing::availability_option")]
+        #[serde(
+            with = "crate::wire::listing::availability_option",
+            skip_serializing_if = "Option::is_none"
+        )]
         #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         current: Option<ListingAvailability>,
     },
@@ -125,11 +145,16 @@ enum ProductListingHistoryChangeData {
         current_count: u64,
     },
     AuctionChanged {
+        #[serde(skip_serializing_if = "Option::is_none")]
         previous: Option<ProductListingAuctionData>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<ProductListingAuctionData>,
     },
     Withdrawn {
-        #[serde(with = "crate::wire::listing::availability_option")]
+        #[serde(
+            with = "crate::wire::listing::availability_option",
+            skip_serializing_if = "Option::is_none"
+        )]
         #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         previous_availability: Option<ListingAvailability>,
     },
@@ -452,7 +477,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            json!({"type":"MAIN_PRICE_CHANGED", "previous":{"type":"ON_REQUEST"}, "current":null}),
+            json!({"type":"MAIN_PRICE_CHANGED", "previous":{"type":"ON_REQUEST"}}),
             value[0]
         );
         assert_eq!(expected_display, value[1]["previous"]["display"]);
@@ -587,7 +612,7 @@ mod tests {
                     "description":{"text":"Oak cabinet","language":"en"}, "pricing":{},
                     "availability":"AVAILABLE", "url":"https://example.test/listing", "imageCount":u64::MAX,
                     "auction":{
-                        "auctionId":auction.auction_id(), "lotNumber":null,"cataloguePosition":null,
+                        "auctionId":auction.auction_id(),
                         "biddingOpens":"1970-01-01T00:00:00Z", "scheduledCloses":"1970-01-01T00:00:00Z",
                         "reportedClosedAt":"1970-01-01T00:00:00Z"
                     }
@@ -700,7 +725,7 @@ mod tests {
         }
     }
     #[test]
-    fn should_expose_original_localized_text_and_explicit_absence_in_history() {
+    fn should_expose_original_localized_text_and_omit_absent_text_in_history() {
         use localization::{Language, Localized};
         use product_listing_core::{description::Description, title::Title};
         let title = Localized::new(Language::Fr, Title::from("Nouveau titre"));
@@ -714,14 +739,14 @@ mod tests {
                     previous: None,
                     current: Some(title),
                 },
-                serde_json::json!({"type":"TITLE_CHANGED","previous":null,"current":{"text":"Nouveau titre","language":"fr"}}),
+                serde_json::json!({"type":"TITLE_CHANGED","current":{"text":"Nouveau titre","language":"fr"}}),
             ),
             (
                 ProductListingHistoryChange::DescriptionChanged {
                     previous: Some(description),
                     current: None,
                 },
-                serde_json::json!({"type":"DESCRIPTION_CHANGED","previous":{"text":"Erster Absatz\n\nZweiter Absatz","language":"de"},"current":null}),
+                serde_json::json!({"type":"DESCRIPTION_CHANGED","previous":{"text":"Erster Absatz\n\nZweiter Absatz","language":"de"}}),
             ),
         ] {
             let entry = ProductListingHistoryEntry {

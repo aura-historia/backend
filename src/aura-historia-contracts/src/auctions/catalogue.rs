@@ -20,6 +20,7 @@ pub struct CatalogueCursorData {
     #[schemars(schema_with = "crate::wire::schema::auction_id")]
     pub auction_id: String,
     #[schemars(range(max = u32::MAX))]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub catalogue_position: Option<u32>,
     #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     pub product_listing_id: String,

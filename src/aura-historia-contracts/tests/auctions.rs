@@ -159,7 +159,7 @@ fn should_preserve_all_directory_fields_and_validate_schedule_points()
 }
 
 #[test]
-fn should_preserve_created_and_nullable_scheduled_directory_cursors()
+fn should_preserve_created_and_omit_absent_scheduled_directory_cursors()
 -> Result<(), Box<dyn std::error::Error>> {
     for (sort, order, scheduled) in [
         (None, None, None),
@@ -204,16 +204,11 @@ fn should_preserve_created_and_nullable_scheduled_directory_cursors()
         );
         let cursor = value["searchAfter"].clone();
         assert_eq!(expected, parse_directory_cursor(cursor.to_string())?);
-        if sort.is_some() {
-            assert!(cursor.get("scheduled").is_some());
-            let mut missing = cursor.clone();
-            missing
-                .as_object_mut()
-                .ok_or("not object")?
-                .remove("scheduled");
-            assert!(parse_directory_cursor(missing.to_string()).is_err());
-        } else {
-            assert!(cursor.get("scheduled").is_none());
+        assert_eq!(scheduled.is_some(), cursor.get("scheduled").is_some());
+        if sort.is_none() {
+            let mut unsorted_with_instant = cursor.clone();
+            unsorted_with_instant["scheduled"] = json!("1970-01-01T00:00:00Z");
+            assert!(parse_directory_cursor(unsorted_with_instant.to_string()).is_err());
             if order.is_none() {
                 assert!(cursor["scope"].get("sort").is_none());
                 assert!(cursor["scope"].get("order").is_none());
@@ -228,53 +223,51 @@ fn should_preserve_created_and_nullable_scheduled_directory_cursors()
 }
 
 #[test]
-fn should_preserve_omitted_directory_cursor_filters_and_serialized_nulls()
+fn should_accept_null_or_omitted_directory_cursor_filters_and_omit_them()
 -> Result<(), Box<dyn std::error::Error>> {
     let input_schema = input_schema::<DirectoryCursorData>();
     let output_schema = output_schema::<DirectoryCursorData>();
-    for scope in [
-        json!({"from":null,"to":null}),
-        json!({"listingSourceId":null,"format":null,"reportedStatus":null,"timeRole":null,"sort":null,"order":null,"from":null,"to":null}),
+    for (scope, scheduled) in [
+        (json!({}), None),
+        (json!({"from":null,"to":null}), None),
+        (
+            json!({"listingSourceId":null,"format":null,"reportedStatus":null,"timeRole":null,"sort":null,"order":null,"from":null,"to":null}),
+            None,
+        ),
+        (
+            json!({"timeRole":"LIVE_STARTS","sort":"scheduled","order":"asc","from":null,"to":null}),
+            Some(Value::Null),
+        ),
     ] {
-        let input = json!({
+        let mut input = json!({
             "created":"1970-01-01T00:00:00Z",
             "auctionId":AuctionId::new(),
             "scope":scope,
         });
+        if let Some(scheduled) = scheduled {
+            input["scheduled"] = scheduled;
+        }
         let data = serde_json::from_value::<DirectoryCursorData>(input.clone())?;
         assert!(jsonschema::is_valid(&input_schema, &input), "{input}");
         let output = serde_json::to_value(data)?;
-        assert_eq!(
-            json!({"listingSourceId":null,"format":null,"reportedStatus":null,"timeRole":null,"from":null,"to":null}),
-            output["scope"]
-        );
-        assert!(jsonschema::is_valid(&output_schema, &output));
-        let mut missing_null = output.clone();
-        missing_null["scope"]
+        assert!(output.get("scheduled").is_none());
+        let mut present_scope = input["scope"].clone();
+        present_scope
             .as_object_mut()
-            .ok_or("missing scope object")?
-            .remove("listingSourceId");
-        assert!(!jsonschema::is_valid(&output_schema, &missing_null));
+            .ok_or("scope is not an object")?
+            .retain(|_, value| !value.is_null());
+        assert_eq!(present_scope, output["scope"]);
+        assert!(jsonschema::is_valid(&output_schema, &output));
         assert_eq!(
             parse_directory_cursor(input.to_string())?,
             parse_directory_cursor(output.to_string())?
         );
     }
-    for scope in [json!({}), json!({"from":null}), json!({"to":null})] {
-        let input = json!({
-            "created":"1970-01-01T00:00:00Z",
-            "auctionId":AuctionId::new(),
-            "scope":scope,
-        });
-        assert!(!jsonschema::is_valid(&input_schema, &input));
-        assert!(serde_json::from_value::<DirectoryCursorData>(input).is_err());
-    }
     Ok(())
 }
 
 #[test]
-fn should_round_trip_required_directory_cursor_schedule_bounds()
--> Result<(), Box<dyn std::error::Error>> {
+fn should_round_trip_directory_cursor_schedule_bounds() -> Result<(), Box<dyn std::error::Error>> {
     let input = json!({
         "created":"1970-01-01T00:00:00Z",
         "auctionId":AuctionId::new(),
@@ -364,7 +357,7 @@ fn should_preserve_catalogue_defaults_aliases_and_position_cursor()
         assert_eq!(None, data.catalogue_position);
         let output = serde_json::to_value(data)?;
         assert_eq!(
-            json!({"auctionId":auction,"productListingId":listing,"cataloguePosition":null}),
+            json!({"auctionId":auction,"productListingId":listing}),
             output
         );
         assert!(jsonschema::is_valid(
@@ -431,7 +424,7 @@ fn should_emit_complete_public_auction_metadata_and_direct_schedule_without_admi
     );
     assert_eq!(json!({"text":"Autumn","language":"en"}), value["name"]);
     assert_eq!(
-        json!({"biddingOpens":null,"liveStarts":"1970-01-01T00:00:00Z","lotsBeginClosing":null,"scheduledEnd":null}),
+        json!({"liveStarts":"1970-01-01T00:00:00Z"}),
         value["schedule"]
     );
     assert_eq!("TIMED", value["format"]);

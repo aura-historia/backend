@@ -9,17 +9,23 @@ pub struct PublicAuctionData {
     #[schemars(schema_with = "crate::wire::schema::auction_id")]
     pub auction_id: AuctionId,
     pub listing_source: PublicSourceData,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<crate::values::LocalizedTextData>,
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub catalogue_url: Option<url::Url>,
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub view_url: Option<url::Url>,
     #[schemars(schema_with = "super::format_schema")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<&'static str>,
     pub schedule: super::AuctionScheduleResponseData,
     #[schemars(schema_with = "super::status_schema")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reported_status: Option<&'static str>,
     #[schemars(range(max = u32::MAX))]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reported_lot_count: Option<u32>,
     #[schemars(range(max = u64::MAX))]
     pub visible_listing_count: u64,

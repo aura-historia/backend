@@ -620,8 +620,8 @@ mod tests {
                 time_role: None,
                 sort: None,
                 order: None,
-                from: None.into(),
-                to: None.into(),
+                from: None,
+                to: None,
             },
         })?;
         let directory_query = url::form_urlencoded::Serializer::new(String::new())
@@ -683,13 +683,13 @@ mod tests {
     }
 
     #[test]
-    fn should_round_trip_nullable_scheduled_cursor_and_reject_missing_instant()
+    fn should_omit_absent_scheduled_cursor_instant_and_accept_legacy_null()
     -> Result<(), Box<dyn std::error::Error>> {
         let auction_id = AuctionId::new();
         let cursor = DirectoryCursorData {
             created: OffsetDateTime::UNIX_EPOCH,
             auction_id: auction_id.to_string(),
-            scheduled: Some(None),
+            scheduled: None,
             scope: DirectoryCursorScopeData {
                 listing_source_id: None,
                 format: None,
@@ -697,32 +697,20 @@ mod tests {
                 time_role: Some("LIVE_STARTS".to_owned()),
                 sort: Some("scheduled".to_owned()),
                 order: Some(SortOrder::Asc),
-                from: None.into(),
-                to: None.into(),
+                from: None,
+                to: None,
             },
         };
-        let value = serde_json::to_value(&cursor)?;
-        assert!(
-            value
-                .get("scheduled")
-                .is_some_and(serde_json::Value::is_null)
-        );
+        let mut value = serde_json::to_value(&cursor)?;
+        assert!(value.get("scheduled").is_none());
         let parsed = parse_directory_cursor(value.to_string())?;
         assert_eq!(None, parsed.scheduled);
         assert_eq!(Some(AuctionSchedulePoint::LiveStarts), parsed.scope.sort);
-        assert!(
-            parse_directory_cursor(
-                serde_json::json!({
-                    "created": "1970-01-01T00:00:00Z", "auctionId": auction_id.to_string(),
-                    "scope": value["scope"]
-                })
-                .to_string()
-            )
-            .is_err()
-        );
+        value["scheduled"] = serde_json::Value::Null;
+        assert_eq!(parsed, parse_directory_cursor(value.to_string())?);
         let instant = time::macros::datetime!(2026-01-01 00:00 UTC);
         let mut cursor = cursor;
-        cursor.scheduled = Some(Some(instant));
+        cursor.scheduled = Some(instant);
         assert_eq!(
             Some(instant),
             parse_directory_cursor(serde_json::to_string(&cursor)?)?.scheduled
@@ -743,8 +731,8 @@ mod tests {
                 time_role: None,
                 sort: None,
                 order: None,
-                from: None.into(),
-                to: None.into(),
+                from: None,
+                to: None,
             },
         };
         let value = serde_json::to_value(cursor)?;

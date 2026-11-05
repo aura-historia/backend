@@ -200,6 +200,7 @@ impl From<ResolutionView> for ResolutionData {
 /// position, has no address text, or is retired.
 #[derive(Serialize)]
 struct LocationResolutionData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolution: Option<ResolutionData>,
 }
 
@@ -212,6 +213,7 @@ struct ReviewData {
 #[derive(Serialize)]
 struct ReviewPageData {
     items: Vec<ReviewData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     next: Option<PartyLocationId>,
 }
 impl From<PartyLocationResolutionReviewsPage> for ReviewPageData {
@@ -587,7 +589,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_expose_safe_candidate_summaries_and_null_unbound_resolutions() {
+    async fn should_expose_safe_candidate_summaries_and_omit_unbound_resolutions() {
         let capture = Arc::new(Capture::default());
         let app = app(&capture);
         let path = format!(
@@ -625,7 +627,7 @@ mod tests {
         *capture.unbound.lock().unwrap() = true;
         let (status, body) = call(&app, "GET", &path, "", true).await;
         assert_eq!(StatusCode::OK, status);
-        assert_eq!(json!({"resolution": null}), body);
+        assert_eq!(json!({}), body);
     }
 
     #[tokio::test]
@@ -642,7 +644,7 @@ mod tests {
         )
         .await;
         assert_eq!(StatusCode::OK, status);
-        assert_eq!(Value::Null, body["next"]);
+        assert!(body.get("next").is_none());
         assert_eq!("Showroom", body["items"][0]["location"]["label"]);
         assert_eq!("AMBIGUOUS", body["items"][0]["resolution"]["status"]);
         call(

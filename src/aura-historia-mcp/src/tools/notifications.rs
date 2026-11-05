@@ -1,7 +1,9 @@
 //! Current-user notification inbox operations; application services own scopes and ownership.
 mod errors;
 
-use crate::{AccessClass, OperationDefinition, OperationError, OperationPolicy, RegistryError};
+use crate::{
+    AccessClass, Completed, OperationDefinition, OperationError, OperationPolicy, RegistryError,
+};
 use application::operation_context::CredentialCapability;
 use aura_historia_contracts::notifications::{
     ListNotificationsQuery, NotificationsPageData, UpdateNotificationSeenData,
@@ -127,7 +129,7 @@ fn update_one(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateNotificationSeen",
-        "Set seen on one owned notification identified by notificationId. Missing or foreign IDs return not found. Returns result:null on success.",
+        "Set seen on one owned notification identified by notificationId. Missing or foreign IDs return not found. Returns an empty object on success.",
         mutation_policy(),
         move |input: SingleSeenArguments, invocation| {
             let update = update.clone();
@@ -142,7 +144,7 @@ fn update_one(
                     ))
                     .await?
                     .map_err(errors::update_one)?;
-                Ok(())
+                Ok(Completed {})
             }
         },
     )
@@ -153,7 +155,7 @@ fn update_selected(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateNotificationsSeen",
-        "Set seen on selected notificationIds in your inbox. At least one ID is required; duplicates are deduplicated and missing or foreign IDs are ignored. Returns result:null on success without per-item reports.",
+        "Set seen on selected notificationIds in your inbox. At least one ID is required; duplicates are deduplicated and missing or foreign IDs are ignored. Returns an empty object on success without per-item reports.",
         mutation_policy(),
         move |input: SelectedSeenArguments, invocation| {
             let update = update.clone();
@@ -175,7 +177,7 @@ fn update_selected(
                     ))
                     .await?
                     .map_err(errors::update_selected)?;
-                Ok(())
+                Ok(Completed {})
             }
         },
     )
@@ -186,7 +188,7 @@ fn update_all(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateAllNotificationsSeen",
-        "Set seen to the supplied boolean for every notification in your entire inbox, including items beyond the listed page. Returns result:null on success.",
+        "Set seen to the supplied boolean for every notification in your entire inbox, including items beyond the listed page. Returns an empty object on success.",
         mutation_policy(),
         move |input: AllSeenArguments, invocation| {
             let update = update.clone();
@@ -200,7 +202,7 @@ fn update_all(
                     ))
                     .await?
                     .map_err(errors::update_all)?;
-                Ok(())
+                Ok(Completed {})
             }
         },
     )
@@ -211,7 +213,7 @@ fn delete_one(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteNotification",
-        "Permanently delete one owned notification identified by notificationId. Missing or foreign IDs return not found. Returns result:null on success.",
+        "Permanently delete one owned notification identified by notificationId. Missing or foreign IDs return not found. Returns an empty object on success.",
         mutation_policy(),
         move |input: NotificationArguments, invocation| {
             let delete = delete.clone();
@@ -225,7 +227,7 @@ fn delete_one(
                     ))
                     .await?
                     .map_err(errors::delete_one)?;
-                Ok(())
+                Ok(Completed {})
             }
         },
     )
@@ -236,7 +238,7 @@ fn delete_all(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteNotifications",
-        "Permanently delete your entire notification inbox, including items beyond the listed page. Takes no IDs or business body: arguments must be {}. Returns result:null on success.",
+        "Permanently delete your entire notification inbox, including items beyond the listed page. Takes no IDs or business body: arguments must be {}. Returns an empty object on success.",
         mutation_policy(),
         move |_: EmptyArguments, invocation| {
             let delete = delete.clone();
@@ -245,7 +247,7 @@ fn delete_all(
                     .execute(delete.execute(&invocation.operation, DeleteNotificationsCommand))
                     .await?
                     .map_err(errors::delete_all)?;
-                Ok(())
+                Ok(Completed {})
             }
         },
     )

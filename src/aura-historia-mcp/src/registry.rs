@@ -33,7 +33,13 @@ pub struct OperationDefinition {
     handler: Arc<Handler>,
 }
 
-/// Object envelope required by legacy MCP output schemas for arrays, null and scalars.
+/// Structured result of a bodyless business outcome: an empty object rather than `null`,
+/// because tool results never carry JSON `null` members.
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Completed {}
+
+/// Object envelope required by legacy MCP output schemas for arrays and scalars.
 /// The inner value is the shared API response type without remapping or field dropping.
 #[derive(Serialize, JsonSchema)]
 struct ToolOutput<T> {

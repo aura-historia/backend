@@ -441,7 +441,7 @@ async fn verify_quota_and_removal(fixture: &Fixture) -> TestResult {
             json!({"productListingId":fixture.products[1]}),
         )
         .await?;
-    assert_eq!(json!({"result":null}), deleted);
+    assert_eq!(json!({}), deleted);
     fixture
         .error(
             "deleteWatchlistProduct",

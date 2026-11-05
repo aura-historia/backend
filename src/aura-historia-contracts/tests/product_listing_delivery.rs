@@ -195,7 +195,7 @@ fn should_reject_invalid_versions_references_rules_and_required_nullable_omissio
     }
 }
 #[test]
-fn should_preserve_null_current_view_positive_versions_and_changed_or_unchanged_outcomes() {
+fn should_omit_absent_current_view_and_preserve_positive_versions_and_outcomes() {
     let id = ProductListingId::new();
     let view = serde_json::to_value(
         DeliveryData::try_from(ProductListingDeliveryView {
@@ -206,14 +206,8 @@ fn should_preserve_null_current_view_positive_versions_and_changed_or_unchanged_
         .unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        view,
-        json!({"productListingId":id,"expectedVersion":1,"delivery":null})
-    );
+    assert_eq!(view, json!({"productListingId":id,"expectedVersion":1}));
     assert!(validator::<DeliveryData>(true).is_valid(&view));
-    let mut omitted = view;
-    omitted.as_object_mut().unwrap().remove("delivery");
-    assert!(!validator::<DeliveryData>(true).is_valid(&omitted));
     for outcome in [
         domain_primitives::change_outcome::ChangeOutcome::Changed,
         domain_primitives::change_outcome::ChangeOutcome::Unchanged,

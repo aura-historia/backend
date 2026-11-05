@@ -2,8 +2,8 @@
 mod error;
 
 use crate::{
-    AccessClass, InvocationContext, OperationDefinition, OperationError, OperationPolicy,
-    RegistryError,
+    AccessClass, Completed, InvocationContext, OperationDefinition, OperationError,
+    OperationPolicy, RegistryError,
 };
 use application::operation_context::{CredentialCapability, Principal};
 use aura_historia_contracts::{
@@ -137,7 +137,7 @@ fn remove_operation(
                         },
                     ))
                     .await?
-                    .map(|_| ())
+                    .map(|_| Completed {})
                     .map_err(error::remove)
             }
         },
@@ -708,7 +708,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(json!({"result":null}), result);
+        assert_eq!(json!({}), result);
         assert!(
             matches!(fixture.calls.lock().unwrap().last(),Some(Call::Remove(_,command)) if command.user_id==user && command.product_listing_id==product)
         );
