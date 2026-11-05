@@ -44,28 +44,28 @@ impl MetricUnit {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CrawlerMetric {
-    /// Scraper URLs whose scrape completed, changed or not, per domain batch.
+    /// Scraper URLs whose scrape completed, changed or not, per scraper batch.
     ScrapesSucceeded,
-    /// Scraper URLs whose scrape failed, per domain batch.
+    /// Scraper URLs whose scrape failed, per scraper batch.
     ScrapesFailed,
-    /// Scraper URLs whose page waits on a pending product-schema review, per domain batch: no
+    /// Scraper URLs whose page waits on a pending product-schema review, per scraper batch: no
     /// failure, so neither in `ScrapesFailed` nor in `UrlFailures`.
     ScrapesAwaitingSchemaReview,
-    /// 1 when a scraper domain batch completed a scrape or a page of it waited on a
-    /// product-schema review, else 0; and 1 per scraper pass for each domain whose scraping only
-    /// a pending review holds back, which has no batch. The no-successful-scrape alarm reads it
-    /// alone, so a domain that only waits on a reviewer does not alarm.
+    /// 1 when a scraper batch completed a scrape or a page of it waited on a product-schema review,
+    /// else 0; and 1 per scraper pass for each ListingSource whose scraping only a pending review
+    /// holds back, which has no batch. The no-successful-scrape alarm reads it alone, so a
+    /// ListingSource that only waits on a reviewer does not alarm.
     ScrapedOrAwaitingReview,
     /// Raw observations the ingestion queue accepted, per capture batch.
     ProductsCaptured,
     /// Raw observations discarded because they exceed the ingestion message limit or cannot be
     /// encoded, per capture batch; only recorded when non-zero.
     ProductsDiscardedUnsendable,
-    /// Scraper URL failures of one `failure_kind`, per domain batch.
+    /// Scraper URL failures of one `failure_kind`, per scraper batch.
     UrlFailures,
-    /// Scraper domain circuits opened.
-    DomainCircuitOpened,
-    /// Product URLs a spider crawl classified with the domain's URL pattern.
+    /// Scrape circuits opened.
+    ScrapeCircuitOpened,
+    /// Product URLs a spider crawl classified with the ListingSource's URL pattern.
     CrawlProductUrls,
     /// 1 when a spider crawl was cut short before its bounds, else 0.
     CrawlTruncated,
@@ -87,7 +87,7 @@ impl CrawlerMetric {
             Self::ProductsCaptured => "ProductsCaptured",
             Self::ProductsDiscardedUnsendable => "ProductsDiscardedUnsendable",
             Self::UrlFailures => "UrlFailures",
-            Self::DomainCircuitOpened => "DomainCircuitOpened",
+            Self::ScrapeCircuitOpened => "ScrapeCircuitOpened",
             Self::CrawlProductUrls => "CrawlProductUrls",
             Self::CrawlTruncated => "CrawlTruncated",
             Self::CrawlOutcome => "CrawlOutcome",

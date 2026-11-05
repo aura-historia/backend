@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 pub struct UrlPatternReviewCandidate {
     pub decision: UrlPatternDecision,
     pub current_pattern: Option<String>,
-    /// Which URLs of the review's domain, its sample's among them, are product pages, as the
-    /// author agent or a human labelled them; set only through the review's sample labels.
+    /// Which URLs on the crawl host of the review's ListingSource, its sample's among them, are
+    /// product pages, as the author agent or a human labelled them; set only through the review's
+    /// sample labels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_labels: Option<SampleLabels>,
 }

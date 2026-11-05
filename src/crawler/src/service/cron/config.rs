@@ -9,7 +9,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::collections::HashSet;
 use std::time::Duration;
 
-/// Lists, comma-separated, the ListingSource domains whose mass removal an operator confirmed
+/// Lists, comma-separated, the ListingSource crawl hosts whose mass removal an operator confirmed
 /// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`).
 pub const MASS_REMOVAL_CONFIRMED_DOMAINS_ENV: &str = "CRAWLER_MASS_REMOVAL_CONFIRMED_DOMAINS";
 
@@ -18,15 +18,15 @@ pub struct CrawlerCronConfig {
     pub spider_interval: Duration,
     pub scraper_interval: Duration,
     pub listing_source_sync_interval: Duration,
-    /// Optional number of domains fetched per scraper scheduler refill.
+    /// Optional number of ListingSources fetched per scraper scheduler refill.
     /// Defaults to scraper concurrency.
-    pub scraper_domain_batch_size: Option<usize>,
-    /// Maximum URLs fetched per selected scraper domain.
-    pub scraper_urls_per_domain: i64,
-    /// Wall-clock budget for one domain batch. URLs left when it runs out
-    /// stay eligible for a later pass, so a slow domain (a long robots.txt
+    pub scraper_batch_size: Option<usize>,
+    /// Maximum URLs fetched per selected scraper ListingSource.
+    pub scraper_urls_per_source: i64,
+    /// Wall-clock budget for one scraper batch. URLs left when it runs out
+    /// stay eligible for a later pass, so a slow ListingSource (a long robots.txt
     /// `Crawl-delay`, say) cannot hold its scraper slot for the whole pass.
-    pub scraper_domain_batch_time_budget: Duration,
+    pub scraper_batch_time_budget: Duration,
     /// Number of scraped products to accumulate before flush.
     pub push_batch_size: usize,
     /// Maximum product messages buffered between scraper workers and the
@@ -58,8 +58,9 @@ pub struct CrawlerCronConfig {
     pub scraper_max_llm_calls_per_listing_source: i64,
     /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,
-    /// ListingSource domains, as registered, whose mass removal an operator confirmed as a real
-    /// bulk clearance: the scraper's mass-removal guard does not hold back their removals.
+    /// ListingSource crawl hosts, in canonical spelling, whose mass removal an operator confirmed
+    /// as a real bulk clearance: the scraper's mass-removal guard does not hold back their
+    /// removals.
     pub mass_removal_confirmed_domains: HashSet<String>,
 }
 
@@ -69,9 +70,9 @@ impl Default for CrawlerCronConfig {
             spider_interval: Duration::from_secs(600), // 10 minutes
             scraper_interval: Duration::from_secs(60), // 1 minute
             listing_source_sync_interval: Duration::from_secs(10800), // 3 hours
-            scraper_domain_batch_size: None,
-            scraper_urls_per_domain: 100,
-            scraper_domain_batch_time_budget: Duration::from_secs(5 * 60),
+            scraper_batch_size: None,
+            scraper_urls_per_source: 100,
+            scraper_batch_time_budget: Duration::from_secs(5 * 60),
             push_batch_size: 25,
             push_queue_capacity: 100,
             push_max_batch_age: Duration::from_secs(5),
@@ -92,8 +93,8 @@ impl Default for CrawlerCronConfig {
     }
 }
 
-/// The domains a [`MASS_REMOVAL_CONFIRMED_DOMAINS_ENV`] value lists, each read as a [`Domain`] in
-/// the [canonical spelling](canonical_crawl_host) ListingSource domains are registered in, so
+/// The host names a [`MASS_REMOVAL_CONFIRMED_DOMAINS_ENV`] value lists, each read as a [`Domain`]
+/// in the [canonical spelling](canonical_crawl_host) ListingSource crawl hosts are compared in, so
 /// `www.shop.example` names `shop.example`; empty entries are ignored. An entry that is no domain
 /// fails, so a confirmation an operator mistyped is not silently ignored.
 pub fn mass_removal_confirmed_domains(
@@ -147,8 +148,8 @@ impl CrawlerCronConfig {
         }
     }
 
-    pub fn effective_scraper_domain_batch_size(&self) -> usize {
-        self.scraper_domain_batch_size
+    pub fn effective_scraper_batch_size(&self) -> usize {
+        self.scraper_batch_size
             .unwrap_or(self.scraper_concurrency)
             .max(1)
     }
@@ -167,7 +168,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_read_confirmed_mass_removal_domains_as_registered() {
+    fn should_read_confirmed_mass_removal_domains_as_canonical_crawl_hosts() {
         assert_eq!(
             mass_removal_confirmed_domains(Some(" www.Butchoff.com, ,shop.example.,")),
             Ok(HashSet::from([

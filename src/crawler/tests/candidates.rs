@@ -1,8 +1,8 @@
 use crawler::CrawlerReviewId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest, RedirectDestination,
-    RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCompletion,
+    FetchFailureRequest, RedirectDestination, RedirectUrlMove, SchemaReviewWait,
+    SchemaReviewWaitRequest, ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot,
     ScraperCandidateService, ScraperCandidateServiceImpl, SourceAwaitingReview,
 };
 use crawler::spider::candidate_service::{
@@ -85,18 +85,18 @@ fn fetch_failure_request(
     }
 }
 
-fn domain_open_request(
+fn circuit_open_request(
     url_failure: FetchFailureRequest,
-    expected_domain_health: DomainHealthSnapshot,
-    domain_error_kind: DomainFailureKind,
-    domain_status_code: Option<i32>,
+    expected_scrape_health: ScrapeHealthSnapshot,
+    scrape_error_kind: DomainFailureKind,
+    scrape_status_code: Option<i32>,
     next_scrape_at: time::OffsetDateTime,
-) -> DomainCircuitOpenRequest {
-    DomainCircuitOpenRequest {
+) -> ScrapeCircuitOpenRequest {
+    ScrapeCircuitOpenRequest {
         url_failure,
-        expected_domain_health,
-        domain_error_kind,
-        domain_status_code,
+        expected_scrape_health,
+        scrape_error_kind,
+        scrape_status_code,
         next_scrape_at: Some(next_scrape_at),
     }
 }
@@ -1357,7 +1357,7 @@ async fn scraper_should_list_only_sources_whose_scraping_a_pending_review_holds_
         .execute(&pool)
         .await
         .unwrap();
-    // An open domain circuit keeps the ListingSource from scraping as well.
+    // An open scrape circuit keeps the ListingSource from scraping as well.
     let cooling = ListingSourceId::new();
     insert_listing_source(&pool, cooling, "cooling-circuit.example.com").await;
     insert_pending_url_pattern_review(&pool, cooling).await;
@@ -3588,7 +3588,7 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_seed_urls_should_not_bypass_an_open_domain_circuit() {
+async fn scraper_seed_urls_should_not_bypass_an_open_scrape_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
@@ -3626,7 +3626,7 @@ async fn scraper_seed_urls_should_not_bypass_an_open_domain_circuit() {
         .unwrap();
     assert!(
         sampled.is_empty(),
-        "an open domain circuit must not be bypassed through schema seeding"
+        "an open scrape circuit must not be bypassed through schema seeding"
     );
 }
 
@@ -3711,14 +3711,14 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     .await
     .unwrap();
 
-    let expected_domain_health = DomainHealthSnapshot {
+    let expected_scrape_health = ScrapeHealthSnapshot {
         scrape_failure_streak: 0,
         last_scrape_error_kind: None,
         next_scrape_at: None,
     };
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 seed_url.clone(),
@@ -3728,7 +3728,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
                 next_retry_at,
                 Some(seed_hash),
             ),
-            expected_domain_health,
+            expected_scrape_health,
             DomainFailureKind::Http429,
             Some(429),
             next_retry_at,
@@ -3736,7 +3736,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
         .await
         .unwrap();
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
 
     let primary: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
         "SELECT failure_count, last_error_kind, last_status_code, next_retry_at
@@ -3795,7 +3795,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain_circuit() {
+async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_scrape_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -3823,7 +3823,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain_ci
 
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -3833,7 +3833,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain_ci
                 next_retry_at,
                 Some(expected_fence),
             ),
-            DomainHealthSnapshot {
+            ScrapeHealthSnapshot {
                 scrape_failure_streak: 0,
                 last_scrape_error_kind: None,
                 next_scrape_at: None,
@@ -3846,7 +3846,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain_ci
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(1));
 
     let url_row: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
@@ -3878,7 +3878,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain_ci
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain_circuit() {
+async fn scraper_recovery_probe_429_with_non_null_fence_reopens_scrape_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -3916,7 +3916,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain_circuit()
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
     assert_eq!(candidates.len(), 1);
     let probe = &candidates[0];
-    assert!(probe.is_domain_probe);
+    assert!(probe.is_circuit_probe);
     assert!(probe.last_captured_raw_input_sha256.is_some());
 
     let probe_url = probe.url.clone();
@@ -3924,7 +3924,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain_circuit()
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(20);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 probe_url.clone(),
@@ -3934,7 +3934,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain_circuit()
                 next_retry_at,
                 probe_fence,
             ),
-            DomainHealthSnapshot {
+            ScrapeHealthSnapshot {
                 scrape_failure_streak: 1,
                 last_scrape_error_kind: Some("HTTP_429".to_owned()),
                 next_scrape_at: Some(expired_at),
@@ -3947,7 +3947,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain_circuit()
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(2));
 
     let source_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
@@ -3966,14 +3966,14 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain_circuit()
     let candidates_after_failure = service.get_candidates(10, 100, &[]).await.unwrap();
     assert!(
         candidates_after_failure.is_empty(),
-        "the reopened domain circuit must not immediately select the failed probe"
+        "the reopened scrape circuit must not immediately select the failed probe"
     );
 }
 
 /// A slow-host failure recorded as evidence (a streak without a cooldown)
 /// leaves the ListingSource open: the next pass selects its full batch, not a probe.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
+async fn scraper_recorded_scrape_failure_keeps_the_full_batch_eligible() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -3985,7 +3985,7 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
 
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(5);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(DomainCircuitOpenRequest {
+        .mark_fetch_failure_and_open_scrape_circuit(ScrapeCircuitOpenRequest {
             url_failure: fetch_failure_request(
                 listing_source_id,
                 url::Url::parse(first_url).unwrap(),
@@ -3995,24 +3995,24 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
                 next_retry_at,
                 None,
             ),
-            expected_domain_health: DomainHealthSnapshot::default(),
-            domain_error_kind: DomainFailureKind::Timeout,
-            domain_status_code: None,
+            expected_scrape_health: ScrapeHealthSnapshot::default(),
+            scrape_error_kind: DomainFailureKind::Timeout,
+            scrape_status_code: None,
             next_scrape_at: None,
         })
         .await
         .unwrap();
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(1));
 
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
     assert_eq!(candidates.len(), 1, "the failed URL waits for its retry");
     let candidate = &candidates[0];
     assert_eq!(candidate.url.as_str(), second_url);
-    assert!(!candidate.is_domain_probe);
+    assert!(!candidate.is_circuit_probe);
     assert_eq!(
-        candidate.domain_health,
-        DomainHealthSnapshot {
+        candidate.scrape_health,
+        ScrapeHealthSnapshot {
             scrape_failure_streak: 1,
             last_scrape_error_kind: Some("TIMEOUT".to_owned()),
             next_scrape_at: None,
@@ -4020,7 +4020,7 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
     );
 
     let closed = service
-        .close_domain_circuit(&listing_source_id, &candidate.domain_health)
+        .close_scrape_circuit(&listing_source_id, &candidate.scrape_health)
         .await
         .unwrap();
     assert_eq!(closed, CrawlerUrlWriteOutcome::Applied);
@@ -4030,7 +4030,7 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
 /// sets it, a further failure of the same kind keeps it, another kind restarts it and closing the
 /// circuit clears it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_domain_circuit_dates_the_current_failure_streak() {
+async fn scraper_scrape_circuit_dates_the_current_failure_streak() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -4054,12 +4054,12 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
         service: &ScraperCandidateServiceImpl,
         listing_source_id: ListingSourceId,
         url: &str,
-        health: DomainHealthSnapshot,
+        health: ScrapeHealthSnapshot,
         kind: DomainFailureKind,
-    ) -> DomainHealthSnapshot {
+    ) -> ScrapeHealthSnapshot {
         let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(30);
         let outcome = service
-            .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
                 fetch_failure_request(
                     listing_source_id,
                     url::Url::parse(url).unwrap(),
@@ -4076,8 +4076,8 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
             ))
             .await
             .unwrap();
-        assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
-        DomainHealthSnapshot {
+        assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
+        ScrapeHealthSnapshot {
             scrape_failure_streak: i32::try_from(outcome.persisted_failure_streak.unwrap())
                 .unwrap(),
             last_scrape_error_kind: Some(kind.as_str().to_owned()),
@@ -4091,7 +4091,7 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
         &service,
         listing_source_id,
         url,
-        DomainHealthSnapshot::default(),
+        ScrapeHealthSnapshot::default(),
         DomainFailureKind::Timeout,
     )
     .await;
@@ -4142,7 +4142,7 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
 
     assert_eq!(
         service
-            .close_domain_circuit(&listing_source_id, &health)
+            .close_scrape_circuit(&listing_source_id, &health)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -4184,7 +4184,7 @@ async fn scraper_seed_urls_should_respect_limit() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_after_recovery() {
+async fn scraper_scrape_failure_streaks_are_same_kind_consecutive_and_reset_after_recovery() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -4200,14 +4200,14 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
     let first_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_000).unwrap();
     let second_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_100).unwrap();
     let third_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_200).unwrap();
-    let initial = DomainHealthSnapshot {
+    let initial = ScrapeHealthSnapshot {
         scrape_failure_streak: 0,
         last_scrape_error_kind: None,
         next_scrape_at: None,
     };
 
     let first = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4225,16 +4225,16 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         .await
         .unwrap();
     assert_eq!(first.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(first.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(first.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(first.persisted_failure_streak, Some(1));
 
-    let after_first = DomainHealthSnapshot {
+    let after_first = ScrapeHealthSnapshot {
         scrape_failure_streak: 1,
         last_scrape_error_kind: Some("HTTP_429".to_owned()),
         next_scrape_at: Some(first_next),
     };
     let second = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4253,13 +4253,13 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         .unwrap();
     assert_eq!(second.persisted_failure_streak, Some(2));
 
-    let after_second = DomainHealthSnapshot {
+    let after_second = ScrapeHealthSnapshot {
         scrape_failure_streak: 2,
         last_scrape_error_kind: Some("HTTP_429".to_owned()),
         next_scrape_at: Some(second_next),
     };
     let changed_kind = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4278,14 +4278,14 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         .unwrap();
     assert_eq!(changed_kind.persisted_failure_streak, Some(1));
 
-    let recovering = DomainHealthSnapshot {
+    let recovering = ScrapeHealthSnapshot {
         scrape_failure_streak: 1,
         last_scrape_error_kind: Some("TIMEOUT".to_owned()),
         next_scrape_at: Some(third_next),
     };
     assert_eq!(
         service
-            .close_domain_circuit(&listing_source_id, &recovering)
+            .close_scrape_circuit(&listing_source_id, &recovering)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -4301,13 +4301,13 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
     .unwrap();
     assert_eq!(row, (0, None, None));
 
-    let after_recovery = DomainHealthSnapshot {
+    let after_recovery = ScrapeHealthSnapshot {
         scrape_failure_streak: 0,
         last_scrape_error_kind: None,
         next_scrape_at: None,
     };
     let restarted = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4328,17 +4328,17 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state() {
+async fn scraper_stale_scrape_failure_does_not_overwrite_kind_compatible_state() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(
         &pool,
         listing_source_id,
-        "scraper-stale-domain-fence.example.com",
+        "scraper-stale-circuit-fence.example.com",
     )
     .await;
-    let url = url::Url::parse("https://scraper-stale-domain-fence.example.com/p/1").unwrap();
+    let url = url::Url::parse("https://scraper-stale-circuit-fence.example.com/p/1").unwrap();
     insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let observed_next = time::OffsetDateTime::from_unix_timestamp(2_100_000_000).unwrap();
@@ -4355,7 +4355,7 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
     .await
     .unwrap();
 
-    let expected = DomainHealthSnapshot {
+    let expected = ScrapeHealthSnapshot {
         scrape_failure_streak: 2,
         last_scrape_error_kind: Some("HTTP_429".to_owned()),
         next_scrape_at: Some(observed_next),
@@ -4371,7 +4371,7 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
     .unwrap();
 
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4390,7 +4390,7 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::NoopStale);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::NoopStale);
     assert_eq!(outcome.persisted_failure_streak, None);
 
     let source_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
@@ -4418,7 +4418,7 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
+async fn scraper_stale_url_failure_does_not_block_current_circuit_open() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -4456,7 +4456,7 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
 
     let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4466,7 +4466,7 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
                 next_scrape_at,
                 Some(vec![0x0a; 32]),
             ),
-            DomainHealthSnapshot {
+            ScrapeHealthSnapshot {
                 scrape_failure_streak: 0,
                 last_scrape_error_kind: None,
                 next_scrape_at: None,
@@ -4479,7 +4479,7 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::NoopStale);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(1));
 
     let url_row: (i32, Option<String>, Option<i32>) = sqlx::query_as(

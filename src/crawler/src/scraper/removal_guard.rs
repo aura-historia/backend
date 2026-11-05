@@ -1,4 +1,4 @@
-//! Mass-removal guard of a scraper domain batch: a batch that would capture the removal of most
+//! Mass-removal guard of a scraper batch: a batch that would capture the removal of most
 //! of the URLs it scraped captures none of them.
 //!
 //! The rule is pure. The scraper cron counts a batch's new removals and scraped URLs, asks for

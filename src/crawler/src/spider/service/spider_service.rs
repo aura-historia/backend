@@ -45,7 +45,7 @@ pub struct SpiderRunResult {
     /// decision for the crawl's re-reads to find, so the scheduler records the
     /// wait only while the review is still pending.
     pub pending_url_pattern_review: Option<CrawlerReviewId>,
-    /// Product pages the domain stores that an incremental crawl found linked
+    /// Product pages the ListingSource stores that an incremental crawl found linked
     /// and did not fetch again; never counted in `product_urls_count`.
     pub known_product_urls_skipped: usize,
 }
@@ -60,8 +60,8 @@ struct EndedCrawl {
 }
 
 impl EndedCrawl {
-    /// Product pages the domain stores that the crawl found linked and, being incremental, did
-    /// not fetch again. They are product pages the shop still links, so the crawl is not judged
+    /// Product pages the ListingSource stores that the crawl found linked and, being incremental,
+    /// did not fetch again. They are product pages the shop still links, so the crawl is not judged
     /// as if it had found no product page
     /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     fn skipped_known_products(&self) -> usize {
@@ -122,7 +122,7 @@ pub enum SpiderServiceError {
         diagnostics: Box<CrawlDiagnostics>,
     },
 
-    /// The crawl delivered pages, but the domain's product URL pattern
+    /// The crawl delivered pages, but the ListingSource's product URL pattern
     /// matched none of them: the pattern is stale or wrong for this site.
     #[error(
         "Spider crawl for crawl-root URL '{crawl_root_url}' found no product URL among {total_links} page(s) with pattern '{product_pattern}'"
@@ -144,11 +144,11 @@ pub enum SpiderServiceError {
         failure: Box<SpiderServiceError>,
     },
 
-    /// The crawl delivered pages, but the domain's URL classification is
+    /// The crawl delivered pages, but the ListingSource's URL classification is
     /// complete without a product pattern, so no page can become a product
     /// URL until an operator decides or resets the pattern.
     #[error(
-        "Spider crawl for crawl-root URL '{crawl_root_url}' found {total_links} page(s) but the domain has no product URL pattern"
+        "Spider crawl for crawl-root URL '{crawl_root_url}' found {total_links} page(s) but the ListingSource has no product URL pattern"
     )]
     NoUrlPattern {
         crawl_root_url: String,
@@ -210,9 +210,9 @@ impl SpiderServiceError {
         }
     }
 
-    /// The run delivered pages, but none of them can become a product URL: the inference
-    /// sample was too small, the domain's pattern matched none of them, or its classification
-    /// is complete without a pattern. Only a site or configuration change resolves it, so the
+    /// The run delivered pages, but none of them can become a product URL: the inference sample was
+    /// too small, the ListingSource's pattern matched none of them, or its classification is
+    /// complete without a pattern. Only a site or configuration change resolves it, so the
     /// scheduler retries it on the recoverable cooldown and escalates it to an operator.
     pub fn found_no_product_urls(&self) -> bool {
         matches!(
@@ -238,8 +238,8 @@ impl Default for SpiderServiceConfig {
 #[async_trait::async_trait]
 #[mockall::automock]
 pub trait SpiderService: Send + Sync {
-    /// Crawls the domain as `kind` asks: a full crawl records the last full crawl when it reached
-    /// everything, an incremental one never does.
+    /// Crawls the ListingSource as `kind` asks: a full crawl records the last full crawl when it
+    /// reached everything, an incremental one never does.
     async fn run(
         &self,
         listing_source_id: &ListingSourceId,
@@ -301,9 +301,9 @@ impl SpiderServiceImpl {
         })
     }
 
-    /// Keeps what the crawl of `root` left unvisited for the domain's next crawl. A failed
-    /// write leaves the previous frontier, which the next crawl revisits at worst; a domain that
-    /// moved to another root keeps the empty frontier the move left.
+    /// Keeps what the crawl of `root` left unvisited for the ListingSource's next crawl. A failed
+    /// write leaves the previous frontier, which the next crawl revisits at worst; a ListingSource
+    /// that moved to another root keeps the empty frontier the move left.
     async fn replace_frontier_best_effort(
         &self,
         root: &CrawledRoot,
@@ -321,7 +321,7 @@ impl SpiderServiceImpl {
             Ok(CrawlOutcomeWrite::Recorded) => {}
             Ok(CrawlOutcomeWrite::RootMoved) => debug!(
                 frontier_urls = discovery.frontier.len(),
-                "The domain moved to another crawl root during the crawl; its frontier is not kept"
+                "The ListingSource moved to another crawl root during the crawl; its frontier is not kept"
             ),
             Err(error) => warn!(error = ?error, "Failed to persist the crawl frontier"),
         }
@@ -405,8 +405,8 @@ impl SpiderServiceImpl {
         Ok(())
     }
 
-    /// Re-reads the domain's pattern state while the crawl waits on a URL-pattern review. When
-    /// the review was decided while the crawl ran, the crawl stores the pages it stored while
+    /// Re-reads the ListingSource's pattern state while the crawl waits on a URL-pattern review.
+    /// When the review was decided while the crawl ran, the crawl stores the pages it stored while
     /// waiting again, classified with the decision, and stops waiting, so no URL it stored after
     /// the decision stays unclassified and its outcome is the completion the decision gives.
     #[tracing::instrument(
@@ -694,7 +694,7 @@ impl SpiderServiceImpl {
 
         while let Some(page) = crawl_rx.recv().await {
             if !is_same_or_www_host(configured_root, page.url.as_url()) {
-                debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside configured crawler domain");
+                debug!(url = %page.url, configured_root = %configured_root, "Ignoring discovered URL outside the configured crawl host");
                 continue;
             }
             state.total_crawled += 1;
@@ -900,7 +900,7 @@ impl SpiderServiceImpl {
             .map(|regex| regex.as_str().to_string());
 
         // `last_crawled` records the last full crawl; a truncated one keeps the
-        // domain due so the scheduler can retry it sooner. A full crawl that
+        // ListingSource due so the scheduler can retry it sooner. A full crawl that
         // waits for a pattern review has discovered everything too: approval
         // classifies its stored URLs, so no second crawl from the root is due.
         // An incremental crawl skipped known product pages, so it is never one.
@@ -1177,7 +1177,7 @@ mod service_tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
 
-    /// The crawl a domain without a frontier starts with: its root alone.
+    /// The crawl a ListingSource without a frontier starts with: its root alone.
     fn first_full_crawl(crawl_root_url: &str) -> CrawlRequest {
         CrawlRequest::from_root(crawl_root_url, CrawlPace::default())
     }
@@ -1187,7 +1187,7 @@ mod service_tests {
         oneshot::channel().1
     }
 
-    /// A domain with no frontier, whose crawl's frontier is not checked.
+    /// A ListingSource with no frontier, whose crawl's frontier is not checked.
     fn no_frontier() -> Arc<MockCrawlFrontierRepository> {
         let mut repository = MockCrawlFrontierRepository::new();
         repository
@@ -1644,9 +1644,9 @@ mod service_tests {
         ));
     }
 
-    /// A full crawl of a domain whose stored frontier is `/deep/1`, that delivers `paths`, ends
-    /// with `diagnostics` and leaves `/deep/2` unvisited. `replaced` tells whether the run must
-    /// store `/deep/2` as the domain's frontier or leave `/deep/1` in place.
+    /// A full crawl of a ListingSource whose stored frontier is `/deep/1`, that delivers `paths`,
+    /// ends with `diagnostics` and leaves `/deep/2` unvisited. `replaced` tells whether the run
+    /// must store `/deep/2` as the ListingSource's frontier or leave `/deep/1` in place.
     async fn run_failing_crawl_with_frontier(
         paths: Vec<String>,
         diagnostics: CrawlDiagnostics,
@@ -1694,7 +1694,7 @@ mod service_tests {
             .expect_err("the run fails")
     }
 
-    /// A pattern service for a domain without a stored pattern whose classification of the
+    /// A pattern service for a ListingSource without a stored pattern whose classification of the
     /// crawl answers `classified`; the failed run records no full crawl.
     fn classifying_pattern_service(
         classified: Option<Result<Option<Regex>, UrlPatternServiceError>>,
@@ -1779,7 +1779,7 @@ mod service_tests {
 
     /// A rate-limit answer that stopped a crawl after it delivered pages does not change the
     /// frontier rule: the run keeps its frontier, the rate-limited page among it, and still
-    /// carries the answer the scheduler holds the domain for.
+    /// carries the answer the scheduler holds the ListingSource for.
     #[tokio::test]
     async fn should_replace_the_frontier_and_carry_the_rate_limit_when_a_rate_limited_run_finds_no_product_url()
      {
@@ -2271,7 +2271,7 @@ mod service_tests {
         }
     }
 
-    /// Re-reads of the domain's pattern state find the review the crawl waits on undecided.
+    /// Re-reads of the ListingSource's pattern state find the review the crawl waits on undecided.
     fn setup_mock_review_still_pending(mock: &mut MockUrlPatternService) {
         mock.expect_decision_stored_during_crawl()
             .returning(|_, _| Box::pin(async { Ok(None) }));
@@ -2459,8 +2459,8 @@ mod service_tests {
     type StoredBatches = Arc<std::sync::Mutex<Vec<Vec<(String, UrlClass)>>>>;
 
     /// Runs a crawl of [`product_pages_until_timeout`] that opens a URL-pattern review at the
-    /// threshold and stores batches of ten pages, whose re-reads of the domain's pattern state
-    /// find the review undecided until the last one, which finds `decision`.
+    /// threshold and stores batches of ten pages, whose re-reads of the ListingSource's pattern
+    /// state find the review undecided until the last one, which finds `decision`.
     async fn run_crawl_decided_while_waiting(
         decision: DecidedUrlPattern,
     ) -> (Result<SpiderRunResult, SpiderServiceError>, StoredBatches) {
@@ -2576,7 +2576,7 @@ mod service_tests {
     }
 
     /// A review decided `NO_PATTERN` while the crawl waits on it ends the wait: the crawl records
-    /// the failure of a domain whose classification is complete without a pattern.
+    /// the failure of a ListingSource whose classification is complete without a pattern.
     #[tokio::test]
     async fn should_fail_with_no_url_pattern_when_review_decides_no_pattern_mid_crawl() {
         let (run, _) = run_crawl_decided_while_waiting(DecidedUrlPattern::NoPattern).await;
@@ -3775,8 +3775,8 @@ mod service_tests {
         }
     }
 
-    /// The failure of a run on a domain whose stored pattern is `stored_pattern`, whose crawl
-    /// delivers two item pages and ends as `ended`.
+    /// The failure of a run on a ListingSource whose stored pattern is `stored_pattern`, whose
+    /// crawl delivers two item pages and ends as `ended`.
     async fn run_failing_on_a_small_sample(
         stored_pattern: Option<&'static str>,
         classify_threshold: usize,
@@ -3921,7 +3921,7 @@ mod service_tests {
     }
 
     /// The classes a crawl of [`shop_pages`] stores with `url_classifier`, by path, while the
-    /// domain's pattern is `stored_pattern` or, without one, while its URL-pattern review is
+    /// ListingSource's pattern is `stored_pattern` or, without one, while its URL-pattern review is
     /// pending.
     async fn stored_classes(
         url_classifier: UrlClassifier,
@@ -4033,7 +4033,7 @@ mod service_tests {
 }
 
 /// A crawl that delivered pages but no product URL is a failure, not a
-/// completed crawl: the domain's pattern matched nothing, or its
+/// completed crawl: the ListingSource's pattern matched nothing, or its
 /// classification is complete without one.
 fn no_product_urls_error(
     crawl_root_url: &str,
@@ -4060,7 +4060,7 @@ fn no_product_urls_error(
 
 /// A crawl with at most one usable page is a failure. A library or local
 /// diagnostic explains it when present; otherwise the size alone does. An
-/// incremental crawl whose healthy root links product pages the domain stores
+/// incremental crawl whose healthy root links product pages the ListingSource stores
 /// reached the shop, although it fetched nothing else.
 fn crawl_failure_error(
     crawl_root_url: &str,

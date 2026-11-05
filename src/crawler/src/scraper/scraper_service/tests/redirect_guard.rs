@@ -521,13 +521,13 @@ async fn should_report_the_shop_responsive_when_it_redirects_to_a_url_robots_txt
     ] {
         let service = scraper_with_redirect_disallowed(Url::parse(final_url).unwrap());
 
-        let outcome = with_test_scrape_domain(
+        let outcome = with_test_scrape_observation(
             service.scrape(primary_only_request_with_pattern(&id, &url, r"/items/")),
         )
         .await;
 
         assert_eq!(
-            outcome.domain_health,
+            outcome.scrape_health,
             crate::scraper::scraper_service::domain::product::DomainFetchHealth::Responsive,
             "{final_url}"
         );

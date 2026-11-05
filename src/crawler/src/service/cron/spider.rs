@@ -73,7 +73,7 @@ fn rate_limited_crawl_cooldown(rate_limit_streak: i32, retry_after: Option<Durat
 }
 
 /// What a run whose crawl a shop's rate-limit answer stopped records,
-/// whatever its outcome: the domain's rate-limit streak grows by one and its
+/// whatever its outcome: the ListingSource's rate-limit streak grows by one and its
 /// next crawl waits for the rate-limit cooldown, returned for the log.
 fn rate_limited_crawl_write(
     candidate: &SpiderCandidate,
@@ -88,7 +88,7 @@ fn rate_limited_crawl_write(
     (write, cooldown)
 }
 
-/// The pace of the domain's next crawl, slowed by its rate-limit streak.
+/// The pace of the ListingSource's next crawl, slowed by its rate-limit streak.
 fn crawl_pace(candidate: &SpiderCandidate) -> CrawlPace {
     CrawlPace::after_rate_limited_crawls(
         u32::try_from(candidate.crawl_rate_limit_streak).unwrap_or(0),
@@ -102,8 +102,8 @@ fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
 /// Persisted error kinds of the failures whose run delivered pages but found no product URL
 /// ([`SpiderServiceError::found_no_product_urls`]). They count as one failure streak, so a site
 /// without a catalogue whose runs alternate between them is escalated like one that repeats a
-/// single kind: each such run moves the domain's crawl frontier on, and the streak bounds how
-/// often it does (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+/// single kind: each such run moves the ListingSource's crawl frontier on, and the streak bounds
+/// how often it does (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 const NO_PRODUCT_URL_ERROR_KINDS: [&str; 3] = [
     "InsufficientInferenceSample",
     "NoProductUrls",
@@ -118,7 +118,7 @@ fn in_shared_failure_streak(error_kind: &str) -> bool {
         || error_kind == CrawlFailureKind::BotProtection.as_str()
 }
 
-/// Whether a failure of `error_kind` continues the streak of the domain's last failure.
+/// Whether a failure of `error_kind` continues the streak of the ListingSource's last failure.
 fn continues_failure_streak(last_error_kind: Option<&str>, error_kind: &str) -> bool {
     last_error_kind.is_some_and(|last| {
         last == error_kind
@@ -155,7 +155,7 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
 }
 
 /// Consecutive failures of one streak ([`continues_failure_streak`]) after
-/// which a domain stops retrying and waits for an operator. Failures that
+/// which a ListingSource stops retrying and waits for an operator. Failures that
 /// need a site or configuration change (the recoverable profile) escalate:
 /// with two short retries and then the long cooldown, the fifth failure comes
 /// about a week after the first. So does `BotProtection`, which keeps its
@@ -173,7 +173,7 @@ fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
 
 /// Cooldown for the catch-all `spider_run_error` case (internal or config
 /// faults without a crawl profile). Starts at the generic durable retry
-/// cooldown and escalates like the scraper domain circuit, so a persistent
+/// cooldown and escalates like the scrape circuit, so a persistent
 /// fault cannot retry every few minutes forever.
 fn unclassified_cooldown_for_failure_count(failure_count: i32) -> Duration {
     let failure_streak = u32::try_from(failure_count).unwrap_or(1);
@@ -204,7 +204,7 @@ fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
     }
 }
 
-/// A domain waiting for a URL-pattern review is released by the review's
+/// A ListingSource waiting for a URL-pattern review is released by the review's
 /// decision; this bound only keeps an undecided review from parking it
 /// forever.
 const URL_PATTERN_REVIEW_WAIT: Duration = SPIDER_RECRAWL_INTERVAL;
@@ -218,16 +218,16 @@ enum SpiderSlotStatus {
     /// The crawl stopped classifying at a pending URL-pattern review.
     AwaitingReview,
     /// The crawl waited on a URL-pattern review that was decided before the run recorded the
-    /// wait. The decision released the domain, so the run records no outcome over it.
+    /// wait. The decision released the ListingSource, so the run records no outcome over it.
     ReviewDecided,
     Failed,
-    /// Repeated deterministic failures; the domain is not retried until an
+    /// Repeated deterministic failures; the ListingSource is not retried until an
     /// operator acts.
     StoppedForOperator,
-    /// The domain moved to another crawl root while the run crawled the old one, so the run
+    /// The ListingSource moved to another crawl root while the run crawled the old one, so the run
     /// records no outcome over the move.
     RootMoved,
-    /// Another spider worker holds the domain lock.
+    /// Another spider worker holds the spider ListingSource lock.
     Deferred,
 }
 
@@ -240,7 +240,7 @@ fn next_crawl_after(cooldown: Duration) -> time::OffsetDateTime {
     time::OffsetDateTime::now_utc() + time::Duration::seconds(cooldown.as_secs() as i64)
 }
 
-/// The run's write of `outcome` found the domain on another crawl root: the move cleared the
+/// The run's write of `outcome` found the ListingSource on another crawl root: the move cleared the
 /// old root's crawl state, and the run's outcome, which describes the old root, is not recorded
 /// over it (`docs/crawler/operations.md#manual-authoring`). A failed run names its `failure`
 /// here, since it writes no failure log either.
@@ -283,9 +283,9 @@ async fn record_completed_run(
 }
 
 /// Neither a success nor a failure: failure and truncation metadata stay
-/// untouched, and the reviewer's decision releases the domain. A decision
+/// untouched, and the reviewer's decision releases the ListingSource. A decision
 /// that came first, such as a rejection while the crawl ran, already
-/// released it; the domain keeps the crawl state that decision left.
+/// released it; the ListingSource keeps the crawl state that decision left.
 async fn record_review_wait_run(
     spider_candidates: &dyn SpiderCandidateService,
     candidate: &SpiderCandidate,
@@ -309,7 +309,7 @@ async fn record_review_wait_run(
         Ok(UrlPatternReviewWaitWrite::RootMoved) => {
             return record_root_moved(candidate, AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, None);
         }
-        // The decision released the domain, but not from the shop's limit.
+        // The decision released the ListingSource, but not from the shop's limit.
         Ok(UrlPatternReviewWaitWrite::ReviewNotPending) if let Some(rate_limit) = rate_limit => {
             return record_rate_limited_run(spider_candidates, candidate, result, rate_limit).await;
         }
@@ -319,7 +319,7 @@ async fn record_review_wait_run(
                 review_id = %review_id,
                 completion = %result.completion,
                 total_crawled = result.total_links,
-                "URL pattern review was decided before the spider run recorded its wait; the domain keeps the crawl state the decision left"
+                "URL pattern review was decided before the spider run recorded its wait; the ListingSource keeps the crawl state the decision left"
             );
             return SpiderSlotStatus::ReviewDecided;
         }
@@ -384,7 +384,7 @@ async fn record_truncated_run(
     SpiderSlotStatus::Truncated
 }
 
-/// An incremental crawl between full crawls: it keeps the domain's full-crawl,
+/// An incremental crawl between full crawls: it keeps the ListingSource's full-crawl,
 /// truncation and rate-limit state, and the next one is due a day after it.
 /// What it left unvisited carries over like a full crawl's frontier.
 async fn record_incremental_run(
@@ -532,7 +532,7 @@ async fn record_failed_run(
 }
 
 /// The failure is recorded like any other, but without a cooldown: the
-/// domain leaves the schedule until an operator changes its configuration.
+/// ListingSource leaves the schedule until an operator changes its configuration.
 async fn record_run_stopped_for_operator(
     spider_candidates: &dyn SpiderCandidateService,
     candidate: &SpiderCandidate,
@@ -563,7 +563,7 @@ async fn record_run_stopped_for_operator(
         error = %error.cause(),
         error_kind,
         failure_count,
-        "Spider run kept failing; domain waits for an operator"
+        "Spider run kept failing; ListingSource waits for an operator"
     );
     SpiderSlotStatus::StoppedForOperator
 }
@@ -747,7 +747,7 @@ async fn record_run_outcome(
     }
 }
 
-/// The `last_crawl_outcome` a run left on its domain.
+/// The `last_crawl_outcome` a run left on its ListingSource.
 fn persisted_crawl_outcome(
     run: &Result<SpiderRunResult, SpiderServiceError>,
     status: SpiderSlotStatus,
@@ -767,7 +767,7 @@ fn persisted_crawl_outcome(
 }
 
 /// The product URL count and completion of a run that classified its URLs with the
-/// domain's product pattern, including a pattern that matched nothing. An incremental crawl
+/// ListingSource's product pattern, including a pattern that matched nothing. An incremental crawl
 /// counts the stored product pages it found linked and did not fetch again too, so a day
 /// without new products does not read as a pattern that matched nothing.
 fn classified_crawl(
@@ -2648,7 +2648,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_complete_other_domains_while_one_crawl_is_truncated() {
+    async fn should_complete_other_sources_while_one_crawl_is_truncated() {
         let truncated_listing_source_id = ListingSourceId::new();
         let completed_listing_source_id = ListingSourceId::new();
 
@@ -2703,7 +2703,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_run_spider_candidate_while_the_scraper_holds_its_own_domain_lock() {
+    async fn should_run_spider_candidate_while_the_scraper_holds_its_own_source_lock() {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let listing_source_id = ListingSourceId::new();
         spider_candidates
@@ -2758,7 +2758,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_skip_spider_candidate_when_domain_lock_is_already_held() {
+    async fn should_skip_spider_candidate_when_source_lock_is_already_held() {
         let mut spider_candidates = MockSpiderCandidateService::new();
         let locked_listing_source_id = ListingSourceId::new();
         spider_candidates
@@ -2867,8 +2867,8 @@ mod tests {
         .await;
     }
 
-    /// A candidate service with one due domain that records no outcome but a review wait, which
-    /// its write reports as `wait_write`.
+    /// A candidate service with one due ListingSource that records no outcome but a review wait,
+    /// which its write reports as `wait_write`.
     fn candidate_service_recording_review_wait(
         listing_source_id: ListingSourceId,
         review_id: CrawlerReviewId,
@@ -2985,7 +2985,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_stop_domain_for_operator_when_no_pattern_failures_keep_repeating() {
+    async fn should_stop_source_for_operator_when_no_pattern_failures_keep_repeating() {
         let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
             expected_listing_source_id,
@@ -3015,7 +3015,7 @@ mod tests {
     /// Runs that alternate between the kinds that found no product URL reach the operator at
     /// the count a single repeated kind does.
     #[tokio::test]
-    async fn should_stop_domain_for_operator_when_no_product_url_failures_alternate_kinds() {
+    async fn should_stop_source_for_operator_when_no_product_url_failures_alternate_kinds() {
         let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
             expected_listing_source_id,
@@ -3053,7 +3053,7 @@ mod tests {
     /// Alternating `BotProtection` and no-product runs reach the operator at the shared count,
     /// and a bot-protected run below it keeps retrying on the transient cooldown.
     #[tokio::test]
-    async fn should_stop_domain_for_operator_when_bot_protection_continues_a_no_product_streak() {
+    async fn should_stop_source_for_operator_when_bot_protection_continues_a_no_product_streak() {
         let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
             expected_listing_source_id,
@@ -3171,7 +3171,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_emit_the_pass_duration_when_no_domain_is_due() {
+        async fn should_emit_the_pass_duration_when_no_source_is_due() {
             let (metrics, _guard) = capture_metrics();
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
@@ -3187,8 +3187,8 @@ mod tests {
             assert!(durations[0].0.is_empty(), "pass duration is crawler-wide");
         }
 
-        /// A review decided before the run records its wait, such as one rejected while the
-        /// crawl ran, leaves the domain's crawl state as the decision left it: the run writes
+        /// A review decided before the run records its wait, such as one rejected while the crawl
+        /// ran, leaves the ListingSource's crawl state as the decision left it: the run writes
         /// nothing else and reports no crawl outcome.
         #[tokio::test]
         async fn should_record_no_outcome_when_the_url_pattern_review_is_decided_before_the_wait() {

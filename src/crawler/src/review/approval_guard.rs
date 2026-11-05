@@ -57,9 +57,9 @@ pub enum FailedApprovalCheck {
     ImplausibleExtraction { pages: Vec<ImplausiblePage> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
-    /// The candidate's sample labels on the review's domain mark fewer than `minimum` URLs as
+    /// The candidate's sample labels on the review's crawl host mark fewer than `minimum` URLs as
     /// products or fewer than `minimum` as no products, so they cannot show that the decision
-    /// takes the domain's product pages and leaves the rest.
+    /// takes the ListingSource's product pages and leaves the rest.
     TooFewLabels {
         product: usize,
         not_product: usize,
@@ -139,7 +139,7 @@ impl fmt::Display for FailedApprovalCheck {
                 minimum,
             } => write!(
                 formatter,
-                "the sample labels mark {product} URL(s) of the review's domain PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
+                "the sample labels mark {product} URL(s) on the review's crawl host PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
             ),
             Self::ProductLabelNotMatched { urls } => write!(
                 formatter,
@@ -308,14 +308,14 @@ fn empty_required_fields(
 
 /// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead:
 /// the candidate is decided, and its sample labels, which the author agent or a human set and the
-/// approval rests on alone, are consistent with the decision. Only labels of URLs on the review's
-/// `domain`, the one domain the decision applies to, count: a label on another domain of the
-/// ListingSource says nothing about it. They mark at least `min_labelled_urls` URLs as products
-/// and as many as no products, and the decision classifies every `PRODUCT` URL as a product page
-/// and no `NOT_PRODUCT` URL. Labels belong to the candidate, so the approved candidate version
-/// names the labels it is judged on, and they do not expire. No URL is classified by keywords or
-/// by its page's markup here: Claude decides what a product page is, and the crawler only checks
-/// that the decision follows its labels.
+/// approval rests on alone, are consistent with the decision. Only labels of URLs on `domain`, the
+/// crawl host of the review's ListingSource and the one host the decision applies to, count: a
+/// label on another host says nothing about it. They mark at least `min_labelled_urls` URLs as
+/// products and as many as no products, and the decision classifies every `PRODUCT` URL as a
+/// product page and no `NOT_PRODUCT` URL. Labels belong to the candidate, so the approved candidate
+/// version names the labels it is judged on, and they do not expire. No URL is classified by
+/// keywords or by its page's markup here: Claude decides what a product page is, and the crawler
+/// only checks that the decision follows its labels.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
     domain: &str,
@@ -883,8 +883,8 @@ mod tests {
     }
 
     const MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
-    /// The domain the URL-pattern review decides, on which [`PRODUCTS`] and [`NOT_PRODUCTS`] are.
-    const REVIEW_DOMAIN: &str = "antique-shop.example";
+    /// The crawl host of the URL-pattern review, on which [`PRODUCTS`] and [`NOT_PRODUCTS`] are.
+    const REVIEW_CRAWL_HOST: &str = "antique-shop.example";
     const PRODUCTS: [&str; 3] = [
         "https://antique-shop.example/item/oak-chair",
         "https://antique-shop.example/item/pine-table",
@@ -926,7 +926,7 @@ mod tests {
     }
 
     fn url_checks(candidate: &UrlPatternReviewCandidate) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(candidate, REVIEW_DOMAIN, MIN_LABELLED_URLS)
+        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS)
     }
 
     /// A decision that takes every URL labelled `PRODUCT`, in the crawler's spelling of it, and no
@@ -977,13 +977,13 @@ mod tests {
         );
     }
 
-    /// The decision applies to the review's domain alone, so labels on another domain of the
-    /// ListingSource say nothing about it: they do not count towards the minimum, however many
-    /// there are and however well the decision follows them.
+    /// The decision applies to the review's crawl host alone, so labels on another host, such as
+    /// another domain of the same shop, say nothing about it: they do not count towards the
+    /// minimum, however many there are and however well the decision follows them.
     #[test]
-    fn should_count_only_labels_on_the_review_domain() {
+    fn should_count_only_labels_on_the_review_crawl_host() {
         let elsewhere =
-            |urls: [&str; 3]| urls.map(|url| url.replace(REVIEW_DOMAIN, "antique-shop.de"));
+            |urls: [&str; 3]| urls.map(|url| url.replace(REVIEW_CRAWL_HOST, "antique-shop.de"));
         let (other_products, other_not_products) = (elsewhere(PRODUCTS), elsewhere(NOT_PRODUCTS));
         let products: Vec<&str> = std::iter::once(PRODUCTS[0])
             .chain(other_products.iter().map(String::as_str))

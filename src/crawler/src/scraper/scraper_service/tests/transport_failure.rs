@@ -51,7 +51,7 @@ async fn primary_network_failure_preserves_non_null_raw_input_fence() {
         details: "rate limited".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape(primary_request(
+    let outcome = with_test_scrape_observation(service.scrape(primary_request(
         listing_source_id,
         url.clone(),
         fence.clone(),
@@ -66,7 +66,7 @@ async fn primary_network_failure_preserves_non_null_raw_input_fence() {
         })
     ));
     assert_eq!(
-        outcome.domain_health,
+        outcome.scrape_health,
         DomainFetchHealth::CircuitFailure {
             kind: DomainFailureKind::Http429,
             status_code: Some(429),
@@ -96,7 +96,7 @@ async fn primary_network_failure_with_metadata_preserves_fence_and_retry_after()
         details: "rate limited".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape(primary_request(
+    let outcome = with_test_scrape_observation(service.scrape(primary_request(
         listing_source_id,
         url.clone(),
         fence.clone(),
@@ -132,7 +132,7 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
         details: "not found".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape(primary_request(
+    let outcome = with_test_scrape_observation(service.scrape(primary_request(
         listing_source_id,
         url.clone(),
         fence.clone(),
@@ -143,7 +143,7 @@ async fn primary_removed_response_preserves_fence_and_responsive_health() {
         &outcome.result,
         Err(ScraperError::ProductListingRemoved(_))
     ));
-    assert_eq!(outcome.domain_health, DomainFetchHealth::Responsive);
+    assert_eq!(outcome.scrape_health, DomainFetchHealth::Responsive);
     let failure = outcome
         .fetch_failure
         .expect("removed response should carry primary context");
@@ -168,7 +168,7 @@ async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
         details: "bot challenge instead of the page".to_owned(),
     });
 
-    let outcome = with_test_scrape_domain(service.scrape(ScrapeRequest {
+    let outcome = with_test_scrape_observation(service.scrape(ScrapeRequest {
         last_captured_title: Some("Biedermeier Chair".to_owned()),
         ..primary_request(listing_source_id, url.clone(), fence.clone())
     }))
@@ -180,7 +180,7 @@ async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
             if metadata.kind == NetworkErrorKind::BotChallenge
                 && metadata.status_code == Some(200)
     ));
-    assert_eq!(outcome.domain_health, DomainFetchHealth::Responsive);
+    assert_eq!(outcome.scrape_health, DomainFetchHealth::Responsive);
     let failure = outcome
         .fetch_failure
         .expect("a challenged primary fetch should carry its failure context");

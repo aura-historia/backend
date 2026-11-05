@@ -13,7 +13,7 @@ pub use stop::CronStop;
 
 #[cfg(test)]
 pub(super) mod test_support {
-    use crate::scraper::candidate_service::{DomainHealthSnapshot, ScraperCandidate};
+    use crate::scraper::candidate_service::{ScrapeHealthSnapshot, ScraperCandidate};
     use crate::service::listing_source_registration::{
         ListingSourceRegistrationService, MockListingSourceRegistrationRepository,
         MockListingSourceRegistrationSource,
@@ -79,12 +79,12 @@ pub(super) mod test_support {
             last_scraped_hash: None,
             last_scraped_schema_fingerprint: None,
             last_captured_raw_input_sha256: None,
-            domain_health: DomainHealthSnapshot {
+            scrape_health: ScrapeHealthSnapshot {
                 scrape_failure_streak: 0,
                 last_scrape_error_kind: None,
                 next_scrape_at: None,
             },
-            is_domain_probe: false,
+            is_circuit_probe: false,
             schema_review_wait: None,
         }
     }

@@ -1,5 +1,5 @@
 //! The sample of a URL-pattern review: its URLs as the review's URL rows store them, classified
-//! under the domain's current pattern and under the candidate's, and how many of them the
+//! under the ListingSource's current pattern and under the candidate's, and how many of them the
 //! candidate takes as product pages. The contract is in `docs/crawler/extraction-and-review.md`
 //! (review rail).
 

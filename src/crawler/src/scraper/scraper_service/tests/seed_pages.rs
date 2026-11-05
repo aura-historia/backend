@@ -92,7 +92,7 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
+    let result = with_test_scrape_observation(service.scrape(normal_request(&id, &url)))
         .await
         .unwrap()
         .unwrap();
@@ -150,7 +150,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
+    let result = with_test_scrape_observation(service.scrape(normal_request(&id, &url)))
         .await
         .unwrap()
         .unwrap();
@@ -158,7 +158,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
 }
 
 #[tokio::test]
-async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
+async fn should_propagate_circuit_failure_from_extra_schema_seed_fetch() {
     let id = listing_source_id();
     let url = product_url();
     let sample_seed_url = Url::parse("https://example.com/product/seed-fail").unwrap();
@@ -211,9 +211,9 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let error = with_test_scrape_domain(service.scrape(normal_request(&id, &url)))
+    let error = with_test_scrape_observation(service.scrape(normal_request(&id, &url)))
         .await
-        .expect_err("a domain-opening seed failure must propagate to the scheduler");
+        .expect_err("a circuit-opening seed failure must propagate to the scheduler");
     assert!(matches!(
         error,
         ScraperError::HttpError {
@@ -295,7 +295,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(normal_request_with_pattern(
+    let result = with_test_scrape_observation(service.scrape(normal_request_with_pattern(
         &id,
         &url,
         r"/products/",
@@ -353,7 +353,8 @@ async fn should_not_query_seed_urls_when_schema_seed_pages_is_one() {
         DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
     );
 
-    let result = with_test_scrape_domain(service.scrape(primary_only_request(&id, &url))).await;
+    let result =
+        with_test_scrape_observation(service.scrape(primary_only_request(&id, &url))).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_some());
 }

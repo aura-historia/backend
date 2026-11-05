@@ -49,7 +49,7 @@ pub trait HtmlFetcher: Send + Sync {
     async fn fetch(&self, url: &Url) -> Result<FetchedHtml, FetchError>;
 
     /// What the fetcher knows about a domain's responsiveness, for the
-    /// diagnostics of a failure that may open the domain circuit. `None`
+    /// diagnostics of a failure that may open the scrape circuit. `None`
     /// before the fetcher has a response from the domain.
     fn domain_fetch_stats(&self, _domain: &str) -> Option<DomainFetchStats> {
         None

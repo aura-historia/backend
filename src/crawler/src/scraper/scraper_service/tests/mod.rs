@@ -144,7 +144,7 @@ pub(super) fn fetch_result_for(html: String, final_url: Url) -> FetchedHtml {
     FetchedHtml::new(html, final_url, reqwest::StatusCode::OK)
 }
 
-pub(super) async fn with_test_scrape_domain<F, T>(future: F) -> T
+pub(super) async fn with_test_scrape_observation<F, T>(future: F) -> T
 where
     F: Future<Output = T>,
 {

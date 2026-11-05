@@ -78,7 +78,7 @@ fn origin_key(url: &Url) -> String {
 impl ReqwestHtmlFetcher {
     /// The robots.txt policy for `url`'s origin, fetched once per cache
     /// lifetime. A transport failure is returned instead of cached so the
-    /// domain circuit sees it like any other failed request.
+    /// scrape circuit sees it like any other failed request.
     pub(super) async fn robots_policy(
         &self,
         url: &Url,

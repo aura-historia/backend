@@ -89,7 +89,7 @@ impl CrawledPage {
     }
 }
 
-/// How long a domain should cool down after repeated failures of one kind.
+/// How long a ListingSource should cool down after repeated failures of one kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlCooldownProfile {
     /// Flaky or temporary: the site may recover on its own.
@@ -391,10 +391,10 @@ pub struct SpiderCrawl {
 
 #[derive(Debug, Error)]
 pub enum SpiderDiscoveryError {
-    /// Operator or build misconfiguration; not a property of the crawled domain.
+    /// Operator or build misconfiguration; not a property of the crawled ListingSource.
     #[error("Spider configuration error: {0}")]
     Config(String),
-    /// The HTTP client could not be built; not a property of the crawled domain.
+    /// The HTTP client could not be built; not a property of the crawled ListingSource.
     #[error("failed to build the spider HTTP client")]
     Client(#[source] BoxError),
     /// The crawl root could not be established before Spider started.
@@ -431,7 +431,7 @@ impl SpiderDiscoveryError {
     }
 
     /// This failure as one the preflight met after `reroot` had moved the crawl root to its
-    /// twin host. Only a preflight failure is the domain's; the others stay as they are.
+    /// twin host. Only a preflight failure is the ListingSource's; the others stay as they are.
     fn after_reroot(mut self, reroot: Option<&RootReroot>) -> Self {
         if let (Self::Preflight { root_reroot, .. }, Some(reroot)) = (&mut self, reroot) {
             *root_reroot = Some(Box::new(reroot.clone()));
@@ -538,7 +538,7 @@ impl Default for CrawlerConfig {
 /// Spider's adaptive throttle and robots.txt `Crawl-delay` are held to.
 const MAX_CRAWL_DELAY_MILLIS: u64 = 60_000;
 
-/// The request rate of one crawl. A domain whose crawls a shop rate-limited
+/// The request rate of one crawl. A ListingSource whose crawls a shop rate-limited
 /// is crawled more slowly: each step of its rate-limit streak doubles the
 /// delay between request starts, from at least the default delay, up to
 /// [`MAX_CRAWL_DELAY_MILLIS`] (`docs/crawler/scheduling-and-retries.md#rate-limited-crawls`).
@@ -3590,7 +3590,7 @@ mod tests {
     }
 
     /// A Shopify storefront whose root links two stored products, one under two collections and
-    /// one with a session parameter, and a product the domain does not store yet.
+    /// one with a session parameter, and a product the ListingSource does not store yet.
     fn shopify_incremental_site(target: &str, _: usize) -> SiteResponse {
         match target {
             "/" => SiteResponse::Html(
@@ -4134,7 +4134,7 @@ mod tests {
 
         // The run returns early, as on a failed classification: it drops the
         // page channel and waits for the diagnostics before giving up its
-        // domain lock.
+        // spider ListingSource lock.
         drop(pages);
         let diagnostics = tokio::time::timeout(Duration::from_secs(5), diagnostics)
             .await

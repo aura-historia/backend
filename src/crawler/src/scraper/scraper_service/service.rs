@@ -141,7 +141,7 @@ impl ScraperServiceImpl {
     }
 
     /// The fetcher's view of `domain` for a failure of `kind`, attached only
-    /// to failures that may open the domain circuit so its event can report
+    /// to failures that may open the scrape circuit so its event can report
     /// how fast the shop was answering.
     pub(crate) fn domain_fetch_stats_for(
         &self,

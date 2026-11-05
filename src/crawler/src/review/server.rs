@@ -979,7 +979,7 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// Maps a refused review request to its answer, the same on every review route: 404 for an
 /// unknown review or review page, 400 for a request the review cannot take, 403 with a `reason`
 /// for a change the actor may not make, 409 for a request the review's current state refuses,
-/// a URL-pattern review whose domain is gone among them,
+/// a URL-pattern review whose ListingSource has no crawl root among them,
 /// 429 with `Retry-After` once the review agent made its decisions of the hour, and 500 for a
 /// technical failure. A 409 for a request based on an older candidate carries the review's
 /// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or

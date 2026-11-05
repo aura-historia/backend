@@ -1,12 +1,12 @@
-//! Scraper domain circuit trip rules: which fetch failures turn into a
-//! domain-wide disposition instead of staying with their URL.
+//! Scrape circuit trip rules: which fetch failures turn into a
+//! ListingSource-wide disposition instead of staying with their URL.
 //!
 //! The rules are pure. The scraper cron gathers the batch evidence, asks for a
 //! decision per failure and persists its outcome; `docs/crawler/scheduling-and-retries.md`
-//! (scraper domain circuits) owns the durable contract.
+//! (scraper circuits) owns the durable contract.
 
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
-use crate::scraper::candidate_service::{DomainHealthSnapshot, next_domain_failure_streak};
+use crate::scraper::candidate_service::{ScrapeHealthSnapshot, next_scrape_failure_streak};
 use crate::scraper::scraper_service::DomainFetchHealth;
 use std::collections::HashSet;
 use url::Url;
@@ -28,7 +28,7 @@ pub const REJECTION_STATUS_BURST_URLS: usize = 3;
 
 /// Terminal statuses that reject the crawler or its request as such rather
 /// than one page, so the same answer from several distinct URLs means the
-/// domain fails uniformly. HTTP 404 and 410 are product removals and never
+/// ListingSource fails uniformly. HTTP 404 and 410 are product removals and never
 /// belong here.
 pub fn is_crawler_rejection_status(status: u16) -> bool {
     matches!(status, 401 | 403 | 405 | 418 | 421 | 451 | 501)
@@ -63,23 +63,23 @@ impl FailedAnswer {
     }
 }
 
-/// What one fetch failure means for its domain.
+/// What one fetch failure means for its ListingSource's scrape circuit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DomainCircuitDecision {
-    /// Open the circuit with this kind: the domain cools down and the rest of
+pub enum ScrapeCircuitDecision {
+    /// Open the circuit with this kind: the ListingSource cools down and the rest of
     /// the batch stops.
     Open(DomainFailureKind),
-    /// Persist the kind and streak as evidence; the domain stays open for
+    /// Persist the kind and streak as evidence; the ListingSource stays open for
     /// scraping and the batch continues.
     RecordFailure(DomainFailureKind),
     /// The failure stays with its URL.
     UrlLocal,
 }
 
-/// Evidence gathered over one scraper domain batch. Every URL counts once,
+/// Evidence gathered over one scraper batch. Every URL counts once,
 /// so a URL that fails repeatedly is one piece of evidence, not several.
 #[derive(Debug, Default)]
-pub struct DomainBatchEvidence {
+pub struct BatchEvidence {
     /// Candidates whose fetch reached a transport observation.
     attempted_urls: HashSet<Url>,
     slow_host_urls: HashSet<Url>,
@@ -95,26 +95,26 @@ struct RejectionRun {
     urls: HashSet<Url>,
 }
 
-impl DomainBatchEvidence {
-    /// Decides what a candidate's fetch failure means for the domain, given
-    /// the domain's current snapshot and the evidence gathered before it.
+impl BatchEvidence {
+    /// Decides what a candidate's fetch failure means for the ListingSource, given
+    /// its current scrape-health snapshot and the evidence gathered before it.
     pub fn decide(
         &self,
-        domain_health: &DomainHealthSnapshot,
+        scrape_health: &ScrapeHealthSnapshot,
         candidate_url: &Url,
         kind: NetworkErrorKind,
         status_code: Option<u16>,
-    ) -> DomainCircuitDecision {
+    ) -> ScrapeCircuitDecision {
         match domain_failure_kind(kind) {
-            Some(kind) if kind.opens_on_first_failure() => DomainCircuitDecision::Open(kind),
+            Some(kind) if kind.opens_on_first_failure() => ScrapeCircuitDecision::Open(kind),
             Some(kind) => {
-                let sustained = next_domain_failure_streak(domain_health, kind)
+                let sustained = next_scrape_failure_streak(scrape_health, kind)
                     >= SLOW_HOST_CONSECUTIVE_FAILURES
                     || self.slow_host_share_reached_with(candidate_url);
                 if sustained {
-                    DomainCircuitDecision::Open(kind)
+                    ScrapeCircuitDecision::Open(kind)
                 } else {
-                    DomainCircuitDecision::RecordFailure(kind)
+                    ScrapeCircuitDecision::RecordFailure(kind)
                 }
             }
             None => match FailedAnswer::of(kind, status_code) {
@@ -123,17 +123,17 @@ impl DomainBatchEvidence {
                         && distinct_with(&self.server_failure_urls, candidate_url)
                             >= SERVER_FAILURE_BURST_URLS =>
                 {
-                    DomainCircuitDecision::Open(DomainFailureKind::Http5xxBurst)
+                    ScrapeCircuitDecision::Open(DomainFailureKind::Http5xxBurst)
                 }
                 Some(answer)
                     if answer.rejects_crawler()
-                        && (is_status_burst_probe(domain_health)
+                        && (is_status_burst_probe(scrape_health)
                             || self.rejection_run_with(answer, candidate_url)
                                 >= REJECTION_STATUS_BURST_URLS) =>
                 {
-                    DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+                    ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
                 }
-                _ => DomainCircuitDecision::UrlLocal,
+                _ => ScrapeCircuitDecision::UrlLocal,
             },
         }
     }
@@ -227,12 +227,12 @@ impl DomainBatchEvidence {
     }
 }
 
-/// Whether the domain is being probed after a `HTTP_STATUS_BURST` cooldown:
+/// Whether the ListingSource is being probed after a `HTTP_STATUS_BURST` cooldown:
 /// a probe that is rejected the same way keeps the circuit open, with a
 /// grown cooldown, instead of closing it as a responsive fetch.
-fn is_status_burst_probe(domain_health: &DomainHealthSnapshot) -> bool {
-    domain_health.next_scrape_at.is_some()
-        && domain_health.last_scrape_error_kind.as_deref()
+fn is_status_burst_probe(scrape_health: &ScrapeHealthSnapshot) -> bool {
+    scrape_health.next_scrape_at.is_some()
+        && scrape_health.last_scrape_error_kind.as_deref()
             == Some(DomainFailureKind::HttpStatusBurst.as_str())
 }
 
@@ -249,12 +249,12 @@ mod tests {
         Url::parse(&format!("https://shop.example.com/{path}")).expect("test URL")
     }
 
-    fn healthy() -> DomainHealthSnapshot {
-        DomainHealthSnapshot::default()
+    fn healthy() -> ScrapeHealthSnapshot {
+        ScrapeHealthSnapshot::default()
     }
 
-    fn recorded(kind: DomainFailureKind, streak: i32) -> DomainHealthSnapshot {
-        DomainHealthSnapshot {
+    fn recorded(kind: DomainFailureKind, streak: i32) -> ScrapeHealthSnapshot {
+        ScrapeHealthSnapshot {
             scrape_failure_streak: streak,
             last_scrape_error_kind: Some(kind.as_str().to_owned()),
             next_scrape_at: None,
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn should_open_the_circuit_on_a_first_observation_kind() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
 
         assert_eq!(
             evidence.decide(
@@ -298,31 +298,31 @@ mod tests {
                 NetworkErrorKind::HttpStatus(429),
                 Some(429)
             ),
-            DomainCircuitDecision::Open(DomainFailureKind::Http429)
+            ScrapeCircuitDecision::Open(DomainFailureKind::Http429)
         );
         assert_eq!(
             evidence.decide(&healthy(), &url("1"), NetworkErrorKind::DnsResolution, None),
-            DomainCircuitDecision::Open(DomainFailureKind::DnsResolution)
+            ScrapeCircuitDecision::Open(DomainFailureKind::DnsResolution)
         );
     }
 
     #[test]
     fn should_record_a_single_timeout_without_opening() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
 
         assert_eq!(
             evidence.decide(&healthy(), &url("1"), NetworkErrorKind::Timeout, None),
-            DomainCircuitDecision::RecordFailure(DomainFailureKind::Timeout)
+            ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Timeout)
         );
         assert_eq!(
             evidence.decide(&healthy(), &url("1"), NetworkErrorKind::Connect, None),
-            DomainCircuitDecision::RecordFailure(DomainFailureKind::Connect)
+            ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Connect)
         );
     }
 
     #[test]
     fn should_open_on_the_second_consecutive_timeout() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
 
         assert_eq!(
             evidence.decide(
@@ -331,13 +331,13 @@ mod tests {
                 NetworkErrorKind::Timeout,
                 None
             ),
-            DomainCircuitDecision::Open(DomainFailureKind::Timeout)
+            ScrapeCircuitDecision::Open(DomainFailureKind::Timeout)
         );
     }
 
     #[test]
     fn should_restart_the_streak_when_the_slow_host_kind_changes() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
 
         assert_eq!(
             evidence.decide(
@@ -346,13 +346,13 @@ mod tests {
                 NetworkErrorKind::Connect,
                 None
             ),
-            DomainCircuitDecision::RecordFailure(DomainFailureKind::Connect)
+            ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Connect)
         );
     }
 
     #[test]
     fn should_open_when_half_of_a_batch_times_out() {
-        let mut evidence = DomainBatchEvidence::default();
+        let mut evidence = BatchEvidence::default();
         evidence.observe(&url("1"), &timed_out(), None);
         evidence.observe(&url("2"), &DomainFetchHealth::Responsive, None);
         evidence.observe(&url("3"), &timed_out(), None);
@@ -362,19 +362,19 @@ mod tests {
 
         assert_eq!(
             evidence.decide(&healthy(), &url("6"), NetworkErrorKind::Timeout, None),
-            DomainCircuitDecision::Open(DomainFailureKind::Timeout),
+            ScrapeCircuitDecision::Open(DomainFailureKind::Timeout),
             "three of six attempted URLs timed out"
         );
         assert_eq!(
             evidence.decide(&healthy(), &url("3"), NetworkErrorKind::Timeout, None),
-            DomainCircuitDecision::RecordFailure(DomainFailureKind::Timeout),
+            ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Timeout),
             "a URL that already counts is not a third piece of evidence"
         );
     }
 
     #[test]
     fn should_not_open_on_a_small_timeout_share() {
-        let mut evidence = DomainBatchEvidence::default();
+        let mut evidence = BatchEvidence::default();
         evidence.observe(&url("1"), &timed_out(), None);
         for index in 2..=6 {
             evidence.observe(
@@ -390,14 +390,14 @@ mod tests {
         assert_eq!(evidence.slow_host_urls(), 2);
         assert_eq!(
             evidence.decide(&healthy(), &url("9"), NetworkErrorKind::Timeout, None),
-            DomainCircuitDecision::RecordFailure(DomainFailureKind::Timeout),
+            ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Timeout),
             "three of eight attempted URLs is below half"
         );
     }
 
     #[test]
     fn should_keep_a_single_server_failure_url_local() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
 
         assert_eq!(
             evidence.decide(
@@ -406,13 +406,13 @@ mod tests {
                 NetworkErrorKind::HttpStatus(500),
                 Some(500)
             ),
-            DomainCircuitDecision::UrlLocal
+            ScrapeCircuitDecision::UrlLocal
         );
     }
 
     #[test]
     fn should_open_a_5xx_burst_on_the_third_distinct_server_failure_url() {
-        let mut evidence = DomainBatchEvidence::default();
+        let mut evidence = BatchEvidence::default();
         evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(500));
         evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(500));
         evidence.observe(&url("2"), &DomainFetchHealth::Responsive, status(502));
@@ -424,7 +424,7 @@ mod tests {
                 NetworkErrorKind::HttpStatus(500),
                 Some(500)
             ),
-            DomainCircuitDecision::UrlLocal,
+            ScrapeCircuitDecision::UrlLocal,
             "a URL that already counts is not a third piece of evidence"
         );
         assert_eq!(
@@ -434,13 +434,13 @@ mod tests {
                 NetworkErrorKind::HttpStatus(502),
                 Some(502)
             ),
-            DomainCircuitDecision::Open(DomainFailureKind::Http5xxBurst)
+            ScrapeCircuitDecision::Open(DomainFailureKind::Http5xxBurst)
         );
     }
 
     #[test]
     fn should_ignore_statuses_outside_the_server_failure_burst() {
-        let mut evidence = DomainBatchEvidence::default();
+        let mut evidence = BatchEvidence::default();
         evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(400));
         evidence.observe(&url("2"), &DomainFetchHealth::Responsive, status(400));
 
@@ -451,22 +451,22 @@ mod tests {
                 NetworkErrorKind::HttpStatus(400),
                 Some(400)
             ),
-            DomainCircuitDecision::UrlLocal
+            ScrapeCircuitDecision::UrlLocal
         );
     }
 
-    fn rejected(evidence: &DomainBatchEvidence, path: &str, status: u16) -> DomainCircuitDecision {
+    fn rejected(evidence: &BatchEvidence, path: &str, status: u16) -> ScrapeCircuitDecision {
         rejected_with(evidence, &healthy(), path, status)
     }
 
     fn rejected_with(
-        evidence: &DomainBatchEvidence,
-        domain_health: &DomainHealthSnapshot,
+        evidence: &BatchEvidence,
+        scrape_health: &ScrapeHealthSnapshot,
         path: &str,
         status: u16,
-    ) -> DomainCircuitDecision {
+    ) -> ScrapeCircuitDecision {
         evidence.decide(
-            domain_health,
+            scrape_health,
             &url(path),
             NetworkErrorKind::HttpStatus(status),
             Some(status),
@@ -475,24 +475,24 @@ mod tests {
 
     #[test]
     fn should_keep_a_single_rejection_status_url_local() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
 
         assert_eq!(
             rejected(&evidence, "1", 405),
-            DomainCircuitDecision::UrlLocal
+            ScrapeCircuitDecision::UrlLocal
         );
     }
 
     #[test]
     fn should_open_a_status_burst_on_the_third_distinct_url_answering_the_same_rejection_status() {
-        let mut evidence = DomainBatchEvidence::default();
+        let mut evidence = BatchEvidence::default();
         evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(405));
         evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(405));
         evidence.observe(&url("2"), &DomainFetchHealth::Responsive, status(405));
 
         assert_eq!(
             rejected(&evidence, "1", 405),
-            DomainCircuitDecision::UrlLocal,
+            ScrapeCircuitDecision::UrlLocal,
             "a URL that already counts is not a third piece of evidence"
         );
         assert_eq!(
@@ -501,7 +501,7 @@ mod tests {
         );
         assert_eq!(
             rejected(&evidence, "3", 405),
-            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+            ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
         );
     }
 
@@ -514,14 +514,14 @@ mod tests {
             (timed_out(), None),
         ];
         for (transport, failure_status) in outcomes {
-            let mut evidence = DomainBatchEvidence::default();
+            let mut evidence = BatchEvidence::default();
             evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(405));
             evidence.observe(&url("2"), &DomainFetchHealth::Responsive, status(405));
             evidence.observe(&url("3"), &transport, failure_status);
 
             assert_eq!(
                 rejected(&evidence, "4", 405),
-                DomainCircuitDecision::UrlLocal,
+                ScrapeCircuitDecision::UrlLocal,
                 "{transport:?} with {failure_status:?} ends the run"
             );
         }
@@ -529,27 +529,27 @@ mod tests {
 
     #[test]
     fn should_keep_the_rejection_run_across_unobserved_candidates() {
-        let mut evidence = DomainBatchEvidence::default();
+        let mut evidence = BatchEvidence::default();
         evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(405));
         evidence.observe(&url("2"), &DomainFetchHealth::NotObserved, None);
         evidence.observe(&url("3"), &DomainFetchHealth::Responsive, status(405));
 
         assert_eq!(
             rejected(&evidence, "4", 405),
-            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+            ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
         );
     }
 
     #[test]
     fn should_never_count_product_removal_or_other_terminal_statuses() {
         for code in [400, 404, 410, 422] {
-            let mut evidence = DomainBatchEvidence::default();
+            let mut evidence = BatchEvidence::default();
             evidence.observe(&url("1"), &DomainFetchHealth::Responsive, status(code));
             evidence.observe(&url("2"), &DomainFetchHealth::Responsive, status(code));
 
             assert_eq!(
                 rejected(&evidence, "3", code),
-                DomainCircuitDecision::UrlLocal,
+                ScrapeCircuitDecision::UrlLocal,
                 "HTTP {code} stays with its URL"
             );
         }
@@ -557,13 +557,13 @@ mod tests {
 
     #[test]
     fn should_keep_a_status_burst_open_when_its_probe_is_rejected_again() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
         let mut cooled_down = recorded(DomainFailureKind::HttpStatusBurst, 1);
         cooled_down.next_scrape_at = Some(time::OffsetDateTime::now_utc());
 
         assert_eq!(
             rejected_with(&evidence, &cooled_down, "1", 405),
-            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+            ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
         );
         assert_eq!(
             rejected_with(
@@ -572,25 +572,25 @@ mod tests {
                 "1",
                 405
             ),
-            DomainCircuitDecision::UrlLocal,
+            ScrapeCircuitDecision::UrlLocal,
             "a burst without a cooldown is not a probe"
         );
         let mut other_circuit = recorded(DomainFailureKind::Http429, 1);
         other_circuit.next_scrape_at = Some(time::OffsetDateTime::now_utc());
         assert_eq!(
             rejected_with(&evidence, &other_circuit, "1", 405),
-            DomainCircuitDecision::UrlLocal
+            ScrapeCircuitDecision::UrlLocal
         );
     }
 
     fn challenged_with(
-        evidence: &DomainBatchEvidence,
-        domain_health: &DomainHealthSnapshot,
+        evidence: &BatchEvidence,
+        scrape_health: &ScrapeHealthSnapshot,
         path: &str,
         status: u16,
-    ) -> DomainCircuitDecision {
+    ) -> ScrapeCircuitDecision {
         evidence.decide(
-            domain_health,
+            scrape_health,
             &url(path),
             NetworkErrorKind::BotChallenge,
             Some(status),
@@ -603,10 +603,10 @@ mod tests {
     #[test]
     fn should_open_a_status_burst_on_the_third_distinct_url_answering_a_bot_challenge() {
         for code in [200, 202, 403] {
-            let mut evidence = DomainBatchEvidence::default();
+            let mut evidence = BatchEvidence::default();
             assert_eq!(
                 challenged_with(&evidence, &healthy(), "1", code),
-                DomainCircuitDecision::UrlLocal,
+                ScrapeCircuitDecision::UrlLocal,
                 "a single challenge answered with {code} stays with its URL"
             );
             evidence.observe(&url("1"), &DomainFetchHealth::Responsive, challenge(code));
@@ -614,7 +614,7 @@ mod tests {
 
             assert_eq!(
                 challenged_with(&evidence, &healthy(), "3", code),
-                DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst),
+                ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst),
                 "three challenges answered with {code}"
             );
         }
@@ -626,14 +626,14 @@ mod tests {
             (DomainFetchHealth::Responsive, None),
             (DomainFetchHealth::Responsive, challenge(200)),
         ] {
-            let mut evidence = DomainBatchEvidence::default();
+            let mut evidence = BatchEvidence::default();
             evidence.observe(&url("1"), &DomainFetchHealth::Responsive, challenge(202));
             evidence.observe(&url("2"), &DomainFetchHealth::Responsive, challenge(202));
             evidence.observe(&url("3"), &transport, failure);
 
             assert_eq!(
                 challenged_with(&evidence, &healthy(), "4", 202),
-                DomainCircuitDecision::UrlLocal,
+                ScrapeCircuitDecision::UrlLocal,
                 "{failure:?} ends the run"
             );
         }
@@ -641,13 +641,13 @@ mod tests {
 
     #[test]
     fn should_keep_a_status_burst_open_when_its_probe_meets_a_challenge_again() {
-        let evidence = DomainBatchEvidence::default();
+        let evidence = BatchEvidence::default();
         let mut cooled_down = recorded(DomainFailureKind::HttpStatusBurst, 1);
         cooled_down.next_scrape_at = Some(time::OffsetDateTime::now_utc());
 
         assert_eq!(
             challenged_with(&evidence, &cooled_down, "1", 202),
-            DomainCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+            ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
         );
     }
 }

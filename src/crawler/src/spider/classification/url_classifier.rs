@@ -8,8 +8,8 @@ use crate::spider::utils::url::CrawledUrl;
 use regex::Regex;
 use url::Url;
 
-/// How the crawler classifies a URL: by the domain's product pattern and, for the URLs it does
-/// not take, by keywords in the URL, or by the pattern alone. The operator contract is in
+/// How the crawler classifies a URL: by the ListingSource's product pattern and, for the URLs it
+/// does not take, by keywords in the URL, or by the pattern alone. The operator contract is in
 /// `docs/crawler/operations.md` (review agents).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum UrlClassifier {
@@ -34,8 +34,8 @@ impl UrlClassifier {
         }
     }
 
-    /// The class of the stored URL `raw_url` under the domain's product `pattern`, or `other` for
-    /// a URL that does not parse.
+    /// The class of the stored URL `raw_url` under the ListingSource's product `pattern`, or
+    /// `other` for a URL that does not parse.
     pub fn classify(self, raw_url: &str, pattern: Option<&Regex>) -> UrlClass {
         let Ok(url) = Url::parse(raw_url) else {
             return UrlClass::Other;

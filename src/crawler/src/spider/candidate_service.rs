@@ -8,11 +8,11 @@ use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 use std::time::Duration;
 
-/// A domain is due for a full crawl once its last full crawl is older than this.
+/// A ListingSource is due for a full crawl once its last full crawl is older than this.
 pub const SPIDER_RECRAWL_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
-/// A domain whose last full crawl is recent is due for an incremental crawl once its last spider
-/// run of any kind is older than this.
+/// A ListingSource whose last full crawl is recent is due for an incremental crawl once its last
+/// spider run of any kind is older than this.
 pub const SPIDER_INCREMENTAL_RECRAWL_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Persisted `last_crawl_outcome` of a run that ended in a spider error.
@@ -23,26 +23,26 @@ pub const FAILED_CRAWL_OUTCOME: &str = "FAILED";
 pub const RATE_LIMITED_CRAWL_OUTCOME: &str = "RATE_LIMITED";
 
 /// Persisted `last_crawl_outcome` of a run that stopped classifying at a
-/// pending URL-pattern review. The review's decision releases the domain and
+/// pending URL-pattern review. The review's decision releases the ListingSource and
 /// clears this outcome.
 pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
 
-/// Persisted `last_crawl_outcome` of a domain whose deterministic failures
+/// Persisted `last_crawl_outcome` of a ListingSource whose deterministic failures
 /// kept repeating. It is not selected again until an operator changes its
-/// configuration, which replaces the domain row.
+/// presentation URL, which moves it to another crawl root and clears its crawl state.
 pub const NEEDS_OPERATOR_CRAWL_OUTCOME: &str = "NEEDS_OPERATOR";
 
 /// Whether [`SpiderCandidateService::mark_crawl_awaiting_url_pattern_review`] recorded the wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlPatternReviewWaitWrite {
-    /// The review was still pending: the domain waits for its decision.
+    /// The review was still pending: the ListingSource waits for its decision.
     Recorded,
-    /// The review is no longer a pending URL-pattern review of the domain, typically because it
-    /// was decided while the crawl ran. Nothing was written: the decision released the domain,
-    /// and its crawl state stays as the decision left it.
+    /// The review is no longer a pending URL-pattern review of the ListingSource, typically because
+    /// it was decided while the crawl ran. Nothing was written: the decision released the
+    /// ListingSource, and its crawl state stays as the decision left it.
     ReviewNotPending,
-    /// The domain moved to another crawl root after the run started, or was removed; nothing was
-    /// written ([`CrawlOutcomeWrite::RootMoved`]).
+    /// The ListingSource moved to another crawl root after the run started, or was removed; nothing
+    /// was written ([`CrawlOutcomeWrite::RootMoved`]).
     RootMoved,
 }
 
@@ -50,9 +50,9 @@ pub enum UrlPatternReviewWaitWrite {
 /// whatever its outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CrawlRateLimitWrite {
-    /// The domain's new consecutive rate-limit streak.
+    /// The ListingSource's new consecutive rate-limit streak.
     pub streak: i32,
-    /// The earliest the domain's next crawl may start.
+    /// The earliest the ListingSource's next crawl may start.
     pub not_before: time::OffsetDateTime,
 }
 
@@ -63,10 +63,10 @@ pub struct SpiderCandidate {
     pub last_crawl_error_kind: Option<String>,
     /// Consecutive hard-timeout truncations since the last full crawl.
     pub crawl_truncation_count: i32,
-    /// The domain's rate-limit streak: it grows with each crawl a shop's
+    /// The ListingSource's rate-limit streak: it grows with each crawl a shop's
     /// rate-limit answer stopped, shrinks with each crawl the wall-clock budget
     /// cut short without one and clears with a full crawl. It slows the
-    /// domain's next crawls.
+    /// ListingSource's next crawls.
     pub crawl_rate_limit_streak: i32,
     /// Full when the last full crawl is due, incremental otherwise.
     pub kind: CrawlKind,
@@ -79,9 +79,9 @@ impl SpiderCandidate {
     }
 }
 
-/// The spider scheduler's crawl candidates and the writes of their runs' outcomes. Each write
-/// names the [`CrawledRoot`] of the run and records only while the domain still has that crawl
-/// root, so a run of a root the domain moved away from leaves the move's crawl state alone.
+/// The spider scheduler's crawl candidates and the writes of their runs' outcomes. Each write names
+/// the [`CrawledRoot`] of the run and records only while the ListingSource still has that crawl
+/// root, so a run of a root the ListingSource moved away from leaves the move's crawl state alone.
 #[async_trait]
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
@@ -120,9 +120,10 @@ pub trait SpiderCandidateService: Send + Sync {
         root: &CrawledRoot,
         rate_limit: CrawlRateLimitWrite,
     ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
-    /// Records a crawl that waits for the URL-pattern review `review_id` without touching
-    /// failure or truncation state, while that review is still a pending review of the domain.
-    /// `next_crawl_at` is the latest the domain waits; the review's decision releases it sooner.
+    /// Records a crawl that waits for the URL-pattern review `review_id` without touching failure
+    /// or truncation state, while that review is still a pending review of the ListingSource.
+    /// `next_crawl_at` is the latest the ListingSource waits; the review's decision releases it
+    /// sooner.
     async fn mark_crawl_awaiting_url_pattern_review(
         &self,
         root: &CrawledRoot,
@@ -139,7 +140,7 @@ pub trait SpiderCandidateService: Send + Sync {
         root: &CrawledRoot,
         completion: CrawlCompletion,
     ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
-    /// Records a repeated deterministic failure and takes the domain out of
+    /// Records a repeated deterministic failure and takes the ListingSource out of
     /// the schedule until an operator acts.
     async fn mark_crawl_needs_operator(
         &self,
@@ -353,12 +354,13 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
     }
 
-    /// The pending check share-locks the review row before the domain row is written. Approval
-    /// and rejection lock the review row first and release the domain before they commit, so a
-    /// wait written while either verdict commits waits for it and then finds the review closed,
-    /// instead of passing a check that read the review before the verdict committed and parking
-    /// the domain the verdict just released. A wait that wrote nothing is reported as a moved
-    /// root when the domain no longer has the crawled root, whatever the review's state.
+    /// The pending check share-locks the review row before the ListingSource row is written.
+    /// Approval and rejection lock the review row first and release the ListingSource before they
+    /// commit, so a wait written while either verdict commits waits for it and then finds the
+    /// review closed, instead of passing a check that read the review before the verdict committed
+    /// and parking the ListingSource the verdict just released. A wait that wrote nothing is
+    /// reported as a moved root when the ListingSource no longer has the crawled root, whatever the
+    /// review's state.
     async fn mark_crawl_awaiting_url_pattern_review(
         &self,
         root: &CrawledRoot,

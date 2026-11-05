@@ -98,7 +98,7 @@ impl CrawlerReviewRepository {
     }
 
     /// Refuses a page fetched from `requested_url` that the review it would join refuses as a
-    /// reviewer-added page: one served from a URL on no domain of the ListingSource, or one the
+    /// reviewer-added page: one served from a URL off the ListingSource's crawl host, or one the
     /// shop redirected to a page that is no product page, such as a sold listing sent to its
     /// category. Checked before the review is opened, so a page it would refuse opens none.
     pub async fn check_missing_value_page_fetch(

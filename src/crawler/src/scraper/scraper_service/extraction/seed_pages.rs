@@ -38,7 +38,7 @@ impl ScraperServiceImpl {
             raw_html: primary_html.to_string(),
         }];
         if self.schema_seed_pages <= 1
-            || matches!(mode, ScrapeMode::DomainProbe | ScrapeMode::PrimaryOnly)
+            || matches!(mode, ScrapeMode::CircuitProbe | ScrapeMode::PrimaryOnly)
         {
             return Ok(pages);
         }
@@ -82,7 +82,7 @@ impl ScraperServiceImpl {
                     });
                 }
                 Err(err) => {
-                    if let Some(error) = domain_failure_error(&sample_url, err.clone()) {
+                    if let Some(error) = scrape_failure_error(&sample_url, err.clone()) {
                         record_fetch_transport_error(
                             &sample_url,
                             seed_candidate
@@ -190,7 +190,7 @@ fn record_fetch_transport_error(
     );
 }
 
-fn domain_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
+fn scrape_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
     match error {
         FetchError::Network { kind, details } if domain_failure_kind(kind).is_some() => {
             Some(ScraperError::HttpError {

@@ -15,7 +15,7 @@ use crate::scraper::scraper_service::domain::errors::{
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
     begin_transport_observation, current_fetch_failure, current_transport_observation,
-    domain_health_for_scraper_error, with_scrape_observation,
+    scrape_health_for_scraper_error, with_scrape_observation,
 };
 use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
@@ -41,8 +41,8 @@ pub(crate) enum RedirectTarget {
     /// The page the URL names: no redirect, or one that only adds or removes the trailing slash
     /// or adds, removes or replaces the language segment before the path.
     SamePage,
-    /// Another page the product URL pattern takes or, on a domain without a usable pattern, any
-    /// other page but the homepage.
+    /// Another page the product URL pattern takes or, for a ListingSource without a usable pattern,
+    /// any other page but the homepage.
     ProductPage,
     /// The shop's homepage, with or without a language segment: removal evidence on its own.
     Homepage,
@@ -58,7 +58,7 @@ pub(crate) struct Redirect {
     /// The requested URL for a redirect to the same page; otherwise the redirect target in its
     /// stored spelling. A target that adds a language segment to a row stored without one is
     /// stored without it when the product URL pattern takes that spelling, so the row stays a
-    /// product URL of the domain (`docs/crawler/networking.md#stored-urls`).
+    /// product URL of the ListingSource (`docs/crawler/networking.md#stored-urls`).
     pub(crate) url: Url,
 }
 
@@ -310,7 +310,7 @@ fn parse_fetched_page(
 impl ScraperService for ScraperServiceImpl {
     #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
     async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        let (result, observed_domain_health, fetch_failure) = with_scrape_observation(async {
+        let (result, observed_scrape_health, fetch_failure) = with_scrape_observation(async {
             let result = self.scrape_request(&request).await;
             let observed = current_transport_observation();
             let fetch_failure = current_fetch_failure();
@@ -318,13 +318,13 @@ impl ScraperService for ScraperServiceImpl {
         })
         .await
         .0;
-        let domain_health = observed_domain_health.unwrap_or_else(|| match &result {
+        let scrape_health = observed_scrape_health.unwrap_or_else(|| match &result {
             Ok(_) => DomainFetchHealth::Responsive,
-            Err(error) => domain_health_for_scraper_error(error),
+            Err(error) => scrape_health_for_scraper_error(error),
         });
         ScrapeOutcome {
             result,
-            domain_health,
+            scrape_health,
             fetch_failure,
         }
     }
@@ -347,7 +347,7 @@ impl FetchedProductPage {
     /// Locates the page `fetched` from the requested `url`. A redirect that only adds or removes
     /// the trailing slash or a language segment leads to the page the row is stored under, so
     /// the row keeps its URL (`docs/crawler/networking.md#stored-urls`). Fails when a redirect
-    /// left the crawler domain or led to the homepage.
+    /// left the requested URL's host (or its `www.` twin) or led to the homepage.
     #[allow(clippy::result_large_err)]
     fn locate(
         url: &Url,

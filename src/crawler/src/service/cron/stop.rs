@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 /// Asks the cron loops to stop starting work. Clones share one switch, and a requested stop
-/// stays requested: no new pass, scraper domain batch or scraper URL starts, while work already
+/// stays requested: no new pass, scraper batch or scraper URL starts, while work already
 /// running finishes.
 #[derive(Clone)]
 pub struct CronStop(watch::Sender<bool>);
