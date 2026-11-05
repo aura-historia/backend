@@ -6,10 +6,10 @@ pub use query::{
     parse_notification_cursor,
 };
 
-use crate::product_listings::product_data::ProductListingImageData;
-use crate::values::{LocalizedTextData, ProductListingPriceData};
+use crate::product_listings::product_data::{ListingTextData, ProductListingImageData};
+use crate::values::ProductListingPriceData;
 use listing_source_core::listing_source_id::ListingSourceId;
-use localization::{Language, Localized};
+use product_listing_service::listing_text::ListingText;
 
 use notification_core::{
     notification::{
@@ -25,7 +25,7 @@ use notification_service::use_cases::queries::list_notifications::ListedNotifica
 use partnership_core::partnership_application_id::PartnershipApplicationId;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_id::ProductListingId,
-    product_listing_price::ProductListingPrice, title::Title,
+    product_listing_price::ProductListingPrice,
 };
 use schemars::JsonSchema;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -102,7 +102,7 @@ struct WatchlistNotificationPayloadData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
-    title: Option<LocalizedTextData>,
+    title: Option<ListingTextData>,
     image: Option<ProductListingImageData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
@@ -146,7 +146,7 @@ struct SearchFilterNotificationPayloadData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
-    title: Option<LocalizedTextData>,
+    title: Option<ListingTextData>,
     image: Option<ProductListingImageData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
@@ -251,7 +251,7 @@ fn notification_product_snapshot(
         listing_source_slug_id: snapshot.listing_source_slug_id.to_string(),
         product_listing_title_slug_id: snapshot.product_listing_title_slug_id.to_string(),
         listing_source_name: snapshot.listing_source_name.to_string(),
-        title: snapshot.title.map(localized_text_data),
+        title: snapshot.title.map(ListingText::localized).map(Into::into),
         image: present_image(
             snapshot.image,
             snapshot.content_policy,
@@ -260,13 +260,6 @@ fn notification_product_snapshot(
         .map(ProductListingImageData::from_presented),
         url: snapshot.url,
         view_url: snapshot.view_url,
-    }
-}
-
-fn localized_text_data(value: Localized<Language, Title>) -> LocalizedTextData {
-    LocalizedTextData {
-        text: value.payload.into(),
-        language: value.localization,
     }
 }
 
@@ -280,7 +273,7 @@ struct NotificationProductListingSnapshotData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
-    title: Option<LocalizedTextData>,
+    title: Option<ListingTextData>,
     image: Option<ProductListingImageData>,
     url: Url,
     view_url: Url,

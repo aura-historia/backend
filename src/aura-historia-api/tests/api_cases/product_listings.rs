@@ -1345,7 +1345,7 @@ async fn should_return_matching_product_search_summary() {
     assert_eq!(vec![target.0], product_listing_ids(&body));
     assert_eq!(
         json!("Renaissance walnut cabinet"),
-        body["items"][0]["item"]["title"]["text"]
+        body["items"][0]["item"]["title"]["localized"]["text"]
     );
     assert_eq!(
         json!("USD"),

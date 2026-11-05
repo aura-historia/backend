@@ -304,7 +304,7 @@ mod tests {
             product_listing_id.to_string(),
             body[0]["item"]["productListingId"]
         );
-        assert_eq!("Cabinet", body[0]["item"]["title"]["text"]);
+        assert_eq!("Cabinet", body[0]["item"]["title"]["localized"]["text"]);
         assert!(body[0]["item"].get("auctionSummary").is_none());
         assert!(body[0]["item"].get("lotBiddingOpensAt").is_none());
         assert!(body[0]["item"].get("lotScheduledClosesAt").is_none());

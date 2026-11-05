@@ -268,3 +268,44 @@ fn should_describe_optional_nullable_values_and_omitted_output() {
         }),
     });
 }
+
+#[test]
+fn should_describe_listing_text_with_an_optional_original_and_a_required_localized_text() {
+    use aura_historia_contracts::product_listings::product_data::ListingTextData;
+    use localization::Localized;
+    use product_listing_service::listing_text::ListingText;
+
+    let swagger: Value =
+        yaml_serde::from_str(include_str!("../../../docs/swagger.yaml")).expect("valid swagger");
+    let openapi = json!({
+        "components": swagger["components"],
+        "$ref": "#/components/schemas/ListingTextData",
+    });
+    let openapi = jsonschema::validator_for(&openapi).expect("valid OpenAPI component");
+    let translated = ListingText::select(
+        Some(Localized::new(Language::En, "Cabinet".to_owned())),
+        Some(Localized::new(Language::De, "Schrank".to_owned())),
+    )
+    .expect("listing text");
+
+    let full = assert_output(&ListingTextData::from(translated.clone()));
+    let localized_only = assert_output(&ListingTextData::from(ListingText::localized(
+        translated.localized,
+    )));
+
+    assert_eq!(
+        json!({
+            "original": {"text": "Cabinet", "language": "en"},
+            "localized": {"text": "Schrank", "language": "de"},
+        }),
+        full
+    );
+    assert_eq!(
+        json!({"localized": {"text": "Schrank", "language": "de"}}),
+        localized_only
+    );
+    for accepted in [&full, &localized_only] {
+        assert!(openapi.is_valid(accepted), "OpenAPI accepts {accepted}");
+    }
+    assert!(!openapi.is_valid(&json!({"original": full["original"]})));
+}

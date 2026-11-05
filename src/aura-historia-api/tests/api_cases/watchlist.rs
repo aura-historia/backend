@@ -562,16 +562,15 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
         assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
         assert_watchlist_product(&body, product_listing_id, false, false);
         assert_eq!(
-            serde_json::json!({"text": title, "language": language}),
+            serde_json::json!({
+                "original": {"text": "Watchlist cabinet", "language": "en"},
+                "localized": {"text": title, "language": language},
+            }),
             body["item"]["title"]
         );
         assert_eq!(
             serde_json::json!({"text": description, "language": language}),
-            body["item"]["description"]
-        );
-        assert_eq!(
-            serde_json::json!({"text": "Watchlist cabinet", "language": "en"}),
-            body["item"]["productTitle"]
+            body["item"]["description"]["localized"]
         );
         assert_eq!(
             serde_json::json!({"type": "MONETARY", "currency": "EUR", "amount": 10000}),
@@ -744,11 +743,11 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
         // Redaction still applies although the saved-search state stays undisclosed.
         assert_watchlist_product(&body, product_listing_id, watching, false);
         assert!(body["item"].get("productListingTitleSlugId").is_none());
-        assert!(body["item"].get("productTitle").is_none());
-        assert!(body["item"].get("productDescription").is_none());
         assert!(body["item"].get("description").is_none());
         assert_eq!(
-            serde_json::json!({"text": "Versteckter Produkttitel", "language": "de"}),
+            serde_json::json!({
+                "localized": {"text": "Versteckter Produkttitel", "language": "de"}
+            }),
             body["item"]["title"]
         );
         assert_eq!(serde_json::json!("Hidden"), body["item"]["source"]["name"]);

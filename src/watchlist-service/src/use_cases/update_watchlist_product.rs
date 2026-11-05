@@ -420,6 +420,7 @@ impl From<WatchlistRepositoryError> for UpdateWatchlistProductListingError {
 #[cfg(test)]
 mod tests {
     #![allow(dead_code)]
+    use product_listing_service::listing_text::ListingText;
 
     use super::*;
 
@@ -1121,13 +1122,14 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .expect("valid source listing ID"),
-                product_title: Some(Localized::new(language, Title::from("Product"))),
-                product_description: Some(Localized::new(
-                    language,
-                    Description::from("Description"),
-                )),
-                title: Some(Localized::new(language, Title::from("Listing"))),
-                description: Some(Localized::new(language, Description::from("Description"))),
+                title: ListingText::select(
+                    Some(Localized::new(language, Title::from("Product"))),
+                    Some(Localized::new(language, Title::from("Listing"))),
+                ),
+                description: ListingText::select(
+                    Some(Localized::new(language, Description::from("Description"))),
+                    None,
+                ),
                 pricing: ProductListingPricing {
                     price: Some(Price::new(100_u64.into(), Currency::Eur).into()),
                     price_estimate_min: Some(Price::new(80_u64.into(), Currency::Eur)),
@@ -1884,11 +1886,10 @@ mod tests {
             assert_eq!(lifecycle, product.item.lifecycle);
             assert!(product.item.product_listing_title_slug_id.is_none());
             assert_eq!("Hidden", product.item.source.name.as_ref());
-            assert!(product.item.product_title.is_none());
-            assert!(product.item.product_description.is_none());
             let title = product.item.title.expect("hidden title");
-            assert_eq!(Language::De, title.localization);
-            assert_ne!(Title::from("Listing"), title.payload);
+            assert!(title.original.is_none());
+            assert_eq!(Language::De, title.localized.localization);
+            assert_ne!(Title::from("Listing"), title.localized.payload);
             assert!(product.item.description.is_none());
             assert_eq!(
                 ProductListingPricing::default(),

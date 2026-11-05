@@ -269,7 +269,7 @@ async fn verify_listing_pages(fixture: &Fixture) -> TestResult {
     assert_eq!(1, page["size"]);
     assert_eq!(
         "Watchlist-Schrank",
-        page["items"][0]["item"]["title"]["text"]
+        page["items"][0]["item"]["title"]["localized"]["text"]
     );
     assert_eq!(
         12500,

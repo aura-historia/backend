@@ -280,6 +280,7 @@ mod tests {
         patch_field::PatchField,
     };
     use aura_historia_contracts::saved_searches::matches_cursor_value;
+    use product_listing_service::listing_text::ListingText;
     use search_filter_core::search_filter_state::SearchFilterState;
     use search_filter_service::ports::{
         SearchFilterMatchCursor, SearchFilterMatchView, SearchFilterReadError, SearchFilterReader,
@@ -742,7 +743,7 @@ mod tests {
         );
         assert_eq!(1, output["size"]);
         let listing = &output["items"][0];
-        assert_eq!("de", listing["item"]["title"]["language"]);
+        assert_eq!("de", listing["item"]["title"]["localized"]["language"]);
         assert_eq!(
             u64::MAX,
             listing["item"]["pricing"]["display"]["price"]["amount"]
@@ -1080,9 +1081,10 @@ mod tests {
                         slug_id: listing_source_core::ListingSourceSlugId::raw("source").unwrap(),
                     },
                     source_listing_id: "merchant:local/42".try_into().unwrap(),
-                    product_title: None,
-                    product_description: None,
-                    title: Some(localization::Localized::new(language, "Schrank".into())),
+                    title: Some(ListingText::localized(localization::Localized::new(
+                        language,
+                        "Schrank".into(),
+                    ))),
                     description: None,
                     pricing: ProductListingPricingPresentation {
                         source: product_listing_core::product_listing::ProductListingPricing {

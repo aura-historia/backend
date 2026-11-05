@@ -1,3 +1,4 @@
+use crate::listing_text::ListingText;
 use crate::ports::ListingSourceSummary;
 use crate::ports::{
     PersonalizedProductListingDetailsReadModel, ProductListingAuctionSummary,
@@ -167,10 +168,8 @@ pub struct ProductListingDetailsView {
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
-    pub product_title: Option<Localized<Language, Title>>,
-    pub product_description: Option<Localized<Language, Description>>,
-    pub title: Option<Localized<Language, Title>>,
-    pub description: Option<Localized<Language, Description>>,
+    pub title: Option<ListingText<Title>>,
+    pub description: Option<ListingText<Description>>,
     pub pricing: ProductListingPricingPresentation,
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
@@ -393,8 +392,6 @@ pub fn present_product_details(
             event_id: item.event_id,
             source: item.source,
             source_listing_id: item.source_listing_id,
-            product_title: item.product_title,
-            product_description: item.product_description,
             title: item.title,
             description: item.description,
             pricing,
@@ -463,7 +460,7 @@ pub fn redact_hidden_product(
     let language = details
         .title
         .as_ref()
-        .map(|title| title.localization)
+        .map(|title| title.localized.localization)
         .unwrap_or(Language::En);
     let hidden_url = Url::parse("https://aura-historia.com/pricing")
         .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
@@ -480,9 +477,10 @@ pub fn redact_hidden_product(
     details.source_listing_id =
         SourceListingId::try_from("00000000-0000-0000-0000-000000000000")
             .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
-    details.product_title = None;
-    details.product_description = None;
-    details.title = Some(Localized::new(language, hidden_title(language)));
+    details.title = Some(ListingText::localized(Localized::new(
+        language,
+        hidden_title(language),
+    )));
     details.description = None;
     details.pricing = ProductListingPricingPresentation {
         source: ProductListingPricing::default(),
@@ -851,16 +849,17 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                product_title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
-                product_description: Some(Localized::new(
-                    Language::En,
-                    Description::from("Native"),
-                )),
-                title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
-                description: Some(Localized::new(
-                    Language::En,
-                    Description::from("Description"),
-                )),
+                title: ListingText::select(
+                    Some(Localized::new(Language::En, Title::from("Cabinet"))),
+                    Some(Localized::new(Language::En, Title::from("Cabinet"))),
+                ),
+                description: ListingText::select(
+                    Some(Localized::new(Language::En, Description::from("Native"))),
+                    Some(Localized::new(
+                        Language::En,
+                        Description::from("Description"),
+                    )),
+                ),
                 pricing: ProductListingPricing {
                     price: Some(ProductListingPrice::from(Price::new(
                         MonetaryAmount::from(100_u64),

@@ -85,6 +85,7 @@ mod tests {
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::source_listing_id::SourceListingId;
     use product_listing_core::title::Title;
+    use product_listing_service::listing_text::ListingText;
     use product_listing_service::ports::ListingSourceSummary;
     use product_listing_service::use_cases::{
         DisplayProductListingPricing, GetProductListingError, GetProductListingHistoryError,
@@ -743,12 +744,10 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                product_title: None,
-                product_description: None,
-                title: Some(Localized {
+                title: Some(ListingText::localized(Localized {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
-                }),
+                })),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {

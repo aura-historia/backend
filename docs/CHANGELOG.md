@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-05 — Original and localized listing text in one object (#2784)
+
+- **Breaking change:** listing `title` and `description` are now `{ "original": LocalizedTextData, "localized": LocalizedTextData }` objects instead of a single `LocalizedTextData`, and the flat `productTitle` and `productDescription` fields are removed. This applies to `GET /v1/product-listings/{productListingId}`, `GET /v1/product-listings/by-slug/{productListingTitleSlugId}`, watchlist, saved-search match and auction catalogue items, search and similar-listing summaries, and watchlist and search-filter notification payloads, and to the matching MCP tool results.
+- `localized` is the text to show for the requested language. It is chosen from the translations and the original in the order requested language, `en`, `de`, then any other language, so it can be the original itself, and it is always present when the object is. `original` is the normalized source text and is omitted when the listing has none. Search and similar-listing summaries and notification payloads carry only `localized`. The object is omitted (or `null` in notification payloads) when the listing has no such text. Title and description are chosen separately, so their languages can differ.
+
 ## 2026-11-05 — Title language detected with the description (#2782)
 
 - Newly normalized listings detect a title's original language together with its description instead of from the title alone, so titles of names, style periods or loanwords such as "Dutch Louis XV barometer" are no longer labelled with a language they are not written in. A title in another language than its description usually takes the description's language. Already stored titles keep their recorded language until a later revision of the listing is normalized.

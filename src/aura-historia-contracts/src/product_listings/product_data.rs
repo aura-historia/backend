@@ -21,6 +21,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_service::listing_text::ListingText;
 use product_listing_service::ports::{ListingSourceSummary, ProductListingAuctionSummary};
 use product_listing_service::shipping::{AdvertisedShipping, PersonalizedShipping};
 use product_listing_service::use_cases::{
@@ -49,6 +50,32 @@ pub struct PersonalizedData<ItemData, UserStateData> {
 use time::OffsetDateTime;
 use url::Url;
 
+/// A listing text as the source published it and as shown for the requested language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingTextData {
+    /// Text as the source published it, normalized: styled letters and digits are presented as
+    /// ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain
+    /// stable. Omitted where the response does not carry the original, such as search and
+    /// similar-listing summaries and notification payloads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    original: Option<LocalizedTextData>,
+    /// Text to show for the requested language. Chosen from the translations and the original in
+    /// the order requested language, `en`, `de`, then any other language, so it can be the
+    /// original itself. Always present; compare its `language` with `original.language` to tell
+    /// whether the text was translated.
+    localized: LocalizedTextData,
+}
+
+impl<T: Into<String>> From<ListingText<T>> for ListingTextData {
+    fn from(text: ListingText<T>) -> Self {
+        Self {
+            original: text.original.map(Into::into),
+            localized: text.localized.into(),
+        }
+    }
+}
+
 /// `Shipping` follows the response purpose: details by default, summaries in collections.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -68,13 +95,9 @@ pub struct ProductListingDetailsData<Shipping = ListingShippingDetailData> {
     #[schemars(with = "String")]
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    product_title: Option<LocalizedTextData>,
+    title: Option<ListingTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    product_description: Option<LocalizedTextData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<LocalizedTextData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<LocalizedTextData>,
+    description: Option<ListingTextData>,
     pricing: ProductListingPricingPresentationData,
     #[serde(with = "crate::wire::listing::availability_option")]
     #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
@@ -193,7 +216,7 @@ pub struct ProductListingSummaryData {
     #[schemars(schema_with = "crate::wire::schema::optional_auction_id")]
     auction_id: Option<AuctionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<LocalizedTextData>,
+    title: Option<ListingTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_price: Option<ProductListingPriceData>,
     price_valuation: ProductListingSummaryPriceValuationData,
@@ -334,8 +357,6 @@ impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
             event_id: view.event_id,
             source: view.source.into(),
             source_listing_id: view.source_listing_id,
-            product_title: view.product_title.map(Into::into),
-            product_description: view.product_description.map(Into::into),
             title: view.title.map(Into::into),
             description: view.description.map(Into::into),
             pricing: view.pricing.into(),
@@ -600,7 +621,7 @@ impl ProductListingSummaryData {
             source: summary.source.into(),
             source_listing_id: summary.source_listing_id,
             auction_id: summary.auction_id,
-            title: summary.title.map(Into::into),
+            title: summary.title.map(ListingText::localized).map(Into::into),
             display_price: summary.display_price.map(Into::into),
             price_valuation: summary.price_valuation.into(),
             availability: summary.availability,

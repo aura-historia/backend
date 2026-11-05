@@ -15,7 +15,7 @@ pub(crate) fn product_response(
         .item
         .title
         .as_ref()
-        .map(|title| title.localization.as_str());
+        .map(|title| title.localized.localization.as_str());
     let response = Json(personalized_product_details_data(view)).into_response();
     let mut response = crate::transport::cache::anonymous_shared_success(
         response,

@@ -79,19 +79,21 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     assert_eq!(view.item.source_listing_id.as_ref(), "watchlist-joined");
     assert_eq!(view.item.source.name.as_ref(), "watchlist-joined-source");
     assert!(view.item.sale_observation.is_none());
-    assert_localized_title(
-        view.item.product_title.as_ref(),
-        Language::En,
-        "Original title",
-    );
+    let Some(title) = view.item.title.as_ref() else {
+        panic!("missing title");
+    };
+    let Some(description) = view.item.description.as_ref() else {
+        panic!("missing description");
+    };
+    assert_localized_title(title.original.as_ref(), Language::En, "Original title");
     assert_localized_description(
-        view.item.product_description.as_ref(),
+        description.original.as_ref(),
         Language::En,
         "Original description",
     );
-    assert_localized_title(view.item.title.as_ref(), Language::De, "Deutscher Titel");
+    assert_localized_title(Some(&title.localized), Language::De, "Deutscher Titel");
     assert_localized_description(
-        view.item.description.as_ref(),
+        Some(&description.localized),
         Language::De,
         "Deutsche Beschreibung",
     );

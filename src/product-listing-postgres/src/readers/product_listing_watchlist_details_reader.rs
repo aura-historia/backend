@@ -27,6 +27,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 
 use product_listing_core::title::Title;
+use product_listing_service::listing_text::ListingText;
 use product_listing_service::ports::{
     PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadModel,
     ProductListingWatchlistDetailsCursor, ProductListingWatchlistDetailsReadError,
@@ -468,13 +469,17 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             },
         )
         .map_err(|_| ())?;
-        let product_title = localized_title(row.product_title_text, row.product_title_language)?;
-        let product_description = localized_description(
-            row.product_description_text,
-            row.product_description_language,
-        )?;
-        let title = localized_title(row.title_text, row.title_language)?;
-        let description = localized_description(row.description_text, row.description_language)?;
+        let title = ListingText::select(
+            localized_title(row.product_title_text, row.product_title_language)?,
+            localized_title(row.title_text, row.title_language)?,
+        );
+        let description = ListingText::select(
+            localized_description(
+                row.product_description_text,
+                row.product_description_language,
+            )?,
+            localized_description(row.description_text, row.description_language)?,
+        );
         let product_price =
             product_listing_price(row.price_kind, row.price_amount, row.price_currency)?;
         let product_price_estimate_min = price(
@@ -512,8 +517,6 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                         .map_err(|_| ())?,
                 },
                 source_listing_id,
-                product_title,
-                product_description,
                 title,
                 description,
                 pricing: ProductListingPricing {

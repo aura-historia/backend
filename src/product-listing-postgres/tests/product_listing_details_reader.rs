@@ -73,16 +73,22 @@ async fn should_select_requested_translations_independently_and_preserve_origina
     )
     .await;
 
-    assert_localized_title(view.product_title.as_ref(), Language::En, "Original title");
+    let Some(title) = view.title.as_ref() else {
+        panic!("missing title");
+    };
+    let Some(description) = view.description.as_ref() else {
+        panic!("missing description");
+    };
+    assert_localized_title(title.original.as_ref(), Language::En, "Original title");
     assert_localized_description(
-        view.product_description.as_ref(),
+        description.original.as_ref(),
         Language::En,
         "Original description",
     );
     assert!(view.sale_observation.is_none());
-    assert_localized_title(view.title.as_ref(), Language::De, "Deutscher Titel");
+    assert_localized_title(Some(&title.localized), Language::De, "Deutscher Titel");
     assert_localized_description(
-        view.description.as_ref(),
+        Some(&description.localized),
         Language::En,
         "Translated description",
     );
@@ -157,11 +163,17 @@ async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slu
     )
     .await;
 
-    assert!(view.product_title.is_none());
-    assert!(view.product_description.is_none());
-    assert_localized_title(view.title.as_ref(), Language::De, "Deutscher Titel");
+    let Some(title) = view.title.as_ref() else {
+        panic!("missing title");
+    };
+    let Some(description) = view.description.as_ref() else {
+        panic!("missing description");
+    };
+    assert!(title.original.is_none());
+    assert!(description.original.is_none());
+    assert_localized_title(Some(&title.localized), Language::De, "Deutscher Titel");
     assert_localized_description(
-        view.description.as_ref(),
+        Some(&description.localized),
         Language::Es,
         "Descripción española",
     );
@@ -193,9 +205,17 @@ async fn should_return_original_english_text_when_no_translation_has_selected_te
     )
     .await;
 
-    assert_localized_title(view.title.as_ref(), Language::En, "Original title");
+    let Some(title) = view.title.as_ref() else {
+        panic!("missing title");
+    };
+    let Some(description) = view.description.as_ref() else {
+        panic!("missing description");
+    };
+    assert_eq!(title.original.as_ref(), Some(&title.localized));
+    assert_eq!(description.original.as_ref(), Some(&description.localized));
+    assert_localized_title(Some(&title.localized), Language::En, "Original title");
     assert_localized_description(
-        view.description.as_ref(),
+        Some(&description.localized),
         Language::En,
         "Original description",
     );
@@ -216,8 +236,6 @@ async fn should_return_no_selected_text_when_product_has_no_stored_or_translated
     )
     .await;
 
-    assert!(view.product_title.is_none());
-    assert!(view.product_description.is_none());
     assert!(view.title.is_none());
     assert!(view.description.is_none());
 }
