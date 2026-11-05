@@ -398,15 +398,6 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
     let (_, page) = request(&router, "GET", base, Some("owner"), json!({})).await;
     assert_eq!(accepted["resolution"], page["items"][0]["resolution"]);
     assert_eq!(1, calls.load(Ordering::SeqCst));
-    sqlx::query("UPDATE geo_resolutions SET valid_until=now()-interval '1 second'")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let (_, expired) = request(&router, "GET", &path, Some("owner"), json!({})).await;
-    assert_eq!(json!("UNAVAILABLE"), expired["resolution"]["status"]);
-    assert!(expired["resolution"]["derived"].is_null());
-    assert!(expired["resolution"]["attribution"].is_null());
-    assert_eq!(1, calls.load(Ordering::SeqCst));
     let edit = json!({"expectedVersion":1,"label":"New home","geography":{"referenceRelease":"iso-codes-4.20.1","addressText":"Synthetic replacement"}});
     let (status, changed) = request(&router, "PUT", &path, Some("owner"), edit.clone()).await;
     assert_eq!(StatusCode::OK, status);

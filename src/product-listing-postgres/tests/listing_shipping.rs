@@ -603,7 +603,7 @@ async fn accepted_country_resolution(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn explicit_sites_resolution_and_expiry_invalidate_without_private_projection_data() {
+async fn explicit_sites_and_resolution_invalidate_without_private_projection_data() {
     use shipping_core::{coverage::*, inputs::Applicability, terms::*};
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
@@ -652,7 +652,7 @@ async fn explicit_sites_resolution_and_expiry_invalidate_without_private_project
     sqlx::query("INSERT INTO shipping_profile_location_references(shipping_profile_id,party_location_id,applicability) VALUES($1,$2,'DISPATCH'),($1,$2,'COLLECTION')").bind(profile.into_uuid()).bind(location).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_changes(listing_source_id,subject_kind,subject_id,revision,terms_revision,change_kind,actor) SELECT listing_source_id,'PROFILE',shipping_profile_id,management_revision,terms_revision,'REPLACED','SERVICE:test' FROM shipping_profiles WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
-    let resolution = accepted_country_resolution(&pool, owner, location)
+    accepted_country_resolution(&pool, owner, location)
         .await
         .unwrap();
     drain(&pool).await;
@@ -820,21 +820,22 @@ async fn explicit_sites_resolution_and_expiry_invalidate_without_private_project
         "DE",
         summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution.into_uuid()).execute(&pool).await.unwrap();
+    // Evidence has no time limit: maintenance keeps bound shipping geography.
     let mut maintenance = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     use geo_service::resolution::{ResolutionRepository, ResolutionRepositoryFactory};
-    geo_postgres::SqlxResolutionRepositoryFactory
-        .resolutions(&mut maintenance)
-        .expire(100)
-        .await
-        .unwrap();
+    assert_eq!(
+        0,
+        geo_postgres::SqlxResolutionRepositoryFactory
+            .resolutions(&mut maintenance)
+            .expire(100)
+            .await
+            .unwrap()
+    );
     maintenance.commit().await.unwrap();
     drain(&pool).await;
-    assert!(
-        summary(&pool, ids[0]).await["country_offers"]
-            .as_array()
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        "DE",
+        summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(location).execute(&mut *tx).await.unwrap();

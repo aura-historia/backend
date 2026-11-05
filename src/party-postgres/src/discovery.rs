@@ -41,7 +41,7 @@ WITH candidates AS (
  SELECT l.party_location_id, l.party_id, p.name AS party_name, l.label,
  l.geography, l.position, l.revision, l.input_revision,
  CASE WHEN b.guard=l.revision AND b.input_revision=l.input_revision
- AND r.valid_until>clock_timestamp() AND NOT r.erased
+ AND NOT r.erased
  THEN r.evidence->'candidates'->COALESCE(
    CASE WHEN b.selected_generation=r.generation THEN b.selected_candidate END,
    (r.evidence->>'accepted_index')::integer)

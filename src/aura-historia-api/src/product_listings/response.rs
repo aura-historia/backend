@@ -10,7 +10,7 @@ pub(crate) fn product_response(
     principal: &Principal,
     request_headers: &HeaderMap,
 ) -> Response {
-    let ttl = crate::shipping::listing::cache_ttl([view.item.shipping.as_ref()], 120);
+    let ttl = 120;
     let content_language = view
         .item
         .title

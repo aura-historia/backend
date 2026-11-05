@@ -367,7 +367,14 @@ async fn dispatch_uses_only_current_derived_country_without_projection_or_provid
         Some(work.generation),
         deps.locations[0].resolution_generation
     );
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE profile='SHIPPING_ORIGIN_TEST'").execute(&p).await.unwrap();
+    // Evidence has no time limit; detaching the site's binding is what removes it.
+    sqlx::query(
+        "DELETE FROM geo_resolution_bindings WHERE subject_kind='PARTY_LOCATION' AND subject_id=$1",
+    )
+    .bind(site.into_uuid())
+    .execute(&p)
+    .await
+    .unwrap();
     let deps = read(&p, &ids).await;
     assert!(deps.locations[0].location.content().geography.is_none());
     assert!(deps.locations[0].resolution_generation.is_none());

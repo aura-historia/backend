@@ -80,10 +80,7 @@ async fn handle_search(
         .await
     {
         Ok(result) => {
-            let ttl = crate::shipping::listing::cache_ttl(
-                result.items.iter().map(|i| i.item.shipping.as_ref()),
-                60,
-            );
+            let ttl = 60;
             let response = Json(CursoredProductListingsData::from(result)).into_response();
             crate::transport::cache::anonymous_shared_success(
                 response,

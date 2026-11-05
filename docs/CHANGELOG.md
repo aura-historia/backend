@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-05 — Geocoding results no longer expire (#2771)
+
+- Retained geocoding evidence no longer lapses after 7 days for ambiguous results or 30 days for other outcomes. The `resolution` in `/v1/me/addresses` reads no longer turns `UNAVAILABLE` over time. Derived Party-location and listing geography, including reviewed candidate selections, stays until the address changes or a retry is forced.
+- Anonymous listing, search, similar-listing and auction responses with shipping terms are no longer cached for a shorter time ahead of such a deadline.
+
 ## 2026-10-30 — Readable Party and ListingSource slugs (#2654)
 
 - Parties and ListingSources created from now on get their slugified name as `partySlugId` or `listingSourceSlugId`, such as `antiques-and-more`, instead of the name followed by the full UUID. This covers `POST /v1/admin/parties`, `POST /v1/admin/listing-sources` (including a `NEW` operator Party) and the Party and ListingSource created when a proposed-source partnership application is approved. When another Party or ListingSource already holds that slug, the first free of `antiques-and-more-2`, `antiques-and-more-3`, and so on is used, so slugs stay unique.

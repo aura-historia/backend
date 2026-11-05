@@ -537,7 +537,7 @@ Request establishes work for preexisting eligible PartyLocations; CDC-only captu
 backfill them. Deploy compatible ProductListing geographic mappings and verify refreshed
 product search visibility before enabling new geographic filters.
 
-The hourly backend cleanup purges ineligible evidence and requeues bounded runnable work
+The hourly backend cleanup purges orphaned evidence and requeues bounded runnable work
 whose provider circuit is closed. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
 attempts, pending age and backoff; live leases keep their claims. Additional bounded cleanup
 invocations follow ordinary operational approval when backlog requires faster recovery or
@@ -600,7 +600,7 @@ repopulate a missing index when derived values are unchanged. Preserve checkpoin
 projection versions and deletion tombstones. Repeat source traversal if source creation
 overlaps it; listing journals independently cover concurrent listings.
 
-Monitor oldest pending work, expired claims, retention deadlines, projection queue lag and
+Monitor oldest pending work, expired claims, projection queue lag and
 backlog age, failures/DLQ, version/fence correctness and rebuildability. Product projector
 acknowledgment means OpenSearch accepted the write or external versioning fenced it as stale.
 Search visibility follows the normal refresh cycle; no persisted acknowledgment claims

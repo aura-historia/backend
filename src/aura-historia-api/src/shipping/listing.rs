@@ -1,10 +1,8 @@
 //! Public advertised terms and private assessment fields on existing listing responses.
 use crate::error::{ApiError, FORBIDDEN, SHIPPING_STORAGE_ERROR, SHIPPING_TEMPORARILY_UNAVAILABLE};
-use product_listing_service::shipping::AdvertisedShipping;
 #[cfg(test)]
 use serde_json::Value;
 use shipping_service::assessment::AssessmentError;
-use time::OffsetDateTime;
 
 impl From<product_listing_service::shipping::ShippingReadError> for ApiError {
     fn from(error: product_listing_service::shipping::ShippingReadError) -> Self {
@@ -35,22 +33,6 @@ impl From<AssessmentError> for ApiError {
             }
         }
     }
-}
-
-/// Cap shared caching at geographic provider evidence retention deadlines.
-pub(crate) fn cache_ttl<'a>(
-    items: impl IntoIterator<Item = Option<&'a AdvertisedShipping>>,
-    maximum: u32,
-) -> u32 {
-    let now = OffsetDateTime::now_utc();
-    items.into_iter().flatten().fold(maximum, |ttl, item| {
-        item.geographic_valid_until
-            .into_iter()
-            .filter(|deadline| *deadline > item.evaluated_at)
-            .fold(ttl, |ttl, deadline| {
-                ttl.min(u32::try_from((deadline - now).whole_seconds().max(0)).unwrap_or(u32::MAX))
-            })
-    })
 }
 
 #[cfg(test)]

@@ -98,10 +98,6 @@ pub struct AdvertisedShipping {
     pub assessment: ShippingAssessment,
     /// Requested-currency values of every advertised rate; detail reads only.
     pub display: Option<ShippingDisplay>,
-    /// Geographic provider retention deadline that caps shared caching; never serialized.
-    pub geographic_valid_until: Option<OffsetDateTime>,
-    /// Internal assessment time; bounds which retention deadlines still apply.
-    pub evaluated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -352,8 +348,6 @@ fn shipping_views(view: DeliveryAssessmentView) -> HashMap<ProductListingId, Shi
                         effective: item.effective,
                         assessment: item.generic_assessment,
                         display: None,
-                        geographic_valid_until: item.geographic_valid_until,
-                        evaluated_at: item.evaluated_at,
                     },
                     personalized,
                 },
@@ -554,8 +548,6 @@ mod tests {
                 assessment: assess(&effective, &AssessmentInput::default(), &[]),
                 effective,
                 display: None,
-                geographic_valid_until: None,
-                evaluated_at: OffsetDateTime::UNIX_EPOCH,
             },
         }
     }

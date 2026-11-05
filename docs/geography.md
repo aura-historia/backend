@@ -166,7 +166,8 @@ claiming a specific underlying supplier.
 [AWS Service Terms §82](https://aws.amazon.com/service-terms/#82._Amazon_Location_Service)
 and the [intended-use contract](https://docs.aws.amazon.com/location/latest/developerguide/places-intended-use.html)
 govern retention. Retained requests explicitly declare `IntendedUse=Storage`; single-use
-results cannot be persisted or cached, including their derived components. Storage is the
+results cannot be persisted or cached, including their derived components. Section 82.4.a(ii)
+sets no time limit on retaining geocoding results requested for storage. Storage is the
 API value; **Stored** is the [pricing category](https://docs.aws.amazon.com/location/latest/developerguide/places-pricing.html).
 Storage permission does not grant unrestricted resale, bulk collection, public geocoding,
 map display or waiver of personal-data erasure. Review [current pricing](https://aws.amazon.com/location/pricing/)
@@ -209,14 +210,19 @@ fence old replies; presentation-only changes update guards without paying again.
 Business policy **PRECISION_FIRST_V1** automatically accepts only administrative geography
 from a unique compatible candidate. Protected application operations can inspect, retry or
 select a compatible candidate using current location revision and resolution generation.
-Explicit point selection requires premises evidence. Selection affects only its binding,
-not other locations reusing the result; submitted assertions always retain precedence.
+Explicit point selection requires premises evidence. A selected candidate applies only to its
+binding, not other locations reusing the result; submitted assertions always retain precedence.
+
+Evidence has no time limit, since the [provider terms](#provider-terms-and-retention-gate)
+impose none: time alone never causes another paid call or a repeated review. Only changed
+input, forced Retry, erasure or losing every binding replace or purge evidence and its
+selections.
 
 Claims lease work before I/O and retain no transaction during the call. Completion rechecks
 lease, generation and current bindings, then commits valid evidence and a minimal signal.
-Reads suppress stale or expired evidence immediately. Database coordination follows
+Reads suppress stale evidence immediately. Database coordination follows
 provider → resolution → binding lock order.
-Read-only repeatable snapshots use the same logical-expiry gate without
+Read-only repeatable snapshots use the same eligibility rules without
 acquiring mutation locks; [shipping assessment](shipping.md#shipping-on-listing-reads)
 uses these current facts instead of the listing-geography projection.
 
@@ -224,7 +230,7 @@ Retries are bounded per resolution, with backoff and a circuit for provider heal
 Unsupported input remains an input
 failure; errors never become no-match. A paid-call/commit crash can incur another call after
 lease expiry. Attempt counts and stale reply fences survive invalidation; exactly-once
-charging is not promised. Expiry and orphan purges are bounded and run even while the circuit
+charging is not promised. Orphan purges are bounded and run even while the circuit
 is open; lost-delivery requeue resumes once it closes.
 The [worker runbook](durable-worker-runbook.md#geographic-resolution-recovery) owns recovery.
 
@@ -250,7 +256,7 @@ in the same transaction; canonical revision and public history remain unchanged.
 ### Eventual projection consistency
 
 Listing search and geographic filter matching use available projections while durable
-invalidation catches up. Retirement, restrictive applicability and expiry
+invalidation catches up. Retirement and restrictive applicability
 can briefly leave earlier geography in results, ordering, counts and continuation. There is
 no global query gate. Writers reread current authority; versions/tombstones fence stale
 writes. PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read

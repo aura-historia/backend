@@ -1155,7 +1155,7 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn public_discovery_admits_current_derived_country_and_rejects_expired_or_stale_evidence() {
+async fn public_discovery_admits_current_derived_country_and_rejects_stale_evidence() {
     use geo_postgres::SqlxResolutionRepositoryFactory;
     use geo_service::{geocoding::*, resolution::*};
     use party_service::discovery::*;
@@ -1190,7 +1190,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_expired_or_
     };
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
-    let id = SqlxResolutionRepositoryFactory
+    SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
         .bind(&input, binding)
         .await
@@ -1284,7 +1284,6 @@ async fn public_discovery_admits_current_derived_country_and_rejects_expired_or_
                     .execute(&pool)
                     .await
                     .unwrap();
-                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
             }
             _ => {}
         }
@@ -1294,7 +1293,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_expired_or_
             .discover(&request)
             .await
             .unwrap();
-        assert_eq!(usize::from(phase == 0), result.items.len());
+        assert_eq!(usize::from(phase != 1), result.items.len());
         if let Some(item) = result.items.first() {
             assert_eq!("ACCEPTED_DERIVED", item.basis);
             assert_eq!(Some(CountryCode::DEU), item.country);

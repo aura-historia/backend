@@ -24,7 +24,7 @@ impl ResolutionRepositoryFactory<SqlxTransaction> for SqlxResolutionRepositoryFa
     }
 }
 impl SqlxResolutionRepositoryFactory {
-    /// Read unexpired evidence inside an already established repeatable read
+    /// Read current evidence inside an already established repeatable read
     /// transaction. This reader takes no row locks and performs no writes or provider I/O.
     pub fn snapshot_reader(connection: &mut PgConnection) -> impl ResolutionReader + '_ {
         SnapshotReader(Repository { connection })
@@ -135,6 +135,14 @@ fn valid_evidence(e: &ResolutionEvidence, input: &ResolutionInput, profile: &str
             .is_some_and(|p| p.precision() == geo::SpatialPrecision::Premises)
 }
 
+/// SQL truth of "`r` lost every binding", the only reason cleanup purges evidence: it has no
+/// time limit. The query aliases `geo_resolutions` as `r`.
+macro_rules! orphaned_sql {
+    () => {
+        "NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id)"
+    };
+}
+
 #[derive(FromRow)]
 struct ResolutionRow {
     resolution_id: Uuid,
@@ -151,7 +159,6 @@ struct ResolutionRow {
     lease_until: Option<OffsetDateTime>,
     next_attempt_at: OffsetDateTime,
     evidence: Option<serde_json::Value>,
-    valid_until: Option<OffsetDateTime>,
     last_failure: Option<String>,
 }
 impl ResolutionRow {
@@ -163,10 +170,8 @@ impl ResolutionRow {
             || input.scope_key() != self.scope_key
             || self.generation <= 0
             || !(0..=5).contains(&self.attempts)
-            || ResolutionStatus::from_code(&self.status).is_none()
-            || (matches!(self.status.as_str(), "ACCEPTED" | "AMBIGUOUS" | "NO_MATCH")
-                != self.evidence.is_some())
-            || self.evidence.is_some() != self.valid_until.is_some()
+            || ResolutionStatus::from_code(&self.status)
+                .is_none_or(|status| status.carries_evidence() != self.evidence.is_some())
             || self.last_failure.as_deref().is_some_and(|code| {
                 GeocodingFailure::from_code(code).is_none() && code != "LEASE_ATTEMPTS_EXHAUSTED"
             })
@@ -210,7 +215,7 @@ impl Repository<'_> {
         sqlx::query_as(
             r#"
             SELECT
-            resolution_id,erased,fingerprint,profile,policy_version,scope_key,input,generation,status,attempts,lease_token,lease_until,next_attempt_at,evidence,valid_until,last_failure
+            resolution_id,erased,fingerprint,profile,policy_version,scope_key,input,generation,status,attempts,lease_token,lease_until,next_attempt_at,evidence,last_failure
             FROM geo_resolutions WHERE resolution_id=$1 FOR NO KEY UPDATE
             "#,
         ).bind(id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(sql_error)
@@ -349,7 +354,7 @@ impl ResolutionRepository for Repository<'_> {
                     return Err(corrupt());
                 }
                 sqlx::query(r#"
-                    UPDATE geo_resolutions SET erased=true,input=NULL,evidence=NULL,valid_until=NULL,
+                    UPDATE geo_resolutions SET erased=true,input=NULL,evidence=NULL,
                         last_failure=NULL,status='BLOCKED',generation=least(generation,9223372036854775806)+1,
                         fingerprint=encode(sha256(uuid_send(resolution_id)),'hex')
                     WHERE resolution_id=$1 AND NOT EXISTS(
@@ -359,8 +364,7 @@ impl ResolutionRepository for Repository<'_> {
                     .bind(old).execute(&mut *self.connection).await.map_err(sql_error)?;
             }
         }
-        let now = self.clock().await?;
-        if source_changed && row.valid_until.is_some_and(|until| until > now) {
+        if source_changed && row.evidence.is_some() {
             row.evidence(&stored_input)?;
             // A cached result has no new completion or CDC wake-up. Notify
             // dependents when it becomes current for a new source binding.
@@ -417,11 +421,11 @@ impl ResolutionRepository for Repository<'_> {
         if !self.is_bound(w.id).await? {
             return Ok(ClaimOutcome::Complete);
         }
-        if r.valid_until.is_some_and(|until| until > now) {
+        if r.evidence.is_some() {
             r.evidence(&input)?;
             return Ok(ClaimOutcome::Complete);
         }
-        // Settled work runs again only after expiry, revocation, recovery or Retry advances
+        // Settled work runs again only after orphaning, recovery or Retry advances
         // its generation, which publishes a new wake-up.
         if ResolutionStatus::from_code(&r.status).ok_or_else(corrupt)? != ResolutionStatus::Pending
         {
@@ -491,10 +495,9 @@ impl ResolutionRepository for Repository<'_> {
         }
         match completion {
             ResolutionCompletion::Evidence(e) => {
-                let retention = e
-                    .status
-                    .retention_period()
-                    .ok_or(ResolutionError::InvalidInput)?;
+                if !e.status.carries_evidence() {
+                    return Err(ResolutionError::InvalidInput);
+                }
                 let data = encode(&EvidenceData::from(&e))?;
                 let _: ResolutionEvidence = decode::<EvidenceData>(data.clone())?.try_into()?;
                 if !valid_evidence(&e, &persisted_input, &c.profile) {
@@ -503,10 +506,16 @@ impl ResolutionRepository for Repository<'_> {
                 sqlx::query(
                     r#"
                     UPDATE geo_resolutions SET
-                    status=$2,evidence=$3,valid_until=$4,last_failure=NULL,lease_token=NULL,lease_until=NULL WHERE
+                    status=$2,evidence=$3,last_failure=NULL,lease_token=NULL,lease_until=NULL WHERE
                     resolution_id=$1
                     "#,
-                ).bind(c.work.id.into_uuid()).bind(e.status.as_str()).bind(data).bind(now+retention).execute(&mut *self.connection).await.map_err(sql_error)?;
+                )
+                .bind(c.work.id.into_uuid())
+                .bind(e.status.as_str())
+                .bind(data)
+                .execute(&mut *self.connection)
+                .await
+                .map_err(sql_error)?;
                 sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL WHERE profile=$1 AND (consecutive_failures<>0 OR open_until IS NOT NULL)").bind(&c.profile).execute(&mut *self.connection).await.map_err(sql_error)?;
                 self.signal(c.work, "RESOLVED", None).await?;
                 Ok(CompletionOutcome::Recorded(e.status))
@@ -517,7 +526,7 @@ impl ResolutionRepository for Repository<'_> {
                 sqlx::query(
                     r#"
                     UPDATE geo_resolutions SET
-                    status=$2,last_failure=$3,next_attempt_at=$4,lease_token=NULL,lease_until=NULL,evidence=NULL,valid_until=NULL
+                    status=$2,last_failure=$3,next_attempt_at=$4,lease_token=NULL,lease_until=NULL,evidence=NULL
                     WHERE resolution_id=$1
                     "#,
                 ).bind(c.work.id.into_uuid()).bind(status.as_str()).bind(kind.as_str()).bind(now+backoff).execute(&mut *self.connection).await.map_err(sql_error)?;
@@ -607,24 +616,39 @@ impl ResolutionRepository for Repository<'_> {
             return Err(ResolutionError::InvalidInput);
         }
         let now = self.clock().await?;
-        let rows:Vec<(Uuid,i64)>=sqlx::query_as(
-            r#"
-            SELECT r.resolution_id,r.generation FROM geo_resolutions r WHERE r.evidence IS NOT NULL AND
-            (r.valid_until<=$1 OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b
-            WHERE b.resolution_id=r.resolution_id)) ORDER BY r.valid_until LIMIT $2 FOR NO KEY UPDATE OF r SKIP LOCKED
-            "#,
-        ).bind(now).bind(i64::from(limit)).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
-        let count = rows.len() as u32;
+        let rows: Vec<(Uuid, i64)> = sqlx::query_as(concat!(
+            "SELECT r.resolution_id,r.generation FROM geo_resolutions r WHERE r.evidence IS NOT NULL AND ",
+            orphaned_sql!(),
+            " ORDER BY r.resolution_id LIMIT $1 FOR NO KEY UPDATE OF r SKIP LOCKED",
+        ))
+        .bind(i64::from(limit))
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        let mut count = 0;
         for (id, g) in rows {
             let next = g.checked_add(1).ok_or_else(corrupt)?;
             let w = work(id, next)?;
-            sqlx::query(
+            // The candidate snapshot predates this lock. Binding needs the same lock, so
+            // rechecking on a fresh statement keeps evidence a new binding attached in between.
+            let purged = sqlx::query(concat!(
                 r#"
-                UPDATE geo_resolutions SET
-                evidence=NULL,valid_until=NULL,lease_token=NULL,lease_until=NULL,attempts=0,generation=$2,status='PENDING',next_attempt_at=$3,pending_since=$3,last_failure=NULL
-                WHERE resolution_id=$1
-                "#,
-            ).bind(id).bind(next).bind(now).execute(&mut *self.connection).await.map_err(sql_error)?;
+                UPDATE geo_resolutions r SET
+                evidence=NULL,lease_token=NULL,lease_until=NULL,attempts=0,generation=$3,status='PENDING',
+                next_attempt_at=$1,pending_since=$1,last_failure=NULL WHERE r.resolution_id=$2 AND "#,
+                orphaned_sql!(),
+            ))
+            .bind(now)
+            .bind(id)
+            .bind(next)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(sql_error)?
+            .rows_affected();
+            if purged == 0 {
+                continue;
+            }
+            count += 1;
             sqlx::query(
                 r#"
                 UPDATE geo_resolution_bindings SET
@@ -650,8 +674,7 @@ impl ResolutionRepository for Repository<'_> {
             .ok_or(ResolutionError::Missing)?;
         let r = self.row(w.id).await?.ok_or(ResolutionError::Missing)?;
         let input = r.input()?;
-        let now = self.clock().await?;
-        if r.generation as u64 != w.generation || r.valid_until.is_none_or(|until| until <= now) {
+        if r.generation as u64 != w.generation || r.evidence.is_none() {
             return Err(ResolutionError::Conflict);
         }
         let e = r.evidence(&input)?.ok_or(ResolutionError::Conflict)?;
@@ -721,7 +744,7 @@ impl ResolutionRepository for Repository<'_> {
             r#"
             UPDATE geo_resolutions SET
             generation=$2,status='PENDING',pending_since=clock_timestamp(),attempts=0,last_failure=NULL,
-            next_attempt_at=clock_timestamp(),evidence=NULL,valid_until=NULL
+            next_attempt_at=clock_timestamp(),evidence=NULL
             WHERE resolution_id=$1
             "#,
         ).bind(w.id.into_uuid()).bind(revision(next)?).execute(&mut *self.connection).await.map_err(sql_error)?;
@@ -749,22 +772,14 @@ struct BindingReadRow {
     selected_generation: Option<i64>,
 }
 impl ResolutionRow {
-    fn view(
-        &self,
-        binding: &BindingReadRow,
-        now: OffsetDateTime,
-    ) -> Result<ResolutionView, ResolutionError> {
+    fn view(&self, binding: &BindingReadRow) -> Result<ResolutionView, ResolutionError> {
         let input = self.input()?;
         if binding.subject_kind != input.purpose().as_str() {
             return Err(corrupt());
         }
-        let eligible = self.valid_until.is_some_and(|until| until > now);
-        let evidence = if eligible {
-            self.evidence(&input)?
-        } else {
-            None
-        };
-        let selected = if binding.selected_generation == Some(self.generation) && eligible {
+        let evidence = self.evidence(&input)?;
+        let selected = if binding.selected_generation == Some(self.generation) && evidence.is_some()
+        {
             binding
                 .selected_candidate
                 .map(|i| usize::try_from(i).map_err(invalid))
@@ -788,7 +803,6 @@ impl ResolutionRow {
             guard: u64::try_from(binding.guard).map_err(invalid)?,
             status: ResolutionStatus::from_code(&self.status).ok_or_else(corrupt)?,
             evidence,
-            valid_until: if eligible { self.valid_until } else { None },
             selected_candidate: selected,
             last_failure: self.last_failure.clone(),
             attempts: self.attempts as u32,
@@ -844,7 +858,7 @@ impl Repository<'_> {
                 .bind(profiles).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
         }
         // Lock each resolution once in stable order, then reread and lock bindings.
-        // This preserves selection/expiry coordination with a constant query count.
+        // This preserves selection/cleanup coordination with a constant query count.
         let rows: Vec<ResolutionRow> = sqlx::query_as(
             if lock { "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id FOR NO KEY UPDATE" }
             else { "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id" },
@@ -875,13 +889,12 @@ impl Repository<'_> {
             .into_iter()
             .map(|b| ((b.subject_kind.clone(), b.subject_id), b))
             .collect();
-        let now = self.clock().await?;
         subjects
             .iter()
             .map(|s| {
                 bindings
                     .get(&(s.kind().as_str().to_owned(), s.id()))
-                    .map(|b| rows.get(&b.resolution_id).ok_or_else(corrupt)?.view(b, now))
+                    .map(|b| rows.get(&b.resolution_id).ok_or_else(corrupt)?.view(b))
                     .transpose()
             })
             .collect()

@@ -665,7 +665,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
+async fn automatic_geocoding_snapshots_and_unrelated_preferences() {
     let (pool, h, a, b) = fixture().await;
     let id = h
         .create(&a, create("Synthetic Candidate"))
@@ -784,28 +784,6 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     assert_eq!(1, unchanged_input.input_revision);
     assert_eq!(current.work, unchanged_input.work);
     assert_eq!(None, unchanged_input.selected_candidate);
-    sqlx::query(
-        "UPDATE geo_resolutions SET valid_until=now()-interval '1 second' WHERE resolution_id=$1",
-    )
-    .bind(current.work.id.into_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert!(
-        h.resolve_destination(&a, None)
-            .await
-            .unwrap()
-            .derived
-            .is_none()
-    );
-    assert!(
-        inspect(&pool, &h, &a, id)
-            .await
-            .unwrap()
-            .unwrap()
-            .evidence
-            .is_none()
-    );
     h.delete(&a, id, 2).await.unwrap();
     assert!(snapshot.derived.unwrap().position().is_some());
     assert_eq!(

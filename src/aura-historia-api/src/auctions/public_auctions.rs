@@ -99,10 +99,7 @@ pub async fn get_auction_catalogue(
         .await
     {
         Ok(page) => {
-            let ttl = crate::shipping::listing::cache_ttl(
-                page.items.iter().map(|i| i.item.shipping.as_ref()),
-                60,
-            );
+            let ttl = 60;
             crate::transport::cache::anonymous_shared_success(
                 Json(CatalogueData::from(page)).into_response(),
                 &headers,
