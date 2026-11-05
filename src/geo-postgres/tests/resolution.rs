@@ -197,7 +197,12 @@ async fn provider(pool: &PgPool, result: GeocodingResult) -> Arc<Provider> {
         result,
     })
 }
-async fn complete(pool: &PgPool, c: &ResolutionClaim, e: ResolutionCompletion) -> bool {
+const ACCEPTED: CompletionOutcome = CompletionOutcome::Recorded(ResolutionStatus::Accepted);
+async fn complete(
+    pool: &PgPool,
+    c: &ResolutionClaim,
+    e: ResolutionCompletion,
+) -> CompletionOutcome {
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     let done = SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -229,7 +234,10 @@ async fn input_failures_regression_do_not_open_the_shared_provider_circuit() {
             let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
                 panic!("claim required")
             };
-            assert!(!complete(&pool, &c, ResolutionCompletion::Failure(failure)).await);
+            assert_eq!(
+                CompletionOutcome::Recorded(ResolutionStatus::Blocked),
+                complete(&pool, &c, ResolutionCompletion::Failure(failure)).await
+            );
         }
         let state: (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
             "SELECT consecutive_failures,open_until FROM geo_resolution_provider_controls WHERE profile=$1"
@@ -256,6 +264,116 @@ async fn input_failures_regression_do_not_open_the_shared_provider_circuit() {
         7, calls,
         "input refusals still consume their conservative reservations"
     );
+}
+
+async fn provider_calls(pool: &PgPool) -> i32 {
+    sqlx::query_scalar("SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1")
+        .bind(PROFILE)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn terminal_and_exhausted_work_settles_redeliveries_without_reserving_calls() {
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let blocked = bind(&pool, &input(Uuid::now_v7(), "blocked input"), binding()).await;
+    let ClaimOutcome::Claimed(c) = claim(&pool, blocked).await else {
+        panic!("claim required")
+    };
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Blocked),
+        complete(
+            &pool,
+            &c,
+            ResolutionCompletion::Failure(GeocodingFailure::UnsupportedInput)
+        )
+        .await
+    );
+    let failed = bind(&pool, &input(Uuid::now_v7(), "failed input"), binding()).await;
+    let ClaimOutcome::Claimed(c) = claim(&pool, failed).await else {
+        panic!("claim required")
+    };
+    sqlx::query("UPDATE geo_resolutions SET attempts=5 WHERE resolution_id=$1")
+        .bind(failed.id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Failed),
+        complete(
+            &pool,
+            &c,
+            ResolutionCompletion::Failure(GeocodingFailure::Timeout)
+        )
+        .await
+    );
+    // The fifth reservation crashed, or its late completion released the expired lease.
+    let mut exhausted = vec![];
+    for (query, lease) in [
+        (
+            "crashed fifth call",
+            "UPDATE geo_resolutions SET attempts=5,lease_token=gen_random_uuid(),lease_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1",
+        ),
+        (
+            "released fifth call",
+            "UPDATE geo_resolutions SET attempts=5,lease_token=NULL,lease_until=NULL WHERE resolution_id=$1",
+        ),
+    ] {
+        let w = bind(&pool, &input(Uuid::now_v7(), query), binding()).await;
+        sqlx::query(lease)
+            .bind(w.id.into_uuid())
+            .execute(&pool)
+            .await
+            .unwrap();
+        exhausted.push(w);
+    }
+    let in_flight = bind(
+        &pool,
+        &input(Uuid::now_v7(), "fifth call in flight"),
+        binding(),
+    )
+    .await;
+    sqlx::query("UPDATE geo_resolutions SET attempts=5,lease_token=gen_random_uuid(),lease_until=clock_timestamp()+interval '1 minute' WHERE resolution_id=$1")
+        .bind(in_flight.id.into_uuid()).execute(&pool).await.unwrap();
+    let reserved = provider_calls(&pool).await;
+
+    for enabled in [true, false] {
+        sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=$1")
+            .bind(enabled)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for &w in [blocked, failed].iter().chain(&exhausted) {
+            assert!(
+                matches!(claim(&pool, w).await, ClaimOutcome::Complete),
+                "terminal work must settle with the provider enabled={enabled}"
+            );
+        }
+        assert!(matches!(
+            claim(&pool, in_flight).await,
+            ClaimOutcome::Deferred
+        ));
+    }
+
+    assert_eq!(reserved, provider_calls(&pool).await);
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .recover_pending(10)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    for w in exhausted {
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM geo_resolutions WHERE resolution_id=$1")
+                .bind(w.id.into_uuid())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!("FAILED", status);
+    }
 }
 
 async fn mutation_before_inspection_lock_order(operation: &'static str) {
@@ -289,7 +407,8 @@ async fn mutation_before_inspection_lock_order(operation: &'static str) {
     let ClaimOutcome::Claimed(c) = claim(&pool, work).await else {
         panic!("claim required")
     };
-    assert!(
+    assert_eq!(
+        ACCEPTED,
         complete(
             &pool,
             &c,
@@ -449,7 +568,8 @@ async fn batch_read_waits_for_provider_control_before_locking_resolution() {
         .execute(&mut *completion)
         .await
         .unwrap();
-    assert!(
+    assert_eq!(
+        ACCEPTED,
         SqlxResolutionRepositoryFactory::on_connection(&mut completion)
             .complete(
                 &claim,
@@ -565,7 +685,7 @@ async fn creation_disabled_and_then_maintenance_recovery_reuses_unchanged_inputs
         PROFILE.into(),
     );
     assert_eq!(
-        ResolveOutcome::Deferred,
+        ResolveOutcome::ProviderGated,
         handler.execute(&context(), view.work).await.unwrap()
     );
     assert_eq!(0, provider.calls.load(Ordering::SeqCst));
@@ -708,7 +828,8 @@ async fn binding_changes_journal_cached_reuse_and_invalidation_of_reviewed_geogr
     let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
         panic!("claim required");
     };
-    assert!(
+    assert_eq!(
+        ACCEPTED,
         complete(
             &pool,
             &c,
@@ -837,9 +958,18 @@ async fn independent_sessions_coalesce_identical_inputs_and_expired_leases_are_f
     };
     assert_ne!(first.token, second.token);
     let e = evaluate(&a, result(), PROFILE).unwrap();
-    assert!(!complete(&pool, &first, ResolutionCompletion::Evidence(e.clone())).await);
-    assert!(complete(&pool, &second, ResolutionCompletion::Evidence(e.clone())).await);
-    assert!(!complete(&pool, &second, ResolutionCompletion::Evidence(e)).await);
+    assert_eq!(
+        CompletionOutcome::LeaseLost,
+        complete(&pool, &first, ResolutionCompletion::Evidence(e.clone())).await
+    );
+    assert_eq!(
+        ACCEPTED,
+        complete(&pool, &second, ResolutionCompletion::Evidence(e.clone())).await
+    );
+    assert_eq!(
+        CompletionOutcome::LeaseLost,
+        complete(&pool, &second, ResolutionCompletion::Evidence(e)).await
+    );
     let changes: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM geo_resolution_changes WHERE change_kind='RESOLVED'",
     )
@@ -1086,8 +1216,9 @@ async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
         panic!("claim required")
     };
     assert!(matches!(claim(&pool, b).await, ClaimOutcome::Deferred));
-    assert!(
-        !complete(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Pending),
+        complete(
             &pool,
             &c,
             ResolutionCompletion::Failure(GeocodingFailure::Unavailable)
@@ -1107,9 +1238,18 @@ async fn budgets_concurrency_backoff_breaker_and_exhaustion_bound_paid_work() {
         )
         .await;
     }
-    assert!(matches!(claim(&pool, b).await, ClaimOutcome::Deferred));
-    sqlx::query("UPDATE geo_resolution_provider_controls SET open_until=NULL,scope_daily_limit=1,daily_limit=3").execute(&pool).await.unwrap();
-    assert!(matches!(claim(&pool, b).await, ClaimOutcome::Deferred));
+    assert!(matches!(claim(&pool, b).await, ClaimOutcome::ProviderGated));
+    // Three calls were reserved, one of them in b's scope; each daily budget gates on its own.
+    for limits in [
+        "UPDATE geo_resolution_provider_controls SET open_until=NULL,daily_limit=3",
+        "UPDATE geo_resolution_provider_controls SET daily_limit=100,scope_daily_limit=1",
+    ] {
+        sqlx::query(limits).execute(&pool).await.unwrap();
+        assert!(
+            matches!(claim(&pool, b).await, ClaimOutcome::ProviderGated),
+            "{limits}"
+        );
+    }
     let state: (String, i32) =
         sqlx::query_as("SELECT last_failure,attempts FROM geo_resolutions WHERE resolution_id=$1")
             .bind(a.id.into_uuid())
@@ -1383,8 +1523,9 @@ async fn force_requeue_fences_an_active_call_and_unchanged_completed_retry_costs
         claim(&pool, current.work).await,
         ClaimOutcome::Deferred
     ));
-    assert!(
-        !complete(
+    assert_eq!(
+        CompletionOutcome::Stale,
+        complete(
             &pool,
             &old,
             ResolutionCompletion::Evidence(evaluate(&a, result(), PROFILE).unwrap())
@@ -1453,7 +1594,10 @@ async fn accepted_evidence_and_its_signal_roll_back_together_when_journaling_fai
         .execute(&pool)
         .await
         .unwrap();
-    assert!(complete(&pool, &c, ResolutionCompletion::Evidence(evidence)).await);
+    assert_eq!(
+        ACCEPTED,
+        complete(&pool, &c, ResolutionCompletion::Evidence(evidence)).await
+    );
     assert!(
         inspect(&pool, b)
             .await
@@ -1480,7 +1624,8 @@ async fn corrupt_evidence_cannot_invent_an_automatically_accepted_precise_point(
     let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
         panic!("claim required");
     };
-    assert!(
+    assert_eq!(
+        ACCEPTED,
         complete(
             &pool,
             &c,
@@ -1576,7 +1721,8 @@ async fn private_postal_assertions_survive_precise_and_administrative_acceptance
         )
         .unwrap();
         let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
-        assert!(
+        assert_eq!(
+            ACCEPTED,
             SqlxResolutionRepositoryFactory
                 .resolutions(&mut tx)
                 .complete(&c, ResolutionCompletion::Evidence(e))
@@ -1640,7 +1786,8 @@ async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates
     let ClaimOutcome::Claimed(c) = claim(&pool, work).await else {
         panic!("claim required")
     };
-    assert!(
+    assert_eq!(
+        ACCEPTED,
         complete(
             &pool,
             &c,

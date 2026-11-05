@@ -412,7 +412,8 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     .await
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Stale,
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(
@@ -490,7 +491,8 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         .unwrap()
     );
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Stale,
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(
@@ -729,7 +731,8 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     )
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))

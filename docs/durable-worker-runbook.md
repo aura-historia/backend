@@ -547,8 +547,19 @@ listing search accepts projection lag while removal propagates.
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
 deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
 counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
-provisioned metric filters; BLOCKED/FAILED work also needs inspection. Never include private
-input or provider payloads in logs, operator evidence or replay messages.
+provisioned metric filters; BLOCKED/FAILED work is acknowledged rather than retained, so inspect
+the recorded `geo_resolution_outcome` and resolution state for it. Never include private input
+or provider payloads in logs, operator evidence or replay messages.
+
+Transport custody follows what a redelivery could still achieve. The worker acknowledges a
+wake-up whose generation is settled: resolved, `BLOCKED` (also when controls change during the
+call), `FAILED`, out of attempts, erased, unbound or superseded. A redelivery of settled work
+makes no provider call. It retains a
+wake-up whose lease another claim holds, whose concurrency budget is saturated or whose retry
+backoff is running, and a transient provider failure with its diagnostic. Provider-gated
+wake-ups (provider disabled, storage not permitted, circuit open or a daily budget exhausted)
+are retained with reason `provider_gated` while the DLQ alarm is the only signal of a stalled
+resolution backlog. Cleanup recovery republishes their PostgreSQL work regardless.
 
 An active claim is incomplete. A paid-call/commit crash may repeat charging after lease
 expiry; reservations are not refunded. Business Retry/selection requires current location
@@ -562,10 +573,12 @@ reference-release correction until protected Retry, changed input, or approved o
 recovery that reproduces Retry's generation fence, invalidation and wake-up. Each recovery is
 a paid call within budgets and blocks again when no candidate is retainable.
 
-Redrive a small approved DLQ sample with original identities/generations: superseded work
-completes as stale, completed work reuses evidence, active leases defer and malformed jobs
-retain custody. Confirm completion and eligibility before expanding redrive. Never invent a
-new generation in a transport payload. Runbook checks do not establish deployed readiness.
+Redrive a small approved DLQ sample with original identities/generations: superseded and
+terminal work completes without a provider call, completed work reuses evidence, active leases
+defer and malformed jobs retain custody. Provider-gated copies need no redrive: once controls
+allow calls, cleanup republishes their work and the old copies complete as stale. Confirm
+completion and eligibility before expanding redrive. Never invent a new generation in a
+transport payload. Runbook checks do not establish deployed readiness.
 
 ## Listing geography recovery
 

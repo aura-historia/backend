@@ -473,7 +473,8 @@ async fn accepted_country_resolution(
         "TEST_G6",
     )?;
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))

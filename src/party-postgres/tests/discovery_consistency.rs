@@ -113,7 +113,8 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
     )
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))
