@@ -31,6 +31,8 @@
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
+//! | `CRAWLER_LOCAL_MAX_PUSHED_LISTINGS` | Local only: stop gracefully after this many observations reached the queue. Debug builds only; a release build refuses to start while it is set |
+//! | `CRAWLER_START_REVIEW_AGENT_RUNNER` | `true` starts `review-agent-runner` from next to this binary as its child in `agent` mode, as `dev` does; unset or `false` leaves it to its own service. Never set it next to a runner service: two runners would work the same reviews. Any other value fails startup |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
 //!
@@ -65,6 +67,7 @@ use crawler::logging::{
 };
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
+use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::cron::{
@@ -73,7 +76,10 @@ use crawler::service::cron::{
 use crawler::service::listing_source_api::{
     ApiListingSourceRegistrationSource, ListingSourceApiConfig,
 };
-use crawler::service::raw_capture::ProductListingRawCaptureServiceImpl;
+use crawler::service::raw_capture::{
+    LOCAL_MAX_PUSHED_LISTINGS_ENV, LimitedRawCapture, ProductListingRawCaptureService,
+    ProductListingRawCaptureServiceImpl, local_push_limit,
+};
 use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
 use std::sync::Arc;
@@ -208,6 +214,49 @@ fn init_crawler_logging(
     }
 }
 
+/// Whether `agent` mode starts the review agent runner as this binary's child.
+const START_REVIEW_AGENT_RUNNER_ENV: &str = "CRAWLER_START_REVIEW_AGENT_RUNNER";
+
+/// Opt-in: `true` only. Production runs the runner as its own service, so unset means no child.
+fn starts_review_agent_runner(value: Option<String>) -> Result<bool, String> {
+    match value.as_deref().map(str::trim) {
+        None | Some("") => Ok(false),
+        Some(value) if value.eq_ignore_ascii_case("true") => Ok(true),
+        Some(value) if value.eq_ignore_ascii_case("false") => Ok(false),
+        Some(value) => Err(format!(
+            "invalid {START_REVIEW_AGENT_RUNNER_ENV}={value:?}: true or false"
+        )),
+    }
+}
+
+/// Starts the review agent runner next to this binary as its child, in the working directory
+/// where the runtime wrote the agents' token file.
+fn start_review_agent_runner_child(console_port: u16) -> Option<RunnerChild> {
+    let executable = match std::env::current_exe() {
+        Ok(executable) => executable,
+        Err(error) => {
+            tracing::warn!(error = %error, "Cannot locate the server's executable; running without review agents");
+            return None;
+        }
+    };
+    RunnerChild::start(
+        &runner_executable_next_to(&executable),
+        &crawler::runtime::state_directory(),
+        runner_env(std::env::vars_os(), console_port),
+    )
+}
+
+/// Starts the graceful stop of the local push cap: the same path as a SIGTERM from outside.
+fn stop_gracefully() {
+    #[cfg(unix)]
+    // SAFETY: raising a signal in the current process has no memory-safety preconditions.
+    unsafe {
+        libc::raise(libc::SIGTERM);
+    }
+    #[cfg(not(unix))]
+    std::process::exit(0);
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -247,18 +296,18 @@ async fn main() {
 
         // 1. Build cron config (needed for pool sizing before everything else)
         let config = CrawlerCronConfig {
-            spider_interval: Duration::from_hours(1),
-            scraper_interval: Duration::from_mins(10),
+            spider_interval: Duration::from_mins(5),
+            scraper_interval: Duration::from_mins(5),
             scraper_urls_per_domain: 100,
-            spider_concurrency: 3,
+            spider_concurrency: 5,
             spider_site_concurrency_limit: 8,
-            scraper_concurrency: 3,
+            scraper_concurrency: 5,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-            push_batch_size: 1000,
-            push_queue_capacity: 2000,
+            push_batch_size: 10,
+            push_queue_capacity: 10,
             push_max_batch_age: Duration::from_secs(5),
-            push_max_concurrency: 4,
+            push_max_concurrency: 1,
             mass_removal_confirmed_domains: mass_removal_confirmed_domains(
                 std::env::var(MASS_REMOVAL_CONFIRMED_DOMAINS_ENV)
                     .ok()
@@ -315,6 +364,10 @@ async fn main() {
         });
         let runtime_config = CrawlerRuntimeConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler runtime configuration: {error}"));
+        let start_review_agent_runner = runtime_config.authoring.has_review_agents()
+            && starts_review_agent_runner(std::env::var(START_REVIEW_AGENT_RUNNER_ENV).ok())
+                .unwrap_or_else(|error| panic!("invalid crawler configuration: {error}"));
+        let console_port = review_config.bind_addr.port();
 
         // 4. Sync crawler scope from the admin API's WEB_CRAWL ListingSources.
         let api_config = ListingSourceApiConfig::from_env()
@@ -329,18 +382,36 @@ async fn main() {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| panic!("{INGESTION_QUEUE_URL_ENV} must be set"));
-        let raw_capture = Box::new(ProductListingRawCaptureServiceImpl::new(
-            Arc::new(SubmitInternalProductListingIngestionHandler::new(
-                SqsProductListingIngestionPublisher::new(
-                    aws_sdk_sqs::Client::new(&aws_config),
-                    queue_url,
-                ),
-            )),
-            config.effective_push_max_concurrency(),
-        ));
+        let raw_capture: Box<dyn ProductListingRawCaptureService> =
+            Box::new(ProductListingRawCaptureServiceImpl::new(
+                Arc::new(SubmitInternalProductListingIngestionHandler::new(
+                    SqsProductListingIngestionPublisher::new(
+                        aws_sdk_sqs::Client::new(&aws_config),
+                        queue_url,
+                    ),
+                )),
+                config.effective_push_max_concurrency(),
+            ));
+        let raw_capture = match local_push_limit(
+            std::env::var(LOCAL_MAX_PUSHED_LISTINGS_ENV).ok().as_deref(),
+            cfg!(debug_assertions),
+        )
+        .unwrap_or_else(|error| panic!("invalid crawler local push cap: {error}"))
+        {
+            Some(limit) => {
+                info!(
+                    limit,
+                    "Local push cap active: the crawler stops after the cap"
+                );
+                Box::new(LimitedRawCapture::new(raw_capture, limit, stop_gracefully))
+                    as Box<dyn ProductListingRawCaptureService>
+            }
+            None => raw_capture,
+        };
 
         // 6. Wire the shared crawler pipeline and run until stopped.
-        crawler::runtime::build(
+        // Building the runtime writes the agents' token file the runner reads.
+        let runtime = crawler::runtime::build(
             pool,
             CrawlerRuntimeProfile {
                 cron_config: config,
@@ -350,10 +421,38 @@ async fn main() {
                 raw_capture,
             },
             runtime_config,
-        )
-        .run()
-        .await;
+        );
+        let review_agent_runner = if start_review_agent_runner {
+            start_review_agent_runner_child(console_port)
+        } else {
+            None
+        };
+        runtime.run().await;
+        if let Some(runner) = review_agent_runner {
+            runner.stop().await;
+        }
     }
     .instrument(tracing::info_span!("crawler_startup"))
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::starts_review_agent_runner;
+
+    #[test]
+    fn should_start_the_review_agent_runner_only_when_set_to_true() {
+        for (value, expected) in [
+            (None, false),
+            (Some(""), false),
+            (Some("false"), false),
+            (Some("TRUE"), true),
+        ] {
+            assert_eq!(
+                Ok(expected),
+                starts_review_agent_runner(value.map(str::to_owned))
+            );
+        }
+        assert!(starts_review_agent_runner(Some("yes".to_owned())).is_err());
+    }
 }

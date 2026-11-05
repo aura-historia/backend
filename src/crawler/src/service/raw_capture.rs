@@ -7,7 +7,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use listing_source_core::ListingSourceId;
-use product_listing_ingestion_sqs::codec::{self, MAX_MESSAGE_BYTES};
+use product_listing_ingestion_sqs::codec;
 use product_listing_normalization::{
     ProductListingNormalizationInput, RawProductListingProvenance,
 };
@@ -171,6 +171,95 @@ impl ProductListingRawCaptureServiceImpl {
     }
 }
 
+/// Environment variable of the local push cap. Only debug builds honour it: a release build
+/// refuses to start while it is set, so a production host never runs with a cap.
+pub const LOCAL_MAX_PUSHED_LISTINGS_ENV: &str = "CRAWLER_LOCAL_MAX_PUSHED_LISTINGS";
+
+/// Why [`local_push_limit`] refused the cap setting.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum LocalPushLimitError {
+    #[error("{LOCAL_MAX_PUSHED_LISTINGS_ENV} is only honoured in debug builds; unset it")]
+    ReleaseBuild,
+    #[error("{LOCAL_MAX_PUSHED_LISTINGS_ENV} must be a positive whole number, got {0:?}")]
+    Invalid(String),
+}
+
+/// The local push cap `raw` sets, `None` while it is unset or blank. A release build fails
+/// closed on any value instead of silently ignoring it.
+pub fn local_push_limit(
+    raw: Option<&str>,
+    debug_build: bool,
+) -> Result<Option<usize>, LocalPushLimitError> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if !debug_build {
+        return Err(LocalPushLimitError::ReleaseBuild);
+    }
+    match raw.parse::<usize>() {
+        Ok(limit) if limit > 0 => Ok(Some(limit)),
+        _ => Err(LocalPushLimitError::Invalid(raw.to_owned())),
+    }
+}
+
+/// Local-development decorator: forwards at most `limit` accepted observations to the queue, then
+/// runs `on_limit_reached` once (the server uses it to start a graceful stop). Observations
+/// beyond the cap are reported retryable and never sent. Captures are serialized so the cap is
+/// exact.
+pub struct LimitedRawCapture {
+    inner: Box<dyn ProductListingRawCaptureService>,
+    remaining: tokio::sync::Mutex<usize>,
+    on_limit_reached: Box<dyn Fn() + Send + Sync>,
+}
+
+impl LimitedRawCapture {
+    pub fn new(
+        inner: Box<dyn ProductListingRawCaptureService>,
+        limit: usize,
+        on_limit_reached: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            inner,
+            remaining: tokio::sync::Mutex::new(limit),
+            on_limit_reached: Box::new(on_limit_reached),
+        }
+    }
+}
+
+#[async_trait]
+impl ProductListingRawCaptureService for LimitedRawCapture {
+    async fn capture(
+        &self,
+        mut observations: Vec<ProductListingRawCaptureItem>,
+    ) -> Vec<ProductListingRawCaptureOutcome> {
+        let mut remaining = self.remaining.lock().await;
+        let total = observations.len();
+        let allowed = total.min(*remaining);
+        let _withheld = observations.split_off(allowed);
+        let mut outcomes = if observations.is_empty() {
+            Vec::new()
+        } else {
+            self.inner.capture(observations).await
+        };
+        let persisted = outcomes
+            .iter()
+            .filter(|outcome| **outcome == ProductListingRawCaptureOutcome::Persisted)
+            .count();
+        outcomes.resize(total, ProductListingRawCaptureOutcome::RetryableFailure);
+        if persisted > 0 {
+            *remaining = remaining.saturating_sub(persisted);
+            if *remaining == 0 {
+                warn!(
+                    event = "crawler.raw_capture.local_limit_reached",
+                    "Local push cap reached; stopping the crawler"
+                );
+                (self.on_limit_reached)();
+            }
+        }
+        outcomes
+    }
+}
+
 /// Indexes item outcomes by submission position. A position reported twice is contradictory and
 /// maps to `None`, which callers treat as retryable.
 fn outcomes_by_index(
@@ -208,7 +297,8 @@ fn map_item_outcome(outcome: &ProductListingIngestionOutcome) -> ProductListingR
 /// Publisher rejection codes for a message that cannot be encoded or does not fit the queue.
 const UNSENDABLE_PUBLISHER_CODES: [&str; 2] = ["INVALID_MESSAGE_SIZE", "ENCODING_FAILED"];
 
-/// Encoded queue-message size of an observation, measured as the publisher will encode it.
+/// Encoded queue-message size of an observation, measured as the publisher will encode it; an
+/// observation over the queue's message limit is a `TooLarge` error.
 /// Placeholder identities have the fixed length of the real ones and the index fields are sized
 /// for the largest submission position, so the result never undercounts the real message.
 fn measure_encoded_bytes(
@@ -240,7 +330,7 @@ fn measure_encoded_bytes(
         metadata,
         intent: ProductListingIngestionIntent::CaptureRaw(command),
     };
-    let encoded = codec::encoded_len(&message);
+    let encoded = codec::encode(&message).map(|body| body.len());
     let ProductListingIngestionIntent::CaptureRaw(command) = message.intent else {
         unreachable!("the measured message carries the capture intent it was built with");
     };
@@ -251,25 +341,15 @@ fn measure_encoded_bytes(
 fn warn_discarded_unsendable(
     listing_source_id: ListingSourceId,
     url: &str,
-    encoded: Result<usize, codec::CodecError>,
+    error: &codec::CodecError,
 ) {
-    match encoded {
-        Ok(encoded_bytes) => warn!(
-            event = "crawler.raw_capture.discarded_unsendable",
-            listing_source_id = %listing_source_id,
-            url,
-            encoded_bytes,
-            max_message_bytes = MAX_MESSAGE_BYTES,
-            "Discarded crawler raw observation that exceeds the ingestion message limit"
-        ),
-        Err(error) => warn!(
-            event = "crawler.raw_capture.discarded_unsendable",
-            listing_source_id = %listing_source_id,
-            url,
-            error = %error,
-            "Discarded crawler raw observation that cannot be encoded for the ingestion queue"
-        ),
-    }
+    warn!(
+        event = "crawler.raw_capture.discarded_unsendable",
+        listing_source_id = %listing_source_id,
+        url,
+        error = %error,
+        "Discarded crawler raw observation that cannot be encoded within the ingestion message limit"
+    );
 }
 
 #[async_trait]
@@ -293,11 +373,11 @@ impl ProductListingRawCaptureService for ProductListingRawCaptureServiceImpl {
             let context = crawler_operation_context(listing_source_id);
             let (command, encoded) = measure_encoded_bytes(observation.command, &context);
             observation.command = command;
-            if !matches!(encoded, Ok(bytes) if bytes <= MAX_MESSAGE_BYTES) {
+            if let Err(error) = &encoded {
                 warn_discarded_unsendable(
                     listing_source_id,
                     &observation.command.source_record_key,
-                    encoded,
+                    error,
                 );
                 results[input_index] = ProductListingRawCaptureOutcome::DiscardedUnsendable;
                 continue;
@@ -859,6 +939,73 @@ mod tests {
 
         assert_eq!(command.source_record_key, returned.source_record_key);
         let bytes = encoded.expect("a small observation encodes");
-        assert!(bytes > 0 && bytes < MAX_MESSAGE_BYTES);
+        assert!(bytes > 0);
+    }
+
+    #[test]
+    fn should_honour_the_local_push_limit_only_in_debug_builds() {
+        assert_eq!(Ok(None), local_push_limit(None, false));
+        assert_eq!(Ok(None), local_push_limit(Some("  "), false));
+        assert_eq!(Ok(Some(100)), local_push_limit(Some(" 100 "), true));
+        assert_eq!(
+            Err(LocalPushLimitError::ReleaseBuild),
+            local_push_limit(Some("100"), false)
+        );
+        for bad in ["0", "-1", "ten"] {
+            assert_eq!(
+                Err(LocalPushLimitError::Invalid(bad.to_owned())),
+                local_push_limit(Some(bad), true)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_send_exactly_the_limit_then_stop_once() {
+        let use_case = Arc::new(FakeSubmitUseCase::accepting_all());
+        let stops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&stops);
+        let limited = LimitedRawCapture::new(Box::new(service(&use_case)), 3, move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+        let source = ListingSourceId::new();
+
+        let first = limited
+            .capture(vec![
+                item(source, "https://example.test/p/1"),
+                item(source, "https://example.test/p/2"),
+            ])
+            .await;
+        assert_eq!(vec![ProductListingRawCaptureOutcome::Persisted; 2], first);
+        assert_eq!(0, stops.load(std::sync::atomic::Ordering::SeqCst));
+
+        let second = limited
+            .capture(vec![
+                item(source, "https://example.test/p/3"),
+                item(source, "https://example.test/p/4"),
+            ])
+            .await;
+        assert_eq!(
+            vec![
+                ProductListingRawCaptureOutcome::Persisted,
+                ProductListingRawCaptureOutcome::RetryableFailure,
+            ],
+            second
+        );
+        assert_eq!(1, stops.load(std::sync::atomic::Ordering::SeqCst));
+
+        let third = limited
+            .capture(vec![item(source, "https://example.test/p/5")])
+            .await;
+        assert_eq!(
+            vec![ProductListingRawCaptureOutcome::RetryableFailure],
+            third
+        );
+        assert_eq!(1, stops.load(std::sync::atomic::Ordering::SeqCst));
+        let sent: usize = use_case
+            .submissions()
+            .iter()
+            .map(|submission| submission.items.len())
+            .sum();
+        assert_eq!(3, sent);
     }
 }
