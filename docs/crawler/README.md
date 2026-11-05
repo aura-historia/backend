@@ -22,7 +22,7 @@ flowchart LR
 
 Each spider or scraper pass first refreshes the complete ListingSource scope from the admin API. A failed or partial refresh skips that pass; a scope is applied only whole. `crawl_enabled` admits work only; disabling a source retains its crawler history and configuration.
 
-A ListingSource keeps its business identity from the authoritative source. The crawler never derives it from a domain or URL. It mirrors only the local work scope, including `WEB_CRAWL` enablement and an optional fallback currency. The fallback applies only when an extracted price has no currency hint. The admin API does not return it, so a scope refresh leaves the locally stored value unchanged; it stays crawler-local until normalization resolves it from the source's `WEB_CRAWL` configuration.
+A ListingSource keeps its business identity from the authoritative source. The crawler never derives it from a domain or URL. Crawler domains are operator state; with [domain seeding](operations.md#runtime-prerequisites) switched on, a scope refresh registers the public host the admin API presents for a source that has no domains yet, through the same registration an operator uses, and never replaces one. It mirrors only the local work scope, including `WEB_CRAWL` enablement and an optional fallback currency. The fallback applies only when an extracted price has no currency hint. The admin API does not return it, so a scope refresh leaves the locally stored value unchanged; it stays crawler-local until normalization resolves it from the source's `WEB_CRAWL` configuration.
 
 ## Local state
 

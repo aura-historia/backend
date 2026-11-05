@@ -38,6 +38,7 @@ fn listing_source(
         listing_source_slug: ListingSourceSlugId::raw("test-source").unwrap(),
         crawl_enabled,
         fallback_currency: FallbackCurrency::Supplied(None),
+        public_host: None,
     }
 }
 

@@ -1,11 +1,13 @@
 //! Synchronizes crawler-local ListingSource crawl eligibility from business truth.
 
+use crate::network::policy::canonical_crawler_domain;
+use crate::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
 use async_trait::async_trait;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{Domain, ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use money::Currency;
 use sqlx::PgPool;
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
@@ -91,6 +93,11 @@ pub struct RegisteredListingSource {
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
     pub fallback_currency: FallbackCurrency,
+    /// The host of the public site the registration source presents for the shop, when it
+    /// names one that is a domain; `None` when the source carries no URL or its host is none.
+    /// [Domain seeding](ListingSourceRegistrationService::seeding_domains_from_public_hosts)
+    /// registers it for a source without crawler-local domains.
+    pub public_host: Option<Domain>,
 }
 
 /// Result of one atomically applied business snapshot.
@@ -130,6 +137,9 @@ pub enum ListingSourceSyncError {
 pub struct ListingSourceRegistrationService {
     source: Box<dyn ListingSourceRegistrationSource>,
     repository: Box<dyn ListingSourceRegistrationRepository>,
+    /// Registers the public host of a source without crawler-local domains as its domain;
+    /// `None` leaves every domain to operators.
+    domain_seeding: Option<Arc<dyn CrawlerDomainConfigurationRepository>>,
     unconfigured: Mutex<UnconfiguredListingSources>,
 }
 
@@ -141,8 +151,23 @@ impl ListingSourceRegistrationService {
         Self {
             source,
             repository,
+            domain_seeding: None,
             unconfigured: Mutex::new(UnconfiguredListingSources::default()),
         }
+    }
+
+    /// Makes every sync register, through `domains`, the public host of each enabled
+    /// ListingSource without crawler-local domains as its crawler domain, so a new crawler
+    /// database gets its scope's domains from the registration source instead of by hand. A
+    /// host two sources of the scope share is a marketplace rather than a shop's own site, and
+    /// a host another source already owns is refused by the registration; both stay with an
+    /// operator, as does a source whose registration fails.
+    pub fn seeding_domains_from_public_hosts(
+        mut self,
+        domains: Arc<dyn CrawlerDomainConfigurationRepository>,
+    ) -> Self {
+        self.domain_seeding = Some(domains);
+        self
     }
 
     #[tracing::instrument(name = "listing_source_registration_sync", skip(self))]
@@ -160,9 +185,67 @@ impl ListingSourceRegistrationService {
                 "disabled crawler-local listing sources absent from business crawl scope"
             );
         }
-        self.report_unconfigured(&result.enabled_without_domains);
+        let unconfigured = self
+            .seed_domains(&listing_sources, result.enabled_without_domains)
+            .await;
+        self.report_unconfigured(&unconfigured);
 
         Ok(enabled_count)
+    }
+
+    /// Registers the public host of each of `enabled_without_domains` that no other source of
+    /// `scope` shares, and returns the sources still without domains.
+    async fn seed_domains(
+        &self,
+        scope: &[RegisteredListingSource],
+        enabled_without_domains: Vec<RegisteredListingSource>,
+    ) -> Vec<RegisteredListingSource> {
+        let Some(domains) = &self.domain_seeding else {
+            return enabled_without_domains;
+        };
+        let shared_hosts = shared_public_hosts(scope);
+        let mut unconfigured = Vec::new();
+        for listing_source in enabled_without_domains {
+            let Some(host) = listing_source.public_host.clone() else {
+                unconfigured.push(listing_source);
+                continue;
+            };
+            if shared_hosts.contains(&canonical_crawler_domain(host.as_str())) {
+                warn!(
+                    event = "crawler.listing_source_domain_seed_skipped",
+                    listing_source_id = %listing_source.listing_source_id,
+                    listing_source_name = %listing_source.listing_source_name,
+                    host = %host,
+                    "public host is shared by another ListingSource of the scope; register the shop's own domain by hand"
+                );
+                unconfigured.push(listing_source);
+                continue;
+            }
+            match domains
+                .register(listing_source.listing_source_id, host.clone())
+                .await
+            {
+                Ok(configuration) => info!(
+                    event = "crawler.listing_source_domain_seeded",
+                    listing_source_id = %listing_source.listing_source_id,
+                    listing_source_name = %listing_source.listing_source_name,
+                    domain = %configuration.domain,
+                    "registered the ListingSource's public host as its crawler domain"
+                ),
+                Err(error) => {
+                    warn!(
+                        event = "crawler.listing_source_domain_seed_failed",
+                        listing_source_id = %listing_source.listing_source_id,
+                        listing_source_name = %listing_source.listing_source_name,
+                        host = %host,
+                        error = %error,
+                        "could not register the ListingSource's public host as its crawler domain"
+                    );
+                    unconfigured.push(listing_source);
+                }
+            }
+        }
+        unconfigured
     }
 
     /// Logs enabled ListingSources without crawler-local domains. The condition is only a
@@ -200,6 +283,22 @@ impl ListingSourceRegistrationService {
             }
         }
     }
+}
+
+/// The canonical hosts, without `www.`, that more than one source of `scope` presents.
+fn shared_public_hosts(scope: &[RegisteredListingSource]) -> HashSet<String> {
+    let mut seen = HashSet::new();
+    let mut shared = HashSet::new();
+    for host in scope
+        .iter()
+        .filter_map(|listing_source| listing_source.public_host.as_ref())
+    {
+        let canonical = canonical_crawler_domain(host.as_str());
+        if !seen.insert(canonical.clone()) {
+            shared.insert(canonical);
+        }
+    }
+    shared
 }
 
 pub struct ListingSourceRegistrationRepositoryImpl {
@@ -309,7 +408,170 @@ mod tests {
                 .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             crawl_enabled: true,
             fallback_currency: FallbackCurrency::Supplied(None),
+            public_host: None,
         }
+    }
+
+    fn shop(host: &str) -> RegisteredListingSource {
+        RegisteredListingSource {
+            public_host: Some(
+                Domain::try_from(host)
+                    .unwrap_or_else(|error| panic!("invalid test host {host}: {error}")),
+            ),
+            ..listing_source()
+        }
+    }
+
+    /// Records registrations and refuses the hosts it is told are owned elsewhere.
+    struct FakeDomains {
+        registered: Mutex<Vec<(ListingSourceId, Domain)>>,
+        owned_elsewhere: Vec<Domain>,
+    }
+
+    impl FakeDomains {
+        fn new(owned_elsewhere: &[&str]) -> Arc<Self> {
+            Arc::new(Self {
+                registered: Mutex::default(),
+                owned_elsewhere: owned_elsewhere
+                    .iter()
+                    .map(|host| Domain::try_from(*host).expect("valid test host"))
+                    .collect(),
+            })
+        }
+
+        fn registered(&self) -> Vec<(ListingSourceId, Domain)> {
+            self.registered
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        }
+    }
+
+    #[async_trait]
+    impl CrawlerDomainConfigurationRepository for FakeDomains {
+        async fn list_for_source(
+            &self,
+            _listing_source_id: ListingSourceId,
+        ) -> Result<
+            Vec<crate::service::crawler_domain_configuration::CrawlerDomainConfiguration>,
+            crate::service::crawler_domain_configuration::CrawlerDomainConfigurationError,
+        > {
+            Ok(Vec::new())
+        }
+
+        async fn register(
+            &self,
+            listing_source_id: ListingSourceId,
+            domain: Domain,
+        ) -> Result<
+            crate::service::crawler_domain_configuration::CrawlerDomainConfiguration,
+            crate::service::crawler_domain_configuration::CrawlerDomainConfigurationError,
+        > {
+            use crate::service::crawler_domain_configuration::{
+                CrawlerDomainConfiguration, CrawlerDomainConfigurationError,
+            };
+            if self.owned_elsewhere.contains(&domain) {
+                return Err(
+                    CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource {
+                        domain,
+                        requested_listing_source_id: listing_source_id,
+                        current_listing_source_id: ListingSourceId::new(),
+                    },
+                );
+            }
+            self.registered
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((listing_source_id, domain.clone()));
+            Ok(CrawlerDomainConfiguration {
+                domain_id: crate::CrawlerDomainId::new(),
+                listing_source_id,
+                domain,
+                created: true,
+            })
+        }
+
+        async fn remove(
+            &self,
+            _listing_source_id: ListingSourceId,
+            _domain_id: crate::CrawlerDomainId,
+        ) -> Result<
+            crate::service::crawler_domain_configuration::CrawlerDomainRemoval,
+            crate::service::crawler_domain_configuration::CrawlerDomainConfigurationError,
+        > {
+            unreachable!("seeding never removes a domain")
+        }
+    }
+
+    /// A service whose business read answers `scope` and whose snapshot leaves every source
+    /// of `scope` without domains.
+    fn seeding_service(
+        scope: Vec<RegisteredListingSource>,
+        domains: Arc<FakeDomains>,
+    ) -> ListingSourceRegistrationService {
+        let mut source = MockListingSourceRegistrationSource::new();
+        let fetched = scope.clone();
+        source
+            .expect_fetch_registered_listing_sources()
+            .returning(move || {
+                let fetched = fetched.clone();
+                Box::pin(async move { Ok(fetched) })
+            });
+        let mut repository = MockListingSourceRegistrationRepository::new();
+        repository.expect_apply_snapshot().returning(move |_| {
+            let unconfigured = scope.clone();
+            Box::pin(async move {
+                Ok(ListingSourceSnapshotResult {
+                    disabled: 0,
+                    enabled_without_domains: unconfigured,
+                })
+            })
+        });
+        ListingSourceRegistrationService::new(Box::new(source), Box::new(repository))
+            .seeding_domains_from_public_hosts(domains)
+    }
+
+    #[tokio::test]
+    async fn should_seed_the_public_host_of_a_source_without_domains_and_skip_shared_hosts() {
+        let own_shop = shop("www.shop-a.example");
+        let scope = vec![
+            own_shop.clone(),
+            shop("www.marketplace.example"),
+            shop("marketplace.example"),
+            listing_source(),
+        ];
+        let domains = FakeDomains::new(&[]);
+
+        let synced = seeding_service(scope, Arc::clone(&domains)).sync().await;
+
+        assert!(matches!(synced, Ok(4)));
+        assert_eq!(
+            domains.registered(),
+            vec![(
+                own_shop.listing_source_id,
+                Domain::try_from("www.shop-a.example").expect("valid host")
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_keep_seeding_the_other_sources_when_a_registration_is_refused() {
+        let refused = shop("owned.example");
+        let seeded = shop("free.example");
+        let domains = FakeDomains::new(&["owned.example"]);
+
+        let synced = seeding_service(vec![refused, seeded.clone()], Arc::clone(&domains))
+            .sync()
+            .await;
+
+        assert!(matches!(synced, Ok(2)));
+        assert_eq!(
+            domains.registered(),
+            vec![(
+                seeded.listing_source_id,
+                Domain::try_from("free.example").expect("valid host")
+            )]
+        );
     }
 
     #[tokio::test]

@@ -185,6 +185,7 @@ mod tests {
                             }),
                             crawl_enabled: true,
                             fallback_currency: crate::service::listing_source_registration::FallbackCurrency::Supplied(None),
+                            public_host: None,
                         },
                     ])
                 })

@@ -106,6 +106,7 @@ fn registered_listing_source(listing_source_id: ListingSourceId) -> RegisteredLi
             .unwrap_or_else(|error| panic!("valid test ListingSource slug: {error}")),
         crawl_enabled: true,
         fallback_currency: FallbackCurrency::Supplied(None),
+        public_host: None,
     }
 }
 

@@ -11,7 +11,7 @@ use crate::service::listing_source_registration::{
 };
 use async_trait::async_trait;
 use listing_source_core::{
-    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
+    Domain, ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
 };
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue};
 use serde::Deserialize;
@@ -278,11 +278,30 @@ struct ListingSourceItem {
     listing_source_slug_id: String,
     name: String,
     ingestion_methods: Vec<String>,
+    #[serde(default)]
+    presentation: Option<PresentationItem>,
+}
+
+/// The public presentation URLs of a ListingSource; only the site URL is read.
+#[derive(Deserialize)]
+struct PresentationItem {
+    #[serde(default)]
+    url: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct ProblemBody {
     error: Option<String>,
+}
+
+/// The host of a shop's public URL as a crawler domain; `None` for anything but an http(s)
+/// URL whose host is a domain.
+fn public_host(url: &str) -> Option<Domain> {
+    let url = Url::parse(url).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    Domain::try_from(url.host_str()?).ok()
 }
 
 impl ListingSourceItem {
@@ -307,6 +326,10 @@ impl ListingSourceItem {
                 .map_err(|_| FetchError::InvalidItem("listingSourceSlugId"))?,
             crawl_enabled: true,
             fallback_currency: FallbackCurrency::NotSupplied,
+            public_host: self
+                .presentation
+                .and_then(|presentation| presentation.url)
+                .and_then(|url| public_host(&url)),
         })
     }
 }
@@ -430,6 +453,44 @@ mod tests {
             Err(ListingSourceSyncError::FetchError(message)) => message,
             other => panic!("expected a fetch error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn should_map_the_host_of_the_presentation_url_as_the_public_host() {
+        let ids: Vec<ListingSourceId> = (0..4).map(|_| ListingSourceId::new()).collect();
+        let presentations = [
+            Some("https://www.hartantiques.com/"),
+            Some("https://www.stamplove.co.kr/main/main.php"),
+            Some("mailto:shop@example.test"),
+            None,
+        ];
+        let items = ids
+            .iter()
+            .zip(presentations)
+            .map(|(id, url)| {
+                let mut item = item(id, "shop", "Shop");
+                if let Some(url) = url {
+                    item["presentation"] = serde_json::json!({ "url": url });
+                }
+                item
+            })
+            .collect();
+        let stub = StubApi::serve(vec![page(items, None)]).await;
+
+        let sources = fetch(&stub).await.expect("complete scope");
+
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source.public_host.as_ref().map(ToString::to_string))
+                .collect::<Vec<_>>(),
+            vec![
+                Some("www.hartantiques.com".to_owned()),
+                Some("www.stamplove.co.kr".to_owned()),
+                None,
+                None,
+            ]
+        );
     }
 
     #[tokio::test]

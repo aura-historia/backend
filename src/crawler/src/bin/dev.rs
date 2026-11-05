@@ -136,6 +136,7 @@ fn demo_listing_sources() -> Vec<RegisteredListingSource> {
                 .unwrap_or_else(|error| panic!("invalid demo ListingSource slug: {error}")),
             crawl_enabled: true,
             fallback_currency: FallbackCurrency::Supplied(None),
+            public_host: None,
         },
     )
     .collect()

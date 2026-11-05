@@ -25,6 +25,7 @@ fn source(id: ListingSourceId, enabled: bool) -> RegisteredListingSource {
         listing_source_slug: ListingSourceSlugId::raw("test-source").unwrap(),
         crawl_enabled: enabled,
         fallback_currency: FallbackCurrency::Supplied(None),
+        public_host: None,
     }
 }
 
