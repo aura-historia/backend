@@ -3,7 +3,6 @@ use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::html_fetcher::DomainFetchStats;
 use listing_source_core::ListingSourceId;
-use money::Currency;
 use product_listing_normalization::ProductListingNormalizationInput;
 use std::cell::RefCell;
 use std::future::Future;
@@ -80,7 +79,6 @@ pub struct ScrapeRequest {
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
-    pub fallback_currency: Option<Currency>,
     pub mode: ScrapeMode,
 }
 

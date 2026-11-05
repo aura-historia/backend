@@ -6,8 +6,7 @@
 
 use crate::network::policy::{CrawlerClientError, RequestTimeouts, crawler_client_builder};
 use crate::service::listing_source_registration::{
-    FallbackCurrency, ListingSourceRegistrationSource, ListingSourceSyncError,
-    RegisteredListingSource,
+    ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use async_trait::async_trait;
 use listing_source_core::{
@@ -325,7 +324,6 @@ impl ListingSourceItem {
             listing_source_slug: ListingSourceSlugId::raw(&self.listing_source_slug_id)
                 .map_err(|_| FetchError::InvalidItem("listingSourceSlugId"))?,
             crawl_enabled: true,
-            fallback_currency: FallbackCurrency::NotSupplied,
             public_host: self
                 .presentation
                 .and_then(|presentation| presentation.url)
@@ -525,11 +523,6 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(sources.iter().all(|source| source.crawl_enabled));
-        assert!(
-            sources
-                .iter()
-                .all(|source| source.fallback_currency == FallbackCurrency::NotSupplied)
-        );
         assert_eq!("Second Shop", sources[1].listing_source_name.as_ref());
         assert_eq!("second-shop", sources[1].listing_source_slug.to_string());
         let requests = stub.requests();

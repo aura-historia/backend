@@ -71,7 +71,6 @@ pub(super) mod test_support {
             domain_id,
             listing_source_domain: domain,
             listing_source_name: listing_source_name.to_string(),
-            fallback_currency: None,
             url_pattern: None,
             url: url.clone(),
             source_record_key: url.to_string(),

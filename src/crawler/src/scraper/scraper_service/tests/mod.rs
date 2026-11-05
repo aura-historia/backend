@@ -3,12 +3,12 @@ mod bookkeeping;
 mod budget;
 mod cached_schema_selection;
 mod contract;
-mod fallback_currency;
 mod fresh_schema_generation;
 mod happy_path;
 mod hash_skip;
 mod image_evidence;
 mod manual_schema_authoring;
+mod numeric_price;
 mod redirect_guard;
 mod removed_page;
 mod richest_schema_selection;
@@ -66,7 +66,6 @@ pub(super) fn primary_only_request(
         last_scraped_hash: None,
         last_scraped_schema_fingerprint: None,
         expected_last_captured_raw_input_sha256: None,
-        fallback_currency: None,
         mode: ScrapeMode::PrimaryOnly,
     }
 }

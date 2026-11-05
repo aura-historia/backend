@@ -1,15 +1,13 @@
 //! Crawler-owned mapping from selected CSS extraction output to the generic raw-input contract.
 
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
-use crate::scraper::plausibility::PlausibilityField;
-use money::{Currency, Price};
 use product_listing_core::source_listing_id::{InvalidSourceListingId, SourceListingId};
 use product_listing_normalization::{
     NormalizationContext, NormalizationError, NormalizationInputError,
     ProductListingNormalizationInput, ProductListingRawValuesPatch,
     ProductListingRawValuesPriceFormat, RawProductListingOperation, RawProductListingPayloadFormat,
-    RawProductListingProvenance, RawProductListingValues, SourcePayload, normalize_price,
-    normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
+    RawProductListingProvenance, RawProductListingValues, SourcePayload,
+    normalize_source_listing_id_with_url_sha_fallback,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -42,7 +40,6 @@ pub(crate) fn crawler_raw_input(
     validated_image_urls: &[String],
     candidate_url: &Url,
     source_listing_id: &str,
-    fallback_currency: Option<Currency>,
     carried_forward_title: Option<&str>,
 ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
     let source_payload = serde_json::to_value(raw)
@@ -76,7 +73,6 @@ pub(crate) fn crawler_raw_input(
     }))?;
     let context = NormalizationContext::new(json!({
         "baseUrl": candidate_url,
-        "fallbackCurrency": fallback_currency.map(|currency| currency.as_str()),
     }))?;
 
     ProductListingNormalizationInput::new(
@@ -88,58 +84,6 @@ pub(crate) fn crawler_raw_input(
         raw_values,
         context,
     )
-}
-
-/// A captured price that names another currency than its ListingSource's fallback currency.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ForeignPriceCurrency {
-    pub(crate) field: PlausibilityField,
-    pub(crate) currency: Currency,
-    pub(crate) fallback_currency: Currency,
-}
-
-/// The first price of `raw`, in schema field order, whose currency, as the ProductListing
-/// normalization worker reads it, is not `fallback_currency`. The main price goes through the
-/// worker's own `normalize_product_listing_price`, the estimates through its `normalize_price`,
-/// so the check cannot drift from what the worker persists. A storefront that converted its
-/// prices for the crawler's egress country shows here and nowhere else, since the converted
-/// price passes every plausibility check (`docs/crawler/networking.md#request-headers`). The
-/// capture keeps the value as extracted either way.
-pub(crate) fn foreign_price_currency(
-    raw: &RawExtractedProduct,
-    fallback_currency: Option<Currency>,
-) -> Option<ForeignPriceCurrency> {
-    let fallback_currency = fallback_currency?;
-    let main_price = normalize_product_listing_price(raw.price.as_deref(), Some(fallback_currency))
-        .ok()
-        .flatten()
-        .and_then(|price| price.monetary());
-    [
-        (PlausibilityField::Price, main_price),
-        (
-            PlausibilityField::PriceEstimateMin,
-            estimate_price(raw.price_estimate_min.as_deref(), fallback_currency),
-        ),
-        (
-            PlausibilityField::PriceEstimateMax,
-            estimate_price(raw.price_estimate_max.as_deref(), fallback_currency),
-        ),
-    ]
-    .into_iter()
-    .find_map(|(field, price)| {
-        let price = price.filter(|price| price.currency != fallback_currency)?;
-        Some(ForeignPriceCurrency {
-            field,
-            currency: price.currency,
-            fallback_currency,
-        })
-    })
-}
-
-fn estimate_price(value: Option<&str>, fallback_currency: Currency) -> Option<Price> {
-    normalize_price(value, Some(fallback_currency))
-        .ok()
-        .flatten()
 }
 
 /// Builds durable evidence for a crawler-verified removal without retaining HTML or response data.
@@ -158,7 +102,6 @@ pub(crate) fn crawler_verified_removal_input(
         RawProductListingValues::new(json!({}))?,
         NormalizationContext::new(json!({
             "baseUrl": candidate_url,
-            "fallbackCurrency": null,
         }))?,
     )
 }
@@ -200,113 +143,13 @@ mod tests {
         }
     }
 
-    mod foreign_price_currency {
-        use super::*;
-
-        fn priced(
-            price: Option<&str>,
-            estimate_min: Option<&str>,
-            estimate_max: Option<&str>,
-        ) -> RawExtractedProduct {
-            RawExtractedProduct {
-                price: price.map(str::to_owned),
-                price_estimate_min: estimate_min.map(str::to_owned),
-                price_estimate_max: estimate_max.map(str::to_owned),
-                ..raw()
-            }
-        }
-
-        #[test]
-        fn should_report_a_price_converted_to_another_currency() {
-            let converted = priced(Some("$38,284.00"), None, None);
-
-            assert_eq!(
-                foreign_price_currency(&converted, Some(Currency::Gbp)),
-                Some(ForeignPriceCurrency {
-                    field: PlausibilityField::Price,
-                    currency: Currency::Usd,
-                    fallback_currency: Currency::Gbp,
-                })
-            );
-        }
-
-        #[test]
-        fn should_read_the_currency_a_json_ld_offer_price_carries() {
-            // A `json_ld_offer` price is captured with its offer's `priceCurrency`.
-            assert_eq!(
-                foreign_price_currency(
-                    &priced(Some("1850.00 USD"), None, None),
-                    Some(Currency::Gbp)
-                ),
-                Some(ForeignPriceCurrency {
-                    field: PlausibilityField::Price,
-                    currency: Currency::Usd,
-                    fallback_currency: Currency::Gbp,
-                })
-            );
-            assert_eq!(
-                foreign_price_currency(
-                    &priced(Some("1850.00 GBP"), None, None),
-                    Some(Currency::Gbp)
-                ),
-                None
-            );
-        }
-
-        #[test]
-        fn should_report_the_first_estimate_in_another_currency_when_the_price_agrees() {
-            let estimates = priced(Some("£1,000"), Some("£800"), Some("€1.200"));
-
-            assert_eq!(
-                foreign_price_currency(&estimates, Some(Currency::Gbp)),
-                Some(ForeignPriceCurrency {
-                    field: PlausibilityField::PriceEstimateMax,
-                    currency: Currency::Eur,
-                    fallback_currency: Currency::Gbp,
-                })
-            );
-        }
-
-        #[test]
-        fn should_report_nothing_for_a_price_the_fallback_currency_covers() {
-            for price in [
-                Some("£28,000"),
-                Some("28,000"),
-                Some("POA"),
-                Some(" "),
-                None,
-            ] {
-                assert_eq!(
-                    foreign_price_currency(&priced(price, None, None), Some(Currency::Gbp)),
-                    None,
-                    "{price:?}"
-                );
-            }
-        }
-
-        #[test]
-        fn should_report_nothing_without_a_fallback_currency() {
-            assert_eq!(
-                foreign_price_currency(&priced(Some("$38,284.00"), None, None), None),
-                None
-            );
-        }
-    }
-
     #[test]
     fn should_preserve_selected_raw_values_in_capture_input() -> Result<(), NormalizationInputError>
     {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
-        let input = crawler_raw_input(
-            &extracted,
-            &extracted.images,
-            &url,
-            "stable-id",
-            Some(Currency::Eur),
-            None,
-        )?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
 
         assert_eq!(
             Some(&serde_json::Value::String("100 EUR".to_owned())),
@@ -317,6 +160,11 @@ mod tests {
             input.raw_values().value().get("price")
         );
         assert!(input.raw_values().value().get("auction").is_none());
+        assert_eq!(
+            input.normalization_context().value(),
+            &serde_json::json!({"baseUrl": "https://example.com/products/1"}),
+            "the crawler supplies no fallback currency"
+        );
         assert_eq!(
             Some(&serde_json::json!(["/chair.jpg"])),
             input.source_payload().value().get("images")
@@ -331,8 +179,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
 
-        let input =
-            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None, None)?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
 
         assert_eq!(
             Some(&serde_json::Value::String("100 EUR".to_owned())),
@@ -379,7 +226,6 @@ mod tests {
             &effective_url,
             identity.as_ref(),
             None,
-            None,
         )?;
 
         assert_eq!(identity, expected);
@@ -416,14 +262,7 @@ mod tests {
             "https://example.com/images/second-fallback-640x480.jpg".to_owned(),
         ];
 
-        let input = crawler_raw_input(
-            &extracted,
-            &validated_image_urls,
-            &url,
-            "stable-id",
-            Some(Currency::Eur),
-            None,
-        )?;
+        let input = crawler_raw_input(&extracted, &validated_image_urls, &url, "stable-id", None)?;
 
         assert_eq!(
             input.source_payload().value().get("images"),
@@ -465,8 +304,7 @@ mod tests {
             .raw_attributes
             .insert("rawYear".to_owned(), vec![String::new()]);
 
-        let input =
-            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None, None)?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
 
         assert_eq!(
             input.raw_values().value().get("attributes"),
@@ -486,28 +324,14 @@ mod tests {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
-        let first = crawler_raw_input(
-            &extracted,
-            &extracted.images,
-            &url,
-            "stable-id",
-            Some(Currency::Eur),
-            None,
-        )?
-        .hash()?;
+        let first =
+            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?.hash()?;
         let mut changed = raw();
         changed
             .raw_attributes
             .insert("rawMaterial".to_owned(), vec!["Oak".to_owned()]);
-        let second = crawler_raw_input(
-            &changed,
-            &changed.images,
-            &url,
-            "stable-id",
-            Some(Currency::Eur),
-            None,
-        )?
-        .hash()?;
+        let second =
+            crawler_raw_input(&changed, &changed.images, &url, "stable-id", None)?.hash()?;
         assert_ne!(first, second);
         Ok(())
     }
@@ -526,7 +350,6 @@ mod tests {
             &untitled.images,
             &url,
             "stable-id",
-            None,
             Some("Chair"),
         )?;
 

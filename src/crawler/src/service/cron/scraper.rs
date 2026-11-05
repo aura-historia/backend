@@ -848,7 +848,6 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
         last_scraped_hash: candidate.last_scraped_hash.clone(),
         last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),
         expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
-        fallback_currency: candidate.fallback_currency,
         mode,
     }
 }
@@ -3833,7 +3832,6 @@ mod tests {
                 &["https://example.com/chair.jpg".to_owned()],
                 &url,
                 "SKU-1",
-                None,
                 None,
             )
             .unwrap_or_else(|error| panic!("test product input: {error}"));

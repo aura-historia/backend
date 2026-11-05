@@ -3,7 +3,7 @@ use crawler::service::crawler_domain_configuration::{
     CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
 };
 use crawler::service::listing_source_registration::{
-    FallbackCurrency, ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
+    ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     RegisteredListingSource,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
@@ -24,7 +24,6 @@ fn source(id: ListingSourceId, enabled: bool) -> RegisteredListingSource {
         listing_source_name: ListingSourceName::try_from("Test source").unwrap(),
         listing_source_slug: ListingSourceSlugId::raw("test-source").unwrap(),
         crawl_enabled: enabled,
-        fallback_currency: FallbackCurrency::Supplied(None),
         public_host: None,
     }
 }

@@ -43,7 +43,7 @@ async fn should_skip_a_page_that_differs_only_in_per_request_tokens() {
 
     let schema = listing_source_product_schemas(id);
     let schema_fingerprint =
-        fingerprint_scraper_context(EXTRACTOR_VERSION, &schema.product_schemas, None)
+        fingerprint_scraper_context(EXTRACTOR_VERSION, &schema.product_schemas)
             .unwrap_or_else(|error| panic!("test schema must serialize: {error}"));
     let mut schema_svc = MockProductListingSchemaService::new();
     schema_svc
@@ -176,7 +176,6 @@ fn scraper_context_fingerprint(
     fingerprint_scraper_context(
         extractor_version,
         &listing_source_product_schemas(listing_source_id).product_schemas,
-        None,
     )
     .unwrap_or_else(|error| panic!("test schema must serialize: {error}"))
 }

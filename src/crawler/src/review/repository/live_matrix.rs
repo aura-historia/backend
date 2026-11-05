@@ -16,14 +16,11 @@ use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, CrawlerReviewPage, LiveMatrixEvaluation, ReviewActor,
     ReviewSchemaMatrix, SchemaMatrix, SchemaReviewPageInput,
 };
-use crate::review::schema_evaluation::{
-    add_foreign_price_currency_findings, evaluate_schema_matrix_for_live_review_pages,
-};
+use crate::review::schema_evaluation::evaluate_schema_matrix_for_live_review_pages;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
-use money::Currency;
 use sqlx::Row;
 use std::collections::HashMap;
 use time::OffsetDateTime;
@@ -103,18 +100,15 @@ impl CrawlerReviewRepository {
             configuration_sha256: going_live.fingerprint()?,
             fetched_at,
         };
-        let fallback_currency = self.fallback_currency(review.listing_source_id).await?;
         let mut matrix = evaluate_on_blocking_thread(move || {
-            let mut matrix = evaluate_schema_matrix_for_live_review_pages(
+            evaluate_schema_matrix_for_live_review_pages(
                 review_id,
                 &going_live.schemas,
                 &going_live.removed_page_schemas,
                 &pages,
                 &[],
                 &captured_identities,
-            );
-            add_foreign_price_currency_findings(&mut matrix, fallback_currency);
-            matrix
+            )
         })
         .await?;
         matrix.live_evaluation = Some(live_evaluation);
@@ -184,43 +178,17 @@ impl CrawlerReviewRepository {
         let captured_identities = self
             .captured_identities(proposal.listing_source_id, &page_urls)
             .await?;
-        let fallback_currency = self.fallback_currency(proposal.listing_source_id).await?;
         evaluate_on_blocking_thread(move || {
-            let mut matrix = evaluate_schema_matrix_for_live_review_pages(
+            evaluate_schema_matrix_for_live_review_pages(
                 proposal.review_id,
                 &proposal.going_live.schemas,
                 &proposal.going_live.removed_page_schemas,
                 &pages,
                 &url_pages,
                 &captured_identities,
-            );
-            add_foreign_price_currency_findings(&mut matrix, fallback_currency);
-            matrix
+            )
         })
         .await
-    }
-
-    /// The fallback currency of the ListingSource, `None` when it has none. A stored code that
-    /// is no currency is invalid crawler state and fails closed.
-    async fn fallback_currency(
-        &self,
-        listing_source_id: uuid::Uuid,
-    ) -> Result<Option<Currency>, ReviewRepositoryError> {
-        let code: Option<Option<String>> = sqlx::query_scalar(
-            "SELECT fallback_currency FROM listing_sources WHERE listing_source_id = $1",
-        )
-        .bind(listing_source_id)
-        .fetch_optional(&self.pool)
-        .await?;
-        code.flatten()
-            .map(|code| {
-                Currency::from_code(&code).ok_or_else(|| {
-                    ReviewRepositoryError::from(sqlx::Error::Decode(Box::new(
-                        std::io::Error::other("persisted crawler fallback currency is invalid"),
-                    )))
-                })
-            })
-            .transpose()
     }
 
     async fn review_under_evaluation(

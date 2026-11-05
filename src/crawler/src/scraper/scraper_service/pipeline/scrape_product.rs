@@ -8,9 +8,7 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
-use crate::scraper::raw_input::{
-    capture_source_listing_id, crawler_raw_input, foreign_price_currency,
-};
+use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
 };
@@ -32,7 +30,6 @@ use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
-use money::Currency;
 use regex::Regex;
 use tracing::{debug, warn};
 use url::Url;
@@ -428,15 +425,11 @@ struct PageFingerprints {
 
 impl PageFingerprints {
     #[allow(clippy::result_large_err)]
-    fn of(
-        extracted: &ExtractedSchemaSet,
-        fallback_currency: Option<Currency>,
-    ) -> Result<Self, ScraperError> {
+    fn of(extracted: &ExtractedSchemaSet) -> Result<Self, ScraperError> {
         Ok(Self {
             schema_fingerprint: fingerprint_scraper_context(
                 EXTRACTOR_VERSION,
                 extracted.product_schemas(),
-                fallback_currency,
             )
             .map_err(ScraperError::SchemaFingerprint)?,
             page_hash: extracted.page_hash(),
@@ -516,28 +509,15 @@ fn capture_selection(
     if selection.fresh_schema {
         schemas.push(selection.schema.clone());
     }
-    let schema_fingerprint =
-        fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas, request.fallback_currency)
-            .map_err(ScraperError::SchemaFingerprint)?;
+    let schema_fingerprint = fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas)
+        .map_err(ScraperError::SchemaFingerprint)?;
     let source_listing_id =
         capture_source_listing_id(&selection.raw.source_listing_id, &request.source_record_key)?;
-    if let Some(foreign) = foreign_price_currency(&selection.raw, request.fallback_currency) {
-        warn!(
-            event = "crawler.capture_price_currency_differs_from_fallback",
-            listing_source_id = %request.listing_source_id,
-            url = %page.effective_url,
-            field = foreign.field.as_str(),
-            price_currency = foreign.currency.as_str(),
-            fallback_currency = foreign.fallback_currency.as_str(),
-            "Capturing a price in another currency than the ListingSource's fallback currency"
-        );
-    }
     let raw_input = crawler_raw_input(
         &selection.raw,
         &selection.validated_image_urls,
         &page.effective_url,
         source_listing_id.as_ref(),
-        request.fallback_currency,
         selection.carried_forward_title.as_deref(),
     )
     .map_err(ScraperError::RawNormalizationInput)?;
@@ -675,7 +655,7 @@ impl ScraperServiceImpl {
                 &page.html,
             ),
         };
-        let stored = PageFingerprints::of(&extracted, request.fallback_currency)?;
+        let stored = PageFingerprints::of(&extracted)?;
 
         if !page.url_moved() && stored.match_last_scrape(request) {
             debug!("Page and schema fingerprints match; skipping extraction.");

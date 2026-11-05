@@ -4,7 +4,6 @@ use crate::network::policy::canonical_crawler_domain;
 use crate::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
 use async_trait::async_trait;
 use listing_source_core::{Domain, ListingSourceId, ListingSourceName, ListingSourceSlugId};
-use money::Currency;
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -58,41 +57,16 @@ impl UnconfiguredListingSources {
     }
 }
 
-/// What a registration source says about a ListingSource's fallback currency.
-///
-/// The admin API does not return the currency, so a sync from it must not clear the value the
-/// crawler mirrors locally: that would also change the scraper-context fingerprint and recapture
-/// every page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FallbackCurrency {
-    /// The source states the currency, or states that the ListingSource has none (`None`).
-    Supplied(Option<Currency>),
-    /// The source does not carry the currency; the locally stored value stays as it is.
-    NotSupplied,
-}
-
-impl FallbackCurrency {
-    /// The currency a sync writes, or `None` to write no value.
-    fn supplied(self) -> Option<Option<Currency>> {
-        match self {
-            Self::Supplied(currency) => Some(currency),
-            Self::NotSupplied => None,
-        }
-    }
-}
-
 /// Crawler-safe business identity.
 ///
-/// The registration source supplies canonical ListingSource values. `crawl_enabled` and
-/// `fallback_currency` are crawler-local state derived from a complete successful
-/// `WEB_CRAWL` scope read.
+/// The registration source supplies canonical ListingSource values. `crawl_enabled` is
+/// crawler-local state derived from a complete successful `WEB_CRAWL` scope read.
 #[derive(Debug, Clone)]
 pub struct RegisteredListingSource {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: ListingSourceName,
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
-    pub fallback_currency: FallbackCurrency,
     /// The host of the public site the registration source presents for the shop, when it
     /// names one that is a domain; `None` when the source carries no URL or its host is none.
     /// [Domain seeding](ListingSourceRegistrationService::seeding_domains_from_public_hosts)
@@ -327,28 +301,18 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
         for listing_source in listing_sources {
             sqlx::query(
                 "INSERT INTO listing_sources \
-                    (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, fallback_currency, created, updated) \
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) \
+                    (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
+                 VALUES ($1, $2, $3, $4, NOW(), NOW()) \
                  ON CONFLICT (listing_source_id) DO UPDATE SET \
                     listing_source_name = EXCLUDED.listing_source_name, \
                     listing_source_slug = EXCLUDED.listing_source_slug, \
                     crawl_enabled = EXCLUDED.crawl_enabled, \
-                    fallback_currency = CASE WHEN $6 THEN EXCLUDED.fallback_currency \
-                                             ELSE listing_sources.fallback_currency END, \
                     updated = NOW()",
             )
             .bind(uuid::Uuid::from(listing_source.listing_source_id))
             .bind(listing_source.listing_source_name.as_ref())
             .bind(listing_source.listing_source_slug.to_string())
             .bind(listing_source.crawl_enabled)
-            .bind(
-                listing_source
-                    .fallback_currency
-                    .supplied()
-                    .flatten()
-                    .map(Currency::as_str),
-            )
-            .bind(listing_source.fallback_currency.supplied().is_some())
             .execute(&mut *transaction)
             .await?;
         }
@@ -407,7 +371,6 @@ mod tests {
             listing_source_slug: ListingSourceSlugId::raw("source")
                 .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             crawl_enabled: true,
-            fallback_currency: FallbackCurrency::Supplied(None),
             public_host: None,
         }
     }

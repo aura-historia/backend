@@ -38,9 +38,7 @@ pub use sample_labels::{
 };
 pub use schema_candidate_evaluation::SchemaCandidateEvaluation;
 pub use schema_matrix::{LiveMatrixEvaluation, ReviewSchemaMatrix, SchemaMatrix};
-pub use schema_page_evaluation::{
-    ForeignPriceCurrencyFinding, SchemaPageEvaluation, SchemaPageReference,
-};
+pub use schema_page_evaluation::{SchemaPageEvaluation, SchemaPageReference};
 pub use schema_review_page_input::SchemaReviewPageInput;
 pub use selector_field_evaluation::SelectorFieldEvaluation;
 pub use status::*;

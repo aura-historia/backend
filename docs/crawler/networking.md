@@ -41,7 +41,6 @@ The set states no preference on purpose, so a shop answers with the storefront i
 - A browser-style `Accept` that prefers `text/html` makes some shops redirect every page to a locale-prefixed copy, such as `/artworkdetail/...` to `/en-us/artworkdetail/...`, which the URL pattern learned from the spider's unprefixed URLs does not take.
 - A cache directive (`Cache-Control: no-cache`, `Pragma: no-cache`) only asks a shop's cache to pass the request on to its origin.
 
-A capture whose price or estimate names another currency than its ListingSource's fallback currency, read as the ProductListing normalization worker reads it, logs a WARN `crawler.capture_price_currency_differs_from_fallback` with the URL, the field and both currencies, so a storefront that converts its prices despite this header set is noticed. The review matrix reports the same price per sampled page as `foreign_price_currency`, which neither fails the page nor blocks approval, so a reviewer sees it before approving the schema. Both use the worker's own normalization functions, so they cannot drift from it. The capture keeps the value as extracted. A ListingSource without a fallback currency is not checked, and a price extracted without a currency marker, such as a bare `og:price:amount`, takes the fallback currency, so a conversion that drops the marker stays invisible.
 
 ## robots.txt
 

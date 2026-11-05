@@ -158,7 +158,6 @@ async fn main() {
                     last_scraped_hash: None,
                     last_scraped_schema_fingerprint: None,
                     expected_last_captured_raw_input_sha256: None,
-                    fallback_currency: None,
                     mode: ScrapeMode::PrimaryOnly,
                 })
                 .instrument(scrape_span)

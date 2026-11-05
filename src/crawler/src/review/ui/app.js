@@ -1829,7 +1829,6 @@ function renderSelectorPanel(schemas, matrix) {
     const type = effectiveRule.type || 'text';
     const additional = Array.isArray(effectiveRule.additional_selectors) ? effectiveRule.additional_selectors : [];
     const findings = fieldFindings(matrixPage, selectedField);
-    const notes = pageNotices(matrixPage).filter(note => note.field === fieldKey(selectedField));
     return `<div class="tab-panel">
       ${renderCandidateEditHint(selectedDetail)}
       ${renderSchemaChips(schemas, disabled)}
@@ -1847,7 +1846,6 @@ function renderSelectorPanel(schemas, matrix) {
           </span>
         </label>
         ${findings.length ? notice('bad', 'Failed check', `${findings.map(finding => escapeHtml(findingDescription(finding))).join('; ')} on this page.`) : ''}
-        ${notes.length ? notice('warn', 'Note', `${notes.map(note => escapeHtml(note.text)).join('; ')} on this page. This blocks no approval.`) : ''}
         <div class="rule-grid">
           <label class="field">Matches
             <select ${disabled} onchange="setCurrentRuleCardinality(this.value)">
@@ -1894,10 +1892,9 @@ function renderSelectorPanel(schemas, matrix) {
     </div>`;
 }
 
-// " · failed check", " · note" or " · empty" after the field the selected page has something to say about.
+// " · failed check" or " · empty" after the field the selected page has something to say about.
 function fieldStateSuffix(page, field) {
     if (fieldFindings(page, field).length) return ' · failed check';
-    if (pageNotices(page).some(note => note.field === fieldKey(field))) return ' · note';
     if (optionalFieldMisses(page).some(miss => miss.field === fieldKey(field))) return ' · empty';
     return '';
 }
@@ -2470,8 +2467,7 @@ const CHECK_LABELS = {
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
-    DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity',
-    FOREIGN_PRICE_CURRENCY: 'Foreign currency'
+    DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity'
 };
 
 function checkLabel(check) {
@@ -2482,27 +2478,12 @@ function findingBadge(finding) {
     return `<span class="badge badge-bad" title="${escapeHtmlAttr(findingDescription(finding))}">${escapeHtml(checkLabel(finding.check))}</span>`;
 }
 
-function noticeBadge(note) {
-    return `<span class="badge badge-warn" title="${escapeHtmlAttr(note.text)}">${escapeHtml(checkLabel(note.check))}</span>`;
-}
-
 // The selected schema's pages that failed a check, by the check's description, in page order.
 function groupFindingsByDescription(candidate) {
     const groups = new Map();
     for (const page of candidate?.pages || []) {
         for (const description of new Set(pageFindings(page).map(findingDescription))) {
             groups.set(description, [...(groups.get(description) || []), page]);
-        }
-    }
-    return groups;
-}
-
-// The selected schema's pages that carry a note, by the note's text.
-function groupNoticesByText(candidate) {
-    const groups = new Map();
-    for (const page of candidate?.pages || []) {
-        for (const text of new Set(pageNotices(page).map(note => note.text))) {
-            groups.set(text, [...(groups.get(text) || []), page]);
         }
     }
     return groups;
@@ -2583,18 +2564,15 @@ function skippedElementLines(candidate) {
 
 function renderNotesSection(matrix) {
     const candidate = selectedCandidate(matrix);
-    const groups = groupNoticesByText(candidate);
     const lines = [...optionalMissLines(candidate), ...skippedElementLines(candidate)];
-    if (!groups.size && !lines.length) return '';
-    const total = (candidate.pages || []).length;
+    if (!lines.length) return '';
     const pageCount = (candidate.pages || []).filter(page =>
-        pageNotices(page).length || notedOptionalMisses(page).length || fieldsWithSkippedElements(page).length).length;
-    const notes = groups.size + lines.length;
+        notedOptionalMisses(page).length || fieldsWithSkippedElements(page).length).length;
+    const notes = lines.length;
     return `<div class="section">
       <div class="section-head"><h3><span class="dot dot-warn"></span>Notes</h3>${badge(`${notes} note${notes === 1 ? '' : 's'} · ${pageCount} page${pageCount === 1 ? '' : 's'}`, 'warn')}</div>
       <div class="small muted">Information next to its field; notes block no approval.</div>
       <div class="check-list">
-        ${[...groups].map(([text, pages]) => checkEntry('warn', text, `${schemaLabel(selectedSchemaIndex)} · ${pages.length} of ${total} page${total === 1 ? '' : 's'}`, pages)).join('')}
         ${lines.map(line => `<div class="small muted">${escapeHtml(line)}</div>`).join('')}
       </div>
     </div>`;
@@ -2640,21 +2618,6 @@ function renderContradictingIdentities(findings) {
         ));
     if (!values.length) return '';
     return `<div class="small muted">Contradicting identities: ${values.join(', ')}</div>`;
-}
-
-// Informational findings of a matrix page: a `foreign_price_currency`. It neither
-// fails the page nor blocks approval.
-function pageNotices(page) {
-    const notices = [];
-    const foreign = page?.foreign_price_currency;
-    if (foreign) {
-        notices.push({
-            field: foreign.field,
-            check: 'FOREIGN_PRICE_CURRENCY',
-            text: `${displayName(foreign.field)} names ${foreign.currency}, not the fallback currency ${foreign.fallback_currency}`
-        });
-    }
-    return notices;
 }
 
 // Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
@@ -2749,8 +2712,7 @@ function rawDataCell(raw, page) {
     return `<dl class="kv">${
         fields.map(([key, value]) => {
             const findings = fieldFindings(page, key);
-            const notes = pageNotices(page).filter(note => note.field === key);
-            const badges = findings.map(findingBadge).join('') + notes.map(noticeBadge).join('');
+            const badges = findings.map(findingBadge).join('');
             const shown = hasRawValue(value)
                 ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value))
                 : '<span class="blank">blank</span>';

@@ -7,7 +7,6 @@
 
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
-use money::Currency;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use url::Url;
@@ -33,7 +32,6 @@ pub struct ScraperCandidate {
     pub domain_id: CrawlerDomainId,
     pub listing_source_domain: String,
     pub listing_source_name: String,
-    pub fallback_currency: Option<Currency>,
     pub url_pattern: Option<String>,
     pub url: Url,
     /// Stable raw-stream identity retained when the crawler URL moves.
@@ -592,7 +590,6 @@ struct ScraperCandidateRow {
     domain_id: uuid::Uuid,
     listing_source_domain: String,
     listing_source_name: String,
-    fallback_currency: Option<String>,
 
     url_pattern: Option<String>,
     url: String,
@@ -655,7 +652,7 @@ macro_rules! eligible_scraper_urls_cte {
     WITH eligible_urls AS (
         SELECT
             su.listing_source_id, sd.domain_id, sd.listing_source_domain,
-            s.listing_source_name, s.fallback_currency, sd.url_pattern, su.url,
+            s.listing_source_name, sd.url_pattern, su.url,
             su.raw_source_record_key AS source_record_key,
             su.last_scraped,
             su.last_scraped_hash,
@@ -718,7 +715,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
     )
     SELECT
         listing_source_id, domain_id, listing_source_domain, listing_source_name,
-        fallback_currency, url_pattern, url,
+        url_pattern, url,
         source_record_key,
         last_scraped_hash,
         last_scraped_schema_fingerprint,
@@ -795,17 +792,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             let Some(url) = Url::parse(&row.url).ok() else {
                 continue;
             };
-            let fallback_currency = row
-                .fallback_currency
-                .as_deref()
-                .map(|value| {
-                    Currency::from_code(value).ok_or_else(|| {
-                        sqlx::Error::Decode(Box::new(std::io::Error::other(
-                            "persisted crawler fallback currency is invalid",
-                        )))
-                    })
-                })
-                .transpose()?;
             let schema_review_wait = schema_review_wait_from_row(
                 row.schema_review_waited_on,
                 row.schema_review_wait_streak,
@@ -817,7 +803,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
                 listing_source_domain: row.listing_source_domain,
                 listing_source_name: row.listing_source_name,
-                fallback_currency,
                 url_pattern: row.url_pattern,
                 url,
                 source_record_key: row.source_record_key,
