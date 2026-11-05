@@ -1155,7 +1155,7 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn public_discovery_admits_current_derived_country_and_rejects_revoked_expired_or_stale_evidence()
+async fn public_discovery_admits_current_or_reviewed_derived_country_and_rejects_revoked_expired_or_stale_evidence()
  {
     use geo_postgres::SqlxResolutionRepositoryFactory;
     use geo_service::{geocoding::*, resolution::*};
@@ -1263,7 +1263,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_exp
         },
     };
     let factory = party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory;
-    for phase in 0..4 {
+    for phase in 0..5 {
         match phase {
             1 => {
                 sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
@@ -1286,6 +1286,18 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_exp
                     .unwrap();
                 sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
             }
+            4 => {
+                // A current review retains the evidence past its reconsideration deadline.
+                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()+interval '1 hour' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
+                let mut tx = uow.begin().await.unwrap();
+                SqlxResolutionRepositoryFactory
+                    .resolutions(&mut tx)
+                    .select(binding, view.work, 0, "test-reviewer")
+                    .await
+                    .unwrap();
+                tx.commit().await.unwrap();
+                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
+            }
             _ => {}
         }
         let mut tx = uow.begin().await.unwrap();
@@ -1294,7 +1306,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_exp
             .discover(&request)
             .await
             .unwrap();
-        assert_eq!(usize::from(phase == 0), result.items.len());
+        assert_eq!(usize::from(matches!(phase, 0 | 4)), result.items.len());
         if let Some(item) = result.items.first() {
             assert_eq!("ACCEPTED_DERIVED", item.basis);
             assert_eq!(Some(CountryCode::DEU), item.country);

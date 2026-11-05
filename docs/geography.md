@@ -163,7 +163,8 @@ The profile records default data rather than claiming a specific underlying supp
 [AWS Service Terms §82](https://aws.amazon.com/service-terms/#82._Amazon_Location_Service)
 and the [intended-use contract](https://docs.aws.amazon.com/location/latest/developerguide/places-intended-use.html)
 govern retention. Retained requests explicitly declare `IntendedUse=Storage`; single-use
-results cannot be persisted or cached, including their derived components. Storage is the
+results cannot be persisted or cached, including their derived components. Section 82.4.a(ii)
+sets no time limit on retaining geocoding results requested for storage. Storage is the
 API value; **Stored** is the [pricing category](https://docs.aws.amazon.com/location/latest/developerguide/places-pricing.html).
 Storage permission does not grant unrestricted resale, bulk collection, public geocoding,
 map display or waiver of personal-data erasure. Review [current pricing](https://aws.amazon.com/location/pricing/)
@@ -208,6 +209,15 @@ from a unique compatible candidate. Protected application operations can inspect
 select a compatible candidate using current location revision and resolution generation.
 Explicit point selection requires premises evidence. Selection affects only its binding,
 not other locations reusing the result; submitted assertions always retain precedence.
+
+Unreviewed evidence has a reconsideration deadline. It is freshness policy, since the
+[provider terms](#provider-terms-and-retention-gate) impose none. After the deadline, readers
+suppress the evidence and cleanup purges it, clears selections and requeues one paid call.
+A current selection instead retains its resolution's evidence with no deadline, for every
+binding that shares the resolution, so reviews are never repeated because time passed. A review
+ends only with changed input, forced Retry, detachment, revocation or erasure. Revocation and
+erasure still purge immediately. Once no current selection remains, past-deadline evidence
+follows ordinary expiry.
 
 Claims reserve provider/scope budgets before I/O and retain no transaction during the call.
 Completion rechecks lease, generation, current bindings and storage rights, then commits

@@ -35,13 +35,17 @@ fn corrupt() -> DiscoverPartyLocationsError {
 }
 
 // Predicate fields and distance all refer to this one location and current eligible candidate.
-// Provider payloads remain private; accepted evidence is decoded in a single batch below.
+// Eligibility mirrors the resolution reader, which rechecks every row below: a current review
+// retains evidence past its reconsideration deadline. Provider payloads remain private;
+// accepted evidence is decoded in a single batch below.
 const SELECT: &str = r#"
 WITH candidates AS (
  SELECT l.party_location_id, l.party_id, p.name AS party_name, l.label,
  l.geography, l.position, l.revision, l.input_revision,
  CASE WHEN b.guard=l.revision AND b.input_revision=l.input_revision
- AND c.storage_permitted AND r.valid_until>clock_timestamp() AND NOT r.erased
+ AND c.storage_permitted AND NOT r.erased AND (r.valid_until>clock_timestamp() OR EXISTS(
+   SELECT 1 FROM geo_resolution_bindings s WHERE s.resolution_id=r.resolution_id
+   AND s.selected_generation=r.generation))
  THEN r.evidence->'candidates'->COALESCE(
    CASE WHEN b.selected_generation=r.generation THEN b.selected_candidate END,
    (r.evidence->>'accepted_index')::integer)

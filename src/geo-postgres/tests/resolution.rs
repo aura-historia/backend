@@ -1059,7 +1059,7 @@ async fn address_retirement_and_manual_corrections_cancel_stale_application() {
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn review_verifies_current_candidate_and_binding_and_expiry_purges_all_derivatives() {
+async fn review_verifies_current_candidate_and_binding_and_revocation_purges_all_derivatives() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     let location = create(&pool, party(&pool).await, "review").await;
@@ -1152,6 +1152,14 @@ async fn review_verifies_current_candidate_and_binding_and_expiry_purges_all_der
         .execute(&pool)
         .await
         .unwrap();
+    let reviewed = inspect(&pool, location_binding(&changed)).await.unwrap();
+    assert_eq!(Some(0), reviewed.selected_candidate);
+    assert!(reviewed.valid_until.is_none());
+    assert!(reviewed.accepted_geography().unwrap().position().is_some());
+    sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false")
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(
         inspect(&pool, location_binding(&changed))
             .await
@@ -1203,6 +1211,137 @@ async fn review_verifies_current_candidate_and_binding_and_expiry_purges_all_der
             .unwrap();
     assert_eq!(0, retained);
     assert!(matches!(claim(&pool, w).await, ClaimOutcome::Complete));
+}
+
+async fn review(pool: &PgPool, b: ResolutionBinding, w: ResolutionWork) {
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .select(b, w, 0, "test-reviewer")
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+}
+async fn expire(pool: &PgPool) -> u32 {
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    let expired = SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .expire(100)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    expired
+}
+async fn detach(pool: &PgPool, b: ResolutionBinding) {
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .detach(b.subject)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn reviewed_evidence_outlives_its_deadline_until_input_change_or_detachment_ends_the_review()
+{
+    let pool = get_postgres_client().await;
+    configure(&pool).await;
+    let owner = Uuid::now_v7();
+    let a = input(owner, "Synthetic reviewed site");
+    let (first, second) = (binding(), binding());
+    let w = bind(&pool, &a, first).await;
+    assert_eq!(w, bind(&pool, &a, second).await);
+    let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
+        panic!("claim required");
+    };
+    assert_eq!(
+        ACCEPTED,
+        complete(
+            &pool,
+            &c,
+            ResolutionCompletion::Evidence(evaluate(&a, result(), PROFILE).unwrap())
+        )
+        .await
+    );
+    review(&pool, first, w).await;
+    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // One current review retains the shared evidence for every binding, without a deadline.
+    assert_eq!(0, expire(&pool).await);
+    let reviewed = inspect(&pool, first).await.unwrap();
+    assert_eq!(w, reviewed.work);
+    assert_eq!(Some(0), reviewed.selected_candidate);
+    assert!(reviewed.valid_until.is_none());
+    assert!(reviewed.accepted_geography().unwrap().position().is_some());
+    let sharing = inspect(&pool, second).await.unwrap();
+    assert!(sharing.selected_candidate.is_none());
+    assert!(sharing.valid_until.is_none());
+    assert!(sharing.accepted_geography().unwrap().position().is_none());
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(tx.connection())
+        .await
+        .unwrap();
+    let snapshot = SqlxResolutionRepositoryFactory::snapshot_reader(tx.connection())
+        .inspect(first.subject)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(Some(0), snapshot.selected_candidate);
+    tx.commit().await.unwrap();
+    // Retained evidence settles redeliveries without reserving another paid call, still
+    // accepts review and serves a newly bound subject from cache.
+    assert!(matches!(claim(&pool, w).await, ClaimOutcome::Complete));
+    review(&pool, second, w).await;
+    let third = binding();
+    assert_eq!(w, bind(&pool, &a, third).await);
+    assert!(inspect(&pool, third).await.unwrap().evidence.is_some());
+    let resolved: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM geo_resolution_changes WHERE change_kind='RESOLVED' AND subject_id=$1",
+    )
+    .bind(third.subject.id())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(1, resolved);
+
+    // Changed input ends the first review; the second keeps the evidence retained.
+    let moved = ResolutionBinding {
+        input_revision: 2,
+        guard: 2,
+        ..first
+    };
+    assert_ne!(
+        w.id,
+        bind(&pool, &input(owner, "Synthetic moved site"), moved)
+            .await
+            .id
+    );
+    assert_eq!(0, expire(&pool).await);
+    assert!(inspect(&pool, third).await.unwrap().evidence.is_some());
+
+    // Detaching the last reviewer returns past-deadline evidence to ordinary expiry.
+    detach(&pool, second).await;
+    assert!(inspect(&pool, third).await.unwrap().evidence.is_none());
+    assert_eq!(1, expire(&pool).await);
+    let refreshed = inspect(&pool, third).await.unwrap();
+    assert_eq!(w.generation + 1, refreshed.work.generation);
+    assert_eq!(ResolutionStatus::Pending, refreshed.status);
+    let attempts: i32 =
+        sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1")
+            .bind(w.id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(0, attempts);
+    assert!(matches!(
+        claim(&pool, refreshed.work).await,
+        ClaimOutcome::Claimed(_)
+    ));
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]

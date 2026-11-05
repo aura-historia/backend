@@ -135,18 +135,29 @@ fn valid_evidence(e: &ResolutionEvidence, input: &ResolutionInput, profile: &str
             .is_some_and(|p| p.precision() == geo::SpatialPrecision::Premises)
 }
 
+/// SQL truth of "a current review retains this resolution's evidence" for a query that aliases
+/// `geo_resolutions` as `r`. A selection is current while it names the reviewed generation.
+macro_rules! reviewed_sql {
+    () => {
+        "EXISTS(SELECT 1 FROM geo_resolution_bindings s WHERE s.resolution_id=r.resolution_id AND s.selected_generation=r.generation)"
+    };
+}
 /// Resolution-wide facts, read beside a resolution row, that decide whether its evidence is current.
 #[derive(FromRow)]
 struct RetentionFacts {
     storage_permitted: bool,
+    /// See [`reviewed_sql`].
+    reviewed: bool,
 }
 /// Whether persisted evidence still serves the bindings of its resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EvidenceCurrency {
-    /// No evidence, revoked storage rights or a passed reconsideration deadline.
+    /// No evidence, revoked storage rights or an unreviewed passed reconsideration deadline.
     Ineligible,
-    /// Serves until this reconsideration deadline.
+    /// Unreviewed evidence serves until this reconsideration deadline.
     Until(OffsetDateTime),
+    /// A current review retains the evidence without a reconsideration deadline.
+    Reviewed,
 }
 impl EvidenceCurrency {
     fn is_current(self) -> bool {
@@ -155,7 +166,7 @@ impl EvidenceCurrency {
     fn deadline(self) -> Option<OffsetDateTime> {
         match self {
             Self::Until(until) => Some(until),
-            Self::Ineligible => None,
+            Self::Ineligible | Self::Reviewed => None,
         }
     }
 }
@@ -215,10 +226,13 @@ impl ResolutionRow {
             })
             .transpose()
     }
-    /// Storage rights gate all evidence; evidence also lapses at its reconsideration deadline.
+    /// Storage rights gate all evidence. A current review retains it without a deadline;
+    /// unreviewed evidence lapses at its reconsideration deadline.
     fn currency(&self, facts: &RetentionFacts, now: OffsetDateTime) -> EvidenceCurrency {
         match self.valid_until {
-            Some(until) if facts.storage_permitted && until > now => EvidenceCurrency::Until(until),
+            Some(_) if !facts.storage_permitted => EvidenceCurrency::Ineligible,
+            Some(_) if facts.reviewed => EvidenceCurrency::Reviewed,
+            Some(until) if until > now => EvidenceCurrency::Until(until),
             _ => EvidenceCurrency::Ineligible,
         }
     }
@@ -292,12 +306,13 @@ impl Repository<'_> {
         if r.valid_until.is_none() {
             return Ok(EvidenceCurrency::Ineligible);
         }
-        let facts: RetentionFacts = sqlx::query_as(
-            r#"
-            SELECT c.storage_permitted FROM geo_resolutions r
+        let facts: RetentionFacts = sqlx::query_as(concat!(
+            "SELECT c.storage_permitted,",
+            reviewed_sql!(),
+            r#" AS reviewed FROM geo_resolutions r
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.resolution_id=$1
             "#,
-        )
+        ))
         .bind(r.resolution_id)
         .fetch_one(&mut *self.connection)
         .await
@@ -753,14 +768,17 @@ impl ResolutionRepository for Repository<'_> {
             return Err(ResolutionError::InvalidInput);
         }
         let now = self.clock().await?;
-        let rows:Vec<(Uuid,i64,bool)>=sqlx::query_as(
+        // Reviewed evidence has no deadline: only revocation or orphaning purges it here.
+        let rows:Vec<(Uuid,i64,bool)>=sqlx::query_as(concat!(
             r#"
             SELECT r.resolution_id,r.generation,c.storage_permitted FROM geo_resolutions r JOIN
             geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.evidence IS NOT NULL AND
-            (r.valid_until<=$1 OR NOT c.storage_permitted OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b
+            ((r.valid_until<=$1 AND NOT "#,
+            reviewed_sql!(),
+            r#") OR NOT c.storage_permitted OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b
             WHERE b.resolution_id=r.resolution_id)) ORDER BY r.valid_until LIMIT $2 FOR NO KEY UPDATE OF r SKIP LOCKED
             "#,
-        ).bind(now).bind(i64::from(limit)).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
+        )).bind(now).bind(i64::from(limit)).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
         let count = rows.len() as u32;
         for (id, g, permitted) in rows {
             let next = g.checked_add(1).ok_or_else(corrupt)?;
@@ -1003,17 +1021,19 @@ impl Repository<'_> {
         ).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
         let rows: std::collections::HashMap<_, _> =
             rows.into_iter().map(|r| (r.resolution_id, r)).collect();
-        let mut binding_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+        let mut binding_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(concat!(
             r#"
             SELECT b.subject_kind,b.subject_id,b.resolution_id,b.input_revision,b.guard,
-                b.selected_candidate,b.selected_generation,c.storage_permitted
+                b.selected_candidate,b.selected_generation,c.storage_permitted,"#,
+            reviewed_sql!(),
+            r#" AS reviewed
             FROM geo_resolution_bindings b
             JOIN unnest($1::text[],$2::uuid[]) AS wanted(subject_kind,subject_id) USING(subject_kind,subject_id)
             JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile
             WHERE b.resolution_id=ANY($3) ORDER BY b.subject_kind,b.subject_id
             "#,
-        );
+        ));
         if lock {
             binding_query.push(" FOR SHARE OF b");
         }

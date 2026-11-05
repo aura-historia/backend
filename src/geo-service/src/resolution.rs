@@ -294,6 +294,8 @@ pub enum ResolutionStatus {
     Blocked,
 }
 impl ResolutionStatus {
+    /// How long unreviewed evidence with this outcome serves before it is reconsidered with a
+    /// new paid call. Provider terms set no limit; a current review retains evidence without one.
     pub fn retention_period(self) -> Option<time::Duration> {
         match self {
             Self::Accepted | Self::NoMatch => Some(time::Duration::days(30)),
@@ -368,6 +370,8 @@ pub struct ResolutionView {
     pub guard: u64,
     pub status: ResolutionStatus,
     pub evidence: Option<ResolutionEvidence>,
+    /// Reconsideration deadline of `evidence`; `None` without evidence or while a current
+    /// review retains it without a deadline.
     pub valid_until: Option<OffsetDateTime>,
     pub selected_candidate: Option<usize>,
     pub last_failure: Option<String>,
@@ -593,7 +597,8 @@ pub trait ResolutionRepository: Send {
     ) -> Result<CompletionOutcome, ResolutionError>;
     /// Publish fresh fenced wake-ups for runnable work without resetting paid attempts.
     async fn recover_pending(&mut self, limit: u32) -> Result<u32, ResolutionError>;
-    /// Purge every expired provider derivative and commit invalidation before requeue.
+    /// Purge provider derivatives made ineligible by revocation, orphaning or an unreviewed
+    /// reconsideration deadline, and commit invalidation before requeue.
     async fn expire(&mut self, limit: u32) -> Result<u32, ResolutionError>;
     async fn select(
         &mut self,
