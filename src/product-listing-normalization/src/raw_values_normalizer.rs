@@ -843,7 +843,7 @@ mod tests {
     }
 
     #[test]
-    fn should_detect_title_language_with_description_before_fallback_language() {
+    fn should_detect_title_language_with_description_when_fallback_language_differs() {
         let description = json!({"action": "SET", "value": [
             "Een stenen tuinbeeld van een putto die op een bol staat.",
             "Mooi verweerd en in goede staat."
@@ -856,14 +856,14 @@ mod tests {
     }
 
     #[test]
-    fn should_keep_each_language_of_a_mixed_listing_with_a_decisive_title() {
+    fn should_take_description_language_for_title_when_listing_is_mixed() {
         let description = json!({"action": "SET", "value": [
             "Prachtig antiek Victoriaans mahonie schrijfbureau met een leren blad.",
             "Het bureau heeft drie laden en staat op gedraaide poten."
         ]});
 
         assert_eq!(
-            (Some(Language::En), Some(Language::Nl)),
+            (Some(Language::Nl), Some(Language::Nl)),
             resolved_languages(
                 "Antique Victorian mahogany writing desk with leather top",
                 description
@@ -875,7 +875,7 @@ mod tests {
     #[case(json!({"action": "CLEAR"}))]
     #[case(json!({"action": "UNCHANGED"}))]
     #[case(json!({"action": "SET", "value": ["  "]}))]
-    fn should_use_fallback_language_for_indecisive_title_without_description(
+    fn should_use_fallback_language_when_indecisive_title_has_no_description(
         #[case] description: serde_json::Value,
     ) {
         let (title_language, _) = resolved_languages("Stenen putto op bol", description);

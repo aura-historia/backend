@@ -32,8 +32,6 @@ pub fn detect_language(text: &str) -> Option<Language> {
 
 /// Detects the language of a text snippet only when the detector attributes at least
 /// `minimum_confidence` (between `0.0` and `1.0`) of its confidence to that language.
-///
-/// A `minimum_confidence` above `0.5` admits at most one language.
 pub fn detect_language_with_minimum_confidence(
     text: &str,
     minimum_confidence: f64,

@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-05 — Title language detected with the description (#2782)
 
-- Newly normalized listings take the original language of a title that consists mostly of names, style periods or loanwords, such as "Dutch Louis XV barometer", from the title together with its description, instead of from the title alone. Already stored titles keep their recorded language until a later revision of the listing is normalized. Such titles are no longer presented untranslated as if already in another language, and `/v1/overview` `languages` no longer counts these mislabeled languages. A title whose own language is unambiguous keeps it even when its description is in another language.
+- Newly normalized listings detect a title's original language together with its description instead of from the title alone, so titles of names, style periods or loanwords such as "Dutch Louis XV barometer" are no longer labelled with a language they are not written in. A title in another language than its description usually takes the description's language. Already stored titles keep their recorded language until a later revision of the listing is normalized.
 
 ## 2026-11-05 — Geocoding results no longer expire (#2771)
 
