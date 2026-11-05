@@ -207,17 +207,16 @@ fence old replies; presentation-only changes update guards without paying again.
 Business policy **PRECISION_FIRST_V1** automatically accepts only administrative geography
 from a unique compatible candidate. Protected application operations can inspect, retry or
 select a compatible candidate using current location revision and resolution generation.
-Explicit point selection requires premises evidence. Selection affects only its binding,
-not other locations reusing the result; submitted assertions always retain precedence.
+Explicit point selection requires premises evidence. A selected candidate applies only to its
+binding, not other locations reusing the result; submitted assertions always retain precedence.
 
 Unreviewed evidence has a reconsideration deadline. It is freshness policy, since the
 [provider terms](#provider-terms-and-retention-gate) impose none. After the deadline, readers
-suppress the evidence and cleanup purges it, clears selections and requeues one paid call.
-A current selection instead retains its resolution's evidence with no deadline, for every
-binding that shares the resolution, so reviews are never repeated because time passed. A review
-ends only with changed input, forced Retry, detachment, revocation or erasure. Revocation and
-erasure still purge immediately. Once no current selection remains, past-deadline evidence
-follows ordinary expiry.
+suppress the evidence and cleanup purges it and requeues one paid call. A current selection
+retains its resolution's evidence without a deadline for every binding that shares the
+resolution, so passing time never forces a review to be repeated. Changed input, forced Retry
+and detachment end a review; revocation and erasure take precedence over it. Once no current
+selection remains, past-deadline evidence follows ordinary expiry.
 
 Claims reserve provider/scope budgets before I/O and retain no transaction during the call.
 Completion rechecks lease, generation, current bindings and storage rights, then commits

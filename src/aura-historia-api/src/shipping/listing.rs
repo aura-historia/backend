@@ -37,7 +37,7 @@ impl From<AssessmentError> for ApiError {
     }
 }
 
-/// Cap shared caching at geographic provider evidence retention deadlines.
+/// Cap shared caching at geographic evidence reconsideration deadlines.
 pub(crate) fn cache_ttl<'a>(
     items: impl IntoIterator<Item = Option<&'a AdvertisedShipping>>,
     maximum: u32,

@@ -1243,8 +1243,7 @@ async fn detach(pool: &PgPool, b: ResolutionBinding) {
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn reviewed_evidence_outlives_its_deadline_until_input_change_or_detachment_ends_the_review()
-{
+async fn reviewed_evidence_outlives_its_deadline_until_its_last_review_ends() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     let owner = Uuid::now_v7();
@@ -1295,7 +1294,9 @@ async fn reviewed_evidence_outlives_its_deadline_until_input_change_or_detachmen
     tx.commit().await.unwrap();
     // Retained evidence settles redeliveries without reserving another paid call, still
     // accepts review and serves a newly bound subject from cache.
+    let calls = provider_calls(&pool).await;
     assert!(matches!(claim(&pool, w).await, ClaimOutcome::Complete));
+    assert_eq!(calls, provider_calls(&pool).await);
     review(&pool, second, w).await;
     let third = binding();
     assert_eq!(w, bind(&pool, &a, third).await);
@@ -1309,7 +1310,12 @@ async fn reviewed_evidence_outlives_its_deadline_until_input_change_or_detachmen
     .unwrap();
     assert_eq!(1, resolved);
 
-    // Changed input ends the first review; the second keeps the evidence retained.
+    // Detaching one reviewer leaves the other review retaining the evidence.
+    detach(&pool, second).await;
+    assert_eq!(0, expire(&pool).await);
+    assert!(inspect(&pool, third).await.unwrap().evidence.is_some());
+
+    // Changed input ends the last review and returns past-deadline evidence to ordinary expiry.
     let moved = ResolutionBinding {
         input_revision: 2,
         guard: 2,
@@ -1321,11 +1327,6 @@ async fn reviewed_evidence_outlives_its_deadline_until_input_change_or_detachmen
             .await
             .id
     );
-    assert_eq!(0, expire(&pool).await);
-    assert!(inspect(&pool, third).await.unwrap().evidence.is_some());
-
-    // Detaching the last reviewer returns past-deadline evidence to ordinary expiry.
-    detach(&pool, second).await;
     assert!(inspect(&pool, third).await.unwrap().evidence.is_none());
     assert_eq!(1, expire(&pool).await);
     let refreshed = inspect(&pool, third).await.unwrap();

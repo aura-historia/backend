@@ -545,8 +545,9 @@ rights withdrawal requires faster erasure. Readers suppress ineligible evidence 
 listing search accepts projection lag while removal propagates.
 
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
-deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
-counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
+deadline and budgets; reviewed evidence keeps a passed deadline by design, not from stalled
+cleanup. Monitor resolution reuse/outcomes, oldest pending age, maintenance counts, queue
+age/depth/DLQ and cleanup failures. Structured log fields are observations, not
 provisioned metric filters; BLOCKED/FAILED work is acknowledged rather than retained, so inspect
 the recorded `geo_resolution_outcome` and resolution state for it. Never include private input
 or provider payloads in logs, operator evidence or replay messages.

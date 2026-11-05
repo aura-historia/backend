@@ -142,6 +142,18 @@ macro_rules! reviewed_sql {
         "EXISTS(SELECT 1 FROM geo_resolution_bindings s WHERE s.resolution_id=r.resolution_id AND s.selected_generation=r.generation)"
     };
 }
+/// SQL truth of "cleanup must purge `r`'s evidence" for a query that joins provider controls as
+/// `c` and binds the cleanup clock to `$1`. Reviewed evidence has no deadline, so only
+/// revocation or orphaning purges it.
+macro_rules! expirable_sql {
+    () => {
+        concat!(
+            "((r.valid_until<=$1 AND NOT ",
+            reviewed_sql!(),
+            ") OR NOT c.storage_permitted OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id))"
+        )
+    };
+}
 /// Resolution-wide facts, read beside a resolution row, that decide whether its evidence is current.
 #[derive(FromRow)]
 struct RetentionFacts {
@@ -545,7 +557,7 @@ impl ResolutionRepository for Repository<'_> {
         if !self.is_bound(w.id).await? {
             return Ok(ClaimOutcome::Complete);
         }
-        if r.valid_until.is_some_and(|until| until > now) && control.storage_permitted {
+        if self.evidence_eligibility(&r, now).await?.is_current() {
             r.evidence(&input)?;
             return Ok(ClaimOutcome::Complete);
         }
@@ -768,28 +780,44 @@ impl ResolutionRepository for Repository<'_> {
             return Err(ResolutionError::InvalidInput);
         }
         let now = self.clock().await?;
-        // Reviewed evidence has no deadline: only revocation or orphaning purges it here.
-        let rows:Vec<(Uuid,i64,bool)>=sqlx::query_as(concat!(
+        let rows: Vec<(Uuid, i64)> = sqlx::query_as(concat!(
             r#"
-            SELECT r.resolution_id,r.generation,c.storage_permitted FROM geo_resolutions r JOIN
-            geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.evidence IS NOT NULL AND
-            ((r.valid_until<=$1 AND NOT "#,
-            reviewed_sql!(),
-            r#") OR NOT c.storage_permitted OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b
-            WHERE b.resolution_id=r.resolution_id)) ORDER BY r.valid_until LIMIT $2 FOR NO KEY UPDATE OF r SKIP LOCKED
-            "#,
-        )).bind(now).bind(i64::from(limit)).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
-        let count = rows.len() as u32;
-        for (id, g, permitted) in rows {
+            SELECT r.resolution_id,r.generation FROM geo_resolutions r JOIN
+            geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.evidence IS NOT NULL AND "#,
+            expirable_sql!(),
+            " ORDER BY r.valid_until LIMIT $2 FOR NO KEY UPDATE OF r SKIP LOCKED",
+        ))
+        .bind(now)
+        .bind(i64::from(limit))
+        .fetch_all(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        let mut count = 0;
+        for (id, g) in rows {
             let next = g.checked_add(1).ok_or_else(corrupt)?;
             let w = work(id, next)?;
-            sqlx::query(
+            // The candidate snapshot predates this lock. Selection needs the same lock, so
+            // rechecking on a fresh statement keeps a review committed in between.
+            let purged = sqlx::query(concat!(
                 r#"
-                UPDATE geo_resolutions SET
-                evidence=NULL,valid_until=NULL,lease_token=NULL,lease_until=NULL,attempts=0,generation=$2,status=$3,next_attempt_at=$4,pending_since=$4,last_failure=$5
-                WHERE resolution_id=$1
-                "#,
-            ).bind(id).bind(next).bind(if permitted {"PENDING"} else {"BLOCKED"}).bind(now).bind(if permitted {None} else {Some("STORAGE_NOT_PERMITTED")}).execute(&mut *self.connection).await.map_err(sql_error)?;
+                UPDATE geo_resolutions r SET
+                evidence=NULL,valid_until=NULL,lease_token=NULL,lease_until=NULL,attempts=0,generation=$3,
+                status=CASE WHEN c.storage_permitted THEN 'PENDING' ELSE 'BLOCKED' END,next_attempt_at=$1,
+                pending_since=$1,last_failure=CASE WHEN c.storage_permitted THEN NULL ELSE 'STORAGE_NOT_PERMITTED' END
+                FROM geo_resolution_provider_controls c WHERE r.resolution_id=$2 AND c.profile=r.profile AND "#,
+                expirable_sql!(),
+            ))
+            .bind(now)
+            .bind(id)
+            .bind(next)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(sql_error)?
+            .rows_affected();
+            if purged == 0 {
+                continue;
+            }
+            count += 1;
             sqlx::query(
                 r#"
                 UPDATE geo_resolution_bindings SET
