@@ -523,14 +523,11 @@ publication are not provider acceptance. Reconcile ambiguous SES sends under
 ## Geographic resolution recovery
 
 [Geography](geography.md#durable-resolution-and-party-integration-2002) owns acceptance,
-privacy and retention. Geocoding is always on: resolution workers process all eligible work
-with no operator switch, storage flag, call budget or concurrency limit, so there is no
-provider-control procedure and no database access is needed to start geocoding. Only the
-automatic circuit breaker pauses calls, for five minutes after three consecutive
-provider-health failures. Provider/private-input rights, attribution and expected cost are
-reviewed with the code change that adds or changes a provider profile. Stopping paid calls or
-withdrawing retention rights requires a reviewed release that removes the calls and purges
-retained evidence.
+privacy and retention. Geocoding is [always on](geography.md#provider-terms-and-retention-gate):
+there is no provider-control procedure and no database access is needed to start geocoding.
+Only the automatic circuit breaker pauses calls, for five minutes after three consecutive
+provider-health failures. Stopping paid calls or withdrawing retention rights requires a
+reviewed release that removes the calls and purges retained evidence.
 
 Apply the consolidated geography migration with compatible API, router, workers and cleanup
 binaries through the [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
@@ -543,7 +540,8 @@ product search visibility before enabling new geographic filters.
 The hourly backend cleanup purges ineligible evidence and requeues bounded runnable work
 whose provider circuit is closed. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
 attempts, pending age and backoff; live leases keep their claims. Additional bounded cleanup
-invocations follow ordinary operational approval when backlog requires faster erasure. Readers suppress ineligible evidence immediately;
+invocations follow ordinary operational approval when backlog requires faster recovery or
+purging. Readers suppress ineligible evidence immediately;
 listing search accepts projection lag while removal propagates.
 
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,

@@ -199,7 +199,7 @@ impl ResolutionInput {
             .map(|byte| format!("{byte:02x}"))
             .collect()
     }
-    pub fn budget_key(&self) -> String {
+    pub fn scope_key(&self) -> String {
         let mut hash = Sha256::new();
         hash.update(self.scope.kind.as_str());
         if let Some(id) = self.scope.owner {

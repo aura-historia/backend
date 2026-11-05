@@ -1,6 +1,23 @@
 -- Geocoding is always on: the reviewed provider profile has no operator switch, storage
--- permission flag, daily/scope budget or concurrency limit. The provider row keeps only the
--- profile identity, the default marker and the automatic provider-health circuit breaker.
+-- permission flag, daily/scope budget or concurrency limit. The provider row is used only for
+-- the profile identity, the default marker and the automatic provider-health circuit breaker.
+--
+-- Expand/contract: binaries from the previous release still read and update the retired
+-- control columns and scope budgets until rollout completes, so this migration pins them to
+-- always-on values instead of dropping them. A later release drops them.
+
+-- Evidence becomes eligible wherever storage was not permitted. Re-project the listings that
+-- depend on such a profile, as the retired storage-permission triggers did.
+SELECT enqueue_listing_geography('RESOLUTION',r.resolution_id::text)
+FROM geo_resolution_provider_controls c JOIN geo_resolutions r USING(profile)
+WHERE NOT c.storage_permitted AND EXISTS(SELECT 1 FROM geo_resolution_bindings b
+    WHERE b.resolution_id=r.resolution_id AND b.subject_kind='PARTY_LOCATION')
+ORDER BY r.resolution_id;
+SELECT enqueue_listing_shipping('RESOLUTION',r.resolution_id::text)
+FROM geo_resolution_provider_controls c JOIN geo_resolutions r USING(profile)
+WHERE NOT c.storage_permitted AND EXISTS(SELECT 1 FROM geo_resolution_bindings b
+    WHERE b.resolution_id=r.resolution_id AND b.subject_kind='PARTY_LOCATION')
+ORDER BY r.resolution_id;
 
 -- Storage permission is no longer a dependency of listing projections.
 DROP TRIGGER listing_geography_provider_signal ON geo_resolution_provider_controls;
@@ -46,11 +63,13 @@ END $$;
 -- pending re-projection is lost, then remove the provider dependency kinds.
 SELECT enqueue_listing_geography('RESOLUTION',r.resolution_id::text)
 FROM listing_geography_work w JOIN geo_resolutions r ON r.profile=w.dependency_id
-WHERE w.dependency_kind='PROFILE' AND w.pending
+WHERE w.dependency_kind='PROFILE' AND w.pending AND EXISTS(SELECT 1 FROM geo_resolution_bindings b
+    WHERE b.resolution_id=r.resolution_id AND b.subject_kind='PARTY_LOCATION')
 ORDER BY r.resolution_id;
 SELECT enqueue_listing_shipping('RESOLUTION',r.resolution_id::text)
 FROM listing_shipping_work w JOIN geo_resolutions r ON r.profile=w.dependency_id
-WHERE w.dependency_kind='PROVIDER' AND w.pending
+WHERE w.dependency_kind='PROVIDER' AND w.pending AND EXISTS(SELECT 1 FROM geo_resolution_bindings b
+    WHERE b.resolution_id=r.resolution_id AND b.subject_kind='PARTY_LOCATION')
 ORDER BY r.resolution_id;
 
 DELETE FROM listing_geography_wakeups WHERE work_id IN
@@ -95,17 +114,18 @@ ALTER TABLE listing_shipping_work DROP CONSTRAINT listing_shipping_work_dependen
     ADD CONSTRAINT listing_shipping_work_dependency_kind_check
         CHECK (dependency_kind IN ('SOURCE','PROFILE','LISTING','LOCATION','RESOLUTION'));
 
-DROP TABLE geo_resolution_scope_budgets;
-
+-- Retired controls: always on and effectively unlimited for previous-release binaries.
+UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true,
+    daily_limit=100000,scope_daily_limit=100000,concurrency_limit=8,scope_concurrency_limit=8;
 ALTER TABLE geo_resolution_provider_controls
-    DROP COLUMN enabled,
-    DROP COLUMN storage_permitted,
-    DROP COLUMN daily_limit,
-    DROP COLUMN scope_daily_limit,
-    DROP COLUMN concurrency_limit,
-    DROP COLUMN scope_concurrency_limit,
-    DROP COLUMN budget_day,
-    DROP COLUMN calls;
+    ALTER COLUMN enabled SET DEFAULT true,
+    ALTER COLUMN storage_permitted SET DEFAULT true,
+    ALTER COLUMN daily_limit SET DEFAULT 100000,
+    ALTER COLUMN scope_daily_limit SET DEFAULT 100000,
+    ALTER COLUMN concurrency_limit SET DEFAULT 8,
+    ALTER COLUMN scope_concurrency_limit SET DEFAULT 8;
 
 COMMENT ON TABLE geo_resolution_provider_controls IS
-    'Geocoding provider profiles: identity, the default marker and automatic circuit-breaker state. Geocoding has no operator switch, storage flag, budget or concurrency limit.';
+    'Geocoding provider profiles: identity, the default marker and automatic circuit-breaker state. enabled, storage_permitted, the limits, budget_day and calls are retired and unread; they remain only until the previous release is gone.';
+COMMENT ON TABLE geo_resolution_scope_budgets IS
+    'Retired and unread; remains only until the previous release is gone.';

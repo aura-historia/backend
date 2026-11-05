@@ -160,7 +160,7 @@ impl ResolutionRow {
         let input: ResolutionInput = data.try_into()?;
         if self.policy_version != input.policy_version()
             || input.fingerprint(&self.profile) != self.fingerprint
-            || input.budget_key() != self.scope_key
+            || input.scope_key() != self.scope_key
             || self.generation <= 0
             || !(0..=5).contains(&self.attempts)
             || ResolutionStatus::from_code(&self.status).is_none()
@@ -289,7 +289,7 @@ impl ResolutionRepository for Repository<'_> {
             RETURNING resolution_id,generation
             "#,
         )
-            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(input.policy_version()).bind(input.budget_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
+            .bind(id.into_uuid()).bind(fingerprint).bind(profile).bind(input.policy_version()).bind(input.scope_key()).bind(encode(&InputData::from(input))?).fetch_one(&mut *self.connection).await.map_err(sql_error)?;
         let row = self
             .row(ResolutionId::try_from(stored_id).map_err(invalid)?)
             .await?
