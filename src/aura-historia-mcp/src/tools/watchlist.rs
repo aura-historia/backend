@@ -415,12 +415,12 @@ mod tests {
                     slug_id: ListingSourceSlugId::raw("watchlist-source").unwrap(),
                 },
                 source_listing_id: SourceListingId::try_from("source:item/42").unwrap(),
-                product_title: None,
-                product_description: None,
-                title: Some(Localized::new(
-                    Language::De,
-                    Title::from("Watchlist-Schrank"),
-                )),
+                title: Some(
+                    product_listing_service::listing_text::ListingText::localized(Localized::new(
+                        Language::De,
+                        Title::from("Watchlist-Schrank"),
+                    )),
+                ),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {

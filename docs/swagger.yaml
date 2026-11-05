@@ -20404,8 +20404,8 @@ components:
 
         title:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
+            - $ref: "#/components/schemas/ListingTextData"
+          description: Listing title. Carries only `localized`. Omitted when the listing has no title.
         displayPrice:
           allOf:
             - $ref: "#/components/schemas/ProductListingPriceData"
@@ -20513,23 +20513,14 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
-        productTitle:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
-          description: Original normalized title. Styled letters and digits are presented as ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain stable; titles stored before a normalization change, including legacy trailing whitespace, are presented in current normalized form.
-        productDescription:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
         title:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
+            - $ref: "#/components/schemas/ListingTextData"
+          description: Listing title. Omitted when the listing has neither an original nor a translated title. Chosen separately from `description`, so their languages can differ.
         description:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
+            - $ref: "#/components/schemas/ListingTextData"
+          description: Listing description. Omitted when the listing has neither an original nor a translated description.
         pricing:
           type: object
           required:
@@ -20630,23 +20621,14 @@ components:
           $ref: "#/components/schemas/ProductListingSourceData"
         sourceListingId:
           type: string
-        productTitle:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
-          description: Original normalized title. Styled letters and digits are presented as ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain stable; titles stored before a normalization change, including legacy trailing whitespace, are presented in current normalized form.
-        productDescription:
-          allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
         title:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
+            - $ref: "#/components/schemas/ListingTextData"
+          description: Listing title. Omitted when the listing has neither an original nor a translated title. Chosen separately from `description`, so their languages can differ.
         description:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
-          nullable: true
+            - $ref: "#/components/schemas/ListingTextData"
+          description: Listing description. Omitted when the listing has neither an original nor a translated description.
         pricing:
           type: object
           required:
@@ -21062,6 +21044,28 @@ components:
           description: The text content
         language:
           $ref: "#/components/schemas/LanguageData"
+    ListingTextData:
+      type: object
+      description: A listing text as the source published it and as shown for the requested language. Show
+        `localized`; compare `localized.language` with `original.language` to tell whether the text was
+        translated.
+      required:
+        - localized
+      properties:
+        original:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          description: Text as the source published it, normalized. Styled letters and digits are presented as
+            ordinary text, emoji and ornamental symbols are removed and truncation ellipses remain stable; texts
+            stored before a normalization change, including legacy trailing whitespace, are presented in current
+            normalized form. Omitted when the listing has no original text and on responses that do not carry it
+            (search and similar-listing summaries and notification payloads).
+        localized:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedTextData"
+          description: Text to show for the requested language. Chosen from the translations and the original in
+            the order requested language, `en`, `de`, then any other language, so it can be the original itself.
+            Always present.
     PriceData:
       type: object
       description: Price information with currency
@@ -23813,8 +23817,9 @@ components:
           type: string
         title:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
+            - $ref: "#/components/schemas/ListingTextData"
           nullable: true
+          description: Listing title for the recipient's language. Null when the listing had no title. Carries only `localized`.
         image:
           allOf:
             - $ref: "#/components/schemas/ProductListingImageData"
@@ -23905,8 +23910,9 @@ components:
           type: string
         title:
           allOf:
-            - $ref: "#/components/schemas/LocalizedTextData"
+            - $ref: "#/components/schemas/ListingTextData"
           nullable: true
+          description: Listing title for the recipient's language. Null when the listing had no title. Carries only `localized`.
         image:
           allOf:
             - $ref: "#/components/schemas/ProductListingImageData"

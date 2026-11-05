@@ -145,7 +145,10 @@ async fn should_map_full_listing_auction_context_and_referral_url_for_catalogue_
         .unwrap_or_else(|| panic!("missing catalogue item"));
     assert_eq!(
         Some("Selected title"),
-        item.item.title.as_ref().map(|value| value.payload.as_ref())
+        item.item
+            .title
+            .as_ref()
+            .map(|value| value.localized.payload.as_ref())
     );
     assert_eq!(
         "https://prf.hn/click/camref:catalogue/pubref:aurahistoria/destination:https%3A%2F%2Fexample.com%2Fcatalogue-full-listing",

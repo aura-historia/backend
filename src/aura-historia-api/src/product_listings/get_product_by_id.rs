@@ -743,12 +743,12 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("source-listing-id")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
-                product_title: None,
-                product_description: None,
-                title: Some(Localized {
-                    localization: Language::En,
-                    payload: Title::from("Cabinet"),
-                }),
+                title: Some(
+                    product_listing_service::listing_text::ListingText::localized(Localized {
+                        localization: Language::En,
+                        payload: Title::from("Cabinet"),
+                    }),
+                ),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {

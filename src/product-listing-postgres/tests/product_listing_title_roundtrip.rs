@@ -19,6 +19,7 @@ use product_listing_postgres::{
     SqlxProductListingSearchFilterMatchSourceReaderFactory,
     SqlxProductListingTranslationSourceReader,
 };
+use product_listing_service::listing_text::ListingText;
 use product_listing_service::{
     ports::{
         ProductListingContentAssessmentSourceReader, ProductListingDetailsReadRequest,
@@ -140,8 +141,10 @@ async fn assert_read_paths(
         .expect("read details")
         .expect("details exist")
         .item;
-    assert_eq!(current_localized, details.product_title);
-    assert_eq!(current_localized, details.title);
+    assert_eq!(
+        ListingText::select(current_localized.clone(), current_localized.clone()),
+        details.title
+    );
     assert_eq!(product.id(), details.product_listing_id);
     assert_eq!(
         *product.title_slug_id(),

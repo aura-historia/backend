@@ -508,8 +508,6 @@ mod tests {
                 event_id: domain_primitives::event_id::EventId::new(),
                 source,
                 source_listing_id: SourceListingId::try_from("cabinet-1")?,
-                product_title: None,
-                product_description: None,
                 title: None,
                 description: None,
                 pricing: ProductListingPricing::default(),

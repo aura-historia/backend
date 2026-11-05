@@ -311,11 +311,11 @@ async fn should_return_localized_reason_specific_notification_payloads() {
     let price_change = notification_with_kind(items, "WATCHLIST_PRICE_CHANGED");
     assert_eq!(
         serde_json::json!("Geigentitel"),
-        price_change["payload"]["title"]["text"]
+        price_change["payload"]["title"]["localized"]["text"]
     );
     assert_eq!(
         serde_json::json!("de"),
-        price_change["payload"]["title"]["language"]
+        price_change["payload"]["title"]["localized"]["language"]
     );
     assert_eq!(
         serde_json::json!("EUR"),
@@ -372,7 +372,7 @@ async fn should_return_localized_reason_specific_notification_payloads() {
     let search_filter = notification_with_kind(items, "SEARCH_FILTER_MATCH");
     assert_eq!(
         serde_json::json!("Geigentitel"),
-        search_filter["payload"]["title"]["text"]
+        search_filter["payload"]["title"]["localized"]["text"]
     );
     assert_eq!(
         serde_json::json!("Saved Violins"),

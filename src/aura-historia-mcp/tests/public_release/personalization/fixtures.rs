@@ -94,9 +94,12 @@ impl ListingFixture {
                 event_id: "evt_01k6k0w000e008000000000007".parse().unwrap(),
                 source: self.source(),
                 source_listing_id: SourceListingId::try_from("merchant:42").unwrap(),
-                product_title: None,
-                product_description: None,
-                title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
+                title: Some(
+                    product_listing_service::listing_text::ListingText::localized(Localized::new(
+                        Language::En,
+                        Title::from("Cabinet"),
+                    )),
+                ),
                 description: None,
                 pricing: ProductListingPricing {
                     price: Some(Price::new(125_u64.into(), Currency::Eur).into()),
@@ -133,7 +136,7 @@ impl ListingFixture {
             listing_source_id: item.source.listing_source_id,
             source_listing_id: item.source_listing_id,
             auction_id: None,
-            title: item.title,
+            title: item.title.map(|title| title.localized),
             display_price: item.pricing.price,
             price_valuation: ProductListingSummaryPriceValuation::Current {
                 fx_rate_id: self.fx_snapshot().id(),

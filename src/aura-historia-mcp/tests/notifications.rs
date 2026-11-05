@@ -677,7 +677,10 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
         assert_eq!("Snapshot Source", payload["listingSourceName"]);
         assert_eq!("https://example.test/item", payload["url"]);
         assert_eq!("https://example.test/item?view=1", payload["viewUrl"]);
-        assert_eq!(json!({"text":"Geige","language":"de"}), payload["title"]);
+        assert_eq!(
+            json!({"localized":{"text":"Geige","language":"de"}}),
+            payload["title"]
+        );
         assert_eq!(json!({"url":null}), payload["image"]);
     }
 }

@@ -301,12 +301,10 @@ mod tests {
                 "lot-1",
             )
             .unwrap(),
-            product_title: None,
-            product_description: None,
-            title: Some(localization::Localized::new(
+            title: Some(product_listing_service::listing_text::ListingText::localized(localization::Localized::new(
                 localization::Language::De,
                 product_listing_core::title::Title::from("Schrank"),
-            )),
+            ))),
             description: None,
             pricing: ProductListingPricingPresentation {
                 source: ProductListingPricing::default(),
@@ -550,8 +548,8 @@ mod tests {
         assert_eq!(17, first["pageSize"]);
         let item = &first["items"][0];
         assert!(item.get("userState").is_none());
-        assert_eq!("Schrank", item["item"]["title"]["text"]);
-        assert_eq!("de", item["item"]["title"]["language"]);
+        assert_eq!("Schrank", item["item"]["title"]["localized"]["text"]);
+        assert_eq!("de", item["item"]["title"]["localized"]["language"]);
         assert!(item["item"]["images"][0]["url"].is_null());
         // Catalogue items are a collection: bounded shipping, no advertised terms or bookkeeping.
         assert_eq!(

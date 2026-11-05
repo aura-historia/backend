@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::listing_text::ListingText;
 use crate::use_cases::queries::get_product_listing::ProductListingLookup;
 use crate::{ports::ListingSourceSummary, user_state::ProductListingUserState};
 use application::personalized::Personalized;
@@ -60,10 +61,8 @@ pub struct ProductListingDetailsReadModel {
     pub event_id: EventId,
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
-    pub product_title: Option<Localized<Language, Title>>,
-    pub product_description: Option<Localized<Language, Description>>,
-    pub title: Option<Localized<Language, Title>>,
-    pub description: Option<Localized<Language, Description>>,
+    pub title: Option<ListingText<Title>>,
+    pub description: Option<ListingText<Description>>,
     pub pricing: ProductListingPricing,
     pub sale_observation: Option<ListingSaleObservation>,
     pub availability: Option<ListingAvailability>,

@@ -201,12 +201,12 @@ mod tests {
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .expect("valid source listing ID"),
-                product_title: None,
-                product_description: None,
-                title: Some(Localized::new(
-                    Language::En,
-                    Title::from("Watchlist cabinet"),
-                )),
+                title: Some(
+                    product_listing_service::listing_text::ListingText::localized(Localized::new(
+                        Language::En,
+                        Title::from("Watchlist cabinet"),
+                    )),
+                ),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing::default(),
@@ -298,7 +298,7 @@ mod tests {
             body["item"]["productListingId"]
         );
         assert_eq!(
-            json!({"text": "Watchlist cabinet", "language": "en"}),
+            json!({"localized": {"text": "Watchlist cabinet", "language": "en"}}),
             body["item"]["title"]
         );
         assert_eq!("CURRENT", body["item"]["pricing"]["valuation"]["type"]);

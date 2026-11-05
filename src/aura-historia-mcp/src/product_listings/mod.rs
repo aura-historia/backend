@@ -704,9 +704,12 @@ mod tests {
                 event_id: "evt_01k6k0w000e008000000000007".parse().unwrap(),
                 source: source(),
                 source_listing_id: SourceListingId::try_from("merchant:local/42").unwrap(),
-                product_title: None,
-                product_description: None,
-                title: Some(Localized::new(Language::En, Title::from("Cabinet"))),
+                title: Some(
+                    product_listing_service::listing_text::ListingText::localized(Localized::new(
+                        Language::En,
+                        Title::from("Cabinet"),
+                    )),
+                ),
                 description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {
@@ -762,7 +765,7 @@ mod tests {
                 source: view.source,
                 source_listing_id: view.source_listing_id,
                 auction_id: None,
-                title: view.title,
+                title: view.title.map(|title| title.localized),
                 display_price: view.pricing.display.price,
                 price_valuation: ProductListingSummaryPriceValuation::Current {
                     fx_rate_id: "fx_01k6k0w000e008000000000005".parse().unwrap(),
