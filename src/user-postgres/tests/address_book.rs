@@ -343,10 +343,6 @@ async fn explicit_destinations_and_delegated_scope_are_authorized() {
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     let (pool, h, a, b) = fixture().await;
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let id = h.create(&a, create("Synthetic Claim")).await.unwrap().id;
     let view = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -671,10 +667,6 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     let (pool, h, a, b) = fixture().await;
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let id = h
         .create(&a, create("Synthetic Candidate"))
         .await
@@ -931,10 +923,6 @@ async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_attempts() {
     let (pool, h, a, _) = fixture().await;
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let id = h
         .create(&a, create("Synthetic automatic retry"))
         .await
@@ -983,9 +971,9 @@ async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_atte
         assert_eq!(
             attempt as i32,
             sqlx::query_scalar::<_, i32>(
-                "SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1"
+                "SELECT attempts FROM geo_resolutions WHERE resolution_id=$1"
             )
-            .bind(PROFILE)
+            .bind(current.work.id.into_uuid())
             .fetch_one(&pool)
             .await
             .unwrap()

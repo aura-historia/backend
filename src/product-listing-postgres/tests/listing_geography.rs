@@ -378,14 +378,6 @@ async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
         let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;
         assert_eq!(ids.len(),views.len());for g in views.values(){let business=g.business.as_ref().ok_or("missing association")?;assert_eq!(Some(geo::CountryCode::DEU),business.country);assert!(business.position.is_none());}
         let attempts:i32=sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1").bind(resolution_id.into_uuid()).fetch_one(&pool).await?;assert_eq!(1,attempts);
-        // Rights revocation schedules projection catch-up without blocking other reads.
-        sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G6'").execute(&pool).await?;
-
-        drain(&pool,2).await?;
-        assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.is_none()));
-        sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G6'").execute(&pool).await?;
-        drain(&pool,2).await?;
-        assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
         // Expiry is reflected by asynchronous projection catch-up.
         sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution_id.into_uuid()).execute(&pool).await?;
         sqlx::query("UPDATE product_listing_geographies SET valid_until=clock_timestamp()-interval '1 second'").execute(&pool).await?;
@@ -411,7 +403,11 @@ async fn accepted_country_resolution(
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(pool)
         .await?;
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G6',true,true,true)").execute(pool).await?;
+    sqlx::query(
+        "INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('TEST_G6',true)",
+    )
+    .execute(pool)
+    .await?;
     let input = ResolutionInput::new(
         GeocodingRequest::new(geo::AddressText::new("Shared eligible address")?),
         ResolutionScope::new(ScopeKind::Party, Some(owner))?,

@@ -59,8 +59,11 @@ async fn setup(
         .execute(&fixture)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES($1,true,true,true)")
-        .bind(PROFILE).execute(&fixture).await.unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES($1,true)")
+        .bind(PROFILE)
+        .execute(&fixture)
+        .await
+        .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect_with(fixture.connect_options().as_ref().clone())
@@ -182,20 +185,22 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
     assert_eq!(ResolutionStatus::NoMatch, view(&pool, binding).await.status);
 
-    // Completed cache can be acknowledged while the provider is paused.
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
+    // Completed cache can be acknowledged while the provider circuit is open.
+    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=3,open_until=clock_timestamp()+interval '5 minutes'")
         .execute(&pool)
         .await
         .unwrap();
     assert!(
-        process([("cached-disabled", job(work))], &use_case)
+        process([("cached-circuit-open", job(work))], &use_case)
             .await
             .is_empty()
     );
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -259,7 +264,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
         .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
     assert!(view(&pool, binding).await.evidence.is_none());
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
+    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=3,open_until=clock_timestamp()+interval '5 minutes'")
         .execute(&pool)
         .await
         .unwrap();
@@ -279,8 +284,8 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
             .is_empty()
     );
     assert_eq!(
-        vec!["disabled-pending"],
-        process([("disabled-pending", job(expired.work))], &use_case).await
+        vec!["circuit-open-pending"],
+        process([("circuit-open-pending", job(expired.work))], &use_case).await
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 }
