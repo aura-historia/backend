@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-05 — Title language detected with the description (#2782)
+
+- Newly normalized listings take the original language of a title that consists mostly of names, style periods or loanwords, such as "Dutch Louis XV barometer", from the title together with its description, instead of from the title alone. Already stored titles keep their recorded language until a later revision of the listing is normalized. Such titles are no longer presented untranslated as if already in another language, and `/v1/overview` `languages` no longer counts these mislabeled languages. A title whose own language is unambiguous keeps it even when its description is in another language.
+
 ## 2026-11-05 — Geocoding results no longer expire (#2771)
 
 - Retained geocoding evidence no longer lapses after 7 days for ambiguous results or 30 days for other outcomes. The `resolution` in `/v1/me/addresses` reads no longer turns `UNAVAILABLE` over time. Derived Party-location and listing geography, including reviewed candidate selections, stays until the address changes or a retry is forced.

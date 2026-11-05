@@ -27,7 +27,27 @@ static DETECTOR: Lazy<LanguageDetector> = Lazy::new(|| {
 /// Returns `None` if the language cannot be identified as one of the supported
 /// languages (DE, EN, FR, ES, IT, ZH, PT, PL, TR, NL, CS, JA, RU, AR).
 pub fn detect_language(text: &str) -> Option<Language> {
-    DETECTOR.detect_language_of(text).map(|lang| match lang {
+    DETECTOR.detect_language_of(text).map(from_lingua)
+}
+
+/// Detects the language of a text snippet only when the detector attributes at least
+/// `minimum_confidence` (between `0.0` and `1.0`) of its confidence to that language.
+///
+/// A `minimum_confidence` above `0.5` admits at most one language.
+pub fn detect_language_with_minimum_confidence(
+    text: &str,
+    minimum_confidence: f64,
+) -> Option<Language> {
+    DETECTOR
+        .compute_language_confidence_values(text)
+        .into_iter()
+        .next()
+        .filter(|(_, confidence)| *confidence > 0.0 && *confidence >= minimum_confidence)
+        .map(|(language, _)| from_lingua(language))
+}
+
+const fn from_lingua(language: LinguaLanguage) -> Language {
+    match language {
         LinguaLanguage::English => Language::En,
         LinguaLanguage::German => Language::De,
         LinguaLanguage::French => Language::Fr,
@@ -42,7 +62,7 @@ pub fn detect_language(text: &str) -> Option<Language> {
         LinguaLanguage::Japanese => Language::Ja,
         LinguaLanguage::Russian => Language::Ru,
         LinguaLanguage::Arabic => Language::Ar,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -50,7 +70,7 @@ mod tests {
     use localization::Language;
     use rstest::rstest;
 
-    use super::detect_language;
+    use super::{detect_language, detect_language_with_minimum_confidence};
 
     // -----------------------------------------------------------------------
     // Happy-path: unambiguous long sentences
@@ -263,6 +283,26 @@ mod tests {
         assert_eq!(
             detect_language("Cassettone intarsiato in noce, Toscana, fine Settecento."),
             Some(Language::It)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Minimum confidence
+    // -----------------------------------------------------------------------
+
+    #[rstest]
+    #[case("Biedermeier Sekretär Nussbaum furniert", 0.75, Some(Language::De))]
+    #[case("Dutch Louis XV barometer", 0.75, None)]
+    #[case("Dutch Louis XV barometer", 0.2, Some(Language::Nl))]
+    #[case("12345", 0.0, None)]
+    fn should_detect_language_only_when_confidence_reaches_minimum(
+        #[case] text: &str,
+        #[case] minimum_confidence: f64,
+        #[case] expected: Option<Language>,
+    ) {
+        assert_eq!(
+            detect_language_with_minimum_confidence(text, minimum_confidence),
+            expected
         );
     }
 }

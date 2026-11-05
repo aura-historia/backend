@@ -1,4 +1,7 @@
-use crate::{error::NormalizationError, language::detect_language};
+use crate::{
+    error::NormalizationError,
+    language::{detect_language, detect_language_with_minimum_confidence},
+};
 use localization::{Language, Localized};
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_core::{description::Description, title::Title};
@@ -47,7 +50,7 @@ pub fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
     Ok(title)
 }
 
-/// Returns a localized title with language detection applied.
+/// Returns a localized title with language detection applied to its text alone.
 ///
 /// Errors with [`NormalizationError::TitleEmpty`] if no title text remains,
 /// or [`NormalizationError::TitleUnknownLanguage`] if the language
@@ -56,22 +59,17 @@ pub fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
 pub fn normalize_title_localized(
     raw: &str,
 ) -> Result<Localized<Language, Title>, NormalizationError> {
-    let title = normalize_title(raw)?;
-    let title_language = detect_language(title.as_ref());
-    localize_normalized_title(title, title_language, None)
+    localize_normalized_title(normalize_title(raw)?, None, None)
 }
 
-fn word_count(text: &str) -> usize {
-    text.split_whitespace().count()
-}
-
-pub fn detect_description_language(fragments: &[String]) -> Option<Language> {
-    join_description_fragments(fragments).and_then(|description| detect_language(&description))
-}
+/// Share of the detector's confidence a text needs to decide a title's language. Antique titles
+/// mostly consist of proper names, style periods and loanwords, which mislead detection below
+/// this share; above it, a title in another language than its description keeps its own.
+const DECISIVE_CONFIDENCE: f64 = 0.75;
 
 /// Joins the trimmed, non-blank description fragments as paragraphs, or returns `None` when
 /// every fragment is blank.
-fn join_description_fragments(fragments: &[String]) -> Option<String> {
+pub(crate) fn join_description_fragments(fragments: &[String]) -> Option<String> {
     let paragraphs: Vec<&str> = fragments
         .iter()
         .map(|fragment| fragment.trim())
@@ -80,19 +78,32 @@ fn join_description_fragments(fragments: &[String]) -> Option<String> {
     (!paragraphs.is_empty()).then(|| paragraphs.join("\n\n"))
 }
 
+/// Localizes a title to its original language.
+///
+/// The first decisive detection wins: of the title alone, then of the title followed by its
+/// `description`. Without one, the source's `fallback_language` breaks the tie before the
+/// detector's best guess for that text.
+///
+/// Errors with [`NormalizationError::TitleUnknownLanguage`] when none of them yields a
+/// language.
 pub fn localize_normalized_title(
     title: Title,
-    title_language: Option<Language>,
-    description_language: Option<Language>,
+    description: Option<&str>,
+    fallback_language: Option<Language>,
 ) -> Result<Localized<Language, Title>, NormalizationError> {
-    let language = if word_count(title.as_ref()) < 3 {
-        description_language.or(title_language)
-    } else {
-        title_language
-    }
-    .ok_or_else(|| NormalizationError::TitleUnknownLanguage {
-        text: title.as_ref().chars().take(100).collect(),
-    })?;
+    let text = title.as_ref();
+    let text_in_context = description.map(|description| format!("{text}\n\n{description}"));
+    let language = detect_language_with_minimum_confidence(text, DECISIVE_CONFIDENCE)
+        .or_else(|| {
+            text_in_context.as_deref().and_then(|text_in_context| {
+                detect_language_with_minimum_confidence(text_in_context, DECISIVE_CONFIDENCE)
+            })
+        })
+        .or(fallback_language)
+        .or_else(|| detect_language(text_in_context.as_deref().unwrap_or(text)))
+        .ok_or_else(|| NormalizationError::TitleUnknownLanguage {
+            text: text.chars().take(100).collect(),
+        })?;
 
     Ok(Localized::new(language, title))
 }
@@ -126,9 +137,10 @@ mod tests {
 
     use url::Url;
 
+    use localization::Language;
+
     use super::{
-        detect_description_language, detect_language, localize_normalized_title,
-        normalize_description, normalize_source_listing_id,
+        localize_normalized_title, normalize_description, normalize_source_listing_id,
         normalize_source_listing_id_with_url_sha_fallback, normalize_title,
         normalize_title_localized,
     };
@@ -248,7 +260,6 @@ mod tests {
 
     #[test]
     fn should_detect_language_of_normalized_decorative_title() {
-        use localization::Language;
         let localized = normalize_title_localized(
             "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥, 𝐝𝐚𝐬 𝐑𝐮𝐡𝐞 𝐢𝐧 𝐃𝐞𝐢𝐧 𝐙𝐮𝐡𝐚𝐮𝐬𝐞 𝐛𝐫𝐢𝐧𝐠𝐭 🌿✨Anrichte Biedermeier Kirschbaum | 3360",
         )
@@ -266,7 +277,6 @@ mod tests {
 
     #[test]
     fn should_detect_language_for_title_when_english_text() {
-        use localization::Language;
         let localized = normalize_title_localized("This is an antique vase from England").unwrap();
         assert_eq!(localized.localization, Language::En);
     }
@@ -282,33 +292,127 @@ mod tests {
         );
     }
 
-    #[test]
-    fn should_use_description_language_for_short_title_when_available() {
-        use localization::Language;
-        let title = normalize_title("La Saintongeoise").unwrap();
-        let title_language = detect_language(title.as_ref());
-        let localized =
-            localize_normalized_title(title, title_language, Some(Language::En)).unwrap();
-        assert_eq!(localized.localization, Language::En);
+    // -----------------------------------------------------------------------
+    // title language in the context of description and fallback language
+    // -----------------------------------------------------------------------
+
+    fn localize(
+        title: &str,
+        description: Option<&str>,
+        fallback_language: Option<Language>,
+    ) -> Language {
+        let title = normalize_title(title).unwrap();
+        localize_normalized_title(title, description, fallback_language)
+            .unwrap()
+            .localization
+    }
+
+    /// Titles of proper names, style periods and loanwords that title-only detection mislabels
+    /// (as `nl`, `fr`, `fr`, `pl`, `it`, `fr`) take their language from the description context.
+    #[rstest]
+    #[case(
+        "Dutch Louis XV barometer",
+        "A Dutch Louis XV barometer with a carved and gilded oak case, the dial signed by the maker. Circa 1770, in good working condition.",
+        Language::En
+    )]
+    #[case(
+        "French Louis XVI oeil de boeuf cartel",
+        "A French gilt bronze oeil de boeuf cartel clock with an enamel dial and a striking movement, late eighteenth century.",
+        Language::En
+    )]
+    #[case(
+        "French Louis XV cartel d’alcove, Jean Baptiste Baillon",
+        "This small alcove clock was made in Paris by Jean Baptiste Baillon, one of the most important clockmakers of his time.",
+        Language::En
+    )]
+    #[case(
+        "Krosno Józefina kandelaar, 41 cm, wit opaline glas",
+        "Mooie kandelaar van het Poolse merk Krosno, gemaakt van wit opaline glas. In goede staat, zonder schade.",
+        Language::Nl
+    )]
+    #[case(
+        "Stenen putto op bol",
+        "Een stenen tuinbeeld van een putto die op een bol staat. Mooi verweerd en in goede staat.",
+        Language::Nl
+    )]
+    #[case(
+        "La Saintongeoise",
+        "A rare French faience plate from the Saintonge region.",
+        Language::En
+    )]
+    #[case("Vase", "A restored ceramic vase.", Language::En)]
+    fn should_detect_title_language_with_description_when_title_is_not_decisive(
+        #[case] title: &str,
+        #[case] description: &str,
+        #[case] expected: Language,
+    ) {
+        assert_eq!(localize(title, Some(description), None), expected);
+    }
+
+    /// A genuinely mixed listing keeps its decisive title language.
+    #[rstest]
+    #[case(
+        "Antique Victorian mahogany writing desk with leather top",
+        "Prachtig antiek Victoriaans mahonie schrijfbureau met een leren blad. Het bureau heeft drie laden en staat op gedraaide poten.",
+        Language::En
+    )]
+    #[case(
+        "Biedermeier Sekretär Nussbaum furniert",
+        "A Biedermeier secretary veneered in walnut, Vienna, circa 1825, with a fall front and three drawers.",
+        Language::De
+    )]
+    fn should_keep_decisive_title_language_when_description_differs(
+        #[case] title: &str,
+        #[case] description: &str,
+        #[case] expected: Language,
+    ) {
+        assert_eq!(localize(title, Some(description), None), expected);
     }
 
     #[test]
-    fn should_fallback_to_title_detection_when_description_language_missing_for_short_title() {
-        use localization::Language;
-        let title = normalize_title("Vintage Poster").unwrap();
-        let title_language = detect_language(title.as_ref());
-        let localized = localize_normalized_title(title, title_language, None).unwrap();
-        assert_eq!(localized.localization, Language::En);
+    fn should_use_fallback_language_when_title_without_description_is_not_decisive() {
+        let title = "Fine Antique Chinese Kangxi Famille Verte Porcelain Octagonal Platter";
+
+        assert_eq!(localize(title, None, Some(Language::En)), Language::En);
     }
 
     #[test]
-    fn should_detect_description_language_when_long_description_provided() {
-        use localization::Language;
-        let language = detect_description_language(&[
-            "This vintage poster comes from a private collection and has documented ownership history."
-                .to_string(),
-        ]);
-        assert_eq!(language, Some(Language::En));
+    fn should_use_fallback_language_when_title_with_description_is_not_decisive() {
+        assert_eq!(
+            localize(
+                "Vintage Poster",
+                Some("23-1/2\"18-1/4\""),
+                Some(Language::De)
+            ),
+            Language::De
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_neither_title_nor_description_has_a_language() {
+        let title = normalize_title("12345").unwrap();
+        let err = localize_normalized_title(title, Some("23-1/2\"18-1/4\""), None).unwrap_err();
+        assert!(matches!(
+            err,
+            NormalizationError::TitleUnknownLanguage { .. }
+        ));
+    }
+
+    #[test]
+    fn should_keep_decisive_title_language_over_fallback_language() {
+        assert_eq!(
+            localize(
+                "Biedermeier Sekretär Nussbaum furniert",
+                None,
+                Some(Language::En)
+            ),
+            Language::De
+        );
+    }
+
+    #[test]
+    fn should_use_indecisive_title_language_without_description_or_fallback_language() {
+        assert_eq!(localize("Vintage Poster", None, None), Language::En);
     }
 
     // -----------------------------------------------------------------------
@@ -410,8 +514,6 @@ mod tests {
 
     #[test]
     fn should_use_fallback_language_when_description_language_cannot_be_detected() {
-        use localization::Language;
-
         let result = normalize_description(vec!["23-1/2\"18-1/4\"".into()], Some(Language::En))
             .unwrap()
             .unwrap();
