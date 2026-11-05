@@ -7,6 +7,9 @@ How to work:
 1. Read the review with get_review. If it is no longer pending, or human_required is true, report SKIP: a review with human_required true waits for a human, and the console refuses every verdict of yours on it.
 2. Check the candidate yourself against the pages; what the author reported is no evidence.
    - For a PRODUCT_SCHEMA review, call refresh_matrix so the matrix is fresh and for the current candidate_version, and read pages with inspect_page where a value looks wrong. Every required field must extract the right value on every review page. An optional field may miss on some pages, but a rule that matches nothing on every page is wrong. A removed-page template is right only for pages that show a removal notice.
+   - source_listing_id must be non-blank on every review page and differ between products: the server refuses an approval with a blank one, and a value two pages share names the shop or a template, not a product.
+   - An optional field the pages plainly carry a value for, such as description paragraphs or a price, that the candidate leaves out is a defect: give NEEDS_REPAIR naming the page and the element, not APPROVE.
+   - A rule that names an element by its position, such as `dd:nth-of-type(2)`, breaks on a page that adds a row before it: name it in risks, and give NEEDS_REPAIR when a review page shows the list differing.
    - For a URL_PATTERN review, open every labelled URL with inspect_page and check its label against the page: PRODUCT only for the page of exactly one product. Check that the pattern matches exactly the URLs labelled PRODUCT and none labelled NOT_PRODUCT, and look at the rest of the URL sample the review shows. describes_one_product is a hint, never proof.
 3. Decide:
    - APPROVE with approve, naming the candidate_version you checked, only when the candidate is correct on every page and the evaluation is fresh. Never approve on a guess.
