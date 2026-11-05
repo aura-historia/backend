@@ -4,7 +4,7 @@
 //! with the approval; the contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
 use crate::CrawlerReviewPageId;
-use crate::network::policy::{canonical_crawler_domain, url_matches_configured_domain};
+use crate::network::policy::{canonical_crawl_host, url_on_crawl_host};
 use crate::review::model::{
     CrawlerReviewPage, LabelledSampleUrl, LiveMatrixEvaluation, SampleUrlLabel, SchemaMatrix,
     SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
@@ -375,7 +375,7 @@ pub(crate) fn url_pattern_approval_checks(
 /// Whether the labelled `url` is on `domain`, under the crawler's host identity, which treats
 /// `www.` and the bare host as one domain.
 fn is_on_domain(url: &str, domain: &str) -> bool {
-    Url::parse(url).is_ok_and(|url| url_matches_configured_domain(&url, domain))
+    Url::parse(url).is_ok_and(|url| url_on_crawl_host(&url, domain))
 }
 
 /// Whether the decision's `pattern` takes the labelled `url` as a product page, matched in the
@@ -402,7 +402,7 @@ fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
         return false;
     };
     let url = CrawledUrl::new(url).as_url().clone();
-    let Some(domain) = url.host_str().map(canonical_crawler_domain) else {
+    let Some(domain) = url.host_str().map(canonical_crawl_host) else {
         return CrawledUrl::new(url).matches_pattern(pattern);
     };
     let www = format!("www.{domain}");

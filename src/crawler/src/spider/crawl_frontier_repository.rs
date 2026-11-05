@@ -1,14 +1,14 @@
-//! The seeds a domain's next crawl starts from besides its root: the frontier its previous crawl
+//! The seeds a ListingSource's next crawl starts from besides its root: the frontier its previous crawl
 //! left unvisited, and the URLs an incremental crawl does not fetch again: its product URLs and
 //! the URLs retired as duplicates of another
 //! (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 
 use async_trait::async_trait;
+use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use url::Url;
 
-use crate::CrawlerDomainId;
 use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::utils::url::CrawledUrl;
@@ -20,7 +20,7 @@ pub const MAX_KNOWN_URLS: i64 = 100_000;
 /// The stored URLs an incremental crawl does not fetch again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KnownUrls {
-    /// The domain's product URLs, which the crawl reports as known product pages it found linked.
+    /// The source's product URLs, which the crawl reports as known product pages it found linked.
     pub products: Vec<Url>,
     /// The URLs retired as duplicates of another, which are no product pages of their own.
     pub retired: Vec<Url>,
@@ -29,16 +29,22 @@ pub struct KnownUrls {
 #[async_trait]
 #[mockall::automock]
 pub trait CrawlFrontierRepository: Send + Sync {
-    /// The URLs the domain's previous crawl left unvisited, without any whose page the crawler
+    /// The URLs the source's previous crawl left unvisited, without any whose page the crawler
     /// retired as a duplicate since, under either trailing-slash spelling.
-    async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error>;
+    async fn load_frontier(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Vec<Url>, sqlx::Error>;
 
-    /// The product URLs the domain already stores and the URLs it retired as duplicates, at most
+    /// The product URLs the source already stores and the URLs it retired as duplicates, at most
     /// [`MAX_KNOWN_URLS`] together.
-    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<KnownUrls, sqlx::Error>;
+    async fn known_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<KnownUrls, sqlx::Error>;
 
-    /// Replaces the domain's frontier with what its latest crawl, of `root`, left unvisited,
-    /// while the domain still has that crawl root.
+    /// Replaces the source's frontier with what its latest crawl, of `root`, left unvisited,
+    /// while the source still has that crawl root.
     async fn replace_frontier(
         &self,
         root: &CrawledRoot,
@@ -65,14 +71,17 @@ fn persisted_urls(rows: Vec<String>) -> Result<Vec<Url>, sqlx::Error> {
 
 #[async_trait]
 impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
-    async fn load_frontier(&self, domain_id: &CrawlerDomainId) -> Result<Vec<Url>, sqlx::Error> {
+    async fn load_frontier(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Vec<Url>, sqlx::Error> {
         let frontier = persisted_urls(
             sqlx::query_scalar::<_, String>(
-                "SELECT url FROM listing_source_domain_crawl_frontier
-                 WHERE domain_id = $1
+                "SELECT url FROM listing_source_crawl_frontier
+                 WHERE listing_source_id = $1
                  ORDER BY url",
             )
-            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
             .fetch_all(&self.pool)
             .await?,
         )?;
@@ -103,14 +112,17 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
             .collect())
     }
 
-    async fn known_urls(&self, domain_id: &CrawlerDomainId) -> Result<KnownUrls, sqlx::Error> {
+    async fn known_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<KnownUrls, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, bool)>(
             "SELECT url, crawler_disposition = $3 AS retired FROM listing_source_urls
-             WHERE domain_id = $1 AND (url_class = $2 OR crawler_disposition = $3)
+             WHERE listing_source_id = $1 AND (url_class = $2 OR crawler_disposition = $3)
              ORDER BY url
              LIMIT $4",
         )
-        .bind(domain_id.as_uuid())
+        .bind(listing_source_id.as_uuid())
         .bind(UrlClass::ProductListing.as_str())
         .bind(CrawlerDisposition::Duplicate.as_str())
         .bind(MAX_KNOWN_URLS)
@@ -127,7 +139,7 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         })
     }
 
-    /// The share lock on the domain row holds back a move to another root, which updates that
+    /// The share lock on the source row holds back a move to another root, which updates that
     /// row and drops the frontier, until the new frontier is committed; a move that committed
     /// first leaves no row on the crawled root to lock.
     async fn replace_frontier(
@@ -137,29 +149,29 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
     ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         let urls: Vec<&str> = frontier.iter().map(Url::as_str).collect();
         let mut transaction = self.pool.begin().await?;
-        let domain_has_root = sqlx::query_scalar::<_, i32>(
-            "SELECT 1 FROM listing_source_domains
-             WHERE domain_id = $1 AND crawl_root_host = $2
+        let source_has_root = sqlx::query_scalar::<_, i32>(
+            "SELECT 1 FROM listing_sources
+             WHERE listing_source_id = $1 AND crawl_root_url = $2
              FOR SHARE",
         )
-        .bind(root.domain_id.as_uuid())
-        .bind(&root.crawl_root_host)
+        .bind(root.listing_source_id.as_uuid())
+        .bind(&root.crawl_root_url)
         .fetch_optional(&mut *transaction)
         .await?
         .is_some();
-        if !domain_has_root {
+        if !source_has_root {
             return Ok(CrawlOutcomeWrite::RootMoved);
         }
-        sqlx::query("DELETE FROM listing_source_domain_crawl_frontier WHERE domain_id = $1")
-            .bind(root.domain_id.as_uuid())
+        sqlx::query("DELETE FROM listing_source_crawl_frontier WHERE listing_source_id = $1")
+            .bind(root.listing_source_id.as_uuid())
             .execute(&mut *transaction)
             .await?;
         sqlx::query(
-            "INSERT INTO listing_source_domain_crawl_frontier (domain_id, url)
+            "INSERT INTO listing_source_crawl_frontier (listing_source_id, url)
              SELECT $1, url FROM UNNEST($2::text[]) AS frontier(url)
              ON CONFLICT DO NOTHING",
         )
-        .bind(root.domain_id.as_uuid())
+        .bind(root.listing_source_id.as_uuid())
         .bind(urls)
         .execute(&mut *transaction)
         .await?;

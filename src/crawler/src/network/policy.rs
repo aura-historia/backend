@@ -228,17 +228,17 @@ pub fn is_same_or_www_host(left: &Url, right: &Url) -> bool {
     let Some(right) = right.host_str() else {
         return false;
     };
-    canonical_crawler_domain(left) == canonical_crawler_domain(right)
+    canonical_crawl_host(left) == canonical_crawl_host(right)
 }
 
-pub fn url_matches_configured_domain(url: &Url, domain: &str) -> bool {
+pub fn url_on_crawl_host(url: &Url, crawl_host: &str) -> bool {
     url.host_str()
-        .is_some_and(|host| canonical_crawler_domain(host) == canonical_crawler_domain(domain))
+        .is_some_and(|host| canonical_crawl_host(host) == canonical_crawl_host(crawl_host))
 }
 
 /// Crawler ownership identity: lowercase DNS host, no trailing dot, and at
 /// most one leading `www.` removed. This is deliberately crawler-local.
-pub fn canonical_crawler_domain(host: &str) -> String {
+pub fn canonical_crawl_host(host: &str) -> String {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     host.strip_prefix("www.").unwrap_or(&host).to_owned()
 }
@@ -942,10 +942,10 @@ mod tests {
         let subdomain = Url::parse("https://catalog.example.com/products/1").unwrap();
 
         assert!(is_same_or_www_host(&bare, &www));
-        assert_eq!(canonical_crawler_domain("Example.COM."), "example.com");
-        assert_eq!(canonical_crawler_domain("www.example.com"), "example.com");
-        assert!(url_matches_configured_domain(&www, "example.com"));
+        assert_eq!(canonical_crawl_host("Example.COM."), "example.com");
+        assert_eq!(canonical_crawl_host("www.example.com"), "example.com");
+        assert!(url_on_crawl_host(&www, "example.com"));
         assert!(!is_same_or_www_host(&bare, &subdomain));
-        assert!(!url_matches_configured_domain(&subdomain, "example.com"));
+        assert!(!url_on_crawl_host(&subdomain, "example.com"));
     }
 }

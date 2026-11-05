@@ -28,7 +28,6 @@ fn primary_request(
     fence: Vec<u8>,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: None,
         listing_source_id,
         source_record_key: url.to_string(),
         last_source_listing_id: None,

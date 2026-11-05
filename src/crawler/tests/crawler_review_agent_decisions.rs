@@ -6,6 +6,7 @@
 //! through needs-repair up to the cap waits for a human, who hands it back; and a human restores
 //! what an approval replaced while it is still live.
 
+use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
@@ -27,7 +28,6 @@ use crawler::scraper::css_selector::product_schema_repository::{
 use crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use crawler::spider::classification::url_classifier::UrlClassifier;
-use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
@@ -111,37 +111,28 @@ fn guarded(pool: &PgPool, max_decisions_per_hour: u32) -> CrawlerReviewRepositor
     }))
 }
 
-/// A crawl-enabled ListingSource on `example.com` and its domain.
-async fn listing_source(pool: &PgPool) -> (ListingSourceId, CrawlerDomainId) {
+/// A crawl-enabled ListingSource crawled from `https://example.com/`.
+async fn listing_source(pool: &PgPool) -> ListingSourceId {
     listing_source_on(pool, "example.com").await
 }
 
-/// A crawl-enabled ListingSource on `domain`, which no other ListingSource may hold, and that
-/// domain.
-async fn listing_source_on(pool: &PgPool, domain: &str) -> (ListingSourceId, CrawlerDomainId) {
+/// A crawl-enabled ListingSource crawled from `https://{crawl_host}/`, a host no other
+/// ListingSource may crawl.
+async fn listing_source_on(pool: &PgPool, crawl_host: &str) -> ListingSourceId {
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
         "INSERT INTO listing_sources \
-         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, 'Agent source', $2, TRUE, NOW(), NOW())",
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+          crawl_root_url, crawl_host, created, updated) \
+         VALUES ($1, 'Agent source', $2, TRUE, 'https://' || $3 || '/', $3, NOW(), NOW())",
     )
     .bind(listing_source_id.as_uuid())
     .bind(format!("agent-source-{}", listing_source_id.as_uuid()))
+    .bind(crawl_host)
     .execute(pool)
     .await
     .unwrap();
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, $3, $3)",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(listing_source_id.as_uuid())
-    .bind(domain)
-    .execute(pool)
-    .await
-    .unwrap();
-    (listing_source_id, domain_id)
+    listing_source_id
 }
 
 async fn set_live_schemas(
@@ -296,7 +287,7 @@ fn failed_checks(refusal: Result<(), ReviewRepositoryError>) -> Vec<FailedApprov
 async fn should_refuse_an_approval_of_another_candidate_version_from_anyone() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -352,7 +343,7 @@ async fn should_refuse_an_approval_of_another_candidate_version_from_anyone() {
 async fn should_refuse_an_edit_based_on_the_pending_review_once_it_is_approved() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -396,7 +387,7 @@ async fn should_refuse_an_edit_based_on_the_pending_review_once_it_is_approved()
 async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_the_guard() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -528,7 +519,7 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
 async fn should_evaluate_and_approve_exactly_the_candidate_of_a_legacy_append_review() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     set_live_schemas(&pool, &listing_source_id, &[schema("h2")]).await;
     let review_id = pending_review(
         &repository,
@@ -560,8 +551,7 @@ async fn should_cap_the_agent_decisions_of_an_hour_from_the_event_trail() {
     let repository = guarded(&pool, 2);
     let mut reviews = Vec::new();
     for index in 0..4 {
-        let (listing_source_id, _) =
-            listing_source_on(&pool, &format!("shop-{index}.example")).await;
+        let listing_source_id = listing_source_on(&pool, &format!("shop-{index}.example")).await;
         reviews.push(
             pending_review(
                 &repository,
@@ -621,7 +611,7 @@ async fn should_never_exceed_the_hourly_cap_with_concurrent_agent_decisions() {
     let repository = guarded(&pool, 2);
     let mut reviews = Vec::new();
     for index in 0..5 {
-        let (listing_source_id, _) =
+        let listing_source_id =
             listing_source_on(&pool, &format!("concurrent-{index}.example")).await;
         reviews.push(
             pending_review(
@@ -675,7 +665,7 @@ async fn should_never_exceed_the_hourly_cap_with_concurrent_agent_decisions() {
 async fn should_restore_what_an_agent_approval_replaced() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, domain_id) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     set_live_schemas(&pool, &listing_source_id, &[schema("h1.old")]).await;
     sqlx::query(
         "INSERT INTO listing_source_removed_page_schemas (listing_source_id, removed_page_schema, created, updated) \
@@ -711,12 +701,11 @@ async fn should_restore_what_an_agent_approval_replaced() {
     let waiting_url = "https://example.com/products/waiting";
     sqlx::query(
         "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_error_kind, \
+         (listing_source_id, url, url_class, raw_source_record_key, last_error_kind, \
           next_retry_at, schema_review_waited_on, schema_review_wait_streak) \
-         VALUES ($1, $2, $3, 'product', $3, 'PendingSchemaReview', NOW() + INTERVAL '1 hour', $4, 1)",
+         VALUES ($1, $2, 'product', $2, 'PendingSchemaReview', NOW() + INTERVAL '1 hour', $3, 1)",
     )
     .bind(listing_source_id.as_uuid())
-    .bind(domain_id.as_uuid())
     .bind(waiting_url)
     .bind(uuid::Uuid::now_v7())
     .execute(&pool)
@@ -800,7 +789,7 @@ async fn should_restore_what_an_agent_approval_replaced() {
 async fn should_refuse_restoring_over_a_newer_live_change_and_restore_no_list_to_none() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (edited_source, _) = listing_source_on(&pool, "edited.example").await;
+    let edited_source = listing_source_on(&pool, "edited.example").await;
     let edited_review = pending_review(
         &repository,
         &edited_source,
@@ -840,7 +829,7 @@ async fn should_refuse_restoring_over_a_newer_live_change_and_restore_no_list_to
         Some(vec![live_edit])
     );
 
-    let (first_source, _) = listing_source_on(&pool, "first.example").await;
+    let first_source = listing_source_on(&pool, "first.example").await;
     let first_review = pending_review(
         &repository,
         &first_source,
@@ -864,7 +853,7 @@ async fn should_refuse_restoring_over_a_newer_live_change_and_restore_no_list_to
 async fn should_refuse_restoring_once_the_stored_removed_page_templates_changed() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     set_live_schemas(&pool, &listing_source_id, &[schema("h1.old")]).await;
     let review_id = pending_review(
         &repository,
@@ -910,18 +899,18 @@ async fn should_refuse_restoring_once_the_stored_removed_page_templates_changed(
     );
 }
 
-/// A restore of a URL-pattern approval brings back the domain's decision and classifies the
-/// domain's stored URLs with it again, as the approval did with its own.
+/// A restore of a URL-pattern approval brings back the source's decision and classifies the
+/// source's stored URLs with it again, as the approval did with its own.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_restore_the_url_pattern_an_approval_replaced() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, domain_id) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
-         WHERE domain_id = $1",
+        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -931,11 +920,10 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
     ] {
         sqlx::query(
             "INSERT INTO listing_source_urls \
-             (listing_source_id, domain_id, url, url_class, raw_source_record_key) \
-             VALUES ($1, $2, $3, $4, $3)",
+             (listing_source_id, url, url_class, raw_source_record_key) \
+             VALUES ($1, $2, $3, $2)",
         )
         .bind(listing_source_id.as_uuid())
-        .bind(domain_id.as_uuid())
         .bind(url)
         .bind(class)
         .execute(&pool)
@@ -945,7 +933,6 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://example.com/new/1".to_owned()],
@@ -955,18 +942,20 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
         .unwrap();
     let classes = || async {
         sqlx::query_as::<_, (String, String)>(
-            "SELECT url, url_class FROM listing_source_urls WHERE domain_id = $1 ORDER BY url",
+            "SELECT url, url_class FROM listing_source_urls \
+             WHERE listing_source_id = $1 ORDER BY url",
         )
-        .bind(domain_id.as_uuid())
+        .bind(listing_source_id.as_uuid())
         .fetch_all(&pool)
         .await
         .unwrap()
     };
     let decision = || async {
         sqlx::query_as::<_, (Option<String>, String)>(
-            "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+            "SELECT url_pattern, url_pattern_state FROM listing_sources \
+             WHERE listing_source_id = $1",
         )
-        .bind(domain_id.as_uuid())
+        .bind(listing_source_id.as_uuid())
         .fetch_one(&pool)
         .await
         .unwrap()
@@ -1002,7 +991,7 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
     );
 }
 
-/// The domain of a shop whose name the keyword heuristic reads as a category.
+/// The crawl host of a shop whose name the keyword heuristic reads as a category.
 const SHOP: &str = "antique-shop.example";
 
 /// The URL of `path` on [`SHOP`].
@@ -1018,8 +1007,8 @@ const OTHER_PATHS: [&str; 3] = ["/item-category/chairs", "/shop", "/impressum"];
 async fn shop_url_pattern_review(
     pool: &PgPool,
     repository: &CrawlerReviewRepository,
-) -> (CrawlerDomainId, CrawlerReviewId) {
-    let (listing_source_id, domain_id) = listing_source_on(pool, SHOP).await;
+) -> (ListingSourceId, CrawlerReviewId) {
+    let listing_source_id = listing_source_on(pool, SHOP).await;
     let sample: Vec<String> = ITEM_PATHS
         .iter()
         .chain(&OTHER_PATHS)
@@ -1028,11 +1017,10 @@ async fn shop_url_pattern_review(
     for url in &sample {
         sqlx::query(
             "INSERT INTO listing_source_urls \
-             (listing_source_id, domain_id, url, url_class, raw_source_record_key) \
-             VALUES ($1, $2, $3, 'other', $3)",
+             (listing_source_id, url, url_class, raw_source_record_key) \
+             VALUES ($1, $2, 'other', $2)",
         )
         .bind(listing_source_id.as_uuid())
-        .bind(domain_id.as_uuid())
         .bind(url)
         .execute(pool)
         .await
@@ -1041,7 +1029,6 @@ async fn shop_url_pattern_review(
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::Undecided,
             &sample,
@@ -1049,7 +1036,7 @@ async fn shop_url_pattern_review(
         )
         .await
         .unwrap();
-    (domain_id, review_id)
+    (listing_source_id, review_id)
 }
 
 fn label(path: &str, label: SampleUrlLabel) -> SampleLabelInput {
@@ -1109,7 +1096,7 @@ async fn candidate_sample_labels(
 /// Only the author agent and humans label a pending review's sample, each label change based on
 /// the candidate version it read, bumping it and recorded as the candidate edit of its actor, the
 /// authoring change the four-eyes rule counts. The reviewer agent labels nothing, a label names
-/// only a URL of the review's domain, and a decided review's labels stay.
+/// only a URL on the review source's crawl host, and a decided review's labels stay.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_let_only_the_author_agent_and_humans_label_the_sample_of_a_pending_review() {
     let pool = get_postgres_client().await;
@@ -1315,14 +1302,14 @@ async fn should_keep_the_sample_labels_when_the_decision_changes() {
 }
 
 /// In `agent` mode the reviewer agent approves a URL pattern only once it follows the author's
-/// labels, never on what the crawler guesses: the approval classifies the domain's URLs by the
+/// labels, never on what the crawler guesses: the approval classifies the source's URLs by the
 /// pattern alone and keeps the labels it was accepted on.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follows_the_labels() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20)
         .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent));
-    let (domain_id, review_id) = shop_url_pattern_review(&pool, &repository).await;
+    let (listing_source_id, review_id) = shop_url_pattern_review(&pool, &repository).await;
     let reviewer_approves = |expected_candidate_version: i64| {
         let repository = repository.clone();
         async move {
@@ -1378,12 +1365,13 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follo
             urls: vec![shop_url("/item-category/chairs")],
         }]
     );
-    let mut classes: Vec<(String, String)> =
-        sqlx::query_as("SELECT url, url_class FROM listing_source_urls WHERE domain_id = $1")
-            .bind(domain_id.as_uuid())
-            .fetch_all(&pool)
-            .await
-            .unwrap();
+    let mut classes: Vec<(String, String)> = sqlx::query_as(
+        "SELECT url, url_class FROM listing_source_urls WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     classes.sort();
     let mut expected: Vec<(String, String)> = ITEM_PATHS
         .iter()
@@ -1458,7 +1446,7 @@ async fn should_refuse_the_approval_of_an_agent_that_changed_the_labels_it_appro
 async fn should_refuse_every_candidate_change_of_the_reviewer_agent_without_an_event() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -1566,7 +1554,7 @@ async fn should_refuse_every_candidate_change_of_the_reviewer_agent_without_an_e
 async fn should_refuse_every_verdict_of_the_author_agent() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -1609,7 +1597,7 @@ async fn should_refuse_every_verdict_of_the_author_agent() {
 async fn should_take_the_reviewer_approval_only_of_the_author_version_it_evaluated() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -1702,7 +1690,7 @@ async fn should_take_the_reviewer_approval_only_of_the_author_version_it_evaluat
 async fn should_refuse_an_agent_approval_of_a_version_the_approving_agent_changed() {
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -1862,7 +1850,7 @@ fn assert_human_required(
 async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_the_repair_cap() {
     let pool = get_postgres_client().await;
     let repository = capped(&pool, 2);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -2064,7 +2052,7 @@ async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_th
 async fn should_hand_the_review_back_to_the_agents_with_a_human_change_or_verdict() {
     let pool = get_postgres_client().await;
     let repository = capped(&pool, 1);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -2161,7 +2149,7 @@ async fn should_hand_the_review_back_to_the_agents_with_a_human_change_or_verdic
 async fn should_take_exactly_the_verdict_that_reaches_the_repair_cap_when_agents_race() {
     let pool = get_postgres_client().await;
     let repository = capped(&pool, 2);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,
@@ -2247,7 +2235,7 @@ async fn should_take_exactly_the_verdict_that_reaches_the_repair_cap_when_agents
 async fn should_count_every_agent_actors_rounds_since_the_latest_human_event() {
     let pool = get_postgres_client().await;
     let repository = capped(&pool, 3);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_review(
         &repository,
         &listing_source_id,

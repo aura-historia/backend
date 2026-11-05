@@ -310,21 +310,6 @@ fn parse_fetched_page(
 impl ScraperService for ScraperServiceImpl {
     #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
     async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        if request.mode != ScrapeMode::PrimaryOnly && request.domain_id.is_none() {
-            return ScrapeOutcome {
-                result: Err(ScraperError::MissingDomainContext {
-                    url: request.url,
-                    mode: match request.mode {
-                        ScrapeMode::Normal => "normal",
-                        ScrapeMode::DomainProbe => "domain probe",
-                        ScrapeMode::PrimaryOnly => "primary-only",
-                    },
-                }),
-                domain_health: DomainFetchHealth::NotObserved,
-                fetch_failure: None,
-            };
-        }
-
         let (result, observed_domain_health, fetch_failure) = with_scrape_observation(async {
             let result = self.scrape_request(&request).await;
             let observed = current_transport_observation();
@@ -648,7 +633,6 @@ impl ScraperServiceImpl {
                 self.obtain_schemas(
                     fetched_page,
                     request.product_url_pattern.as_deref(),
-                    request.domain_id.as_ref(),
                     request.mode,
                 )
                 .await?,
@@ -695,12 +679,12 @@ impl ScraperServiceImpl {
         request: &ScrapeRequest,
         page: &FetchedProductPage,
     ) -> Result<(), ScraperError> {
-        let (Some(domain_id), true) = (request.domain_id.as_ref(), page.url_moved()) else {
+        if request.mode == ScrapeMode::PrimaryOnly || !page.url_moved() {
             return Ok(());
-        };
+        }
         let destination = self
             .candidate_service
-            .redirect_destination(&request.listing_source_id, domain_id, &page.effective_url)
+            .redirect_destination(&request.listing_source_id, &page.effective_url)
             .await
             .map_err(ScraperError::RedirectDestinationLookup)?;
         let url = request.url.clone();

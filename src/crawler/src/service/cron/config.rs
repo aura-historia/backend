@@ -1,4 +1,4 @@
-use crate::network::policy::canonical_crawler_domain;
+use crate::network::policy::canonical_crawl_host;
 use crate::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, DEFAULT_SCHEMA_SEED_PAGES, ScraperAutoThrottleConfig,
 };
@@ -93,7 +93,7 @@ impl Default for CrawlerCronConfig {
 }
 
 /// The domains a [`MASS_REMOVAL_CONFIRMED_DOMAINS_ENV`] value lists, each read as a [`Domain`] in
-/// the [canonical spelling](canonical_crawler_domain) ListingSource domains are registered in, so
+/// the [canonical spelling](canonical_crawl_host) ListingSource domains are registered in, so
 /// `www.shop.example` names `shop.example`; empty entries are ignored. An entry that is no domain
 /// fails, so a confirmation an operator mistyped is not silently ignored.
 pub fn mass_removal_confirmed_domains(
@@ -104,9 +104,7 @@ pub fn mass_removal_confirmed_domains(
         .split(',')
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
-        .map(|entry| {
-            Domain::try_from(entry).map(|domain| canonical_crawler_domain(domain.as_str()))
-        })
+        .map(|entry| Domain::try_from(entry).map(|domain| canonical_crawl_host(domain.as_str())))
         .collect()
 }
 

@@ -1,27 +1,26 @@
-//! The sample labels of a URL-pattern review: the author agent or a human says, for URLs of the
-//! review's domain, its sample's among them, which are product pages and which are not. A review
-//! decides one domain, so labels on another domain of its ListingSource would say nothing about
-//! the decision. They belong to the candidate, so setting them bumps its version and is recorded
+//! The sample labels of a URL-pattern review: the author agent or a human says, for URLs on the
+//! crawl host of the review's ListingSource, its sample's among them, which are product pages and
+//! which are not; labels on another host would say nothing about the decision. They belong to the candidate, so setting them bumps its version and is recorded
 //! as a candidate edit by its actor. The contract is in `docs/crawler/extraction-and-review.md`
 //! (approval guard).
 
 use super::review_events::{ReviewMutation, commit_with_event};
 use super::reviewer_page_url::{ReviewPageIdentity, without_credentials};
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, ReviewUnderEdit, crawler_domain_id_from_uuid,
-    lock_review_for_edit, store_pending_candidate,
+    CrawlerReviewRepository, ReviewRepositoryError, ReviewUnderEdit, lock_review_for_edit,
+    store_pending_candidate,
 };
-use crate::network::policy::url_matches_configured_domain;
+use crate::CrawlerReviewId;
+use crate::network::policy::url_on_crawl_host;
 use crate::review::model::{
     ARTIFACT_URL_PATTERN, LabelledSampleUrl, ReviewActor, STATUS_PENDING_REVIEW, SampleLabelInput,
     SampleLabels, UrlPatternReviewCandidate,
 };
 use crate::review::source_url::is_review_source_url;
 use crate::spider::utils::url::CrawledUrl;
-use crate::{CrawlerDomainId, CrawlerReviewId};
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
-use tracing::{error, info};
+use tracing::info;
 use url::Url;
 
 /// The most URLs one review's sample labels hold.
@@ -70,8 +69,9 @@ impl CrawlerReviewRepository {
         .bind(review_id.as_uuid())
         .fetch_all(&mut *transaction)
         .await?;
-        let domain = url_pattern_review_domain(&mut transaction, review_id).await?;
-        let labels = validated_sample_labels(labels, &sample, &domain, OffsetDateTime::now_utc())?;
+        let crawl_host = url_pattern_review_crawl_host(&mut transaction, review_id).await?;
+        let labels =
+            validated_sample_labels(labels, &sample, &crawl_host, OffsetDateTime::now_utc())?;
         let counts = labels.as_ref().map(SampleLabels::counts);
         let candidate = serde_json::from_value::<UrlPatternReviewCandidate>(candidate_payload)
             .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
@@ -100,49 +100,30 @@ impl CrawlerReviewRepository {
     }
 }
 
-/// The domain the URL-pattern review `review_id` decides, the only one its labels may name URLs
-/// of. A URL-pattern review always names a domain of its ListingSource, so a review without one,
-/// or whose domain is gone, fails with the error that names it (see
-/// [`missing_url_pattern_review_domain`]).
-pub(super) async fn url_pattern_review_domain(
+/// The crawl host of the ListingSource the URL-pattern review `review_id` decides, the only host
+/// its labels may name URLs of. A source the scope left without a crawl root has none, and its
+/// URL pattern can be neither labelled nor checked.
+pub(super) async fn url_pattern_review_crawl_host(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
 ) -> Result<String, ReviewRepositoryError> {
-    let (domain_id, domain) = sqlx::query_as::<_, (Option<uuid::Uuid>, Option<String>)>(
-        "SELECT r.domain_id, d.listing_source_domain FROM crawler_reviews r \
-         LEFT JOIN listing_source_domains d \
-           ON d.listing_source_id = r.listing_source_id AND d.domain_id = r.domain_id \
+    sqlx::query_scalar::<_, Option<String>>(
+        "SELECT s.crawl_host FROM crawler_reviews r \
+         JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
          WHERE r.review_id = $1",
     )
     .bind(review_id.as_uuid())
     .fetch_optional(&mut **transaction)
     .await?
-    .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-    let domain_id = domain_id.map(crawler_domain_id_from_uuid).transpose()?;
-    domain.ok_or_else(|| missing_url_pattern_review_domain(review_id, domain_id))
-}
-
-/// The error of the URL-pattern review `review_id` whose domain, `domain_id` or none, is not a
-/// domain of its ListingSource. The schema forbids both, so this is invalid persisted state and is
-/// logged at ERROR.
-pub(super) fn missing_url_pattern_review_domain(
-    review_id: CrawlerReviewId,
-    domain_id: Option<CrawlerDomainId>,
-) -> ReviewRepositoryError {
-    let error = match domain_id {
-        Some(domain_id) => ReviewRepositoryError::UrlPatternReviewDomainMissing {
-            review_id,
-            domain_id,
-        },
-        None => ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id),
-    };
-    error!(review_id = %review_id, error = %error, "URL-pattern review has no domain");
-    error
+    .ok_or(ReviewRepositoryError::NotFound(review_id))?
+    .ok_or(ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(
+        review_id,
+    ))
 }
 
 /// The sample labels `inputs` describe, labelled at `labelled_at`, or `None` for no label. Each
-/// URL must be on the review's `domain`, on http or https, with or without `www.`, as the crawler
-/// treats one domain: one of the review's `sample` URLs, under the crawler's URL spelling with or
+/// URL must be on the review's `crawl_host`, on http or https, with or without `www.`, as the
+/// crawler treats one host: one of the review's `sample` URLs, under the crawler's URL spelling with or
 /// without its trailing slash, or an http(s) URL on the default port; a URL with credentials is
 /// refused either way. A label of a sample URL keeps the sample's spelling, any other URL is
 /// stored in the crawler's spelling, so a pattern is matched against it as the spider would. Each
@@ -152,7 +133,7 @@ pub(super) fn missing_url_pattern_review_domain(
 fn validated_sample_labels(
     inputs: Vec<SampleLabelInput>,
     sample: &[String],
-    domain: &str,
+    crawl_host: &str,
     labelled_at: OffsetDateTime,
 ) -> Result<Option<SampleLabels>, ReviewRepositoryError> {
     if inputs.len() > MAX_SAMPLE_LABELS {
@@ -165,7 +146,7 @@ fn validated_sample_labels(
     let mut labelled = HashSet::new();
     let mut labels = Vec::with_capacity(inputs.len());
     for input in inputs {
-        let url = labelled_url(&input.url, &sample_spellings, domain)?;
+        let url = labelled_url(&input.url, &sample_spellings, crawl_host)?;
         let reason = input.reason.trim();
         if reason.is_empty() || reason.chars().count() > MAX_SAMPLE_LABEL_REASON_CHARS {
             return Err(ReviewRepositoryError::InvalidSampleLabelReason(url));
@@ -191,7 +172,7 @@ fn validated_sample_labels(
 fn labelled_url(
     raw_url: &str,
     sample_spellings: &HashMap<String, &String>,
-    domain: &str,
+    crawl_host: &str,
 ) -> Result<String, ReviewRepositoryError> {
     let not_allowed = |url: String| Err(ReviewRepositoryError::SampleLabelUrlNotAllowed(url));
     let Ok(url) = Url::parse(raw_url.trim()) else {
@@ -200,13 +181,13 @@ fn labelled_url(
     if !url.username().is_empty() || url.password().is_some() {
         return not_allowed(without_credentials(&url).to_string());
     }
-    if !url_matches_configured_domain(&url, domain) {
+    if !url_on_crawl_host(&url, crawl_host) {
         return not_allowed(url.to_string());
     }
     if let Some(sample_url) = sample_spellings.get(&sample_key(&url)) {
         return Ok((*sample_url).clone());
     }
-    if is_review_source_url(&url, &[domain.to_owned()]) {
+    if is_review_source_url(&url, Some(crawl_host)) {
         return Ok(CrawledUrl::new(url).to_string());
     }
     not_allowed(url.to_string())
@@ -238,13 +219,13 @@ mod tests {
         ]
     }
 
-    /// The domain the review decides; its ListingSource also holds `antiques.example.de`.
-    const DOMAIN: &str = "antiques.example";
+    /// The crawl host of the review's ListingSource.
+    const CRAWL_HOST: &str = "antiques.example";
 
     fn validated(
         inputs: Vec<SampleLabelInput>,
     ) -> Result<Option<SampleLabels>, ReviewRepositoryError> {
-        validated_sample_labels(inputs, &sample(), DOMAIN, OffsetDateTime::UNIX_EPOCH)
+        validated_sample_labels(inputs, &sample(), CRAWL_HOST, OffsetDateTime::UNIX_EPOCH)
     }
 
     fn urls(labels: &SampleLabels) -> Vec<(&str, SampleUrlLabel, &str)> {
@@ -256,10 +237,10 @@ mod tests {
     }
 
     /// A label names a sample URL in the sample's spelling, however the client spells it, or
-    /// another URL of the review's domain, on http or https, with or without `www.`, in the
+    /// another URL on the crawl host, on http or https, with or without `www.`, in the
     /// crawler's spelling; its reason is kept trimmed.
     #[test]
-    fn should_take_sample_urls_and_urls_of_the_review_domain() {
+    fn should_take_sample_urls_and_urls_on_the_crawl_host() {
         let labels = validated(vec![
             input(
                 "https://antiques.example/item/chair/",
@@ -318,7 +299,7 @@ mod tests {
                 ),
             ],
             &sample,
-            DOMAIN,
+            CRAWL_HOST,
             OffsetDateTime::UNIX_EPOCH,
         )
         .unwrap_or_else(|error| panic!("{error}"))
@@ -341,11 +322,10 @@ mod tests {
         );
     }
 
-    /// No label names a URL outside the review's domain, even on another domain of its
-    /// ListingSource, a URL with credentials, on another port or scheme, or one that does not
+    /// No label names a URL off the crawl host, a URL with credentials, on another port or scheme, or one that does not
     /// parse; the refusal never repeats credentials.
     #[test]
-    fn should_refuse_a_url_not_on_the_review_domain() {
+    fn should_refuse_a_url_off_the_crawl_host() {
         for (raw, reported) in [
             (
                 "https://elsewhere.example/item/1",

@@ -63,12 +63,6 @@ pub(super) struct StillRunning {
     pub(super) evaluation_id: Option<String>,
 }
 
-/// One domain of `GET /api/listing-sources/{id}/domains`.
-#[derive(Debug, Deserialize)]
-pub(super) struct ListingSourceDomain {
-    pub(super) domain: String,
-}
-
 /// `GET /api/reviews/{id}/page-projection`.
 #[derive(Debug, Deserialize)]
 pub(super) struct PageProjection {

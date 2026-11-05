@@ -1,7 +1,4 @@
-use crate::CrawlerDomainId;
-use crate::network::policy::{
-    PublicTargetError, url_matches_configured_domain, validate_public_http_url,
-};
+use crate::network::policy::{PublicTargetError, url_on_crawl_host, validate_public_http_url};
 use crate::review::repository::RejectedPages;
 use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -16,7 +13,6 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone)]
 pub struct SpiderUrlRecord {
     pub listing_source_id: ListingSourceId,
-    pub domain_id: CrawlerDomainId,
     pub url: url::Url,
     pub url_class: UrlClass,
     pub disposition: CrawlerDisposition,
@@ -29,7 +25,6 @@ pub struct SpiderUrlRecord {
 impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let listing_source_id: uuid::Uuid = row.try_get("listing_source_id")?;
-        let domain_id: uuid::Uuid = row.try_get("domain_id")?;
         let url = url::Url::parse(&row.try_get::<String, _>("url")?)
             .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
         let url_class = row
@@ -42,8 +37,6 @@ impl FromRow<'_, sqlx::postgres::PgRow> for SpiderUrlRecord {
             .map_err(|error: String| sqlx::Error::Decode(error.into()))?;
         Ok(Self {
             listing_source_id: ListingSourceId::try_from(listing_source_id)
-                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-            domain_id: CrawlerDomainId::try_from(domain_id)
                 .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
             url,
             url_class,
@@ -68,29 +61,20 @@ pub struct DiscoveredUrl {
 
 #[derive(Debug, thiserror::Error)]
 pub enum UrlMetadataRepositoryError {
-    #[error("crawler domain does not belong to ListingSource")]
-    DomainNotOwnedByListingSource {
-        listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
-    },
+    #[error("ListingSource has no crawl root")]
+    ListingSourceNotCrawled { listing_source_id: ListingSourceId },
     #[error("URL is not a supported crawler HTTP URL")]
     InvalidCrawlerUrl {
         url: url::Url,
         reason: PublicTargetError,
     },
-    #[error("URL host does not match the configured crawler domain")]
-    UrlHostDoesNotMatchDomain { url: url::Url, domain: String },
+    #[error("URL host does not match the ListingSource's crawl host")]
+    UrlHostDoesNotMatchCrawlHost { url: url::Url, crawl_host: String },
     #[error("URL is already owned by another ListingSource")]
     UrlOwnedByAnotherListingSource {
         url: url::Url,
         requested_listing_source_id: ListingSourceId,
         current_listing_source_id: ListingSourceId,
-    },
-    #[error("URL is already owned by another crawler domain")]
-    UrlOwnedByAnotherDomain {
-        url: url::Url,
-        current_domain_id: CrawlerDomainId,
-        requested_domain_id: CrawlerDomainId,
     },
     #[error("crawler URL persistence failed")]
     Database {
@@ -105,7 +89,6 @@ pub trait UrlMetadataRepository: Send + Sync {
     async fn upsert_link(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         url: &url::Url,
         url_class: &UrlClass,
     ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError>;
@@ -113,7 +96,6 @@ pub trait UrlMetadataRepository: Send + Sync {
     async fn upsert_links_batch(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         links: &[DiscoveredUrl],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError>;
 
@@ -134,35 +116,32 @@ impl UrlMetadataRepositoryImpl {
         Self { pool }
     }
 
-    async fn verify_domain_owner(
+    /// The crawl host of the ListingSource the URLs are written for, share-locked for the
+    /// transaction.
+    async fn locked_crawl_host(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
     ) -> Result<String, UrlMetadataRepositoryError> {
-        let domain = sqlx::query_scalar::<_, String>(
-            "SELECT listing_source_domain FROM listing_source_domains \
-             WHERE listing_source_id = $1 AND domain_id = $2 \
+        let crawl_host = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT crawl_host FROM listing_sources \
+             WHERE listing_source_id = $1 \
              FOR KEY SHARE",
         )
         .bind(uuid::Uuid::from(listing_source_id))
-        .bind(domain_id.as_uuid())
         .fetch_optional(&mut **transaction)
         .await
-        .map_err(database_error)?;
-        domain.ok_or(UrlMetadataRepositoryError::DomainNotOwnedByListingSource {
-            listing_source_id,
-            domain_id,
-        })
+        .map_err(database_error)?
+        .flatten();
+        crawl_host.ok_or(UrlMetadataRepositoryError::ListingSourceNotCrawled { listing_source_id })
     }
 
     async fn validate_existing_url_ownership(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
         urls: &[String],
     ) -> Result<(), UrlMetadataRepositoryError> {
         let rows = sqlx::query(
-            "SELECT url, listing_source_id, domain_id FROM listing_source_urls \
+            "SELECT url, listing_source_id FROM listing_source_urls \
              WHERE url = ANY($1::text[]) ORDER BY url FOR UPDATE",
         )
         .bind(urls)
@@ -191,20 +170,6 @@ impl UrlMetadataRepositoryImpl {
                     current_listing_source_id,
                 });
             }
-            let current_domain_id = CrawlerDomainId::try_from(
-                row.try_get::<uuid::Uuid, _>("domain_id")
-                    .map_err(database_error)?,
-            )
-            .map_err(|error| UrlMetadataRepositoryError::Database {
-                source: sqlx::Error::Decode(Box::new(error)),
-            })?;
-            if current_domain_id != domain_id {
-                return Err(UrlMetadataRepositoryError::UrlOwnedByAnotherDomain {
-                    url,
-                    current_domain_id,
-                    requested_domain_id: domain_id,
-                });
-            }
         }
         Ok(())
     }
@@ -212,11 +177,10 @@ impl UrlMetadataRepositoryImpl {
     /// The spelling each of `urls` is stored under, with its class: a page the shop links both
     /// with and without the trailing slash keeps one row, under the slashed spelling, whether the
     /// two spellings arrive in one batch or the slashed one already has a row of this
-    /// ListingSource domain ([`stored_spellings`]).
+    /// ListingSource ([`stored_spellings`]).
     async fn stored_spellings(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
         urls: &[url::Url],
         url_classes: &[UrlClass],
     ) -> Result<Vec<(url::Url, UrlClass)>, UrlMetadataRepositoryError> {
@@ -230,11 +194,10 @@ impl UrlMetadataRepositoryImpl {
         } else {
             sqlx::query_scalar::<_, String>(
                 "SELECT url FROM listing_source_urls \
-                 WHERE url = ANY($3::text[]) AND listing_source_id = $1 AND domain_id = $2 \
+                 WHERE url = ANY($2::text[]) AND listing_source_id = $1 \
                  ORDER BY url FOR UPDATE",
             )
             .bind(uuid::Uuid::from(listing_source_id))
-            .bind(domain_id.as_uuid())
             .bind(&slashed_twins)
             .fetch_all(&mut **transaction)
             .await
@@ -254,12 +217,11 @@ impl UrlMetadataRepositoryImpl {
 
     /// Moves rows stored under an earlier spelling of a rediscovered URL to the fetched spelling,
     /// so the page keeps its row, scrape state and raw-capture identity instead of gaining a
-    /// second row. Only rows of this ListingSource domain move, and never onto a URL that already
+    /// second row. Only rows of this ListingSource move, and never onto a URL that already
     /// has a row.
     async fn adopt_legacy_spellings(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
         urls: &[url::Url],
     ) -> Result<(), UrlMetadataRepositoryError> {
         let mut renamed = 0;
@@ -273,14 +235,12 @@ impl UrlMetadataRepositoryImpl {
                 .unzip();
             renamed += sqlx::query(
                 "UPDATE listing_source_urls AS stored SET url = input.fetched \
-                 FROM UNNEST($3::text[], $4::text[]) AS input(legacy, fetched) \
+                 FROM UNNEST($2::text[], $3::text[]) AS input(legacy, fetched) \
                  WHERE stored.url = input.legacy \
                    AND stored.listing_source_id = $1 \
-                   AND stored.domain_id = $2 \
                    AND NOT EXISTS (SELECT 1 FROM listing_source_urls existing WHERE existing.url = input.fetched)",
             )
             .bind(uuid::Uuid::from(listing_source_id))
-            .bind(domain_id.as_uuid())
             .bind(&legacy)
             .bind(&fetched)
             .execute(&mut **transaction)
@@ -299,8 +259,8 @@ impl UrlMetadataRepositoryImpl {
 
     /// `links` with the canonical URLs storage may use. A canonical URL is dropped, and the page
     /// stored as fetched, when it names the page itself in another spelling, when it is no crawler
-    /// URL of this domain, when a rejection covers the page or its canonical URL (the rejection
-    /// keeps the fetched page `other`), when another ListingSource or domain owns it, when it is
+    /// URL of this source's crawl host, when a rejection covers the page or its canonical URL (the
+    /// rejection keeps the fetched page `other`), when another ListingSource owns it, when it is
     /// itself retired as a duplicate, when its row stays a non-product row through this write
     /// (the write reclassifies only `ACTIVE` rows), or when the batch canonicalizes a page onto a
     /// page that is itself canonicalized, so no row is moved along a chain the shop may not mean.
@@ -308,8 +268,7 @@ impl UrlMetadataRepositoryImpl {
     async fn admit_canonical_urls(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
-        domain: &str,
+        crawl_host: &str,
         rejected: &RejectedPages,
         links: &[DiscoveredUrl],
     ) -> Result<Vec<DiscoveredUrl>, UrlMetadataRepositoryError> {
@@ -320,7 +279,7 @@ impl UrlMetadataRepositoryImpl {
                 page_of(canonical) != page_of(&link.url)
                     && canonical.fragment().is_none()
                     && validate_public_http_url(canonical).is_ok()
-                    && url_matches_configured_domain(canonical, domain)
+                    && url_on_crawl_host(canonical, crawl_host)
                     && !rejected.covers(link.url.as_str())
                     && !rejected.covers(canonical.as_str())
             });
@@ -345,13 +304,12 @@ impl UrlMetadataRepositoryImpl {
         } else {
             sqlx::query_scalar::<_, String>(
                 "SELECT url FROM listing_source_urls \
-                 WHERE url = ANY($3::text[]) \
-                   AND (listing_source_id <> $1 OR domain_id <> $2 \
-                        OR crawler_disposition = $4 \
-                        OR (url_class <> $5 AND crawler_disposition <> $6))",
+                 WHERE url = ANY($2::text[]) \
+                   AND (listing_source_id <> $1 \
+                        OR crawler_disposition = $3 \
+                        OR (url_class <> $4 AND crawler_disposition <> $5))",
             )
             .bind(uuid::Uuid::from(listing_source_id))
-            .bind(domain_id.as_uuid())
             .bind(&target_spellings)
             .bind(CrawlerDisposition::Duplicate.as_str())
             .bind(UrlClass::ProductListing.as_str())
@@ -383,7 +341,6 @@ impl UrlMetadataRepositoryImpl {
     async fn collapse_duplicate_rows(
         transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
         duplicates: &[DuplicateRows],
     ) -> Result<(), UrlMetadataRepositoryError> {
         if duplicates.is_empty() {
@@ -395,12 +352,11 @@ impl UrlMetadataRepositoryImpl {
             .collect::<Vec<_>>();
         let stored_duplicates = sqlx::query_scalar::<_, String>(
             "SELECT url FROM listing_source_urls \
-             WHERE url = ANY($3::text[]) AND listing_source_id = $1 AND domain_id = $2 \
+             WHERE url = ANY($2::text[]) AND listing_source_id = $1 \
                AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD') \
              ORDER BY url FOR UPDATE",
         )
         .bind(uuid::Uuid::from(listing_source_id))
-        .bind(domain_id.as_uuid())
         .bind(&duplicate_spellings)
         .fetch_all(&mut **transaction)
         .await
@@ -450,13 +406,11 @@ impl UrlMetadataRepositoryImpl {
         let (sources, targets): (Vec<String>, Vec<String>) = moves.into_iter().unzip();
         let moved = sqlx::query(
             "UPDATE listing_source_urls AS stored SET url = input.target, updated = NOW() \
-             FROM UNNEST($3::text[], $4::text[]) AS input(source, target) \
+             FROM UNNEST($2::text[], $3::text[]) AS input(source, target) \
              WHERE stored.url = input.source \
-               AND stored.listing_source_id = $1 \
-               AND stored.domain_id = $2",
+               AND stored.listing_source_id = $1",
         )
         .bind(uuid::Uuid::from(listing_source_id))
-        .bind(domain_id.as_uuid())
         .bind(&sources)
         .bind(&targets)
         .execute(&mut **transaction)
@@ -465,14 +419,12 @@ impl UrlMetadataRepositoryImpl {
         .rows_affected();
         let retired = sqlx::query(
             "UPDATE listing_source_urls \
-             SET crawler_disposition = $4, next_retry_at = NULL, updated = NOW() \
-             WHERE url = ANY($3::text[]) \
+             SET crawler_disposition = $3, next_retry_at = NULL, updated = NOW() \
+             WHERE url = ANY($2::text[]) \
                AND listing_source_id = $1 \
-               AND domain_id = $2 \
                AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
         )
         .bind(uuid::Uuid::from(listing_source_id))
-        .bind(domain_id.as_uuid())
         .bind(&retired)
         .bind(CrawlerDisposition::Duplicate.as_str())
         .execute(&mut **transaction)
@@ -490,7 +442,10 @@ impl UrlMetadataRepositoryImpl {
         Ok(())
     }
 
-    fn verify_url_hosts(urls: &[url::Url], domain: &str) -> Result<(), UrlMetadataRepositoryError> {
+    fn verify_url_hosts(
+        urls: &[url::Url],
+        crawl_host: &str,
+    ) -> Result<(), UrlMetadataRepositoryError> {
         for url in urls {
             if url.fragment().is_some() {
                 return Err(UrlMetadataRepositoryError::InvalidCrawlerUrl {
@@ -506,11 +461,11 @@ impl UrlMetadataRepositoryImpl {
             }
         }
         urls.iter()
-            .find(|url| !url_matches_configured_domain(url, domain))
+            .find(|url| !url_on_crawl_host(url, crawl_host))
             .map_or(Ok(()), |url| {
-                Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchDomain {
+                Err(UrlMetadataRepositoryError::UrlHostDoesNotMatchCrawlHost {
                     url: url.clone(),
-                    domain: domain.to_string(),
+                    crawl_host: crawl_host.to_string(),
                 })
             })
     }
@@ -521,13 +476,11 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
     async fn upsert_link(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         url: &url::Url,
         url_class: &UrlClass,
     ) -> Result<SpiderUrlRecord, UrlMetadataRepositoryError> {
         self.upsert_links_batch(
             listing_source_id,
-            domain_id,
             &[DiscoveredUrl {
                 url: url.clone(),
                 url_class: *url_class,
@@ -544,24 +497,21 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
     async fn upsert_links_batch(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         links: &[DiscoveredUrl],
     ) -> Result<Vec<SpiderUrlRecord>, UrlMetadataRepositoryError> {
         if links.is_empty() {
             return Ok(Vec::new());
         }
         let mut transaction = self.pool.begin().await.map_err(database_error)?;
-        let domain =
-            Self::verify_domain_owner(&mut transaction, *listing_source_id, *domain_id).await?;
+        let crawl_host = Self::locked_crawl_host(&mut transaction, *listing_source_id).await?;
         let fetched = links
             .iter()
             .map(|link| link.url.clone())
             .collect::<Vec<_>>();
-        Self::verify_url_hosts(&fetched, &domain)?;
+        Self::verify_url_hosts(&fetched, &crawl_host)?;
         Self::validate_existing_url_ownership(
             &mut transaction,
             *listing_source_id,
-            *domain_id,
             &fetched.iter().map(ToString::to_string).collect::<Vec<_>>(),
         )
         .await?;
@@ -573,24 +523,18 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
         let links = Self::admit_canonical_urls(
             &mut transaction,
             *listing_source_id,
-            *domain_id,
-            &domain,
+            &crawl_host,
             &rejected,
             links,
         )
         .await?;
         let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) =
             canonical_batch(&links).into_iter().unzip();
-        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) = Self::stored_spellings(
-            &mut transaction,
-            *listing_source_id,
-            *domain_id,
-            &urls,
-            &url_classes,
-        )
-        .await?
-        .into_iter()
-        .unzip();
+        let (urls, url_classes): (Vec<url::Url>, Vec<UrlClass>) =
+            Self::stored_spellings(&mut transaction, *listing_source_id, &urls, &url_classes)
+                .await?
+                .into_iter()
+                .unzip();
         let url_classes: Vec<UrlClass> = urls
             .iter()
             .zip(url_classes)
@@ -602,21 +546,19 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                 }
             })
             .collect();
-        Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, *domain_id, &urls)
-            .await?;
+        Self::adopt_legacy_spellings(&mut transaction, *listing_source_id, &urls).await?;
         Self::collapse_duplicate_rows(
             &mut transaction,
             *listing_source_id,
-            *domain_id,
             &duplicate_rows_of(&links, &urls),
         )
         .await?;
         let url_strings = urls.iter().map(ToString::to_string).collect::<Vec<_>>();
 
         let records = sqlx::query_as::<_, SpiderUrlRecord>(
-            "INSERT INTO listing_source_urls (listing_source_id, domain_id, url, raw_source_record_key, url_class, created, updated) \
-             SELECT $1, $2, input.url, input.url, input.url_class, NOW(), NOW() \
-             FROM UNNEST($3::text[], $4::text[]) AS input(url, url_class) \
+            "INSERT INTO listing_source_urls (listing_source_id, url, raw_source_record_key, url_class, created, updated) \
+             SELECT $1, input.url, input.url, input.url_class, NOW(), NOW() \
+             FROM UNNEST($2::text[], $3::text[]) AS input(url, url_class) \
              ON CONFLICT (url) DO UPDATE SET \
                  url_class = CASE \
                      WHEN listing_source_urls.crawler_disposition = 'ACTIVE' THEN EXCLUDED.url_class \
@@ -627,11 +569,9 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
                      ELSE listing_source_urls.updated \
                  END \
              WHERE listing_source_urls.listing_source_id = EXCLUDED.listing_source_id \
-               AND listing_source_urls.domain_id = EXCLUDED.domain_id \
-             RETURNING listing_source_id, domain_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
+             RETURNING listing_source_id, url, url_class, crawler_disposition, last_scraped_hash, last_scraped, created, updated",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .bind(&url_strings)
         .bind(url_classes.iter().map(ToString::to_string).collect::<Vec<_>>())
         .fetch_all(&mut *transaction)
@@ -642,7 +582,6 @@ impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
             Self::validate_existing_url_ownership(
                 &mut transaction,
                 *listing_source_id,
-                *domain_id,
                 &url_strings,
             )
             .await?;

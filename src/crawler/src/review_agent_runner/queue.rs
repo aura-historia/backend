@@ -387,7 +387,6 @@ mod tests {
             review_id: CrawlerReviewId::new(),
             listing_source_id: listing_source_core::ListingSourceId::new(),
             listing_source_name: "Antiques".to_owned(),
-            domain_id: None,
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             reason: "manual_schema_required".to_owned(),
             candidate_version: 1,

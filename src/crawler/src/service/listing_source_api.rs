@@ -10,7 +10,7 @@ use crate::service::listing_source_registration::{
 };
 use async_trait::async_trait;
 use listing_source_core::{
-    Domain, ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
+    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
 };
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue};
 use serde::Deserialize;
@@ -293,16 +293,6 @@ struct ProblemBody {
     error: Option<String>,
 }
 
-/// The host of a shop's public URL as a crawler domain; `None` for anything but an http(s)
-/// URL whose host is a domain.
-fn public_host(url: &str) -> Option<Domain> {
-    let url = Url::parse(url).ok()?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return None;
-    }
-    Domain::try_from(url.host_str()?).ok()
-}
-
 impl ListingSourceItem {
     fn into_registered(self) -> Result<RegisteredListingSource, FetchError> {
         if !self
@@ -324,10 +314,7 @@ impl ListingSourceItem {
             listing_source_slug: ListingSourceSlugId::raw(&self.listing_source_slug_id)
                 .map_err(|_| FetchError::InvalidItem("listingSourceSlugId"))?,
             crawl_enabled: true,
-            public_host: self
-                .presentation
-                .and_then(|presentation| presentation.url)
-                .and_then(|url| public_host(&url)),
+            presentation_url: self.presentation.and_then(|presentation| presentation.url),
         })
     }
 }
@@ -454,7 +441,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_map_the_host_of_the_presentation_url_as_the_public_host() {
+    async fn should_pass_the_presentation_url_on_as_given() {
         let ids: Vec<ListingSourceId> = (0..4).map(|_| ListingSourceId::new()).collect();
         let presentations = [
             Some("https://www.hartantiques.com/"),
@@ -480,14 +467,9 @@ mod tests {
         assert_eq!(
             sources
                 .iter()
-                .map(|source| source.public_host.as_ref().map(ToString::to_string))
+                .map(|source| source.presentation_url.as_deref())
                 .collect::<Vec<_>>(),
-            vec![
-                Some("www.hartantiques.com".to_owned()),
-                Some("www.stamplove.co.kr".to_owned()),
-                None,
-                None,
-            ]
+            presentations
         );
     }
 

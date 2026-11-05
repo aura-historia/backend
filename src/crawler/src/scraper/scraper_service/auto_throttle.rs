@@ -204,7 +204,7 @@ impl ScraperAutoThrottle {
 
     /// The domain's entry, created on first use and marked as accessed.
     fn entry(&self, raw_domain: &str) -> Option<RefMut<'_, String, DomainLatency>> {
-        let domain = crate::network::policy::canonical_crawler_domain(raw_domain);
+        let domain = crate::network::policy::canonical_crawl_host(raw_domain);
         if domain.is_empty() {
             return None;
         }
@@ -269,7 +269,7 @@ impl ScraperAutoThrottle {
             return Duration::ZERO;
         }
 
-        let domain = crate::network::policy::canonical_crawler_domain(domain);
+        let domain = crate::network::policy::canonical_crawl_host(domain);
         let Some(entry) = self.domains.get(&domain) else {
             return self.config.min_delay;
         };
@@ -292,7 +292,7 @@ impl ScraperAutoThrottle {
 
     /// The domain's smoothed response latency, `None` before its first response.
     pub fn latency(&self, domain: &str) -> Option<DomainLatencyStats> {
-        let domain = crate::network::policy::canonical_crawler_domain(domain);
+        let domain = crate::network::policy::canonical_crawl_host(domain);
         self.domains.get(&domain).and_then(|entry| {
             let samples = entry.samples.load(Ordering::Relaxed);
             (samples > 0).then(|| DomainLatencyStats {

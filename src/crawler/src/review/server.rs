@@ -17,11 +17,8 @@ use crate::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
-use crate::service::crawler_domain_configuration::{
-    CrawlerDomainAdministration, CrawlerDomainConfigurationError,
-};
-use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId};
-use listing_source_core::{Domain, ListingSourceId};
+use crate::{CrawlerReviewId, CrawlerReviewPageId};
+use listing_source_core::ListingSourceId;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -62,7 +59,6 @@ pub struct ReviewServer {
     repository: CrawlerReviewRepository,
     review_queue: ReviewQueueReader,
     listing_sources: ListingSourceOverviewReader,
-    domain_administration: Arc<dyn CrawlerDomainAdministration>,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
     /// The console's cap on live matrix refreshes, candidate evaluations and page projections.
@@ -78,7 +74,6 @@ impl ReviewServer {
     /// the review agents' decision policy the composition root built for the whole crawler.
     pub fn new(
         repository: CrawlerReviewRepository,
-        domain_administration: Arc<dyn CrawlerDomainAdministration>,
         config: ReviewServerConfig,
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
@@ -86,7 +81,6 @@ impl ReviewServer {
             review_queue: ReviewQueueReader::of(&repository),
             listing_sources: ListingSourceOverviewReader::new(repository.pool().clone()),
             repository,
-            domain_administration,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),
             html_fetcher,
@@ -258,104 +252,6 @@ impl ReviewServer {
         if let Some(response) = self.route_missing_value_pages(&request, actor).await {
             return response;
         }
-        if request.method == "GET"
-            && request.path.starts_with("/api/listing-sources/")
-            && request.path.ends_with("/domains")
-        {
-            let Some(listing_source_id) =
-                parse_listing_source_id_with_suffix(request.path, "/domains")
-            else {
-                return HttpResponse::json(400, &json!({ "error": "invalid ListingSource id" }));
-            };
-            return match self
-                .domain_administration
-                .list_crawler_domains(listing_source_id)
-                .await
-            {
-                Ok(domains) => HttpResponse::json(
-                    200,
-                    &domains
-                        .into_iter()
-                        .map(|domain| {
-                            json!({
-                                "domain_id": domain.domain_id,
-                                "listing_source_id": domain.listing_source_id,
-                                "domain": domain.domain.as_str(),
-                            })
-                        })
-                        .collect::<Vec<_>>(),
-                ),
-                Err(error) => domain_configuration_error(error),
-            };
-        }
-
-        if request.method == "POST"
-            && request.path.starts_with("/api/listing-sources/")
-            && request.path.ends_with("/domains")
-        {
-            let Some(listing_source_id) =
-                parse_listing_source_id_with_suffix(request.path, "/domains")
-            else {
-                return HttpResponse::json(400, &json!({ "error": "invalid ListingSource id" }));
-            };
-            let payload: DomainPayload = match serde_json::from_str(request.body) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            let domain = match Domain::try_from(payload.domain) {
-                Ok(domain) => domain,
-                Err(error) => {
-                    return HttpResponse::json(400, &json!({ "error": error.to_string() }));
-                }
-            };
-            return match self
-                .domain_administration
-                .register_crawler_domain(listing_source_id, domain)
-                .await
-            {
-                Ok(domain) => HttpResponse::json(
-                    if domain.created { 201 } else { 200 },
-                    &json!({
-                        "domain_id": domain.domain_id,
-                        "listing_source_id": domain.listing_source_id,
-                        "domain": domain.domain.as_str(),
-                        "created": domain.created,
-                    }),
-                ),
-                Err(error) => domain_configuration_error(error),
-            };
-        }
-
-        if request.method == "DELETE"
-            && request.path.starts_with("/api/listing-sources/")
-            && request.path.contains("/domains/")
-        {
-            let Some((listing_source_id, domain_id)) = parse_listing_source_domain_id(request.path)
-            else {
-                return HttpResponse::json(
-                    400,
-                    &json!({ "error": "invalid ListingSource or domain id" }),
-                );
-            };
-            return match self
-                .domain_administration
-                .remove_crawler_domain(listing_source_id, domain_id)
-                .await
-            {
-                Ok(removal) => HttpResponse::json(
-                    200,
-                    &json!({
-                        "domain_id": removal.domain_id,
-                        "removed_url_count": removal.removed_url_count,
-                        "removed_url_pattern_review_count": removal.removed_url_pattern_review_count,
-                    }),
-                ),
-                Err(error) => domain_configuration_error(error),
-            };
-        }
-
         // Preview responses, including their errors, are framed by the console.
         if request.method == "GET" && request.path == "/api/live-inspect" {
             return match live_preview_url(&request) {
@@ -976,11 +872,6 @@ struct SampleLabelsPayload {
 }
 
 #[derive(Deserialize)]
-struct DomainPayload {
-    domain: String,
-}
-
-#[derive(Deserialize)]
 struct ReviewPagePayload {
     url: String,
 }
@@ -1029,33 +920,10 @@ fn parse_listing_source_id_with_suffix(path: &str, suffix: &str) -> Option<Listi
     id.parse().ok()
 }
 
-fn parse_listing_source_domain_id(path: &str) -> Option<(ListingSourceId, CrawlerDomainId)> {
-    let rest = path.strip_prefix("/api/listing-sources/")?;
-    let (listing_source_id, domain_id) = rest.split_once("/domains/")?;
-    Some((listing_source_id.parse().ok()?, domain_id.parse().ok()?))
-}
-
 fn parse_page_id_with_suffix(path: &str, suffix: &str) -> Option<CrawlerReviewPageId> {
     let without_suffix = path.strip_suffix(suffix)?;
     let id = without_suffix.strip_prefix("/api/review-pages/")?;
     id.parse().ok()
-}
-
-fn domain_configuration_error(error: CrawlerDomainConfigurationError) -> HttpResponse {
-    match error {
-        CrawlerDomainConfigurationError::ListingSourceNotFound { .. }
-        | CrawlerDomainConfigurationError::DomainNotOwnedByListingSource { .. } => {
-            HttpResponse::json(404, &json!({ "error": error.to_string() }))
-        }
-        CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource { .. } => {
-            HttpResponse::json(409, &json!({ "error": error.to_string() }))
-        }
-        CrawlerDomainConfigurationError::UnsafeDomain { .. }
-        | CrawlerDomainConfigurationError::RepeatedWwwPrefix { .. } => {
-            HttpResponse::json(400, &json!({ "error": error.to_string() }))
-        }
-        CrawlerDomainConfigurationError::Database { .. } => internal_error(error),
-    }
 }
 
 /// The URL a live preview (`/api/live-inspect`, `/api/live-html`) fetches: any URL its `url` query
@@ -1176,8 +1044,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
         | ReviewRepositoryError::RejectionAlreadyRevoked(_)
         | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_)
-        | ReviewRepositoryError::UrlPatternReviewWithoutDomain(_)
-        | ReviewRepositoryError::UrlPatternReviewDomainMissing { .. } => {
+        | ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
@@ -1323,9 +1190,6 @@ mod tests {
     use crate::review::approval_guard::FailedApprovalCheck;
     use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
     use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
-    use crate::service::crawler_domain_configuration::{
-        CrawlerDomainConfiguration, CrawlerDomainRemoval,
-    };
     use std::net::SocketAddr;
 
     mod live_fetch_failure {
@@ -1377,8 +1241,6 @@ mod tests {
         AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, limits)
     }
 
-    struct RejectingDomainAdministration;
-
     struct StaticHtmlFetcher;
 
     #[async_trait::async_trait]
@@ -1389,32 +1251,6 @@ mod tests {
                 final_url: url.clone(),
                 status: reqwest::StatusCode::OK,
             })
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl CrawlerDomainAdministration for RejectingDomainAdministration {
-        async fn list_crawler_domains(
-            &self,
-            listing_source_id: ListingSourceId,
-        ) -> Result<Vec<CrawlerDomainConfiguration>, CrawlerDomainConfigurationError> {
-            Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
-        }
-
-        async fn register_crawler_domain(
-            &self,
-            listing_source_id: ListingSourceId,
-            _domain: Domain,
-        ) -> Result<CrawlerDomainConfiguration, CrawlerDomainConfigurationError> {
-            Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
-        }
-
-        async fn remove_crawler_domain(
-            &self,
-            listing_source_id: ListingSourceId,
-            _domain_id: CrawlerDomainId,
-        ) -> Result<CrawlerDomainRemoval, CrawlerDomainConfigurationError> {
-            Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
         }
     }
 
@@ -1441,7 +1277,6 @@ mod tests {
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
         Ok(ReviewServer::new(
             CrawlerReviewRepository::new(pool),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: auth_token.map(str::to_owned),
@@ -1553,7 +1388,6 @@ mod tests {
         };
         let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool).with_agent_decisions(agent_mode(limits)),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_owned()),
@@ -1612,7 +1446,6 @@ mod tests {
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
         let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
@@ -1642,7 +1475,6 @@ mod tests {
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
         let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
@@ -1718,7 +1550,6 @@ mod tests {
         });
         let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some(TOKEN.to_owned()),
@@ -1809,7 +1640,6 @@ mod tests {
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
         let server = ReviewServer::new(
             CrawlerReviewRepository::new(pool),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: Some("review-token".to_string()),
@@ -1855,10 +1685,6 @@ mod tests {
                 "POST /api/reviews/{}/approve HTTP/1.1\r\nCookie: {cookie}\r\n\r\n",
                 uuid::Uuid::new_v4()
             ),
-            format!(
-                "POST /api/listing-sources/{}/domains HTTP/1.1\r\nCookie: {cookie}\r\n\r\n",
-                uuid::Uuid::new_v4()
-            ),
         ] {
             let response = server.route(&request).await.to_string();
             assert!(response.starts_with("HTTP/1.1 401 Unauthorized"));
@@ -1894,7 +1720,6 @@ mod tests {
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
         Ok(ReviewServer::new(
             CrawlerReviewRepository::new(pool),
-            Arc::new(RejectingDomainAdministration),
             ReviewServerConfig {
                 bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                 auth_token: None,
@@ -2075,32 +1900,20 @@ Origin: http://127.0.0.1:7878/x
         );
     }
 
-    /// A URL-pattern review without its domain answers 409 with an error that names the domain,
+    /// A URL-pattern review whose ListingSource has no crawl root answers 409 naming the review,
     /// never the 404 of an unknown review or the 500 of a database failure.
     #[test]
-    fn should_answer_a_url_pattern_review_without_its_domain_with_a_conflict_naming_it() {
+    fn should_answer_a_url_pattern_review_of_an_uncrawled_source_with_a_conflict() {
         let review_id = CrawlerReviewId::new();
-        let domain_id = CrawlerDomainId::new();
 
-        for (error, named) in [
-            (
-                ReviewRepositoryError::UrlPatternReviewDomainMissing {
-                    review_id,
-                    domain_id,
-                },
-                domain_id.to_string(),
-            ),
-            (
-                ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id),
-                "names no domain".to_owned(),
-            ),
-        ] {
-            let response = review_error(error).to_string();
+        let response = review_error(ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(
+            review_id,
+        ))
+        .to_string();
 
-            assert!(response.starts_with("HTTP/1.1 409 Conflict"), "{response}");
-            assert!(response.contains(&review_id.to_string()), "{response}");
-            assert!(response.contains(&named), "{response}");
-        }
+        assert!(response.starts_with("HTTP/1.1 409 Conflict"), "{response}");
+        assert!(response.contains(&review_id.to_string()), "{response}");
+        assert!(response.contains("no crawl root"), "{response}");
     }
 
     /// The answers a client such as the review agent acts on: a 403 names its `reason`, a guard
@@ -2212,6 +2025,7 @@ Origin: http://127.0.0.1:7878/x
     mod matrix_refresh {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send_as};
         use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig, agent_mode};
+        use crate::CrawlerReviewId;
         use crate::network::policy::NetworkErrorKind;
         use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
@@ -2225,12 +2039,7 @@ Origin: http://127.0.0.1:7878/x
             ExtractionCardinality, ExtractionKind, ExtractionRule,
         };
         use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
-        use crate::service::crawler_domain_configuration::{
-            CrawlerDomainAdministration, CrawlerDomainConfiguration,
-            CrawlerDomainConfigurationError, CrawlerDomainRemoval,
-        };
-        use crate::{CrawlerDomainId, CrawlerReviewId};
-        use listing_source_core::{Domain, ListingSourceId};
+        use listing_source_core::ListingSourceId;
         use serde_json::json;
         use sqlx::PgPool;
         use std::collections::HashMap;
@@ -2330,35 +2139,6 @@ Origin: http://127.0.0.1:7878/x
                 .replace("</body>", &format!("{}</body>", "</div>".repeat(depth)))
         }
 
-        struct NoDomainAdministration;
-
-        #[async_trait::async_trait]
-        impl CrawlerDomainAdministration for NoDomainAdministration {
-            async fn list_crawler_domains(
-                &self,
-                listing_source_id: ListingSourceId,
-            ) -> Result<Vec<CrawlerDomainConfiguration>, CrawlerDomainConfigurationError>
-            {
-                Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
-            }
-
-            async fn register_crawler_domain(
-                &self,
-                listing_source_id: ListingSourceId,
-                _domain: Domain,
-            ) -> Result<CrawlerDomainConfiguration, CrawlerDomainConfigurationError> {
-                Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
-            }
-
-            async fn remove_crawler_domain(
-                &self,
-                listing_source_id: ListingSourceId,
-                _domain_id: CrawlerDomainId,
-            ) -> Result<CrawlerDomainRemoval, CrawlerDomainConfigurationError> {
-                Err(CrawlerDomainConfigurationError::ListingSourceNotFound { listing_source_id })
-            }
-        }
-
         fn rule(selector: &str, extract: ExtractionKind) -> ExtractionRule {
             ExtractionRule {
                 selector: selector.into(),
@@ -2448,12 +2228,7 @@ Origin: http://127.0.0.1:7878/x
                 .unwrap_or_else(|error| panic!("create schema review: {error}"));
             let server = ReviewServer {
                 matrix_refresh_wait: Duration::from_millis(50),
-                ..ReviewServer::new(
-                    repository,
-                    Arc::new(NoDomainAdministration),
-                    console,
-                    fetcher.clone(),
-                )
+                ..ReviewServer::new(repository, console, fetcher.clone())
             };
             register_refresh_shutdown(server.clone(), fetcher, review_id);
             Fixture {
@@ -3043,7 +2818,7 @@ Origin: http://127.0.0.1:7878/x
 
     mod needs_repair {
         use super::matrix_refresh::schema;
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use super::{ReviewServer, ReviewServerConfig};
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
@@ -3114,7 +2889,6 @@ Origin: http://127.0.0.1:7878/x
                 .unwrap_or_else(|error| panic!("create schema review: {error}"));
             let server = ReviewServer::new(
                 repository,
-                Arc::new(RejectingDomainAdministration),
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
@@ -3169,10 +2943,7 @@ Origin: http://127.0.0.1:7878/x
     mod schema_editing {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send};
-        use super::{
-            AgentDecisionPolicy, RejectingDomainAdministration, ReviewServer, ReviewServerConfig,
-            agent_mode,
-        };
+        use super::{AgentDecisionPolicy, ReviewServer, ReviewServerConfig, agent_mode};
         use crate::CrawlerReviewId;
         use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
@@ -3220,7 +2991,6 @@ Origin: http://127.0.0.1:7878/x
                 .unwrap_or_else(|error| panic!("create schema review: {error}"));
             let server = ReviewServer::new(
                 repository,
-                Arc::new(RejectingDomainAdministration),
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
@@ -4237,14 +4007,14 @@ Origin: http://127.0.0.1:7878/x
     /// a URL-pattern review has no live matrix to evaluate.
     mod sample_labels {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig, agent_mode};
+        use super::{ReviewServer, ReviewServerConfig, agent_mode};
+        use crate::CrawlerReviewId;
         use crate::review::agent_decisions::AgentLimits;
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::UrlPatternDecision;
         use crate::review::repository::CrawlerReviewRepository;
         use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
-        use crate::{CrawlerDomainId, CrawlerReviewId};
         use listing_source_core::ListingSourceId;
         use serde_json::{Value, json};
         use sqlx::PgPool;
@@ -4267,13 +4037,11 @@ Origin: http://127.0.0.1:7878/x
             )
         }
 
-        /// A review server taking the agents' guarded decisions, and the domain and the pending,
-        /// undecided URL-pattern review of the shop on [`SHOP`], whose ListingSource also holds
-        /// `other_domains`.
+        /// A review server taking the agents' guarded decisions, and the ListingSource and the
+        /// pending, undecided URL-pattern review of the shop crawled on [`SHOP`].
         async fn url_pattern_review_server(
             pool: &PgPool,
-            other_domains: &[&str],
-        ) -> (ReviewServer, CrawlerDomainId, CrawlerReviewId) {
+        ) -> (ReviewServer, ListingSourceId, CrawlerReviewId) {
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
                 "INSERT INTO listing_sources \
@@ -4284,29 +4052,12 @@ Origin: http://127.0.0.1:7878/x
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-            let domain_id = CrawlerDomainId::new();
-            let others = other_domains
-                .iter()
-                .map(|domain| (CrawlerDomainId::new(), *domain));
-            for (id, domain) in std::iter::once((domain_id, "antique-shop.example")).chain(others) {
-                sqlx::query(
-                    "INSERT INTO listing_source_domains \
-                     (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-                     VALUES ($1, $2, $3, $3)",
-                )
-                .bind(id.as_uuid())
-                .bind(listing_source_id.as_uuid())
-                .bind(domain)
-                .execute(pool)
-                .await
-                .unwrap_or_else(|error| panic!("insert domain {domain}: {error}"));
-            }
+            crate::test_support::store_crawl_root(pool, listing_source_id, SHOP).await;
             let repository = CrawlerReviewRepository::new(pool.clone())
                 .with_agent_decisions(agent_mode(AgentLimits::default()));
             let review_id = repository
                 .create_url_pattern_review(
                     &listing_source_id,
-                    &domain_id,
                     "manual_url_pattern_required",
                     UrlPatternDecision::Undecided,
                     &["/item/oak-chair", "/item/pine-table", "/shop/chairs"]
@@ -4318,7 +4069,6 @@ Origin: http://127.0.0.1:7878/x
             // The fetcher expects no call: labels and approvals fetch nothing.
             let server = ReviewServer::new(
                 repository,
-                Arc::new(RejectingDomainAdministration),
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),
@@ -4328,13 +4078,13 @@ Origin: http://127.0.0.1:7878/x
                 },
                 Arc::new(MockHtmlFetcher::new()),
             );
-            (server, domain_id, review_id)
+            (server, listing_source_id, review_id)
         }
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_take_the_reviewer_approval_once_the_pattern_follows_the_author_labels() {
             let pool = test_api::get_postgres_client().await;
-            let (server, domain_id, review_id) = url_pattern_review_server(&pool, &[]).await;
+            let (server, listing_source_id, review_id) = url_pattern_review_server(&pool).await;
             let sample_labels = format!("POST /api/reviews/{review_id}/sample-labels");
             let candidate = format!("POST /api/reviews/{review_id}/candidate");
             let approve = format!("POST /api/reviews/{review_id}/approve");
@@ -4429,13 +4179,13 @@ Origin: http://127.0.0.1:7878/x
 
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {approved}");
             let decision: (Option<String>, String) = sqlx::query_as(
-                "SELECT url_pattern, url_pattern_state FROM listing_source_domains \
-                 WHERE domain_id = $1",
+                "SELECT url_pattern, url_pattern_state FROM listing_sources \
+                 WHERE listing_source_id = $1",
             )
-            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
             .fetch_one(&pool)
             .await
-            .unwrap_or_else(|error| panic!("read domain decision: {error}"));
+            .unwrap_or_else(|error| panic!("read the ListingSource's decision: {error}"));
             assert_eq!(
                 decision,
                 (Some("/item/[^/]+$".to_owned()), "MATCHED".to_owned())
@@ -4463,23 +4213,21 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(relied_on["labels"][0]["label"], "PRODUCT");
         }
 
-        /// A URL-pattern review decides one domain, so a label of a URL on another domain of its
-        /// ListingSource, which would say nothing about the decision, is refused with 400 and
-        /// changes nothing.
+        /// A label of a URL off the ListingSource's crawl host, which would say nothing about the
+        /// decision, is refused with 400 and changes nothing.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_refuse_a_label_on_another_domain_of_the_listing_source() {
+        async fn should_refuse_a_label_off_the_crawl_host() {
             let pool = test_api::get_postgres_client().await;
-            let (server, _, review_id) =
-                url_pattern_review_server(&pool, &["antique-shop.de"]).await;
-            let other_domain = "https://antique-shop.de/item/oak-chair";
-            let mut off_domain = labels(&PRODUCTS, &NOT_PRODUCTS);
-            off_domain[0]["url"] = json!(other_domain);
+            let (server, _, review_id) = url_pattern_review_server(&pool).await;
+            let off_host = "https://antique-shop.de/item/oak-chair";
+            let mut off_host_labels = labels(&PRODUCTS, &NOT_PRODUCTS);
+            off_host_labels[0]["url"] = json!(off_host);
 
             let (status, refused) = send_as(
                 &server,
                 AUTHOR_TOKEN,
                 &format!("POST /api/reviews/{review_id}/sample-labels"),
-                &json!({ "expected_candidate_version": 1, "labels": off_domain }).to_string(),
+                &json!({ "expected_candidate_version": 1, "labels": off_host_labels }).to_string(),
             )
             .await;
 
@@ -4487,7 +4235,7 @@ Origin: http://127.0.0.1:7878/x
             assert!(
                 refused["error"]
                     .as_str()
-                    .is_some_and(|error| error.contains(other_domain)),
+                    .is_some_and(|error| error.contains(off_host)),
                 "{refused}"
             );
             let (_, detail) =
@@ -4734,7 +4482,7 @@ Origin: http://127.0.0.1:7878/x
     mod review_source_pages {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use super::{ReviewServer, ReviewServerConfig};
         use crate::CrawlerReviewId;
         use crate::network::policy::NetworkErrorKind;
         use crate::review::agent_tokens::ReviewAgentTokens;
@@ -4828,16 +4576,7 @@ Origin: http://127.0.0.1:7878/x
             .execute(&pool)
             .await
             .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-            sqlx::query(
-                "INSERT INTO listing_source_domains \
-                 (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-                 VALUES ($1, $2, 'antiques.example', 'antiques.example')",
-            )
-            .bind(crate::CrawlerDomainId::new().as_uuid())
-            .bind(listing_source_id.as_uuid())
-            .execute(&pool)
-            .await
-            .unwrap_or_else(|error| panic!("insert domain: {error}"));
+            crate::test_support::store_crawl_root(&pool, listing_source_id, SHOP).await;
             let repository = CrawlerReviewRepository::new(pool.clone());
             let review_id = repository
                 .create_schema_review(
@@ -4858,7 +4597,6 @@ Origin: http://127.0.0.1:7878/x
                 matrix_refresh_wait: response_wait,
                 ..ReviewServer::new(
                     repository,
-                    Arc::new(RejectingDomainAdministration),
                     ReviewServerConfig {
                         bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                         auth_token: Some(TOKEN.to_owned()),
@@ -5171,7 +4909,7 @@ Origin: http://127.0.0.1:7878/x
     mod missing_value_pages {
         use super::matrix_refresh::schema;
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send, send_as};
-        use super::{RejectingDomainAdministration, ReviewServer, ReviewServerConfig};
+        use super::{ReviewServer, ReviewServerConfig};
         use crate::review::agent_tokens::ReviewAgentTokens;
         use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
         use crate::review::model::PAGE_ROLE_REVIEWER_ADDED;
@@ -5197,35 +4935,21 @@ Origin: http://127.0.0.1:7878/x
         ) -> (ReviewServer, ListingSourceId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
-            let domain_id = crate::CrawlerDomainId::new();
-            for (query, binds) in [
-                (
-                    "INSERT INTO listing_sources \
-                     (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-                     VALUES ($1, 'Sold source', 'sold-source', TRUE, NOW(), NOW())",
-                    vec![],
-                ),
-                (
-                    "INSERT INTO listing_source_domains \
-                     (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-                     VALUES ($2, $1, 'shop.example', 'shop.example')",
-                    vec![domain_id],
-                ),
-                (
-                    "INSERT INTO listing_source_urls \
-                     (listing_source_id, domain_id, url, url_class, raw_source_record_key, \
-                      last_scraped, last_error_kind, last_error_message) \
-                     VALUES ($1, $2, 'https://shop.example/products/sold', 'product', \
-                             'https://shop.example/products/sold', NOW(), \
-                             'MissingRequiredValue', '`title` is blank')",
-                    vec![domain_id],
-                ),
+            for query in [
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+                  crawl_root_url, crawl_host, created, updated) \
+                 VALUES ($1, 'Sold source', 'sold-source', TRUE, 'https://shop.example/', \
+                         'shop.example', NOW(), NOW())",
+                "INSERT INTO listing_source_urls \
+                 (listing_source_id, url, url_class, raw_source_record_key, \
+                  last_scraped, last_error_kind, last_error_message) \
+                 VALUES ($1, 'https://shop.example/products/sold', 'product', \
+                         'https://shop.example/products/sold', NOW(), \
+                         'MissingRequiredValue', '`title` is blank')",
             ] {
-                let mut query = sqlx::query(query).bind(listing_source_id.as_uuid());
-                for bind in binds {
-                    query = query.bind(bind.as_uuid());
-                }
-                query
+                sqlx::query(query)
+                    .bind(listing_source_id.as_uuid())
                     .execute(&pool)
                     .await
                     .unwrap_or_else(|error| panic!("insert fixture: {error}"));
@@ -5253,7 +4977,6 @@ Origin: http://127.0.0.1:7878/x
             });
             let server = ReviewServer::new(
                 CrawlerReviewRepository::new(pool),
-                Arc::new(RejectingDomainAdministration),
                 ReviewServerConfig {
                     bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
                     auth_token: Some(TOKEN.to_owned()),

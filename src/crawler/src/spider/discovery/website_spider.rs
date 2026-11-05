@@ -101,7 +101,7 @@ pub enum CrawlCooldownProfile {
 }
 
 /// Stable crawl failure identifiers; `as_str()` values are persisted as
-/// `listing_source_domains.last_crawl_error_kind` and must not change.
+/// `listing_sources.last_crawl_error_kind` and must not change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlFailureKind {
     EmptyCrawl,
@@ -168,7 +168,7 @@ impl std::fmt::Display for CrawlFailureKind {
 }
 
 /// How a crawl that delivered pages ended. `as_str()` values are persisted as
-/// `listing_source_domains.last_crawl_outcome` and must not change.
+/// `listing_sources.last_crawl_outcome` and must not change.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CrawlCompletion {

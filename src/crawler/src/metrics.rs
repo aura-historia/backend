@@ -108,8 +108,6 @@ impl CrawlerMetric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MetricDimension {
     ListingSourceId,
-    /// The configured ListingSource domain, never a page URL.
-    Domain,
     /// A persisted URL error kind such as `HTTP_503` or `Timeout`.
     FailureKind,
     /// A persisted `last_crawl_outcome` value.
@@ -120,7 +118,6 @@ impl MetricDimension {
     pub(crate) const fn key(self) -> &'static str {
         match self {
             Self::ListingSourceId => "listing_source_id",
-            Self::Domain => "domain",
             Self::FailureKind => "failure_kind",
             Self::CrawlOutcome => "crawl_outcome",
         }
@@ -143,16 +140,11 @@ impl MetricRecord {
         }
     }
 
-    pub(crate) fn for_listing_source_domain(
-        listing_source_id: &ListingSourceId,
-        domain: &str,
-    ) -> Self {
-        Self::global()
-            .with_dimension(
-                MetricDimension::ListingSourceId,
-                listing_source_id.to_string(),
-            )
-            .with_dimension(MetricDimension::Domain, domain)
+    pub(crate) fn for_listing_source(listing_source_id: &ListingSourceId) -> Self {
+        Self::global().with_dimension(
+            MetricDimension::ListingSourceId,
+            listing_source_id.to_string(),
+        )
     }
 
     pub(crate) fn with_dimension(
@@ -371,7 +363,7 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     fn source_record() -> MetricRecord {
-        MetricRecord::for_listing_source_domain(&ListingSourceId::new(), "shop.example")
+        MetricRecord::for_listing_source(&ListingSourceId::new())
             .with_value(CrawlerMetric::ScrapesSucceeded, 3)
             .with_value(CrawlerMetric::ScrapesFailed, 1)
     }
@@ -385,10 +377,7 @@ mod tests {
         let directive = &record["_aws"]["CloudWatchMetrics"][0];
         assert_eq!(record["_aws"]["Timestamp"], 1_793_016_000_000_i64);
         assert_eq!(directive["Namespace"], "AuraHistoria/Crawler");
-        assert_eq!(
-            directive["Dimensions"],
-            json!([["listing_source_id", "domain"]])
-        );
+        assert_eq!(directive["Dimensions"], json!([["listing_source_id"]]));
         assert_eq!(
             directive["Metrics"],
             json!([
@@ -396,7 +385,6 @@ mod tests {
                 { "Name": "ScrapesFailed", "Unit": "Count" },
             ])
         );
-        assert_eq!(record["domain"], "shop.example");
         assert!(record["listing_source_id"].is_string());
         assert_eq!(record["ScrapesSucceeded"], 3);
         assert_eq!(record["ScrapesFailed"], 1);
@@ -420,10 +408,9 @@ mod tests {
     /// Operators define the no-successful-scrape alarm on this name, so it is a contract.
     #[test]
     fn should_publish_the_scrape_alarm_metric_under_its_documented_name() {
-        let record =
-            MetricRecord::for_listing_source_domain(&ListingSourceId::new(), "shop.example")
-                .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
-                .to_emf(time::OffsetDateTime::now_utc());
+        let record = MetricRecord::for_listing_source(&ListingSourceId::new())
+            .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
+            .to_emf(time::OffsetDateTime::now_utc());
 
         assert_eq!(
             record["_aws"]["CloudWatchMetrics"][0]["Metrics"],
@@ -480,7 +467,8 @@ mod tests {
     #[test]
     fn should_write_a_metric_event_as_the_bare_record_inside_a_span() {
         let lines = json_log_lines(|| {
-            let _span = tracing::info_span!("scrape_domain", domain_id = "cd_test").entered();
+            let _span =
+                tracing::info_span!("scrape_batch", listing_source_id = "ls_test").entered();
             source_record().emit();
         });
 

@@ -1,5 +1,5 @@
 //! The ListingSource a review belongs to, as far as the console fetches pages for the review: its
-//! domains, and the URLs on them a page projection or a candidate evaluation may name.
+//! crawl host, and the URLs on it a page projection or a candidate evaluation may name.
 
 use super::reviewer_page_url::{reviewer_page_url, without_credentials};
 use super::{CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, ReviewRepositoryError};
@@ -15,7 +15,7 @@ pub const MAX_EVALUATED_URLS: usize = MAX_REVIEWER_ADDED_PAGES;
 impl CrawlerReviewRepository {
     /// `raw_url` as a URL of the review's ListingSource the console may fetch for the review, its
     /// fragment dropped, or the refusal of a review that does not exist or a URL that is not a
-    /// plain http(s) URL on one of the ListingSource's domains.
+    /// plain http(s) URL on the ListingSource's crawl host.
     pub async fn review_source_url(
         &self,
         review_id: CrawlerReviewId,
@@ -28,33 +28,34 @@ impl CrawlerReviewRepository {
         .fetch_optional(&self.pool)
         .await?
         .ok_or(ReviewRepositoryError::NotFound(review_id))?;
-        let domains = listing_source_domains(&self.pool, listing_source_id).await?;
-        review_source_url(raw_url, &domains)
+        let crawl_host = listing_source_crawl_host(&self.pool, listing_source_id).await?;
+        review_source_url(raw_url, crawl_host.as_deref())
     }
 }
 
-/// The domains of the ListingSource `listing_source_id`.
-pub(super) async fn listing_source_domains(
+/// The crawl host of the ListingSource `listing_source_id`, `None` without a crawl root.
+pub(super) async fn listing_source_crawl_host(
     pool: &PgPool,
     listing_source_id: uuid::Uuid,
-) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT listing_source_domain FROM listing_source_domains WHERE listing_source_id = $1",
+) -> Result<Option<String>, sqlx::Error> {
+    Ok(sqlx::query_scalar::<_, Option<String>>(
+        "SELECT crawl_host FROM listing_sources WHERE listing_source_id = $1",
     )
     .bind(listing_source_id)
-    .fetch_all(pool)
-    .await
+    .fetch_optional(pool)
+    .await?
+    .flatten())
 }
 
-/// `raw_url` without its fragment when it is a plain http(s) URL on one of `domains`; otherwise
-/// the refusal names it without credentials.
+/// `raw_url` without its fragment when it is a plain http(s) URL on `crawl_host`; otherwise the
+/// refusal names it without credentials.
 pub(super) fn review_source_url(
     raw_url: &str,
-    domains: &[String],
+    crawl_host: Option<&str>,
 ) -> Result<Url, ReviewRepositoryError> {
     let url = Url::parse(raw_url.trim())
         .map_err(|_| ReviewRepositoryError::ReviewPageUrlNotAllowed(raw_url.trim().to_owned()))?;
-    if !is_review_source_url(&url, domains) {
+    if !is_review_source_url(&url, crawl_host) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(&url).to_string(),
         ));
@@ -66,13 +67,11 @@ pub(super) fn review_source_url(
 mod tests {
     use super::*;
 
-    fn domains() -> Vec<String> {
-        vec!["antiques.example".to_owned()]
-    }
+    const CRAWL_HOST: Option<&str> = Some("antiques.example");
 
     #[test]
     fn should_take_a_url_of_the_source_without_its_fragment() {
-        let url = review_source_url(" https://www.antiques.example/item/1#gallery ", &domains())
+        let url = review_source_url(" https://www.antiques.example/item/1#gallery ", CRAWL_HOST)
             .unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(url.as_str(), "https://www.antiques.example/item/1");
@@ -95,7 +94,7 @@ mod tests {
             ),
             ("not a url", "not a url"),
         ] {
-            match review_source_url(raw, &domains()) {
+            match review_source_url(raw, CRAWL_HOST) {
                 Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(url)) => {
                     assert_eq!(url, named, "{raw}");
                 }

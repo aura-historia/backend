@@ -148,7 +148,6 @@ async fn main() {
             );
             match service
                 .scrape(ScrapeRequest {
-                    domain_id: None,
                     listing_source_id,
                     url: url.clone(),
                     source_record_key: url.to_string(),

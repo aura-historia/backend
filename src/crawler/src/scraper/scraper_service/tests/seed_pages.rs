@@ -139,7 +139,7 @@ async fn should_fallback_to_primary_page_when_schema_seed_sampling_query_fails()
     cand_svc
         .expect_get_random_product_urls_for_schema_seed()
         .once()
-        .returning(|_, _, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
+        .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::RowNotFound) }));
     expect_successful_bookkeeping(&mut cand_svc, id, url.clone(), CrawlerDisposition::Active);
 
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
@@ -195,7 +195,7 @@ async fn should_propagate_domain_failure_from_extra_schema_seed_fetch() {
     cand_svc
         .expect_get_random_product_urls_for_schema_seed()
         .once()
-        .returning(move |_, _, _, _| {
+        .returning(move |_, _, _| {
             let sampled = vec![SchemaSeedCandidate {
                 url: sample_seed_url_clone.clone(),
                 expected_last_captured_raw_input_sha256: None,
@@ -278,7 +278,7 @@ async fn should_skip_schema_seed_page_when_redirected_url_does_not_match_product
     cand_svc
         .expect_get_random_product_urls_for_schema_seed()
         .once()
-        .returning(move |_, _, _, _| {
+        .returning(move |_, _, _| {
             let sampled = vec![SchemaSeedCandidate {
                 url: sample_seed_url_clone.clone(),
                 expected_last_captured_raw_input_sha256: None,

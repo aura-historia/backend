@@ -1,4 +1,6 @@
+use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
+use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
     AutoSchemaEvaluationOutcome, ReviewActor, UrlPatternDecision, UrlPatternReviewCandidate,
 };
@@ -43,7 +45,6 @@ use crawler::spider::classification::url_metadata_repository::{
     DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::spider::crawled_root::CrawledRoot;
-use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
@@ -110,23 +111,23 @@ async fn insert_listing_source(pool: &PgPool, listing_source_id: ListingSourceId
     .unwrap();
 }
 
-async fn insert_domain(
-    pool: &PgPool,
-    listing_source_id: ListingSourceId,
-    domain: &str,
-) -> CrawlerDomainId {
-    let domain_id = CrawlerDomainId::new();
+/// The crawl root URL of a ListingSource whose shop is at the canonical host `crawl_host`.
+fn crawl_root_url(crawl_host: &str) -> String {
+    format!("https://{crawl_host}/")
+}
+
+/// Gives the ListingSource the crawl root of its shop at the canonical host `crawl_host`.
+async fn set_crawl_root(pool: &PgPool, listing_source_id: ListingSourceId, crawl_host: &str) {
     sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, $3, $3)",
+        "UPDATE listing_sources SET crawl_root_url = $2, crawl_host = $3 \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
     .bind(listing_source_id.as_uuid())
-    .bind(domain)
+    .bind(crawl_root_url(crawl_host))
+    .bind(crawl_host)
     .execute(pool)
     .await
     .unwrap();
-    domain_id
 }
 
 /// The candidate version a reviewer reads before editing the review's candidate.
@@ -185,7 +186,6 @@ async fn should_not_define_database_defaults_for_crawler_object_ids() {
          FROM information_schema.columns \
          WHERE table_schema = current_schema() \
            AND (table_name, column_name) IN ( \
-             ('listing_source_domains', 'domain_id'), \
              ('crawler_reviews', 'review_id'), \
              ('crawler_review_pages', 'review_page_id'), \
              ('crawler_review_urls', 'review_url_id'), \
@@ -196,7 +196,7 @@ async fn should_not_define_database_defaults_for_crawler_object_ids() {
     .await
     .unwrap();
 
-    assert_eq!(counts, (5, 0));
+    assert_eq!(counts, (4, 0));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -205,7 +205,7 @@ async fn should_persist_uuid_v7_for_generated_review_page_and_url_ids() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "generated-ids.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "generated-ids.example.com").await;
 
     let schema_review_id = repository
         .create_schema_review(
@@ -234,7 +234,6 @@ async fn should_persist_uuid_v7_for_generated_review_page_and_url_ids() {
     let pattern_review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/product/").unwrap())),
             &["https://generated-ids.example.com/product/1".to_owned()],
@@ -319,11 +318,10 @@ async fn should_surface_invalid_persisted_v4_review_url_id() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "corrupt-review-url.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "corrupt-review-url.example.com").await;
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/product/").unwrap())),
             &["https://corrupt-review-url.example.com/product/1".to_owned()],
@@ -674,7 +672,6 @@ struct WaitingPageFixture {
     review_repository: CrawlerReviewRepository,
     candidates: ScraperCandidateServiceImpl,
     listing_source_id: ListingSourceId,
-    domain_id: CrawlerDomainId,
     review_id: CrawlerReviewId,
     url: url::Url,
 }
@@ -689,15 +686,10 @@ impl WaitingPageFixture {
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let listing_source_id = ListingSourceId::new();
         insert_listing_source(pool, listing_source_id).await;
-        let domain_id = insert_domain(pool, listing_source_id, host).await;
+        set_crawl_root(pool, listing_source_id, host).await;
         let url = url::Url::parse(&format!("https://{host}/products/waiting")).unwrap();
         UrlMetadataRepositoryImpl::new(pool.clone())
-            .upsert_link(
-                &listing_source_id,
-                &domain_id,
-                &url,
-                &UrlClass::ProductListing,
-            )
+            .upsert_link(&listing_source_id, &url, &UrlClass::ProductListing)
             .await
             .unwrap();
         let initial_review_id = review_repository
@@ -727,7 +719,6 @@ impl WaitingPageFixture {
             review_repository,
             candidates: ScraperCandidateServiceImpl::new(pool.clone()),
             listing_source_id,
-            domain_id,
             review_id,
             url,
         }
@@ -737,12 +728,7 @@ impl WaitingPageFixture {
     async fn add_product_url(&self, pool: &PgPool, url: &str) -> url::Url {
         let url = url::Url::parse(url).unwrap();
         UrlMetadataRepositoryImpl::new(pool.clone())
-            .upsert_link(
-                &self.listing_source_id,
-                &self.domain_id,
-                &url,
-                &UrlClass::ProductListing,
-            )
+            .upsert_link(&self.listing_source_id, &url, &UrlClass::ProductListing)
             .await
             .unwrap();
         url
@@ -2071,7 +2057,7 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "example.com").await;
+    set_crawl_root(&pool, listing_source_id, "example.com").await;
     let captured_url = "https://example.com/products/1";
     let uncaptured_url = "https://example.com/products/2";
     // A reviewer page is stored as fetched: the shop redirects to the trailing slash that a
@@ -2090,11 +2076,10 @@ async fn live_schema_matrix_should_report_an_identity_that_differs_from_the_capt
     ] {
         sqlx::query(
             "INSERT INTO listing_source_urls \
-             (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_source_listing_id) \
-             VALUES ($1, $2, $3, 'product', $3, $4)",
+             (listing_source_id, url, url_class, raw_source_record_key, last_source_listing_id) \
+             VALUES ($1, $2, 'product', $2, $3)",
         )
         .bind(listing_source_id.as_uuid())
-        .bind(domain_id.as_uuid())
         .bind(url)
         .bind(identity)
         .execute(&pool)
@@ -2231,7 +2216,7 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
     let review_repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "review-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "review-pattern.example.com").await;
 
     let pattern = Regex::new("/product/").unwrap();
     let urls = vec![
@@ -2248,7 +2233,6 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
             first_repo
                 .create_url_pattern_review(
                     &listing_source_id,
-                    &domain_id,
                     "url_pattern_generation",
                     UrlPatternDecision::inferred(Some(&pattern)),
                     &first_urls,
@@ -2261,7 +2245,6 @@ async fn concurrent_url_pattern_reviews_return_same_pending_review_without_dupli
             second_repo
                 .create_url_pattern_review(
                     &listing_source_id,
-                    &domain_id,
                     "url_pattern_generation",
                     UrlPatternDecision::inferred(Some(&pattern)),
                     &second_urls,
@@ -2288,12 +2271,11 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "typed-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "typed-pattern.example.com").await;
     let pattern = Regex::new("/products/").unwrap();
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&pattern)),
             &["https://typed-pattern.example.com/products/1".to_owned()],
@@ -2322,8 +2304,8 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
         Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
     ));
     let live_pattern: Option<String> =
-        sqlx::query_scalar("SELECT url_pattern FROM listing_source_domains WHERE domain_id = $1")
-            .bind(domain_id.as_uuid())
+        sqlx::query_scalar("SELECT url_pattern FROM listing_sources WHERE listing_source_id = $1")
+            .bind(listing_source_id.as_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -2338,11 +2320,10 @@ async fn should_refuse_a_url_pattern_candidate_edit_with_an_unknown_key() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "unknown-key.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "unknown-key.example.com").await;
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::NoPattern,
             &["https://unknown-key.example.com/products/1".to_owned()],
@@ -2424,7 +2405,7 @@ async fn should_reclassify_the_sample_when_a_url_pattern_decision_is_saved() {
         CrawlerReviewRepository::new(pool.clone()).with_url_classifier(UrlClassifier::PatternOnly);
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "reclassify.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "reclassify.example.com").await;
     let sample = [
         "https://reclassify.example.com/about",
         "https://reclassify.example.com/product/chair",
@@ -2434,7 +2415,6 @@ async fn should_reclassify_the_sample_when_a_url_pattern_decision_is_saved() {
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::Undecided,
             &sample,
@@ -2507,11 +2487,10 @@ async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refuse
         CrawlerReviewRepository::new(pool.clone()).with_url_classifier(UrlClassifier::PatternOnly);
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "refused.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "refused.example.com").await;
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::Pattern {
                 value: "/product/".to_owned(),
@@ -2543,115 +2522,76 @@ async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refuse
     assert_eq!(opened.1, json!(1));
 }
 
-/// Drops the constraints that tie a URL-pattern review to a domain of its ListingSource, so a
-/// test can store the review state they forbid.
-async fn allow_url_pattern_reviews_without_their_domain(pool: &PgPool) {
-    sqlx::raw_sql(
-        "ALTER TABLE crawler_reviews \
-           DROP CONSTRAINT crawler_reviews_listing_source_domain_fkey, \
-           DROP CONSTRAINT crawler_reviews_artifact_domain_shape_check, \
-           DROP CONSTRAINT crawler_reviews_check",
-    )
-    .execute(pool)
-    .await
-    .unwrap();
-}
-
-/// Approving a URL-pattern review whose domain row is gone, or that names no domain, fails with
-/// the error that names the domain, not as an unknown review or a database error, and leaves the
-/// review pending.
+/// Labelling a URL-pattern review, or approving it under the agent approval guard, checks URLs
+/// against the crawl host of the review's ListingSource. Once the scope left the source without a
+/// crawl root, both fail with the error that names the uncrawled source, not as an unknown review
+/// or a database error, and leave the review pending.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_name_the_missing_domain_when_approving_a_url_pattern_review_without_it() {
+async fn should_refuse_labels_and_guarded_approval_when_the_review_source_has_no_crawl_root() {
     let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
-    allow_url_pattern_reviews_without_their_domain(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone()).with_agent_decisions(
+        AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, AgentLimits::default()),
+    );
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let mut reviews = Vec::new();
-    for host in ["gone-domain.example.com", "no-domain.example.com"] {
-        let domain_id = insert_domain(&pool, listing_source_id, host).await;
-        let review_id = repository
-            .create_url_pattern_review(
-                &listing_source_id,
-                &domain_id,
-                "url_pattern_generation",
-                UrlPatternDecision::NoPattern,
-                &[format!("https://{host}/products/1")],
-                None,
-            )
-            .await
-            .unwrap();
-        reviews.push((review_id, domain_id));
-    }
-    let [(gone_review_id, gone_domain_id), (no_domain_review_id, _)] = reviews[..] else {
-        panic!("two reviews were created");
-    };
-    sqlx::query("DELETE FROM listing_source_domains WHERE domain_id = $1")
-        .bind(gone_domain_id.as_uuid())
-        .execute(&pool)
+    set_crawl_root(&pool, listing_source_id, "uncrawled.example.com").await;
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            "url_pattern_generation",
+            UrlPatternDecision::NoPattern,
+            &["https://uncrawled.example.com/products/1".to_owned()],
+            None,
+        )
         .await
         .unwrap();
-    sqlx::query("UPDATE crawler_reviews SET domain_id = NULL WHERE review_id = $1")
-        .bind(no_domain_review_id.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE listing_sources SET crawl_root_url = NULL, crawl_host = NULL \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    let gone = approve(
-        &repository,
-        gone_review_id,
-        ReviewActor::Human,
-        None,
-        IncompleteCoverage::Refuse,
-    )
-    .await;
-    let no_domain = approve(
-        &repository,
-        no_domain_review_id,
-        ReviewActor::Human,
-        None,
-        IncompleteCoverage::Refuse,
-    )
-    .await;
-    let labelled_without_domain = repository
+    let approved_by_agent = repository
+        .approve_review(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Approval {
+                expected_candidate_version: candidate_version(&repository, review_id).await,
+                notes: Some("checked on the live pages"),
+                incomplete_coverage: IncompleteCoverage::Refuse,
+            },
+        )
+        .await;
+    let labelled = repository
         .set_sample_labels(
-            no_domain_review_id,
+            review_id,
             ReviewActor::Human,
-            candidate_version(&repository, no_domain_review_id).await,
+            candidate_version(&repository, review_id).await,
             Vec::new(),
         )
         .await;
 
     assert!(
         matches!(
-            gone,
-            Err(ReviewRepositoryError::UrlPatternReviewDomainMissing { review_id, domain_id })
-                if review_id == gone_review_id && domain_id == gone_domain_id
+            approved_by_agent,
+            Err(ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(id)) if id == review_id
         ),
-        "{gone:?}"
+        "{approved_by_agent:?}"
     );
     assert!(
         matches!(
-            no_domain,
-            Err(ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id))
-                if review_id == no_domain_review_id
+            labelled,
+            Err(ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(id)) if id == review_id
         ),
-        "{no_domain:?}"
+        "{labelled:?}"
     );
-    assert!(
-        matches!(
-            labelled_without_domain,
-            Err(ReviewRepositoryError::UrlPatternReviewWithoutDomain(review_id))
-                if review_id == no_domain_review_id
-        ),
-        "{labelled_without_domain:?}"
+    assert_eq!(
+        review_status(&repository, review_id).await,
+        STATUS_PENDING_REVIEW
     );
-    for review_id in [gone_review_id, no_domain_review_id] {
-        assert_eq!(
-            review_status(&repository, review_id).await,
-            STATUS_PENDING_REVIEW
-        );
-    }
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -2660,19 +2600,18 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "atomic-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "atomic-pattern.example.com").await;
     sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
-         WHERE domain_id = $1",
+        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://atomic-pattern.example.com/new/1".to_owned()],
@@ -2712,9 +2651,9 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
 
     assert!(result.is_err());
     let pattern: (Option<String>, String) = sqlx::query_as(
-        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+        "SELECT url_pattern, url_pattern_state FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -2742,12 +2681,10 @@ async fn should_allow_only_one_concurrent_review_approval() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id =
-        insert_domain(&pool, listing_source_id, "concurrent-approval.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "concurrent-approval.example.com").await;
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/product/").unwrap())),
             &["https://concurrent-approval.example.com/product/1".to_owned()],
@@ -2801,18 +2738,18 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "no-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "no-pattern.example.com").await;
     sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = '/stale/', url_pattern_state = 'MATCHED' WHERE domain_id = $1",
+        "UPDATE listing_sources SET url_pattern = '/stale/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::NoPattern,
             &["https://no-pattern.example.com/about".to_owned()],
@@ -2832,9 +2769,9 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
     .unwrap();
 
     let row: (Option<String>, String) = sqlx::query_as(
-        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+        "SELECT url_pattern, url_pattern_state FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -2847,11 +2784,10 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "manual-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "manual-pattern.example.com").await;
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::Undecided,
             &[
@@ -2901,9 +2837,9 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
         Err(ReviewRepositoryError::InvalidUrlPatternCandidate)
     ));
     let (pattern, state): (Option<String>, String) = sqlx::query_as(
-        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+        "SELECT url_pattern, url_pattern_state FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -2911,47 +2847,54 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
     assert_eq!(state, "MATCHED");
 }
 
-/// Marks the domain as a crawl left it when it stopped at a pending URL-pattern review.
-async fn mark_domain_waiting_for_url_pattern_review(pool: &PgPool, domain_id: CrawlerDomainId) {
+/// Marks the ListingSource's crawl as a crawl left it when it stopped at a pending URL-pattern
+/// review.
+async fn mark_crawl_waiting_for_url_pattern_review(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+) {
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET last_crawl_outcome = $2, next_crawl_at = NOW() + INTERVAL '7 days', \
              crawl_failure_count = 1, last_crawl_error_kind = 'RateLimited' \
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
     .execute(pool)
     .await
     .unwrap();
 }
 
-/// The domain's crawl state as the spider scheduler reads it and the ListingSource overview shows
-/// it.
+/// The ListingSource's crawl state as the spider scheduler reads it and the ListingSource overview
+/// shows it.
 #[derive(Debug, sqlx::FromRow)]
-struct DomainCrawlSchedule {
+struct CrawlSchedule {
     last_crawl_outcome: Option<String>,
     next_crawl_at: Option<OffsetDateTime>,
     crawl_failure_count: i32,
     last_crawl_error_kind: Option<String>,
 }
 
-async fn domain_crawl_schedule(pool: &PgPool, domain_id: CrawlerDomainId) -> DomainCrawlSchedule {
+async fn crawl_schedule(pool: &PgPool, listing_source_id: ListingSourceId) -> CrawlSchedule {
     sqlx::query_as(
         "SELECT last_crawl_outcome, next_crawl_at, crawl_failure_count, last_crawl_error_kind \
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
 }
 
-async fn stored_url_classes(pool: &PgPool, domain_id: CrawlerDomainId) -> Vec<(String, String)> {
+async fn stored_url_classes(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+) -> Vec<(String, String)> {
     sqlx::query_as(
-        "SELECT url, url_class FROM listing_source_urls WHERE domain_id = $1 ORDER BY url",
+        "SELECT url, url_class FROM listing_source_urls WHERE listing_source_id = $1 ORDER BY url",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_all(pool)
     .await
     .unwrap()
@@ -2960,13 +2903,11 @@ async fn stored_url_classes(pool: &PgPool, domain_id: CrawlerDomainId) -> Vec<(S
 async fn undecided_url_pattern_review(
     repository: &CrawlerReviewRepository,
     listing_source_id: ListingSourceId,
-    domain_id: CrawlerDomainId,
     sample: &[String],
 ) -> CrawlerReviewId {
     repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::Undecided,
             sample,
@@ -2977,25 +2918,24 @@ async fn undecided_url_pattern_review(
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first() {
+async fn should_list_listing_source_whose_crawl_waits_for_an_operator_first() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let reviewed_source = ListingSourceId::new();
     insert_listing_source(&pool, reviewed_source).await;
-    let reviewed_domain = insert_domain(&pool, reviewed_source, "reviewed.example.com").await;
+    set_crawl_root(&pool, reviewed_source, "reviewed.example.com").await;
     undecided_url_pattern_review(
         &repository,
         reviewed_source,
-        reviewed_domain,
         &["https://reviewed.example.com/item/1".to_owned()],
     )
     .await;
     let stopped_source = ListingSourceId::new();
     insert_listing_source(&pool, stopped_source).await;
-    let stopped_domain = insert_domain(&pool, stopped_source, "stopped.example.com").await;
+    set_crawl_root(&pool, stopped_source, "stopped.example.com").await;
     SpiderCandidateServiceImpl::new(pool.clone())
         .mark_crawl_needs_operator(
-            &CrawledRoot::new(stopped_domain, "stopped.example.com"),
+            &CrawledRoot::new(stopped_source, crawl_root_url("stopped.example.com")),
             "RobotsBlocked",
             5,
         )
@@ -3013,29 +2953,30 @@ async fn should_list_listing_source_with_a_domain_waiting_for_an_operator_first(
             .map(|source| source.listing_source_id)
             .collect::<Vec<_>>(),
         vec![stopped_source],
-        "a domain waiting for an operator outranks a pending review within the limit"
+        "a crawl waiting for an operator outranks a pending review within the limit"
     );
-    let domains = &overview[0].domains;
-    assert_eq!(domains.len(), 1);
-    assert_eq!(domains[0].domain_id, stopped_domain);
     assert_eq!(
-        domains[0].last_crawl_outcome.as_deref(),
+        overview[0].crawl_root_url,
+        Some(crawl_root_url("stopped.example.com"))
+    );
+    let crawl_state = &overview[0].crawl_state;
+    assert_eq!(
+        crawl_state.last_crawl_outcome.as_deref(),
         Some(NEEDS_OPERATOR_CRAWL_OUTCOME)
     );
     assert_eq!(
-        domains[0].last_crawl_error_kind.as_deref(),
+        crawl_state.last_crawl_error_kind.as_deref(),
         Some("RobotsBlocked")
     );
-    assert_eq!(domains[0].crawl_failure_count, 5);
-    assert_eq!(domains[0].next_crawl_at, None);
+    assert_eq!(crawl_state.crawl_failure_count, 5);
+    assert_eq!(crawl_state.next_crawl_at, None);
 }
 
-/// Inserts the URL `url` of `domain_id` as `url_class` with `disposition`, last scraped at
+/// Inserts the URL `url` of the ListingSource as `url_class` with `disposition`, last scraped at
 /// `last_scraped`.
 async fn insert_scraped_url(
     pool: &PgPool,
     listing_source_id: ListingSourceId,
-    domain_id: CrawlerDomainId,
     url: &str,
     url_class: &str,
     disposition: &str,
@@ -3043,11 +2984,10 @@ async fn insert_scraped_url(
 ) {
     sqlx::query(
         "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, url_class, crawler_disposition, raw_source_record_key, last_scraped) \
-         VALUES ($1, $2, $3, $4, $5, $3, $6::timestamptz)",
+         (listing_source_id, url, url_class, crawler_disposition, raw_source_record_key, last_scraped) \
+         VALUES ($1, $2, $3, $4, $2, $5::timestamptz)",
     )
     .bind(listing_source_id.as_uuid())
-    .bind(domain_id.as_uuid())
     .bind(url)
     .bind(url_class)
     .bind(disposition)
@@ -3057,57 +2997,54 @@ async fn insert_scraped_url(
     .unwrap();
 }
 
-/// The health view's row: the scraper circuit's failure streak and kind of each domain, and the
-/// latest scrape of a product page the ListingSource still scrapes, not of another URL class or of
-/// a URL retired as a duplicate.
+/// The health view's row: the scraper circuit's failure streak and kind of each ListingSource, and
+/// the latest scrape of a product page the ListingSource still scrapes, not of another URL class
+/// or of a URL retired as a duplicate.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_list_each_domains_scrape_failure_streak_and_the_last_successful_scrape() {
+async fn should_list_each_sources_scrape_failure_streak_and_the_last_successful_scrape() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let healthy = insert_domain(&pool, listing_source_id, "healthy.example.com").await;
-    let failing = insert_domain(&pool, listing_source_id, "failing.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "failing.example.com").await;
+    let healthy = ListingSourceId::new();
+    insert_listing_source(&pool, healthy).await;
+    set_crawl_root(&pool, healthy, "healthy.example.com").await;
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET scrape_failure_streak = 3, last_scrape_error_kind = 'HTTP_503', \
              last_scrape_status_code = 503, next_scrape_at = NOW() + INTERVAL '1 hour' \
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(failing.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
-    for (domain_id, url, url_class, disposition, last_scraped) in [
+    for (url, url_class, disposition, last_scraped) in [
         (
-            healthy,
-            "https://healthy.example.com/item/1",
+            "https://failing.example.com/item/1",
             "product",
             "ACTIVE",
             Some("2026-10-30T08:00:00Z"),
         ),
         (
-            healthy,
-            "https://healthy.example.com/item/2",
+            "https://failing.example.com/item/2",
             "product",
             "DORMANT_SOLD",
             Some("2026-10-30T09:00:00Z"),
         ),
         (
-            healthy,
-            "https://healthy.example.com/item/3",
+            "https://failing.example.com/item/3",
             "product",
             "ACTIVE",
             None,
         ),
         (
-            healthy,
-            "https://healthy.example.com/item/4",
+            "https://failing.example.com/item/4",
             "product",
             "DUPLICATE",
             Some("2026-10-30T11:00:00Z"),
         ),
         (
-            failing,
             "https://failing.example.com/category",
             "category",
             "ACTIVE",
@@ -3117,7 +3054,6 @@ async fn should_list_each_domains_scrape_failure_streak_and_the_last_successful_
         insert_scraped_url(
             &pool,
             listing_source_id,
-            domain_id,
             url,
             url_class,
             disposition,
@@ -3131,12 +3067,14 @@ async fn should_list_each_domains_scrape_failure_streak_and_the_last_successful_
         .await
         .unwrap();
 
-    let source = overview
-        .iter()
-        .find(|source| source.listing_source_id == listing_source_id)
-        .unwrap();
+    let row = |listing_source_id: ListingSourceId| {
+        overview
+            .iter()
+            .find(|source| source.listing_source_id == listing_source_id)
+            .unwrap()
+    };
     assert_eq!(
-        source.last_successful_scrape,
+        row(listing_source_id).last_successful_scrape,
         Some(
             OffsetDateTime::parse(
                 "2026-10-30T09:00:00Z",
@@ -3146,19 +3084,14 @@ async fn should_list_each_domains_scrape_failure_streak_and_the_last_successful_
         )
     );
     assert_eq!(
-        source
-            .domains
-            .iter()
-            .map(|domain| (
-                domain.domain.as_str(),
-                domain.scrape_failure_streak,
-                domain.last_scrape_error_kind.as_deref()
-            ))
-            .collect::<Vec<_>>(),
-        vec![
-            ("failing.example.com", 3, Some("HTTP_503")),
-            ("healthy.example.com", 0, None)
-        ]
+        [listing_source_id, healthy].map(|listing_source_id| {
+            let crawl_state = &row(listing_source_id).crawl_state;
+            (
+                crawl_state.scrape_failure_streak,
+                crawl_state.last_scrape_error_kind.clone(),
+            )
+        }),
+        [(3, Some("HTTP_503".to_owned())), (0, None)]
     );
 }
 
@@ -3206,7 +3139,7 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     let blocked = ListingSourceId::new();
     insert_listing_source(&pool, blocked).await;
     store_live_product_schema(&pool, blocked).await;
-    let blocked_domain = insert_domain(&pool, blocked, "blocked.example.com").await;
+    set_crawl_root(&pool, blocked, "blocked.example.com").await;
     let pending = pending_schema_review(&repository, &blocked).await;
     let decided = repository
         .create_schema_review_with_status(SchemaReviewWithStatusInput {
@@ -3230,24 +3163,15 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     let idle = ListingSourceId::new();
     insert_listing_source(&pool, idle).await;
     store_live_product_schema(&pool, idle).await;
-    let idle_domain = insert_domain(&pool, idle, "idle.example.com").await;
+    set_crawl_root(&pool, idle, "idle.example.com").await;
     pending_schema_review(&repository, &idle).await;
-    for (domain_id, url) in [
-        (blocked_domain, "https://blocked.example.com/item/1"),
-        (blocked_domain, "https://blocked.example.com/item/2"),
-        (blocked_domain, "https://blocked.example.com/item/3"),
-        (idle_domain, "https://idle.example.com/item/1"),
+    for (listing_source_id, url) in [
+        (blocked, "https://blocked.example.com/item/1"),
+        (blocked, "https://blocked.example.com/item/2"),
+        (blocked, "https://blocked.example.com/item/3"),
+        (idle, "https://idle.example.com/item/1"),
     ] {
-        insert_scraped_url(
-            &pool,
-            if url.contains("idle") { idle } else { blocked },
-            domain_id,
-            url,
-            "product",
-            "ACTIVE",
-            None,
-        )
-        .await;
+        insert_scraped_url(&pool, listing_source_id, url, "product", "ACTIVE", None).await;
     }
     set_url_error_kind(
         &pool,
@@ -3322,7 +3246,7 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "first.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "first.example.com").await;
     let review = pending_schema_review(&repository, &listing_source_id).await;
     sqlx::query(
         "UPDATE crawler_reviews SET created = NOW() - INTERVAL '3 hours' WHERE review_id = $1",
@@ -3337,16 +3261,7 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
         ("https://first.example.com/item/3", "product"),
         ("https://first.example.com/category", "category"),
     ] {
-        insert_scraped_url(
-            &pool,
-            listing_source_id,
-            domain_id,
-            url,
-            url_class,
-            "ACTIVE",
-            None,
-        )
-        .await;
+        insert_scraped_url(&pool, listing_source_id, url, url_class, "ACTIVE", None).await;
     }
     set_url_error_kind(
         &pool,
@@ -3387,7 +3302,7 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "held.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "held.example.com").await;
     for (url, last_scraped) in [
         ("https://held.example.com/item/1", "2026-10-30T08:00:00Z"),
         ("https://held.example.com/item/2", "2026-10-31T08:00:00Z"),
@@ -3396,7 +3311,6 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
         insert_scraped_url(
             &pool,
             listing_source_id,
-            domain_id,
             url,
             "product",
             "ACTIVE",
@@ -3466,7 +3380,7 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
     let blocked = ListingSourceId::new();
     insert_listing_source(&pool, blocked).await;
     store_live_product_schema(&pool, blocked).await;
-    let blocked_domain = insert_domain(&pool, blocked, "blocked-oldest.example.com").await;
+    set_crawl_root(&pool, blocked, "blocked-oldest.example.com").await;
     let newer = pending_schema_review(&repository, &blocked).await;
     let older = pending_schema_review(&repository, &blocked).await;
     sqlx::query(
@@ -3487,16 +3401,7 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
         ("https://blocked-oldest.example.com/item/1", newer),
         ("https://blocked-oldest.example.com/item/2", older),
     ] {
-        insert_scraped_url(
-            &pool,
-            blocked,
-            blocked_domain,
-            url,
-            "product",
-            "ACTIVE",
-            None,
-        )
-        .await;
+        insert_scraped_url(&pool, blocked, url, "product", "ACTIVE", None).await;
         set_url_error_kind(&pool, url, "PendingSchemaReview", Some(review)).await;
     }
     let unblocked = ListingSourceId::new();
@@ -3507,12 +3412,11 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
     // none of them recorded the wait.
     let first = ListingSourceId::new();
     insert_listing_source(&pool, first).await;
-    let first_domain = insert_domain(&pool, first, "blocked-first.example.com").await;
+    set_crawl_root(&pool, first, "blocked-first.example.com").await;
     let first_review = pending_schema_review(&repository, &first).await;
     insert_scraped_url(
         &pool,
         first,
-        first_domain,
         "https://blocked-first.example.com/item/1",
         "product",
         "ACTIVE",
@@ -3552,21 +3456,23 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
     assert_eq!(unblocked_row.held_since, None);
 }
 
-/// The cooldown end and the start of the failure streak are listed per domain, and absent on a
-/// domain whose circuit is closed.
+/// The cooldown end and the start of the failure streak are listed per ListingSource, and absent
+/// on a source whose circuit is closed.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_report_the_scrape_cooldown_end_and_failing_since_per_domain() {
+async fn should_report_the_scrape_cooldown_end_and_failing_since_per_source() {
     let pool = get_postgres_client().await;
-    let listing_source_id = ListingSourceId::new();
-    insert_listing_source(&pool, listing_source_id).await;
-    let failing = insert_domain(&pool, listing_source_id, "cooldown.example.com").await;
-    insert_domain(&pool, listing_source_id, "closed.example.com").await;
+    let failing = ListingSourceId::new();
+    insert_listing_source(&pool, failing).await;
+    set_crawl_root(&pool, failing, "cooldown.example.com").await;
+    let closed = ListingSourceId::new();
+    insert_listing_source(&pool, closed).await;
+    set_crawl_root(&pool, closed, "closed.example.com").await;
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET scrape_failure_streak = 5, last_scrape_error_kind = 'HTTP_503', \
              next_scrape_at = '2026-11-01T12:00:00Z', \
              scrape_failing_since = '2026-11-01T10:00:00Z' \
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
     .bind(failing.as_uuid())
     .execute(&pool)
@@ -3581,11 +3487,14 @@ async fn should_report_the_scrape_cooldown_end_and_failing_since_per_domain() {
     let rfc3339 = |value: &str| {
         OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).unwrap()
     };
-    let domains = &overview[0].domains;
-    let failing_row = domains
-        .iter()
-        .find(|domain| domain.domain == "cooldown.example.com")
-        .unwrap();
+    let crawl_state = |listing_source_id: ListingSourceId| {
+        &overview
+            .iter()
+            .find(|source| source.listing_source_id == listing_source_id)
+            .unwrap()
+            .crawl_state
+    };
+    let failing_row = crawl_state(failing);
     assert_eq!(
         failing_row.scrape_paused_until,
         Some(rfc3339("2026-11-01T12:00:00Z"))
@@ -3594,10 +3503,7 @@ async fn should_report_the_scrape_cooldown_end_and_failing_since_per_domain() {
         failing_row.scrape_failing_since,
         Some(rfc3339("2026-11-01T10:00:00Z"))
     );
-    let closed_row = domains
-        .iter()
-        .find(|domain| domain.domain == "closed.example.com")
-        .unwrap();
+    let closed_row = crawl_state(closed);
     assert_eq!(closed_row.scrape_failure_streak, 0);
     assert_eq!(closed_row.scrape_paused_until, None);
     assert_eq!(closed_row.scrape_failing_since, None);
@@ -3613,25 +3519,27 @@ async fn should_never_drop_a_failing_or_blocked_listing_source_for_the_row_limit
     for index in 0..5 {
         let source = ListingSourceId::new();
         insert_listing_source(&pool, source).await;
-        insert_domain(&pool, source, &format!("healthy{index}.example.com")).await;
+        set_crawl_root(&pool, source, &format!("healthy{index}.example.com")).await;
         healthy.push(source);
     }
     let failing = ListingSourceId::new();
     insert_listing_source(&pool, failing).await;
-    let failing_domain = insert_domain(&pool, failing, "failing.example.com").await;
-    sqlx::query("UPDATE listing_source_domains SET scrape_failure_streak = 2, last_scrape_error_kind = 'TIMEOUT' WHERE domain_id = $1")
-        .bind(failing_domain.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
+    set_crawl_root(&pool, failing, "failing.example.com").await;
+    sqlx::query(
+        "UPDATE listing_sources SET scrape_failure_streak = 2, last_scrape_error_kind = 'TIMEOUT' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(failing.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
     let blocked = ListingSourceId::new();
     insert_listing_source(&pool, blocked).await;
-    let blocked_domain = insert_domain(&pool, blocked, "blocked.example.com").await;
+    set_crawl_root(&pool, blocked, "blocked.example.com").await;
     let review = pending_schema_review(&repository, &blocked).await;
     insert_scraped_url(
         &pool,
         blocked,
-        blocked_domain,
         "https://blocked.example.com/item/1",
         "product",
         "ACTIVE",
@@ -3647,11 +3555,10 @@ async fn should_never_drop_a_failing_or_blocked_listing_source_for_the_row_limit
     .await;
     let held = ListingSourceId::new();
     insert_listing_source(&pool, held).await;
-    let held_domain = insert_domain(&pool, held, "held.example.com").await;
+    set_crawl_root(&pool, held, "held.example.com").await;
     insert_scraped_url(
         &pool,
         held,
-        held_domain,
         "https://held.example.com/item/1",
         "product",
         "ACTIVE",
@@ -3849,7 +3756,7 @@ async fn should_store_a_rejected_page_as_other_when_a_crawl_finds_it_again() {
     let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "rejected-crawl.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "rejected-crawl.example.com").await;
     reject_manual_review_over(
         &repository,
         listing_source_id,
@@ -3865,14 +3772,13 @@ async fn should_store_a_rejected_page_as_other_when_a_crawl_finds_it_again() {
     url_repository
         .upsert_links_batch(
             &listing_source_id,
-            &domain_id,
             &discovered(&urls, &[UrlClass::ProductListing; 2]),
         )
         .await
         .unwrap();
 
     assert_eq!(
-        stored_url_classes(&pool, domain_id).await,
+        stored_url_classes(&pool, listing_source_id).await,
         vec![
             (urls[0].to_string(), "other".to_owned()),
             (urls[1].to_string(), "product".to_owned()),
@@ -3889,7 +3795,7 @@ async fn should_store_a_page_as_fetched_when_a_rejection_covers_it_or_its_canoni
     let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "rejected-canonical.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "rejected-canonical.example.com").await;
     let page = |path: &str| {
         url::Url::parse(&format!("https://rejected-canonical.example.com{path}")).unwrap()
     };
@@ -3904,7 +3810,6 @@ async fn should_store_a_page_as_fetched_when_a_rejection_covers_it_or_its_canoni
     url_repository
         .upsert_links_batch(
             &listing_source_id,
-            &domain_id,
             &[
                 DiscoveredUrl {
                     url: page("/collections/a/products/1"),
@@ -3922,7 +3827,7 @@ async fn should_store_a_page_as_fetched_when_a_rejection_covers_it_or_its_canoni
         .unwrap();
 
     assert_eq!(
-        stored_url_classes(&pool, domain_id).await,
+        stored_url_classes(&pool, listing_source_id).await,
         vec![
             (
                 page("/collections/a/products/1").to_string(),
@@ -3945,7 +3850,7 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
     let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "rejected-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "rejected-pattern.example.com").await;
     let urls = [
         "https://rejected-pattern.example.com/item/1",
         "https://rejected-pattern.example.com/item/2",
@@ -3954,7 +3859,6 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
     url_repository
         .upsert_links_batch(
             &listing_source_id,
-            &domain_id,
             &discovered(&urls, &[UrlClass::Other; 2]),
         )
         .await
@@ -3968,7 +3872,6 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
     let review_id = undecided_url_pattern_review(
         &repository,
         listing_source_id,
-        domain_id,
         &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
     )
     .await;
@@ -3999,7 +3902,7 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
     .unwrap();
 
     assert_eq!(
-        stored_url_classes(&pool, domain_id).await,
+        stored_url_classes(&pool, listing_source_id).await,
         vec![
             (urls[0].to_string(), "product".to_owned()),
             (urls[1].to_string(), "other".to_owned()),
@@ -4008,13 +3911,13 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern_is_approved() {
+async fn should_classify_stored_urls_and_release_waiting_crawl_when_url_pattern_is_approved() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "waiting-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "waiting-pattern.example.com").await;
     let urls = [
         "https://waiting-pattern.example.com/item/1",
         "https://waiting-pattern.example.com/item/2",
@@ -4026,7 +3929,6 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     url_repository
         .upsert_links_batch(
             &listing_source_id,
-            &domain_id,
             &discovered(&urls, &[UrlClass::Other; 4]),
         )
         .await
@@ -4039,11 +3941,10 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
         )
         .await
         .unwrap();
-    mark_domain_waiting_for_url_pattern_review(&pool, domain_id).await;
+    mark_crawl_waiting_for_url_pattern_review(&pool, listing_source_id).await;
     let review_id = undecided_url_pattern_review(
         &repository,
         listing_source_id,
-        domain_id,
         &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
     )
     .await;
@@ -4074,7 +3975,7 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
     .unwrap();
 
     assert_eq!(
-        stored_url_classes(&pool, domain_id).await,
+        stored_url_classes(&pool, listing_source_id).await,
         vec![
             (urls[3].to_string(), "info".to_owned()),
             (urls[0].to_string(), "product".to_owned()),
@@ -4083,14 +3984,14 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
         ],
         "approval classifies the stored active URLs as the spider would; a sold URL keeps its class"
     );
-    let schedule = domain_crawl_schedule(&pool, domain_id).await;
+    let schedule = crawl_schedule(&pool, listing_source_id).await;
     assert_eq!(
         schedule.next_crawl_at, None,
-        "the decided review releases the domain"
+        "the decided review releases the crawl"
     );
     assert_eq!(
         schedule.last_crawl_outcome, None,
-        "the domain no longer reports a wait on the decided review"
+        "the source no longer reports a wait on the decided review"
     );
     assert_eq!(
         (
@@ -4104,7 +4005,7 @@ async fn should_classify_stored_urls_and_release_waiting_domain_when_url_pattern
 
 /// In `agent` mode the review rail classifies as the spider does there, by the pattern alone: the
 /// review's URL sample carries no keyword class, approval makes the URLs the pattern takes
-/// product URLs and leaves every other one unclassified, on a shop whose domain the keywords read
+/// product URLs and leaves every other one unclassified, on a shop whose host the keywords read
 /// as a category, and restoring the decision it replaced leaves every URL unclassified again.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agent_mode() {
@@ -4114,7 +4015,7 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "antique-shop.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "antique-shop.example.com").await;
     let urls = [
         "https://antique-shop.example.com/item/1",
         "https://antique-shop.example.com/item/2",
@@ -4124,7 +4025,6 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     url_repository
         .upsert_links_batch(
             &listing_source_id,
-            &domain_id,
             &discovered(&urls, &[UrlClass::Other; 3]),
         )
         .await
@@ -4132,7 +4032,6 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     let review_id = undecided_url_pattern_review(
         &repository,
         listing_source_id,
-        domain_id,
         &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
     )
     .await;
@@ -4164,7 +4063,7 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
     .await
     .unwrap();
 
-    let approved_classes = stored_url_classes(&pool, domain_id).await;
+    let approved_classes = stored_url_classes(&pool, listing_source_id).await;
     repository
         .restore_approval(review_id, ReviewActor::Human, None)
         .await
@@ -4180,28 +4079,27 @@ async fn should_classify_the_sample_and_stored_urls_by_the_pattern_alone_in_agen
         ]
     );
     assert_eq!(
-        stored_url_classes(&pool, domain_id).await,
+        stored_url_classes(&pool, listing_source_id).await,
         vec![
             (urls[2].to_string(), "other".to_owned()),
             (urls[0].to_string(), "other".to_owned()),
             (urls[1].to_string(), "other".to_owned()),
         ],
-        "restoring leaves every URL unclassified, where the keywords read the shop's domain as a category"
+        "restoring leaves every URL unclassified, where the keywords read the shop's host as a category"
     );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern_is_rejected() {
+async fn should_release_waiting_crawl_without_changing_pattern_when_url_pattern_is_rejected() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "rejected-pattern.example.com").await;
-    mark_domain_waiting_for_url_pattern_review(&pool, domain_id).await;
+    set_crawl_root(&pool, listing_source_id, "rejected-pattern.example.com").await;
+    mark_crawl_waiting_for_url_pattern_review(&pool, listing_source_id).await;
     let review_id = undecided_url_pattern_review(
         &repository,
         listing_source_id,
-        domain_id,
         &["https://rejected-pattern.example.com/item/1".to_owned()],
     )
     .await;
@@ -4211,16 +4109,16 @@ async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern
         .await
         .unwrap();
 
-    let schedule = domain_crawl_schedule(&pool, domain_id).await;
+    let schedule = crawl_schedule(&pool, listing_source_id).await;
     assert_eq!(schedule.next_crawl_at, None);
     assert_eq!(
         schedule.last_crawl_outcome, None,
-        "the domain no longer reports a wait on the rejected review"
+        "the source no longer reports a wait on the rejected review"
     );
     let (pattern, state): (Option<String>, String) = sqlx::query_as(
-        "SELECT url_pattern, url_pattern_state FROM listing_source_domains WHERE domain_id = $1",
+        "SELECT url_pattern, url_pattern_state FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -4233,26 +4131,26 @@ async fn should_release_waiting_domain_without_changing_pattern_when_url_pattern
     ));
 }
 
-/// What the domain of a restored URL-pattern approval waits on when the approval is restored.
+/// What the ListingSource of a restored URL-pattern approval waits on when the approval is
+/// restored.
 #[derive(Clone, Copy, Debug)]
 enum WaitAtRestore {
-    /// A newer review of the domain, opened by a crawl after the approval, that is still pending.
+    /// A newer review of the source, opened by a crawl after the approval, that is still pending.
     NewerPendingReview,
     /// No pending review: the recorded wait outlived the review it waited on.
     NoPendingReview,
 }
 
-/// Approves a URL pattern for a domain, leaves the domain's crawl waiting as `wait` says, restores
-/// the approval and returns the domain's crawl state after the restore.
-async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> DomainCrawlSchedule {
+/// Approves a URL pattern for a ListingSource, leaves the source's crawl waiting as `wait` says,
+/// restores the approval and returns the source's crawl state after the restore.
+async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> CrawlSchedule {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     insert_listing_source(&pool, listing_source_id).await;
-    let domain_id = insert_domain(&pool, listing_source_id, "restored-pattern.example.com").await;
+    set_crawl_root(&pool, listing_source_id, "restored-pattern.example.com").await;
     let sample = ["https://restored-pattern.example.com/item/1".to_owned()];
-    let approved =
-        undecided_url_pattern_review(&repository, listing_source_id, domain_id, &sample).await;
+    let approved = undecided_url_pattern_review(&repository, listing_source_id, &sample).await;
     repository
         .update_candidate_payload(
             approved,
@@ -4279,12 +4177,13 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
     .unwrap();
     match wait {
         WaitAtRestore::NewerPendingReview => {
-            let newer =
-                undecided_url_pattern_review(&repository, listing_source_id, domain_id, &sample)
-                    .await;
+            let newer = undecided_url_pattern_review(&repository, listing_source_id, &sample).await;
             let wait_write = SpiderCandidateServiceImpl::new(pool.clone())
                 .mark_crawl_awaiting_url_pattern_review(
-                    &CrawledRoot::new(domain_id, "restored-pattern.example.com"),
+                    &CrawledRoot::new(
+                        listing_source_id,
+                        crawl_root_url("restored-pattern.example.com"),
+                    ),
                     &newer,
                     None,
                     OffsetDateTime::now_utc() + time::Duration::days(7),
@@ -4294,7 +4193,7 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
             assert_eq!(wait_write, UrlPatternReviewWaitWrite::Recorded);
         }
         WaitAtRestore::NoPendingReview => {
-            mark_domain_waiting_for_url_pattern_review(&pool, domain_id).await;
+            mark_crawl_waiting_for_url_pattern_review(&pool, listing_source_id).await;
         }
     }
 
@@ -4302,7 +4201,7 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> Domain
         .restore_approval(approved, ReviewActor::Human, None)
         .await
         .unwrap();
-    domain_crawl_schedule(&pool, domain_id).await
+    crawl_schedule(&pool, listing_source_id).await
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -4312,7 +4211,7 @@ async fn should_clear_a_wait_without_a_pending_review_when_a_url_pattern_approva
     assert_eq!(schedule.next_crawl_at, None);
     assert_eq!(
         schedule.last_crawl_outcome, None,
-        "the domain reports no wait on a review it no longer has"
+        "the source reports no wait on a review it no longer has"
     );
 }
 
@@ -4323,12 +4222,12 @@ async fn should_keep_the_wait_on_a_newer_pending_review_when_url_pattern_approva
 
     assert_eq!(
         schedule.next_crawl_at, None,
-        "the restore releases the domain as the approval did"
+        "the restore releases the source as the approval did"
     );
     assert_eq!(
         schedule.last_crawl_outcome.as_deref(),
         Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME),
-        "the domain still waits on the newer review"
+        "the source still waits on the newer review"
     );
 }
 

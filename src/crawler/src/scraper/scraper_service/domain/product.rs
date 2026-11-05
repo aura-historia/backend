@@ -1,4 +1,3 @@
-use crate::CrawlerDomainId;
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::html_fetcher::DomainFetchStats;
@@ -63,9 +62,6 @@ pub struct FetchFailureContext {
 /// call from growing another positional argument.
 #[derive(Debug, Clone)]
 pub struct ScrapeRequest {
-    /// Persisted crawler domain used for schema-seed fanout and circuit state.
-    /// `None` is valid only for [`ScrapeMode::PrimaryOnly`].
-    pub domain_id: Option<CrawlerDomainId>,
     pub listing_source_id: ListingSourceId,
     pub url: Url,
     pub source_record_key: String,
@@ -303,9 +299,9 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)
         | ScraperError::LlmBudgetExceeded { .. } => DomainFetchHealth::Responsive,
-        ScraperError::NoHost { .. }
-        | ScraperError::MissingDomainContext { .. }
-        | ScraperError::PendingSchemaReview { .. } => DomainFetchHealth::NotObserved,
+        ScraperError::NoHost { .. } | ScraperError::PendingSchemaReview { .. } => {
+            DomainFetchHealth::NotObserved
+        }
     }
 }
 

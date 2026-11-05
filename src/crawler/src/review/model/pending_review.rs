@@ -3,7 +3,7 @@
 //! `docs/crawler/operations.md` (review service).
 
 use super::RepairRequest;
-use crate::{CrawlerDomainId, CrawlerReviewId};
+use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -16,7 +16,6 @@ pub struct PendingReviewSummary {
     pub review_id: CrawlerReviewId,
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: String,
-    pub domain_id: Option<CrawlerDomainId>,
     pub artifact_type: String,
     pub reason: String,
     pub candidate_version: i64,
@@ -68,7 +67,6 @@ mod tests {
             review_id: CrawlerReviewId::new(),
             listing_source_id: ListingSourceId::new(),
             listing_source_name: "Antiques".to_owned(),
-            domain_id: None,
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             reason: "manual_schema_required".to_owned(),
             candidate_version: 1,

@@ -1,6 +1,7 @@
 //! The review event trail: every accepted review mutation appends exactly one event, with its
 //! actor, in the mutation's own transaction, and a refused mutation appends none.
 
+use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::FailedApprovalCheck;
@@ -13,7 +14,6 @@ use crawler::review::repository::{Approval, CrawlerReviewRepository, ReviewRepos
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
-use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
@@ -73,29 +73,21 @@ fn deciding_agent_repository(pool: &PgPool) -> CrawlerReviewRepository {
     ))
 }
 
-/// A ListingSource on `example.com` and its domain.
-async fn listing_source(pool: &PgPool) -> (ListingSourceId, CrawlerDomainId) {
+/// A ListingSource crawled from `https://www.example.com/`, whose crawl host is `example.com`.
+async fn listing_source(pool: &PgPool) -> ListingSourceId {
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
         "INSERT INTO listing_sources \
-         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, 'Event source', 'event-source', TRUE, NOW(), NOW())",
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+          crawl_root_url, crawl_host, created, updated) \
+         VALUES ($1, 'Event source', 'event-source', TRUE, \
+                 'https://www.example.com/', 'example.com', NOW(), NOW())",
     )
     .bind(listing_source_id.as_uuid())
     .execute(pool)
     .await
     .unwrap();
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, 'example.com', 'www.example.com')",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(listing_source_id.as_uuid())
-    .execute(pool)
-    .await
-    .unwrap();
-    (listing_source_id, domain_id)
+    listing_source_id
 }
 
 /// A pending manual product-schema review of the ListingSource over one seed page.
@@ -200,7 +192,7 @@ async fn approve_acknowledging_coverage(
 async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_version() {
     let pool = get_postgres_client().await;
     let repository = deciding_agent_repository(&pool);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     let added_url = url("https://example.com/products/2");
 
@@ -296,7 +288,7 @@ async fn should_record_each_accepted_mutation_once_with_its_actor_and_candidate_
 async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverage() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     sqlx::query(
         "INSERT INTO listing_source_product_schemas (listing_source_id, product_schema, created, updated) \
          VALUES ($1, $2, NOW(), NOW())",
@@ -366,7 +358,7 @@ async fn should_keep_the_live_configuration_an_approval_replaced_and_its_coverag
 async fn should_keep_the_live_schemas_an_edit_of_the_live_review_replaced() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     approve_acknowledging_coverage(&repository, review_id, ReviewActor::Human, None).await;
     let version = candidate_version(&repository, review_id).await;
@@ -408,19 +400,18 @@ async fn should_keep_the_live_schemas_an_edit_of_the_live_review_replaced() {
 async fn should_keep_the_url_pattern_decision_an_approval_replaced() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, domain_id) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
-         WHERE domain_id = $1",
+        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
     let review_id = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://example.com/new/1".to_owned()],
@@ -460,7 +451,7 @@ async fn should_keep_the_url_pattern_decision_an_approval_replaced() {
 async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     let added_url = url("https://example.com/products/2");
     let added = repository
@@ -590,7 +581,7 @@ async fn should_refuse_every_agent_change_of_a_decided_review_without_an_event()
 async fn should_record_no_event_for_a_refused_mutation() {
     let pool = get_postgres_client().await;
     let repository = deciding_agent_repository(&pool);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     let seed_page_id = repository.get_review_pages(review_id).await.unwrap()[0].review_page_id;
     let foreign_url = url("https://elsewhere.example/products/1");
@@ -692,7 +683,7 @@ async fn should_record_no_event_for_a_refused_mutation() {
 async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
     let pool = get_postgres_client().await;
     let repository = deciding_agent_repository(&pool);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     sqlx::query(
         "CREATE FUNCTION fail_review_event() RETURNS trigger LANGUAGE plpgsql AS $$ \
@@ -749,7 +740,7 @@ async fn should_roll_back_the_mutation_when_its_event_cannot_be_recorded() {
 async fn should_keep_the_trail_append_only_with_known_actors_and_actions() {
     let pool = get_postgres_client().await;
     let repository = deciding_agent_repository(&pool);
-    let (listing_source_id, _) = listing_source(&pool).await;
+    let listing_source_id = listing_source(&pool).await;
     let review_id = pending_schema_review(&repository, &listing_source_id).await;
     repository
         .reject_review(

@@ -1,6 +1,9 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 
+-- A ListingSource is the crawler's only entity (docs/crawler/README.md#listingsource-scope): its
+-- crawl root derives from the presentation URL the admin API gives it, and it carries the crawl
+-- and scrape state of that root.
 CREATE TABLE listing_sources (
     listing_source_id   UUID        PRIMARY KEY,
     listing_source_name TEXT        NOT NULL,
@@ -8,8 +11,82 @@ CREATE TABLE listing_sources (
     crawl_enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
     llm_calls_count     BIGINT      NOT NULL DEFAULT 0,
     created             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Where the spider starts: the presentation URL on https, without query or fragment. NULL
+    -- while the source has no crawlable URL, which leaves it uncrawled and unscraped.
+    crawl_root_url TEXT,
+    -- The host of `crawl_root_url` without one leading `www.`: the scope the spider stays on and
+    -- the host that owns the source's URLs.
+    crawl_host TEXT,
+    url_pattern TEXT,
+    url_pattern_state TEXT NOT NULL DEFAULT 'UNKNOWN',
+    last_crawled TIMESTAMPTZ,
+    crawl_failure_count INT NOT NULL DEFAULT 0,
+    last_crawl_error_kind TEXT,
+    next_crawl_at TIMESTAMPTZ,
+    last_crawl_outcome TEXT,
+    crawl_truncation_count INT NOT NULL DEFAULT 0,
+    -- A crawl stopped on a shop's rate-limit answer keeps a streak that slows the source's next
+    -- crawls and the earliest time the shop allows the next one, which no other crawl-timer write
+    -- can bring forward (docs/crawler/scheduling-and-retries.md, rate-limited crawls).
+    crawl_rate_limit_streak INT NOT NULL DEFAULT 0,
+    crawl_rate_limited_until TIMESTAMPTZ,
+    -- When the source's last spider run of any kind ended. A source whose last full crawl is
+    -- recent is crawled incrementally once this is a day old (docs/crawler/scheduling-and-retries.md,
+    -- discovery coverage).
+    last_crawl_run_at TIMESTAMPTZ,
+    scrape_failure_streak INT NOT NULL DEFAULT 0,
+    last_scrape_error_kind TEXT,
+    last_scrape_status_code INT,
+    next_scrape_at TIMESTAMPTZ,
+    -- When the current same-kind scrape failure streak began; NULL while the streak is 0.
+    scrape_failing_since TIMESTAMPTZ,
+    CONSTRAINT listing_sources_crawl_root_shape_check
+        CHECK ((crawl_root_url IS NULL) = (crawl_host IS NULL)),
+    CONSTRAINT listing_sources_crawl_root_url_check
+        CHECK (crawl_root_url IS NULL OR crawl_root_url LIKE 'https://_%'),
+    CONSTRAINT listing_sources_crawl_host_check CHECK (
+        crawl_host IS NULL
+        OR (char_length(crawl_host) > 0
+            AND crawl_host = lower(crawl_host)
+            AND crawl_host = rtrim(crawl_host, '.')
+            AND crawl_host !~ '^www[.]')
+    ),
+    CONSTRAINT listing_sources_url_pattern_state_check
+        CHECK (url_pattern_state IN ('UNKNOWN', 'MATCHED', 'NO_PATTERN')),
+    CONSTRAINT listing_sources_url_pattern_state_shape_check CHECK (
+        (url_pattern_state = 'MATCHED' AND url_pattern IS NOT NULL)
+        OR (url_pattern_state IN ('UNKNOWN', 'NO_PATTERN') AND url_pattern IS NULL)
+    ),
+    CONSTRAINT listing_sources_scrape_failure_streak_check
+        CHECK (scrape_failure_streak >= 0),
+    -- A crawl that stops classifying at a pending URL-pattern review is neither a success nor a
+    -- failure, and a source whose deterministic failures keep repeating stops retrying until an
+    -- operator acts. Both are recorded as their own crawl outcome.
+    CONSTRAINT listing_sources_last_crawl_outcome_check
+        CHECK (last_crawl_outcome IN (
+            'COMPLETED',
+            'PAGE_BUDGET_REACHED',
+            'HARD_TIMEOUT_TRUNCATED',
+            'RATE_LIMITED',
+            'FAILED',
+            'AWAITING_URL_PATTERN_REVIEW',
+            'NEEDS_OPERATOR'
+        )),
+    CONSTRAINT listing_sources_crawl_truncation_count_check
+        CHECK (crawl_truncation_count >= 0),
+    CONSTRAINT listing_sources_crawl_rate_limit_streak_check
+        CHECK (crawl_rate_limit_streak >= 0)
 );
+
+-- Two crawl-enabled sources never crawl one host; a source that left the scope keeps its root.
+CREATE UNIQUE INDEX listing_sources_crawl_host_per_enabled_source
+    ON listing_sources (crawl_host)
+    WHERE crawl_enabled AND crawl_host IS NOT NULL;
+CREATE INDEX idx_listing_sources_next_crawl_at ON listing_sources (next_crawl_at);
+CREATE INDEX idx_listing_sources_next_scrape_at
+    ON listing_sources (next_scrape_at)
+    WHERE next_scrape_at IS NOT NULL;
 
 CREATE TABLE listing_source_product_schemas (
     listing_source_id         UUID        PRIMARY KEY REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
@@ -25,94 +102,20 @@ CREATE TABLE listing_source_removed_page_schemas (
     updated TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE listing_source_domains (
-    domain_id   UUID        PRIMARY KEY,
-    listing_source_id     UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
-    listing_source_domain TEXT        NOT NULL,
-    crawl_root_host       TEXT        NOT NULL,
-    url_pattern TEXT,
-    last_crawled TIMESTAMPTZ,
-    crawl_failure_count INT NOT NULL DEFAULT 0,
-    last_crawl_error_kind TEXT,
-    next_crawl_at TIMESTAMPTZ,
-    last_crawl_outcome TEXT,
-    crawl_truncation_count INT NOT NULL DEFAULT 0,
-    -- A crawl stopped on a shop's rate-limit answer keeps a streak that slows the domain's next
-    -- crawls and the earliest time the shop allows the next one, which no other crawl-timer write
-    -- can bring forward (docs/crawler/scheduling-and-retries.md, rate-limited crawls).
-    crawl_rate_limit_streak INT NOT NULL DEFAULT 0,
-    crawl_rate_limited_until TIMESTAMPTZ,
-    -- When the domain's last spider run of any kind ended. A domain whose last full crawl is
-    -- recent is crawled incrementally once this is a day old (docs/crawler/scheduling-and-retries.md,
-    -- discovery coverage).
-    last_crawl_run_at TIMESTAMPTZ,
-    url_pattern_state TEXT NOT NULL DEFAULT 'UNKNOWN',
-    scrape_failure_streak INT NOT NULL DEFAULT 0,
-    last_scrape_error_kind TEXT,
-    last_scrape_status_code INT,
-    next_scrape_at TIMESTAMPTZ,
-    -- When the current same-kind scrape failure streak began; NULL while the streak is 0.
-    scrape_failing_since TIMESTAMPTZ,
-    UNIQUE (listing_source_domain),
-    CHECK (listing_source_domain = lower(listing_source_domain)),
-    CHECK (listing_source_domain = rtrim(listing_source_domain, '.')),
-    CHECK (listing_source_domain !~ '^www[.]'),
-    CHECK (crawl_root_host = lower(crawl_root_host)),
-    CHECK (crawl_root_host = rtrim(crawl_root_host, '.')),
-    CHECK (regexp_replace(crawl_root_host, '^www[.]', '') = listing_source_domain),
-    UNIQUE (listing_source_id, domain_id),
-    CONSTRAINT listing_source_domains_url_pattern_state_check
-        CHECK (url_pattern_state IN ('UNKNOWN', 'MATCHED', 'NO_PATTERN')),
-    CONSTRAINT listing_source_domains_url_pattern_state_shape_check CHECK (
-        (url_pattern_state = 'MATCHED' AND url_pattern IS NOT NULL)
-        OR (url_pattern_state IN ('UNKNOWN', 'NO_PATTERN') AND url_pattern IS NULL)
-    ),
-    CONSTRAINT listing_source_domains_scrape_failure_streak_check
-        CHECK (scrape_failure_streak >= 0),
-    -- A crawl that stops classifying at a pending URL-pattern review is neither a success nor a
-    -- failure, and a domain whose deterministic failures keep repeating stops retrying until an
-    -- operator acts. Both are recorded as their own crawl outcome.
-    CONSTRAINT listing_source_domains_last_crawl_outcome_check
-        CHECK (last_crawl_outcome IN (
-            'COMPLETED',
-            'PAGE_BUDGET_REACHED',
-            'HARD_TIMEOUT_TRUNCATED',
-            'RATE_LIMITED',
-            'FAILED',
-            'AWAITING_URL_PATTERN_REVIEW',
-            'NEEDS_OPERATOR'
-        )),
-    CONSTRAINT listing_source_domains_crawl_truncation_count_check
-        CHECK (crawl_truncation_count >= 0),
-    CONSTRAINT listing_source_domains_crawl_rate_limit_streak_check
-        CHECK (crawl_rate_limit_streak >= 0)
-);
-
-CREATE INDEX idx_listing_source_domains_listing_source_id ON listing_source_domains (listing_source_id);
-CREATE INDEX idx_listing_source_domains_next_crawl_at ON listing_source_domains (next_crawl_at);
-CREATE INDEX idx_listing_source_domains_next_scrape_at
-    ON listing_source_domains (next_scrape_at)
-    WHERE next_scrape_at IS NOT NULL;
-
-
--- The URLs a cut-short crawl found or was seeded with but did not visit. The domain's next crawl
+-- The URLs a cut-short crawl found or was seeded with but did not visit. The source's next crawl
 -- visits them after its link discovery from the root, so a truncated crawl continues where it
 -- stopped. Each run replaces the set; a crawl that reached everything leaves it empty
 -- (docs/crawler/scheduling-and-retries.md, discovery coverage).
-CREATE TABLE listing_source_domain_crawl_frontier (
-    domain_id UUID NOT NULL REFERENCES listing_source_domains(domain_id) ON DELETE CASCADE,
-    url       TEXT NOT NULL,
+CREATE TABLE listing_source_crawl_frontier (
+    listing_source_id UUID NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
+    url               TEXT NOT NULL,
     CHECK (char_length(url) > 0),
-    PRIMARY KEY (domain_id, url)
+    PRIMARY KEY (listing_source_id, url)
 );
 
 
 CREATE TABLE listing_source_urls (
     listing_source_id           UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
-    domain_id         UUID        NOT NULL,
-    FOREIGN KEY (listing_source_id, domain_id)
-        REFERENCES listing_source_domains (listing_source_id, domain_id)
-        ON DELETE CASCADE,
     url               TEXT        NOT NULL,
     url_class         TEXT        NOT NULL,
     crawler_disposition               TEXT        NOT NULL DEFAULT 'ACTIVE',
@@ -145,7 +148,7 @@ CREATE TABLE listing_source_urls (
     CHECK (char_length(url) > 0),
     CHECK (url_class IN ('product', 'category', 'imprint', 'info', 'other')),
     -- A crawler URL whose product page the crawler stores under another live product URL of the
-    -- same ListingSource and domain, its canonical URL or the destination it redirects to, is
+    -- same ListingSource, its canonical URL or the destination it redirects to, is
     -- retired as `DUPLICATE` and never scraped again (docs/crawler/networking.md#duplicate-targets).
     CHECK (crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD', 'DUPLICATE')),
     CHECK (last_captured_raw_input_sha256 IS NULL OR octet_length(last_captured_raw_input_sha256) = 32),
@@ -167,16 +170,14 @@ CREATE TABLE listing_source_urls (
 );
 
 CREATE INDEX idx_listing_source_urls_class_last_scraped ON listing_source_urls (url_class, last_scraped);
-CREATE INDEX idx_listing_source_urls_domain_id ON listing_source_urls (domain_id);
+CREATE INDEX idx_listing_source_urls_listing_source_id ON listing_source_urls (listing_source_id);
 CREATE INDEX idx_listing_source_urls_next_retry_at ON listing_source_urls (next_retry_at);
 
 
 CREATE TABLE crawler_reviews (
     review_id          UUID        PRIMARY KEY,
     listing_source_id            UUID        NOT NULL REFERENCES listing_sources(listing_source_id) ON DELETE CASCADE,
-    domain_id          UUID,
     artifact_type      TEXT        NOT NULL CHECK (artifact_type IN ('URL_PATTERN', 'PRODUCT_SCHEMA')),
-    CHECK (artifact_type <> 'URL_PATTERN' OR domain_id IS NOT NULL),
     status             TEXT        NOT NULL CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SUPERSEDED')),
     reason             TEXT        NOT NULL,
     candidate_payload  JSONB       NOT NULL,
@@ -193,15 +194,6 @@ CREATE TABLE crawler_reviews (
     -- The stored removed-page templates a product-schema candidate started from, so approval
     -- keeps a template another writer stored since then instead of dropping it.
     removed_page_schemas_base JSONB NOT NULL DEFAULT '[]'::jsonb,
-    -- A URL-pattern review belongs to one domain of its own ListingSource.
-    CONSTRAINT crawler_reviews_listing_source_domain_fkey
-        FOREIGN KEY (listing_source_id, domain_id)
-        REFERENCES listing_source_domains (listing_source_id, domain_id)
-        ON DELETE CASCADE,
-    CONSTRAINT crawler_reviews_artifact_domain_shape_check CHECK (
-        (artifact_type = 'URL_PATTERN' AND domain_id IS NOT NULL)
-        OR (artifact_type = 'PRODUCT_SCHEMA' AND domain_id IS NULL)
-    ),
     CONSTRAINT crawler_reviews_repair_request_shape_check CHECK (
         (repair_requested IS NULL AND repair_note IS NULL)
         OR (repair_requested IS NOT NULL AND repair_note IS NOT NULL AND btrim(repair_note) <> '')
@@ -213,8 +205,8 @@ CREATE TABLE crawler_reviews (
 CREATE INDEX idx_crawler_reviews_status
     ON crawler_reviews (status, artifact_type, created);
 
-CREATE UNIQUE INDEX crawler_reviews_pending_url_pattern_per_domain
-    ON crawler_reviews (domain_id)
+CREATE UNIQUE INDEX crawler_reviews_pending_url_pattern_per_source
+    ON crawler_reviews (listing_source_id)
     WHERE status = 'PENDING_REVIEW'
       AND artifact_type = 'URL_PATTERN';
 

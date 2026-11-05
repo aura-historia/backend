@@ -27,21 +27,19 @@
 //! cargo run --bin dev-spider -p crawler -- https://www.christies.com/en
 //! ```
 
-use crawler::CrawlerDomainId;
 use listing_source_core::ListingSourceId;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::sync::Arc;
 
+use crawler::CrawlRoot;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
-use crawler::local_db::{
-    DEMO_SPIDER_DB_NAME, DevDatabase,
-    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
-};
+use crawler::local_db::{DEMO_SPIDER_DB_NAME, DevDatabase};
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
-use crawler::service::crawler_domain_configuration::{
-    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
+use crawler::service::listing_source_registration::{
+    ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
+    ScopedListingSource,
 };
 use crawler::spider::SpiderRunResult;
 use crawler::spider::classification::url_classification_service::UrlClassificationServiceImpl;
@@ -82,9 +80,6 @@ enum DemoError {
 
     #[error(transparent)]
     SpiderService(#[from] crawler::spider::SpiderServiceError),
-
-    #[error(transparent)]
-    DomainConfiguration(#[from] CrawlerDomainConfigurationError),
 }
 
 const DEFAULT_CRAWL_ROOT_URL: &str = "https://www.christies.com/en";
@@ -169,20 +164,11 @@ async fn main() {
         let listing_source_id: ListingSourceId = "ls_01h455vb4pex5ty7enb1p677vg"
             .parse()
             .unwrap_or_else(|error| panic!("invalid demo ListingSource TypeID: {error}"));
-        let crawl_root_url_parsed = url::Url::parse(&crawl_root_url)
-            .unwrap_or_else(|_| url::Url::parse("https://demo.invalid").unwrap());
-        let demo_domain = crawl_root_url_parsed
-            .host_str()
-            .unwrap_or("demo.invalid")
-            .to_string();
-
-        let demo_domain_id =
-            match insert_demo_listing_source_with_domain(&pool, &listing_source_id, &demo_domain)
-                .await
-            {
-                Ok(id) => id,
+        let crawl_root =
+            match register_demo_listing_source(&pool, listing_source_id, &crawl_root_url).await {
+                Ok(crawl_root) => crawl_root,
                 Err(error) => {
-                    error!(error = ?error, "Failed to insert demo ListingSource rows into DB");
+                    error!(error = ?error, "Failed to register the demo ListingSource");
                     return;
                 }
             };
@@ -190,8 +176,7 @@ async fn main() {
         match spider
             .run(
                 &listing_source_id,
-                &demo_domain_id,
-                &crawl_root_url,
+                crawl_root.url().as_str(),
                 DEFAULT_CLASSIFY_THRESHOLD,
                 CrawlPace::default(),
                 CrawlKind::Full,
@@ -263,34 +248,28 @@ async fn connect_and_migrate(database: &DevDatabase) -> Result<PgPool, DemoError
     Ok(pool)
 }
 
-/// Inserts a stable demo ListingSource and registers its crawler domain through the
-/// same ownership boundary used by the production review API.
-#[tracing::instrument(skip(pool), fields(listing_source_id = %listing_source_id, listing_source_domain = %listing_source_domain))]
-async fn insert_demo_listing_source_with_domain(
+/// Registers the demo ListingSource with the crawl root `crawl_root_url` derives, through the
+/// scope sync's own repository, so the demo crawls it as the server crawls a source of its scope.
+#[tracing::instrument(skip(pool), fields(listing_source_id = %listing_source_id))]
+async fn register_demo_listing_source(
     pool: &PgPool,
-    listing_source_id: &ListingSourceId,
-    listing_source_domain: &str,
-) -> Result<CrawlerDomainId, DemoError> {
-    let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-
-    sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated)
-         VALUES ($1, 'Demo source', 'demo-source', TRUE, NOW(), NOW())
-         ON CONFLICT (listing_source_id) DO NOTHING",
-    )
-    .bind(listing_source_id_uuid)
-    .execute(pool)
-    .await?;
-
-    let domain = listing_source_core::Domain::try_from(listing_source_domain)
+    listing_source_id: ListingSourceId,
+    crawl_root_url: &str,
+) -> Result<CrawlRoot, DemoError> {
+    let crawl_root = CrawlRoot::from_presentation_url(crawl_root_url)
         .map_err(|error| DemoError::Demo(error.to_string()))?;
-    let configuration = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
-    let domain_id = configuration
-        .register(*listing_source_id, domain)
-        .await?
-        .domain_id;
-
-    Ok(domain_id)
+    ListingSourceRegistrationRepositoryImpl::new(pool.clone())
+        .apply_snapshot(&[ScopedListingSource {
+            listing_source_id,
+            listing_source_name: listing_source_core::ListingSourceName::try_from("Demo source")
+                .map_err(|error| DemoError::Demo(error.to_string()))?,
+            listing_source_slug: listing_source_core::ListingSourceSlugId::raw("demo-source")
+                .map_err(|error| DemoError::Demo(error.to_string()))?,
+            crawl_enabled: true,
+            crawl_root: Some(crawl_root.clone()),
+        }])
+        .await?;
+    Ok(crawl_root)
 }
 
 #[tracing::instrument(skip(url), fields(raw_url = %url))]

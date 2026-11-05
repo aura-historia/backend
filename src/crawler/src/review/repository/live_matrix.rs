@@ -5,7 +5,7 @@
 //! ListingSource, without being stored.
 
 use super::repair_rounds::refuse_agent_while_human_required;
-use super::review_source::{MAX_EVALUATED_URLS, listing_source_domains, review_source_url};
+use super::review_source::{MAX_EVALUATED_URLS, listing_source_crawl_host, review_source_url};
 use super::reviewer_page_url::ReviewPageIdentity;
 use super::schema_payload::{ProductSchemaCandidateEdit, ProductSchemaReviewCandidate};
 use super::{
@@ -144,10 +144,10 @@ impl CrawlerReviewRepository {
             .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
         let candidate = ProductSchemaCandidateEdit::parse(proposed)?.apply_to(&current)?;
         let going_live = self.going_live(&review, &candidate).await?;
-        let domains = listing_source_domains(&self.pool, review.listing_source_id).await?;
+        let crawl_host = listing_source_crawl_host(&self.pool, review.listing_source_id).await?;
         let urls = urls
             .iter()
-            .map(|url| review_source_url(url, &domains))
+            .map(|url| review_source_url(url, crawl_host.as_deref()))
             .collect::<Result<Vec<_>, _>>()?;
         let pages = fetch_review_pages(&self.pool, review_id).await?;
         Ok(CandidateProposal {

@@ -256,31 +256,25 @@ fn candidate_of(detail: &wire::ReviewDetail) -> Result<wire::Candidate, ToolErro
     }
 }
 
-/// The domains of the review's ListingSource, the only hosts a URL given to a tool may name.
-async fn review_source_domains(
+/// The crawl host of the review's ListingSource, the only host a URL given to a tool may name.
+async fn review_source_crawl_host(
     context: &ToolContext,
     review_id: CrawlerReviewId,
-) -> Result<Vec<String>, ToolError> {
-    let detail = review_detail(context, review_id).await?;
-    let domains: Vec<wire::ListingSourceDomain> = context
-        .console
-        .get(&format!(
-            "/api/listing-sources/{}/domains",
-            detail.review.listing_source_id
-        ))
+) -> Result<Option<String>, ToolError> {
+    Ok(review_detail(context, review_id)
         .await?
-        .decode()?;
-    Ok(domains.into_iter().map(|domain| domain.domain).collect())
+        .review
+        .listing_source_crawl_host)
 }
 
-/// `raw_url` when it is a plain http(s) URL on one of the review's ListingSource `domains`, as
-/// the console itself requires; any other URL is refused before a request is sent.
-fn review_source_url(raw_url: &str, domains: &[String]) -> Result<Url, ToolError> {
+/// `raw_url` when it is a plain http(s) URL on the review's ListingSource `crawl_host`, as the
+/// console itself requires; any other URL is refused before a request is sent.
+fn review_source_url(raw_url: &str, crawl_host: Option<&str>) -> Result<Url, ToolError> {
     let raw_url = raw_url.trim();
     let Ok(url) = Url::parse(raw_url) else {
         return Err(ToolError::UrlOutsideReviewSource(raw_url.to_owned()));
     };
-    if is_review_source_url(&url, domains) {
+    if is_review_source_url(&url, crawl_host) {
         return Ok(url);
     }
     let mut named = url;
@@ -299,10 +293,10 @@ async fn review_source_urls(
     if raw_urls.is_empty() {
         return Ok(Vec::new());
     }
-    let domains = review_source_domains(context, review_id).await?;
+    let crawl_host = review_source_crawl_host(context, review_id).await?;
     raw_urls
         .iter()
-        .map(|raw_url| review_source_url(raw_url, &domains))
+        .map(|raw_url| review_source_url(raw_url, crawl_host.as_deref()))
         .collect()
 }
 
@@ -420,13 +414,13 @@ mod tests {
 
     #[test]
     fn should_take_only_urls_of_the_review_source() {
-        let domains = vec!["antiques.example".to_owned()];
+        let crawl_host = Some("antiques.example");
 
         for url in [
             "https://antiques.example/item/1",
             " http://www.antiques.example/shop?page=2 ",
         ] {
-            assert!(review_source_url(url, &domains).is_ok(), "{url}");
+            assert!(review_source_url(url, crawl_host).is_ok(), "{url}");
         }
         for url in [
             "https://elsewhere.example/item/1",
@@ -438,7 +432,7 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    review_source_url(url, &domains),
+                    review_source_url(url, crawl_host),
                     Err(ToolError::UrlOutsideReviewSource(_))
                 ),
                 "{url}"

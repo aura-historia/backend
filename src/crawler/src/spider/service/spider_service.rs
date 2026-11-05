@@ -1,4 +1,4 @@
-use crate::{CrawlerDomainId, CrawlerReviewId};
+use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -243,7 +243,6 @@ pub trait SpiderService: Send + Sync {
     async fn run(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         _crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
@@ -280,13 +279,20 @@ impl SpiderServiceImpl {
     /// the known product URLs an incremental crawl skips.
     async fn crawl_seeds(
         &self,
-        domain_id: &CrawlerDomainId,
+        listing_source_id: &ListingSourceId,
         kind: CrawlKind,
     ) -> Result<CrawlSeeds, SpiderServiceError> {
-        let frontier = self.frontier_repository.load_frontier(domain_id).await?;
+        let frontier = self
+            .frontier_repository
+            .load_frontier(listing_source_id)
+            .await?;
         let known = match kind {
             CrawlKind::Full => KnownUrls::default(),
-            CrawlKind::Incremental => self.frontier_repository.known_urls(domain_id).await?,
+            CrawlKind::Incremental => {
+                self.frontier_repository
+                    .known_urls(listing_source_id)
+                    .await?
+            }
         };
         Ok(CrawlSeeds {
             frontier,
@@ -327,7 +333,6 @@ impl SpiderServiceImpl {
     async fn persist_url_metadata_batch(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
         shop_platform: Option<ShopPlatform>,
@@ -342,7 +347,7 @@ impl SpiderServiceImpl {
             .collect::<Vec<_>>();
 
         self.url_metadata_repository
-            .upsert_links_batch(listing_source_id, domain_id, &links)
+            .upsert_links_batch(listing_source_id, &links)
             .await
             .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
     }
@@ -378,7 +383,6 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         record_pattern_matches(
             &state.page_buffer,
@@ -388,7 +392,6 @@ impl SpiderServiceImpl {
         let stored = self
             .persist_url_metadata_batch(
                 listing_source_id,
-                domain_id,
                 &state.page_buffer,
                 &state.pattern,
                 state.shop_platform,
@@ -409,20 +412,19 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_classify_with_decision_made_while_waiting",
         skip(self, state),
-        fields(listing_source_id = %listing_source_id, domain_id = %domain_id)
+        fields(listing_source_id = %listing_source_id)
     )]
     async fn classify_with_decision_made_while_waiting(
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         let Some(review_id) = state.pending_url_pattern_review() else {
             return Ok(());
         };
         let Some(decision) = self
             .pattern_service
-            .decision_stored_during_crawl(listing_source_id, domain_id, state.pattern.as_regex())
+            .decision_stored_during_crawl(listing_source_id, state.pattern.as_regex())
             .await?
         else {
             return Ok(());
@@ -439,7 +441,6 @@ impl SpiderServiceImpl {
             let stored = self
                 .persist_url_metadata_batch(
                     listing_source_id,
-                    domain_id,
                     pages,
                     &state.pattern,
                     state.shop_platform,
@@ -459,7 +460,6 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         stage: &'static str,
     ) -> Result<(), SpiderServiceError> {
@@ -478,7 +478,6 @@ impl SpiderServiceImpl {
             .pattern_service
             .classify_and_save(
                 listing_source_id,
-                domain_id,
                 crawl_root_url,
                 state.pattern.as_regex(),
                 &state.inference_sample,
@@ -524,7 +523,6 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<(), SpiderServiceError> {
@@ -540,14 +538,8 @@ impl SpiderServiceImpl {
                 "Threshold reached, requesting product URL pattern"
             );
 
-            self.classify_and_save_for_stage(
-                state,
-                listing_source_id,
-                domain_id,
-                crawl_root_url,
-                "threshold",
-            )
-            .await?;
+            self.classify_and_save_for_stage(state, listing_source_id, crawl_root_url, "threshold")
+                .await?;
 
             state.classification_done = true;
             state.pattern_loaded_from_store = false;
@@ -560,12 +552,10 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         if state.classification_done && state.page_buffer.len() >= self.config.db_batch_size {
-            self.store_buffered_pages(state, listing_source_id, domain_id)
-                .await?;
-            self.classify_with_decision_made_while_waiting(state, listing_source_id, domain_id)
+            self.store_buffered_pages(state, listing_source_id).await?;
+            self.classify_with_decision_made_while_waiting(state, listing_source_id)
                 .await?;
         }
         Ok(())
@@ -591,7 +581,6 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         diagnostics: &CrawlDiagnostics,
     ) -> Result<(), SpiderServiceError> {
@@ -623,7 +612,6 @@ impl SpiderServiceImpl {
             self.classify_and_save_for_stage(
                 state,
                 listing_source_id,
-                domain_id,
                 crawl_root_url,
                 "end_of_crawl",
             )
@@ -643,7 +631,6 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
     ) -> Result<(), SpiderServiceError> {
         // Pages still buffered count too: a crawl smaller than one batch has
@@ -655,14 +642,8 @@ impl SpiderServiceImpl {
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-            self.classify_and_save_for_stage(
-                state,
-                listing_source_id,
-                domain_id,
-                crawl_root_url,
-                "refresh",
-            )
-            .await?;
+            self.classify_and_save_for_stage(state, listing_source_id, crawl_root_url, "refresh")
+                .await?;
         }
 
         Ok(())
@@ -672,11 +653,9 @@ impl SpiderServiceImpl {
         &self,
         state: &mut CrawlRunState,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), SpiderServiceError> {
         if !state.page_buffer.is_empty() {
-            self.store_buffered_pages(state, listing_source_id, domain_id)
-                .await?;
+            self.store_buffered_pages(state, listing_source_id).await?;
         }
         Ok(())
     }
@@ -684,41 +663,29 @@ impl SpiderServiceImpl {
     #[tracing::instrument(
         name = "spider_mark_as_crawled_best_effort",
         skip(self),
-        fields(listing_source_id = %listing_source_id, crawl_root_host = %root.crawl_root_host)
+        fields(listing_source_id = %root.listing_source_id, crawl_root_url = %root.crawl_root_url)
     )]
-    async fn mark_as_crawled_best_effort(
-        &self,
-        listing_source_id: &ListingSourceId,
-        root: &CrawledRoot,
-    ) {
-        match self
-            .pattern_service
-            .mark_as_crawled(listing_source_id, root)
-            .await
-        {
+    async fn mark_as_crawled_best_effort(&self, root: &CrawledRoot) {
+        match self.pattern_service.mark_as_crawled(root).await {
             Ok(CrawlOutcomeWrite::Recorded) => {}
             Ok(CrawlOutcomeWrite::RootMoved) => debug!(
-                "The domain moved to another crawl root during the crawl; its full crawl is not recorded"
+                "The ListingSource moved to another crawl root during the crawl; its full crawl is not recorded"
             ),
             Err(error) => warn!(error = ?error, "Failed to mark ListingSource as crawled"),
         }
     }
 
-    /// Loads the domain's pattern and consumes every page the crawl delivers,
+    /// Loads the ListingSource's pattern and consumes every page the crawl delivers,
     /// classifying at the threshold and flushing full batches.
     async fn consume_pages(
         &self,
         mut crawl_rx: mpsc::Receiver<CrawledPage>,
         configured_root: &Url,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<CrawlRunState, SpiderServiceError> {
-        let initial_pattern = self
-            .pattern_service
-            .load_pattern_for_domain(listing_source_id, domain_id)
-            .await?;
+        let initial_pattern = self.pattern_service.load_pattern(listing_source_id).await?;
         let mut state = CrawlRunState::new(initial_pattern);
 
         if state.pattern_loaded_from_store {
@@ -743,13 +710,12 @@ impl SpiderServiceImpl {
             self.maybe_classify_at_threshold(
                 &mut state,
                 listing_source_id,
-                domain_id,
                 crawl_root_url,
                 classify_threshold,
             )
             .await?;
 
-            self.flush_batch_if_needed(&mut state, listing_source_id, domain_id)
+            self.flush_batch_if_needed(&mut state, listing_source_id)
                 .await?;
             self.log_progress(&state);
         }
@@ -762,7 +728,6 @@ impl SpiderServiceImpl {
         skip(self),
         fields(
             listing_source_id = %listing_source_id,
-            domain_id = %domain_id,
             crawl_root_url = %crawl_root_url,
             classify_threshold
         )
@@ -770,7 +735,6 @@ impl SpiderServiceImpl {
     async fn run_crawl(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
@@ -779,20 +743,13 @@ impl SpiderServiceImpl {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
                 kind: CrawlFailureKind::InvalidUrl,
-                reason: "configured crawler domain URL is invalid",
+                reason: "configured crawl root URL is invalid",
                 source: None,
                 root_reroot: None,
             })
         })?;
-        let root = CrawledRoot::of_root_url(*domain_id, &configured_root).ok_or_else(|| {
-            SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
-                kind: CrawlFailureKind::InvalidUrl,
-                reason: "configured crawler domain URL has no host",
-                source: None,
-                root_reroot: None,
-            })
-        })?;
-        let seeds = self.crawl_seeds(domain_id, kind).await?;
+        let root = CrawledRoot::new(*listing_source_id, crawl_root_url);
+        let seeds = self.crawl_seeds(listing_source_id, kind).await?;
         let crawl = self
             .spider
             .crawl(CrawlRequest {
@@ -806,7 +763,6 @@ impl SpiderServiceImpl {
                 crawl.pages,
                 &configured_root,
                 listing_source_id,
-                domain_id,
                 crawl_root_url,
                 classify_threshold,
             )
@@ -814,7 +770,7 @@ impl SpiderServiceImpl {
 
         // A run that ends early has dropped the page channel, which stops
         // the library crawl; its diagnostics arrive only once that crawl has
-        // ended, so the run, and the domain lock its caller holds, outlive
+        // ended, so the run, and the work lock its caller holds, outlive
         // every request of the crawl. A filter task that died without
         // reporting cannot vouch for a full crawl.
         let diagnostics = crawl
@@ -832,22 +788,16 @@ impl SpiderServiceImpl {
             diagnostics,
         };
         let rate_limit = ended.diagnostics.completion.rate_limit();
-        self.finish_crawl(
-            consumed,
-            &ended,
-            listing_source_id,
-            domain_id,
-            crawl_root_url,
-        )
-        .await
-        .map_err(|error| error.with_crawl_diagnostics(&ended.diagnostics))
-        .map_err(|error| match rate_limit {
-            Some(rate_limit) => SpiderServiceError::RateLimitedCrawl {
-                rate_limit,
-                failure: Box::new(error),
-            },
-            None => error,
-        })
+        self.finish_crawl(consumed, &ended, listing_source_id, crawl_root_url)
+            .await
+            .map_err(|error| error.with_crawl_diagnostics(&ended.diagnostics))
+            .map_err(|error| match rate_limit {
+                Some(rate_limit) => SpiderServiceError::RateLimitedCrawl {
+                    rate_limit,
+                    failure: Box::new(error),
+                },
+                None => error,
+            })
     }
 
     /// Classifies, stores and judges what the ended crawl delivered: the run state of a crawl
@@ -857,7 +807,6 @@ impl SpiderServiceImpl {
         consumed: Result<CrawlRunState, SpiderServiceError>,
         ended: &EndedCrawl,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
     ) -> Result<CrawlRunState, SpiderServiceError> {
         let diagnostics = &ended.diagnostics;
@@ -874,14 +823,8 @@ impl SpiderServiceImpl {
             return Err(error);
         }
 
-        self.classify_at_end_if_needed(
-            &mut state,
-            listing_source_id,
-            domain_id,
-            crawl_root_url,
-            diagnostics,
-        )
-        .await?;
+        self.classify_at_end_if_needed(&mut state, listing_source_id, crawl_root_url, diagnostics)
+            .await?;
         // A stored pattern that matched none of the pages an incremental crawl
         // fetched still takes the stored product pages the crawl skipped.
         let judged_on_fetched_pages =
@@ -893,14 +836,13 @@ impl SpiderServiceImpl {
             self.reclassify_if_persisted_pattern_failed(
                 &mut state,
                 listing_source_id,
-                domain_id,
                 crawl_root_url,
             )
             .await?;
         }
-        self.flush_remaining_pages(&mut state, listing_source_id, domain_id)
+        self.flush_remaining_pages(&mut state, listing_source_id)
             .await?;
-        self.classify_with_decision_made_while_waiting(&mut state, listing_source_id, domain_id)
+        self.classify_with_decision_made_while_waiting(&mut state, listing_source_id)
             .await?;
 
         // URLs stay stored either way; only the recorded outcome differs.
@@ -925,7 +867,6 @@ impl SpiderServiceImpl {
         consumed: Result<CrawlRunState, SpiderServiceError>,
         ended: &EndedCrawl,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let EndedCrawl {
@@ -936,13 +877,7 @@ impl SpiderServiceImpl {
         } = ended;
         let (kind, discovery) = (*kind, discovery.as_ref());
         let judged = self
-            .judge_delivered_pages(
-                consumed,
-                ended,
-                listing_source_id,
-                domain_id,
-                crawl_root_url,
-            )
+            .judge_delivered_pages(consumed, ended, listing_source_id, crawl_root_url)
             .await;
         let keeps_its_frontier = match &judged {
             Ok(_) => true,
@@ -970,8 +905,7 @@ impl SpiderServiceImpl {
         // classifies its stored URLs, so no second crawl from the root is due.
         // An incremental crawl skipped known product pages, so it is never one.
         if completion.is_full() && kind == CrawlKind::Full {
-            self.mark_as_crawled_best_effort(listing_source_id, root)
-                .await;
+            self.mark_as_crawled_best_effort(root).await;
         }
 
         log_crawl_outcome(
@@ -1000,7 +934,6 @@ impl SpiderService for SpiderServiceImpl {
         skip(self),
         fields(
             listing_source_id = %listing_source_id,
-            domain_id = %domain_id,
             crawl_root_url = %crawl_root_url,
             classify_threshold,
             pace = ?pace,
@@ -1010,7 +943,6 @@ impl SpiderService for SpiderServiceImpl {
     async fn run(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
@@ -1020,7 +952,6 @@ impl SpiderService for SpiderServiceImpl {
 
         self.run_crawl(
             listing_source_id,
-            domain_id,
             crawl_root_url,
             classify_threshold,
             pace,
@@ -1274,7 +1205,6 @@ mod service_tests {
     /// The rows the URL repository answers a batch with when it stores each URL as it was given.
     fn stored_as_given(
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         links: &[DiscoveredUrl],
     ) -> Vec<SpiderUrlRecord> {
         let now = time::OffsetDateTime::now_utc();
@@ -1282,7 +1212,6 @@ mod service_tests {
             .iter()
             .map(|link| SpiderUrlRecord {
                 listing_source_id: *listing_source_id,
-                domain_id: *domain_id,
                 url: link.canonical.clone().unwrap_or_else(|| link.url.clone()),
                 url_class: link.url_class,
                 disposition: CrawlerDisposition::Active,
@@ -1297,22 +1226,22 @@ mod service_tests {
     fn setup_mock_url_repo(
         mock: &mut MockUrlMetadataRepository,
         call_count: usize,
-        expected_domain_id: CrawlerDomainId,
+        expected_listing_source_id: ListingSourceId,
     ) {
         mock.expect_upsert_links_batch()
             .times(call_count)
-            .withf(move |_, domain_id, _| *domain_id == expected_domain_id)
-            .returning(|listing_source_id, domain_id, links| {
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+            .withf(move |listing_source_id, _| *listing_source_id == expected_listing_source_id)
+            .returning(|listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
             });
     }
 
     fn setup_mock_mark_as_crawled(mock: &mut MockUrlPatternService, _crawl_root_url: &'static str) {
         mock.expect_mark_as_crawled()
-            .with(mockall::predicate::always(), mockall::predicate::always())
+            .with(mockall::predicate::always())
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
     }
 
     /// The page a mock crawl delivers for `path`; a path under `/challenge` is a bot challenge
@@ -1454,20 +1383,20 @@ mod service_tests {
     fn pattern_service_with_stored_pattern() -> MockUrlPatternService {
         let mut service = MockUrlPatternService::new();
         service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
         service
     }
 
     #[tokio::test]
     async fn should_seed_an_incremental_crawl_and_keep_its_frontier_without_recording_a_full_crawl()
     {
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         let mut mock_spider = MockSpider::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let mut pattern_service = pattern_service_with_stored_pattern();
         pattern_service.expect_mark_as_crawled().times(0);
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
         setup_mock_seeded_crawl(
             &mut mock_spider,
             CrawlRequest {
@@ -1500,8 +1429,7 @@ mod service_tests {
 
         let result = service
             .run(
-                &ListingSourceId::new(),
-                &domain_id,
+                &listing_source_id,
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1553,13 +1481,13 @@ mod service_tests {
     #[tokio::test]
     async fn should_not_judge_an_incremental_crawl_on_the_stored_product_pages_it_skipped() {
         for paths in [listing_pages(), vec!["/".to_string()]] {
-            let domain_id = CrawlerDomainId::new();
+            let listing_source_id = ListingSourceId::new();
             let mut mock_spider = MockSpider::new();
             let mut mock_url_repo = MockUrlMetadataRepository::new();
             let mut pattern_service = pattern_service_with_stored_pattern();
             pattern_service.expect_classify_and_save().times(0);
             pattern_service.expect_mark_as_crawled().times(0);
-            setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+            setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
             setup_mock_incremental_crawl(&mut mock_spider, paths.clone(), 3);
             let service = SpiderServiceImpl::new(
                 SpiderServiceConfig::default(),
@@ -1571,8 +1499,7 @@ mod service_tests {
 
             let result = service
                 .run(
-                    &ListingSourceId::new(),
-                    &domain_id,
+                    &listing_source_id,
                     "https://example.com",
                     20,
                     CrawlPace::default(),
@@ -1590,18 +1517,18 @@ mod service_tests {
 
     #[tokio::test]
     async fn should_judge_an_incremental_crawl_that_met_no_stored_product_page_like_a_full_one() {
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         let mut mock_spider = MockSpider::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let mut pattern_service = pattern_service_with_stored_pattern();
         pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
         pattern_service.expect_mark_as_crawled().times(0);
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
         setup_mock_incremental_crawl(&mut mock_spider, listing_pages(), 0);
         // The run delivered pages, so its failure keeps the frontier it left: none.
         let service = SpiderServiceImpl::new(
@@ -1614,8 +1541,7 @@ mod service_tests {
 
         let result = service
             .run(
-                &ListingSourceId::new(),
-                &domain_id,
+                &listing_source_id,
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1631,12 +1557,12 @@ mod service_tests {
 
     #[tokio::test]
     async fn should_record_a_full_crawl_that_left_no_frontier_and_clear_the_stored_one() {
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         let mut mock_spider = MockSpider::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let mut pattern_service = pattern_service_with_stored_pattern();
         setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
         setup_mock_seeded_crawl(
             &mut mock_spider,
             CrawlRequest {
@@ -1663,8 +1589,7 @@ mod service_tests {
 
         let result = service
             .run(
-                &ListingSourceId::new(),
-                &domain_id,
+                &listing_source_id,
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1706,7 +1631,6 @@ mod service_tests {
         let result = service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1761,7 +1685,6 @@ mod service_tests {
         service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 "https://example.com",
                 25,
                 CrawlPace::default(),
@@ -1778,14 +1701,14 @@ mod service_tests {
     ) -> MockUrlPatternService {
         let mut service = MockUrlPatternService::new();
         service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         match classified {
             Some(classified) => {
                 service
                     .expect_classify_and_save()
                     .times(1)
-                    .return_once(move |_, _, _, _, _| Box::pin(async move { classified }));
+                    .return_once(move |_, _, _, _| Box::pin(async move { classified }));
             }
             None => {
                 service.expect_classify_and_save().times(0);
@@ -1800,8 +1723,8 @@ mod service_tests {
         repository
             .expect_upsert_links_batch()
             .times(batches)
-            .returning(|listing_source_id, domain_id, links| {
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+            .returning(|listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
             });
         repository
@@ -1961,7 +1884,6 @@ mod service_tests {
         let error = service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 "https://example.com",
                 5,
                 CrawlPace::default(),
@@ -2002,17 +1924,15 @@ mod service_tests {
         );
         let mut pattern_service = MockUrlPatternService::new();
         pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         // Asked once, after the sixth page: three challenges of four, then of five, are most
         // of the pages, three of six are not.
         pattern_service
             .expect_classify_and_save()
             .times(1)
-            .withf(|_, _, _, _, sample| sample.len() == 6)
-            .returning(|_, _, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) })
-            });
+            .withf(|_, _, _, sample| sample.len() == 6)
+            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
         setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
@@ -2028,7 +1948,6 @@ mod service_tests {
         let result = service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 "https://example.com",
                 4,
                 CrawlPace::default(),
@@ -2201,7 +2120,6 @@ mod service_tests {
         let result = service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 "https://example.com",
                 25,
                 CrawlPace::default(),
@@ -2232,7 +2150,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(
@@ -2242,18 +2159,18 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
 
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -2266,7 +2183,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2291,7 +2207,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
@@ -2304,21 +2219,21 @@ mod service_tests {
             },
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, links| links.len() == 25)
-            .returning(|listing_source_id, domain_id, links| {
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+            .withf(|_, links| links.len() == 25)
+            .returning(|listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -2333,7 +2248,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2360,7 +2274,7 @@ mod service_tests {
     /// Re-reads of the domain's pattern state find the review the crawl waits on undecided.
     fn setup_mock_review_still_pending(mock: &mut MockUrlPatternService) {
         mock.expect_decision_stored_during_crawl()
-            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _| Box::pin(async { Ok(None) }));
     }
 
     #[tokio::test]
@@ -2370,7 +2284,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let review_id = CrawlerReviewId::new();
         let crawl_root_url = "https://example.com";
 
@@ -2380,13 +2293,13 @@ mod service_tests {
             product_pages_until_timeout(),
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         // Asked once at the threshold; the pending review stops further asking.
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
         setup_mock_review_still_pending(&mut mock_pattern_service);
@@ -2394,14 +2307,14 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, links| {
+            .withf(|_, links| {
                 links.len() == 25
                     && links
                         .iter()
                         .all(|link| link.url_class != UrlClass::ProductListing)
             })
-            .returning(|listing_source_id, domain_id, links| {
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+            .returning(|listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -2416,7 +2329,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2439,7 +2351,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let review_id = CrawlerReviewId::new();
         let crawl_root_url = "https://example.com";
 
@@ -2453,12 +2364,12 @@ mod service_tests {
             },
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
         setup_mock_review_still_pending(&mut mock_pattern_service);
@@ -2466,9 +2377,9 @@ mod service_tests {
         mock_url_repo
             .expect_upsert_links_batch()
             .times(1)
-            .withf(|_, _, links| links.len() == 25)
-            .returning(|listing_source_id, domain_id, links| {
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+            .withf(|_, links| links.len() == 25)
+            .returning(|listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
             });
 
@@ -2483,7 +2394,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2503,26 +2413,23 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let review_id = CrawlerReviewId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .withf(|_, _, _, crawl_pattern, _| {
-                crawl_pattern.map(Regex::as_str) == Some(r"/product/")
-            })
-            .returning(move |_, _, _, _, _| {
+            .withf(|_, _, crawl_pattern, _| crawl_pattern.map(Regex::as_str) == Some(r"/product/"))
+            .returning(move |_, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
         setup_mock_review_still_pending(&mut mock_pattern_service);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -2535,7 +2442,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -2562,7 +2468,6 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
         setup_mock_crawl(
             &mut mock_spider,
@@ -2570,12 +2475,12 @@ mod service_tests {
             product_pages_until_timeout(),
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _| {
                 Box::pin(
                     async move { Err(pending_review(listing_source_id, CrawlerReviewId::new())) },
                 )
@@ -2585,29 +2490,29 @@ mod service_tests {
         mock_pattern_service
             .expect_decision_stored_during_crawl()
             .times(2)
-            .withf(|_, _, crawl_pattern| crawl_pattern.is_none())
-            .returning(move |_, _, _| {
+            .withf(|_, crawl_pattern| crawl_pattern.is_none())
+            .returning(move |_, _| {
                 let decided = re_reads.fetch_add(1, Ordering::SeqCst) == 1;
                 let decision = decision.clone();
                 Box::pin(async move { Ok(decided.then_some(decision)) })
             });
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored: StoredBatches = Arc::default();
         let recorded = Arc::clone(&stored);
-        mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, links| {
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(move |listing_source_id, links| {
                 recorded.lock().unwrap().push(
                     links
                         .iter()
                         .map(|link| (link.url.path().to_owned(), link.url_class))
                         .collect(),
                 );
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
-            },
-        );
+            });
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
                 db_batch_size: 10,
@@ -2622,7 +2527,6 @@ mod service_tests {
         let run = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2697,22 +2601,21 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
         mock_pattern_service.expect_mark_as_crawled().times(0);
         // The crawled URLs are kept, only the outcome is a failure.
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -2725,7 +2628,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -2751,7 +2653,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
@@ -2764,15 +2665,15 @@ mod service_tests {
             },
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         // A decided `NO_PATTERN` classification answers with no pattern.
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _, _| Box::pin(async { Ok(None) }));
+            .returning(|_, _, _, _| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_mark_as_crawled().times(0);
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -2785,7 +2686,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -2810,7 +2710,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
@@ -2823,15 +2722,15 @@ mod service_tests {
             },
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -2844,7 +2743,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2914,7 +2812,6 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
         let library_stopped = Arc::new(AtomicBool::new(false));
 
@@ -2950,12 +2847,12 @@ mod service_tests {
             })
         });
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _| {
                 Box::pin(async { Err(UrlPatternServiceError::Repository(sqlx::Error::PoolClosed)) })
             });
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -2971,7 +2868,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2996,7 +2892,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(
@@ -3006,21 +2901,21 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
 
         // It should classify at the end because threshold is above the crawl size.
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .withf(|_, _, _, crawl_pattern, _| crawl_pattern.is_none())
-            .returning(|_, _, _, _, _| {
+            .withf(|_, _, crawl_pattern, _| crawl_pattern.is_none())
+            .returning(|_, _, _, _| {
                 Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
             });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -3033,7 +2928,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -3052,30 +2946,25 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
 
         // Persisted pattern expects /product/
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
 
         // Reclassification gives the correct /item/ pattern
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .withf(|_, _, _, crawl_pattern, _| {
-                crawl_pattern.map(Regex::as_str) == Some(r"/product/")
-            })
-            .returning(|_, _, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) })
-            });
+            .withf(|_, _, crawl_pattern, _| crawl_pattern.map(Regex::as_str) == Some(r"/product/"))
+            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -3088,7 +2977,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -3107,7 +2995,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         // Fewer pages than one database batch, as a crawl paced by a
@@ -3115,11 +3002,11 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
-        setup_mock_url_repo(&mut mock_url_repo, 1, domain_id);
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
@@ -3132,7 +3019,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3152,7 +3038,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         let mut paths = item_pages();
@@ -3160,16 +3045,16 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, crawl_root_url, paths);
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
-        mock_url_repo.expect_upsert_links_batch().returning(
-            |listing_source_id, domain_id, links| {
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(|listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
-            },
-        );
+            });
 
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
@@ -3185,7 +3070,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3218,7 +3102,6 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         let mut pages = vec![
@@ -3283,21 +3166,19 @@ mod service_tests {
             })
         });
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/products/[^/]+$").unwrap())) })
-            });
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/products/[^/]+$").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let stored: Arc<std::sync::Mutex<Vec<DiscoveredUrl>>> = Arc::default();
         let recorded = Arc::clone(&stored);
-        mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, links| {
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(move |listing_source_id, links| {
                 recorded.lock().unwrap().extend_from_slice(links);
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
-            },
-        );
+            });
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
             Box::new(mock_spider),
@@ -3309,7 +3190,6 @@ mod service_tests {
         let run_result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3355,12 +3235,11 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let kept: Vec<String> = item_pages().into_iter().take(kept_other).collect();
@@ -3369,9 +3248,10 @@ mod service_tests {
             .skip(kept_other)
             .take(retired)
             .collect();
-        mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, links| {
-                let mut stored = stored_as_given(listing_source_id, domain_id, links);
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(move |listing_source_id, links| {
+                let mut stored = stored_as_given(listing_source_id, links);
                 for record in &mut stored {
                     if kept.iter().any(|path| path == record.url.path()) {
                         record.url_class = UrlClass::Other;
@@ -3381,8 +3261,7 @@ mod service_tests {
                     }
                 }
                 Box::pin(async move { Ok(stored) })
-            },
-        );
+            });
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig::default(),
             Box::new(mock_spider),
@@ -3394,7 +3273,6 @@ mod service_tests {
         service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3442,7 +3320,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         mock_spider
@@ -3462,9 +3339,9 @@ mod service_tests {
             });
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -3481,7 +3358,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3507,15 +3383,14 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(&mut mock_spider, crawl_root_url, vec!["/"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -3532,7 +3407,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3558,7 +3432,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(
@@ -3568,9 +3441,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -3586,7 +3459,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3628,8 +3500,8 @@ mod service_tests {
             },
         );
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
         let service = SpiderServiceImpl::new(
@@ -3643,7 +3515,6 @@ mod service_tests {
         let error = service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3673,7 +3544,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
@@ -3690,9 +3560,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { Ok(None) }));
 
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
@@ -3709,7 +3579,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3735,7 +3604,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
@@ -3751,9 +3619,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -3769,7 +3637,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3795,7 +3662,6 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl_with_diagnostics(
@@ -3810,9 +3676,9 @@ mod service_tests {
         );
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(None) }));
+            .returning(|_| Box::pin(async { Ok(None) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -3828,7 +3694,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3849,15 +3714,14 @@ mod service_tests {
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(&mut mock_spider, crawl_root_url, vec!["/item/1", "/item/2"]);
 
         mock_pattern_service
-            .expect_load_pattern_for_domain()
+            .expect_load_pattern()
             .times(1)
-            .returning(|_, _| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -3873,7 +3737,6 @@ mod service_tests {
         let result = service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3929,13 +3792,9 @@ mod service_tests {
             ended,
         );
         let mut pattern_service = MockUrlPatternService::new();
-        pattern_service
-            .expect_load_pattern_for_domain()
-            .return_once(move |_, _| {
-                Box::pin(
-                    async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) },
-                )
-            });
+        pattern_service.expect_load_pattern().return_once(move |_| {
+            Box::pin(async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) })
+        });
         pattern_service.expect_classify_and_save().times(0);
         pattern_service.expect_mark_as_crawled().times(0);
         let service = SpiderServiceImpl::new(
@@ -3949,7 +3808,6 @@ mod service_tests {
         service
             .run(
                 &ListingSourceId::new(),
-                &CrawlerDomainId::new(),
                 crawl_root_url,
                 classify_threshold,
                 CrawlPace::default(),
@@ -4073,19 +3931,18 @@ mod service_tests {
         let mut mock_pattern_service = MockUrlPatternService::new();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let crawl_root_url = "https://example.com";
         setup_mock_crawl(&mut mock_spider, crawl_root_url, shop_pages());
         mock_pattern_service
-            .expect_load_pattern_for_domain()
-            .returning(move |_, _| {
+            .expect_load_pattern()
+            .returning(move |_| {
                 Box::pin(
                     async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) },
                 )
             });
         mock_pattern_service
             .expect_classify_and_save()
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _| {
                 Box::pin(
                     async move { Err(pending_review(listing_source_id, CrawlerReviewId::new())) },
                 )
@@ -4093,20 +3950,20 @@ mod service_tests {
         setup_mock_review_still_pending(&mut mock_pattern_service);
         mock_pattern_service
             .expect_mark_as_crawled()
-            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         let stored = Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = Arc::clone(&stored);
-        mock_url_repo.expect_upsert_links_batch().returning(
-            move |listing_source_id, domain_id, links| {
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .returning(move |listing_source_id, links| {
                 recorded.lock().unwrap().extend(
                     links
                         .iter()
                         .map(|link| (link.url.path().to_owned(), link.url_class)),
                 );
-                let stored = stored_as_given(listing_source_id, domain_id, links);
+                let stored = stored_as_given(listing_source_id, links);
                 Box::pin(async move { Ok(stored) })
-            },
-        );
+            });
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
                 url_classifier,
@@ -4121,7 +3978,6 @@ mod service_tests {
         service
             .run(
                 &listing_source_id,
-                &domain_id,
                 crawl_root_url,
                 20,
                 CrawlPace::default(),

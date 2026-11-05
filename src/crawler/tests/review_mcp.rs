@@ -5,8 +5,8 @@
 //! the reviewer's approval), URLs off the review's ListingSource are refused, and a console restart
 //! that rotates the tokens is followed by reading the token file again.
 
+use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
-use crawler::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::agent_tokens::{REVIEW_AGENT_TOKEN_FILE, provision_review_agents};
 use crawler::review::model::{PAGE_ROLE_PRIMARY, SchemaReviewPageInput, UrlPatternDecision};
@@ -15,9 +15,7 @@ use crawler::review::server::{ReviewServer, ReviewServerConfig};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use crawler::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
-use crawler::service::crawler_domain_configuration::CrawlerDomainAdministrationHandler;
 use crawler::spider::classification::url_classifier::UrlClassifier;
-use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -92,25 +90,18 @@ struct Reviews {
     url_pattern: CrawlerReviewId,
 }
 
-/// A crawl-enabled ListingSource on the shop's domain with a pending product-schema review whose
-/// starter schema misses the title, and a pending, undecided URL-pattern review of the domain.
+/// A crawl-enabled ListingSource crawled from the shop's root with a pending product-schema
+/// review whose starter schema misses the title, and a pending, undecided URL-pattern review of
+/// the source.
 async fn reviews(pool: &PgPool) -> Reviews {
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
         "INSERT INTO listing_sources \
-         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, 'Antiques', 'antiques', TRUE, NOW(), NOW())",
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+          crawl_root_url, crawl_host, created, updated) \
+         VALUES ($1, 'Antiques', 'antiques', TRUE, \
+                 'https://antiques.example/', 'antiques.example', NOW(), NOW())",
     )
-    .bind(listing_source_id.as_uuid())
-    .execute(pool)
-    .await
-    .unwrap();
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, 'antiques.example', 'antiques.example')",
-    )
-    .bind(domain_id.as_uuid())
     .bind(listing_source_id.as_uuid())
     .execute(pool)
     .await
@@ -133,7 +124,6 @@ async fn reviews(pool: &PgPool) -> Reviews {
     let url_pattern = repository
         .create_url_pattern_review(
             &listing_source_id,
-            &domain_id,
             "manual_url_pattern_required",
             UrlPatternDecision::Undecided,
             &[
@@ -170,9 +160,6 @@ fn start_console(pool: &PgPool, state_directory: &Path, listener: TcpListener) -
         CrawlerReviewRepository::new(pool.clone())
             .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent))
             .with_agent_decisions(agent_decisions),
-        Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
-            CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
-        ))),
         config,
         Arc::new(Shop),
     );

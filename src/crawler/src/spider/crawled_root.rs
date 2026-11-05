@@ -1,45 +1,37 @@
-//! The crawl root a spider run crawled. Registering a domain again with another crawl root moves
-//! the domain to it and clears the old root's crawl state, while a run of the old root may still
-//! be crawling (`docs/crawler/operations.md#manual-authoring`).
+//! The crawl root a spider run crawled. A scope refresh that gives a ListingSource another
+//! presentation URL moves the source to its new crawl root and clears the old root's crawl state,
+//! while a run of the old root may still be crawling (`docs/crawler/README.md#listingsource-scope`).
 
-use crate::CrawlerDomainId;
-use url::Url;
+use listing_source_core::ListingSourceId;
 
-/// The domain a spider run crawled and the crawl root host it crawled, as the domain was
-/// registered when the run started. Every write of the run's outcome to the domain (its crawl
-/// state, frontier and last full crawl) compares this root with the domain's in the same
-/// statement or transaction, and records nothing once the domain has another one. The stamp is
-/// the host, so a domain moved back to the crawled root before the run ends records the run's
-/// outcome again.
+/// The ListingSource a spider run crawled and the crawl root URL it crawled, as the source had it
+/// when the run started. Every write of the run's outcome to the source (its crawl state, frontier
+/// and last full crawl) compares this root with the source's in the same statement or
+/// transaction, and records nothing once the source has another one. The stamp is the root URL,
+/// so a source moved back to the crawled root before the run ends records the run's outcome
+/// again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrawledRoot {
-    pub domain_id: CrawlerDomainId,
-    pub crawl_root_host: String,
+    pub listing_source_id: ListingSourceId,
+    pub crawl_root_url: String,
 }
 
 impl CrawledRoot {
-    pub fn new(domain_id: CrawlerDomainId, crawl_root_host: impl Into<String>) -> Self {
+    pub fn new(listing_source_id: ListingSourceId, crawl_root_url: impl Into<String>) -> Self {
         Self {
-            domain_id,
-            crawl_root_host: crawl_root_host.into(),
+            listing_source_id,
+            crawl_root_url: crawl_root_url.into(),
         }
-    }
-
-    /// The root of a run that crawls from `root_url`, or `None` when the URL names no host.
-    pub fn of_root_url(domain_id: CrawlerDomainId, root_url: &Url) -> Option<Self> {
-        root_url
-            .host_str()
-            .map(|crawl_root_host| Self::new(domain_id, crawl_root_host))
     }
 }
 
-/// Whether a write of a spider run's outcome reached the run's domain.
+/// Whether a write of a spider run's outcome reached the run's ListingSource.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlOutcomeWrite {
-    /// The domain still has the crawled root, and the outcome is recorded.
+    /// The source still has the crawled root, and the outcome is recorded.
     Recorded,
-    /// The domain moved to another crawl root after the run started, or was removed. Nothing was
-    /// written: the run's outcome describes a root the domain no longer has.
+    /// The source moved to another crawl root after the run started, or lost its root. Nothing
+    /// was written: the run's outcome describes a root the source no longer has.
     RootMoved,
 }
 
@@ -50,24 +42,5 @@ impl CrawlOutcomeWrite {
             0 => Self::RootMoved,
             _ => Self::Recorded,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_take_the_host_a_run_crawls_from_its_root_url() {
-        let domain_id = CrawlerDomainId::new();
-
-        assert_eq!(
-            CrawledRoot::of_root_url(domain_id, &Url::parse("https://www.example.com").unwrap()),
-            Some(CrawledRoot::new(domain_id, "www.example.com"))
-        );
-        assert_eq!(
-            CrawledRoot::of_root_url(domain_id, &Url::parse("mailto:shop@example.com").unwrap()),
-            None
-        );
     }
 }

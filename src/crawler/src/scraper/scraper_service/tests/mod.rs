@@ -2,7 +2,6 @@ use listing_source_core::ListingSourceId;
 mod bookkeeping;
 mod budget;
 mod cached_schema_selection;
-mod contract;
 mod fresh_schema_generation;
 mod happy_path;
 mod hash_skip;
@@ -56,7 +55,6 @@ pub(super) fn primary_only_request(
     url: &Url,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: None,
         listing_source_id: *listing_source_id,
         url: url.clone(),
         source_record_key: url.to_string(),
@@ -83,7 +81,6 @@ pub(super) fn primary_only_request_with_pattern(
 
 pub(super) fn normal_request(listing_source_id: &ListingSourceId, url: &Url) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: Some(crate::CrawlerDomainId::new()),
         mode: ScrapeMode::Normal,
         ..primary_only_request(listing_source_id, url)
     }
@@ -95,7 +92,6 @@ pub(super) fn normal_request_with_pattern(
     product_url_pattern: &str,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: Some(crate::CrawlerDomainId::new()),
         mode: ScrapeMode::Normal,
         ..primary_only_request_with_pattern(listing_source_id, url, product_url_pattern)
     }

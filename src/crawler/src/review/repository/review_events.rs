@@ -95,8 +95,8 @@ pub(super) enum ReviewMutation<'a> {
         notes: Option<&'a str>,
         /// As for [`ReviewMutation::ProductSchemasRestored`].
         restored_event_id: CrawlerReviewEventId,
-        /// The domain's URL-pattern decision the restore replaced.
-        replaced_url_pattern: DomainUrlPattern,
+        /// The ListingSource's URL-pattern decision the restore replaced.
+        replaced_url_pattern: LiveUrlPattern,
     },
     RejectionRevoked {
         #[serde(skip)]
@@ -106,15 +106,15 @@ pub(super) enum ReviewMutation<'a> {
     },
 }
 
-/// A domain's URL-pattern decision as `listing_source_domains` stores it.
+/// A ListingSource's URL-pattern decision as `listing_sources` stores it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct DomainUrlPattern {
+pub(super) struct LiveUrlPattern {
     pub(super) url_pattern: Option<String>,
     pub(super) url_pattern_state: String,
 }
 
-impl DomainUrlPattern {
-    /// The pattern that classifies the domain's URLs as products: only a `MATCHED` decision has
+impl LiveUrlPattern {
+    /// The pattern that classifies the source's URLs as products: only a `MATCHED` decision has
     /// one.
     pub(super) fn live_pattern(&self) -> Result<Option<Regex>, regex::Error> {
         self.url_pattern
@@ -140,11 +140,11 @@ pub(super) struct ProductSchemaApprovalRecord {
     pub(super) approved_removed_page_schemas: Vec<RemovedPageSchema>,
 }
 
-/// As [`ProductSchemaApprovalRecord`], for a domain's URL-pattern decision.
+/// As [`ProductSchemaApprovalRecord`], for a ListingSource's URL-pattern decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct UrlPatternApprovalRecord {
-    pub(super) replaced_url_pattern: DomainUrlPattern,
-    pub(super) approved_url_pattern: DomainUrlPattern,
+    pub(super) replaced_url_pattern: LiveUrlPattern,
+    pub(super) approved_url_pattern: LiveUrlPattern,
 }
 
 impl ReviewMutation<'_> {
@@ -373,11 +373,11 @@ mod tests {
 
     fn url_pattern_record() -> UrlPatternApprovalRecord {
         UrlPatternApprovalRecord {
-            replaced_url_pattern: DomainUrlPattern {
+            replaced_url_pattern: LiveUrlPattern {
                 url_pattern: None,
                 url_pattern_state: "UNKNOWN".to_owned(),
             },
-            approved_url_pattern: DomainUrlPattern {
+            approved_url_pattern: LiveUrlPattern {
                 url_pattern: Some("/item/".to_owned()),
                 url_pattern_state: "MATCHED".to_owned(),
             },
@@ -518,7 +518,7 @@ mod tests {
                 ReviewMutation::UrlPatternRestored {
                     notes: Some("agent pattern too broad"),
                     restored_event_id: event_id,
-                    replaced_url_pattern: DomainUrlPattern {
+                    replaced_url_pattern: LiveUrlPattern {
                         url_pattern: Some("/item/".to_owned()),
                         url_pattern_state: "MATCHED".to_owned(),
                     },
