@@ -1,7 +1,10 @@
 //! Cross-Party review queue. Location rows and their resolutions are read in two batched
 //! statements on the caller's transaction; geography adapters own the resolution codec.
 use crate::locations::{ViewRow, sql_error};
-use geo_service::resolution::{ResolutionReader, ResolutionSubject, RetentionPurpose};
+use application::error::static_error;
+use geo_service::resolution::{
+    MAX_RESOLUTION_SUBJECTS, ResolutionReader, ResolutionSubject, RetentionPurpose,
+};
 use party_core::party_location_id::PartyLocationId;
 use party_service::{
     ports::party_location_resolution_review_reader::*,
@@ -41,7 +44,7 @@ impl PartyLocationResolutionReviewReader for Reader<'_> {
         after: Option<PartyLocationId>,
         limit: u32,
     ) -> Result<PartyLocationResolutionReviewsPage, PartyLocationError> {
-        if statuses.is_empty() || !(1..=100).contains(&limit) {
+        if statuses.is_empty() || !(1..=MAX_RESOLUTION_SUBJECTS as u32).contains(&limit) {
             return Err(PartyLocationError::InvalidInput);
         }
         let codes: Vec<_> = statuses.iter().map(|s| s.status().as_str()).collect();
@@ -79,11 +82,18 @@ impl PartyLocationResolutionReviewReader for Reader<'_> {
             .iter()
             .map(|l| ResolutionSubject::new(RetentionPurpose::PartyLocation, l.id.into_uuid()))
             .collect::<Result<Vec<_>, _>>()?;
-        // Lock and decode the page's resolutions together, as single-location inspection does.
+        // The locking read follows the provider -> resolution -> binding order, so each view
+        // decodes a resolution and binding that no worker or review changes mid-read; the
+        // status filter below then applies to that coherent state.
         let resolutions =
             geo_postgres::SqlxResolutionRepositoryFactory::on_connection(self.connection)
                 .inspect_many(&subjects)
                 .await?;
+        if resolutions.len() != locations.len() {
+            return Err(PartyLocationError::InvalidPersistedState {
+                source: static_error("resolution batch does not match the location page"),
+            });
+        }
         let items = locations
             .into_iter()
             .zip(resolutions)

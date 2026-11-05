@@ -185,7 +185,7 @@ impl<
 /// Resolution outcomes that no automatic step will settle: `PRECISION_FIRST_V1` never accepts
 /// a Party point without review, and blocked or exhausted work needs an explicit Retry.
 /// Unreviewed ambiguity counts; an ambiguous generation with a reviewed selection does not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolutionAttention {
     Ambiguous,
     Blocked,

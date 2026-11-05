@@ -16,7 +16,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use geo_service::resolution::{ResolutionCandidate, ResolutionId, ResolutionView, ResolutionWork};
+use geo_service::resolution::{
+    MAX_RESOLUTION_SUBJECTS, ResolutionCandidate, ResolutionId, ResolutionView, ResolutionWork,
+};
 use party_core::{party_id::PartyId, party_location_id::PartyLocationId};
 use party_service::{
     ports::party_location::{ExpectedPartyLocation, PartyLocationRevision},
@@ -67,7 +69,7 @@ fn parse_list_query(
             value
                 .parse::<u32>()
                 .ok()
-                .filter(|limit| (1..=100).contains(limit))
+                .filter(|limit| (1..=MAX_RESOLUTION_SUBJECTS as u32).contains(limit))
                 .ok_or_else(|| bad_query("limit", "Page size must be from 1 through 100."))
         })
         .transpose()?

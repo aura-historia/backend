@@ -16059,7 +16059,9 @@ paths:
         '503':
           $ref: '#/components/responses/PartyLocationResolutionError503'
       description: Review queue of unreviewed AMBIGUOUS locations, since PRECISION_FIRST_V1 never accepts a Party
-        point without review, and of BLOCKED or FAILED work that only an explicit retry restarts. Keyset pagination by location ID; a page may hold
+        point without review, and of BLOCKED or FAILED work that only an explicit retry restarts. An AMBIGUOUS
+        location without an acceptable candidate stays queued until its address is corrected or a forced retry
+        produces new evidence. Keyset pagination by location ID; a page may hold
         fewer than limit items when a resolution changes status while it is read. Administrator or internal authority only; delegated credentials require parties:read. Location managers who are not administrators receive 403.
   /v1/admin/parties/{party_id}/locations/{location_id}/resolution:
     get:

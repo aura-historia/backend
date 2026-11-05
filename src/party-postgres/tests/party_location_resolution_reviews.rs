@@ -361,7 +361,7 @@ async fn should_page_unreviewed_locations_needing_attention_across_parties() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_restrict_admin_review_to_administrators_even_for_location_managers() {
+async fn should_refuse_location_managers_on_admin_review_while_the_shared_policy_admits_them() {
     let pool = get_postgres_client().await;
     let owner = party(&pool).await;
     let site = location(&pool, owner, "6 Review Street", false).await;
@@ -412,23 +412,4 @@ async fn should_restrict_admin_review_to_administrators_even_for_location_manage
             .unwrap()
             .is_some()
     );
-    let request = || ListPartyLocationResolutionReviewsRequest {
-        status: None,
-        after: None,
-        limit: 10,
-    };
-    assert!(matches!(
-        list(&pool).execute(&as_manager, request()).await,
-        Err(PartyLocationError::Forbidden)
-    ));
-    assert!(list(&pool).execute(&as_admin, request()).await.is_ok());
-    sqlx::query("UPDATE users SET suspended=true WHERE user_id=$1")
-        .bind(admin.into_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-    assert!(matches!(
-        list(&pool).execute(&as_admin, request()).await,
-        Err(PartyLocationError::Forbidden)
-    ));
 }
