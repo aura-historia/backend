@@ -23,22 +23,39 @@ function run(program, args, options = {}) {
     ...options,
   });
 }
+// Repository data that never enters a release bundle; reviewing it only exhausts the budget.
+const NON_RELEASE_PATHSPECS = [".", ":(exclude)data"];
+const INVENTORY_BUDGET_ERROR =
+  "Complete cumulative source inventory exceeds bounded budget; human review required";
 function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 16 * 1024 * 1024) {
   for (const sha of [baseline, candidate])
     if (!/^[a-f0-9]{40}$/.test(sha || ""))
       throw new Error("Known full baseline/candidate SHA required");
-  const git = (args) => run("git", ["-C", repo, ...args]);
+  const git = (args) => {
+    try {
+      return run("git", ["-C", repo, ...args], { maxBuffer: maxInventoryBytes });
+    } catch (error) {
+      if (error.code === "ENOBUFS") throw new Error(INVENTORY_BUDGET_ERROR, { cause: error });
+      throw error;
+    }
+  };
   git(["merge-base", "--is-ancestor", baseline, candidate]);
+  // Binary patches are unreviewable; the diff still names each changed binary file.
   const diff = git([
     "diff",
     "--no-ext-diff",
     "--no-textconv",
-    "--binary",
     baseline,
     candidate,
     "--",
-    ".",
+    ...NON_RELEASE_PATHSPECS,
   ]);
+  const binary = new Set(
+    git(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", baseline, candidate])
+      .split("\0")
+      .filter((entry) => entry.startsWith("-\t-\t"))
+      .map((entry) => entry.slice(4)),
+  );
   const commits = git(["log", "--format=%H %B", `${baseline}..${candidate}`]);
   const paths = git([
     "diff",
@@ -50,10 +67,12 @@ function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 16 * 10
   ])
     .trim()
     .split("\n")
-    .filter((filename) =>
-      /^(src\/|migrations\/|opensearch\/|docs\/(events\/flow|durable-worker-runbook|arch)\.md)/.test(
-        filename,
-      ),
+    .filter(
+      (filename) =>
+        !binary.has(filename) &&
+        /^(src\/|migrations\/|opensearch\/|docs\/(events\/flow|durable-worker-runbook|arch)\.md)/.test(
+          filename,
+        ),
     );
   const contextPaths = [
     ...new Set([
@@ -62,22 +81,18 @@ function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 16 * 10
       "docs/durable-worker-runbook.md",
     ]),
   ];
+  const show = (sha, filename) => {
+    try {
+      return git(["show", `${sha}:${filename}`]);
+    } catch (error) {
+      if (error.message === INVENTORY_BUDGET_ERROR) throw error;
+      return null;
+    }
+  };
   const context = contextPaths.map((filename) => ({
     path: filename,
-    before: (() => {
-      try {
-        return git(["show", `${baseline}:${filename}`]);
-      } catch {
-        return null;
-      }
-    })(),
-    after: (() => {
-      try {
-        return git(["show", `${candidate}:${filename}`]);
-      } catch {
-        return null;
-      }
-    })(),
+    before: show(baseline, filename),
+    after: show(candidate, filename),
   }));
   const migrations = git([
     "ls-tree",
@@ -107,9 +122,7 @@ function cumulativeSource(repo, baseline, candidate, maxInventoryBytes = 16 * 10
       diff + commits + JSON.stringify(migrations) + JSON.stringify(context),
     ) > maxInventoryBytes
   )
-    throw new Error(
-      "Complete cumulative source inventory exceeds bounded budget; human review required",
-    );
+    throw new Error(INVENTORY_BUDGET_ERROR);
   return { baseline, candidate, commits, diff, migrations, context };
 }
 function inspectDatabase(ctx, functionArn, api = aws) {

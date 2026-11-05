@@ -48,6 +48,37 @@ test("source inventory retains full file versions under its separate bounded bud
     /source inventory exceeds bounded budget/);
 });
 
+test("source inventory omits non-release data and binary patch bodies", (t) => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "aura-source-inventory-"));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", ["-C", repo,
+    "-c", "user.name=Delivery test", "-c", "user.email=delivery@example.invalid",
+    "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  git("init", "--quiet");
+  fs.mkdirSync(path.join(repo, "src"));
+  fs.writeFileSync(path.join(repo, "src/example.rs"), "baseline\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "Baseline");
+  const baseline = git("rev-parse", "HEAD");
+  fs.mkdirSync(path.join(repo, "data"));
+  fs.writeFileSync(path.join(repo, "data/snapshot.jsonl"), "{\"row\":1}\n".repeat(2000000));
+  fs.writeFileSync(path.join(repo, "src/asset.bin"), Buffer.alloc(4 * 1024 * 1024, 0));
+  fs.writeFileSync(path.join(repo, "src/example.rs"), "candidate\n");
+  git("add", ".");
+  git("commit", "--quiet", "-m", "Candidate");
+  const source = cumulativeSource(repo, baseline, git("rev-parse", "HEAD"), 1024 * 1024);
+  assert.doesNotMatch(source.diff, /data\/snapshot/);
+  assert.match(source.diff, /^Binary files \/dev\/null and b\/src\/asset\.bin differ$/m);
+  assert.match(source.diff, /\+candidate/);
+  assert.deepEqual(source.context.map((item) => item.path).sort(),
+    ["docs/durable-worker-runbook.md", "docs/events/flow.md", "src/example.rs"]);
+  fs.writeFileSync(path.join(repo, "src/example.rs"), "oversized\n".repeat(200000));
+  git("commit", "--quiet", "-am", "Oversized candidate");
+  assert.throws(() => cumulativeSource(repo, baseline, git("rev-parse", "HEAD"), 1024 * 1024),
+    /source inventory exceeds bounded budget/);
+});
+
 test("ledger checksum/dirty/unknown findings and captured schema changes cannot enter routine", () => {
   assert.deepEqual(
     ledgerFindings(
