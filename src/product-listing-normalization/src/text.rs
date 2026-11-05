@@ -9,17 +9,6 @@ use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use url::Url;
 
-/// Strict variant used only in tests — returns an error when `raw` is blank
-/// rather than falling back to the URL.
-pub fn normalize_source_listing_id(raw: &str) -> Result<SourceListingId, NormalizationError> {
-    SourceListingId::try_from(raw).map_err(|error| match error {
-        product_listing_core::source_listing_id::InvalidSourceListingId::Blank => {
-            NormalizationError::SourceListingIdEmpty
-        }
-        error => NormalizationError::SourceListingIdInvalid(error),
-    })
-}
-
 fn sha256_hex(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
@@ -49,18 +38,6 @@ pub fn normalize_title(raw: &str) -> Result<Title, NormalizationError> {
         return Err(NormalizationError::TitleEmpty);
     }
     Ok(title)
-}
-
-/// Returns a localized title with language detection applied to its text alone.
-///
-/// Errors with [`NormalizationError::TitleEmpty`] if no title text remains,
-/// or [`NormalizationError::TitleUnknownLanguage`] if the language
-/// cannot be detected.
-#[allow(dead_code)]
-pub fn normalize_title_localized(
-    raw: &str,
-) -> Result<Localized<Language, Title>, NormalizationError> {
-    localize_normalized_title(normalize_title(raw)?, None, None)
 }
 
 /// Share of the detector's confidence that decides a title's language before the source's
@@ -150,39 +127,10 @@ mod tests {
     use localization::Language;
 
     use super::{
-        localize_normalized_title, normalize_description, normalize_source_listing_id,
+        localize_normalized_title, normalize_description,
         normalize_source_listing_id_with_url_sha_fallback, normalize_title,
-        normalize_title_localized,
     };
     use crate::error::NormalizationError;
-
-    // -----------------------------------------------------------------------
-    // source_listing_id
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn should_preserve_case_when_source_listing_id_is_provided() {
-        let result = normalize_source_listing_id("PROD-001").unwrap();
-        assert_eq!(result.to_string(), "PROD-001");
-    }
-
-    #[test]
-    fn should_trim_outer_whitespace_when_normalizing_source_listing_id() {
-        let result = normalize_source_listing_id("  PROD-001  ").unwrap();
-        assert_eq!(result.to_string(), "PROD-001");
-    }
-
-    #[test]
-    fn should_return_error_when_source_listing_id_is_empty() {
-        let err = normalize_source_listing_id("").unwrap_err();
-        assert!(matches!(err, NormalizationError::SourceListingIdEmpty));
-    }
-
-    #[test]
-    fn should_return_error_when_source_listing_id_is_only_whitespace() {
-        let err = normalize_source_listing_id("   ").unwrap_err();
-        assert!(matches!(err, NormalizationError::SourceListingIdEmpty));
-    }
 
     // -----------------------------------------------------------------------
     // source_listing_id — URL SHA fallback
@@ -270,10 +218,11 @@ mod tests {
 
     #[test]
     fn should_detect_language_of_normalized_decorative_title() {
-        let localized = normalize_title_localized(
+        let title = normalize_title(
             "𝐄𝐢𝐧 𝐌ö𝐛𝐞𝐥, 𝐝𝐚𝐬 𝐑𝐮𝐡𝐞 𝐢𝐧 𝐃𝐞𝐢𝐧 𝐙𝐮𝐡𝐚𝐮𝐬𝐞 𝐛𝐫𝐢𝐧𝐠𝐭 🌿✨Anrichte Biedermeier Kirschbaum | 3360",
         )
         .unwrap();
+        let localized = localize_normalized_title(title, None, None).unwrap();
         assert_eq!(localized.localization, Language::De);
         assert_eq!(
             localized.payload.as_ref(),
@@ -287,14 +236,17 @@ mod tests {
 
     #[test]
     fn should_detect_language_for_title_when_english_text() {
-        let localized = normalize_title_localized("This is an antique vase from England").unwrap();
-        assert_eq!(localized.localization, Language::En);
+        assert_eq!(
+            localize("This is an antique vase from England", None, None),
+            Language::En
+        );
     }
 
     #[test]
     fn should_return_error_when_title_language_cannot_be_detected() {
         // Pure digits have no language signal — lingua returns None.
-        let err = normalize_title_localized("12345").unwrap_err();
+        let title = normalize_title("12345").unwrap();
+        let err = localize_normalized_title(title, None, None).unwrap_err();
         assert!(
             matches!(err, NormalizationError::TitleUnknownLanguage { .. }),
             "expected TitleUnknownLanguage, got: {:?}",
