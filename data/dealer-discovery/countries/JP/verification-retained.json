@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "run": "jp-2026-11-04-173",
+  "observedAt": "2026-11-04T17:13:00.378402Z",
+  "status": "VERIFIED_RETAINED_RESOURCES",
+  "scope": "IDENTITY_LOCATIONS_SHIPPING_DEFAULTS_WITH_ACTUAL_INGESTION_REPORTED",
+  "preclassificationReadback": false,
+  "ledgers": [
+    "data/dealer-discovery/countries/JP/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/fujishima/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/haseodou/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/higasinakano/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/higo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/ichiryudo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/ikeda/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/irakado/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kaida/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kanda/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kanpodo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kawasaki/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kodou/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kura/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/menouroko/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/miki/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/mockindo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/neko/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/shihodo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/tatsumi/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/touraku/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/watanabe/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/yoshido/dealers.jsonl"
+  ],
+  "sourcesChecked": 6,
+  "sourcesWithNonemptyIngestion": 1,
+  "emptyIngestionInvariantSatisfied": false,
+  "backendMutation": "NONE",
+  "dealers": [
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "domain": "mokkumokku.net",
+      "managementStatus": "DEFERRED",
+      "listingSourceId": "ls_01m6gwz5thesma6vs6fbdkqhjz",
+      "partyId": "pty_01m6gwz5t0epqt3b8t27vdvs23",
+      "partyLocationIds": [
+        "ploc_01m6gwz663e0bt0z1ndmfcf8gc",
+        "ploc_01m6gwz6ceebttw4v9ww44vzbb"
+      ],
+      "shippingProfileId": "shp_01m6gwz6xrew2vmanezjckf2pb",
+      "locationDefaultRevision": 2,
+      "shippingDefaultRevision": 2,
+      "identityResourcesDefaultsVerified": true,
+      "actualIngestionMethods": [],
+      "emptyIngestionInvariantSatisfied": true,
+      "externalConfigurationPreserved": true,
+      "backendMutation": "NONE",
+      "verifiedAt": "2026-11-04T17:12:57.900056Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "domain": "ns-furniture.shop-pro.jp",
+      "managementStatus": "DEFERRED",
+      "listingSourceId": "ls_01m6gx5ww8etjtknhhaz1r7bt7",
+      "partyId": "pty_01m6gx5wvvegzbd1w238yng83c",
+      "partyLocationIds": [],
+      "shippingProfileId": "shp_01m6gx5xdne54rqsxx71a6tbaz",
+      "locationDefaultRevision": 1,
+      "shippingDefaultRevision": 2,
+      "identityResourcesDefaultsVerified": true,
+      "actualIngestionMethods": [],
+      "emptyIngestionInvariantSatisfied": true,
+      "externalConfigurationPreserved": true,
+      "backendMutation": "NONE",
+      "verifiedAt": "2026-11-04T17:12:58.280473Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "domain": "ukiyoi.base.shop",
+      "managementStatus": "DEFERRED",
+      "listingSourceId": "ls_01m6gxv2jmetq9r35dqd0f9dqs",
+      "partyId": "pty_01m6gxv2j8e87vc1prfqj1y1ex",
+      "partyLocationIds": [
+        "ploc_01m6gxy0phe7m9tz086vmt0j3t"
+      ],
+      "shippingProfileId": "shp_01m6gxy16vebrbztnbp0ygtj9g",
+      "locationDefaultRevision": 2,
+      "shippingDefaultRevision": 2,
+      "identityResourcesDefaultsVerified": true,
+      "actualIngestionMethods": [],
+      "emptyIngestionInvariantSatisfied": true,
+      "externalConfigurationPreserved": true,
+      "backendMutation": "NONE",
+      "verifiedAt": "2026-11-04T17:12:58.759027Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "domain": "toreji.official.ec",
+      "managementStatus": "DEFERRED",
+      "listingSourceId": "ls_01m6h4f4cfe5ebqgns0tzspf4c",
+      "partyId": "pty_01m6h4f4c3eznvark73enbnkep",
+      "partyLocationIds": [
+        "ploc_01m6h4f4pqe0dvk7v7bz7wfsd5"
+      ],
+      "shippingProfileId": "shp_01m6h4f562exdbzbmythy7vjj4",
+      "locationDefaultRevision": 2,
+      "shippingDefaultRevision": 2,
+      "identityResourcesDefaultsVerified": true,
+      "actualIngestionMethods": [],
+      "emptyIngestionInvariantSatisfied": true,
+      "externalConfigurationPreserved": true,
+      "backendMutation": "NONE",
+      "verifiedAt": "2026-11-04T17:12:59.237322Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "domain": "blastman.theshop.jp",
+      "managementStatus": "DEFERRED",
+      "listingSourceId": "ls_01m6h90e3re299e3hcfrhwkss7",
+      "partyId": "pty_01m6h90e36e8xswkagyfh13vj8",
+      "partyLocationIds": [
+        "ploc_01m6h90egseyjbfrmyama0jd1z"
+      ],
+      "shippingProfileId": "shp_01m6h90f3tey8s868e59xybexx",
+      "locationDefaultRevision": 2,
+      "shippingDefaultRevision": 2,
+      "identityResourcesDefaultsVerified": true,
+      "actualIngestionMethods": [],
+      "emptyIngestionInvariantSatisfied": true,
+      "externalConfigurationPreserved": true,
+      "backendMutation": "NONE",
+      "verifiedAt": "2026-11-04T17:12:59.694507Z"
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
+      "domain": "fushou.jp",
+      "managementStatus": "EXCLUDED",
+      "listingSourceId": "ls_01m6hbas49e01bt0dfnx10w9bh",
+      "partyId": "pty_01m6hbas3qexm92dby0n8ecvzg",
+      "partyLocationIds": [
+        "ploc_01m6hbasfhe7vrs1q27ntr5tf2"
+      ],
+      "shippingProfileId": "shp_01m6hbat2jett8xat3j38mj6a3",
+      "locationDefaultRevision": 2,
+      "shippingDefaultRevision": 2,
+      "identityResourcesDefaultsVerified": true,
+      "actualIngestionMethods": [
+        "WEB_CRAWL"
+      ],
+      "emptyIngestionInvariantSatisfied": false,
+      "externalConfigurationPreserved": true,
+      "backendMutation": "NONE",
+      "verifiedAt": "2026-11-04T17:13:00.378380Z"
+    }
+  ]
+}

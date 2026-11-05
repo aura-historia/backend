@@ -15,7 +15,7 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 const BUSINESS_SCHEMA: test_api::Postgres = test_api::Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation() {
+async fn discovery_rechecks_a_detached_candidate_without_losing_page_continuation() {
     let pool = get_postgres_client().await;
     let owner = PartyId::new();
     sqlx::query("INSERT INTO parties(party_id,party_slug_id,name) VALUES($1,'discovery-consistency-test','Discovery consistency test')")
@@ -44,7 +44,7 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_DISCOVERY_CONSISTENCY',true,true,true)")
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('TEST_DISCOVERY_CONSISTENCY',true)")
         .execute(&pool)
         .await
         .unwrap();
@@ -113,7 +113,8 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
     )
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))
@@ -137,11 +138,19 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
             search_after: None,
         },
     };
-    let mut revocation = pool.begin().await.unwrap();
-    sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_DISCOVERY_CONSISTENCY'")
-        .execute(&mut *revocation)
+    // A transaction holds the provider lock while the candidate loses its resolution binding.
+    let mut expiry = pool.begin().await.unwrap();
+    sqlx::query("SELECT profile FROM geo_resolution_provider_controls WHERE profile='TEST_DISCOVERY_CONSISTENCY' FOR NO KEY UPDATE")
+        .execute(&mut *expiry)
         .await
         .unwrap();
+    sqlx::query(
+        "DELETE FROM geo_resolution_bindings WHERE subject_kind='PARTY_LOCATION' AND subject_id=$1",
+    )
+    .bind(derived_id.into_uuid())
+    .execute(&mut *expiry)
+    .await
+    .unwrap();
     let page_request = request.clone();
     let discovery_pool = pool.clone();
     let discovery = test_api::spawn_owned(async move {
@@ -152,8 +161,8 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
         .execute(page_request)
         .await
     });
-    // The first SQL page sees permitted evidence. Pause the later evidence read
-    // specifically at its provider lock, then commit a legitimate revocation.
+    // The first SQL page sees current evidence. Pause the later evidence read
+    // specifically at its provider lock, then commit a legitimate detachment.
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%geo_resolution_provider_controls%FOR SHARE%')")
@@ -168,9 +177,9 @@ async fn discovery_rechecks_a_revoked_candidate_without_losing_page_continuation
     })
     .await
     .expect("discovery must reach the evidence-read lock after selecting its page");
-    revocation.commit().await.unwrap();
+    expiry.commit().await.unwrap();
     let result = discovery.await.unwrap();
-    let first = result.expect("a concurrent provider revocation is not corrupt persisted state");
+    let first = result.expect("a concurrent detachment is not corrupt persisted state");
     assert_eq!(1, first.items.len());
     assert_eq!(next_id, first.items[0].location_id);
     assert_eq!(

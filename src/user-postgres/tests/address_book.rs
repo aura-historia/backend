@@ -343,10 +343,6 @@ async fn explicit_destinations_and_delegated_scope_are_authorized() {
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     let (pool, h, a, b) = fixture().await;
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let id = h.create(&a, create("Synthetic Claim")).await.unwrap().id;
     let view = inspect(&pool, &h, &a, id).await.unwrap().unwrap();
     let uow = SqlxUnitOfWork::new(pool.clone());
@@ -412,7 +408,8 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
     .await
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Stale,
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(
@@ -490,7 +487,8 @@ async fn failures_leave_bookmarks_and_erasure_fences_live_claims() {
         .unwrap()
     );
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Stale,
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(
@@ -667,12 +665,8 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
+async fn automatic_geocoding_snapshots_and_unrelated_preferences() {
     let (pool, h, a, b) = fixture().await;
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let id = h
         .create(&a, create("Synthetic Candidate"))
         .await
@@ -729,7 +723,8 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     )
     .unwrap();
     let mut tx = uow.begin().await.unwrap();
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))
@@ -789,28 +784,6 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     assert_eq!(1, unchanged_input.input_revision);
     assert_eq!(current.work, unchanged_input.work);
     assert_eq!(None, unchanged_input.selected_candidate);
-    sqlx::query(
-        "UPDATE geo_resolutions SET valid_until=now()-interval '1 second' WHERE resolution_id=$1",
-    )
-    .bind(current.work.id.into_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert!(
-        h.resolve_destination(&a, None)
-            .await
-            .unwrap()
-            .derived
-            .is_none()
-    );
-    assert!(
-        inspect(&pool, &h, &a, id)
-            .await
-            .unwrap()
-            .unwrap()
-            .evidence
-            .is_none()
-    );
     h.delete(&a, id, 2).await.unwrap();
     assert!(snapshot.derived.unwrap().position().is_some());
     assert_eq!(
@@ -928,10 +901,6 @@ async fn private_resolution_reads_reject_corrupt_cross_user_bindings() {
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_attempts() {
     let (pool, h, a, _) = fixture().await;
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let id = h
         .create(&a, create("Synthetic automatic retry"))
         .await
@@ -980,9 +949,9 @@ async fn private_configuration_recovery_is_automatic_bounded_and_keeps_paid_atte
         assert_eq!(
             attempt as i32,
             sqlx::query_scalar::<_, i32>(
-                "SELECT calls FROM geo_resolution_provider_controls WHERE profile=$1"
+                "SELECT attempts FROM geo_resolutions WHERE resolution_id=$1"
             )
-            .bind(PROFILE)
+            .bind(current.work.id.into_uuid())
             .fetch_one(&pool)
             .await
             .unwrap()

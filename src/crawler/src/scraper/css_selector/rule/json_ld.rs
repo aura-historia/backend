@@ -1,9 +1,13 @@
-//! JSON-LD `offers` as an extraction source: the availability and price that dealer
-//! templates publish only in structured data.
+//! JSON-LD as an extraction source: the offer availability and price, and the product
+//! identifiers, that dealer templates publish only in structured data.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+mod schema_org_product;
+
+pub(crate) use schema_org_product::{is_product_iri, top_level_products};
 
 /// How deep the search follows nested objects, `@graph` entries and offers, so a hostile
 /// document cannot make extraction recurse without bound.
@@ -28,6 +32,26 @@ impl JsonLdOfferProperty {
         match self {
             Self::Availability => &["availability"],
             Self::Price => &["price", "lowPrice"],
+        }
+    }
+}
+
+/// The property of the top-level JSON-LD `Product` a rule reads.
+#[cfg_attr(feature = "test-data", derive(fake::Dummy))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum JsonLdProductProperty {
+    /// `productID`, as written.
+    ProductId,
+    /// `sku`, as written.
+    Sku,
+}
+
+impl JsonLdProductProperty {
+    fn key(self) -> &'static str {
+        match self {
+            Self::ProductId => "productID",
+            Self::Sku => "sku",
         }
     }
 }
@@ -113,6 +137,20 @@ fn offer_property(
 fn has_only_zero_digits(value: &str) -> bool {
     let mut digits = value.chars().filter(char::is_ascii_digit).peekable();
     digits.peek().is_some() && digits.all(|digit| digit == '0')
+}
+
+/// The first non-blank value of `property` among the top-level schema.org `Product` nodes of the
+/// JSON-LD document `json`, in document order: the document, the members of an array and of a
+/// `@graph`, never a product nested in another node. `None` when the document does not parse or
+/// no such product holds the value.
+pub(in crate::scraper::css_selector) fn product_value(
+    json: &str,
+    property: JsonLdProductProperty,
+) -> Option<String> {
+    let document: Value = serde_json::from_str(json.trim()).ok()?;
+    top_level_products(&document)
+        .into_iter()
+        .find_map(|product| product.get(property.key()).and_then(scalar))
 }
 
 /// A string or number as written; blank strings and every other JSON type are no value.
@@ -213,6 +251,71 @@ mod tests {
         #[case] expected: Option<&str>,
     ) {
         assert_eq!(offer_value(json, property).as_deref(), expected);
+    }
+
+    #[rstest]
+    #[case::product_id(
+        r#"{"@type":"Product","productID":"9441317814427","sku":"R-1"}"#,
+        JsonLdProductProperty::ProductId,
+        Some("9441317814427")
+    )]
+    #[case::sku(
+        r#"{"@type":"Product","productID":"9441317814427","sku":"R-1"}"#,
+        JsonLdProductProperty::Sku,
+        Some("R-1")
+    )]
+    #[case::number_as_written(
+        r#"{"@type":"Product","sku":9441317814427}"#,
+        JsonLdProductProperty::Sku,
+        Some("9441317814427")
+    )]
+    #[case::blank_is_no_value(
+        r#"{"@type":"Product","sku":"  "}"#,
+        JsonLdProductProperty::Sku,
+        None
+    )]
+    #[case::absent(
+        r#"{"@type":"Product","name":"Chair"}"#,
+        JsonLdProductProperty::ProductId,
+        None
+    )]
+    #[case::unparseable("not json", JsonLdProductProperty::Sku, None)]
+    #[case::first_non_blank_in_document_order(
+        r#"[{"@type":"Product","sku":" "},{"@type":"Product","sku":"B-2"},{"@type":"Product","sku":"C-3"}]"#,
+        JsonLdProductProperty::Sku,
+        Some("B-2")
+    )]
+    #[case::in_a_graph(
+        r#"{"@context":"https://schema.org","@graph":[{"@type":"WebSite"},{"@type":"Product","sku":"G-1"}]}"#,
+        JsonLdProductProperty::Sku,
+        Some("G-1")
+    )]
+    #[case::not_a_node_of_another_type(
+        r#"{"@type":"WebPage","sku":"W-1"}"#,
+        JsonLdProductProperty::Sku,
+        None
+    )]
+    #[case::not_a_nested_product(
+        r#"{"@type":"ItemList","itemListElement":[{"@type":"Product","sku":"L-1"}]}"#,
+        JsonLdProductProperty::Sku,
+        None
+    )]
+    #[case::not_a_product_of_another_vocabulary(
+        r#"{"@context":"https://example.org/vocab","@type":"Product","sku":"X-1"}"#,
+        JsonLdProductProperty::Sku,
+        None
+    )]
+    #[case::object_is_no_value(
+        r#"{"@type":"Product","sku":{"@value":"S-1"}}"#,
+        JsonLdProductProperty::Sku,
+        None
+    )]
+    fn should_read_product_property(
+        #[case] json: &str,
+        #[case] property: JsonLdProductProperty,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(product_value(json, property).as_deref(), expected);
     }
 
     #[test]

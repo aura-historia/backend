@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-222",
+  "country": "IT",
+  "observedAt": "2026-11-04T16:17:49.152919Z",
+  "result": "PASSED",
+  "rawJournalFiles": 385,
+  "rawJournalRecordsScanned": 63123,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "IT:PROANTIC:3932",
+      "IT:PROANTIC:3022",
+      "IT:PROANTIC:3269"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot222-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T16:17:16.013971Z",
+    "fullVerifiedAt": "2026-11-04T15:24:11.350538Z",
+    "counts": {
+      "parties": 408,
+      "listingSources": 408,
+      "locations": 461,
+      "logos": 286,
+      "identifiedPlatforms": 336,
+      "deliveryProfiles": 186,
+      "emptyIngestionMethods": 408,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Malachin3932: native contact publishes complete Antiche Armonie di Malachin Antonio; current official positive00065300287 full name independently corroborates secondary VAT lead, assessed.98. Native/profile do not publish VAT. Current tax Falcone71 Arteselle distinct from published Nazionale735 shop; business premises only. Actual980x1200 portrait and original1482x1048PNG logo inspected. Seller unsigned/restored/relined/retouched descriptions retained, no independent authenticity/condition/date guarantee. General worldwide shipping PARTIAL ANYWHERE/OFFERED with unknown rates/times/features/collection. Selected portrait packing statement not generalized. Native brochure corroboration only, no extra source/alias/platform.",
+    "Caruso3022: complete current personal business name Antonio Caruso/direct phone and Calenzano contact adopted without guessed legal form/suffix. Actual900x1200 offered antique chalice inspected; seller XVII/silver not independent date/assay/hallmark guarantee. No VAT/email/logo/native source/fulfillment verified, contact roles[], no registered/stock/dispatch/pickup/default.",
+    "Barberia3269: current official positive01934131200 full ANTICHITA BARBERIA SAS DI VENTUROLI FABIO E C at current exact primary street/postal corroborated by linked native published VAT. Current SAS adopted, old secondary SNC not imported; privacy data controller Susanna is not sole proprietor assertion. Native homepage injected casinoSEO links not followed; no native listing source/alias/platform/logo/email adopted. Exact hosted catalogue inspected separately. Actual1200x769 capriccio inspected, lateXVIII/earlyXIX body versus broadXVIII selector retained without exact-date guarantee. Gallery BUSINESS_PREMISES, no registered/stock/dispatch/pickup/default. PARTIAL UNRESOLVED shipping geography/OFFERED/PACKING; export paperwork does not mean unrestricted world delivery.",
+    "Three current directory references resolved to existing Italy-managed Bertinato native, La Cassapanca Fiori and Anna Delmonte hosted records. Existing IDs preserved; no duplicate source, copied dealer observation or enrichment."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

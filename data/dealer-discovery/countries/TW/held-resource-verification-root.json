@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-04T14:06:34.507497Z",
+  "verifiedAt": "2026-11-04T16:04:30.280195Z",
   "scope": "Resource integrity only; exclusions and qualification holds remain unchanged. Exact externally configured ingestion methods are preserved under explicit user instruction.",
   "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
@@ -15,7 +15,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:32.943661Z",
+      "verifiedAt": "2026-11-04T16:04:28.492579Z",
       "observationDigest": "f259abddfb518299c9a2937637f0947de671a1ee36c734b809f4c63705c76858",
       "externalIngestionConfigurationPreserved": true
     },
@@ -29,7 +29,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:33.581143Z",
+      "verifiedAt": "2026-11-04T16:04:29.212838Z",
       "observationDigest": "5a5ddd6c74fd728c2eb1a9fb10406c901a9b9a132b0ad8a0283874a8f322f256",
       "externalIngestionConfigurationPreserved": false
     },
@@ -43,7 +43,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:33.978915Z",
+      "verifiedAt": "2026-11-04T16:04:29.639617Z",
       "observationDigest": "e0e20090025290819f13fa2c387874abef87b6fc2272d61ffb2ebf54e998aee9",
       "externalIngestionConfigurationPreserved": false
     },
@@ -57,7 +57,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:34.507317Z",
+      "verifiedAt": "2026-11-04T16:04:30.280040Z",
       "observationDigest": "6071d17e98e0ef614e6412186475f1d05dd09716a24213a899177d0ebfcedfbc",
       "externalIngestionConfigurationPreserved": false
     }

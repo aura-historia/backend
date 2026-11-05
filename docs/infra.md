@@ -36,6 +36,8 @@ evidence. Admission recomputes the focused context and verifies both its digest 
 its binding to that inventory. Release notes cannot override native facts or hard
 policy. The retained source inventory has a separate 16 MiB bound; full before/after
 file contents in that inventory do not consume the model's focused input budget.
+It excludes repository `data/`, which never enters a bundle, and records binary
+changes by path only.
 Focused model input is bounded to 3 MiB by default. Oversized inventory or relevant
 context still holds delivery; evidence is never truncated.
 Planning and admission read the same native property-level change-set view, resolving

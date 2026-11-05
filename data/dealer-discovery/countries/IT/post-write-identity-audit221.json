@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-221",
+  "country": "IT",
+  "observedAt": "2026-11-04T16:09:00.328145Z",
+  "result": "PASSED",
+  "rawJournalFiles": 380,
+  "rawJournalRecordsScanned": 62905,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "IT:PROANTIC:4163",
+      "IT:PROANTIC:743",
+      "IT:PROANTIC:2820"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot221-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T16:07:28.519101Z",
+    "fullVerifiedAt": "2026-11-04T15:24:11.350538Z",
+    "counts": {
+      "parties": 405,
+      "listingSources": 405,
+      "locations": 458,
+      "logos": 285,
+      "identifiedPlatforms": 333,
+      "deliveryProfiles": 184,
+      "emptyIngestionMethods": 405,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "AB4163: current primary AurelioAlbini/ABAntichita and current official-positive full AB ANTICHITA E RESTAURO DI ALBINI AURELIO E C SAS04149250989 linked at confidence.98 by same distinctive trade/person/street/city; profile itself does not publish VAT/legal suffix. Contact Paglia2 versus tax7 distinct. Current MadonnaChild bronze-labelled XIX sculpture646x1200 inspected; Renaissance-LouisXIII style not date override. Contact roles[], no logo/email/fulfillment/stock/dispatch/pickup/default.",
+    "Adele743: current primary full AdeleDeLuca/Merulana68 negozio and current official-positive DE LUCA ADELE10409530580/taxMerulana76int10 linked.98; profile does not publishVAT. eBay professional-seller snippet lead actualpage403 not primary inspection/importedsource. Actual1856 oval portrait1098x1200 inspected; Jolidon sitter is not artist, reverse notviewed. Business premises68, no logo/email/fulfillment/registered/stock/dispatch/pickup/default.",
+    "Macri2820: current published full AlessandroMacri business identity/directphone and Torino location adopted without guessed formal legalform/suffix. VAT07959810016 official-positive MACRI ALESSANDRO but dealer relationship not established>.95 and omitted. Native construction notclosure/native source/logo/platform. Directory microsite is lead-only, conflicting Subalpina13 versus directory18/25 and taxSanDalmazzo6 not silently repaired. Actual floral painting1063x1200 inspected, no100-year/authenticity claim. Contact roles[], no logo/email/fulfillment/stock/dispatch/pickup/default."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

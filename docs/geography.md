@@ -156,36 +156,44 @@ invalidation. Synthetic adapter tests establish protocol behavior, not worldwide
 ### Provider terms and retention gate
 
 The reviewed profile is **Amazon Location Places v2 / default data / eu-central-1 /
-October 2026**. Operators must confirm applicable account/source terms, intended reuse,
-private-input purpose, attribution and budgets before enabling retained resolution.
-The profile records default data rather than claiming a specific underlying supplier.
+October 2026**. Geocoding with retained resolution is always on: the profile has no runtime
+switch, storage flag, database-held call budget or concurrency limit; parallelism follows the
+resolution worker's deployed concurrency. Account/source terms, intended reuse, private-input
+purpose, attribution and expected cost are reviewed with the code change that introduces or
+changes a provider profile, not at runtime. The profile records default data rather than
+claiming a specific underlying supplier.
 
 [AWS Service Terms §82](https://aws.amazon.com/service-terms/#82._Amazon_Location_Service)
 and the [intended-use contract](https://docs.aws.amazon.com/location/latest/developerguide/places-intended-use.html)
 govern retention. Retained requests explicitly declare `IntendedUse=Storage`; single-use
-results cannot be persisted or cached, including their derived components. Storage is the
+results cannot be persisted or cached, including their derived components. Section 82.4.a(ii)
+sets no time limit on retaining geocoding results requested for storage. Storage is the
 API value; **Stored** is the [pricing category](https://docs.aws.amazon.com/location/latest/developerguide/places-pricing.html).
 Storage permission does not grant unrestricted resale, bulk collection, public geocoding,
 map display or waiver of personal-data erasure. Review [current pricing](https://aws.amazon.com/location/pricing/)
 when approving paid evaluation or production volume.
 
 The adapter conservatively applies the HERE Japan storage prohibition to all default data:
-Japan-constrained retained requests fail before I/O; Japanese, missing or contradictory
-result countries fail before retained evidence is released. Other providers/products/regions
-need separate review. Supplier processing may occur outside the AWS region; endpoint region
-alone is not a data-residency guarantee.
+Japan-constrained retained requests fail before I/O. A returned candidate whose country is
+Japanese or unverifiable (missing, malformed, unrecognized or contradictory) is withheld: it
+remains a returned alternative, but nothing derived from it is retained. A result without a
+retainable candidate fails storage. Other providers/products/regions need separate review.
+Supplier processing may occur outside the AWS region; endpoint region alone is not a
+data-residency guarantee.
 
-Persistence owners check storage permission before retaining any derivatives and preserve
-reference release, provenance, attribution and profile. Private reuse stays isolated to its
-owner and purpose; address equality or hashes never authorize cross-user or public reuse.
-Revoke storage permission when rights cease; disabling paid calls alone leaves permitted
-cached evidence usable. End-user terms/product documentation must conspicuously link the
+Persistence owners retain only results whose provider retention permits storage and preserve
+reference release, provenance, attribution and profile. Private reuse stays isolated to its owner and purpose;
+address equality or hashes never authorize cross-user or public reuse. If retention rights
+cease, a reviewed release must stop provider calls and purge the retained evidence; there is
+no runtime switch. End-user terms/product documentation must conspicuously link the
 [AWS attribution page](https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html)
 and retain required supplier notices. Maps require additional review.
 
 Logs exclude queries, private coordinates, provider identifiers/messages/payloads and
-credentials. Public diagnostics are redacted; original causes remain available for controlled
-diagnosis and must not be dumped into logs. Keep SDK HTTP/body tracing disabled.
+credentials. A withheld candidate logs only its reason and any well-formed country code the
+reference release lacks. Public diagnostics are redacted; original causes remain available
+for controlled diagnosis and must not be dumped into logs. Keep SDK HTTP/body tracing
+disabled.
 
 ## Durable resolution and Party integration (#2002)
 
@@ -200,24 +208,33 @@ provider. Retirement detaches work; restoration explicitly reestablishes it. Inp
 fence old replies; presentation-only changes update guards without paying again.
 
 Business policy **PRECISION_FIRST_V1** automatically accepts only administrative geography
-from a unique compatible candidate. Protected application operations can inspect, retry or
-select a compatible candidate using current location revision and resolution generation.
-Explicit point selection requires premises evidence. Selection affects only its binding,
-not other locations reusing the result; submitted assertions always retain precedence.
+from a unique compatible candidate. Administrator API operations can request, inspect, retry or
+select a compatible candidate using current location revision and resolution generation; a
+review queue lists unreviewed `AMBIGUOUS`, `BLOCKED` and `FAILED` locations across Parties.
+Responses expose normalized candidate geography and attribution only, never provider record
+references.
+Explicit point selection requires premises evidence. A selected candidate applies only to its
+binding, not other locations reusing the result; submitted assertions always retain precedence.
 
-Claims reserve provider/scope budgets before I/O and retain no transaction during the call.
-Completion rechecks lease, generation, current bindings and storage rights, then commits
-permitted evidence and a minimal signal. Reads suppress stale, expired or revoked evidence
-immediately. Database coordination follows provider → resolution → binding lock order.
-Read-only repeatable snapshots use the same permission and logical-expiry gates without
+Evidence has no time limit, since the [provider terms](#provider-terms-and-retention-gate)
+impose none: time alone never causes another paid call or a repeated review. Only changed
+input, forced Retry, erasure or losing every binding replace or purge evidence and its
+selections.
+
+Claims lease work before I/O and retain no transaction during the call. Completion rechecks
+lease, generation and current bindings, then commits valid evidence and a minimal signal.
+Reads suppress stale evidence immediately. Database coordination follows
+provider → resolution → binding lock order.
+Read-only repeatable snapshots use the same eligibility rules without
 acquiring mutation locks; [shipping assessment](shipping.md#shipping-on-listing-reads)
 uses these current facts instead of the listing-geography projection.
 
-Retries are bounded, with backoff, concurrency/daily budgets and a circuit for provider
-health failures. Unsupported input remains an input failure; errors never become no-match.
-A paid-call/commit crash can incur another call after lease expiry. Reservations and stale
-reply fences survive invalidation; exactly-once charging is not promised. Expiry, revocation,
-orphan cleanup and lost-delivery recovery are bounded and run even with paid calls disabled.
+Retries are bounded per resolution, with backoff and a circuit for provider health failures.
+Unsupported input remains an input
+failure; errors never become no-match. A paid-call/commit crash can incur another call after
+lease expiry. Attempt counts and stale reply fences survive invalidation; exactly-once
+charging is not promised. Orphan purges are bounded and run even while the circuit
+is open; lost-delivery requeue resumes once it closes.
 The [worker runbook](durable-worker-runbook.md#geographic-resolution-recovery) owns recovery.
 
 ## Effective listing geography (#2003)
@@ -242,7 +259,7 @@ in the same transaction; canonical revision and public history remain unchanged.
 ### Eventual projection consistency
 
 Listing search and geographic filter matching use available projections while durable
-invalidation catches up. Retirement, restrictive applicability, rights revocation and expiry
+invalidation catches up. Retirement and restrictive applicability
 can briefly leave earlier geography in results, ordering, counts and continuation. There is
 no global query gate. Writers reread current authority; versions/tombstones fence stale
 writes. PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read

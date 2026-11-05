@@ -31,7 +31,6 @@ use shipping_core::{
     time::CollectionArrangement,
 };
 use std::sync::LazyLock;
-use time::OffsetDateTime;
 
 const RELEASE: ReferenceRelease = ReferenceRelease::IsoCodes4_20_1;
 
@@ -153,8 +152,6 @@ fn advertised(effective: &EffectiveDeliveryTerms, currency: Currency) -> Adverti
         assessment: assess(effective, &AssessmentInput::default(), &[]),
         display: Some(shipping_fixture::display(effective, currency)),
         effective: effective.clone(),
-        geographic_valid_until: None,
-        evaluated_at: OffsetDateTime::UNIX_EPOCH,
     }
 }
 /// Supplies what enrichment adds for either purpose: the assessed zone's display for details

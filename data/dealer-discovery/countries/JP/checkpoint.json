@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "jp-2026-11-04-157",
-  "observedAt": "2026-11-04T14:47:10.043947Z",
+  "run": "jp-2026-11-04-173",
+  "observedAt": "2026-11-04T17:13:10.832881Z",
   "statuses": {
-    "ADDED": 272,
-    "DEFERRED": 246,
-    "EXCLUDED": 51
+    "ADDED": 278,
+    "DEFERRED": 266,
+    "EXCLUDED": 58
   },
   "paidDataSpendUsd": 0,
-  "summary": "Batch 157 deferred Eizawa and Maruo because current primary pages verify active Japanese buying businesses but no current inspectable own-stock sale offers. Buying examples, artist articles and inbound free postage were not promoted to sale stock or delivery. Eizawa linked buying domains remain research under the same operator, without new sources or aliases. Ide was excluded on explicit own trade-auction hosting, with proprietor identity from first-party terms. All-country recursive duplicate checks cleared; no API mutations. All four ledgers audited, indexed and verified; the same external ingestion drift is preserved. USD0, continue.",
+  "summary": "Batch173 recorded four new exclusions Suiha, Kujaku, MaisonDeNeko and Shinobazu, and changed existing Kakei from DEFERRED to EXCLUDED. Complete official joint2026 lot/venue programme and direct store bid-box/winner-contact rules establish dealer-hosted charity auctions; Kujaku own current archive independently confirms2026operation and its bid procedure. Current own company/statutory/contact/history pages match each exact venue and verify Japanese business home. Auction events are pastApril2026, not asserted currently open. Suiha own older linked event URL404 is not closure or invented content. MaisonDeNeko current statutory operatorオフィス平 is distinct from existing hostedNeko merchant; legacy exact OfficeTaira path redirects but whole parent domain is not an alias. Kakei current2026role resolves earlier uncertainty; private catalogue not accessed and unverified legal form omitted. All-country recursive ledgers/identity keys re-read before journal; no other owner claims, no API resources/mutations or dealer contact. All26 explicit ledgers audited/indexed/verified, six retained sources read separately;65 qualified plus1 retained external ingestion changes unchanged. USD0; country coverage remains open.",
   "verification": "FAILED_EXTERNAL_INGESTION_DRIFT",
   "lastPassingVerification": {
     "run": "jp-2026-11-03-070",
     "scope": "FULL",
     "verifiedAt": "2026-11-03T20:28:05.584720Z"
   },
-  "verificationFailures": 66,
+  "verificationFailures": 65,
   "countryCoverageComplete": false,
   "blockers": [],
   "pendingMutations": 0,
@@ -24,18 +24,36 @@
       "ledger": "data/dealer-discovery/countries/JP/dealers.jsonl",
       "verificationOutput": "data/dealer-discovery/countries/JP/verification.json",
       "currentAttempt": "FAILED_EXTERNAL_INGESTION_DRIFT",
-      "observedAt": "2026-11-04T14:47:10.043947Z",
+      "observedAt": "2026-11-04T17:13:10.832881Z",
       "lastPassingRun": "jp-2026-11-03-070",
       "scope": "INCREMENTAL",
-      "ingestionSourcesChecked": 269,
-      "sourcesWithNonemptyIngestion": 66
+      "ingestionSourcesChecked": 266,
+      "sourcesWithNonemptyIngestion": 65
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/fujishima/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/fujishima/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:08:59.588270Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
     },
     {
       "ledger": "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
       "verificationOutput": "data/dealer-discovery/countries/JP/hosted/hanzomon/verification.json",
       "currentAttempt": "PASS",
       "scope": "INCREMENTAL",
-      "observedAt": "2026-11-04T14:46:40.829913Z",
+      "observedAt": "2026-11-04T17:09:09.489672Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -49,11 +67,11 @@
       }
     },
     {
-      "ledger": "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
-      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/imado/verification.json",
+      "ledger": "data/dealer-discovery/countries/JP/hosted/haseodou/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/haseodou/verification.json",
       "currentAttempt": "PASS",
       "scope": "INCREMENTAL",
-      "observedAt": "2026-11-04T14:46:50.549812Z",
+      "observedAt": "2026-11-04T17:09:19.296881Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -67,11 +85,119 @@
       }
     },
     {
-      "ledger": "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
-      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/maruhira/verification.json",
+      "ledger": "data/dealer-discovery/countries/JP/hosted/higasinakano/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/higasinakano/verification.json",
       "currentAttempt": "PASS",
       "scope": "INCREMENTAL",
-      "observedAt": "2026-11-04T14:46:59.614718Z",
+      "observedAt": "2026-11-04T17:09:29.545044Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/higo/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/higo/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:09:39.751325Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/ichiryudo/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/ichiryudo/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:09:50.484748Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/ikeda/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/ikeda/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:00.017631Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/imado/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:10.118917Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/irakado/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/irakado/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:20.053345Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/kaida/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/kaida/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:29.719243Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -83,13 +209,311 @@
         "excluded": 0,
         "deferred": 0
       }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/kanda/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/kanda/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:39.679015Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/kanpodo/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/kanpodo/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:49.838152Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/kawasaki/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/kawasaki/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:10:59.931764Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/kodou/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/kodou/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:11:09.730092Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/kura/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/kura/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:11:19.330562Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/maruhira/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:11:28.447492Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/menouroko/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/menouroko/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:11:38.273691Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/miki/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/miki/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:11:48.611028Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/mockindo/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/mockindo/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:11:58.227572Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/neko/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/neko/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:12:08.353588Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 2,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/shihodo/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/shihodo/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:12:18.380884Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/tatsumi/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/tatsumi/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:12:28.362095Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/touraku/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/touraku/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:12:37.702576Z",
+      "counts": {
+        "parties": 1,
+        "listingSources": 1,
+        "locations": 1,
+        "logos": 1,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 1,
+        "emptyIngestionMethods": 1,
+        "excluded": 0,
+        "deferred": 0
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/watanabe/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/watanabe/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:12:47.769844Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
+    },
+    {
+      "ledger": "data/dealer-discovery/countries/JP/hosted/yoshido/dealers.jsonl",
+      "verificationOutput": "data/dealer-discovery/countries/JP/hosted/yoshido/verification.json",
+      "currentAttempt": "PASS",
+      "scope": "INCREMENTAL",
+      "observedAt": "2026-11-04T17:12:57.145108Z",
+      "counts": {
+        "parties": 0,
+        "listingSources": 0,
+        "locations": 0,
+        "logos": 0,
+        "identifiedPlatforms": 0,
+        "deliveryProfiles": 0,
+        "emptyIngestionMethods": 0,
+        "excluded": 0,
+        "deferred": 1
+      }
     }
   ],
   "ledgerPaths": [
     "data/dealer-discovery/countries/JP/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/fujishima/dealers.jsonl",
     "data/dealer-discovery/countries/JP/hosted/hanzomon/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/haseodou/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/higasinakano/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/higo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/ichiryudo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/ikeda/dealers.jsonl",
     "data/dealer-discovery/countries/JP/hosted/imado/dealers.jsonl",
-    "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl"
+    "data/dealer-discovery/countries/JP/hosted/irakado/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kaida/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kanda/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kanpodo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kawasaki/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kodou/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/kura/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/maruhira/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/menouroko/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/miki/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/mockindo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/neko/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/shihodo/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/tatsumi/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/touraku/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/watanabe/dealers.jsonl",
+    "data/dealer-discovery/countries/JP/hosted/yoshido/dealers.jsonl"
   ],
-  "lastPassingVerificationScopeNote": "Historic main-ledger full report predates hosted additions; no current passing country aggregate while external ingestion drift persists."
+  "lastPassingVerificationScopeNote": "Historic main-ledger full report predates hosted additions; no current passing country aggregate while external ingestion drift persists.",
+  "qualifiedListingSources": 278,
+  "retainedManagedListingSources": 6,
+  "retainedResourceVerification": "verification-retained.json",
+  "retainedSourcesWithNonemptyIngestion": 1,
+  "totalManagedSourcesChecked": 284,
+  "totalSourcesWithNonemptyIngestion": 66
 }

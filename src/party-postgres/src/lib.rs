@@ -11,3 +11,5 @@ pub use locations::{
     SqlxPartyLocationRepositoryFactory,
 };
 pub mod discovery;
+mod resolution_reviews;
+pub use resolution_reviews::SqlxPartyLocationResolutionReviewReaderFactory;

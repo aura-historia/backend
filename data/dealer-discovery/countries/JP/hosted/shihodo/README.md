@@ -1,0 +1,7 @@
+# 四方堂 hosted catalogue
+
+Japan owns only this exact independent merchant’s catalogue at `https://www.fufufufu.com/store_detail/index/url/shihodo/`; the platform and other merchants are outside its ownership.
+
+DEFERRED: Japanese business home/current stock established by current exact hosted merchant: 四方堂/四方堂仁志,福岡市中央区薬院2-5-30,1F,08042783042,merchant email and additionalbrocante.antique@gmail.com. Root explicitly announces2026July1Fukuoka shop opening. Current37484 manuscript leafJPY75000, seller-attributed15th-centuryFrance/parchment/Matthew2:1–11; original896x680JPEG inspected physical text leaf with decorated coloured border. Dates, material, exact text and origin remain seller claims, no independent authentication. However root licence904111331002 conflicts with statutory/store9041113310027; do not guess the correct number, a succession or current registration status. A public-register search result is a lead only and was not imported as verified identity. Previously advertised brocante-antique.ocnk.net returned404, which does not establish this current merchant closed. Defer precise consistent identity before API onboarding, preserve live stock evidence for follow-up. No API resources; no own auction inference from antique-fair participation.
+
+Use explicit ledger/output paths for audit/index/verification and any later onboarding. Include this scope in all Japan aggregates. Raw pages/API/assets remain outside the repository under `/tmp/aura-dealer-discovery/JP/`; credentials stay external. Always create empty ingestion.

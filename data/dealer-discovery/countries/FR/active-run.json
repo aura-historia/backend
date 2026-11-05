@@ -1,13 +1,13 @@
 {
-  "currentRun": "2026-11-04-fr-336",
+  "currentRun": "2026-11-04-fr-354",
   "status": "RESEARCH",
   "lastVerifiedRun": "2026-11-03-fr-251",
   "lastFullVerifiedRun": "2026-11-03-fr-250",
   "ongoingUntilUserStops": true,
   "candidateDomains": [
-    "la-grange.fr",
-    "antiquites-mevel.com",
-    "troc29.fr"
+    "galerie-malaquais.com",
+    "universdubronze.com",
+    "galerietourbillon.com"
   ],
   "researchCache": "/tmp/aura-dealer-discovery/FR",
   "currentFetchFiles": [
@@ -23,8 +23,9 @@
     "Recheck effetssinguliers.com and lartetlafacon.fr after 2026-12-03.",
     "Retry didascalies.art after 2026-12-03 only with normal TLS hostname validation.",
     "Recheck deferred current-stock/legal candidates at their scheduled dates.",
-    "Next full managed-country readback FULL340.",
-    "Continue until explicit user stop."
+    "Next full managed-country readback FULL355.",
+    "Continue until explicit user stop.",
+    "Recheck Troc29 actual retirement closure after2027-01-01T09:00:00+01:00; future31December2026notice does not authorize automatic deletion."
   ],
   "assetVerification": "data/dealer-discovery/countries/FR/asset-verification.json",
   "merchantChannelFollowUps": [
@@ -74,16 +75,16 @@
       "note": "Current partners Olivier Baltzinger/Philippe Henry and company VAT appear in complete member profiles. No private website is linked. Do not substitute the federation or Livre Rare Book for a merchant Source or create former founder Jean-Luc Moresi as a current operator."
     }
   ],
-  "lastResearchCheckpoint": "2026-11-04-fr-336",
+  "lastResearchCheckpoint": "2026-11-04-fr-354",
   "qualificationScope": "Only dealers with direct art and antiques relevance; unrelated modern secondhand, collectibles and general decorative retail are insufficient.",
   "verificationIssue": {
     "status": "FAILED_EXTERNAL_INGESTION_DRIFT",
-    "observedAt": "2026-11-04T14:47:40.624131Z",
+    "observedAt": "2026-11-04T17:05:08.615745Z",
     "affectedObserved": 105,
     "otherMetadataDifferences": 0,
     "record": "verification-attempt.json",
     "lastPassedRun": "2026-11-03-fr-251"
   },
-  "lastCompleteResourceReviewRun": "2026-11-04-fr-335",
+  "lastCompleteResourceReviewRun": "2026-11-04-fr-350",
   "strictFullVerificationPending": "External ingestion changes; last passing full readback FULL250"
 }

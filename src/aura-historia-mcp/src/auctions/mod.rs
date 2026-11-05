@@ -349,8 +349,6 @@ mod tests {
             assessment: effective.assess(&Default::default(), &[]),
             effective,
             display: None,
-            geographic_valid_until: None,
-            evaluated_at: OffsetDateTime::UNIX_EPOCH,
         }
     }
     fn services() -> (PublicAuctions, List, Get, Catalogue) {

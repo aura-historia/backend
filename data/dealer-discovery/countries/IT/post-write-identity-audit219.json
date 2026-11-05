@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-219",
+  "country": "IT",
+  "observedAt": "2026-11-04T15:38:43.639999Z",
+  "result": "PASSED",
+  "rawJournalFiles": 358,
+  "rawJournalRecordsScanned": 62484,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "caminivecchioenuovo.it",
+      "viezziarte.it",
+      "IT:ANTICOANTICO:2247"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot219-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T15:37:40.381499Z",
+    "fullVerifiedAt": "2026-11-04T15:24:11.350538Z",
+    "counts": {
+      "parties": 399,
+      "listingSources": 399,
+      "locations": 452,
+      "logos": 284,
+      "identifiedPlatforms": 327,
+      "deliveryProfiles": 183,
+      "emptyIngestionMethods": 399,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Lauro: current primary/full official-positive personal business, specific native wh1180/code2138 Molera mantel seller1500s, actual960x1280JPEG and original328x70PNG inspected. Explicit NEW replica fireplaces, relatedfashion banners and generic salvage not qualification/alias/extraParty. Native22070 vs22077 omitted postal, one showroom business site; Uggiate tax distinct. General delivery unenumerated/PARTIAL UNRESOLVED/OFFERED, checkout-calculated unknownrates, conditional normal3days not universal numeric bound. Explicit purchased shop collection bound location0, arrangementnull, no free outbound freight or guessedpacking/insurance/tracking/platform/stock/dispatch/default.",
+    "Viezzi: current nativecontact/footer fullSRL02216200309 matches officialpositive, hosted explicitly labels02811380308old and oldlegalbody retained as observation. No invented handover/date/additionaloperator. Current own Carpioni-attributed painting1610x2560 and originalSVGviewBox567.06x528.01 inspected, intrinsicwidth/height unspecified not invented fromCSS. WooCommerce verified, gallerybusiness only, noartworkauthenticity/registered/stock/dispatch/default/pickup/fulfillment.",
+    "Vernia2247: current nativeSite123 explicitly individualLucaVernia/workshop/trading/fullphone/mail matches exacthostedVAT02340340369. NegativeintraEU only, no domesticinvalidity/closure. Current own SaintAnne1440x1920JPEG inspected, current publicnativeemail adopted rather than oldfair Gmail. Nativebrochure corroboration not duplicate/alias/sourceplatformSITE123; exactsourceANTICO. NativeSanAdriano versushostSantAdriano preserved, optionalpostalomitted, workshopbusiness only,nologo/registered/warehouse/stock/dispatch/default/pickup/fulfillment.",
+    "Foreign exact2335/2347 queued only in ITfrontier for targetDE. EnglishHouse currentprimaryAschauGerman home despite Italianwarehouse/delivery; relatedtheenglishhouse.de already referenced by DE-managedChristelundSinn, exactoperator/sourceownership forDEreview, no copied managedfacts/IDs orforeignmutation. VagheStelle currentprimaryBerlin/GermanVAT, no exactrawownerfound, fulloperator/stock left forDEreview. Subert2221 currentVAT08069030966 resolves existingIT-managedsubert.it; resources retained withoutclone/enrichment."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

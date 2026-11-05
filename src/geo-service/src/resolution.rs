@@ -9,7 +9,6 @@ use application::{
 use geo::{DerivedGeography, GeographicDescription, SpatialPrecision};
 use sha2::{Digest, Sha256};
 use std::{fmt, time::Duration};
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 domain_primitives::object_id_newtype!(ResolutionId, "gres");
@@ -199,7 +198,7 @@ impl ResolutionInput {
             .map(|byte| format!("{byte:02x}"))
             .collect()
     }
-    pub fn budget_key(&self) -> String {
+    pub fn scope_key(&self) -> String {
         let mut hash = Sha256::new();
         hash.update(self.scope.kind.as_str());
         if let Some(id) = self.scope.owner {
@@ -259,10 +258,29 @@ pub struct ResolutionClaim {
     pub profile: String,
     pub attempt: u32,
 }
+/// Why a wake-up did or did not reserve a provider call for its generation.
 pub enum ClaimOutcome {
     Claimed(Box<ResolutionClaim>),
+    /// Nothing remains for this generation: it is erased, unbound or superseded, has current
+    /// evidence, reached a durable status other than `PENDING`, or exhausted its attempts.
+    /// Only a newer generation, which publishes its own wake-up, can call the provider again.
     Complete,
+    /// The generation is runnable, but the provider circuit is open after consecutive
+    /// provider-health failures. Cleanup recovery republishes the work once it closes.
+    ProviderGated,
+    /// A retry can succeed soon: another claim holds the lease or the retry backoff has not
+    /// elapsed.
     Deferred,
+}
+/// What a fenced completion did with its claim's provider reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionOutcome {
+    /// The reply was recorded and left the resolution in this status.
+    Recorded(ResolutionStatus),
+    /// The generation no longer needs the reply because it was erased, unbound or superseded.
+    Stale,
+    /// The claim's lease expired or was replaced; the generation may still need a call.
+    LeaseLost,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolutionStatus {
@@ -274,12 +292,10 @@ pub enum ResolutionStatus {
     Blocked,
 }
 impl ResolutionStatus {
-    pub fn retention_period(self) -> Option<time::Duration> {
-        match self {
-            Self::Accepted | Self::NoMatch => Some(time::Duration::days(30)),
-            Self::Ambiguous => Some(time::Duration::days(7)),
-            _ => None,
-        }
+    /// Whether this outcome records provider evidence. Evidence has no time limit: the provider
+    /// terms set none, so it stays until input, Retry, storage rights or bindings change.
+    pub fn carries_evidence(self) -> bool {
+        matches!(self, Self::Accepted | Self::Ambiguous | Self::NoMatch)
     }
     pub fn after_failure(kind: GeocodingFailure, attempt: u32) -> Self {
         match kind {
@@ -348,7 +364,6 @@ pub struct ResolutionView {
     pub guard: u64,
     pub status: ResolutionStatus,
     pub evidence: Option<ResolutionEvidence>,
-    pub valid_until: Option<OffsetDateTime>,
     pub selected_candidate: Option<usize>,
     pub last_failure: Option<String>,
     pub attempts: u32,
@@ -570,10 +585,11 @@ pub trait ResolutionRepository: Send {
         &mut self,
         claim: &ResolutionClaim,
         completion: ResolutionCompletion,
-    ) -> Result<bool, ResolutionError>;
+    ) -> Result<CompletionOutcome, ResolutionError>;
     /// Publish fresh fenced wake-ups for runnable work without resetting paid attempts.
     async fn recover_pending(&mut self, limit: u32) -> Result<u32, ResolutionError>;
-    /// Purge every expired provider derivative and commit invalidation before requeue.
+    /// Purge provider derivatives that revoked storage rights or orphaning made ineligible, and
+    /// commit invalidation before requeue. Evidence never expires by time.
     async fn expire(&mut self, limit: u32) -> Result<u32, ResolutionError>;
     async fn select(
         &mut self,
@@ -605,10 +621,36 @@ pub trait ResolutionRepositoryFactory<Tx>: Send + Sync {
     fn resolutions<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ResolutionRepository + 'tx;
     fn resolution_reader<'tx>(&'tx self, tx: &'tx mut Tx) -> impl ResolutionReader + 'tx;
 }
+/// How one wake-up left its resolution. Durable state is authoritative; the variant says
+/// whether redelivering the same wake-up could still achieve anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveOutcome {
+    /// The wake-up's generation is settled, whether resolved, terminal or stale.
     Complete,
+    /// The provider circuit refuses calls for runnable work; see [`ClaimOutcome::ProviderGated`].
+    ProviderGated,
+    /// Contention or a scheduled retry; a redelivery can succeed.
     Deferred,
+}
+impl ResolveOutcome {
+    /// Transient provider failures, recorded as `PENDING`, keep their error so redelivery
+    /// retries them after backoff. A recorded terminal status or a stale reply settles the
+    /// wake-up regardless.
+    fn after_completion(
+        completion: CompletionOutcome,
+        evidence: Result<ResolutionEvidence, GeocodingError>,
+    ) -> Result<Self, ResolutionError> {
+        match completion {
+            CompletionOutcome::Stale => Ok(Self::Complete),
+            CompletionOutcome::Recorded(status) if status != ResolutionStatus::Pending => {
+                Ok(Self::Complete)
+            }
+            CompletionOutcome::Recorded(_) | CompletionOutcome::LeaseLost => {
+                evidence.map_err(ResolutionError::Provider)?;
+                Ok(Self::Deferred)
+            }
+        }
+    }
 }
 #[async_trait::async_trait]
 pub trait ResolveUseCase: Send + Sync {
@@ -712,9 +754,10 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
             .await?;
         tx.commit().await?;
         let claim = match claim {
-            ClaimOutcome::Complete => return Ok(ResolveOutcome::Complete),
-            ClaimOutcome::Deferred => return Ok(ResolveOutcome::Deferred),
             ClaimOutcome::Claimed(c) => c,
+            ClaimOutcome::Complete => return Ok(ResolveOutcome::Complete),
+            ClaimOutcome::ProviderGated => return Ok(ResolveOutcome::ProviderGated),
+            ClaimOutcome::Deferred => return Ok(ResolveOutcome::Deferred),
         };
         // No database transaction or connection survives across provider I/O.
         let result = tokio::time::timeout(
@@ -730,11 +773,6 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
                 source: Box::new(e),
             }),
         };
-        let failure = evidence.as_ref().err().map(|e| e.kind.as_str());
-        let status = evidence
-            .as_ref()
-            .map(|e| e.status.as_str())
-            .unwrap_or("PROVIDER_FAILURE");
         let completion = match &evidence {
             Ok(e) => ResolutionCompletion::Evidence(e.clone()),
             Err(e) => ResolutionCompletion::Failure(e.kind),
@@ -746,23 +784,20 @@ impl<U: UnitOfWork, R: ResolutionRepositoryFactory<U::Tx>, P: GeocodingProvider>
             .complete(&claim, completion)
             .await?;
         tx.commit().await?;
+        let recorded = match completed {
+            CompletionOutcome::Recorded(status) => Some(status),
+            CompletionOutcome::Stale | CompletionOutcome::LeaseLost => None,
+        };
         tracing::info!(
             metric = "geo_resolution_outcome",
             method = "GEOCODER",
             policy = claim.input.policy_version(),
-            outcome = if completed { status } else { "UNCOMPLETED" },
-            failure,
+            outcome = recorded.map_or("UNCOMPLETED", ResolutionStatus::as_str),
+            failure = evidence.as_ref().err().map(|e| e.kind.as_str()),
             attempt = claim.attempt,
-            fenced_completion = completed
+            fenced_completion = recorded.is_some()
         );
-        if let Err(error) = evidence {
-            return Err(ResolutionError::Provider(error));
-        }
-        Ok(if completed {
-            ResolveOutcome::Complete
-        } else {
-            ResolveOutcome::Deferred
-        })
+        ResolveOutcome::after_completion(completed, evidence)
     }
 }
 
@@ -800,16 +835,22 @@ mod tests {
         }
         assert_eq!(time::Duration::seconds(30), retry_delay(1));
         assert_eq!(time::Duration::seconds(480), retry_delay(MAX_ATTEMPTS));
-        assert_eq!(
-            Some(time::Duration::days(30)),
-            ResolutionStatus::NoMatch.retention_period()
-        );
-        assert_eq!(
-            Some(time::Duration::days(7)),
-            ResolutionStatus::Ambiguous.retention_period()
-        );
-        assert_eq!(None, ResolutionStatus::Failed.retention_period());
+        for status in [
+            ResolutionStatus::Accepted,
+            ResolutionStatus::Ambiguous,
+            ResolutionStatus::NoMatch,
+        ] {
+            assert!(status.carries_evidence());
+        }
+        for status in [
+            ResolutionStatus::Pending,
+            ResolutionStatus::Failed,
+            ResolutionStatus::Blocked,
+        ] {
+            assert!(!status.carries_evidence());
+        }
     }
+
     use geo::{
         AddressText, CountryCode, GeoPoint, SpatialPosition, SubdivisionCode, SubmittedGeography,
     };
@@ -1092,5 +1133,71 @@ mod tests {
             assert_eq!(ResolutionStatus::Ambiguous, e.status);
             assert!(e.accepted_index.is_none());
         }
+    }
+
+    fn provider_failure(kind: GeocodingFailure) -> Result<ResolutionEvidence, GeocodingError> {
+        Err(GeocodingError {
+            kind,
+            source: static_error("synthetic provider failure"),
+        })
+    }
+
+    #[test]
+    fn should_settle_the_wake_up_when_completion_records_a_durable_result_or_is_stale() {
+        for status in [
+            ResolutionStatus::Accepted,
+            ResolutionStatus::Ambiguous,
+            ResolutionStatus::NoMatch,
+            ResolutionStatus::Failed,
+            ResolutionStatus::Blocked,
+        ] {
+            assert_eq!(
+                ResolveOutcome::Complete,
+                ResolveOutcome::after_completion(
+                    CompletionOutcome::Recorded(status),
+                    provider_failure(GeocodingFailure::StorageNotPermitted),
+                )
+                .unwrap(),
+                "{status:?}"
+            );
+        }
+        assert_eq!(
+            ResolveOutcome::Complete,
+            ResolveOutcome::after_completion(
+                CompletionOutcome::Stale,
+                provider_failure(GeocodingFailure::Timeout),
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn should_keep_the_wake_up_retryable_when_a_retry_is_scheduled_or_the_lease_was_lost() {
+        for completion in [
+            CompletionOutcome::Recorded(ResolutionStatus::Pending),
+            CompletionOutcome::LeaseLost,
+        ] {
+            let error = ResolveOutcome::after_completion(
+                completion,
+                provider_failure(GeocodingFailure::Timeout),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&error, ResolutionError::Provider(e) if e.kind == GeocodingFailure::Timeout),
+                "{completion:?} must keep the provider failure: {error:?}"
+            );
+        }
+        assert_eq!(
+            ResolveOutcome::Deferred,
+            ResolveOutcome::after_completion(
+                CompletionOutcome::LeaseLost,
+                Ok(ResolutionEvidence {
+                    status: ResolutionStatus::NoMatch,
+                    candidates: vec![],
+                    accepted_index: None,
+                }),
+            )
+            .unwrap()
+        );
     }
 }

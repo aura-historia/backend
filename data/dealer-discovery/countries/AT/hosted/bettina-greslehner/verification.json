@@ -1,0 +1,47 @@
+{
+  "run": "2026-11-04-at-169",
+  "verifiedAt": "2026-11-04T17:10:52.251199Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-04T16:55:29.961529Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 1,
+  "counts": {
+    "parties": 1,
+    "listingSources": 1,
+    "locations": 1,
+    "logos": 0,
+    "identifiedPlatforms": 1,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 1,
+    "excluded": 0,
+    "deferred": 0
+  },
+  "environmentCounts": {
+    "parties": 4799,
+    "listingSources": 4845
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": [
+    {
+      "domain": "kunst-online.com",
+      "listingSourceId": "ls_01m6kme29dey892f3cs4ym2x8y",
+      "partyId": "pty_01m6kme28vehmsfyzjpvb1bbx0",
+      "locations": 1,
+      "logo": false,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T16:55:29.961118Z",
+      "observationDigest": "4b49e9e2588203c1a52cf57cd048d9e073d348cf9fc69754019d3796c40696f0"
+    }
+  ]
+}

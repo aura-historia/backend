@@ -33,7 +33,7 @@ async fn main() -> Result<(), Error> {
         .region(aws_config::Region::new(REGION))
         .load()
         .await;
-    // One SDK attempt per budget reservation; durable retries own the charging bound.
+    // One SDK attempt per claim; durable retries own the charging bound.
     let provider = Arc::new(AmazonLocationGeocoder::new(
         aws_sdk_geoplaces::Client::new(&config),
         AmazonLocationConfig::new(Duration::from_secs(6), Duration::from_secs(2), 1)?

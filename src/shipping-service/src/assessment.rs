@@ -91,7 +91,6 @@ pub struct DefaultDependency {
     pub revision: u64,
 }
 pub struct LocationDependency {
-    pub valid_until: Option<OffsetDateTime>,
     pub location: PartyLocation,
     pub revision: u64,
     pub resolution_generation: Option<u64>,
@@ -139,8 +138,6 @@ pub struct ListingAssessmentView {
     pub default_revision: Option<u64>,
     pub profile: Option<ProfileAssessmentBasis>,
     pub listing_evidence: Option<AssertionEvidence>,
-    pub geographic_valid_until: Option<OffsetDateTime>,
-    pub evaluated_at: OffsetDateTime,
     pub input: AssessmentInput,
     pub effective: EffectiveDeliveryTerms,
     /// Destination-independent evaluation for public dependency reasons.
@@ -150,7 +147,6 @@ pub struct ListingAssessmentView {
     pub notices: Vec<&'static str>,
 }
 pub struct LocationAssessmentBasis {
-    pub valid_until: Option<OffsetDateTime>,
     pub id: party_core::party_location_id::PartyLocationId,
     pub revision: u64,
     pub resolution_generation: Option<u64>,
@@ -402,17 +398,6 @@ pub fn assess_snapshot(
                 evidence: p.evidence,
             }),
             listing_evidence: listing.evidence,
-            geographic_valid_until: dependencies
-                .locations
-                .iter()
-                .filter(|l| {
-                    referenced.contains(&l.location.id())
-                        && l.location.party_id() == listing.operator_id
-                })
-                .filter_map(|l| l.valid_until)
-                .filter(|deadline| *deadline > dependencies.evaluated_at)
-                .min(),
-            evaluated_at: dependencies.evaluated_at,
             input: request.input,
             generic_assessment: effective.assess(&AssessmentInput::default(), &locations),
             effective,
@@ -425,7 +410,6 @@ pub fn assess_snapshot(
                         && l.location.party_id() == listing.operator_id
                 })
                 .map(|l| LocationAssessmentBasis {
-                    valid_until: l.valid_until,
                     id: l.location.id(),
                     revision: l.revision,
                     resolution_generation: l.resolution_generation,
@@ -906,7 +890,6 @@ mod tests {
         )
         .unwrap();
         deps.locations.push(LocationDependency {
-            valid_until: None,
             location: PartyLocation::create(
                 site,
                 party_core::party_id::PartyId::new(),

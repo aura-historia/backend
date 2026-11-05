@@ -2,6 +2,17 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-05 — Administrator review of Party-location geocoding (#2770)
+
+- Added administrator-only `GET /v1/admin/party-location-resolutions`, a review queue of Party locations across all Parties whose geocoding is `BLOCKED`, `FAILED` or `AMBIGUOUS` without a selected candidate. Filter with optional `status`; page with `after` and `limit` (1–100, default 25) using the returned `next`. Each item holds the location as returned by the location routes and its current `resolution`.
+- Added administrator-only `GET /v1/admin/parties/{party_id}/locations/{location_id}/resolution` and `POST` `.../resolution/request`, `.../resolution/accept-candidate` and `.../resolution/retry`. Each returns `{"resolution": ...}`, which is `null` when the location has no geocoding work. `request` takes `expectedRevision` and establishes work for locations created before geocoding. `accept-candidate` takes `expectedRevision`, `resolutionId`, `generation` and `candidateIndex` and applies one acceptable candidate to this location only. `retry` takes `expectedRevision`, `resolutionId`, `generation` and optional `force`, which also discards existing evidence and reviewed selections.
+- A resolution exposes its ID, generation, bound location and input revisions, status, attempts, last failure category, automatically accepted and reviewed candidate indexes, and candidates with normalized geography, position, `acceptable`, provider and `attributionUrl`. Provider record references are never returned. Stale revisions or generations return `409 CONFLICT`; unacceptable or unknown candidates return `400 BAD_BODY_VALUE`; Party location managers who are not administrators receive `403`. Responses are `no-store`.
+
+## 2026-11-05 — Geocoding results no longer expire (#2771)
+
+- Retained geocoding evidence no longer lapses after 7 days for ambiguous results or 30 days for other outcomes. The `resolution` in `/v1/me/addresses` reads no longer turns `UNAVAILABLE` over time. Derived Party-location and listing geography, including reviewed candidate selections, stays until the address changes or a retry is forced.
+- Anonymous listing, search, similar-listing and auction responses with shipping terms are no longer cached for a shorter time ahead of such a deadline.
+
 ## 2026-10-30 — Readable Party and ListingSource slugs (#2654)
 
 - Parties and ListingSources created from now on get their slugified name as `partySlugId` or `listingSourceSlugId`, such as `antiques-and-more`, instead of the name followed by the full UUID. This covers `POST /v1/admin/parties`, `POST /v1/admin/listing-sources` (including a `NEW` operator Party) and the Party and ListingSource created when a proposed-source partnership application is approved. When another Party or ListingSource already holds that slug, the first free of `antiques-and-more-2`, `antiques-and-more-3`, and so on is used, so slugs stay unique.

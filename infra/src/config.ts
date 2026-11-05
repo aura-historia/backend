@@ -142,6 +142,11 @@ export interface StageConfig {
   readonly stripeProYearlyPriceId: string;
   readonly stripeUltimateMonthlyPriceId: string;
   readonly stripeUltimateYearlyPriceId: string;
+  /**
+   * IAM principal of the crawler host in its own AWS account. Only this principal may send to the
+   * product-listing ingestion queue from outside the backend account; undefined grants nothing.
+   */
+  readonly crawlerIngestionPrincipalArn: string | undefined;
 }
 
 export function isStageName(value: string): value is StageName {
@@ -255,6 +260,8 @@ export function stageConfig(stage: StageName): StageConfig {
     stripeProYearlyPriceId: ssmValue(`/stripe/${stage}/pro-yearly-price-id`),
     stripeUltimateMonthlyPriceId: ssmValue(`/stripe/${stage}/ultimate-monthly-price-id`),
     stripeUltimateYearlyPriceId: ssmValue(`/stripe/${stage}/ultimate-yearly-price-id`),
+    // Only the production crawler submits raw captures across accounts.
+    crawlerIngestionPrincipalArn: isProd ? ssmValue(`/crawler/${stage}/principal-arn`) : undefined,
   };
 }
 

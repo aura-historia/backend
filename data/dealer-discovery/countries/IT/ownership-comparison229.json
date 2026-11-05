@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-229",
+  "observedAt": "2026-11-04T17:23:22.201140Z",
+  "result": "DISTINCT_CURRENT_LEGAL_OPERATORS",
+  "newDealer": {
+    "domain": "artearredoandriollo.it",
+    "operator": "Arte Arredo Andriollo di Enrico Andriollo",
+    "vat": "01336200298",
+    "phone": "+393351010528",
+    "nativeContact": "Via G. Ghirardini 164, Badia Polesine",
+    "evidence": [
+      "https://www.artearredoandriollo.it/",
+      "https://www.artearredoandriollo.it/privacy-policy-2/",
+      "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/01336200298"
+    ]
+  },
+  "existingOwner": {
+    "ledger": "data/dealer-discovery/countries/IT/hosted/ag-antichita/dealers.jsonl",
+    "operator": "A.G. Antichità di Giovanni Andriollo",
+    "vat": "01336520299",
+    "phone": "+393483892721",
+    "publishedContact": "Via G. Mazzini 35, Badia Polesine",
+    "evidence": [
+      "https://www.anticoantico.com/espositori/default.asp?idantiquario=2193",
+      "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/01336520299"
+    ]
+  },
+  "reason": "Distinct current official full personal businesses/VATs; different direct phone/native contact. Shared surname/municipality and old Carletti14 references are recorded, not ignored or treated as conclusive identity. No common legal ownership asserted; existing Giovanni resources untouched.",
+  "existingOwnerMutated": false
+}

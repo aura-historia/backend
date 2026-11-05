@@ -23,10 +23,10 @@ each dealer still requires its own qualification.
 [searches.jsonl](searches.jsonl) records recent queries and duplicate-filter results.
 Check it before repeating regional searches; search results remain leads, not import evidence.
 
-Current production checkpoint `2026-11-04-de-283`: **757 Parties and 762 listing sources**,
-**876 locations**, **493 original logo URLs**, **483 advertised-delivery profiles/defaults**,
-and **662 identified platforms**. Discovery created every ingestion list empty.
-The latest live read finds **475 empty** and **287 nonempty** lists; older records now
+Current production checkpoint `2026-11-04-de-301`: **792 Parties and 797 listing sources**,
+**918 locations**, **519 original logo URLs**, **514 advertised-delivery profiles/defaults**,
+and **691 identified platforms**. Discovery created every ingestion list empty.
+The latest live read finds **510 empty** and **287 nonempty** lists; older records now
 contain `WEB_CRAWL`. Standard country verification therefore fails its all-empty
 assertion, while identity, presentation and dated location/profile/default readbacks
 match. Discovery has not changed those live ingestion settings. A Party
@@ -34,7 +34,7 @@ represents the business/operator; the API has no additional organization-create 
 This workflow has not submitted product listings. Paid search, Places, lead verification
 and treg spend: **$0**.
 
-The ledger currently records **148 excluded** and **420 deferred** domains. Use the compact
+The ledger currently records **154 excluded** and **446 deferred** domains. Use the compact
 index for names, IDs, platforms and decision codes, and the ledger for evidence, omissions
 and revisit dates. Research deferrals are not fraud findings. Primary closure notices
 exclude inactive businesses; a closed historic branch or showroom does not by itself
@@ -295,3 +295,5 @@ checks are separate from new discovery; no paid provider is currently necessary.
 
 - Collection arrangements use tagged objects such as `{"kind":"CONTACT_TO_ARRANGE"}`; a bare string is invalid. Reconcile rejected profile creation with the source’s live profile array and default before resuming with retained IDs. Explicit Germany-only delivery supports complete country coverage; unknown pickup streets need no invented site reference.
 - Shipping class codes require real per-item crawler assignments. Keep item-specific furniture, parcel and digital-goods restrictions in observations when assignments do not exist; use unknown service eligibility where source-wide availability cannot be supported. Put a free-shipping threshold on its service and retain an unknown-price fallback. These observations do not authorize ingestion.
+
+- Shipping actors use tagged objects such as `{"kind":"LISTING_SOURCE"}`, not bare enum strings. After a rejected profile write, reconcile the live profile list and default before resuming with retained IDs and the stable creation key. Ledger observations replace top-level `facts` as a whole; journal the complete reviewed facts when correcting one member.

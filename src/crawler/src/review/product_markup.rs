@@ -3,7 +3,12 @@
 //! inspects a page, such as the review agents labelling a URL sample, and decides no approval
 //! (`docs/crawler/extraction-and-review.md`, approval guard).
 
+use crate::scraper::css_selector::rule::{
+    JsonLdProductProperty, is_schema_org_product_iri, json_ld_product_value, top_level_products,
+};
+use schemars::JsonSchema;
 use scraper::{ElementRef, Html, Selector};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -11,12 +16,22 @@ use std::sync::LazyLock;
 static SCRIPTS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("script[type]").unwrap_or_else(|error| panic!("{error}")));
 
+/// The JSON-LD `Product` identifiers a `json_ld_product` rule can read from a page; `None` for
+/// one the page does not carry.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct JsonLdProductIds {
+    /// `productID`, as the `product_id` property reads it.
+    pub product_id: Option<String>,
+    /// `sku`, as the `sku` property reads it.
+    pub sku: Option<String>,
+}
+
 /// Whether `html` describes exactly one schema.org `Product` as a top-level item of its JSON-LD or
 /// of its microdata, and no more than one in either. A JSON-LD item is top-level as a script's
 /// node, a member of a top-level array or of a top-level node's `@graph`, with `@type` naming
-/// schema.org's `Product` as a string or in an array under the node's
-/// [active context](ActiveContext); nodes naming the same `url`, or else the same `@id`,
-/// describe one product, as when a theme and a plugin both mark the page up. A microdata item is
+/// schema.org's `Product` as a string or in an array under the node's active context, as
+/// [`top_level_products`] reads it; nodes naming the same `url`, or else the same `@id`, describe
+/// one product, as when a theme and a plugin both mark the page up. A microdata item is
 /// top-level when no other item contains it, and its `itemtype` names schema.org's own `Product`
 /// IRI. A product nested in another item, such as a list or a page, does not count, and a page that
 /// lists several products top-level, such as a category page marking each product card, is no
@@ -31,18 +46,42 @@ pub fn describes_one_product(html: &str) -> bool {
 /// How many distinct products the top-level JSON-LD `Product` nodes describe: one per `url`, or
 /// else per `@id`, and one per node naming neither.
 fn json_ld_products(document: &Html) -> usize {
-    let scripts: Vec<Value> = document
-        .select(&SCRIPTS)
-        .filter(|script| script.attr("type").is_some_and(is_json_ld_type))
-        .filter_map(|script| serde_json::from_str(&script.text().collect::<String>()).ok())
+    let scripts: Vec<Value> = json_ld_scripts(document)
+        .filter_map(|script| serde_json::from_str(&script).ok())
         .collect();
     let mut nodes = Vec::new();
     for value in &scripts {
-        collect_top_level_products(value, &ActiveContext::initial(), &mut nodes);
+        nodes.extend(top_level_products(value));
     }
     let identified: BTreeSet<String> = nodes.iter().filter_map(|node| identity(node)).collect();
     let anonymous = nodes.iter().filter(|node| identity(node).is_none()).count();
     identified.len() + anonymous
+}
+
+/// The text of each `<script type="application/ld+json">` of the page, in document order.
+fn json_ld_scripts(document: &Html) -> impl Iterator<Item = String> + '_ {
+    document
+        .select(&SCRIPTS)
+        .filter(|script| script.attr("type").is_some_and(is_json_ld_type))
+        .map(|script| script.text().collect::<String>())
+}
+
+/// The identifiers of the page's top-level JSON-LD `Product` that the `json_ld_product`
+/// extraction kind reads, each as a rule on the page's first `ld+json` script with a value would
+/// read it. They are in no element the projection keeps, so the review agents are shown them
+/// beside it.
+pub fn json_ld_product_ids(html: &str) -> JsonLdProductIds {
+    let document = Html::parse_document(html);
+    let scripts: Vec<String> = json_ld_scripts(&document).collect();
+    let read = |property| {
+        scripts
+            .iter()
+            .find_map(|script| json_ld_product_value(script, property))
+    };
+    JsonLdProductIds {
+        product_id: read(JsonLdProductProperty::ProductId),
+        sku: read(JsonLdProductProperty::Sku),
+    }
 }
 
 /// What names the product a node describes: its `url`, or else its `@id`.
@@ -63,170 +102,6 @@ fn is_json_ld_type(media_type: &str) -> bool {
         .is_some_and(|essence| essence.trim().eq_ignore_ascii_case("application/ld+json"))
 }
 
-/// Collects the `Product` nodes of a JSON-LD value at its top level: the value itself, the members
-/// of an array and the members of a node's `@graph`, never a node's other properties. A node's own
-/// `@context` applies to its `@type` and its `@graph`, on top of the `context` it inherits.
-fn collect_top_level_products<'a>(
-    value: &'a Value,
-    context: &ActiveContext,
-    products: &mut Vec<&'a Map<String, Value>>,
-) {
-    match value {
-        Value::Array(nodes) => {
-            for node in nodes {
-                collect_top_level_products(node, context, products);
-            }
-        }
-        Value::Object(node) => {
-            let context = node
-                .get("@context")
-                .map_or_else(|| context.clone(), |local| context.with(local));
-            if node
-                .get("@type")
-                .is_some_and(|types| context.names_product_in(types))
-            {
-                products.push(node);
-            }
-            if let Some(graph) = node.get("@graph") {
-                collect_top_level_products(graph, &context, products);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// What a JSON-LD node's `@context` makes of the type names `Product` and `prefix:Product`, read
-/// without fetching anything: whether the bare term is schema.org's `Product`, and which prefixes
-/// are bound to schema.org's vocabulary. A node without any context counts the bare term, as pages
-/// that omit the context mean schema.org; a context it cannot read, such as another remote
-/// context, counts neither, so a node of another vocabulary never counts.
-#[derive(Clone, Debug)]
-struct ActiveContext {
-    bare_product: bool,
-    schema_org_prefixes: BTreeSet<String>,
-}
-
-impl ActiveContext {
-    fn initial() -> Self {
-        Self {
-            bare_product: true,
-            schema_org_prefixes: BTreeSet::new(),
-        }
-    }
-
-    fn unreadable() -> Self {
-        Self {
-            bare_product: false,
-            schema_org_prefixes: BTreeSet::new(),
-        }
-    }
-
-    /// This context with `context` processed on top of it: `null` resets it, schema.org's own
-    /// context makes `Product` and `schema:Product` schema.org's, an array applies each entry in
-    /// order, and an object applies its `@vocab`, its prefix definitions and a definition of the
-    /// term `Product`.
-    fn with(&self, context: &Value) -> Self {
-        match context {
-            Value::Null => Self::initial(),
-            Value::String(iri) if is_schema_org_context(iri) => Self {
-                bare_product: true,
-                schema_org_prefixes: BTreeSet::from(["schema".to_owned()]),
-            },
-            Value::Array(contexts) => contexts
-                .iter()
-                .fold(self.clone(), |active, context| active.with(context)),
-            Value::Object(definitions) => self.with_definitions(definitions),
-            _ => Self::unreadable(),
-        }
-    }
-
-    fn with_definitions(&self, definitions: &Map<String, Value>) -> Self {
-        let mut active = self.clone();
-        if let Some(vocab) = definitions.get("@vocab") {
-            active.bare_product = vocab.as_str().is_some_and(is_schema_org_vocabulary);
-        }
-        for (term, definition) in definitions
-            .iter()
-            .filter(|(term, _)| !term.starts_with('@'))
-        {
-            let iri = match definition {
-                Value::Object(expanded) => expanded.get("@id").and_then(Value::as_str),
-                other => other.as_str(),
-            };
-            if term == "Product" {
-                active.bare_product = iri.is_some_and(|iri| self.names_product(iri));
-            } else if iri.is_some_and(is_schema_org_vocabulary) {
-                active.schema_org_prefixes.insert(term.clone());
-            } else {
-                active.schema_org_prefixes.remove(term);
-            }
-        }
-        active
-    }
-
-    /// Whether a node's `@type`, a name or an array of names, includes schema.org's `Product`.
-    fn names_product_in(&self, types: &Value) -> bool {
-        match types {
-            Value::String(name) => self.names_product(name),
-            Value::Array(names) => names
-                .iter()
-                .any(|name| name.as_str().is_some_and(|name| self.names_product(name))),
-            _ => false,
-        }
-    }
-
-    /// `Product` in schema.org's vocabulary: its IRI, or the bare term or a compact
-    /// `prefix:Product` this context maps to it.
-    fn names_product(&self, name: &str) -> bool {
-        let name = name.trim();
-        if is_product_iri(name) {
-            return true;
-        }
-        if name == "Product" {
-            return self.bare_product;
-        }
-        name.split_once(':').is_some_and(|(prefix, term)| {
-            term == "Product" && self.schema_org_prefixes.contains(prefix)
-        })
-    }
-}
-
-/// schema.org's own address of `Product`: `http` or `https`, the host `schema.org` or
-/// `www.schema.org`, and the path `/Product`, with or without one trailing slash. schema.org
-/// publishes `https://schema.org/Product`; the other forms are spellings pages use for the same
-/// term. Scheme and host match in any case, as URLs do; the term is case-sensitive, as schema.org's
-/// terms are. Anything else, such as another host ending in `schema.org` or a path ending in
-/// `schema.org/Product`, names another vocabulary's type.
-fn is_product_iri(name: &str) -> bool {
-    matches!(schema_org_path(name), Some("Product" | "Product/"))
-}
-
-/// schema.org's vocabulary address, `https://schema.org/` in any of the spellings
-/// [`is_product_iri`] accepts, with or without the trailing slash.
-fn is_schema_org_vocabulary(iri: &str) -> bool {
-    schema_org_path(iri.trim()) == Some("")
-}
-
-/// A JSON-LD context that is schema.org's own: its vocabulary address, which serves the context,
-/// or the context document it publishes.
-fn is_schema_org_context(iri: &str) -> bool {
-    matches!(
-        schema_org_path(iri.trim()),
-        Some("" | "docs/jsonldcontext.json" | "docs/jsonldcontext.jsonld")
-    )
-}
-
-/// The path of an `http` or `https` address on `schema.org` or `www.schema.org`, without its
-/// leading slash; `None` for any other address.
-fn schema_org_path(iri: &str) -> Option<&str> {
-    let (scheme, address) = iri.split_once("://")?;
-    let (host, path) = address.split_once('/').unwrap_or((address, ""));
-    let web = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
-    let schema_org =
-        host.eq_ignore_ascii_case("schema.org") || host.eq_ignore_ascii_case("www.schema.org");
-    (web && schema_org).then_some(path)
-}
-
 /// How many microdata items inside no other item name `Product` in their `itemtype`. One pass
 /// over the document tracks whether an item contains each node, so a deeply nested page, which
 /// the shop controls, costs no more than its size; looking up each item's ancestors would cost
@@ -239,7 +114,11 @@ fn microdata_products(document: &Html) -> usize {
         if !inside_item
             && item
                 .and_then(|item| item.attr("itemtype"))
-                .is_some_and(|types| types.split_ascii_whitespace().any(is_product_iri))
+                .is_some_and(|types| {
+                    types
+                        .split_ascii_whitespace()
+                        .any(is_schema_org_product_iri)
+                })
         {
             products += 1;
         }

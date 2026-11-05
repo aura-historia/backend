@@ -11,6 +11,7 @@ geo = { workspace = true }
 geo-service = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
 localization = { workspace = true }

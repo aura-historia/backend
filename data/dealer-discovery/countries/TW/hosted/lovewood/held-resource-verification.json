@@ -1,5 +1,5 @@
 {
-  "verifiedAt": "2026-11-04T14:06:32.904936Z",
+  "verifiedAt": "2026-11-04T16:04:27.316609Z",
   "scope": "Resource integrity only; exclusions and qualification holds remain unchanged. Exact externally configured ingestion methods are preserved under explicit user instruction.",
   "externalIngestionAuthorization": "external-ingestion-observations.json",
   "dealers": [
@@ -15,7 +15,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:32.904819Z",
+      "verifiedAt": "2026-11-04T16:04:27.316425Z",
       "observationDigest": "35bf44c2a44b2071a4a514ebc9f321488b710483851191a15d73679a32d49a52",
       "externalIngestionConfigurationPreserved": true
     }

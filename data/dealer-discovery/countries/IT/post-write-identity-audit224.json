@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-224",
+  "country": "IT",
+  "observedAt": "2026-11-04T16:33:03.233107Z",
+  "result": "PASSED",
+  "rawJournalFiles": 400,
+  "rawJournalRecordsScanned": 63517,
+  "apiWriteAttemptsThisRun": 13,
+  "decisions": {
+    "added": [
+      "shop.tuttoantico.it",
+      "IT:PROANTIC:799",
+      "anticograndicostanza.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot224-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T16:31:18.290879Z",
+    "fullVerifiedAt": "2026-11-04T16:19:42.092851Z",
+    "counts": {
+      "parties": 413,
+      "listingSources": 413,
+      "locations": 466,
+      "logos": 287,
+      "identifiedPlatforms": 341,
+      "deliveryProfiles": 188,
+      "emptyIngestionMethods": 413,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Malova native: complete Antichità di Alina Malova personal business and current native contact/own Shopify offer agree with exact Proantic2400 native link/full contact. Terms section20 email tuttoantico@icloud.com adopted; secondary Gmail omitted. No VAT/logo/formal legal suffix. Actual2330x3106 interior painting inspected. Enabled add button/availabletrue/InStock establishes merchant current offer despite generic hidden sold-out labels; homepage Monaldi pair sold notqualification. Native50125 versus hosted50100 postal conflict retained, structured postal omitted. Shop BUSINESS_PREMISES only. Eight ordered advertised destination zones plus AU/CN/KR quote service, PARTIAL coverage and BY/SouthAmerica/Africa exclusions preserved. USA80/120/300EUR size tariffs unstructured pending real classes; no fabricated class/basis.4-9day text not numeric universal leadtime; currency selector/pickup-widget failure not geography/collection.",
+    "Grandi native: explicit current footer diCostanzaGrandi/VAT02199030343, privacy and current official-positive GRANDICOSTANZA/exactaddress matched. Founder AnnaMariaBerziga not current operator. Native selected product2662 explicitly instock, actual600x600 antique-frame photo and original136x120PNG header logo inspected, no upscale or larger-original claim. Actual WooCommerce productgallery/runtime/plugin fingerprint. One Nazionale66/OzzanoTaro shop BUSINESS_PREMISES; no registered/stock/dispatch/pickup/default. Generic product shipping quote PARTIAL UNRESOLVED destinations/OFFERED/ON_REQUEST with unknown currency/basis; no inferred worldwide delivery or freight guarantees. Exact Proantic3591 corroboration only, no secondsource.",
+    "Lacoste799: full currently published GianmarcoLacoste personal business/direct mobile/current Rome contact adopted without guessed suffix, formal legal form/VAT/founder Parties. Actual1190x1200 framed SaintCecilia painting inspected, seller oil/alabaster/lateXVII/frame descriptions not independent guarantees. Contact roles[], no logo/email/native/fulfillment/stock/dispatch/pickup/default. Directory fixed phone not imported. No human-relic purchase or authentication claim.",
+    "Pintucci2193 exact current profile/native link/phone resolved to existing native-owned Italy record with IDs preserved. No duplicate hosted source/enrichment. Two native-storefront references2400/3591 resolve to their newly reviewed native records, not separate provider-hosted sources. A read-only Grandi dry run hit the main-ledger local lock before API access and passed when run after the other native dry run; no write retry or uncertain mutation."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

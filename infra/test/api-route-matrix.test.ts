@@ -118,7 +118,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(153);
+      expect(routes).toHaveLength(158);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || key === "GET /.well-known/oauth-authorization-server")).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -190,6 +190,29 @@ describe("HTTP API route policy matrix", () => {
     const publicRoutes = API_ROUTE_CATALOG.filter((route) =>
       route.path.startsWith("/v1/public/parties/{party_id}/locations"));
     expect(publicRoutes).toHaveLength(0);
+  });
+
+  test("restricts Party-location resolution review to administrators without discovery caching", () => {
+    const routes = API_ROUTE_CATALOG.filter((route) =>
+      route.path === "/v1/admin/party-location-resolutions" ||
+      route.path.startsWith("/v1/admin/parties/{party_id}/locations/{location_id}/resolution"));
+    expect(routes.map((route) => `${route.method} ${route.path}`)).toEqual([
+      "GET /v1/admin/party-location-resolutions",
+      "GET /v1/admin/parties/{party_id}/locations/{location_id}/resolution",
+      "POST /v1/admin/parties/{party_id}/locations/{location_id}/resolution/request",
+      "POST /v1/admin/parties/{party_id}/locations/{location_id}/resolution/accept-candidate",
+      "POST /v1/admin/parties/{party_id}/locations/{location_id}/resolution/retry",
+    ]);
+    for (const route of routes) {
+      expect(route.auth).toBe(RouteAuthPolicy.ApplicationBearer);
+      expect(route.policy).toEqual({
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.Administrator,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(false);
+    }
   });
 
   test("exposes four source location default methods with source management authority and no discovery cache", () => {
@@ -483,7 +506,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(153);
+    expect(routes).toHaveLength(158);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; adding exact discovery creates one route.
     expect(routes.length).toBeLessThanOrEqual(300);

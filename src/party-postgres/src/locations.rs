@@ -82,7 +82,7 @@ impl PartyLocationReaderFactory<SqlxTransaction> for SqlxPartyLocationReaderFact
         }
     }
 }
-fn sql_error(source: sqlx::Error) -> PartyLocationError {
+pub(crate) fn sql_error(source: sqlx::Error) -> PartyLocationError {
     if let sqlx::Error::Database(ref e) = source
         && (e.is_foreign_key_violation() || e.is_unique_violation() || e.is_check_violation())
     {
@@ -449,7 +449,7 @@ impl PartyLocationRepository for LocationRepository<'_> {
 
 /// Storage representation for protected management reads.
 #[derive(FromRow)]
-struct ViewRow {
+pub(crate) struct ViewRow {
     party_location_id: Uuid,
     party_id: Uuid,
     label: String,

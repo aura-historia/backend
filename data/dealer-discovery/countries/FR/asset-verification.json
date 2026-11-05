@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-04-fr-336",
-  "observedAt": "2026-11-04T14:46:48.988328Z",
+  "run": "2026-11-04-fr-354",
+  "observedAt": "2026-11-04T17:03:16.213584Z",
   "scope": "CACHED_ORIGINAL_ASSET_METADATA",
   "notes": [
     "Checks the already downloaded and visually reviewed original files against current owned-ledger metadata; this is not a fresh network/logo-availability claim.",
     "Raster pixels, SVG viewBox/rounded extents, binary media format and exact cached bytes are checked. API source URLs and original image URLs are unchanged."
   ],
-  "verifiedCount": 417,
+  "verifiedCount": 436,
   "mismatches": [],
   "resources": [
     {
@@ -5309,6 +5309,270 @@
         "kind": "RASTER_PIXELS",
         "width": 122,
         "height": 126
+      }
+    },
+    {
+      "domain": "la-grange.fr",
+      "listingSourceId": "ls_01m6kgv45cefsbfm0tqn719gz6",
+      "url": "https://www.la-grange.fr/local/cache-vignettes/L550xH206/siteon0-227ce.png?1728151194",
+      "mediaType": "image/png",
+      "bytes": 12294,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 550,
+        "height": 206
+      }
+    },
+    {
+      "domain": "troc29.fr",
+      "listingSourceId": "ls_01m6kgv5xweh9vmswbc34nfabt",
+      "url": "https://www.troc29.fr/wp-content/uploads/2015/04/LogoTroc-2-3002.png",
+      "mediaType": "image/png",
+      "bytes": 15766,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 300,
+        "height": 132
+      }
+    },
+    {
+      "domain": "herminie.fr",
+      "listingSourceId": "ls_01m6kha0hge1zagh7gcgcewv26",
+      "url": "https://herminie.fr/__l5e/assets-v1/9cc16e71-e16b-4bad-9bb5-0977bfb10bc7/logo-herminie.png",
+      "mediaType": "image/png",
+      "bytes": 38324,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 902,
+        "height": 303
+      }
+    },
+    {
+      "domain": "librairie-koegui.fr",
+      "listingSourceId": "ls_01m6kjzd4aebss9eyfjrzx0sva",
+      "url": "https://www.librairie-koegui.fr/cdn/shop/files/logo-librairie-bleu_e5c35a36-2945-4602-baa0-5379f1c597d5.svg?v=1775805783",
+      "mediaType": "image/svg+xml",
+      "bytes": 19352,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0.0,
+          0.0,
+          400.0,
+          66.0
+        ],
+        "recordedDimensions": [
+          400,
+          66
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "librairie-jakin.com",
+      "listingSourceId": "ls_01m6kjzf60evjsd8zdhexz5e8q",
+      "url": "https://www.librairie-jakin.com/img/cms/titre-librairie-jakin.png",
+      "mediaType": "image/png",
+      "bytes": 31623,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1001,
+        "height": 135
+      }
+    },
+    {
+      "domain": "elbe.paris",
+      "listingSourceId": "ls_01m6km2hh1e84r9gsaa44e2mb4",
+      "url": "https://www.elbe.paris/themes/elbe-paris/assets/img/elbe-paris-logo.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 7985,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0.0,
+          0.0,
+          1000.0,
+          1000.0
+        ],
+        "recordedDimensions": [
+          1000,
+          1000
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "librairie-lebail.fr",
+      "listingSourceId": "ls_01m6kmw3pee3wr19v5wke3ret4",
+      "url": "https://www.librairie-lebail.fr/sites/librairie-lebail.fr/files/bandeau.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 49323,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 984,
+        "height": 130
+      }
+    },
+    {
+      "domain": "loeb-larocque.com",
+      "listingSourceId": "ls_01m6kmw5j2ex7rnjnzyf1cvv3t",
+      "url": "https://www.loeb-larocque.com/eshop/image/catalog/LLLeshop.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 36670,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 197,
+        "height": 181
+      }
+    },
+    {
+      "domain": "affiches-francaises.com",
+      "listingSourceId": "ls_01m6kn53gbewr8f1dqy6zkfy24",
+      "url": "https://affiches-francaises.com/cdn/shop/files/AF_LOGO_BLACK.png?v=1648737748",
+      "mediaType": "image/png",
+      "bytes": 14794,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 770,
+        "height": 196
+      }
+    },
+    {
+      "domain": "galerieours.com",
+      "listingSourceId": "ls_01m6kncy2sezy8ktk2qmxx4tpq",
+      "url": "https://galerieours.com/wp-content/uploads/2022/04/logogalerieours.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 5641,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 299,
+        "height": 133
+      }
+    },
+    {
+      "domain": "place-des-arts.com",
+      "listingSourceId": "ls_01m6knp679e08v41yr3n6dp33n",
+      "url": "https://place-des-arts.com/cdn/shop/files/PDA-Logo-Dark-V2.svg?v=1785327761",
+      "mediaType": "image/svg+xml",
+      "bytes": 16944,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0.0,
+          0.0,
+          158.0,
+          23.0
+        ],
+        "recordedDimensions": [
+          158,
+          23
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "estampes-japonaises.com",
+      "listingSourceId": "ls_01m6knp8bbemytqj59zdfwn43d",
+      "url": "https://estampes-japonaises.com/cdn/shop/files/Logo-Titre-white_7b6c6caf-606e-4665-97f5-92835ad5cc0d.svg?v=1780314603",
+      "mediaType": "image/svg+xml",
+      "bytes": 8432,
+      "geometry": {
+        "kind": "SVG_VIEWBOX",
+        "viewBox": [
+          0.0,
+          0.0,
+          236.72,
+          96.54
+        ],
+        "recordedDimensions": [
+          237,
+          97
+        ],
+        "rounding": "CEILING"
+      }
+    },
+    {
+      "domain": "laffitteimagine.com",
+      "listingSourceId": "ls_01m6kp1hdxej089p2qdpnnmbrq",
+      "url": "https://images.squarespace-cdn.com/content/v1/6920cd8ceb91cb3b7ec2abbc/fd983c59-3341-403d-a3b7-495ca6313c85/LaffitteImagine-exe-signature.png",
+      "mediaType": "image/png",
+      "bytes": 12878,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 583,
+        "height": 346
+      }
+    },
+    {
+      "domain": "annemarguet-art.com",
+      "listingSourceId": "ls_01m6kpgvf1ehda7p3qc1y76h5a",
+      "url": "https://www.annemarguet-art.com/wp-content/uploads/go-x/u/c53a6665-837e-4b67-b9bf-6b1d4bd554dd/image-911x911.png",
+      "mediaType": "image/png",
+      "bytes": 172137,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 911,
+        "height": 911
+      }
+    },
+    {
+      "domain": "galeriedescuriosites.com",
+      "listingSourceId": "ls_01m6kpgx22e79tbrtsr40tfees",
+      "url": "https://static.wixstatic.com/media/6d9133_c2f3617bffd044e995f00e944364ec53~mv2_d_1993_2000_s_2.png",
+      "mediaType": "image/png",
+      "bytes": 95322,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 1993,
+        "height": 2000
+      }
+    },
+    {
+      "domain": "divanak.com",
+      "listingSourceId": "ls_01m6kq0ks3e2cbyfc5s89bfkkp",
+      "url": "https://divanak.com/wp-content/uploads/2026/02/logo_200.webp",
+      "mediaType": "image/webp",
+      "bytes": 6482,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 200,
+        "height": 80
+      }
+    },
+    {
+      "domain": "estampesdeminuit.com",
+      "listingSourceId": "ls_01m6kq0nm5epwtnvhd2dythe69",
+      "url": "https://images.squarespace-cdn.com/content/v1/692d4d88b04bf13089e092cc/4b37b1a0-b49b-4af9-9f1c-af3585e0289f/logo-estampes-de-minuit-bleu-nuit.png",
+      "mediaType": "image/png",
+      "bytes": 17463,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 150
+      }
+    },
+    {
+      "domain": "galerienicolasbourriaud.com",
+      "listingSourceId": "ls_01m6kr3eb2e0ws2g4k5dxbh5w3",
+      "url": "https://www.galerienicolasbourriaud.com/wp-content/uploads/2022/10/cropped-logo-nicolas-bourriaud.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 15009,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 726,
+        "height": 75
+      }
+    },
+    {
+      "domain": "galerie-institut.com",
+      "listingSourceId": "ls_01m6kr3hhzecmrzk17srd0xgfm",
+      "url": "https://galerie-institut.com/wp-content/uploads/2020/11/Logo-Galerie-de-lInstitut-ss-dome-1-e1606474165464.png",
+      "mediaType": "image/png",
+      "bytes": 2526,
+      "geometry": {
+        "kind": "RASTER_PIXELS",
+        "width": 500,
+        "height": 118
       }
     }
   ]

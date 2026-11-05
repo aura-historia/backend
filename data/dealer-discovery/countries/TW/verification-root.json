@@ -1,9 +1,9 @@
 {
-  "run": "tw-2026-11-04-144",
-  "verifiedAt": "2026-11-04T14:45:59.421715Z",
+  "run": "tw-2026-11-04-152",
+  "verifiedAt": "2026-11-04T16:15:11.144590Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-04T14:06:53.831326Z",
+  "fullVerifiedAt": "2026-11-04T16:04:51.095068Z",
   "dealersCheckedThisRun": 0,
   "dealersReused": 74,
   "counts": {
@@ -19,8 +19,8 @@
     "deferred": 133
   },
   "environmentCounts": {
-    "parties": 4579,
-    "listingSources": 4622
+    "parties": 4712,
+    "listingSources": 4757
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -44,7 +44,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:42.529831Z",
+      "verifiedAt": "2026-11-04T16:04:38.883706Z",
       "observationDigest": "bd94c218607ff062687479b1da5f332fde6c1b7c529ed20ac5c5cc310853906a",
       "externalIngestionConfigurationPreserved": true
     },
@@ -58,7 +58,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:42.651025Z",
+      "verifiedAt": "2026-11-04T16:04:38.965345Z",
       "observationDigest": "2de2695316bd14e7e9212569d215d05f137fda83a5c9139fc18009e3585ca885",
       "externalIngestionConfigurationPreserved": false
     },
@@ -72,7 +72,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:42.517454Z",
+      "verifiedAt": "2026-11-04T16:04:38.836022Z",
       "observationDigest": "de873d192aebf7adf036fbac918a90ba5e2c4c3e575eff78706e7a119312edf9",
       "externalIngestionConfigurationPreserved": false
     },
@@ -86,7 +86,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.006947Z",
+      "verifiedAt": "2026-11-04T16:04:39.364115Z",
       "observationDigest": "23fd0744e408bf05cb518d1badb900211157f1cba6766441fbd04a7f8e0824ec",
       "externalIngestionConfigurationPreserved": false
     },
@@ -100,7 +100,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.044121Z",
+      "verifiedAt": "2026-11-04T16:04:39.438943Z",
       "observationDigest": "f919624548b3157b4183641c36754880cdf3bae3cc76c1920a2ee9340233d5ea",
       "externalIngestionConfigurationPreserved": false
     },
@@ -114,7 +114,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.146476Z",
+      "verifiedAt": "2026-11-04T16:04:39.481296Z",
       "observationDigest": "89c2dbf2ed915fe01a45753fe2b7b1dc372258927287a8fc561fa296c141ee7a",
       "externalIngestionConfigurationPreserved": false
     },
@@ -130,7 +130,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.476071Z",
+      "verifiedAt": "2026-11-04T16:04:39.905483Z",
       "observationDigest": "8720ea45438ff2d708e6cebfd3c8e07f4423c081e929ac1df8500493c34fc0f7",
       "externalIngestionConfigurationPreserved": true
     },
@@ -144,7 +144,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.518740Z",
+      "verifiedAt": "2026-11-04T16:04:39.947511Z",
       "observationDigest": "6c351f1e1719d2250f551c3d4becdc8e0059bfca564facc7d8c18b1226e9d23e",
       "externalIngestionConfigurationPreserved": false
     },
@@ -158,7 +158,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.622241Z",
+      "verifiedAt": "2026-11-04T16:04:39.983541Z",
       "observationDigest": "7c0d81460eaee59d6a78d2c62b46168249d9fed66ee0e0269b6580ddeb186437",
       "externalIngestionConfigurationPreserved": false
     },
@@ -172,7 +172,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:43.870273Z",
+      "verifiedAt": "2026-11-04T16:04:40.334916Z",
       "observationDigest": "d1ceb9348a3aa55cb9645d01cf2a8cd3795a017b26386780d2af0e9d03100fed",
       "externalIngestionConfigurationPreserved": false
     },
@@ -186,7 +186,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:44.028884Z",
+      "verifiedAt": "2026-11-04T16:04:40.497332Z",
       "observationDigest": "5786a428031432f1756478d48992385fdc1cd1faab45657c83714978fb0ef017",
       "externalIngestionConfigurationPreserved": false
     },
@@ -202,7 +202,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:44.116722Z",
+      "verifiedAt": "2026-11-04T16:04:40.514110Z",
       "observationDigest": "136ede12e143c8244fca15b92177eb9de7e3bc042f79fe1c131c1f0df33b9559",
       "externalIngestionConfigurationPreserved": true
     },
@@ -216,7 +216,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:44.283865Z",
+      "verifiedAt": "2026-11-04T16:04:40.716036Z",
       "observationDigest": "69be426aadc195b77fc1c1f9d02f9e7fb07f1f39177b995b73a5374f0f9da4fe",
       "externalIngestionConfigurationPreserved": false
     },
@@ -230,7 +230,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:44.563208Z",
+      "verifiedAt": "2026-11-04T16:04:41.009697Z",
       "observationDigest": "2c475a29a93a53a5b141086f20fee2696b44570eaa4f2db4d8ed87dc35ba3bf8",
       "externalIngestionConfigurationPreserved": false
     },
@@ -244,7 +244,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:44.639985Z",
+      "verifiedAt": "2026-11-04T16:04:41.019569Z",
       "observationDigest": "6b75d2fb3b63e63c8c31892bdb9bb1f9fb46d5a159faa5a45695708ccf6d2156",
       "externalIngestionConfigurationPreserved": false
     },
@@ -258,7 +258,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:44.772982Z",
+      "verifiedAt": "2026-11-04T16:04:41.231321Z",
       "observationDigest": "ec11c4ab31016270ccc5494dd3b8a8f5380b9d3b0b4cedb4486dbd3f3af045d3",
       "externalIngestionConfigurationPreserved": false
     },
@@ -272,7 +272,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:45.206492Z",
+      "verifiedAt": "2026-11-04T16:04:41.602103Z",
       "observationDigest": "b8b6113cba9b103a9e2905aa91aa64305cac48bf4081b21d197ef75a6a3d3100",
       "externalIngestionConfigurationPreserved": false
     },
@@ -286,7 +286,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:45.364810Z",
+      "verifiedAt": "2026-11-04T16:04:41.529507Z",
       "observationDigest": "bc8c5a31486bff96166d864da460de7c93b9a013e852d70bdfaf6ee89e001526",
       "externalIngestionConfigurationPreserved": false
     },
@@ -300,7 +300,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:45.476762Z",
+      "verifiedAt": "2026-11-04T16:04:41.749523Z",
       "observationDigest": "43d9e2773f3203e2c2f2c2ea3f004090c1712412725938041c17131f73d5292b",
       "externalIngestionConfigurationPreserved": false
     },
@@ -316,7 +316,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:45.807045Z",
+      "verifiedAt": "2026-11-04T16:04:42.054535Z",
       "observationDigest": "39d1a095126aca67f48cf38a65470232fad32abb413e3e80f752b66824a3aadb",
       "externalIngestionConfigurationPreserved": true
     },
@@ -332,7 +332,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:45.702939Z",
+      "verifiedAt": "2026-11-04T16:04:41.956350Z",
       "observationDigest": "dcc5c4fd465dba3b63360c834c49967b7159284d14a0f767d3eaf91fd39a268b",
       "externalIngestionConfigurationPreserved": true
     },
@@ -348,7 +348,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:45.990523Z",
+      "verifiedAt": "2026-11-04T16:04:42.466002Z",
       "observationDigest": "acb529a77e9ffec11b2ab3d836fa4ef2a7d0d2deede1c3097f8ccce79cbbd6a6",
       "externalIngestionConfigurationPreserved": true
     },
@@ -364,7 +364,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:46.018177Z",
+      "verifiedAt": "2026-11-04T16:04:42.418430Z",
       "observationDigest": "bce0cc01690481d9620729cab0c402a7623791ec043cf9432cd75b74e4690495",
       "externalIngestionConfigurationPreserved": true
     },
@@ -378,7 +378,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:46.259387Z",
+      "verifiedAt": "2026-11-04T16:04:42.732914Z",
       "observationDigest": "24d087f4c6528daba3a5c9be2c53c3c82bfe685eba40ed40f177ffdcc030c717",
       "externalIngestionConfigurationPreserved": false
     },
@@ -392,7 +392,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:46.563636Z",
+      "verifiedAt": "2026-11-04T16:04:43.044248Z",
       "observationDigest": "5bb99e1cab2839ae532bdcb2aa474fdfca569c54e70711179f6755dc227a8c2b",
       "externalIngestionConfigurationPreserved": false
     },
@@ -406,7 +406,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:46.619955Z",
+      "verifiedAt": "2026-11-04T16:04:43.226694Z",
       "observationDigest": "624933628e54e93b25a5deef5ec6f537b9a1d68169b22bce5fd88baf2f5006ef",
       "externalIngestionConfigurationPreserved": false
     },
@@ -420,7 +420,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:46.763528Z",
+      "verifiedAt": "2026-11-04T16:04:43.186127Z",
       "observationDigest": "6e99112aeb3fadd154ed48df55cfa7d2355ece7149fd8dda8902b61e19121091",
       "externalIngestionConfigurationPreserved": false
     },
@@ -434,7 +434,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:46.963949Z",
+      "verifiedAt": "2026-11-04T16:04:43.454628Z",
       "observationDigest": "66507ef0c20fe8c4599537f1553a3877f2ba8ed08ebdee3e6be2fe0e75fbfaa2",
       "externalIngestionConfigurationPreserved": false
     },
@@ -448,7 +448,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:47.131304Z",
+      "verifiedAt": "2026-11-04T16:04:43.752302Z",
       "observationDigest": "f852bae1b30b6bfe33f3f2c9b1dcd4ae867f68c8954d838588e41c92d79dfeb5",
       "externalIngestionConfigurationPreserved": false
     },
@@ -464,7 +464,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:47.160981Z",
+      "verifiedAt": "2026-11-04T16:04:43.666970Z",
       "observationDigest": "4382b2664601c7dc32f88b0f93f224b2d0236be798fefca5d1203b519f112f12",
       "externalIngestionConfigurationPreserved": true
     },
@@ -480,7 +480,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:47.394626Z",
+      "verifiedAt": "2026-11-04T16:04:43.918434Z",
       "observationDigest": "a32e94f5836e53c60d20007f74682952cc3e7f623c287798abf1c03f8de18ae1",
       "externalIngestionConfigurationPreserved": true
     },
@@ -494,7 +494,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:47.657720Z",
+      "verifiedAt": "2026-11-04T16:04:44.318758Z",
       "observationDigest": "cdebb985f92307db5372e05f34b9549395928e2df1a41e30f8c57f672f1e777b",
       "externalIngestionConfigurationPreserved": false
     },
@@ -508,7 +508,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:47.691846Z",
+      "verifiedAt": "2026-11-04T16:04:44.436957Z",
       "observationDigest": "774532083a3ef4cdac6bf66f73da8216581876ac4ae26a7347cf6fd18168e8cf",
       "externalIngestionConfigurationPreserved": false
     },
@@ -522,7 +522,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:47.989129Z",
+      "verifiedAt": "2026-11-04T16:04:44.726552Z",
       "observationDigest": "b84f84383bca0e7102ffd810356a2f0fa38a623f71b870ab4e16a8031dc132cb",
       "externalIngestionConfigurationPreserved": false
     },
@@ -538,7 +538,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:48.174947Z",
+      "verifiedAt": "2026-11-04T16:04:44.877631Z",
       "observationDigest": "86076b3d39dcb91818fb76e5421ba4f23e1ad35edd79e130932fe885ba491136",
       "externalIngestionConfigurationPreserved": true
     },
@@ -552,7 +552,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:48.194659Z",
+      "verifiedAt": "2026-11-04T16:04:45.092118Z",
       "observationDigest": "8175f1be4910bd4d322320e4c8aa1c9c46798fb65167fdd3ebd5648a9c73f41b",
       "externalIngestionConfigurationPreserved": false
     },
@@ -568,7 +568,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:48.293247Z",
+      "verifiedAt": "2026-11-04T16:04:45.177073Z",
       "observationDigest": "a842e077db84892e6ebddf199f0540fe6781a61abc8016334b42cc18ee833bd5",
       "externalIngestionConfigurationPreserved": true
     },
@@ -582,7 +582,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:48.699874Z",
+      "verifiedAt": "2026-11-04T16:04:45.639042Z",
       "observationDigest": "18aeabf00950d0010fe2dad182b8ef935e7e6ea6769e4e1f1fe8c54ef15fa632",
       "externalIngestionConfigurationPreserved": false
     },
@@ -596,7 +596,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:48.706880Z",
+      "verifiedAt": "2026-11-04T16:04:45.763404Z",
       "observationDigest": "db50643a5f660328ad5b4d4f57ca918e6711c666c04a9dd8d93beacf9bb9370d",
       "externalIngestionConfigurationPreserved": false
     },
@@ -610,7 +610,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:48.687080Z",
+      "verifiedAt": "2026-11-04T16:04:45.722129Z",
       "observationDigest": "66e433e8f94eaa34d9649a323b02a88236a821123eb657566a122954ef539aa2",
       "externalIngestionConfigurationPreserved": false
     },
@@ -626,7 +626,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.134037Z",
+      "verifiedAt": "2026-11-04T16:04:46.077383Z",
       "observationDigest": "3efedd2a0155d70a70f6b5f780d62d334e85528f0dda8045b4d92dbcb57bc70e",
       "externalIngestionConfigurationPreserved": true
     },
@@ -640,7 +640,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.104309Z",
+      "verifiedAt": "2026-11-04T16:04:46.157376Z",
       "observationDigest": "9f7cfbed054585928d0b43ab0b26b945030a290c7106317cc4e07f4044467888",
       "externalIngestionConfigurationPreserved": false
     },
@@ -656,7 +656,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.196753Z",
+      "verifiedAt": "2026-11-04T16:04:46.297779Z",
       "observationDigest": "7704404d63763e08bbdc7a305f4796b0a527fee18f3ecac435570fee79fbcbc4",
       "externalIngestionConfigurationPreserved": true
     },
@@ -672,7 +672,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.430680Z",
+      "verifiedAt": "2026-11-04T16:04:46.424194Z",
       "observationDigest": "c0d3a4a08fbc01bb16cede649fa727c80ffe4e7650ab2fe83651c485e99c0095",
       "externalIngestionConfigurationPreserved": true
     },
@@ -686,7 +686,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.607371Z",
+      "verifiedAt": "2026-11-04T16:04:46.709845Z",
       "observationDigest": "11b50d22de53b9126b4b47130f9116cc86d01f06a29a9a0675ca46f6c22658e5",
       "externalIngestionConfigurationPreserved": false
     },
@@ -702,7 +702,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.572484Z",
+      "verifiedAt": "2026-11-04T16:04:46.779348Z",
       "observationDigest": "6808be0c1e7b56961aa39a23433ce41e957a6d1200edeeb948918d443f7c56ee",
       "externalIngestionConfigurationPreserved": true
     },
@@ -718,7 +718,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.838617Z",
+      "verifiedAt": "2026-11-04T16:04:46.839305Z",
       "observationDigest": "4d3a1c491b7e991cc26caaeb1632d3354403d20da829ddf6286dd7b61f38504d",
       "externalIngestionConfigurationPreserved": true
     },
@@ -734,7 +734,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.066984Z",
+      "verifiedAt": "2026-11-04T16:04:47.189399Z",
       "observationDigest": "ebac79e96ed25912ee38d2efe8e000f79bcce4264aa79e1dfd70c277a65d3c33",
       "externalIngestionConfigurationPreserved": true
     },
@@ -748,7 +748,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:49.993902Z",
+      "verifiedAt": "2026-11-04T16:04:47.224237Z",
       "observationDigest": "6b6b21afb623de01fc9052ce225a757e67388af6684da520f27ffc182767ca27",
       "externalIngestionConfigurationPreserved": false
     },
@@ -762,7 +762,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.311022Z",
+      "verifiedAt": "2026-11-04T16:04:47.360116Z",
       "observationDigest": "095b544e1c320a99ed4a75ed20617974ece6f6da2c671f9bf79c0f5f9f0c0e02",
       "externalIngestionConfigurationPreserved": false
     },
@@ -776,7 +776,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.481737Z",
+      "verifiedAt": "2026-11-04T16:04:47.701820Z",
       "observationDigest": "ae06973377e76dd4d925f4a7ad184b3968a60913c1b56ae317963df0d22f7cc2",
       "externalIngestionConfigurationPreserved": false
     },
@@ -790,7 +790,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.564617Z",
+      "verifiedAt": "2026-11-04T16:04:47.744550Z",
       "observationDigest": "62ee6bf35cf60c5d8ffa4a38e5fb30e383a061db6c26e4a5b8dfd5ae6e714034",
       "externalIngestionConfigurationPreserved": false
     },
@@ -806,7 +806,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.731744Z",
+      "verifiedAt": "2026-11-04T16:04:47.776243Z",
       "observationDigest": "00e7689215d57d3f0d59f0211cc2c89bd5de018052373d8d2e0a6802a92f4498",
       "externalIngestionConfigurationPreserved": true
     },
@@ -822,7 +822,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.812452Z",
+      "verifiedAt": "2026-11-04T16:04:48.074572Z",
       "observationDigest": "f34049be380f04396c322a84c1ccaf468518fe5c5449ad892a5512876a596141",
       "externalIngestionConfigurationPreserved": true
     },
@@ -838,7 +838,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:50.960377Z",
+      "verifiedAt": "2026-11-04T16:04:48.161572Z",
       "observationDigest": "ee1d95fc003d726cedc2d58ac610a9f948a490121dc3d8cf8fdd10abdbb7020c",
       "externalIngestionConfigurationPreserved": true
     },
@@ -854,7 +854,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.144224Z",
+      "verifiedAt": "2026-11-04T16:04:48.236249Z",
       "observationDigest": "8ca25d71ae6ee32dfeb25f9305a5b213561a113407e722c6ce63c36b3bbfd5dd",
       "externalIngestionConfigurationPreserved": true
     },
@@ -870,7 +870,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.237459Z",
+      "verifiedAt": "2026-11-04T16:04:48.486264Z",
       "observationDigest": "0473b636bfc0d21db79ebf48b03eaae5ab4274674fa9307da983ec8aa8d149e3",
       "externalIngestionConfigurationPreserved": true
     },
@@ -886,7 +886,7 @@
         "WEB_CRAWL"
       ],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.463796Z",
+      "verifiedAt": "2026-11-04T16:04:48.706197Z",
       "observationDigest": "90cd6b8ebfcbd976e3607c22c2f5575016b4b3bd2d724f33eca0a799c99c4239",
       "externalIngestionConfigurationPreserved": true
     },
@@ -900,7 +900,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.528984Z",
+      "verifiedAt": "2026-11-04T16:04:48.642607Z",
       "observationDigest": "adb28a536185a98cb09d3f886dc6c004129b3356b94d27401cd35efd638702aa",
       "externalIngestionConfigurationPreserved": false
     },
@@ -914,7 +914,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.770364Z",
+      "verifiedAt": "2026-11-04T16:04:48.987512Z",
       "observationDigest": "2bd3edde0d5b540c2a678e58257205462894cbaff92a96da735c04b2927e7653",
       "externalIngestionConfigurationPreserved": false
     },
@@ -928,7 +928,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.873788Z",
+      "verifiedAt": "2026-11-04T16:04:49.083329Z",
       "observationDigest": "4a8605bf3eed172bc1c87efb2c301a7bc7943516415797772fe55ca99bfafdb7",
       "externalIngestionConfigurationPreserved": false
     },
@@ -942,7 +942,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:51.999307Z",
+      "verifiedAt": "2026-11-04T16:04:49.207322Z",
       "observationDigest": "d211bb651a912fdcad9ed12bdcda8991e5d318a587aed3842e85ef1aa1160667",
       "externalIngestionConfigurationPreserved": false
     },
@@ -956,7 +956,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:52.302792Z",
+      "verifiedAt": "2026-11-04T16:04:49.513175Z",
       "observationDigest": "a9a6838c19d673815c55533b563149c287e4b75cebec3743a1b3729c68b30a6c",
       "externalIngestionConfigurationPreserved": false
     },
@@ -970,7 +970,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:52.406332Z",
+      "verifiedAt": "2026-11-04T16:04:49.575282Z",
       "observationDigest": "54361c2a6e4c0d34078e8148830f1d170399023607bd49c217a6e656dfb676db",
       "externalIngestionConfigurationPreserved": false
     },
@@ -984,7 +984,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:52.407853Z",
+      "verifiedAt": "2026-11-04T16:04:49.609899Z",
       "observationDigest": "96cd34eaa54f5103c1773b16dfc450ae8e74e4f96493852f6a20fcfd7f1a6cfa",
       "externalIngestionConfigurationPreserved": false
     },
@@ -998,7 +998,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:52.772276Z",
+      "verifiedAt": "2026-11-04T16:04:50.012071Z",
       "observationDigest": "2a2dedfbda7e51f86cb816ae36e0d86c49a94024abb881b4e292611275bd41d8",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1012,7 +1012,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:52.851074Z",
+      "verifiedAt": "2026-11-04T16:04:50.095118Z",
       "observationDigest": "ac87b11b55e08b5533b6ff4accb1bb8f9d12b76d2221a1400d14275d94f8a64e",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1026,7 +1026,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:52.883157Z",
+      "verifiedAt": "2026-11-04T16:04:50.150058Z",
       "observationDigest": "55e45508f455bac066ea7a127dcdebcfc353c285427fd99470f8366490c85784",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1040,7 +1040,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:53.188075Z",
+      "verifiedAt": "2026-11-04T16:04:50.411865Z",
       "observationDigest": "3bbe74893d08e6c346096c0df513f1e183cb73f206e6612b83b27b0fa831ffca",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1054,7 +1054,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:53.444357Z",
+      "verifiedAt": "2026-11-04T16:04:50.678147Z",
       "observationDigest": "ecd05fd19d6c7f8dbb49e1bc62c22c36880e34803273d56508a9f8b52bd23f8e",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1068,7 +1068,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:53.275790Z",
+      "verifiedAt": "2026-11-04T16:04:50.550757Z",
       "observationDigest": "1346344e2e8bef4f37efa0eb0411e6e6baf76a8ac2252dae861959c445495066",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1082,7 +1082,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:53.830575Z",
+      "verifiedAt": "2026-11-04T16:04:51.088486Z",
       "observationDigest": "82bdd48bf83f2c85d8b45547ef6da3fa694fb910afc9e29967a54dbb8e7b87ce",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1096,7 +1096,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:06:53.679032Z",
+      "verifiedAt": "2026-11-04T16:04:50.930961Z",
       "observationDigest": "620cee57127ea918e59c37b0c530df60e03143c41536be08673a629a739aef5f",
       "externalIngestionConfigurationPreserved": false
     },
@@ -1110,7 +1110,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:16:59.098238Z",
+      "verifiedAt": "2026-11-04T16:04:51.003072Z",
       "observationDigest": "074af5d064c72c3e46b1e137580af1515b9429ac187c3482649d31675e437d97",
       "externalIngestionConfigurationPreserved": false
     }

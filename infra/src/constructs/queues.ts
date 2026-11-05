@@ -1,4 +1,5 @@
 import * as cdk from "aws-cdk-lib";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
@@ -94,6 +95,18 @@ export class Queues extends Construct {
     });
 
     this.catalog = Object.fromEntries(entries) as QueueCatalog;
+
+    const crawlerPrincipalArn = props.config.crawlerIngestionPrincipalArn;
+    if (crawlerPrincipalArn !== undefined) {
+      const ingestion = this.catalog.productListingIngestion.queue;
+      ingestion.addToResourcePolicy(new iam.PolicyStatement({
+        sid: "AllowCrawlerSendMessage",
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ArnPrincipal(crawlerPrincipalArn)],
+        actions: ["sqs:SendMessage"],
+        resources: [ingestion.queueArn],
+      }));
+    }
   }
 }
 

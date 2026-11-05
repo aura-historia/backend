@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-216",
+  "country": "IT",
+  "observedAt": "2026-11-04T15:10:37.017289Z",
+  "result": "PASSED",
+  "rawJournalFiles": 343,
+  "rawJournalRecordsScanned": 61937,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "shipinarte.com",
+      "IT:ANTICOANTICO:1041",
+      "IT:ANTICOANTICO:650"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot216-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T15:09:44.207768Z",
+    "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
+    "counts": {
+      "parties": 391,
+      "listingSources": 391,
+      "locations": 444,
+      "logos": 279,
+      "identifiedPlatforms": 322,
+      "deliveryProfiles": 181,
+      "emptyIngestionMethods": 391,
+      "excluded": 27,
+      "deferred": 109
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "ShipInArte: full primarypublishedVAT and current officialpositive CrazySportdiTreggiariLuciano&CSAS, onelegalParty, not foundersoletrader. Current native Annunciazione painting2500x1875 and originalPNG400x306crest inspected, actualWooCommerce. Native principalDAragona1business with unknownpostalomitted; oldergalleryhistory/taxZanardelli38B distinct, no extra branches/registered/stock/dispatch/pickup. No verifiedfulfillment; translationlabels/cartboilerplate notdelivery.",
+    "SeiDelCastello1041: fullStefaniaBenazzo business/VATpositive, currentportrait843x1113 inspected, exacthostsource. Native disconnectnotclosure/alias. CurrentMazzini23contactroles[] vsCastello6legalfooter andSantEufemia24tax remain distinct; nomove/registered/stock/default/pickup. Maskedemail omitted, noverifiedmerchantlogo/shipping.",
+    "Sibilla650: completecurrentnativeprivacy ClaudioSanfilippo proprietor/VAT, negativeintraEU notdomesticinvalidity/closure. Exactcurrenthostbattle1920x1564 inspected and originalSVG300x78.742 verified; nativebrochure generalgallery/identity/contact/logo notsecondsource. ExplicitTivoli25shopbusiness only. Restorationcollection/internationaldelivery context notpurchased-itemfulfillment; externalauctionprocurement notownedauctionoperation. NoCTUcredential/authenticityguarantee."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

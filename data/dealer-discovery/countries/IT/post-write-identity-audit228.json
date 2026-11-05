@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-228",
+  "country": "IT",
+  "observedAt": "2026-11-04T17:21:25.416052Z",
+  "result": "PASSED",
+  "rawJournalFiles": 413,
+  "rawJournalRecordsScanned": 64369,
+  "apiWriteAttemptsThisRun": 7,
+  "decisions": {
+    "added": [
+      "antiquarioroma.com",
+      "IT:PROANTIC:3942"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:PROANTIC:3482",
+      "IT:PROANTIC:4219"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot228-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T17:19:56.690604Z",
+    "fullVerifiedAt": "2026-11-04T17:16:28.112778Z",
+    "counts": {
+      "parties": 420,
+      "listingSources": 420,
+      "locations": 474,
+      "logos": 290,
+      "identifiedPlatforms": 348,
+      "deliveryProfiles": 189,
+      "emptyIngestionMethods": 420,
+      "excluded": 27,
+      "deferred": 114
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "AntiquarioRoma native explicit full SRL/VAT13478151007 matches current official exact corporation/tax173. CiroMarcoTorlo contact is not soletrader operator. Actual800x1000 female martyr painting and550x74 native gold wordmark inspected; current WooCommerce instock. Tentative Cerrini/body versus stronger selector attribution preserved, no authorship/date/material/authentication guarantee. Two explicit current contact addresses55/00195 and173/00138 imported roles[]; no registered/showroom/warehouse/stock/dispatch/purchasedcollection defaults. Masked email omitted without decoding protected link. Native empty-cart0.00 is not free goods/shipping. No source-wide shipping verified. Exacthost1847 corroboration only.",
+    "Scarapazzi3942 adopted current official-positive full corporation at exact primary CasalSelce269/00166, not namedcontactMarco as soletrader. VAT15092481009 originated as lead, current merchant does not publish it; raw official name ANTIQUES SCARAPAZZI SRLS !!S.R.L.S. preserved including punctuation, no invented status/suffix. Actual900x1200 antique bust inspected; seller Vespasian/RomeXVIII/marble identities not independent guarantees. Contact roles[] despite matching tax, no registered/stock/dispatch/pickup/default. Native-domain lead DNS failed; not closure/source/alias. No verified merchant logo/email/fulfillment, external fair Argilla9 not imported.",
+    "ParForce3482 deferred CURRENT_LEGAL_OPERATOR_UNRESOLVED. Native about-us names two current partners and two Rome contacts, not current full corporation. Candidate secondary VAT18558601003 official EU-negative does not establish domestic invalidity/closure or legal relationship. Actual1200x1192 original animal painting inspected; attributionCrivelli/date/frame/condition not independently authenticated. No corporate/person guesses or API resources. Antiquas4219 deferred CURRENT_INSPECTABLE_OWN_STOCK_UNRESOLVED: current primary zerooffers/no inspectable item/native catalogue; directory sale claims lead-only, no photo inspection or closure inference. Both follow Dec4.",
+    "Cherubini2024 and Costa4220 resolve to existing Italy nested/native owners and IDs, no clone, transfer or enrichment. Two additions, two new deferrals; no added exclusion. All105 journals full-verified with explicit ledger/output, country indexes/audits regenerated, no pending operations."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

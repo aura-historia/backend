@@ -96,10 +96,7 @@ fn ready_response(
     principal: &crate::auth::TransportPrincipal,
     request_headers: &HeaderMap,
 ) -> Response {
-    let ttl = crate::shipping::listing::cache_ttl(
-        product_listings.iter().map(|i| i.item.shipping.as_ref()),
-        300,
-    );
+    let ttl = 300;
     crate::transport::cache::anonymous_shared_success(
         Json(
             product_listings

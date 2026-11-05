@@ -17,8 +17,12 @@ fn context() -> OperationContext {
 /// How one wake-up left the use case. Only `Complete` acknowledges the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobOutcome {
+    /// The generation is settled, including terminal and stale work; PostgreSQL holds the rest.
     Complete,
-    /// Another attempt holds the resolution's claim, or this attempt lost it before completing.
+    /// The provider circuit is open. Custody stays with SQS while the dead-letter alarm is the
+    /// only signal of a stalled backlog; cleanup recovery republishes the work either way.
+    ProviderGated(ResolutionId),
+    /// Another attempt holds the claim or the retry backoff runs.
     Deferred(ResolutionId),
     Failed {
         resolution_id: ResolutionId,
@@ -40,6 +44,7 @@ pub async fn process_job(body: &str, use_case: &dyn ResolveUseCase) -> JobOutcom
     };
     match use_case.execute(&context(), work).await {
         Ok(ResolveOutcome::Complete) => JobOutcome::Complete,
+        Ok(ResolveOutcome::ProviderGated) => JobOutcome::ProviderGated(job.resolution_id),
         Ok(ResolveOutcome::Deferred) => JobOutcome::Deferred(job.resolution_id),
         Err(error) => JobOutcome::Failed {
             resolution_id: job.resolution_id,
@@ -67,6 +72,9 @@ pub async fn handler(
     Ok(results.finish(|attempt| {
         let (category, resolution_id, failure) = match &attempt.outcome {
             RecordOutcome::Completed(JobOutcome::Complete) => return true,
+            RecordOutcome::Completed(JobOutcome::ProviderGated(resolution_id)) => {
+                ("provider_gated", Some(resolution_id), None)
+            }
             RecordOutcome::Completed(JobOutcome::Deferred(resolution_id)) => {
                 ("resolution_deferred", Some(resolution_id), None)
             }
@@ -97,10 +105,10 @@ pub async fn handler(
                 )
             };
         }
-        // Another attempt owning the claim is expected contention, not a failure.
+        // Contention and an open provider circuit are expected states, not failures.
         if matches!(
             attempt.outcome,
-            RecordOutcome::Completed(JobOutcome::Deferred(_))
+            RecordOutcome::Completed(JobOutcome::Deferred(_) | JobOutcome::ProviderGated(_))
         ) {
             retained!(info);
         } else {
@@ -156,6 +164,43 @@ mod tests {
             process_job(JOB, &deferred).await,
             JobOutcome::Deferred(_)
         ));
+        let gated = Stub {
+            calls: AtomicUsize::new(0),
+            result: ResolveOutcome::ProviderGated,
+        };
+        assert!(matches!(
+            process_job(JOB, &gated).await,
+            JobOutcome::ProviderGated(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_retain_provider_gated_records_at_info_with_their_reason() {
+        let (logs, guard) = CapturedLogs::start();
+        let gated = Stub {
+            calls: AtomicUsize::new(0),
+            result: ResolveOutcome::ProviderGated,
+        };
+
+        let response = handler(event(), &gated, Duration::from_secs(30))
+            .await
+            .unwrap();
+        drop(guard);
+
+        assert_eq!(1, response.batch_item_failures.len());
+        let retained = logs.events_where("event", "geo_resolution.record_retained");
+        assert_eq!(1, retained.len());
+        assert_eq!(Some("provider_gated"), retained[0]["reason"].as_str());
+        assert_eq!(
+            Some("gres_01h455vb4pex5vy7enb1p677vn"),
+            retained[0]["resolution_id"].as_str()
+        );
+        assert!(retained[0].get("error_category").is_none());
+        assert!(
+            logs.text()
+                .lines()
+                .any(|line| line.contains("provider_gated") && line.contains(r#""level":"INFO""#))
+        );
     }
 
     const SENTINEL: &str = "SENTINEL_PAYLOAD_TOKEN_person@example.com";

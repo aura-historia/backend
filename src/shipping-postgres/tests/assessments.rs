@@ -238,7 +238,7 @@ async fn evidence_requires_a_current_listing_assertion() {
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn dispatch_uses_only_current_permitted_derived_country_without_projection_or_provider_io() {
+async fn dispatch_uses_only_current_derived_country_without_projection_or_provider_io() {
     use geo_service::{geocoding::GeocodingRequest, resolution::*};
     use shipping_core::{coverage::*, terms::*};
     let p = get_postgres_client().await;
@@ -256,7 +256,7 @@ async fn dispatch_uses_only_current_permitted_derived_country_without_projection
         .execute(&p)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted,daily_limit,scope_daily_limit,concurrency_limit,scope_concurrency_limit)VALUES('SHIPPING_ORIGIN_TEST',true,true,true,100,20,2,1)").execute(&p).await.unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default)VALUES('SHIPPING_ORIGIN_TEST',true)").execute(&p).await.unwrap();
     let input = ResolutionInput::new(
         GeocodingRequest::new(geo::AddressText::new("Synthetic unresolved dispatch site").unwrap()),
         ResolutionScope::new(ScopeKind::Party, Some(owner)).unwrap(),
@@ -316,7 +316,8 @@ async fn dispatch_uses_only_current_permitted_derived_country_without_projection
     };
     evidence.candidates.push(evidence.candidates[0].clone());
     evidence.accepted_index = Some(1);
-    assert!(
+    assert_eq!(
+        CompletionOutcome::Recorded(ResolutionStatus::Accepted),
         geo_postgres::SqlxResolutionRepositoryFactory
             .resolutions(&mut tx)
             .complete(&claim, ResolutionCompletion::Evidence(evidence))
@@ -366,7 +367,14 @@ async fn dispatch_uses_only_current_permitted_derived_country_without_projection
         Some(work.generation),
         deps.locations[0].resolution_generation
     );
-    sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='SHIPPING_ORIGIN_TEST'").execute(&p).await.unwrap();
+    // Evidence has no time limit; detaching the site's binding is what removes it.
+    sqlx::query(
+        "DELETE FROM geo_resolution_bindings WHERE subject_kind='PARTY_LOCATION' AND subject_id=$1",
+    )
+    .bind(site.into_uuid())
+    .execute(&p)
+    .await
+    .unwrap();
     let deps = read(&p, &ids).await;
     assert!(deps.locations[0].location.content().geography.is_none());
     assert!(deps.locations[0].resolution_generation.is_none());

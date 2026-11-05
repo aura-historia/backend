@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-223",
+  "country": "IT",
+  "observedAt": "2026-11-04T16:23:47.046359Z",
+  "result": "PASSED",
+  "rawJournalFiles": 391,
+  "rawJournalRecordsScanned": 63267,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "IT:PROANTIC:3971",
+      "IT:PROANTIC:4146"
+    ],
+    "excluded": [
+      "antichitabova.it"
+    ],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot223-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T16:22:58.619596Z",
+    "fullVerifiedAt": "2026-11-04T16:19:42.092851Z",
+    "counts": {
+      "parties": 410,
+      "listingSources": 410,
+      "locations": 463,
+      "logos": 286,
+      "identifiedPlatforms": 338,
+      "deliveryProfiles": 186,
+      "emptyIngestionMethods": 410,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "D'Andrea3971: current complete personal business/contact Angelo D'Andrea at Rome Scrofa116/116A adopted without asserting formal legal form/suffix or unverified VAT. Same-name secondary Naples/other entities unlinked and omitted. Actual919x1200 framed male portrait inspected, seller pastel/French school/XVIII descriptions not independent identity/date/material/authenticity guarantees. Contact roles[], no email/logo/native/fulfillment/registered/stock/dispatch/pickup/default.",
+    "Rossi4146: complete published personal business Antichità di Carlo Alberto Rossi and current Arezzo Vasari9 gallery adopted without guessed formal legal form/VAT/family Parties. Actual900x1200 Christ painting inspected; title/body copper versus material-selector painted wood remains unresolved and not imported as a verified material. Business premises only, French fair participation not home/branch/dispatch/collection. No email/logo/native/fulfillment/registered/stock/dispatch/default.",
+    "Bova1361/current linked native: existing native-owned run097 OPERATES_AUCTIONS exclusion reaffirmed from current complete first-party online/written bidding, hammer award and buyer-premium conditions. No new exclusion count or Party/source/resources. Current named Mighali Patrizia not replaced with history/representative Giuseppe. Selected artwork page read but actual image not fetched or viewed; no false image-inspection claim. Native postal90121/90138 and76 versus76-78 not repaired. Exact hosted reference resolved to existing native exclusion, no new journal.",
+    "Castelbarco1393 current exact merchant/native link/full contacts resolve to existing Italy-managed antichitacastelbarco.it. IDs preserved; no duplicate hosted source or enrichment."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

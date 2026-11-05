@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-220",
+  "observedAt": "2026-11-04T15:48:43.117215Z",
+  "result": "DISTINCT_CURRENT_OFFICIAL_LEGAL_IDENTITIES_EXISTING_AUCTION_EXCLUSION_PRESERVED",
+  "existingDecision": {
+    "owningLedger": "data/dealer-discovery/countries/IT/dealers.jsonl",
+    "domain": "gonnelli.it",
+    "status": "EXCLUDED",
+    "reason": "OPERATES_AUCTION_HOUSE",
+    "backend": {}
+  },
+  "candidate": {
+    "entityKey": "IT:PROANTIC:3886",
+    "owningLedger": "data/dealer-discovery/countries/IT/hosted/gonnelli-antichita-proantic/dealers.jsonl",
+    "operator": "Antichità Gonnelli S.r.l.",
+    "vatId": "04280410483",
+    "currentOfficialAddress": "Via del Moro36/R,50123Firenze",
+    "evidence": [
+      "https://www.proantic.it/galerie/antichita-gonnelli/",
+      "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/04280410483"
+    ],
+    "identityConfidence": 0.98
+  },
+  "comparisonOnly": {
+    "currentOfficialOperator": "GONNELLI CASA D'ASTE S.R.L.",
+    "vatId": "07540680480",
+    "currentOfficialAddress": "Via Fra'GiovanniAngelico49,50121Firenze",
+    "evidence": [
+      "https://ec.europa.eu/taxation_customs/vies/rest-api/ms/IT/vat/07540680480"
+    ],
+    "noResourcesCreatedOrEnriched": true
+  },
+  "interpretation": "Candidate current distinctive merchantprofile brand/address and positiveofficial fulllegalidentity differ from existingexcludedauctionbusiness currentofficial operator/VAT/address. No commonoperator assumed from surname/city, no ownershiptransfer/copy ofmanagedrecords, no auctionhousecreation, no current403page-success claim. Not a broadexception for future similarname matches."
+}

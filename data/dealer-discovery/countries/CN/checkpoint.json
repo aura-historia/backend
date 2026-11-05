@@ -1,6 +1,6 @@
 {
-  "run": "cn-2026-11-04-195",
-  "observedAt": "2026-11-04T14:47:18.617337+00:00",
+  "run": "cn-2026-11-04-252",
+  "observedAt": "2026-11-04T17:23:40.053953+00:00",
   "counts": {
     "parties": 18,
     "listingSources": 18,
@@ -9,17 +9,17 @@
     "identifiedPlatforms": 7,
     "deliveryProfiles": 3,
     "emptyIngestionMethods": 2,
-    "excluded": 56,
-    "deferred": 282
+    "excluded": 67,
+    "deferred": 301
   },
   "verificationStatus": "FAILED_INGESTION_DRIFT",
   "apiWriteIntents": 0,
   "lastPassingVerificationRun": "cn-2026-11-03-093",
   "lastPassingFullVerificationRun": "cn-2026-11-03-090",
-  "supplementalFullReadbackRun": "cn-2026-11-04-195",
+  "supplementalFullReadbackRun": "cn-2026-11-04-250",
   "countryCoverage": "OPEN",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "verificationException": "External WEB_CRAWL activation on16sources; user direction pending.",
-  "next": "Continue wider Beijing licensed-store and other regional original-art/antique reservoirs beyond completed small registry sets. Next scheduled full readback200; country OPEN."
+  "next": "Continue page46 exact entities and remaining regional art/antique reservoirs; CFCR13/43 reviewed. Next full country readback255; country OPEN."
 }

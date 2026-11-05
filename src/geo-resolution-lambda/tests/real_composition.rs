@@ -25,7 +25,7 @@ const PROFILE: &str = "WORKER_TEST_V1";
 struct Provider {
     pool: PgPool,
     calls: AtomicUsize,
-    fail: bool,
+    failure: Option<GeocodingFailure>,
 }
 #[async_trait::async_trait]
 impl GeocodingProvider for Provider {
@@ -39,9 +39,9 @@ impl GeocodingProvider for Provider {
         .await
         .unwrap()
         .unwrap();
-        if self.fail {
+        if let Some(kind) = self.failure {
             return Err(GeocodingError {
-                kind: GeocodingFailure::Unavailable,
+                kind,
                 source: Box::new(std::io::Error::other("isolated provider failure")),
             });
         }
@@ -51,14 +51,19 @@ impl GeocodingProvider for Provider {
         })
     }
 }
-async fn setup(fail: bool) -> (PgPool, Arc<Provider>, ResolutionBinding, ResolutionWork) {
+async fn setup(
+    failure: Option<GeocodingFailure>,
+) -> (PgPool, Arc<Provider>, ResolutionBinding, ResolutionWork) {
     let fixture = get_postgres_client().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(&fixture)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES($1,true,true,true)")
-        .bind(PROFILE).execute(&fixture).await.unwrap();
+    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES($1,true)")
+        .bind(PROFILE)
+        .execute(&fixture)
+        .await
+        .unwrap();
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect_with(fixture.connect_options().as_ref().clone())
@@ -71,7 +76,7 @@ async fn setup(fail: bool) -> (PgPool, Arc<Provider>, ResolutionBinding, Resolut
     let provider = Arc::new(Provider {
         pool: pool.clone(),
         calls: AtomicUsize::new(0),
-        fail,
+        failure,
     });
     let binding = ResolutionBinding {
         subject: ResolutionSubject::new(RetentionPurpose::UserLocation, Uuid::now_v7()).unwrap(),
@@ -162,7 +167,7 @@ async fn view(pool: &PgPool, binding: ResolutionBinding) -> ResolutionView {
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_authority() {
-    let (pool, provider, binding, work) = setup(false).await;
+    let (pool, provider, binding, work) = setup(None).await;
     let use_case = compose(&pool, &provider);
     assert_eq!(
         vec!["malformed"],
@@ -180,20 +185,22 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
     assert_eq!(ResolutionStatus::NoMatch, view(&pool, binding).await.status);
 
-    // Completed cache can be acknowledged while the provider is paused.
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
+    // Completed cache can be acknowledged while the provider circuit is open.
+    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=3,open_until=clock_timestamp()+interval '5 minutes'")
         .execute(&pool)
         .await
         .unwrap();
     assert!(
-        process([("cached-disabled", job(work))], &use_case)
+        process([("cached-circuit-open", job(work))], &use_case)
             .await
             .is_empty()
     );
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
@@ -254,38 +261,45 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
-        .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
-    assert!(view(&pool, binding).await.evidence.is_none());
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
+    // Evidence has no time limit: maintenance leaves bound evidence in place.
+    assert!(view(&pool, binding).await.evidence.is_some());
+    sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=3,open_until=clock_timestamp()+interval '5 minutes'")
         .execute(&pool)
         .await
         .unwrap();
     assert_eq!(
         ResolutionMaintenanceCounts {
-            expired: 1,
+            expired: 0,
             requeued: 0
         },
         maintenance.execute(&context, 100).await.unwrap()
     );
-    let expired = view(&pool, binding).await;
-    assert_eq!(recovered.generation + 1, expired.work.generation);
-    assert!(expired.evidence.is_none());
+    // Forced Retry requeues work that stays provider-gated while the circuit is open.
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .requeue(binding, recovered, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let retried = view(&pool, binding).await;
+    assert_eq!(recovered.generation + 1, retried.work.generation);
+    assert!(retried.evidence.is_none());
     assert!(
-        process([("expired-stale-redrive", job(current))], &use_case)
+        process([("retried-stale-redrive", job(current))], &use_case)
             .await
             .is_empty()
     );
     assert_eq!(
-        vec!["disabled-pending"],
-        process([("disabled-pending", job(expired.work))], &use_case).await
+        vec!["circuit-open-pending"],
+        process([("circuit-open-pending", job(retried.work))], &use_case).await
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
-    let (pool, provider, binding, work) = setup(true).await;
+    let (pool, provider, binding, work) = setup(Some(GeocodingFailure::Unavailable)).await;
     let use_case = compose(&pool, &provider);
     let context = OperationContext {
         principal: Principal::Service("worker-test".into()),
@@ -314,4 +328,22 @@ async fn provider_failure_preserves_its_cause_and_incomplete_queue_custody() {
         process([("backoff", job(work))], &use_case).await
     );
     assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+}
+
+#[aura_integration_test(services=[SCHEMA], isolated = true)]
+async fn blocked_completion_and_its_redelivery_acknowledge_without_another_call() {
+    let (pool, provider, binding, work) = setup(Some(GeocodingFailure::UnsupportedInput)).await;
+    let use_case = compose(&pool, &provider);
+
+    let retained = process(
+        [("blocked", job(work)), ("blocked-redelivery", job(work))],
+        &use_case,
+    )
+    .await;
+
+    assert!(retained.is_empty(), "retained {retained:?}");
+    assert_eq!(1, provider.calls.load(Ordering::SeqCst));
+    let current = view(&pool, binding).await;
+    assert_eq!(ResolutionStatus::Blocked, current.status);
+    assert_eq!(Some("UNSUPPORTED_INPUT"), current.last_failure.as_deref());
 }
