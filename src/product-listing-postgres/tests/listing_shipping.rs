@@ -648,7 +648,7 @@ async fn explicit_sites_resolution_and_rights_invalidate_without_private_project
     sqlx::query("INSERT INTO shipping_profile_location_references(shipping_profile_id,party_location_id,applicability) VALUES($1,$2,'DISPATCH'),($1,$2,'COLLECTION')").bind(profile.into_uuid()).bind(location).execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO shipping_changes(listing_source_id,subject_kind,subject_id,revision,terms_revision,change_kind,actor) SELECT listing_source_id,'PROFILE',shipping_profile_id,management_revision,terms_revision,'REPLACED','SERVICE:test' FROM shipping_profiles WHERE shipping_profile_id=$1").bind(profile.into_uuid()).execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
-    let resolution = accepted_country_resolution(&pool, owner, location)
+    accepted_country_resolution(&pool, owner, location)
         .await
         .unwrap();
     drain(&pool).await;
@@ -825,9 +825,7 @@ async fn explicit_sites_resolution_and_rights_invalidate_without_private_project
         "DE",
         summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
-    // Evidence has no time limit: maintenance keeps shipping geography past a deadline the
-    // previous bundle wrote.
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution.into_uuid()).execute(&pool).await.unwrap();
+    // Evidence has no time limit: maintenance keeps bound, permitted shipping geography.
     let mut maintenance = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     use geo_service::resolution::{ResolutionRepository, ResolutionRepositoryFactory};
     assert_eq!(

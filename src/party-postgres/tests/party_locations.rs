@@ -1155,8 +1155,7 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn public_discovery_admits_derived_country_without_a_time_limit_and_rejects_revoked_or_stale_evidence()
- {
+async fn public_discovery_admits_current_derived_country_and_rejects_revoked_or_stale_evidence() {
     use geo_postgres::SqlxResolutionRepositoryFactory;
     use geo_service::{geocoding::*, resolution::*};
     use party_service::discovery::*;
@@ -1186,7 +1185,7 @@ async fn public_discovery_admits_derived_country_without_a_time_limit_and_reject
     };
     let uow = SqlxUnitOfWork::new(pool.clone());
     let mut tx = uow.begin().await.unwrap();
-    let id = SqlxResolutionRepositoryFactory
+    SqlxResolutionRepositoryFactory
         .resolutions(&mut tx)
         .bind(&input, binding)
         .await
@@ -1284,8 +1283,6 @@ async fn public_discovery_admits_derived_country_without_a_time_limit_and_reject
                     .execute(&pool)
                     .await
                     .unwrap();
-                // A deadline the previous bundle wrote no longer hides evidence.
-                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
             }
             _ => {}
         }

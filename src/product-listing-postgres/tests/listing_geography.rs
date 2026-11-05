@@ -383,9 +383,8 @@ async fn shared_resolution_and_retained_evidence_never_require_per_listing_geoco
         sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G6'").execute(&pool).await?;
         drain(&pool,2).await?;
         assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
-        // Evidence has no time limit: neither catch-up nor maintenance drops derived geography
-        // past a deadline the previous bundle wrote, and nothing pays for another call.
-        sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution_id.into_uuid()).execute(&pool).await?;
+        // Evidence has no time limit: neither catch-up nor maintenance drops derived geography,
+        // and nothing pays for another call.
         for id in &ids {sqlx::query("SELECT enqueue_listing_geography('LISTING',$1)").bind(id.into_uuid().to_string()).execute(&pool).await?;}
         drain(&pool,2).await?;
         let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;assert_eq!(0,SqlxResolutionRepositoryFactory.resolutions(&mut tx).expire(100).await?);tx.commit().await?;

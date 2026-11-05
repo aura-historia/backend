@@ -256,10 +256,7 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 
-    // Evidence has no time limit: a deadline the previous bundle wrote neither hides nor
-    // purges it.
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
-        .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
+    // Evidence has no time limit: maintenance leaves bound, permitted evidence in place.
     assert!(view(&pool, binding).await.evidence.is_some());
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
         .execute(&pool)

@@ -1148,11 +1148,6 @@ async fn review_verifies_current_candidate_and_binding_and_revocation_purges_all
             .await,
         Err(PartyLocationError::ConcurrencyConflict)
     ));
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'")
-        .execute(&pool)
-        .await
-        .unwrap();
-    // A deadline the previous bundle wrote neither hides the evidence nor drops the review.
     let reviewed = inspect(&pool, location_binding(&changed)).await.unwrap();
     assert_eq!(Some(0), reviewed.selected_candidate);
     assert!(reviewed.accepted_geography().unwrap().position().is_some());
@@ -1261,22 +1256,9 @@ async fn evidence_has_no_time_limit_and_cleanup_purges_only_orphaned_evidence() 
         )
         .await
     );
-    // The previous bundle still reads `valid_until` as a deadline; new evidence never reaches it.
-    let unreachable: bool = sqlx::query_scalar(
-        "SELECT valid_until='9999-12-31T00:00:00Z'::timestamptz FROM geo_resolutions WHERE resolution_id=$1",
-    )
-    .bind(w.id.into_uuid())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(unreachable);
     review(&pool, first, w).await;
 
-    // A deadline the previous bundle wrote neither hides, purges nor refreshes evidence.
-    sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    // Cleanup neither purges nor refreshes bound, permitted evidence.
     assert_eq!(0, expire(&pool).await);
     let retained = inspect(&pool, first).await.unwrap();
     assert_eq!(w, retained.work);
@@ -1896,7 +1878,7 @@ async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn repeatable_read_only_snapshot_keeps_the_permission_gate_without_a_time_limit() {
+async fn repeatable_read_only_snapshot_keeps_the_permission_gate() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     let i = input(Uuid::now_v7(), "Synthetic snapshot site");
@@ -1914,15 +1896,7 @@ async fn repeatable_read_only_snapshot_keeps_the_permission_gate_without_a_time_
         )
         .await
     );
-    for state in ["accepted", "legacy_deadline_passed", "revoked"] {
-        if state == "legacy_deadline_passed" {
-            sqlx::query(
-                "UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'",
-            )
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
+    for state in ["accepted", "revoked"] {
         if state == "revoked" {
             sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false")
                 .execute(&pool)
@@ -1941,7 +1915,7 @@ async fn repeatable_read_only_snapshot_keeps_the_permission_gate_without_a_time_
         assert_eq!(2, snapshots.len());
         assert!(snapshots[1].is_none());
         assert_eq!(
-            state != "revoked",
+            state == "accepted",
             snapshots[0]
                 .as_ref()
                 .unwrap()

@@ -434,7 +434,7 @@ impl ResolutionRepository for Repository<'_> {
                     return Err(corrupt());
                 }
                 sqlx::query(r#"
-                    UPDATE geo_resolutions SET erased=true,input=NULL,evidence=NULL,valid_until=NULL,
+                    UPDATE geo_resolutions SET erased=true,input=NULL,evidence=NULL,
                         last_failure=NULL,status='BLOCKED',generation=least(generation,9223372036854775806)+1,
                         fingerprint=encode(sha256(uuid_send(resolution_id)),'hex')
                     WHERE resolution_id=$1 AND NOT EXISTS(
@@ -608,16 +608,19 @@ impl ResolutionRepository for Repository<'_> {
                 if !valid_evidence(&e, &persisted_input, &c.profile) {
                     return Err(ResolutionError::InvalidInput);
                 }
-                // Evidence has no time limit. `valid_until` stays populated with a never-reached
-                // instant only until a later release drops the column: the previous bundle
-                // still reads it as a deadline.
                 sqlx::query(
                     r#"
                     UPDATE geo_resolutions SET
-                    status=$2,evidence=$3,valid_until='9999-12-31T00:00:00Z',last_failure=NULL,lease_token=NULL,
-                    lease_until=NULL WHERE resolution_id=$1
+                    status=$2,evidence=$3,last_failure=NULL,lease_token=NULL,lease_until=NULL WHERE
+                    resolution_id=$1
                     "#,
-                ).bind(c.work.id.into_uuid()).bind(e.status.as_str()).bind(data).execute(&mut *self.connection).await.map_err(sql_error)?;
+                )
+                .bind(c.work.id.into_uuid())
+                .bind(e.status.as_str())
+                .bind(data)
+                .execute(&mut *self.connection)
+                .await
+                .map_err(sql_error)?;
                 sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL WHERE profile=$1").bind(&c.profile).execute(&mut *self.connection).await.map_err(sql_error)?;
                 self.signal(c.work, "RESOLVED", None).await?;
                 Ok(CompletionOutcome::Recorded(e.status))
@@ -628,7 +631,7 @@ impl ResolutionRepository for Repository<'_> {
                 sqlx::query(
                     r#"
                     UPDATE geo_resolutions SET
-                    status=$2,last_failure=$3,next_attempt_at=$4,lease_token=NULL,lease_until=NULL,evidence=NULL,valid_until=NULL
+                    status=$2,last_failure=$3,next_attempt_at=$4,lease_token=NULL,lease_until=NULL,evidence=NULL
                     WHERE resolution_id=$1
                     "#,
                 ).bind(c.work.id.into_uuid()).bind(status.as_str()).bind(kind.as_str()).bind(now+backoff).execute(&mut *self.connection).await.map_err(sql_error)?;
@@ -746,7 +749,7 @@ impl ResolutionRepository for Repository<'_> {
             let purged = sqlx::query(concat!(
                 r#"
                 UPDATE geo_resolutions r SET
-                evidence=NULL,valid_until=NULL,lease_token=NULL,lease_until=NULL,attempts=0,generation=$3,
+                evidence=NULL,lease_token=NULL,lease_until=NULL,attempts=0,generation=$3,
                 status=CASE WHEN c.storage_permitted THEN 'PENDING' ELSE 'BLOCKED' END,next_attempt_at=$1,
                 pending_since=$1,last_failure=CASE WHEN c.storage_permitted THEN NULL ELSE 'STORAGE_NOT_PERMITTED' END
                 FROM geo_resolution_provider_controls c WHERE r.resolution_id=$2 AND c.profile=r.profile AND "#,
@@ -858,7 +861,7 @@ impl ResolutionRepository for Repository<'_> {
             r#"
             UPDATE geo_resolutions SET
             generation=$2,status='PENDING',pending_since=clock_timestamp(),attempts=0,last_failure=NULL,
-            next_attempt_at=clock_timestamp(),evidence=NULL,valid_until=NULL
+            next_attempt_at=clock_timestamp(),evidence=NULL
             WHERE resolution_id=$1
             "#,
         ).bind(w.id.into_uuid()).bind(revision(next)?).execute(&mut *self.connection).await.map_err(sql_error)?;
