@@ -135,6 +135,31 @@ fn valid_evidence(e: &ResolutionEvidence, input: &ResolutionInput, profile: &str
             .is_some_and(|p| p.precision() == geo::SpatialPrecision::Premises)
 }
 
+/// Resolution-wide facts, read beside a resolution row, that decide whether its evidence is current.
+#[derive(FromRow)]
+struct RetentionFacts {
+    storage_permitted: bool,
+}
+/// Whether persisted evidence still serves the bindings of its resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EvidenceCurrency {
+    /// No evidence, revoked storage rights or a passed reconsideration deadline.
+    Ineligible,
+    /// Serves until this reconsideration deadline.
+    Until(OffsetDateTime),
+}
+impl EvidenceCurrency {
+    fn is_current(self) -> bool {
+        self != Self::Ineligible
+    }
+    fn deadline(self) -> Option<OffsetDateTime> {
+        match self {
+            Self::Until(until) => Some(until),
+            Self::Ineligible => None,
+        }
+    }
+}
+
 #[derive(FromRow)]
 struct ResolutionRow {
     resolution_id: Uuid,
@@ -189,6 +214,13 @@ impl ResolutionRow {
                 Ok(e)
             })
             .transpose()
+    }
+    /// Storage rights gate all evidence; evidence also lapses at its reconsideration deadline.
+    fn currency(&self, facts: &RetentionFacts, now: OffsetDateTime) -> EvidenceCurrency {
+        match self.valid_until {
+            Some(until) if facts.storage_permitted && until > now => EvidenceCurrency::Until(until),
+            _ => EvidenceCurrency::Ineligible,
+        }
     }
 }
 #[derive(FromRow)]
@@ -250,6 +282,27 @@ impl Repository<'_> {
             FROM geo_resolution_provider_controls WHERE profile=$1 FOR NO KEY UPDATE
             "#,
         ).bind(profile).fetch_optional(&mut *self.connection).await.map_err(sql_error)?.ok_or_else(corrupt)
+    }
+    /// Read the resolution-wide facts that decide whether `r`'s evidence is current.
+    async fn evidence_currency(
+        &mut self,
+        r: &ResolutionRow,
+        now: OffsetDateTime,
+    ) -> Result<EvidenceCurrency, ResolutionError> {
+        if r.valid_until.is_none() {
+            return Ok(EvidenceCurrency::Ineligible);
+        }
+        let facts: RetentionFacts = sqlx::query_as(
+            r#"
+            SELECT c.storage_permitted FROM geo_resolutions r
+            JOIN geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.resolution_id=$1
+            "#,
+        )
+        .bind(r.resolution_id)
+        .fetch_one(&mut *self.connection)
+        .await
+        .map_err(sql_error)?;
+        Ok(r.currency(&facts, now))
     }
     async fn is_bound(&mut self, id: ResolutionId) -> Result<bool, ResolutionError> {
         sqlx::query_scalar(
@@ -420,20 +473,11 @@ impl ResolutionRepository for Repository<'_> {
             }
         }
         let now = self.clock().await?;
-        if source_changed && row.valid_until.is_some_and(|until| until > now) {
-            let permitted: bool = sqlx::query_scalar(
-                "SELECT storage_permitted FROM geo_resolution_provider_controls WHERE profile=$1",
-            )
-            .bind(&row.profile)
-            .fetch_one(&mut *self.connection)
-            .await
-            .map_err(sql_error)?;
-            if permitted {
-                row.evidence(&stored_input)?;
-                // A cached result has no new completion or CDC wake-up. Notify
-                // dependents when it becomes current for a new source binding.
-                self.signal(w, "RESOLVED", Some(b.subject)).await?;
-            }
+        if source_changed && self.evidence_currency(&row, now).await?.is_current() {
+            row.evidence(&stored_input)?;
+            // A cached result has no new completion or CDC wake-up. Notify
+            // dependents when it becomes current for a new source binding.
+            self.signal(w, "RESOLVED", Some(b.subject)).await?;
         }
         self.wake(w).await?;
         tracing::info!(
@@ -754,16 +798,8 @@ impl ResolutionRepository for Repository<'_> {
         let r = self.row(w.id).await?.ok_or(ResolutionError::Missing)?;
         let input = r.input()?;
         let now = self.clock().await?;
-        let permitted: bool = sqlx::query_scalar(
-            "SELECT storage_permitted FROM geo_resolution_provider_controls WHERE profile=$1",
-        )
-        .bind(&r.profile)
-        .fetch_one(&mut *self.connection)
-        .await
-        .map_err(sql_error)?;
         if r.generation as u64 != w.generation
-            || !permitted
-            || r.valid_until.is_none_or(|until| until <= now)
+            || !self.evidence_currency(&r, now).await?.is_current()
         {
             return Err(ResolutionError::Conflict);
         }
@@ -860,7 +896,8 @@ struct BindingReadRow {
     guard: i64,
     selected_candidate: Option<i32>,
     selected_generation: Option<i64>,
-    storage_permitted: bool,
+    #[sqlx(flatten)]
+    retention: RetentionFacts,
 }
 impl ResolutionRow {
     fn view(
@@ -872,21 +909,21 @@ impl ResolutionRow {
         if binding.subject_kind != input.purpose().as_str() {
             return Err(corrupt());
         }
-        let eligible =
-            binding.storage_permitted && self.valid_until.is_some_and(|until| until > now);
-        let evidence = if eligible {
+        let currency = self.currency(&binding.retention, now);
+        let evidence = if currency.is_current() {
             self.evidence(&input)?
         } else {
             None
         };
-        let selected = if binding.selected_generation == Some(self.generation) && eligible {
-            binding
-                .selected_candidate
-                .map(|i| usize::try_from(i).map_err(invalid))
-                .transpose()?
-        } else {
-            None
-        };
+        let selected =
+            if binding.selected_generation == Some(self.generation) && currency.is_current() {
+                binding
+                    .selected_candidate
+                    .map(|i| usize::try_from(i).map_err(invalid))
+                    .transpose()?
+            } else {
+                None
+            };
         if let Some(index) = selected {
             let candidate = evidence
                 .as_ref()
@@ -903,7 +940,7 @@ impl ResolutionRow {
             guard: u64::try_from(binding.guard).map_err(invalid)?,
             status: ResolutionStatus::from_code(&self.status).ok_or_else(corrupt)?,
             evidence,
-            valid_until: if eligible { self.valid_until } else { None },
+            valid_until: currency.deadline(),
             selected_candidate: selected,
             last_failure: self.last_failure.clone(),
             attempts: self.attempts as u32,
