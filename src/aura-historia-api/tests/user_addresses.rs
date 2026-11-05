@@ -379,10 +379,6 @@ async fn private_rest_contract_rejects_owner_input_and_exposes_fenced_preference
             .unwrap();
         assert_eq!(StatusCode::NOT_FOUND, response.status());
     }
-    sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
-        .execute(&pool)
-        .await
-        .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     resolve(&pool, id, calls.clone()).await;
     let (_, accepted) = request(&router, "GET", &path, Some("owner"), json!({})).await;

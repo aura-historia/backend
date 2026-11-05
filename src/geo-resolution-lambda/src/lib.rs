@@ -19,10 +19,10 @@ fn context() -> OperationContext {
 pub enum JobOutcome {
     /// The generation is settled, including terminal and stale work; PostgreSQL holds the rest.
     Complete,
-    /// Provider controls refuse calls. Custody stays with SQS while the dead-letter alarm is the
+    /// The provider circuit is open. Custody stays with SQS while the dead-letter alarm is the
     /// only signal of a stalled backlog; cleanup recovery republishes the work either way.
     ProviderGated(ResolutionId),
-    /// Another attempt holds the claim, concurrency is saturated or the retry backoff runs.
+    /// Another attempt holds the claim or the retry backoff runs.
     Deferred(ResolutionId),
     Failed {
         resolution_id: ResolutionId,
@@ -105,7 +105,7 @@ pub async fn handler(
                 )
             };
         }
-        // Contention and provider controls are expected states, not failures.
+        // Contention and an open provider circuit are expected states, not failures.
         if matches!(
             attempt.outcome,
             RecordOutcome::Completed(JobOutcome::Deferred(_) | JobOutcome::ProviderGated(_))
