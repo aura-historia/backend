@@ -156,11 +156,7 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
         return Vec::new();
     }
 
-    if is_collapsible_wrapper(&tag)
-        && text.is_none()
-        && is_layout_only_attrs(&attrs)
-        && !has_product_specific_context(&attrs)
-    {
+    if collapses_into_children(&tag, text.as_deref(), &attrs) {
         return children;
     }
 
@@ -177,6 +173,19 @@ fn is_removed_dsl_tag(tag: &str) -> bool {
         || REMOVED_DSL_TAG_PREFIXES
             .iter()
             .any(|prefix| tag.starts_with(prefix))
+}
+
+/// A layout wrapper the projection leaves out, showing its children in its place: a grouping
+/// element without text of its own whose attributes say nothing about the product.
+fn collapses_into_children(
+    tag: &str,
+    text: Option<&str>,
+    attrs: &BTreeMap<String, String>,
+) -> bool {
+    is_collapsible_wrapper(tag)
+        && text.is_none()
+        && is_layout_only_attrs(attrs)
+        && !has_product_specific_context(attrs)
 }
 
 fn is_collapsible_wrapper(tag: &str) -> bool {
