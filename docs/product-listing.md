@@ -111,6 +111,16 @@ the first letter is capitalized and overlong titles are truncated with a stable 
 Partner writes reject a submitted title without remaining text, and raw normalization
 reports `TitleEmpty`; a stored title without remaining text is absent.
 
+Raw normalization detects a title's original language from the title followed by the
+revision's description, or from the title alone without a supplied description, because antique
+titles mostly consist of proper names, style periods and loanwords. A mixed listing's title
+therefore usually takes its description's language, while the description keeps its own
+detection. A decisive detection wins; otherwise the source's fallback language breaks the tie
+before the detector's best guess. A one- or two-word text is never decisive, since a single
+proper name with a language-specific letter would decide it. The
+[reviewed fixtures](normalization-replay.md#reviewed-fixtures) pin repaired, unchanged and
+mixed-language examples.
+
 Stored titles and events, and in-flight ingestion and CDC payloads, written by an earlier
 constructor remain readable when they satisfy the structural rules, including the bounded
 trailing whitespace of the old constructor and shortened ellipses from prior rehydration.
