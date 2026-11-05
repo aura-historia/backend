@@ -5,13 +5,12 @@ use crate::diagnostics::{
 };
 use crate::error::NormalizationFailureScope;
 use crate::price::normalize_machine_decimal_price;
-use crate::text::{detect_description_language, localize_normalized_title};
+use crate::text::{join_description_fragments, localize_normalized_title};
 use crate::{
     ImageUrlNormalizationError, ListingAvailabilityQuickCheck, NormalizationError, PriceField,
     PriceNormalizationError, ProductListingNormalizationInput, RawProductListingOperation,
-    detect_language, normalize_description, normalize_image_urls, normalize_price,
-    normalize_product_listing_price, normalize_source_listing_id_with_url_sha_fallback,
-    normalize_title, quick_check_availability,
+    normalize_description, normalize_image_urls, normalize_price, normalize_product_listing_price,
+    normalize_source_listing_id_with_url_sha_fallback, normalize_title, quick_check_availability,
 };
 use localization::{Language, Localized};
 use money::{Currency, Price};
@@ -379,13 +378,9 @@ impl ProductListingRawValuesNormalizer {
             .transpose()
             .map_err(|error| envelope(error, report))?;
 
-        let description_language = match &raw.description {
-            ProductListingRawValuesPatch::Set(fragments) => {
-                detect_description_language(fragments).or(fallback_language)
-            }
-            ProductListingRawValuesPatch::Clear | ProductListingRawValuesPatch::Unchanged => {
-                fallback_language
-            }
+        let description_context = match &raw.description {
+            ProductListingRawValuesPatch::Set(fragments) => join_description_fragments(fragments),
+            ProductListingRawValuesPatch::Clear | ProductListingRawValuesPatch::Unchanged => None,
         };
 
         // Every field is evaluated independently. The decision keeps the first failure in
@@ -399,7 +394,7 @@ impl ProductListingRawValuesNormalizer {
             .map_err(ProductListingRawValuesNormalizationError::Text)
         });
         let title = fields.take(NormalizationField::Title, |_| {
-            normalize_title_patch(raw.title, description_language)
+            normalize_title_patch(raw.title, description_context.as_deref(), fallback_language)
         });
         let title_language = title.as_ref().and_then(title_language);
         let description = fields.take(NormalizationField::Description, |_| {
@@ -543,7 +538,8 @@ fn title_language(
 
 fn normalize_title_patch(
     patch: ProductListingRawValuesPatch<String>,
-    description_language: Option<Language>,
+    description: Option<&str>,
+    fallback_language: Option<Language>,
 ) -> Result<
     ProductListingRawValuesPatch<Localized<Language, Title>>,
     ProductListingRawValuesNormalizationError,
@@ -552,8 +548,7 @@ fn normalize_title_patch(
         ProductListingRawValuesPatch::Set(raw) => {
             let title = normalize_title(raw.as_str())
                 .map_err(ProductListingRawValuesNormalizationError::Text)?;
-            let title_language = detect_language(title.as_ref());
-            localize_normalized_title(title, title_language, description_language)
+            localize_normalized_title(title, description, fallback_language)
                 .map(ProductListingRawValuesPatch::Set)
                 .map_err(ProductListingRawValuesNormalizationError::Text)
         }
@@ -738,6 +733,7 @@ mod tests {
         NormalizationContext, NormalizationStage, RawProductListingPayloadFormat,
         RawProductListingValues, SourcePayload,
     };
+    use rstest::rstest;
     use serde_json::json;
 
     fn delete_input(raw_values: serde_json::Value) -> ProductListingNormalizationInput {
@@ -821,6 +817,70 @@ mod tests {
             outcome,
             ProductListingRawValuesNormalizationOutcome::Resolved(_)
         ));
+    }
+
+    /// Returns the resolved title and description languages of an input whose source falls
+    /// back to English.
+    fn resolved_languages(
+        title: &str,
+        description: serde_json::Value,
+    ) -> (Option<Language>, Option<Language>) {
+        let outcome = ProductListingRawValuesNormalizer::new().normalize(&input(json!({
+            "sourceListingId": "listing-123", "title": {"action": "SET", "value": title},
+            "description": description, "priceFormat": "DISPLAY_TEXT", "price": {"action": "CLEAR"},
+            "priceEstimateMin": {"action": "UNCHANGED"}, "priceEstimateMax": {"action": "UNCHANGED"},
+            "availability": {"action": "UNCHANGED"}, "url": {"action": "SET", "value": "listing-123"},
+            "images": {"action": "SET", "value": []}
+        })));
+        let ProductListingRawValuesNormalizationOutcome::Resolved(resolved) = outcome else {
+            panic!("expected resolved outcome, got {outcome:?}");
+        };
+        let description_language = match resolved.description {
+            ProductListingRawValuesPatch::Set(description) => Some(description.localization),
+            ProductListingRawValuesPatch::Clear | ProductListingRawValuesPatch::Unchanged => None,
+        };
+        (title_language(&resolved.title), description_language)
+    }
+
+    #[test]
+    fn should_detect_title_language_with_description_when_fallback_language_differs() {
+        let description = json!({"action": "SET", "value": [
+            "Een stenen tuinbeeld van een putto die op een bol staat.",
+            "Mooi verweerd en in goede staat."
+        ]});
+
+        assert_eq!(
+            (Some(Language::Nl), Some(Language::Nl)),
+            resolved_languages("Stenen putto op bol", description)
+        );
+    }
+
+    #[test]
+    fn should_take_description_language_for_title_when_listing_is_mixed() {
+        let description = json!({"action": "SET", "value": [
+            "Prachtig antiek Victoriaans mahonie schrijfbureau met een leren blad.",
+            "Het bureau heeft drie laden en staat op gedraaide poten."
+        ]});
+
+        assert_eq!(
+            (Some(Language::Nl), Some(Language::Nl)),
+            resolved_languages(
+                "Antique Victorian mahogany writing desk with leather top",
+                description
+            )
+        );
+    }
+
+    #[rstest]
+    #[case(json!({"action": "CLEAR"}))]
+    #[case(json!({"action": "UNCHANGED"}))]
+    #[case(json!({"action": "SET", "value": ["  "]}))]
+    fn should_use_fallback_language_when_indecisive_title_has_no_description(
+        #[case] description: serde_json::Value,
+    ) {
+        let (title_language, _) = resolved_languages("Stenen putto op bol", description);
+
+        assert_eq!(Some(Language::En), title_language);
     }
 
     #[test]

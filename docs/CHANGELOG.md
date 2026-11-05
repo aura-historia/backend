@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-05 — Title language detected with the description (#2782)
+
+- Newly normalized listings detect a title's original language together with its description instead of from the title alone, so titles of names, style periods or loanwords such as "Dutch Louis XV barometer" are no longer labelled with a language they are not written in. A title in another language than its description usually takes the description's language. Already stored titles keep their recorded language until a later revision of the listing is normalized.
+
 ## 2026-11-05 — Administrator review of Party-location geocoding (#2770)
 
 - Added administrator-only `GET /v1/admin/party-location-resolutions`, a review queue of Party locations across all Parties whose geocoding is `BLOCKED`, `FAILED` or `AMBIGUOUS` without a selected candidate. Filter with optional `status`; page with `after` and `limit` (1–100, default 25) using the returned `next`. Each item holds the location as returned by the location routes and its current `resolution`.
