@@ -66,15 +66,18 @@ fn word_count(text: &str) -> usize {
 }
 
 pub fn detect_description_language(fragments: &[String]) -> Option<Language> {
-    let cleaned: Vec<String> = fragments
+    join_description_fragments(fragments).and_then(|description| detect_language(&description))
+}
+
+/// Joins the trimmed, non-blank description fragments as paragraphs, or returns `None` when
+/// every fragment is blank.
+fn join_description_fragments(fragments: &[String]) -> Option<String> {
+    let paragraphs: Vec<&str> = fragments
         .iter()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
+        .map(|fragment| fragment.trim())
+        .filter(|fragment| !fragment.is_empty())
         .collect();
-    if cleaned.is_empty() {
-        return None;
-    }
-    detect_language(cleaned.join("\n\n").as_str())
+    (!paragraphs.is_empty()).then(|| paragraphs.join("\n\n"))
 }
 
 pub fn localize_normalized_title(
@@ -104,18 +107,10 @@ pub fn normalize_description(
     fragments: Vec<String>,
     fallback_language: Option<Language>,
 ) -> Result<Option<Localized<Language, Description>>, NormalizationError> {
-    let cleaned: Vec<String> = fragments
-        .into_iter()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if cleaned.is_empty() {
+    let Some(joined) = join_description_fragments(&fragments) else {
         return Ok(None);
-    }
-
-    let joined = cleaned.join("\n\n");
-    let description = Description::from(joined.as_str());
+    };
+    let description = Description::from(joined);
     let language = detect_language(description.as_ref())
         .or(fallback_language)
         .ok_or_else(|| NormalizationError::DescriptionUnknownLanguage {
