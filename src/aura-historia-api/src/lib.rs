@@ -908,6 +908,33 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                 .with_state(locations),
         );
     }
+    if let Some(resolutions) = state.party_location_resolutions {
+        use parties::location_resolutions as review;
+        routes = routes.merge(
+            Router::new()
+                .route("/v1/admin/party-location-resolutions", get(review::list))
+                .route(
+                    "/v1/admin/parties/{party_id}/locations/{location_id}/resolution",
+                    get(review::inspect),
+                )
+                .route(
+                    "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/request",
+                    post(review::request),
+                )
+                .route(
+                    "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/accept-candidate",
+                    post(review::accept_candidate),
+                )
+                .route(
+                    "/v1/admin/parties/{party_id}/locations/{location_id}/resolution/retry",
+                    post(review::retry),
+                )
+                .layer(axum::middleware::map_response(
+                    parties::locations::no_store_response,
+                ))
+                .with_state(resolutions),
+        );
+    }
     if let Some(parties) = state.parties {
         routes = routes.merge(
             Router::new()
@@ -1485,6 +1512,22 @@ async fn app_state_from_config_and_runtime(
         list: Arc::clone(&runtime.party_locations().list),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    use party_service::use_cases::party_location_resolution::*;
+    let party_location_resolutions_state = state::PartyLocationResolutionsState {
+        manage: Arc::new(ManagePartyLocationResolutionHandler::new_admin_only(
+            unit_of_work.clone(),
+            party_postgres::SqlxPartyLocationRepositoryFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        list: Arc::new(ListPartyLocationResolutionReviewsHandler::new(
+            unit_of_work.clone(),
+            party_postgres::SqlxPartyLocationResolutionReviewReaderFactory,
+            SqlxPartyLocationAccessFactory,
+            location_admin(),
+        )),
+        authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+    };
     use listing_source_postgres::{
         SqlxLocationDefaultReaderFactory, SqlxLocationDefaultRepositoryFactory,
         SqlxSourceLocationAccessFactory,
@@ -1748,6 +1791,7 @@ async fn app_state_from_config_and_runtime(
         .with_public_overview(PublicOverviewState::new(Arc::clone(&public_overview.get)))
         .with_parties(parties_state)
         .with_party_locations(party_locations_state)
+        .with_party_location_resolutions(party_location_resolutions_state)
         .with_shipping(shipping_state)
         .with_product_listing_delivery(product_listing_delivery_state)
         .with_source_location_defaults(source_location_defaults_state)

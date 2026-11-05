@@ -208,8 +208,11 @@ provider. Retirement detaches work; restoration explicitly reestablishes it. Inp
 fence old replies; presentation-only changes update guards without paying again.
 
 Business policy **PRECISION_FIRST_V1** automatically accepts only administrative geography
-from a unique compatible candidate. Protected application operations can inspect, retry or
-select a compatible candidate using current location revision and resolution generation.
+from a unique compatible candidate. Administrator API operations can request, inspect, retry or
+select a compatible candidate using current location revision and resolution generation; a
+review queue lists unreviewed `AMBIGUOUS`, `BLOCKED` and `FAILED` locations across Parties.
+Responses expose normalized candidate geography and attribution only, never provider record
+references.
 Explicit point selection requires premises evidence. A selected candidate applies only to its
 binding, not other locations reusing the result; submitted assertions always retain precedence.
 

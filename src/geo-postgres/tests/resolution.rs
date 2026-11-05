@@ -21,7 +21,7 @@ use party_postgres::{
 use party_service::{
     party_creation::insert_new_party,
     ports::{PartyRepositoryFactory, party_location::*},
-    use_cases::party_locations::*,
+    use_cases::{party_location_resolution::*, party_locations::*},
 };
 use platform_postgres::SqlxUnitOfWork;
 use sqlx::PgPool;
