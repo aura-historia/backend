@@ -532,9 +532,11 @@ reviewed release that removes the calls and purges retained evidence.
 Apply the consolidated geography migration with compatible API, router, workers and cleanup
 binaries through the [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
 Coordinate DMS capture of compact resolution and listing-geography wake-ups with the existing
-checkpoint. Keep private inputs, bindings, work checkpoints and evidence outside CDC. Protected
-Request establishes work for preexisting eligible PartyLocations; CDC-only capture does not
-backfill them. Deploy compatible ProductListing geographic mappings and verify refreshed
+checkpoint. Keep private inputs, bindings, work checkpoints and evidence outside CDC. The
+administrator resolution `request` operation establishes work for preexisting eligible
+PartyLocations; CDC-only capture does not backfill them. Review `AMBIGUOUS` locations and retry
+`BLOCKED` or `FAILED` ones through the administrator review queue (see `docs/swagger.yaml`),
+never through direct SQL. Deploy compatible ProductListing geographic mappings and verify refreshed
 product search visibility before enabling new geographic filters.
 
 The hourly backend cleanup purges orphaned evidence and requeues bounded runnable work

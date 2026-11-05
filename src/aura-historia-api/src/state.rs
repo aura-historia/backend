@@ -149,6 +149,7 @@ pub struct AppState {
     pub(crate) public_overview: Option<PublicOverviewState>,
     pub(crate) parties: Option<PartiesState>,
     pub(crate) party_locations: Option<PartyLocationsState>,
+    pub(crate) party_location_resolutions: Option<PartyLocationResolutionsState>,
     pub(crate) source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) admin_source_location_defaults: Option<SourceLocationDefaultsState>,
     pub(crate) users: Option<UsersState>,
@@ -203,6 +204,7 @@ impl AppState {
             party_locations: None,
             source_location_defaults: None,
             admin_source_location_defaults: None,
+            party_location_resolutions: None,
             users: None,
             user_addresses: None,
             watchlist: None,
@@ -290,6 +292,11 @@ impl AppState {
         state: SourceLocationDefaultsState,
     ) -> Self {
         self.admin_source_location_defaults = Some(state);
+        self
+    }
+
+    pub fn with_party_location_resolutions(mut self, state: PartyLocationResolutionsState) -> Self {
+        self.party_location_resolutions = Some(state);
         self
     }
 
@@ -1095,6 +1102,18 @@ impl PartyLocationsState {
             authenticator,
         }
     }
+}
+
+/// Administrator review of PartyLocation geocoding.
+#[derive(Clone)]
+pub struct PartyLocationResolutionsState {
+    pub manage: Arc<
+        dyn party_service::use_cases::party_location_resolution::ManagePartyLocationResolutionUseCase,
+    >,
+    pub list: Arc<
+        dyn party_service::use_cases::party_location_resolution::ListPartyLocationResolutionReviewsUseCase,
+    >,
+    pub authenticator: Arc<dyn TokenAuthenticator>,
 }
 
 #[derive(Clone)]
