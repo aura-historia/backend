@@ -6,6 +6,7 @@
 use crate::review::model::{
     CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, SchemaMatrix, UrlPatternReviewCandidate,
 };
+use crate::review::product_markup::JsonLdProductIds;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
@@ -77,6 +78,9 @@ pub(super) struct PageProjection {
     pub(super) final_url: String,
     pub(super) projection: String,
     pub(super) describes_one_product: bool,
+    /// Absent in an answer of a console older than this field.
+    #[serde(default)]
+    pub(super) json_ld_product_ids: JsonLdProductIds,
 }
 
 /// The answer of an accepted candidate edit.

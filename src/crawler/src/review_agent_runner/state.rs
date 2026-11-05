@@ -26,11 +26,22 @@ pub struct Pause {
     pub reported_reset: bool,
 }
 
+/// The runner's pause of its reviewer processes after the console's cap on the agents' decisions;
+/// authors keep running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewerPause {
+    /// When the console takes the agents' next decision, at the earliest.
+    #[serde(with = "time::serde::rfc3339")]
+    pub until: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunnerState {
     #[serde(default)]
     pub paused: Option<Pause>,
+    #[serde(default)]
+    pub reviewer_paused: Option<ReviewerPause>,
     /// Until when each review waits before its next pass.
     #[serde(default)]
     pub cooldowns: BTreeMap<CrawlerReviewId, Cooldown>,
@@ -58,10 +69,19 @@ impl RunnerState {
             .collect()
     }
 
-    /// Forgets pauses and cooldowns that ended before `now`.
-    pub fn expire(&mut self, now: OffsetDateTime) {
+    /// The reviewer pause in force at `now`, if any.
+    pub fn reviewer_pause_at(&self, now: OffsetDateTime) -> Option<ReviewerPause> {
+        self.reviewer_paused.filter(|pause| pause.until > now)
+    }
+
+    /// Forgets pauses and cooldowns that ended before `now`, and answers the reviewer pause that
+    /// ended, so the caller can log its end once.
+    pub fn expire(&mut self, now: OffsetDateTime) -> Option<ReviewerPause> {
         self.paused = self.pause_at(now);
         self.cooldowns.retain(|_, cooldown| cooldown.until > now);
+        let ended = self.reviewer_paused.filter(|pause| pause.until <= now);
+        self.reviewer_paused = self.reviewer_pause_at(now);
+        ended
     }
 }
 
@@ -150,7 +170,7 @@ mod tests {
     const NOW: OffsetDateTime = datetime!(2026-10-28 12:00 UTC);
 
     #[test]
-    fn should_keep_pause_cooldowns_and_the_last_digest_across_runs() {
+    fn should_keep_pauses_cooldowns_and_the_last_digest_across_runs() {
         let directory = StateDirectory::new();
         let review_id = CrawlerReviewId::new();
         let state = RunnerState {
@@ -158,6 +178,9 @@ mod tests {
                 until: NOW + Duration::hours(2),
                 limit: UsageLimitKind::Weekly,
                 reported_reset: true,
+            }),
+            reviewer_paused: Some(ReviewerPause {
+                until: NOW + Duration::minutes(45),
             }),
             cooldowns: BTreeMap::from([(
                 review_id,
@@ -176,7 +199,11 @@ mod tests {
             read.pause_at(NOW).map(|pause| pause.limit),
             Some(UsageLimitKind::Weekly)
         );
-        read.expire(NOW + Duration::hours(3));
+        assert_eq!(read.reviewer_pause_at(NOW), state.reviewer_paused);
+        assert_eq!(read.reviewer_pause_at(NOW + Duration::hours(1)), None);
+        let ended = read.expire(NOW + Duration::hours(3));
+        assert_eq!(ended, state.reviewer_paused);
+        assert_eq!(read.reviewer_paused, None);
         assert_eq!(read.paused, None);
         assert!(read.cooldowns.is_empty());
         assert_eq!(read.last_digest, state.last_digest);

@@ -1862,6 +1862,7 @@ function renderSelectorPanel(schemas, matrix) {
               <option value="image_url" ${type === 'image_url' ? 'selected' : ''} title="The best full-size image URL candidate of each matched element">Image URL</option>
               <option value="attribute_or_text" ${type === 'attribute_or_text' ? 'selected' : ''} title="The attribute when it is not blank, the element's text otherwise">Attribute or text</option>
               <option value="json_ld_offer" ${type === 'json_ld_offer' ? 'selected' : ''} title="availability or price from the offers in the matched ld+json script">JSON-LD offer</option>
+              <option value="json_ld_product" ${type === 'json_ld_product' ? 'selected' : ''} title="productID or sku of the Product in the matched ld+json script">JSON-LD product</option>
             </select>
           </label>
           ${ruleTypeTakesAttributeName(type) ? `<label class="field">Attribute name
@@ -1871,6 +1872,12 @@ function renderSelectorPanel(schemas, matrix) {
             <select ${disabled} onchange="setCurrentRuleOfferProperty(this.value)">
               <option value="availability" ${effectiveRule.property === 'availability' ? 'selected' : ''}>Availability</option>
               <option value="price" ${effectiveRule.property === 'price' ? 'selected' : ''}>Price</option>
+            </select>
+          </label>` : ''}
+          ${type === 'json_ld_product' ? `<label class="field">Product property
+            <select ${disabled} onchange="setCurrentRuleOfferProperty(this.value)">
+              <option value="product_id" ${effectiveRule.property === 'product_id' ? 'selected' : ''}>Product ID</option>
+              <option value="sku" ${effectiveRule.property === 'sku' ? 'selected' : ''}>SKU</option>
             </select>
           </label>` : ''}
         </div>
@@ -3098,7 +3105,9 @@ function setCurrentRuleType(type) {
         delete rule.name;
     }
     if (type === 'json_ld_offer') {
-        rule.property = rule.property || (selectedField === 'state' ? 'availability' : 'price');
+        rule.property = ['availability', 'price'].includes(rule.property) ? rule.property : (selectedField === 'state' ? 'availability' : 'price');
+    } else if (type === 'json_ld_product') {
+        rule.property = rule.property === 'sku' ? 'sku' : 'product_id';
     } else {
         delete rule.property;
     }
