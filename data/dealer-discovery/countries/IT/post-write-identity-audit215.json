@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-215",
+  "country": "IT",
+  "observedAt": "2026-11-04T14:50:26.329447Z",
+  "result": "PASSED",
+  "rawJournalFiles": 333,
+  "rawJournalRecordsScanned": 61525,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "schiavetto.com",
+      "IT:ANTICOANTICO:939"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:ANTICOANTICO:820"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot215-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T14:47:38.350753Z",
+    "fullVerifiedAt": "2026-11-04T14:08:19.471862Z",
+    "counts": {
+      "parties": 388,
+      "listingSources": 388,
+      "locations": 441,
+      "logos": 277,
+      "identifiedPlatforms": 319,
+      "deliveryProfiles": 181,
+      "emptyIngestionMethods": 388,
+      "excluded": 27,
+      "deferred": 109
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Schiavetto: complete current native privacy/rendered product-footer SRL and publishedVAT agree with exact884; VIESnegative only intraEU, no positive official validation/closure claim. Actual public A120 sheet viewed in normal browser, showing Francecirca1840 desk/front/open/side photos, not restoration portfolio. No protected URL decoding, canvas export or raw-photo-resolution claim. Two explicit workshop/showroom business sites preserved, no registered/warehouse/stock/dispatch/pickup. WEBSITE_X5 verified; original header asset999 plus one public-referrer retry999 unverified and omitted with Dec4 review. Explicit furniture shipping Italy+unlistedforeign/PACKING/TRACKING, average3-4days not universal numeric promise; costs and collection unknown.",
+    "Moneghini: full current primary/official positive operator/VAT. Actual current exact939 Rossi-attributed still life1920x1533 inspected, not the two explicitly SOLD native samples. Do not infer entire native catalogue sold/closed; exact hosted source selected, native identity/contact/377x207originallogo corroboration only, no duplicate source. Published Sanremo contact roles[] kept distinct from taxint10 and unspecified Sanremo/Brescia exhibitions; no allinventory/dispatch/pickup. Current offer explicitly worldwide insured packing/shipping, partialANYWHERE/OFFERED/INSURED/PACKING with unknown costs/timing. Artwork attribution/date/material/certificate not independent guarantees.",
+    "SantaBarbara820: complete current Italian SRL/VAT02664690647 official-positive and distinct Spello contact/explicitAvellino registered address observed, but three current sample original-art images and two published display variants403; one ordinarypublicreferrerretry403, no actual photo inspection or bypass/closure inference. Deferred with facts/backend empty and Dec4 follow-up. US SullivanGoss match only geographic location label, not shared operator/VAT/contact; narrow ownership-reconciliation215 records distinction, no other-country mutation."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "run": "be-2026-11-04-127",
-  "observedAt": "2026-11-04T14:43:02.417253Z",
+  "run": "be-2026-11-04-136",
+  "observedAt": "2026-11-04T17:12:08.549736Z",
   "counts": {
-    "parties": 201,
-    "listingSources": 202,
-    "locations": 272,
-    "logos": 119,
-    "identifiedPlatforms": 137,
-    "deliveryProfiles": 101,
-    "emptyIngestionMethods": 202,
+    "parties": 211,
+    "listingSources": 212,
+    "locations": 290,
+    "logos": 125,
+    "identifiedPlatforms": 145,
+    "deliveryProfiles": 102,
+    "emptyIngestionMethods": 212,
     "excluded": 41,
-    "deferred": 346
+    "deferred": 353
   },
   "verification": "PASSED_INCREMENTAL",
   "paidDataSpendUsd": 0,
   "blockers": [],
   "countryCoverage": "OPEN",
-  "description": "Three previousdeferrals resolved and onboarded: ArtPartout,SPAXProjects,AleorCraft&Biodesign. Fresh publicofficialNBBmetadata boundtoexactfirstpartycompanynumbersorfullname+currentaddress; actualoriginalartphotos/two logos verified, addressconflicts/shippingomissions preserved. All newresourceIDs/defaults readback andall twelveledgers audit/index/incremental pass. Totals201parties/202sources,allingestionempty. ContinueNECA8–11 andexact-numberlegalfollowups; no blocker/paidspend,nextFULL130,countryopen."
+  "description": "IBASHO prior legal deferral resolved and added with a unique folio containing23original silver-gelatin photographs, current purchase offer, actual assets and two officially bound gallery sites. In-Gate Gallery added with original drawing enquiry and distinct visiting/registered locations. KIN newly deferred for specific sale-stock proof; existing venue duplicates and FRLaForestDivonne ownership retained. All twelve ledgers passed incremental verification:211 Parties,212 sources,all ingestion empty. No exclusions, paid spend, uncertain writes or country blocker. Continue NECA44–51 and related INDEPENDANCEcatalogue qualification; FULL140 due, country coverage open."
 }

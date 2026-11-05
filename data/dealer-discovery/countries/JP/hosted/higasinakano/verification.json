@@ -1,0 +1,33 @@
+{
+  "run": "jp-2026-11-04-173",
+  "verifiedAt": "2026-11-04T17:09:29.545044Z",
+  "scope": "INCREMENTAL",
+  "environment": "https://api.aura-historia.com",
+  "fullVerifiedAt": "2026-11-04T16:41:47.636037Z",
+  "dealersCheckedThisRun": 0,
+  "dealersReused": 0,
+  "counts": {
+    "parties": 0,
+    "listingSources": 0,
+    "locations": 0,
+    "logos": 0,
+    "identifiedPlatforms": 0,
+    "deliveryProfiles": 0,
+    "emptyIngestionMethods": 0,
+    "excluded": 0,
+    "deferred": 1
+  },
+  "environmentCounts": {
+    "parties": 4798,
+    "listingSources": 4845
+  },
+  "paidDataSpendUsd": 0.0,
+  "checks": [
+    "Live managed Party contacts and ownership match reviewed evidence",
+    "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
+    "Managed ingestion lists empty; platform metadata independent",
+    "Profile terms and active defaults match reviewed observations",
+    "Inventory inheritance requires explicit separate evidence"
+  ],
+  "dealers": []
+}

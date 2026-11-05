@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-226",
+  "country": "IT",
+  "observedAt": "2026-11-04T16:55:01.449919Z",
+  "result": "PASSED",
+  "rawJournalFiles": 407,
+  "rawJournalRecordsScanned": 63941,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "nikearteantica.it",
+      "antichitaponteduro.com"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot226-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T16:51:10.659219Z",
+    "fullVerifiedAt": "2026-11-04T16:19:42.092851Z",
+    "counts": {
+      "parties": 416,
+      "listingSources": 416,
+      "locations": 469,
+      "logos": 289,
+      "identifiedPlatforms": 344,
+      "deliveryProfiles": 189,
+      "emptyIngestionMethods": 416,
+      "excluded": 27,
+      "deferred": 111
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Nike native: explicit current native partnership/VAT04372710279 matches current official NIKE SNC/Industrie31-3. Adopt full company, no guessed partners or given-nameMatteo as soletrader. Native31 versus hosted/tax31-3 preserved; contact roles[], no registered/stock/dispatch/pickup/default. Current native product1989 instock and actual905x1280 Annunciation painting inspected; seller Lazzarini/oil/biography not independent authorship/date guarantee. Actual original236x120 white WingedVictory header-brand icon inspected, not text wordmark/sportswear emblem or enlargement. Actual WooCommerce. Native says members work individually in two external auction departments; affiliation retained, no own operated auctions identified and TV broadcast not watched or assumed auction. No source-wide shipping/collection verified; export permit services not delivery policy. Exacthost1383 corroboration only.",
+    "Ponteduro native: explicit native VAT01965241209/current fullCarlo contact matches official-positive PONTEDUROCARLO. FounderFranco/generic privacy societa not legaloperator substitutes. Current BolognaBrugnoli9H business versus literal tax11 02int1 distinct. Calabria town-only reference no guessed second street/location. Actual native instock Christ painting375x500 and originalcrestPNG296x290 inspected without enlargement; actual WooCommerce. PARTIAL UNRESOLVED carrier delivery predicate retains destination/weight/size agreement and free50km only from actual holdingpremises, which is unknown for selected item. Null rates/times/features; no source inventory association, universal free rate, Bologna-centered radius, worldwide claim or collection from cash purchase.",
+    "Ponteduro initial shipping-profile POST returnedHTTP400; reviewed unresolved-area text326UTF8bytes exceeded current schema max255. Before retry, source/Party/location/business-onlydefault were read and matched originalIDs, profile list empty and shippingdefaultnull/rev1 confirmed. Only wording shortened to162bytes preserving conditions, originalIDs and originalcreationkey retained, fresh allraw/full live API identity check passed. Resume created profile and shippingdefault and final readbacks passed. mutation-reconciliation226.json preserves both failure and recovery; initial nonzero result not erased, no source/location recreated or uncertain write retried blindly.",
+    "Poliarts1440 resolved to existing Italy-native antichitapoliarts.it owner; complete operator and IDs retained, no extra hosted source/copied dealer record/enrichment."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

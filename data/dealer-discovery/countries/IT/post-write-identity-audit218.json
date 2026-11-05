@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-218",
+  "country": "IT",
+  "observedAt": "2026-11-04T15:28:17.924920Z",
+  "result": "PASSED",
+  "rawJournalFiles": 354,
+  "rawJournalRecordsScanned": 62200,
+  "apiWriteAttemptsThisRun": 9,
+  "decisions": {
+    "added": [
+      "studiolo.it",
+      "tempiantichi.com",
+      "IT:ANTICOANTICO:691"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot218-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "FULL",
+    "verifiedAt": "2026-11-04T15:26:55.773284Z",
+    "fullVerifiedAt": "2026-11-04T15:24:11.350538Z",
+    "counts": {
+      "parties": 396,
+      "listingSources": 396,
+      "locations": 449,
+      "logos": 282,
+      "identifiedPlatforms": 325,
+      "deliveryProfiles": 182,
+      "emptyIngestionMethods": 396,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Studiolo: completeofficialpositiveSTUDIOLO93SRL/currentprimaryVAT10841800153, not guessedCribioripartnership. Actual nativeSacraFamiglia962x1400 andoriginal365x82logo inspected; specificdetail circleofCiverchio notautograph, no artistlifespan-deriveddate/reverseinspection. Nativecontact46B versus generalfooter/host46 and TrezzanotaxViaNegri4 distinct. Onebusinesspremises only, nostock/dispatch/pickup/default/fulfillment. ClassicASP insufficientnamedplatform.",
+    "TempiAntichi: nativeprivacy/footer fullIvanRinaldi/currentVAT01281220416 matches currentofficialpositive. NativecurrentParruccone portrait3160x1848 andoriginal357x59logo inspected; actualWooCommerce. Emptyfeaturedhome/2018-2019pagetimestampsnotclosure,currentnativecataloguehasownartoffers. Nativeprivacy/Gov61013 vs currenthost47869 postal/provinceconflict unresolved, postal omitted. No registered/stock/dispatch/pickup. Specificitemfreightquote retained asitemobservation, no sourcewidepolicy/ANYWHERE/rate. SellerXVII/tag700/attribution/signature notnormalizedorindependentguarantees.",
+    "StudioZenale691: fullprimaryMiriamColombo03414940167currentofficialpositive. Actualcurrent1989DeNola-attributedpainting1320x1919 plus separateOnofri-attributedbust1288x1920 inspected. Directfineart no100yearclaim for1989. FirstTrecourtportrait403+onepublicrefretry403notphotoevidence/closure. Bustbodyearly1500sversuscatalogue1700s preservedunresolved. Contactroles[]; no originalmerchantlogo/email/native/fulfillment/registered/stock/dispatch/default or additionalParty."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-225",
+  "country": "IT",
+  "observedAt": "2026-11-04T16:38:33.000115Z",
+  "result": "PASSED",
+  "rawJournalFiles": 404,
+  "rawJournalRecordsScanned": 63614,
+  "apiWriteAttemptsThisRun": 3,
+  "decisions": {
+    "added": [
+      "IT:PROANTIC:3140"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:PROANTIC:2968"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot225-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T16:37:31.767517Z",
+    "fullVerifiedAt": "2026-11-04T16:19:42.092851Z",
+    "counts": {
+      "parties": 414,
+      "listingSources": 414,
+      "locations": 467,
+      "logos": 287,
+      "identifiedPlatforms": 342,
+      "deliveryProfiles": 188,
+      "emptyIngestionMethods": 414,
+      "excluded": 27,
+      "deferred": 111
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Petrogalli3140: complete current published personal business MarcoPetrogalli/direct phone/Gussago contact adopted without formal legal-form or suffix assertion. Actual1200x1054 framed capriccio inspected; seller Raggi attribution/signature/expert report not independent guarantees, report and reverse not inspected. Candidate secondary VAT03254010170 current VIES negative for intra-EU registration only, no domestic-invalidity/closure or dealer-link inference, omitted. Contact roles[], no email/logo/native/fulfillment/stock/dispatch/pickup/default.",
+    "Micene2968: current own antique/art stock confirmed by actual1200x1200 carved grotesque-mask photograph. Current legal operator relationship unresolved: primary Rossi family/Andrea and Cesalpino6-8 versus candidate official-positive MICENE SRL01740700511/Sturzo14. External organizer interview/SRL label and historical fair listing remain leads for company linkage. No fake Andrea sole trader, guessed full corporation, VAT fact or resources. Deferred with dated2026-12-04 followup; Italy current business-home lead from merchant primary.",
+    "Ioviero4223/Ischia1024/Margheri4135/Martini2901/Missaglia2621 current exact profiles resolve to existing Italy-native owners; IDs and full legal operators preserved. Ischia trade name does not replace existing EnricaLeoni operator, Martini contacts do not replace its full SRL. No extra hosted sources, copied dealer records or enrichment."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

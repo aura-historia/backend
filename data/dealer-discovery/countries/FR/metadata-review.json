@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "run": "2026-11-04-fr-336",
-  "observedAt": "2026-11-04T14:47:40.624131Z",
+  "run": "2026-11-04-fr-354",
+  "observedAt": "2026-11-04T17:05:08.615745Z",
   "status": "METADATA_MATCHES_EXCEPT_RECORDED_INGESTION",
   "strictCountryVerification": "FAILED",
   "lastPassedRun": "2026-11-03-fr-251",
   "lastPassedAt": "2026-11-03T20:29:26.470209Z",
   "lastFullVerifiedAt": "2026-11-03T20:27:25.152450Z",
   "counts": {
-    "parties": 493,
-    "listingSources": 499,
-    "locations": 617,
-    "logos": 417,
-    "identifiedPlatforms": 429,
-    "deliveryProfiles": 355,
-    "emptyIngestionMethods": 394,
+    "parties": 514,
+    "listingSources": 520,
+    "locations": 646,
+    "logos": 436,
+    "identifiedPlatforms": 450,
+    "deliveryProfiles": 369,
+    "emptyIngestionMethods": 415,
     "nonemptyIngestionMethods": 105,
-    "excluded": 41,
-    "deferred": 403
+    "excluded": 44,
+    "deferred": 431
   },
   "checked": "All managed Party names/contacts, source operator, URL, name, image and platform compared against fresh live snapshots. Actual ingestion changes are listed, never masked. Location/profile checks were not reached by strict verifier; retain individual prior creation/readback dates. This is not a passing country verification.",
   "ingestionDrift": [
@@ -970,11 +970,11 @@
   "otherMetadataDrift": [],
   "paidDataSpendUsd": 0,
   "latestCompleteResourceReview": {
-    "run": "2026-11-04-fr-335",
-    "observedAt": "2026-11-04T14:42:09.313062Z",
+    "run": "2026-11-04-fr-350",
+    "observedAt": "2026-11-04T16:26:19.597652Z",
     "scope": "FULL_MANAGED_LOCATION_PROFILE_DEFAULT_REVIEW",
     "status": "RESOURCE_FIELDS_MATCH",
-    "managedSources": 498,
+    "managedSources": 513,
     "strictCountryVerification": "NOT_A_PASSING_COUNTRY_VERIFICATION"
   }
 }

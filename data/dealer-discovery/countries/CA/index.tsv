@@ -3,6 +3,7 @@ domain	status	platform	listingSourceId	partyId	observedAt	reason	aliases	catalog
 14bells.com	ADDED	SHOPIFY	ls_01m6hfjevzefzryeprzmg15zbj	pty_01m6hfjevrep88798q4381qy9c	2026-11-03T19:53:26.873991Z			https://14bells.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 250liquidation.com	EXCLUDED				2026-11-03T15:53:10.154475Z	OPERATES_AUCTIONS		https://www.250liquidation.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 84andahalf.ca	ADDED	SQUARESPACE	ls_01m6gtbk7hevdbqrstatm9jf4z	pty_01m6gtbk73egsbaefh2a8fqg9f	2026-11-03T13:42:41.892908Z			https://www.84andahalf.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+abbozzogallery.com	ADDED	ARTCLOUD	ls_01m6kqgfknevrstrhkk0y637ja	pty_01m6kqgfjye41bqyc83v4401cq	2026-11-04T16:50:39.430887Z			https://www.abbozzogallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 abcantiques.ca	ADDED	KOPAGE	ls_01m6gw4173egg8ka4q7feawwnm	pty_01m6gw416pedm96rr3g592mh0f	2026-11-03T20:40:53.977033Z			https://www.abcantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 abebooks.com	ADDED	ABEBOOKS	ls_01m6h649cye0bad5tmyqgt9ces	pty_01m6h649cceq2b5jmzv3yq2tnv	2026-11-03T20:41:02.542465Z			https://www.abebooks.com/High-Park-Books-Kitchener-ON-Canada/5286574/sf	data/dealer-discovery/countries/CA/hosted/high-park-books/dealers.jsonl	HOSTED_DEALER_CATALOGUE
 abebooks.com	ADDED	ABEBOOKS	ls_01m6h7s73seydbgsymk1x0dzrz	pty_01m6h7s73cexs9ccehwvgd4y05	2026-11-03T20:41:06.263981Z			https://www.abebooks.com/reeve-clarke-books-abac-south-river/6826014/sf	data/dealer-discovery/countries/CA/hosted/reeve-and-clarke-books/dealers.jsonl	HOSTED_DEALER_CATALOGUE
@@ -19,6 +20,7 @@ alphabet-bookshop.com	DEFERRED				2026-11-03T17:18:08.639117Z	CURRENT_STOCK_NOT_
 ambridgeantiques.ca	DEFERRED				2026-11-03T20:28:15.428821Z			https://www.ambridgeantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 anantiquemarket.com	DEFERRED				2026-11-03T19:20:51.352679Z		antiquesdirect.ca	https://anantiquemarket.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 annakkhome.com	ADDED	SQUARESPACE	ls_01m6h5skc7e7qrgs7fe38dw6v5	pty_01m6h5skbveqvtmcda020cm8bb	2026-11-03T17:02:35.200956Z			https://www.annakkhome.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+annloart.com	ADDED	SHOPIFY	ls_01m6kgxsf4es78b2bc4vjawkha	pty_01m6kgxseme5avjxn64kwk597n	2026-11-04T14:55:35.524252Z			https://annloart.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquarius.com	DEFERRED				2026-11-04T14:04:09.207796Z			https://www.antiquarius.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiqueaddict.ca	ADDED	WORDPRESS	ls_01m6gvgagjee18mt7ajs36avxb	pty_01m6gvgag4ejdaq29phkamn3na	2026-11-03T14:02:44.917359Z			https://www.antiqueaddict.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquealley.ca	DEFERRED				2026-11-03T20:38:55.754182Z			https://www.antiquealley.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -28,6 +30,7 @@ antiquesonqueen.com	EXCLUDED				2026-11-03T13:59:04.557403Z	MULTI_DEALER_SHOP		h
 antiquesontheside1.wixsite.com	DEFERRED				2026-11-03T20:21:00.055440Z			https://antiquesontheside1.wixsite.com/aots	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquestreasuresandtreats.ca	ADDED	SHOPIFY	ls_01m6hj6efjer1rqh8qh9ncv4gw	pty_01m6hj6ef4e80rfa31drdvfp68	2026-11-03T20:39:18.907253Z			https://antiquestreasuresandtreats.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquewarehouse.ca	ADDED	WORDPRESS	ls_01m6gq3bwresbsf14fzgvv5kes	pty_01m6gq3bw6e39bm3kvpf5v0br8	2026-11-03T12:46:16.702052Z			https://antiquewarehouse.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+antiquitedamienroy.com	DEFERRED				2026-11-04T15:00:00.800856Z			https://antiquitedamienroy.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquitesaufildutemps.ca	ADDED	JIMDO	ls_01m6gyfhb0ec4vmxtg7rg475ct	pty_01m6gyfhaee4tv62x78jj4pgve	2026-11-03T20:40:56.156777Z			https://www.antiquitesaufildutemps.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquitesbrocantecharlevoix.com	ADDED	WIX	ls_01m6h1v20hex8t2vcgxhtxj621	pty_01m6h1v1zwehvvntdakbchjcma	2026-11-03T15:53:28.705278Z			https://www.antiquitesbrocantecharlevoix.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 antiquitesdeschambault.ca	DEFERRED				2026-11-03T18:59:59.855259Z			https://antiquitesdeschambault.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -43,10 +46,14 @@ artbydodie.com	ADDED	WEEBLY	ls_01m6k7hw61eesrr1pvh3stnmb7	pty_01m6k7hw5gevbrrz7j
 artdevivregalerie.com	ADDED	WIX_STORES	ls_01m6kgfz0neqsbr5c086bamtja	pty_01m6kgfz07e9frw5ravq9xj19x	2026-11-04T14:48:02.401148Z			https://www.artdevivregalerie.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 artefacts.ca	ADDED	WOOCOMMERCE	ls_01m6he81a4ew0babbbch77zhxz	pty_01m6he819neg5v2ytk0xs364wv	2026-11-03T19:30:16.854177Z			https://artefacts.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 artinteriors.ca	ADDED		ls_01m6jsv9qgend86g5vks0b4e2d	pty_01m6jsv9pzeqaa9n5bt7j5qpkz	2026-11-04T08:12:16.671841Z			https://artinteriors.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+artoffice.ca	DEFERRED				2026-11-04T16:22:28.325045Z		cristallgallery.com	https://artoffice.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 artplacement.com	EXCLUDED				2026-11-04T09:21:50.881356Z			https://artplacement.com/gallery/index.php	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 arts-underground.myshopify.com	ADDED	SHOPIFY	ls_01m6k0ezhkey49eap5y7vk8cjp	pty_01m6k0ezh6etvbvn9k5pczd7cj	2026-11-04T10:07:52.641995Z		artsunderground.ca;artsunderground.squarespace.com	https://arts-underground.myshopify.com/collections/members-gallery	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+artworksbc.com	ADDED	SHOPIFY	ls_01m6knychjen1tv0t7rmvrgc5t	pty_01m6knych4eajvggfse1z407vy	2026-11-04T16:23:17.948387Z			https://artworksbc.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+ashdalegallery.com	ADDED	SHOPIFY	ls_01m6kmx8hpep1b96ycz8m1ttsj	pty_01m6kmx8h8ewar2rrnab195hxc	2026-11-04T16:05:12.686019Z			https://ashdalegallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 assiniboia.com	ADDED	ARTCLOUD	ls_01m6jxz24aewmtaqvbjv98wn92	pty_01m6jxz23wer1axabcq5s358gr	2026-11-04T09:24:14.415768Z			https://assiniboia.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 atelierduvieuxpin.com	DEFERRED				2026-11-03T14:54:14.603417Z	CURRENT_HISTORIC_STOCK_UNCONFIRMED		https://atelierduvieuxpin.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+ateliersatravers.ca	DEFERRED				2026-11-04T15:05:21.329294Z			https://www.ateliersatravers.ca/accueil/galerie-boutique	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 atticbooks.ca	ADDED	SHOPIFY	ls_01m6gtfs5denfbqqnsfvnaqc96	pty_01m6gtfs4xe22tz1vh3c695dqa	2026-11-03T13:44:59.214925Z			https://atticbooks.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 atticus-books.com	ADDED		ls_01m6gtrgphe71sa69dmqezf2nj	pty_01m6gtrgp1epxbgnek6f1rnvsj	2026-11-03T20:40:57.078571Z			http://www.atticus-books.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 aubreysantiques.net	DEFERRED				2026-11-03T12:50:59.360422Z	NATIVE_ANTIQUE_STOCK_PAGES_EXCEED_BOUNDED_FETCH_LIMIT		https://www.aubreysantiques.net/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -57,12 +64,14 @@ balfourbooks.com	DEFERRED				2026-11-03T17:51:18.530684Z	HISTORIC_STOCK_NOT_SUFF
 barasethouse.com	ADDED	WIX	ls_01m6grfwcaetf855b1zap2mfb4	pty_01m6grfwbte3bt99kdv4wcpg9g	2026-11-03T13:10:04.963220Z			https://www.barasethouse.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 barryezrinantiquesandappraisals.com	DEFERRED				2026-11-03T13:09:20.124870Z	NATIVE_DOMAIN_DNS_FAILURE_AND_AUCTION_AFFILIATION_REVIEW		https://barryezrinantiquesandappraisals.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 barrysjewellers.com	ADDED	SHOPIFY	ls_01m6h53az8ejfvxzd2sk6fgw72	pty_01m6h53ayte7qr4v041mg4nywh	2026-11-03T16:50:25.884730Z			https://barrysjewellers.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+bau-xi.com	ADDED	SHOPIFY	ls_01m6kpvae7ep38x44db4xdg3nc	pty_01m6kpvadkepzakenek7rfxvsp	2026-11-04T16:39:06.930623Z			https://bau-xi.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 benjaminbooks.ca	ADDED	WIX	ls_01m6h6q9c9ej1bafjcwf2tdgpd	pty_01m6h6q9bqeq7araq0wbzp1bd9	2026-11-03T17:18:47.812644Z			https://www.benjaminbooks.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 bernardisantiques.com	ADDED	WOOCOMMERCE	ls_01m6gvpyvpexhreq9av7rkjxnr	pty_01m6gvpyteem9bzbhvh7hfc8xk	2026-11-03T14:06:22.906597Z			https://bernardisantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 berriedaleantiques.ca	ADDED	WORDPRESS	ls_01m6kd68pkehs829yhxjfzjzrb	pty_01m6kd68p7e0nbzn346a9x5mbj	2026-11-04T13:50:18.551185Z			https://berriedaleantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 bexvintage.ca	DEFERRED				2026-11-03T15:13:02.300900Z	SHARED_SHOWROOM_OPERATOR_UNRESOLVED		https://www.bexvintage.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 bibliopolis.net	ADDED		ls_01m6h9c3j4e9mvkyt2f454vnaq	pty_01m6h9c3hpebf8r9ss0g3t2bct	2026-11-03T20:41:01.729121Z			http://www.bibliopolis.net/cote/	data/dealer-discovery/countries/CA/hosted/francois-cote/dealers.jsonl	HOSTED_DEALER_CATALOGUE
 bigvintage.ca	DEFERRED				2026-11-03T20:38:55.754179Z			https://www.bigvintage.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+birchcontemporary.com	ADDED	SQUARESPACE	ls_01m6ks5649eeav93jqpjj45x71	pty_01m6ks563qe5as48r72wzca3ej	2026-11-04T17:19:25.930519Z			https://www.birchcontemporary.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 bisonbooks.ca	DEFERRED				2026-11-03T15:43:45.944819Z	SOLE_OWNER_AUCTION_OPERATION_RELATION_UNRESOLVED		https://bisonbooks.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 blacksbooks.ca	ADDED	WOOCOMMERCE	ls_01m6gz23npe07a1vrezm7r9cj3	pty_01m6gz23n8ehq8m6p6xqva3v8d	2026-11-03T15:04:54.388775Z			https://blacksbooks.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 blacksheepart.com	ADDED		ls_01m6hgssxbe47s4w50ppxgnjbf	pty_01m6hgsswre0gb4ke25x1kk3mk	2026-11-03T20:40:57.380954Z			https://www.blacksheepart.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -82,6 +91,7 @@ brocantelareconquete.com	ADDED	OPENCART	ls_01m6gzwqp6erpap6fka8719brh	pty_01m6gz
 brocantemeg-antique.com	DEFERRED				2026-11-03T14:54:14.603412Z	NATIVE_SITE_UNRESOLVED		https://brocantemeg-antique.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 brocantique.ca	ADDED	WOOCOMMERCE	ls_01m6gy96j3ebavt437k01p55wc	pty_01m6gy96h8e5krk671ssck15g5	2026-11-03T14:51:17.737193Z			https://brocantique.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 brownanddickson.com	ADDED	WORDPRESS	ls_01m6h6qbczexxbfaqwx998zwgq	pty_01m6h6qbcqe8qrgj269zkkae7p	2026-11-03T17:18:49.936211Z			https://brownanddickson.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+bulgergallery.com	ADDED	ARTLOGIC	ls_01m6krwkq4enh9zgvnj421ptxt	pty_01m6krwkpvea7t85vk2q52zx3b	2026-11-04T17:14:44.960038Z			https://www.bulgergallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 bytownvintage.ca	ADDED	SHOPIFY	ls_01m6grfybdevb96szmbqjcw519	pty_01m6grfyaxe0qtzcbns5j62wra	2026-11-03T13:10:06.885665Z			https://bytownvintage.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 calgarycoin.com	EXCLUDED				2026-11-03T16:20:25.621593Z	OPERATES_AUCTIONS		https://www.calgarycoin.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 camera-traders.com	EXCLUDED				2026-11-03T18:41:34.477766Z	OUTSIDE_DIRECT_ART_ANTIQUES_SCOPE		https://www.camera-traders.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -98,7 +108,9 @@ caroltelferantiques.on.ca	DEFERRED				2026-11-03T12:53:52.056035Z	FIRST_PARTY_CU
 carrefouratlanticemporium.com	DEFERRED				2026-11-03T13:52:51.571783Z	NO_VERIFIED_CURRENT_AVAILABLE_STOCK		https://www.carrefouratlanticemporium.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 cartolina.com	DEFERRED				2026-11-03T16:03:39.272188Z	ORIGINAL_HISTORIC_STOCK_UNCONFIRMED		https://cartolina.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 carvingsnunavut.com	ADDED	LIGHTSPEED	ls_01m6h93x94ectby4ehnkth0dsx	pty_01m6h93x8qeq8s4gapwprk8qeb	2026-11-03T18:00:38.813896Z			https://www.carvingsnunavut.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+catrionajeffries.com	DEFERRED				2026-11-04T16:30:27.241822Z			https://catrionajeffries.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 cgoart.com	ADDED	WORDPRESS	ls_01m6hehzmme83tk1j3n273s8mq	pty_01m6hehzm6eewa4fvsya5r1yxg	2026-11-03T19:35:43.068170Z			https://www.cgoart.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+chantantiques.shop	ADDED	WIX_STORES	ls_01m6kgxqqke2ety7e8cg9dh4s7	pty_01m6kgxqpyeec96vqmyfpnpbf4	2026-11-04T14:55:33.418263Z			https://www.chantantiques.shop/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 charmaines.org	ADDED	WEEBLY	ls_01m6hchphhe0j91jw4ekpsvvjc	pty_01m6hchph2enx9wtzcja35vymh	2026-11-03T20:40:58.445404Z			https://www.charmaines.org/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 cherryhillantiques.biz	ADDED	DRUPAL	ls_01m6gqdpaderhbfyvzx9554axb	pty_01m6gqdp9xegzvc5exh9x2c599	2026-11-03T12:51:24.417665Z			https://www.cherryhillantiques.biz/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 chestercollectionneurantiquites.com	EXCLUDED				2026-11-03T13:56:05.226718Z	MULTI_SELLER_PLATFORM		https://www.chestercollectionneurantiquites.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -106,19 +118,24 @@ chicshackantique.com	ADDED	WIX	ls_01m6gr3bfdesza865r7dwy9k9w	pty_01m6gr3beseq3bn
 christinaparkergallery.com	ADDED	WORDPRESS	ls_01m6jzbac9eb1r0hypfxcr7vtm	pty_01m6jzbabqe6682w0gyx212mhn	2026-11-04T09:48:24.163535Z			https://christinaparkergallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 citadelcoinshalifax.com	ADDED	STRIKINGLY	ls_01m6h3dkhfep9rbj1gcrsxw8cc	pty_01m6h3dkgxehva9zr304gk1fsv	2026-11-03T20:40:58.761777Z			https://www.citadelcoinshalifax.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 clappisonantiques.com	ADDED	SQUARESPACE	ls_01m6hjfttxeepr819ctpajtbch	pty_01m6hjftt8eg9sgzqwnqe28m26	2026-11-03T20:44:26.687687Z			https://clappisonantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+clintroenisch.com	ADDED	ARTLOGIC	ls_01m6krebe0e6vaj5d5chhkgr5c	pty_01m6krebdjep5t3sg0cqcjayhw	2026-11-04T17:06:57.814609Z			https://www.clintroenisch.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 cmawle.com	ADDED	WIX_STORES	ls_01m6k64kx4e8qsyksmc3npkgcw	pty_01m6k64kwjeeftv5xgb3g93r4e	2026-11-04T11:47:04.557961Z			https://www.cmawle.com/original-art-for-sale	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 coastalpeoples.com	ADDED	WOOCOMMERCE	ls_01m6hc5qwge95tpvtnrc6krhhf	pty_01m6hc5qw2e4qapr13jctxwcb3	2026-11-03T18:54:04.550310Z			https://coastalpeoples.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 coastconsignment.com	ADDED	WOOCOMMERCE	ls_01m6gz28kge1qa8c9sjvw0vpsb	pty_01m6gz28k2e7rst87yhbzyc15g	2026-11-03T15:04:59.004147Z			https://coastconsignment.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 combat-relics.com	ADDED	WIX	ls_01m6h4ndmcee7tdjcftz6zqsmb	pty_01m6h4ndkwedwtfmf1z0dsd5x8	2026-11-03T16:42:49.675551Z			https://www.combat-relics.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 commedansltemps.com	ADDED	WORDPRESS	ls_01m6gv4kzteekv4dckfa01tzb0	pty_01m6gv4kzaes6tv3cdg5224pyy	2026-11-03T13:56:21.944548Z			https://commedansltemps.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 contacteditions.com	ADDED		ls_01m6gz269dec6trzgcbzrj0tme	pty_01m6gz268zeyt9hbv5yf05a7f4	2026-11-03T21:03:45.192002Z		contacteditions.ca	https://contacteditions.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+contedefeeantiques.com	DEFERRED				2026-11-04T15:20:36.653221Z			https://contedefeeantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 corbys.ca	ADDED	SHOPIFY	ls_01m6gytvtvepqv22a3f23kerhr	pty_01m6gytvtjebgs4xfjmswkn4qp	2026-11-03T15:00:56.724871Z			https://www.corbys.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+corkingallery.com	ADDED	ARTLOGIC	ls_01m6ks57kke0gad437kc8b45tr	pty_01m6ks57k2eacvzmmmsd2nsv5z	2026-11-04T17:19:27.515294Z			https://www.corkingallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 countrysideantiques.ca	DEFERRED				2026-11-04T13:56:35.049288Z			https://www.countrysideantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 curioatelier.com	ADDED		ls_01m6k4fnbaeh8b5b554qk9devy	pty_01m6k4fnb0evkstqn2cvb6t5bb	2026-11-04T11:18:09.135490Z			https://www.curioatelier.com/new-arts	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 curioustimes.ca	ADDED	SQUARESPACE	ls_01m6kdjyynejwssvg63jg99e50	pty_01m6kdjyy9e9abedh3fwgvq2g6	2026-11-04T13:57:14.533534Z		curioustimesco.squarespace.com	https://www.curioustimes.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+cuttsgallery.com	ADDED	WORDPRESS	ls_01m6kre98we5ps92j3pkgkm74x	pty_01m6kre98eec8ttzam41rf7je3	2026-11-04T17:06:56.161666Z			https://cuttsgallery.com/artwork/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 cynthiafindlay.com	ADDED		ls_01m6h2ehtne6qtrf4ak6e725ra	pty_01m6h2ehtbe6yae5bvkdf0e5c1	2026-11-03T20:40:59.328166Z			https://www.cynthiafindlay.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 dancingravenstudio.ca	DEFERRED				2026-11-04T13:01:01.818496Z			https://www.dancingravenstudio.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 dandelionartframing.ca	ADDED	SQUARESPACE	ls_01m6k8fnw9e6psga51j5gvyf5w	pty_01m6k8fnvsezvak4z8st1rjp5a	2026-11-04T12:28:04.149171Z			https://www.dandelionartframing.ca/saskatoon-art-gallery-canadian-art-online	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+danielfariagallery.com	DEFERRED				2026-11-04T17:14:11.095270Z			https://danielfariagallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 darrellchocolatefineart.com	DEFERRED				2026-11-04T12:52:37.304145Z			https://www.darrellchocolatefineart.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 davidmasonbooks.com	ADDED		ls_01m6gym93meq68fxx6h91r7g11	pty_01m6gym936e6cvpja938jz9d4w	2026-11-03T20:40:59.604789Z			https://www.davidmasonbooks.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 ddstudiosloft.ca	ADDED	SHOPIFY	ls_01m6gzhwvcehp88600ez38dxmf	pty_01m6gzhwtnez88dtv8jq4pbd0x	2026-11-03T15:13:31.115165Z			https://ddstudiosloft.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -143,11 +160,13 @@ ed3f.com	DEFERRED				2026-11-04T11:09:01.178521Z			https://www.ed3f.com/	data/de
 edmontonbookstore.com	ADDED	WOOCOMMERCE	ls_01m6h75dzke0cv91gh0jk6tmfh	pty_01m6h75dz5e4p8rfhryxjz2162	2026-11-03T17:26:31.457571Z			https://edmontonbookstore.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 egiclees.com	ADDED	WIX_STORES	ls_01m6k71c8yefdr18311geh8b27	pty_01m6k71c8ner0sv5jy7m68vree	2026-11-04T12:02:47.445528Z			https://www.egiclees.com/shop-originals	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 emmabutler.com	ADDED		ls_01m6jzxgrjea1t1p2wev9rgn9b	pty_01m6jzxgr4e93vbr8dm396kpyy	2026-11-04T09:58:20.871461Z			https://www.emmabutler.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+equinoxgallery.com	ADDED	WORDPRESS	ls_01m6kpcgrpeqbvxqne4scqpfwh	pty_01m6kpcgr7esqbz1ypccvvjkkj	2026-11-04T16:31:00.788246Z			https://www.equinoxgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 ernestjohnsonantiques.com	ADDED	WIX	ls_01m6gq3epne0rvt95m6y4p8pge	pty_01m6gq3ep7e96bzf6n630gfbwd	2026-11-03T12:45:49.379920Z			https://www.ernestjohnsonantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 everythingold.ca	EXCLUDED				2026-11-03T18:59:59.855253Z	OPERATES_AUCTIONS		https://everythingold.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 faithgrantantiques.com	DEFERRED				2026-11-03T13:59:04.557407Z	NO_INSPECTABLE_INDIVIDUAL_STOCK		https://www.faithgrantantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 fedoraantiques.com	ADDED	BIGCOMMERCE	ls_01m6gsw81ce7ptjec1tvtwx456	pty_01m6gsw80ye13v7f84fgedyb47	2026-11-03T13:34:18.915916Z			https://fedoraantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 feheleyfinearts.com	ADDED	WOOCOMMERCE	ls_01m6h5cx3neaxbn9mqsxhbqram	pty_01m6h5cx35efysrccpmm7m2w4j	2026-11-03T16:55:39.181974Z			https://feheleyfinearts.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+ffoto.com	EXCLUDED				2026-11-04T17:14:11.095279Z			https://ffoto.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 filofinds.com	ADDED	SHOPIFY	ls_01m6h269q6efvrr50hetharndc	pty_01m6h269ppexvrmrxbnh7s5vd4	2026-11-03T15:59:36.861117Z			https://filofinds.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 fineartandantiques.ca	ADDED		ls_01m6hbfqfre1vs9rwcex38dq3j	pty_01m6hbfqepem2vknxvdt5qv5j6	2026-11-03T20:41:01.115968Z			https://www.fineartandantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 finerthingsantiques.com	ADDED		ls_01m6gqjyk4ehfrzggwpj77ryt4	pty_01m6gqjyjpe0z998v0k5qp5b1r	2026-11-03T20:41:01.422043Z			https://finerthingsantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -170,22 +189,28 @@ galeriebeauchamp.com	ADDED	SHOPIFY	ls_01m6jvxeese339k1754azwapex	pty_01m6jvxeehe
 galerielacerte.com	ADDED	WORDPRESS	ls_01m6jtvdj7e0jtmete8gc9dtrh	pty_01m6jtvdhfekes28mc8pbvsfkw	2026-11-04T08:29:49.123993Z			https://galerielacerte.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 galerieleroyer.com	ADDED	ARTLOGIC	ls_01m6jwxg5sehrvea5tdawjr3q7	pty_01m6jwxg5ce4zbmtdrsbtwc44y	2026-11-04T09:05:54.731585Z			https://www.galerieleroyer.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 galeriemariam.com	DEFERRED				2026-11-04T11:54:18.955093Z			https://www.galeriemariam.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+galerienicolasrobert.com	DEFERRED				2026-11-04T17:18:39.905952Z		gallerynicolasrobert.com	https://www.galerienicolasrobert.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 galerienuances.com	ADDED	SHOPIFY	ls_01m6jw7z3ge4hbzkkx9ze87mcb	pty_01m6jw7z34epfs7y6cccxpvr3y	2026-11-04T08:54:08.459922Z			https://galerienuances.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+galeriequebecart.com	ADDED	WORDPRESS	ls_01m6kjed30eyat6eq6h6ff3aa3	pty_01m6kjed2hedmv3rr7d7jcm8m8	2026-11-04T15:22:08.149372Z			https://galeriequebecart.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 gallery18.com	EXCLUDED				2026-11-03T19:40:38.075576Z			https://www.gallery18.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 gallery421.ca	ADDED	MASTERPIECE_ONLINE	ls_01m6hr5t29ejg831dg35r3qtgt	pty_01m6hr5t1neye8bq71cvc9m2zy	2026-11-03T22:23:49.023681Z			https://gallery421.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 gallery78.com	ADDED	SHOPIFY	ls_01m6hd1pvjexbamcnq13h59v2j	pty_01m6hd1pv6e6x869he4jk2585s	2026-11-03T19:09:20.791832Z			https://gallery78.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 galleryelder.com	ADDED	SHOPIFY	ls_01m6gqdkxzehrt0jx6kynbr5nz	pty_01m6gqdkxfeqtvdezdxxa60rf7	2026-11-03T12:51:22.635859Z			https://galleryelder.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 gallerym2.com	ADDED	WOOCOMMERCE	ls_01m6k4van2e429et03gw925snf	pty_01m6k4vam7e1tsmwtaw00y3x0x	2026-11-04T11:24:31.550640Z			https://gallerym2.com/de-curtis/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+gallerymerrick.com	ADDED	SHOPIFY	ls_01m6kktap1eq1bhtatdr73xtc7	pty_01m6kktanje9f8724t0ewybtz9	2026-11-04T15:46:08.041579Z			https://www.gallerymerrick.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 galleryonqueen.com	ADDED	SQUARESPACE	ls_01m6hd1rvyeambqhp8dcg2rr0x	pty_01m6hd1rvhe4http79rry7fmp4	2026-11-03T19:09:22.334295Z			https://www.galleryonqueen.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 georgemanzcoins.com	ADDED		ls_01m6h3dh7yehv8njh89xsgz424	pty_01m6h3dh7beretgy6gpymrmmcf	2026-11-03T20:41:02.200694Z			https://www.georgemanzcoins.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 gibsonfineart.ca	ADDED	ARTLOGIC	ls_01m6htbnfcegvtcm0mee3cmcrx	pty_01m6htbnevekvsca7pfwz5fw5q	2026-11-03T23:01:58.213070Z			https://gibsonfineart.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 gilldercroft.com	EXCLUDED				2026-11-03T20:51:15.475982Z			https://gilldercroft.com/furniture/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+giselebenoit.org	ADDED	SHOPIFY	ls_01m6khhve5e7w9mezvs549wzp8	pty_01m6khhvdmeyntdjq3smy6pta8	2026-11-04T15:06:33.063587Z			https://giselebenoit.org/collections/originaux-1	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 glenmanorgalleries.net	ADDED	WOOCOMMERCE	ls_01m6gs2d0rek39qegg0j37nvey	pty_01m6gs2d0eej5sp4k8f8ek3v6v	2026-11-03T13:20:11.571662Z		glenmanorantiques.com	https://glenmanorgalleries.net/wp/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+godardgallery.com	ADDED	ARTLOGIC	ls_01m6kr4eegep28reg5cf9qbh32	pty_01m6kr4ee1ec3bnk5f7c7n9r1c	2026-11-04T17:01:33.228558Z			https://godardgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 goldentonicjewellery.com	ADDED	SHOPIFY	ls_01m6h11ksdenjvkg6penfdjemf	pty_01m6h11ks0e4ra2bqc744h1gvv	2026-11-03T15:39:34.754605Z			https://www.goldentonicjewellery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 goldfinchantiques.com	DEFERRED				2026-11-03T13:59:04.557411Z	LOOKBOOK_AVAILABILITY_UNCLEAR		https://www.goldfinchantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 graffbros.com	DEFERRED				2026-11-04T09:38:18.199581Z			https://www.graffbros.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 grandcentralinc.ca	ADDED	SHOPIFY	ls_01m6gqrh32evqt77sgx0jcek1z	pty_01m6gqrh2ke6ks73tbzm6brgkv	2026-11-03T12:57:19.966824Z			https://grandcentralinc.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 grandpashorsestable.com	DEFERRED				2026-11-03T20:59:26.897895Z			https://www.grandpashorsestable.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+grantberggallery.com	ADDED	WOOCOMMERCE	ls_01m6kktcyxe1h98nfe6ggpz6vj	pty_01m6kktcxsez8atdgrfmvsbwq6	2026-11-04T15:46:09.833855Z			https://grantberggallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 greensantiques.ca	DEFERRED				2026-11-03T20:51:15.475986Z			https://greensantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 grimshaw-military-antiques.myshopify.com	ADDED	SHOPIFY	ls_01m6h4x17sep3b9fwpst81xx6p	pty_01m6h4x175esftb5td2m3d0kan	2026-11-03T16:46:59.167049Z			https://grimshaw-military-antiques.myshopify.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 hambletongalleries.com	ADDED	WOOCOMMERCE	ls_01m6hqqf7texarm47pfejzz7m9	pty_01m6hqqf79ezrsmyf49n11709g	2026-11-03T22:15:59.260074Z			https://www.hambletongalleries.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -193,12 +218,15 @@ handwave.ca	ADDED	SQUARESPACE	ls_01m6k8025hezj9vzh4rzd56v15	pty_01m6k8024xeba9xj
 hansellhalkett.com	ADDED	LIGHTSPEED	ls_01m6hchm66evssr2v2qtmhh07m	pty_01m6hchm5jexea62d6wzs81gy8	2026-11-03T19:00:34.042502Z			https://www.hansellhalkett.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 hansenrosshouse.com	ADDED	SQUARESPACE	ls_01m6k96yxpe9ktx53m721ea1ss	pty_01m6k96yx4e899hmwdqppjjwtc	2026-11-04T12:40:47.225278Z			https://www.hansenrosshouse.com/artwork	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 harbourlightestateservices.com	DEFERRED				2026-11-03T13:52:51.571786Z	DEMONSTRATION_CATALOGUE_NOT_REAL_STOCK		https://www.harbourlightestateservices.com/marketplace	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+harrisongalleries.com	DEFERRED				2026-11-04T16:22:28.325039Z			https://www.harrisongalleries.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 hcanteen.com	DEFERRED				2026-11-03T17:30:12.214787Z	AUCTION_ROLE_AND_CURRENT_STOCK_UNCLEAR		https://hcanteen.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 heinventures.ca	EXCLUDED				2026-11-03T14:33:50.554941Z	OPERATES_AUCTIONS		https://heinventures.ca/store/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 hellogarcons.com	ADDED	WIX	ls_01m6gtfpv1e9aab8250mahmw53	pty_01m6gtfptje549vg4ejsh8etf7	2026-11-03T13:44:56.809183Z			https://www.hellogarcons.com/shop	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+herringerkissgallery.com	ADDED	WIX_STORES	ls_01m6kpvf36efqah658kzt661be	pty_01m6kpvf2pe0et4dn0vfaav4k0	2026-11-04T16:39:11.058463Z			https://www.herringerkissgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 historichouse.ca	DEFERRED				2026-11-03T14:06:09.870506Z	LIVE_FETCH_UNAVAILABLE		https://www.historichouse.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 hive-elevationgallery.com	DEFERRED				2026-11-04T08:11:44.363247Z			https://www.hive-elevationgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 howoriginal.ca	ADDED	WIX_STORES	ls_01m6k6k475ew19ej9zcfxsn1fb	pty_01m6k6k46ae2qsxwaybv0xk8jv	2026-11-04T11:55:00.824080Z			https://www.howoriginal.ca/original-paintings	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+iantangallery.com	ADDED	WORDPRESS	ls_01m6knyah4e78a3ztcr7jcn7yk	pty_01m6knyagdexdbaam4ygyd5y5g	2026-11-04T16:23:15.925582Z			https://iantangallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 ibonantiques.ca	ADDED	SHOPIFY	ls_01m6gqy539eadvjnj4qejpaemp	pty_01m6gqy52te1ha1kffx6q8z3hd	2026-11-03T13:00:24.299280Z			https://ibonantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 ijl.ca	DEFERRED				2026-11-03T16:11:52.984194Z	SPECIFIC_HISTORIC_STOCK_UNCONFIRMED		https://ijl.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 imagesboreales.com	ADDED	WORDPRESS	ls_01m6hc5t5ae3farkwntx14qpg5	pty_01m6hc5t4xe2vaqnv503r4v3x9	2026-11-03T18:54:06.370923Z			https://imagesboreales.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -215,9 +243,12 @@ jammedstudio.com	DEFERRED				2026-11-04T12:56:41.835382Z			https://www.jammedstu
 jandmcoins.com	DEFERRED				2026-11-03T16:26:58.600714Z	AUCTION_SERVICE_STATUS_UNRESOLVED		https://jandmcoins.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 janevining.net	ADDED	ECWID	ls_01m6h11fhcef0bn9q044ppe67v	pty_01m6h11fh0e8sashcwkfm02tv5	2026-11-03T15:39:30.510314Z			https://www.janevining.net/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 jaysmercantile.ca	ADDED	SHOPIFY	ls_01m6gswc9heretegmbwqwsacqd	pty_01m6gswc93eg78z78y5dfxdz8j	2026-11-03T13:34:23.592718Z			https://jaysmercantile.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+jcveilleux.com	ADDED		ls_01m6khz70vevw8cczevzdqs1bf	pty_01m6khz70de8ybamb2fqzy9b99	2026-11-04T15:13:50.415849Z			https://www.jcveilleux.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 jensauctioncentre.com	EXCLUDED				2026-11-03T16:11:52.984199Z	OPERATES_AUCTIONS		https://jensauctioncentre.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 jenwalden.com	DEFERRED				2026-11-04T13:08:13.167849Z			https://www.jenwalden.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+joannartattoo.com	ADDED	SHOPIFY	ls_01m6kgxvfze9mvdtsa5jdvcwnt	pty_01m6kgxvffeyjvd6dz18z2t80d	2026-11-04T14:55:37.324456Z			https://joannartattoo.com/collections/pieces-originales	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 johnlawcorp.com	ADDED	SQUARESPACE	ls_01m6jtgv1pe998ktw2m9mp2ma4	pty_01m6jtgv1aereszgh95yqp3gfc	2026-11-04T08:24:02.493438Z		cobaltartgallery.com	https://www.johnlawcorp.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+jonesauctions.ca	EXCLUDED				2026-11-04T16:22:28.325033Z		jonesgallery.ca	https://www.jonesauctions.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 judithgraves.com	DEFERRED				2026-11-03T16:11:52.984181Z	CURRENT_STOCK_AND_VENDOR_MODEL_UNRESOLVED		https://judithgraves.com/shop	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 juniperbooks.ca	ADDED	SHOPIFY	ls_01m6gtrbwgenvv6qxbangzbz4a	pty_01m6gtrbw0eqev5pkge1txgset	2026-11-03T13:49:40.579374Z			https://www.juniperbooks.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 justinteeantiques.com	ADDED	SHOPIFY	ls_01m6gq3dfpexgvn3nytvrp0z12	pty_01m6gq3df0e59sfa6xm3cz7mqs	2026-11-03T12:46:18.208901Z			https://justinteeantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -230,11 +261,13 @@ koolenfinearts.com	DEFERRED				2026-11-03T18:41:34.477776Z			https://www.koolenf
 koymangalleries.com	ADDED	SHOPIFY	ls_01m6jv5mrpesb8am60ec028gdh	pty_01m6jv5mraew4bnf4dw7bdz86w	2026-11-04T08:35:24.219532Z			https://koymangalleries.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 kraveantiquesyqr.ca	DEFERRED				2026-11-03T14:48:09.845582Z	VENDOR_SPACE_MODEL_UNCLEAR		https://kraveantiquesyqr.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 krysikbooks.com	DEFERRED				2026-11-03T13:49:16.495312Z	CURRENT_STOCK_AND_ADDRESS_RECONCILIATION		https://www.krysikbooks.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+kurbatoffgallery.com	ADDED		ls_01m6knhn5yeqh86dvax897gdrg	pty_01m6knhn5beew87pdepb3bde6b	2026-11-04T16:16:20.903766Z			https://www.kurbatoffgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lakeshoreantiques.ca	EXCLUDED				2026-11-03T20:59:26.897917Z			https://www.lakeshoreantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lanataylorantiquesandfolkart.ca	DEFERRED				2026-11-03T12:53:52.056041Z	SPECIFIC_CURRENT_OWN_ANTIQUE_STOCK_UNRESOLVED		https://lanataylorantiquesandfolkart.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 landandross.com	EXCLUDED				2026-11-03T13:19:04.961586Z	OPERATES_MULTI_DEALER_ANTIQUE_CENTRE		https://www.landandross.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 landonpetersart.com	ADDED	WORDPRESS	ls_01m6katvmveprsgx9hdzheg168	pty_01m6katvm9e4tr0hbpt1v08f0k	2026-11-04T13:09:07.584588Z			https://landonpetersart.com/aviation-paintings/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 langmann.com	ADDED	SQUARESPACE	ls_01m6gq8pdjefq9r5zgsd2zbg4k	pty_01m6gq8pd6ehdtbxdv3bv4erbz	2026-11-03T12:48:40.641646Z			https://www.langmann.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+lantiquaireduvillage.wixsite.com	ADDED	WIX_STORES	ls_01m6kh7xbsef58djmwhbqhn2gh	pty_01m6kh7xb8e9jsb8mqy0s735t4	2026-11-04T15:01:06.858817Z			https://lantiquaireduvillage.wixsite.com/boutik	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lashoplesage.com	DEFERRED				2026-11-04T09:38:18.199578Z			https://lashoplesage.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 laureenmarchand.com	ADDED	WOOCOMMERCE	ls_01m6k96wcqern878j57t2s4d1f	pty_01m6k96wc0ejga91svgp01pk5s	2026-11-04T12:40:45.284211Z			https://laureenmarchand.com/art-storefront-available/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lavintage.ca	DEFERRED				2026-11-03T12:59:56.269320Z	CURRENT_NATIVE_ITEM_CATALOGUE_NOT_INSPECTABLE		https://www.lavintage.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -244,6 +277,7 @@ leggeprints.com	ADDED		ls_01m6grg065evqskfptym2baqcd	pty_01m6grg05nejd9fc3dyzxa7
 lencandugeant.com	EXCLUDED				2026-11-03T15:19:59.869409Z	OPERATED_AUCTIONS_SAME_OPERATOR		https://lencandugeant.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lesantiquitesbolduc.com	ADDED	SHOPIFY	ls_01m6gqrnbme2xs73aers7sbqj6	pty_01m6gqrnb4em8s14st8s5htxwj	2026-11-03T12:57:24.403313Z			https://www.lesantiquitesbolduc.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lesateliersdelapentedouce.com	DEFERRED				2026-11-04T13:40:35.027387Z			https://lesateliersdelapentedouce.com/boutique	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+levivoir.com	ADDED	K_ECOMMERCE	ls_01m6kk1gzbemb85xks0cy3bdda	pty_01m6kk1gyqee3anzdmjz728tyk	2026-11-04T15:32:35.299574Z			https://levivoir.com/arts-visuels	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 littlemanitouartgallery.com	DEFERRED				2026-11-04T12:44:25.303471Z			https://littlemanitouartgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lochgallery.com	ADDED	DRUPAL	ls_01m6hbrzb8ehza0gmg2wvj7ffx	pty_01m6hbrzarewmbpwa182js91g3	2026-11-03T18:47:06.330216Z			https://www.lochgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lockestreetantiques.ca	DEFERRED				2026-11-03T20:59:26.897912Z			https://lockestreetantiques.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -254,9 +288,12 @@ lowbushartworks.com	DEFERRED				2026-11-04T12:52:37.304148Z			https://www.lowbus
 luisporrettafinearts.com	DEFERRED				2026-11-04T14:04:09.207798Z			https://www.luisporrettafinearts.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lumberjacksdaughter.ca	ADDED	SHOPIFY	ls_01m6jysye0eqgr15t32zkxccqp	pty_01m6jysydneeg8az13jmxesa5f	2026-11-04T09:38:54.586723Z			https://lumberjacksdaughter.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 lysecki.com	ADDED		ls_01m6h85fq0epb8r6jfkb0wq99d	pty_01m6h85fpjebxr5z0cv8yfj9c3	2026-11-03T20:40:57.678162Z			http://www.lysecki.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+madronagallery.com	ADDED	SQUARESPACE	ls_01m6kkt8veegfacv62ny1ep3h2	pty_01m6kkt8twecrvrtdk9nm6nymz	2026-11-04T15:46:05.706254Z			https://www.madronagallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 maison-bergeron.com	DEFERRED				2026-11-03T13:02:37.930363Z	NATIVE_SITE_SHOWS_CONTACT_SUPPORT_NO_DEALER_EVIDENCE		https://www.maison-bergeron.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 majestymaps.com	DEFERRED				2026-11-03T16:03:39.272184Z	ORIGINAL_HISTORIC_STOCK_UNCONFIRMED		https://www.majestymaps.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 mapsandmore.ca	ADDED	SHOPIFY	ls_01m6h2ekw7e2t8ehbnvncw1y7e	pty_01m6h2ekvtera9xaze0ny31nqa	2026-11-03T16:04:09.522835Z			https://www.mapsandmore.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+marionscottgallery.com	ADDED	WORDPRESS	ls_01m6kr4cvvedhvax5bq4rtk7hf	pty_01m6kr4cvdevs8mefpevdxf13w	2026-11-04T17:01:31.574665Z			https://marionscottgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+markloriagallery.com	DEFERRED				2026-11-04T16:15:27.433380Z			https://www.markloriagallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 martineboreantiques.com	EXCLUDED				2026-11-03T18:41:34.477772Z	OPERATES_AUCTIONS		https://www.martineboreantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 marway-militaria.com	EXCLUDED				2026-11-03T16:42:26.305585Z	OPERATES_AUCTIONS		https://www.marway-militaria.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 mastersgalleryltd.com	EXCLUDED				2026-11-03T19:35:18.390875Z			https://www.mastersgalleryltd.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -267,6 +304,7 @@ maylenerosethriftology.com	ADDED	WIX	ls_01m6gxccm1ewqs9g0rb9jek29m	pty_01m6gxcck
 mccloskys.com	ADDED	SHOPIFY	ls_01m6gyty67ewbva23jy7xasfrj	pty_01m6gyty5re33rhed0af18w08p	2026-11-03T15:00:59.108785Z			https://mccloskys.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 mcgahernbooks.ca	ADDED	BIBLIOPOLIS	ls_01m6gzb2t2etx9393had33dm3y	pty_01m6gzb2ske6wvs009qrmd5822	2026-11-03T20:41:05.418625Z			https://www.mcgahernbooks.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 merebooks.com	DEFERRED				2026-11-03T17:26:01.714436Z	CURRENT_STOCK_NOT_INSPECTABLE		https://www.merebooks.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+metiviergallery.com	DEFERRED				2026-11-04T16:49:49.900623Z			https://metiviergallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 meyersburgfleamarket.ca	EXCLUDED				2026-11-03T21:23:00.927496Z			https://meyersburgfleamarket.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 mflibra.com	ADDED	SHOPIFY	ls_01m6h209sgewf8dfzysjbb02rc	pty_01m6h209s1ebqabs0pkjpfd1y2	2026-11-03T15:56:20.484696Z			https://mflibra.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 michelprince.ca	ADDED		ls_01m6gv4hrbe6kswrcn67757snm	pty_01m6gv4hqvehyts475454yw2h4	2026-11-03T20:40:55.725409Z			https://www.michelprince.ca/en/home.html	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -275,6 +313,7 @@ milordantiques.com	ADDED		ls_01m6gq8r3qe1y8scxddrwra6wm	pty_01m6gq8r3be5b9n1fkk4
 minotavrosbooks.com	ADDED	BIBLIOPOLIS	ls_01m6h4evrreyfat6y6z5qra20j	pty_01m6h4evrbesdaqpfx181yhkst	2026-11-03T20:41:04.806678Z			https://www.minotavrosbooks.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 monartboutique.com	DEFERRED				2026-11-04T14:47:14.177619Z			https://www.monartboutique.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 monkeyspaw.com	DEFERRED				2026-11-03T17:43:20.081904Z	CURRENT_STOCK_NOT_INSPECTABLE		http://www.monkeyspaw.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+monteclarkgallery.com	ADDED	WORDPRESS	ls_01m6kpcjj1egya7nzatrcqbhcg	pty_01m6kpcjh8e039ggfrz9e7af39	2026-11-04T16:31:02.434668Z			https://monteclarkgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 moodyellow.com	ADDED	ECWID	ls_01m6k5nhqaeynt9vhfmfmq9t9h	pty_01m6k5nhptesrb4tpttqm4f78j	2026-11-04T11:38:51.147752Z			https://moodyellow.com/products/paintings	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 mooresartantiques.com	ADDED	GODADDY	ls_01m6gtbq5re5es4e0gbrfbdtam	pty_01m6gtbq5ceh2s65we9w88w6ws	2026-11-03T20:41:05.140753Z			https://mooresartantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 mountaingalleries.com	EXCLUDED				2026-11-03T22:35:25.363882Z			https://www.mountaingalleries.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -287,6 +326,7 @@ newfinnart.com	ADDED	SHOPIFY	ls_01m6kb8yzcewtt7259drf843v0	pty_01m6kb8yyqemxsm62
 newfoundlandantiques.com	DEFERRED				2026-11-03T13:52:51.571780Z	AUCTION_ACTIVITY_AND_OPERATOR_REVIEW	nlantiques.com	https://newfoundlandantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 newfoundlandart.net	ADDED		ls_01m6jzxjtkebw900ec7db3xgt7	pty_01m6jzxjszew083hxfvapsj9c8	2026-11-04T09:58:22.536372Z			https://newfoundlandart.net/originals.html	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 newfoundlandshop.ca	ADDED		ls_01m6jzxmefe1k9raqbf4jtq1e0	pty_01m6jzxme3ezh969xhfj2shxts	2026-11-04T09:58:24.742057Z			https://newfoundlandshop.ca/NewfoundlandArt_Originals.htm	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+newzones.com	ADDED	ART_GALLERIA	ls_01m6kpvdbceta9v1m8bn1v2shz	pty_01m6kpvdaveb3btanfh1y5vadt	2026-11-04T16:39:08.714106Z			https://newzones.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 nomadgallery.ca	ADDED	WOOCOMMERCE	ls_01m6hr5vnee5sasm9ffm9g6pdj	pty_01m6hr5vmweegs8jv5a6ndgzpx	2026-11-03T22:23:50.707676Z			https://nomadgallery.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 northernimages.ca	DEFERRED				2026-11-03T20:47:00.413744Z			https://northernimages.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 nostalgicjourney.com	EXCLUDED				2026-11-03T21:23:00.927514Z			https://nostalgicjourney.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -294,8 +334,10 @@ nothalfbad.ca	ADDED	SQUARESPACE	ls_01m6gtfmwtedxvn9vhk02pv9t1	pty_01m6gtbk73egsb
 nouveaugallery.com	ADDED	WORDPRESS	ls_01m6k8fkq1efba0gd82zk68cp4	pty_01m6k8fkpcejdszdzpgqw6np9b	2026-11-04T12:28:02.413105Z			https://nouveaugallery.com/exhibition/fall-behind/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 oakandfernhome.com	DEFERRED				2026-11-03T14:12:57.760976Z	NO_INSPECTABLE_INDIVIDUAL_HISTORIC_STOCK		https://www.oakandfernhome.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 obscurityshop.ca	DEFERRED				2026-11-03T15:09:21.252338Z	QUALIFYING_HISTORIC_STOCK_UNCONFIRMED		https://obscurityshop.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+oenogallery.com	DEFERRED				2026-11-04T16:49:49.900635Z			https://oenogallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 oldfavoritesbookshop.com	DEFERRED				2026-11-03T16:38:53.005620Z	HOSTED_INVENTORY_TEMPORARILY_UNAVAILABLE		https://www.oldfavoritesbookshop.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 oldtymers.ca	ADDED	SHOPIFY	ls_01m6hm48wee5w993t9hn5a8yf5	pty_01m6hm48vzesath8cx93359kp8	2026-11-03T21:13:05.025776Z			https://oldtymers.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+olgakorpergallery.com	ADDED	WOOCOMMERCE	ls_01m6kre7kxey7td3asdpdhftzk	pty_01m6kre7kbeeqtztk04e9skxq5	2026-11-04T17:06:53.921074Z			https://www.olgakorpergallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 onemanstreasure.ca	EXCLUDED				2026-11-03T15:13:02.300905Z	OPERATED_MULTI_DEALER_STORE		https://www.onemanstreasure.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 orangeartgallery.ca	ADDED		ls_01m6jvhz94e689xygsxzrqpca8	pty_01m6jvhz8keent2tbbqqzydqs5	2026-11-04T08:42:08.339832Z			https://www.orangeartgallery.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 othermanstreasure.ca	DEFERRED				2026-11-04T13:16:03.858579Z			https://othermanstreasure.ca/collections/original-works	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -342,6 +384,7 @@ rochefortantique.com	DEFERRED				2026-11-04T10:59:13.772494Z			https://www.roche
 ronei.ca	ADDED	SQUARESPACE	ls_01m6k6k20eey8v3jqjyqqha7gy	pty_01m6k6k1zwe0ss7sepatzg5wx4	2026-11-04T11:54:58.220765Z			https://www.ronei.ca/the-glow-collection	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 rosecottagepei.com	ADDED	WEEBLY	ls_01m6gtbnjpe7pvn2c73q4gt1ky	pty_01m6gtbnhwemhrpc861yswmg7q	2026-11-03T20:41:06.982575Z			https://www.rosecottagepei.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 rowntreeantiques.com	ADDED	WOOCOMMERCE	ls_01m6k2z6sxekkrtj7hh5jnzh8h	pty_01m6k2z6she3ttg0fnxr09hvm2	2026-11-04T10:51:41.414973Z			https://rowntreeantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+rukajgallery.com	ADDED	ARTLOGIC	ls_01m6kr4g12e2ptmhdr3h5ajahk	pty_01m6kr4g0peazbmfm38b7antvt	2026-11-04T17:01:34.816839Z			https://www.rukajgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 rumiantiques.com	ADDED		ls_01m6gs2emsee0v1vft9p473j7a	pty_01m6gs2em5e8wshm7jccm9msan	2026-11-03T20:41:07.281167Z			http://www.rumiantiques.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 rusticnorth.com	ADDED	WORDPRESS	ls_01m6gtyvr5eqn8zrppk1jdwm80	pty_01m6gtyvqheksvjyt6dpmkxd4w	2026-11-03T13:53:12.930311Z			https://rusticnorth.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 rustictorefined.ca	ADDED	SHOPIFY	ls_01m6hmjqt6e1vaykwj5cpkv701	pty_01m6hmjqsterr92h6r7xft0qcf	2026-11-03T21:20:58.408021Z			https://www.rustictorefined.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -375,9 +418,13 @@ stylelabo-deco.com	ADDED	SQUARESPACE	ls_01m6gqrqjmethrg9c23zsxhqw7	pty_01m6gqrqj
 suitcaseantiques.square.site	ADDED	SQUARE_ONLINE	ls_01m6hpgc0peqk8gkpgq8kth2x6	pty_01m6hpgc01enkvfd2cp5d3cqf3	2026-11-03T21:54:38.759896Z			https://suitcaseantiques.square.site/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 sunday-creative.com	DEFERRED				2026-11-03T14:06:09.870510Z	CURRENT_DEALER_ACTIVITY_UNCONFIRMED		https://www.sunday-creative.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 sundayrestoration.com	ADDED	SHOPIFY	ls_01m6hpg9hdetr97k2cysepdarr	pty_01m6hpg9gsecvtpy7m7y5bdv3d	2026-11-03T21:54:36.230039Z			https://sundayrestoration.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+susanhobbs.com	ADDED		ls_01m6krwj24ekete87ymw97k8da	pty_01m6krwj14ecvb2gpytgc43p8g	2026-11-04T17:14:43.426929Z			https://susanhobbs.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+tanyaaubut.com	ADDED	SQUARESPACE	ls_01m6kgxx63e8abg5jtm2gtgqg6	pty_01m6kgxx5ke50axw3gxrf4tjq6	2026-11-04T14:55:38.989365Z			https://www.tanyaaubut.com/boutique-shop-tanya-aubut	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 taylorsantiques250.com	ADDED	WIX	ls_01m6kemzs1ez6bshnt3p2bj77e	pty_01m6kemzrmes6ar231q21zqz0w	2026-11-04T14:15:50.004735Z			https://www.taylorsantiques250.com/shop	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+tbclrarebooks.com	DEFERRED				2026-11-04T15:12:31.534529Z			https://www.tbclrarebooks.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 theargosy.ca	ADDED	LIGHTSPEED	ls_01m6gyv0gperhss41318m7ak4t	pty_01m6gyv0g5e5bv8vy9c271263j	2026-11-03T15:01:01.949772Z			https://www.theargosy.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 theavensgallery.com	ADDED	WOOCOMMERCE	ls_01m6htbjwseg4824r0at5n3a0j	pty_01m6htbjw6e1kvckg7v20ar1rj	2026-11-03T23:01:56.428192Z			https://theavensgallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+theavenuegallery.com	ADDED	WOOCOMMERCE	ls_01m6kmxar7es5s29bn3ygkqse0	pty_01m6kmxaqje7cr659r7wepfcb1	2026-11-04T16:05:14.961439Z			https://theavenuegallery.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 thecanadiansoldier.com	ADDED	SHOPIFY	ls_01m6h4wz40em0tygw6fdcptzbp	pty_01m6h4wz3neaabs463dpr15rtj	2026-11-03T16:46:56.856383Z			https://thecanadiansoldier.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 theclockfactory.ca	ADDED	WIX	ls_01m6h93v27ens96sa57x5erppd	pty_01m6h93v1rexxve58bjras95vb	2026-11-03T18:00:36.513221Z			https://www.theclockfactory.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 thedaisydoor.ca	ADDED	SHOPIFY	ls_01m6kczhdeejesajp14zzvfkjw	pty_01m6kczhctefrt8k2keah5xh8x	2026-11-04T13:46:38.567140Z			https://thedaisydoor.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
@@ -415,6 +462,7 @@ vintagechinaalc.com	DEFERRED				2026-11-04T13:49:43.424749Z			https://www.vintag
 vintagehomeboutique.ca	ADDED	SHOPIFY	ls_01m6gvq13be8d967er1gbxkern	pty_01m6gvq12xet79qh9n60q6kwpa	2026-11-03T14:06:25.180290Z			https://vintagehomeboutique.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 vintageinspired.ca	DEFERRED				2026-11-03T21:59:23.571376Z			https://www.vintageinspired.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 vintagevendors.ca	EXCLUDED				2026-11-03T21:59:23.571360Z			https://vintagevendors.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
+virtualgallery.sivarulrasa.com	ADDED	WOOCOMMERCE	ls_01m6knhqbhea9v5cfy021g843c	pty_01m6knhqb7ee9ap389jr4fp29k	2026-11-04T16:16:23.211619Z			https://virtualgallery.sivarulrasa.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 visbids.com	EXCLUDED				2026-11-03T13:09:20.124876Z	OPERATES_AUCTIONS		https://www.visbids.com/about-visbids/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 wallacegalleries.com	ADDED	WORDPRESS	ls_01m6hej4gwexdtxjj3bhjxa2s5	pty_01m6hej4gees78kw7js6x7v8mv	2026-11-03T19:35:47.908617Z			https://www.wallacegalleries.com/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN
 wallspacegallery.ca	ADDED	SHOPIFY	ls_01m6jv5jq0e5ntyqc5h1w8wjer	pty_01m6jv5jpgewkvfjymvfhxaxzs	2026-11-04T08:35:22.157514Z			https://wallspacegallery.ca/	data/dealer-discovery/countries/CA/dealers.jsonl	DEALER_DOMAIN

@@ -63,7 +63,7 @@ banul-online-shop.com	ADDED	SHOPIFY	ls_01m6h88s8mej7bs9jf2hawxxa7	pty_01m6h88s7g
 beans-online.com	ADDED		ls_01m6gxtwgwexsbeh0tnxjn1xrm	pty_01m6gxtwgfe6wv94jhyw5z7qm6	2026-11-03T20:51:33.175324Z		
 bien-ensemble.info	ADDED	COLOR_ME_SHOP	ls_01m6h7270gehfv2pgfj3w9tcd7	pty_01m6h72701e819pn28p91veyt6	2026-11-03T17:24:45.717969Z		
 bisco-f.com	ADDED	COLOR_ME_SHOP	ls_01m6h1jmrdeez8tm7ns0ndagh6	pty_01m6h1jmqse6jrpac1ccnce1r0	2026-11-03T15:48:52.871046Z		
-blastman.theshop.jp	ADDED	BASE	ls_01m6h90e3re299e3hcfrhwkss7	pty_01m6h90e36e8xswkagyfh13vj8	2026-11-03T17:58:44.986772Z		
+blastman.theshop.jp	DEFERRED	BASE	ls_01m6h90e3re299e3hcfrhwkss7	pty_01m6h90e36e8xswkagyfh13vj8	2026-11-04T16:40:55.392796Z	CURRENT_DIRECT_ART_ANTIQUES_QUALIFICATION_UNVERIFIED	
 bluecover.shop	ADDED	COLOR_ME_SHOP	ls_01m6k362zae9j9ppz81t8e1mrq	pty_01m6k362ywetc9vyfjbm458822	2026-11-04T10:55:26.866049Z		
 blueparrot.jp	DEFERRED				2026-11-03T12:45:53.789243Z	LEGAL_NOTICE_FETCH_INCOMPLETE	
 bokudo.com	DEFERRED				2026-11-03T21:04:07.151327Z	EVIDENCE_INCOMPLETE	
@@ -114,15 +114,37 @@ englishcottage.jp	ADDED		ls_01m6h4f0jjea78tbnbk3ny74r8	pty_01m6h4f0j9eb49tc0rh2e
 entreedesign.com	ADDED		ls_01m6gqkxhme7p8420pzr9rpzqy	pty_01m6gqkxh7e4drta4wn2q34peq	2026-11-03T20:51:33.175324Z		
 ezoshi.com	ADDED	WORDPRESS	ls_01m6hd8ks6e2zr30emthqkn2n6	pty_01m6hd8krtef6bjnf21ajgp3ta	2026-11-03T19:13:07.089738Z		
 farmers-jp.com	ADDED	WIX_STORES	ls_01m6h1ja3ger4bzq5z5y9rgn0y	pty_01m6h1ja30ekzv9wcxrh23twd8	2026-11-03T15:48:42.120066Z		
-fernostgalerie.com	ADDED	SHOPIFY	ls_01m6grty8yemvb183rd40q72mg	pty_01m6grty8aesat7j6g3bfbxe2v	2026-11-03T13:16:07.864534Z		
+fernostgalerie.com	ADDED	SHOPIFY	ls_01m6grty8yemvb183rd40q72mg	pty_01m6grty8aesat7j6g3bfbxe2v	2026-11-04T16:18:22.904666Z		
 finearts-takaya.com	DEFERRED				2026-11-03T22:45:02.259108Z	PRIMARY_CATALOGUE_UNAVAILABLE	
 firsttrip1970.com	ADDED	SHOPIFY	ls_01m6gxv0d5eaybp8apygnkh4ym	pty_01m6gxv0cmewct1y9nd18kk50y	2026-11-03T14:43:32.702000Z		
 flowerbowl.jp	ADDED	WELCART	ls_01m6h05gn3ey1tjba0hx9svae1	pty_01m6h05gmvevn9spdd79c6ks97	2026-11-03T15:24:13.529616Z		
 foresight-web.com	ADDED		ls_01m6h9cak2edpv5926m75fg621	pty_01m6h9cajkekaa5pg1tdhaqwa1	2026-11-03T20:34:47.876167Z		
 fu-ko-sya.com	DEFERRED				2026-11-03T22:35:15.485185Z	CURRENT_OPERATOR_SCOPE_UNRESOLVED	
+fufufufu.com	DEFERRED				2026-11-04T16:21:36.431011Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T15:59:43.885822Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T16:26:45.304196Z	CURRENT_OPERATOR_IDENTITY_CONTRADICTION	
+fufufufu.com	DEFERRED				2026-11-04T15:17:17.350265Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T15:17:14.569282Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T16:32:21.813863Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T15:34:03.469308Z	CURRENT_STOCK_AND_AUCTION_ROLE_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T15:12:04.069261Z	AUCTION_ROLE_AND_CURRENT_STOCK_ACTIVITY_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T16:46:57.109342Z	CURRENT_STOCK_AND_ACTIVITY_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T16:46:53.214535Z	CURRENT_OPERATOR_IDENTITY_CONTRADICTION	
+fufufufu.com	DEFERRED				2026-11-04T16:33:13.865464Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
+fufufufu.com	DEFERRED				2026-11-04T16:32:17.953636Z	CURRENT_OPERATOR_IDENTITY_CONTRADICTION	
+fufufufu.com	DEFERRED				2026-11-04T16:33:09.412050Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
 fufufufu.com	ADDED		ls_01m6kbewvme67sarwhms7xydwp	pty_01m6kbewv7e3f94rj022bjdfsc	2026-11-04T13:20:04.790788Z		
 fufufufu.com	ADDED		ls_01m6kc4npae3tvxcjxntmbyamq	pty_01m6kc4nnpezws3hqjng9ptzcq	2026-11-04T13:31:57.321830Z		
 fufufufu.com	ADDED		ls_01m6kc6tb8e6y9v7fwa6gf2emj	pty_01m6kc6tare8hv1h11myecrbnq	2026-11-04T13:33:08.842768Z		
+fufufufu.com	ADDED		ls_01m6khz4bbej7rfq05y4mnv8zm	pty_01m6khz4are6wam7nzxjwv1tf6	2026-11-04T15:13:48.313556Z		
+fufufufu.com	ADDED		ls_01m6kkadn1e8mrzr7mjm81yb9v	pty_01m6kkadmheq18ytag7w2vn1ae	2026-11-04T15:37:26.779427Z		
+fufufufu.com	ADDED		ls_01m6kmq1b6erwrg7j16es3rtd3	pty_01m6kmq1asec3amb458rktnqvv	2026-11-04T16:01:48.802796Z		
+fufufufu.com	ADDED		ls_01m6knxm7febza668x9btvjtfc	pty_01m6knxm74e4xs4ww25bgtr40r	2026-11-04T16:22:53.143078Z		
+fufufufu.com	ADDED		ls_01m6knyc8jexcv9gee6bfbz30e	pty_01m6knyc82evmvf0cvzvchbpev	2026-11-04T16:23:17.649392Z		
+fufufufu.com	ADDED		ls_01m6kp634ke0fsmy7wcy0xq23y	pty_01m6kp6347e9w9czcpwh2bymdj	2026-11-04T16:27:30.627898Z		
+fufufufu.com	ADDED		ls_01m6kp6za6ee1rmqrszhxssk3p	pty_01m6kp6z9nedxspap9zm1jmats	2026-11-04T16:27:59.381976Z		
+fufufufu.com	ADDED		ls_01m6kpj9f0ege9fr423b5axc4m	pty_01m6kpj9ehecnanen5wvmejyge	2026-11-04T16:34:10.554862Z		
+fufufufu.com	ADDED		ls_01m6kpm5cxee1a6netvsmyqr2y	pty_01m6kpm5cfeg18hb2m0d4m072b	2026-11-04T16:35:11.719295Z		
 fujiantique.jp	ADDED	WORDPRESS	ls_01m6hsk7xceecb83mamhpj6a7z	pty_01m6hsk7wpenmr021fe6nmeybf	2026-11-03T22:48:37.748370Z		
 fujishiro-art.com	DEFERRED				2026-11-03T19:24:47.210115Z	CURRENT_INDIVIDUAL_STOCK_UNVERIFIED	
 fukube.org	DEFERRED				2026-11-03T21:23:40.647613Z	EVIDENCE_INCOMPLETE	
@@ -130,12 +152,14 @@ funny-supply.com	ADDED	OCNK_NET	ls_01m6h5b9jfedrbgg4cnj5qv78k	pty_01m6h5b9j5e8xv
 furacoco.stores.jp	ADDED	STORES	ls_01m6k3m2v3eassx541ytq34vrs	pty_01m6k3m2the1kah8jj80ykjv0e	2026-11-04T11:03:06.145875Z		
 furudougu.com	ADDED	COLOR_ME_SHOP	ls_01m6h6915ve0esanbeh8ape3b5	pty_01m6h6915fexebx9h2vnmeygq8	2026-11-03T17:11:00.781111Z		
 furudougu3.com	DEFERRED				2026-11-03T14:31:31.007648Z	CURRENT_QUALIFYING_STOCK_UNAVAILABLE	
-fushou.jp	ADDED		ls_01m6hbas49e01bt0dfnx10w9bh	pty_01m6hbas3qexm92dby0n8ecvzg	2026-11-03T20:51:33.175324Z		
+fushou.jp	EXCLUDED		ls_01m6hbas49e01bt0dfnx10w9bh	pty_01m6hbas3qexm92dby0n8ecvzg	2026-11-04T15:44:41.334178Z	AUCTION_OPERATOR_CURRENT_PRIMARY	
 fusimido.net	ADDED	WIX	ls_01m6kfaq8de419ft6nvhmthh73	pty_01m6kfaq7teg3sm5xdybd8cpw9	2026-11-04T14:27:42.083768Z		
 futabaaoi.shop-pro.jp	ADDED	COLOR_ME_SHOP	ls_01m6hegg6femx9j5wmb7qxgfrn	pty_01m6hegg5ve0rb0hsjd6bvvc23	2026-11-03T19:34:54.455280Z		
+fuuantottori.thebase.in	ADDED	BASE	ls_01m6kr2egse3ns4fhxe7q3z36k	pty_01m6kr2eg4eg8sysx85zcgprpg	2026-11-04T17:00:28.472750Z		
 fynda.ocnk.net	ADDED	OCHANOKO_NET	ls_01m6h88yz2e8xrerm2ednhbhjn	pty_01m6h88yygedfaknr2tm2fbx0e	2026-11-03T20:51:33.175324Z		
+g-kujaku.com	EXCLUDED				2026-11-04T17:08:05.516405Z	AUCTION_OPERATOR_CURRENT_PRIMARY	
 gafudo.com	DEFERRED				2026-11-03T14:58:47.483380Z	CURRENT_ACTIVITY_STOCK_UNCERTAIN	
-gallant-doo.com	ADDED	WOOCOMMERCE	ls_01m6gwp62qevnamrnq25mgvy9h	pty_01m6gwp624ej3vytw7fjrfz5z2	2026-11-03T14:23:25.731368Z		
+gallant-doo.com	ADDED	WOOCOMMERCE	ls_01m6gwp62qevnamrnq25mgvy9h	pty_01m6gwp624ej3vytw7fjrfz5z2	2026-11-04T16:18:22.904666Z		
 gallery-muan.com	EXCLUDED				2026-11-03T18:26:14.133744Z	AUCTION_OPERATOR	
 gallery-ono.com	ADDED		ls_01m6hd8z9nebhrns7bh81k14kg	pty_01m6hd8z93eqnb0n77fnd5ws8a	2026-11-03T20:51:33.175324Z		
 gallery-yui.net	ADDED	COLOR_ME_SHOP	ls_01m6hs8dcmeqwvfbqgwadazgdm	pty_01m6hs8dbwekktcq6aqtg0p08a	2026-11-03T22:42:43.972811Z		
@@ -165,6 +189,7 @@ handle-marche.com	ADDED		ls_01m6gvkv8gejcvs8jc5jj6ezby	pty_01m6gvkv7keq3any0fmnq
 hanga-gallery.com	DEFERRED				2026-11-04T10:54:35.176391Z	CURRENT_OWN_STOCK_REQUIRED	
 hangado.base.shop	ADDED	BASE	ls_01m6hdqrs7ehqbr5hvbbxx565r	pty_01m6hdqrrte5yv9jc5cpdfywz0	2026-11-03T19:21:23.223634Z		
 hangasw.com	ADDED		ls_01m6h9pgcte0hbqzky7f0sd48z	pty_01m6h9pgcget980pxm3h7evtpz	2026-11-03T20:51:33.175324Z		
+hara3.com	ADDED	WORDPRESS	ls_01m6khda0eem0agszhc4a3pcks	pty_01m6khd9zqe3atvj9tz38pgf15	2026-11-04T15:04:04.401626Z		
 harashobo.com	ADDED		ls_01m6gtq13aep582bf1x5tn3xq6	pty_01m6gtq12te3ttmmv3yp646xfa	2026-11-03T20:51:33.175324Z		
 harrysantique.jp	ADDED	STORES	ls_01m6gxtyp5ew1bptqv1ggdrbha	pty_01m6gxtynse2nsd45ngvm8kx7s	2026-11-03T14:43:30.441331Z		
 harusion.com	DEFERRED				2026-11-03T16:30:32.552898Z	QUALIFYING_CURRENT_STOCK_UNVERIFIED	
@@ -180,6 +205,7 @@ homepark.shop	ADDED	WIX	ls_01m6ham8e9edna3ewx7nszm357	pty_01m6ham8dxewj9c63vq2v9
 hongou.jp	EXCLUDED				2026-11-04T14:43:41.767738Z	AUCTION_OPERATOR_AND_ANTIQUE_MALL	
 hope-antiques.com	ADDED	JIMDO	ls_01m6h0xtkjetvrxyb3a2m677rq	pty_01m6h0xtjze3z9bbym4ghtatwa	2026-11-03T20:51:33.175324Z		
 horidashi.shop	ADDED	STORES	ls_01m6k57wmxey98wgq1k9j9gxfx	pty_01m6k57wm7eg6r0808m5xq3042	2026-11-04T11:31:23.705627Z		
+houjumaru.jp	DEFERRED				2026-11-04T16:58:28.077836Z	CURRENT_AVAILABLE_STOCK_UNVERIFIED	
 hououdou.sakura.ne.jp	DEFERRED				2026-11-03T18:38:47.781896Z	LEGAL_OPERATOR_UNVERIFIED	
 houraibijutsu.com	EXCLUDED				2026-11-03T22:42:25.127866Z	AUCTION_OPERATOR	
 hurumono.net	DEFERRED				2026-11-03T21:04:07.151310Z	EVIDENCE_INCOMPLETE	
@@ -229,7 +255,7 @@ kaizokusouko.com	ADDED	COLOR_ME_SHOP	ls_01m6ha3j4nexx8t0amf2qhp26m	pty_01m6ha3j3
 kajiantiques.com	DEFERRED				2026-11-04T12:36:10.336409Z	LEGAL_OPERATOR_AND_STOCK_CONFIRMATION_REQUIRED	
 kajima-art.com	DEFERRED				2026-11-04T13:36:34.834242Z	CURRENT_STOCK_UNVERIFIED	
 kakatsu.com	DEFERRED				2026-11-03T21:29:11.889298Z	EVIDENCE_INCOMPLETE	
-kakei-jp.com	DEFERRED				2026-11-03T20:11:18.284272Z	CURRENT_PUBLIC_STOCK_AND_AUCTION_ROLE_UNVERIFIED	
+kakei-jp.com	EXCLUDED				2026-11-04T17:08:00.390875Z	AUCTION_OPERATOR_CURRENT_PRIMARY	
 kakejikudou.com	ADDED	WOOCOMMERCE	ls_01m6he6asfet8bjk95zrhhjdj5	pty_01m6he6as4ezasc8hp7sm04kn9	2026-11-03T19:29:20.884540Z		
 kakejikutaiko.biz	ADDED	SHOPIFY	ls_01m6hfdh98e7gbc60k0xder9qt	pty_01m6hfdh8qez5scjxdktmy7wjg	2026-11-03T19:50:45.913919Z		
 kakufuku.jp	DEFERRED				2026-11-03T21:08:51.559483Z	EVIDENCE_INCOMPLETE	
@@ -321,6 +347,7 @@ loopstyle.jp	DEFERRED				2026-11-03T17:37:14.263997Z	INDIVIDUAL_CURRENT_STOCK_UN
 lost-foundation.ocnk.net	DEFERRED				2026-11-04T10:31:24.982547Z	PRECISE_LEGAL_OPERATOR_REQUIRED	
 love-antique.shop	ADDED	WELCART	ls_01m6h2pyevef58y4md3gr47x29	pty_01m6h2pyekem098th9cmc9aey6	2026-11-03T16:08:41.939375Z		
 lyanarts-online.stores.jp	ADDED	STORES	ls_01m6hhftjaey1bzk8bjps3zbac	pty_01m6hhfthsetqt57adq5223vtf	2026-11-03T20:26:58.018214Z		
+m-neko.jp	EXCLUDED				2026-11-04T17:08:08.091829Z	AUCTION_OPERATOR_CURRENT_PRIMARY	
 makotoya-kaitori.com	DEFERRED				2026-11-04T08:56:19.290450Z	LEGAL_OPERATOR_CURRENT_STOCK_REQUIRED	
 mameosanpo.kawaiishop.jp	ADDED	BASE	ls_01m6h3zsyse60a6cgd2hw4vxjk	pty_01m6h3zsyce05thwkrz7917pgj	2026-11-03T16:31:01.604715Z		
 manekineko.ocnk.net	EXCLUDED				2026-11-03T21:59:43.363904Z	AUCTION_OPERATOR	
@@ -349,7 +376,7 @@ misima.noomise.com	ADDED		ls_01m6hfqj0kef688szqeyrj2r56	pty_01m6hfqhzzedgs2d9g7r
 mita-arts.com	ADDED		ls_01m6hd02jrer88c5r9cq07etr4	pty_01m6hd02j6es0sgrydz6aehy2h	2026-11-03T20:51:33.175324Z		
 mizui-hanga.com	ADDED		ls_01m6hdg812evpvwdpjx9y30byd	pty_01m6hdg80neycb7qz4jp8hxzpf	2026-11-03T20:51:33.175324Z		
 moisopo.thebase.in	ADDED	BASE	ls_01m6h7m8sxe91a6aww9f54w5qx	pty_01m6h7m8sheg7sjtga5243jkw6	2026-11-03T17:34:37.529745Z		
-mokkumokku.net	ADDED	WOOCOMMERCE	ls_01m6gwz5thesma6vs6fbdkqhjz	pty_01m6gwz5t0epqt3b8t27vdvs23	2026-11-03T14:28:20.904232Z		
+mokkumokku.net	DEFERRED	WOOCOMMERCE	ls_01m6gwz5thesma6vs6fbdkqhjz	pty_01m6gwz5t0epqt3b8t27vdvs23	2026-11-04T16:40:55.392796Z	CURRENT_DIRECT_ART_ANTIQUES_QUALIFICATION_UNVERIFIED	
 mononcle.info	DEFERRED				2026-11-03T14:31:31.007652Z	OPERATOR_AND_STOCK_UNVERIFIED	
 moriartkoni.thebase.in	ADDED	BASE	ls_01m6hqc3nzedatr632mnh8bvcc	pty_01m6hqc3njejmak7m7ykhrc8mf	2026-11-03T22:09:46.932541Z		
 moribi.net	DEFERRED				2026-11-03T19:24:47.210119Z	CURRENT_INDIVIDUAL_STOCK_UNVERIFIED	
@@ -367,6 +394,7 @@ nana8.jp	DEFERRED				2026-11-04T12:43:14.439871Z	CURRENT_STOCK_AND_LEGAL_OPERATO
 nano.kougetuen.com	ADDED	BASE	ls_01m6k4qsg9e54sn0y7kve7c6j2	pty_01m6k4qsfgek8swk038j6j9ssc	2026-11-04T11:22:35.801531Z		
 nara-nakagami.com	ADDED	WORDPRESS	ls_01m6hgmyk7e918xxg0eytydn37	pty_01m6hgmyjkekyrm1r0dxas49p8	2026-11-03T20:12:17.692655Z		
 narasoukodo.base.shop	ADDED	BASE	ls_01m6hqbdpme6btqnn2scwp6s8p	pty_01m6hqbdp4efevkq2jak2y72e5	2026-11-03T22:09:24.961797Z		
+naturalartmu.base.shop	ADDED	BASE	ls_01m6kgt76hezrt8spw4epmatt8	pty_01m6kgt765ebbs9ev5en05mt0b	2026-11-04T14:53:38.179260Z		
 nihei-furukagu.shop-pro.jp	ADDED	COLOR_ME_SHOP	ls_01m6h0jzwqeyn9vm5b266jvcvw	pty_01m6h0jzvzexardenn4yeb4pbd	2026-11-03T15:31:36.490324Z		
 nihonbookart.com	ADDED	SHOP_SERVE	ls_01m6hqktm8eh89fn4rws42p041	pty_01m6hqktkreatvpfpvtk5ez8gf	2026-11-03T22:13:59.829213Z		
 nishiharu-kyoto.com	DEFERRED				2026-11-03T19:07:56.252548Z	LEGAL_OPERATOR_UNVERIFIED	
@@ -375,10 +403,11 @@ nitigetu.com	DEFERRED				2026-11-04T13:45:56.474475Z	CURRENT_STOCK_UNVERIFIED
 nord-antik.com	ADDED	SHOPIFY	ls_01m6h6rkjqe2g9vbfe74sy8a19	pty_01m6h6rkj9e8e8r1c7t6t7evzj	2026-11-03T17:19:30.671834Z		
 north6antiques.com	ADDED	SHOP_SERVE	ls_01m6gyrq88eeysvyd4psbytndf	pty_01m6gyrq7ret1bef6p3zpm3r4s	2026-11-03T20:51:33.175324Z		
 nozomiart.base.shop	ADDED	BASE	ls_01m6hgkwaref8btyw516ye4ave	pty_01m6hgkwaae03a4j6qxtj27tj8	2026-11-03T20:11:41.563362Z		
-ns-furniture.shop-pro.jp	ADDED	COLOR_ME_SHOP	ls_01m6gx5ww8etjtknhhaz1r7bt7	pty_01m6gx5wvvegzbd1w238yng83c	2026-11-03T14:32:00.703618Z		
+ns-furniture.shop-pro.jp	DEFERRED	COLOR_ME_SHOP	ls_01m6gx5ww8etjtknhhaz1r7bt7	pty_01m6gx5wvvegzbd1w238yng83c	2026-11-04T16:40:55.392796Z	CURRENT_DIRECT_ART_ANTIQUES_QUALIFICATION_UNVERIFIED	
 o-shodou.com	DEFERRED				2026-11-04T12:59:09.565820Z	CURRENT_INDIVIDUAL_STOCK_REQUIRED	
 oakland.jp	ADDED		ls_01m6h721t9e1w9v47j3z8m553w	pty_01m6h721t0ec8vz7r48ghs1akx	2026-11-03T20:51:33.175324Z		
 ogawatosho.jimbou.net	DEFERRED				2026-11-03T20:55:00.843318Z	EVIDENCE_INCOMPLETE	
+ohbayashi-shiyudo.jp	EXCLUDED				2026-11-04T16:46:50.565992Z	SELLER_OPERATED_AUCTION_FORMAT_SALES_CURRENT_PRIMARY	
 ohgiya.online	DEFERRED				2026-11-03T21:39:10.281773Z	EVIDENCE_INCOMPLETE	
 ohya-shobo.com	ADDED		ls_01m6gtpwfye6rvadbjvdtrxnet	pty_01m6gtpwfcenbbatgh7nn8emym	2026-11-03T20:51:33.175324Z		
 okasen.co.jp	ADDED	WORDPRESS	ls_01m6gx5thgewfby1n0we23hhk1	pty_01m6gx5tgzebtaay0n25v5ng7v	2026-11-03T14:31:58.705411Z		
@@ -427,6 +456,7 @@ rust-oldthings.com	ADDED	COLOR_ME_SHOP	ls_01m6gqy646egera15zwr1efx37	pty_01m6gqy
 rustique-nabari.com	ADDED	JIMDO	ls_01m6h2q8dzeh8rqgj4xejpdz1s	pty_01m6h2q8dbe9wa7am5t0q75cne	2026-11-03T20:51:33.175324Z		
 rustleather.com	ADDED	OCHANOKO_NET	ls_01m6ha37b2ecytpqf15jsk8dtd	pty_01m6ha37akem184dmq857qhanm	2026-11-03T20:51:33.175324Z		
 ryugudo.net	EXCLUDED				2026-11-04T08:15:33.724006Z	AUCTION_OPERATOR	
+sadougu-seikou.jp	DEFERRED				2026-11-04T14:56:20.979423Z	CURRENT_QUALIFIED_STOCK_UNVERIFIED	
 sadougu.shop-pro.jp	DEFERRED				2026-11-04T12:28:16.968511Z	DETAILED_ANTIQUE_OR_ORIGINAL_ART_EVIDENCE_REQUIRED	
 sagamiya-art.co.jp	DEFERRED				2026-11-03T18:54:51.106432Z	LEGAL_OPERATOR_AND_CURRENT_STOCK_UNVERIFIED	
 sakaibijyutu.com	DEFERRED				2026-11-03T18:42:56.353670Z	CURRENT_OWN_SALE_STOCK_UNVERIFIED	
@@ -454,6 +484,7 @@ seihoudou.com	ADDED		ls_01m6hcrh9peq4vf25ty8gj4xy3	pty_01m6hcrh91erwts62jw4jzkx3
 seikado.com	ADDED		ls_01m6hbstw0ehxaby581kda6kc9	pty_01m6hbstvke9erkkdx03hmsxqe	2026-11-03T20:51:33.175324Z		
 seikindo.base.shop	EXCLUDED				2026-11-03T22:35:15.485189Z	DIGITAL_REPRODUCTION_CATALOGUE_ONLY	
 seishodo.com	ADDED	WIX	ls_01m6hcrba1etsr6he9wqb6p4rz	pty_01m6hcrb9pevas3gn1dhssxhkb	2026-11-03T19:04:14.566183Z		
+seiwadou.co.jp	DEFERRED				2026-11-04T14:56:20.979448Z	CURRENT_QUALIFIED_STOCK_AND_ACTIVITY_UNVERIFIED	
 seiyudo.com	ADDED		ls_01m6gw58xfes3ry1b195rhxj2e	pty_01m6gw58x0eyer60s9xdxzgmqs	2026-11-03T20:51:33.175324Z		
 sekisen-kyoto.com	DEFERRED				2026-11-03T18:54:51.106424Z	CURRENT_STOCK_AVAILABILITY_UNVERIFIED	
 sekiundo.com	DEFERRED				2026-11-04T12:36:10.336429Z	CURRENT_ART_ANTIQUES_STOCK_AND_LEGAL_OPERATOR_REQUIRED	
@@ -466,6 +497,7 @@ shikinogallery.com	DEFERRED				2026-11-03T21:39:10.281778Z	EVIDENCE_INCOMPLETE
 shimizuya.konjiki.jp	ADDED	HOMEPAGE_BUILDER	ls_01m6jtq854eyrsj14q7xgqx2z8	pty_01m6jtq84veg586b8qx15e6bdg	2026-11-04T08:27:31.567717Z		
 shinakai.com	DEFERRED				2026-11-03T18:38:47.781900Z	CURRENT_STOCK_AVAILABILITY_UNVERIFIED	
 shinhara.base.shop	EXCLUDED				2026-11-03T21:36:15.023968Z	AUCTION_OPERATOR	shinhara.jp;yume0804.ho-zuki.com
+shinobazu.com	EXCLUDED				2026-11-04T17:08:10.666556Z	AUCTION_OPERATOR_CURRENT_PRIMARY	
 shinsendo-kosho.co.jp	DEFERRED				2026-11-04T09:19:13.512866Z	INSPECTABLE_CURRENT_ART_ANTIQUES_STOCK_REQUIRED	
 shinya-art-onlinestore.com	ADDED	SHOPIFY	ls_01m6hc8tyje37tptc4bv6021z8	pty_01m6hc8txze2c92mbr3xq86qgp	2026-11-03T18:55:46.219836Z		
 shiotaniart.base.shop	ADDED	BASE	ls_01m6jy6ac0erkrs39m62hqgx6z	pty_01m6jy6abeemz8vky444hs5ey6	2026-11-04T09:28:12.541288Z		
@@ -500,6 +532,7 @@ store.izumiyoko.co.jp	ADDED	WOOCOMMERCE	ls_01m6h6rxb4ea4bw1zzy03sr2kk	pty_01m6h6
 store.rebuildingcenter.jp	ADDED	BASE	ls_01m6h8snm6es3avy8dccjh2k6m	pty_01m6h8snksecz91qya0vsydcg0	2026-11-03T17:55:03.225169Z		
 suga.ocnk.net	DEFERRED				2026-11-03T16:46:53.874366Z	CURRENT_RETAIL_AVAILABILITY_UNVERIFIED	
 suichikudo.com	ADDED		ls_01m6hkxbpde2prtb2bkgmbvpj5	pty_01m6hkxbnvebf8d5dsvxe5g1hn	2026-11-03T21:09:18.028457Z		
+suiha.co.jp	EXCLUDED				2026-11-04T17:08:02.976064Z	AUCTION_OPERATOR_CURRENT_PRIMARY	
 suminoato.jp	DEFERRED				2026-11-03T23:00:04.726703Z	INSPECTABLE_CURRENT_STOCK_REQUIRED	
 sundayschool.ocnk.net	ADDED	OCHANOKO_NET	ls_01m6gy9z4je5xbxs9mnf8a9f8z	pty_01m6gy9z3xe2wtf9fn9pjjqc03	2026-11-03T20:51:33.175324Z		
 suzurandou.ocnk.net	ADDED	OCHANOKO_NET	ls_01m6hb3gfaeb78r4krk1ghv2m2	pty_01m6hb3gewe4ktbx3ebqar8s98	2026-11-03T20:51:33.175324Z		
@@ -526,7 +559,7 @@ tezuka-shinkodo.com	DEFERRED				2026-11-04T08:36:43.103431Z	INSPECTABLE_CURRENT_
 times-net.jp	ADDED	SHOP_SERVE	ls_01m6h0k70xegz9gmvpsxdbzyp0	pty_01m6h0k70ae0wrygmn9btpyws4	2026-11-03T20:51:33.175324Z		
 to-ge.com	DEFERRED				2026-11-03T18:34:36.680059Z	CURRENT_DIRECT_ANTIQUE_STOCK_UNVERIFIED	
 toddlowrey.com	ADDED	COLOR_ME_SHOP	ls_01m6hpw0gbed1bkhts2wrqdg3h	pty_01m6hpw0fxeyvta0596ypr5w0n	2026-11-03T22:00:59.315711Z		todlowrey.shop-pro.jp
-toreji.official.ec	ADDED	BASE	ls_01m6h4f4cfe5ebqgns0tzspf4c	pty_01m6h4f4c3eznvark73enbnkep	2026-11-03T16:39:23.333326Z		
+toreji.official.ec	DEFERRED	BASE	ls_01m6h4f4cfe5ebqgns0tzspf4c	pty_01m6h4f4c3eznvark73enbnkep	2026-11-04T16:58:28.077780Z	CURRENT_DIRECT_ART_ANTIQUES_QUALIFICATION_UNVERIFIED	
 tougendo.official.ec	DEFERRED				2026-11-03T22:26:12.278129Z	BUSINESS_HOME_AND_AUCTION_ROLE_UNVERIFIED	
 toukenkomachi.com	ADDED		ls_01m6hmbxabe4t9tf8dw1a3e50f	pty_01m6hmbx9qe4w80myh9mak9yq6	2026-11-03T21:17:14.842884Z		
 toumu.jp	ADDED	WORDPRESS	ls_01m6h78yw2eadag6dczdvdv6sz	pty_01m6h78yvme3raqtaac80rd1n7	2026-11-03T17:28:27.139366Z		
@@ -543,7 +576,7 @@ ukiyoe.yamabosi.jp	ADDED	WORDPRESS	ls_01m6hd8s9redv9fvs5t9t1xkmb	pty_01m6hd8s9ee
 ukiyoegallerymai.com	ADDED	WIX	ls_01m6hdgkvve1qtqbd0ynbezxq2	pty_01m6hdgkvdee7tpap0b9rz3enj	2026-11-03T19:17:28.900954Z		
 ukiyoeshop.net	DEFERRED				2026-11-03T18:09:46.115074Z	DEALER_OPERATOR_STOCK_ROLE_UNRESOLVED	
 ukiyoesobian.com	ADDED	STORES	ls_01m6k9cardecpafy2epst31s99	pty_01m6k9car0e3qt9jsc5a4mbs0m	2026-11-04T12:45:29.263767Z		
-ukiyoi.base.shop	ADDED	BASE	ls_01m6gxv2jmetq9r35dqd0f9dqs	pty_01m6gxv2j8e87vc1prfqj1y1ex	2026-11-03T14:45:10.794648Z		
+ukiyoi.base.shop	DEFERRED	BASE	ls_01m6gxv2jmetq9r35dqd0f9dqs	pty_01m6gxv2j8e87vc1prfqj1y1ex	2026-11-04T16:18:22.904666Z	CURRENT_INSPECTABLE_DIRECT_ART_ANTIQUES_STOCK_UNVERIFIED	
 unikk-antiques.com	ADDED	WELCART	ls_01m6gqy79hejs80jcjwpmf70xb	pty_01m6gqy792e2bsex258haefbzb	2026-11-03T13:00:26.418587Z		
 velvety.shopinfo.jp	DEFERRED				2026-11-03T16:34:19.968292Z	QUALIFYING_CURRENT_STOCK_UNVERIFIED	
 victoriancraft.com	ADDED	SHOPIFY	ls_01m6gvm005ekqsqhksp6fg078f	pty_01m6gvkzzfenmr6cy2aayzwgth	2026-11-03T14:04:46.001018Z		

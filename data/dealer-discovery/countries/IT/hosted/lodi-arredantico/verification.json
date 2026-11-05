@@ -1,9 +1,9 @@
 {
-  "run": "2026-11-02-it-215",
-  "verifiedAt": "2026-11-04T14:47:11.634774Z",
+  "run": "2026-11-02-it-229",
+  "verifiedAt": "2026-11-04T17:27:12.810205Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-04T14:10:21.808013Z",
+  "fullVerifiedAt": "2026-11-04T17:19:07.770611Z",
   "dealersCheckedThisRun": 0,
   "dealersReused": 1,
   "counts": {
@@ -18,8 +18,8 @@
     "deferred": 0
   },
   "environmentCounts": {
-    "parties": 4584,
-    "listingSources": 4627
+    "parties": 4822,
+    "listingSources": 4868
   },
   "paidDataSpendUsd": 0.0,
   "checks": [
@@ -40,7 +40,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:10:21.807417Z",
+      "verifiedAt": "2026-11-04T17:19:07.770373Z",
       "observationDigest": "90482c3144d3e335d7329ab19fbac0bfedee8771f7c665a737a7d8e6ae305078"
     }
   ]

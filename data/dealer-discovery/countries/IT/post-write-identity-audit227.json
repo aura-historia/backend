@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-227",
+  "country": "IT",
+  "observedAt": "2026-11-04T17:12:53.497325Z",
+  "result": "PASSED",
+  "rawJournalFiles": 410,
+  "rawJournalRecordsScanned": 64247,
+  "apiWriteAttemptsThisRun": 6,
+  "decisions": {
+    "added": [
+      "IT:PROANTIC:2304",
+      "IT:PROANTIC:4018"
+    ],
+    "excluded": [],
+    "deferred": [
+      "IT:PROANTIC:1273"
+    ]
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot227-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T17:01:32.851121Z",
+    "fullVerifiedAt": "2026-11-04T16:19:42.092851Z",
+    "counts": {
+      "parties": 418,
+      "listingSources": 418,
+      "locations": 471,
+      "logos": 289,
+      "identifiedPlatforms": 346,
+      "deliveryProfiles": 189,
+      "emptyIngestionMethods": 418,
+      "excluded": 27,
+      "deferred": 112
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Scorrano2304: current complete published personal business CarloScorrano adopted without guessed formal form. Current contact boutique Via del pie di marmo33 Roma business premises; official-positive candidate09987880581/SCORRANOCARLONICOLA/CapoSottile57 not directly linked by dealer, so VAT, extra middle name and tax address omitted. Actual554x932 saint portrait inspected; seller possible Vincent de Paul and XVIII claims not independent sitter/date/auth guarantees. No verified logo, email or fulfillment.",
+    "Imbimbo4018: complete current native titolareDavide and explicitly publishedVAT07819710729 match official fullbusiness/Bari6C. Exact hosted merchant remains only source; maiolicaantica.it is corroboration, no duplicate native source. Native email/currenthostmobile adopted, conflicting other native mobile not combined. Via SanTommaso6c is contact roles[], no registered/inventory/dispatch/pickup/default. Actual1147x1200 narrative majolica plate inspected; seller Urbino1550/Damiron/Louvre claims not independent, reverse/label/comparison not inspected. Original native header exceeded5MB bounded download and was not saved/viewed; no logo/MIME/dimensions import. At-home appraisal service is not purchased-goods shipping.",
+    "Carminati1273 deferred CURRENT_LEGAL_OPERATOR_UNRESOLVED: actual1200x900 hunting still life inspected and available, but current exact misspelled path antichita-caminati supplies only surname brand. No invented full operator or corporation from directories. Seller Hubert/signed/1887-1915 not independently authenticated. No API resources; dated Dec4 follow-up.",
+    "Rasolo1228 and Vietti3054 retain existing Italy owners and IDs, no extra hosted dealer/source or enrichment."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

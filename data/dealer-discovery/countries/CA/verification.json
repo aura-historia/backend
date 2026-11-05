@@ -1,25 +1,25 @@
 {
-  "run": "2026-11-04-ca-141",
-  "verifiedAt": "2026-11-04T14:48:45.219720Z",
+  "run": "2026-11-04-ca-158",
+  "verifiedAt": "2026-11-04T17:22:12.373561Z",
   "scope": "INCREMENTAL",
   "environment": "https://api.aura-historia.com",
-  "fullVerifiedAt": "2026-11-04T14:31:22.521356Z",
+  "fullVerifiedAt": "2026-11-04T17:01:58.937409Z",
   "dealersCheckedThisRun": 2,
-  "dealersReused": 259,
+  "dealersReused": 293,
   "counts": {
-    "parties": 257,
-    "listingSources": 261,
-    "locations": 284,
-    "logos": 195,
-    "identifiedPlatforms": 225,
-    "deliveryProfiles": 183,
-    "emptyIngestionMethods": 261,
-    "excluded": 58,
-    "deferred": 119
+    "parties": 291,
+    "listingSources": 295,
+    "locations": 321,
+    "logos": 223,
+    "identifiedPlatforms": 256,
+    "deliveryProfiles": 195,
+    "emptyIngestionMethods": 295,
+    "excluded": 60,
+    "deferred": 131
   },
   "environmentCounts": {
-    "parties": 4586,
-    "listingSources": 4629
+    "parties": 4811,
+    "listingSources": 4858
   },
   "paidDataSpendUsd": 0,
   "checks": [
@@ -34,27 +34,27 @@
     {
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "verificationPath": "data/dealer-discovery/countries/CA/verification-root.json",
-      "verifiedAt": "2026-11-04T14:48:30.243070Z",
+      "verifiedAt": "2026-11-04T17:20:05.720636Z",
       "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-04T14:32:03.785455Z",
+      "fullVerifiedAt": "2026-11-04T17:02:45.841279Z",
       "counts": {
-        "parties": 254,
-        "listingSources": 258,
-        "locations": 281,
-        "logos": 195,
-        "identifiedPlatforms": 223,
-        "deliveryProfiles": 180,
-        "emptyIngestionMethods": 258,
-        "excluded": 58,
-        "deferred": 119
+        "parties": 288,
+        "listingSources": 292,
+        "locations": 318,
+        "logos": 223,
+        "identifiedPlatforms": 254,
+        "deliveryProfiles": 192,
+        "emptyIngestionMethods": 292,
+        "excluded": 60,
+        "deferred": 131
       }
     },
     {
       "ledgerPath": "data/dealer-discovery/countries/CA/hosted/francois-cote/dealers.jsonl",
       "verificationPath": "data/dealer-discovery/countries/CA/hosted/francois-cote/verification.json",
-      "verifiedAt": "2026-11-04T14:48:29.702874Z",
+      "verifiedAt": "2026-11-04T17:20:05.345186Z",
       "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-04T14:31:23.839918Z",
+      "fullVerifiedAt": "2026-11-04T17:01:59.001490Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -70,9 +70,9 @@
     {
       "ledgerPath": "data/dealer-discovery/countries/CA/hosted/high-park-books/dealers.jsonl",
       "verificationPath": "data/dealer-discovery/countries/CA/hosted/high-park-books/verification.json",
-      "verifiedAt": "2026-11-04T14:48:29.698388Z",
+      "verifiedAt": "2026-11-04T17:20:05.423334Z",
       "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-04T14:31:22.521356Z",
+      "fullVerifiedAt": "2026-11-04T17:01:59.215538Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -88,9 +88,9 @@
     {
       "ledgerPath": "data/dealer-discovery/countries/CA/hosted/reeve-and-clarke-books/dealers.jsonl",
       "verificationPath": "data/dealer-discovery/countries/CA/hosted/reeve-and-clarke-books/verification.json",
-      "verifiedAt": "2026-11-04T14:48:29.637369Z",
+      "verifiedAt": "2026-11-04T17:20:05.227314Z",
       "scope": "INCREMENTAL",
-      "fullVerifiedAt": "2026-11-04T14:31:22.662884Z",
+      "fullVerifiedAt": "2026-11-04T17:01:58.937409Z",
       "counts": {
         "parties": 1,
         "listingSources": 1,
@@ -115,7 +115,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.525644Z",
+      "verifiedAt": "2026-11-04T17:01:59.117495Z",
       "observationDigest": "2e4a63feaa00bd3b07cceab5388e4119ea4612d010c74b837040e715c58e107f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://antiquewarehouse.ca/"
@@ -130,7 +130,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.496995Z",
+      "verifiedAt": "2026-11-04T17:01:59.069554Z",
       "observationDigest": "086d2a106264f6b089273c2e8af7ea15f3e6cc5579a15830d488b074a3626154",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://justinteeantiques.com/"
@@ -145,7 +145,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.471272Z",
+      "verifiedAt": "2026-11-04T17:01:59.148367Z",
       "observationDigest": "5ddf15551c586ef0c4097ecf243a9c9cd77e95f93b8182fd9bee40025f609739",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.ernestjohnsonantiques.com/"
@@ -160,7 +160,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.964175Z",
+      "verifiedAt": "2026-11-04T17:01:59.585166Z",
       "observationDigest": "e6416756964cc2b6dbff122f58e71b952db5005fdf2733f3417547d20d3bb229",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://archersantiques.ca/"
@@ -175,7 +175,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.987615Z",
+      "verifiedAt": "2026-11-04T17:01:59.591838Z",
       "observationDigest": "07fab6d4f09aa23fb5964a6eb31334e6382b109ff69d256c8b3ec9dce8b8408b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.scottlandonantiques.com/"
@@ -190,7 +190,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.947599Z",
+      "verifiedAt": "2026-11-04T17:01:59.545483Z",
       "observationDigest": "16bf298228490c4993bcd81144cf38ebb2d618d74312d167e3c066052f9272ca",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.langmann.com/"
@@ -205,7 +205,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:24.360074Z",
+      "verifiedAt": "2026-11-04T17:01:59.973627Z",
       "observationDigest": "ea9f5a74a38a5def1e285d855ce2b88ebeae5e0419c20dce76afff5d89398923",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.milordantiques.com/"
@@ -220,7 +220,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:24.420371Z",
+      "verifiedAt": "2026-11-04T17:02:00.011461Z",
       "observationDigest": "6bb15f55014b7b0ea2f58ee0289ca30fec53cb8284bf6d0fd9a5e70a2cd416d1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.whantiques.com/"
@@ -235,7 +235,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:24.473033Z",
+      "verifiedAt": "2026-11-04T17:02:00.188081Z",
       "observationDigest": "30cae46030e7725faeb2c20c6286a7b522ecb6c4df6eb835b28ff6d540536b0d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://galleryelder.com/"
@@ -250,7 +250,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:24.778755Z",
+      "verifiedAt": "2026-11-04T17:02:00.569303Z",
       "observationDigest": "12fde9f4193c727966ed6a7d95137f0e2698c8cd2e16478351cbb408adb3d337",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.cherryhillantiques.biz/"
@@ -265,7 +265,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:24.837931Z",
+      "verifiedAt": "2026-11-04T17:02:00.579449Z",
       "observationDigest": "4432d2b087041a7ebdc4a31e4dc23f28139159a2d2dbcddba11faa4f6f43ce66",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://smithscreekantiques.com/"
@@ -280,7 +280,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:24.960766Z",
+      "verifiedAt": "2026-11-04T17:02:00.739956Z",
       "observationDigest": "9493efb987b1c85725f9af3d619012f3b7f9af0d15350cd0d37739157fc284b6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://finerthingsantiques.com/"
@@ -295,7 +295,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:25.281993Z",
+      "verifiedAt": "2026-11-04T17:02:01.077710Z",
       "observationDigest": "b582d43b12c17f06c37def25fdbfd01a87038e93f0f69e2ec9f4d8c904f5e0dd",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://ahmacmillan.com/"
@@ -310,7 +310,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:25.360324Z",
+      "verifiedAt": "2026-11-04T17:02:01.087671Z",
       "observationDigest": "261af65278c8fac5ecedb44302828f2d93e627121cb65810dd78d4ec710d7640",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://grandcentralinc.ca/"
@@ -325,7 +325,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:25.443237Z",
+      "verifiedAt": "2026-11-04T17:02:01.240636Z",
       "observationDigest": "ea6bcd77573d531bdf02825d76faad30c4909ddd44b8becba52b09fc71f1a11d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://petitmusee.com/"
@@ -340,7 +340,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:25.791287Z",
+      "verifiedAt": "2026-11-04T17:02:01.562862Z",
       "observationDigest": "80ab72e01b339f82fbcff3ad1650dbb99e36f701f0dd8f33e7e38438c0e0aa08",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.lesantiquitesbolduc.com/"
@@ -355,7 +355,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:25.851609Z",
+      "verifiedAt": "2026-11-04T17:02:01.578252Z",
       "observationDigest": "951d1475a572af3c70dda5695b6fd0227f87b919207bfb242f4979b21b21d97f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://stylelabo-deco.com/"
@@ -370,7 +370,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:25.962880Z",
+      "verifiedAt": "2026-11-04T17:02:01.727878Z",
       "observationDigest": "31aba64a454df902481f63bd27b4f6fc68e9f6e8b1b6e64d37d63bea31940fc1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://ibonantiques.ca/"
@@ -385,7 +385,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:26.265650Z",
+      "verifiedAt": "2026-11-04T17:02:02.095179Z",
       "observationDigest": "e430a903fad344c0cf63fe5352ee15bdf98a0cd648bb427cff4d3d8604301dec",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://brassybeehive.ca/"
@@ -400,7 +400,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:26.249652Z",
+      "verifiedAt": "2026-11-04T17:02:02.008023Z",
       "observationDigest": "70b7b15049febe08256decb1768c170e0aaf9b9ffe2f9bc0853bd0d30d529169",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.antiquitesg.ca/"
@@ -415,7 +415,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:26.457229Z",
+      "verifiedAt": "2026-11-04T17:02:02.240703Z",
       "observationDigest": "d39b0fa71265b49fa361f80e42b4530262bf534f53a39341904ad1ddd1a3e131",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.chicshackantique.com/"
@@ -430,7 +430,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:26.639280Z",
+      "verifiedAt": "2026-11-04T17:02:02.429233Z",
       "observationDigest": "bd51db8bb6f36b28e532e180cf0b5fc0e4902dcf41a05929b3ad71d879514269",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.barasethouse.com/"
@@ -445,7 +445,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:26.657368Z",
+      "verifiedAt": "2026-11-04T17:02:02.593828Z",
       "observationDigest": "6330ff4201b0f8444de343a309612be8d32d46aa38979c25c42f064d204c89ef",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://bytownvintage.ca/"
@@ -460,7 +460,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:26.947040Z",
+      "verifiedAt": "2026-11-04T17:02:02.747902Z",
       "observationDigest": "6b064b27a3dee7a1d634616e6fd0520ec66081ee4da907a2df90b58537aa5c43",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "http://www.leggeprints.com/"
@@ -475,7 +475,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:27.056295Z",
+      "verifiedAt": "2026-11-04T17:02:02.866713Z",
       "observationDigest": "0537998d3b197917cb26dbd7f582df9b4a2f8bc60531678e595ab09d3492af06",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://glenmanorgalleries.net/wp/"
@@ -490,7 +490,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:27.061903Z",
+      "verifiedAt": "2026-11-04T17:02:03.008034Z",
       "observationDigest": "b8dd017699ca2749035441fbd843b005dfbdb9f5b0c440f29c6cf8c5133b16f8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "http://www.rumiantiques.com/"
@@ -505,7 +505,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:27.412706Z",
+      "verifiedAt": "2026-11-04T17:02:03.246506Z",
       "observationDigest": "3043ff5489817f2123989f25ca6ed0d701c4ef57dcc2ac1dc6aaaa1261d628fe",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.adanacantiques.com/"
@@ -520,7 +520,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:27.509707Z",
+      "verifiedAt": "2026-11-04T17:02:03.361998Z",
       "observationDigest": "aa50276a1e85dbd25319a6b97354b16d17e9784e5cd26a7fc8d37239c5975eca",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://fedoraantiques.com/"
@@ -535,7 +535,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:27.601018Z",
+      "verifiedAt": "2026-11-04T17:02:03.497152Z",
       "observationDigest": "5bec6fb71beb440c374d700240124a46bc2705fcb6db4f4094b902f5b3551f1b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.theoleblacksmithshop.com/"
@@ -550,7 +550,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:27.953193Z",
+      "verifiedAt": "2026-11-04T17:02:03.825341Z",
       "observationDigest": "fa5c46748489ee38fa469deb5307be0b4f61b73c90c1548fef5ef5ea03c1ab36",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://jaysmercantile.ca/"
@@ -565,7 +565,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.008651Z",
+      "verifiedAt": "2026-11-04T17:02:03.877749Z",
       "observationDigest": "bf8b053a22e29e8cd274ea2edd4467d8d6c7a80955ba03b55b509d723410b17c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.84andahalf.ca/"
@@ -580,7 +580,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.000870Z",
+      "verifiedAt": "2026-11-04T17:02:03.873773Z",
       "observationDigest": "a032aed767a44e97a1a24bb3b5bed1ccdcc81bb9402a50f821d4c151c1f789c6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.rosecottagepei.com/"
@@ -595,7 +595,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.380221Z",
+      "verifiedAt": "2026-11-04T17:02:04.267930Z",
       "observationDigest": "5c19a5247e510ddbfac0c6335c4e2be890fbe185c73783394b78e274adc909ae",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://mooresartantiques.com/"
@@ -610,7 +610,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.472516Z",
+      "verifiedAt": "2026-11-04T17:02:04.428264Z",
       "observationDigest": "799c615b8c12c21386fbd624e3d24c2f9496f08e5f7cb781045e0cc8765347ed",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.nothalfbad.ca/"
@@ -625,7 +625,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.476017Z",
+      "verifiedAt": "2026-11-04T17:02:04.381705Z",
       "observationDigest": "560fbeededd0c8b40626a3e1d26071ce9a190c2626638ca2fea5990924b91e84",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.hellogarcons.com/shop"
@@ -640,7 +640,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.855892Z",
+      "verifiedAt": "2026-11-04T17:02:04.771005Z",
       "observationDigest": "278b5b84dc3d57013c93494fdafa540abf3d1fdaf51304586d4c5537c9e9f982",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://atticbooks.ca/"
@@ -655,7 +655,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.940117Z",
+      "verifiedAt": "2026-11-04T17:02:04.882944Z",
       "observationDigest": "00f665e02a19ab32d79cdad317d04266858d3abf0b5adbded1368c34fdb208cb",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.juniperbooks.ca/"
@@ -670,7 +670,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:28.945866Z",
+      "verifiedAt": "2026-11-04T17:02:04.913504Z",
       "observationDigest": "8f0d0002676958c933c4d024715ed1053a68214cacdd9cf0d5eda88ead126c8d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.acadiabooks.com/"
@@ -685,7 +685,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:29.351022Z",
+      "verifiedAt": "2026-11-04T17:02:05.294216Z",
       "observationDigest": "388ce267e85a578bdb60b9af110f1f211a0e4e14fad4ab18bf232f2c21e41875",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "http://www.atticus-books.com/"
@@ -700,7 +700,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:29.335925Z",
+      "verifiedAt": "2026-11-04T17:02:05.284874Z",
       "observationDigest": "02984965bb85cf4e8496ff5923f52e851ce7ef696681b6638afcf54c575a6395",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://rusticnorth.com/"
@@ -715,7 +715,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:29.401551Z",
+      "verifiedAt": "2026-11-04T17:02:05.404427Z",
       "observationDigest": "d76823be59c8059df3d255115f7793dd3172da08fa79234ee6824e7194fd7303",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.michelprince.ca/en/home.html"
@@ -730,7 +730,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:29.828604Z",
+      "verifiedAt": "2026-11-04T17:02:05.791347Z",
       "observationDigest": "0221fc8a252bd8c6f7d7119c1119d394305885316de74f01ab8836801549379d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://commedansltemps.com/"
@@ -745,7 +745,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:29.833814Z",
+      "verifiedAt": "2026-11-04T17:02:05.786210Z",
       "observationDigest": "f20ee88a9e433c8511e000bfc3157bd961b27f84cc43ef6a57364480f6e6123e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.sampsons.ca/"
@@ -760,7 +760,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:29.861964Z",
+      "verifiedAt": "2026-11-04T17:02:05.896435Z",
       "observationDigest": "936b4407333d0fefc19fe64059e49a9d2fb627e834a0d47c3586faa5737b01e3",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.unexpectedparty.ca/"
@@ -775,7 +775,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:30.339202Z",
+      "verifiedAt": "2026-11-04T17:02:06.312294Z",
       "observationDigest": "5e1b07cc9f927f17909d218e3102c3420252841e534cd925aaf450304d1659b8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://rabbitholeantique.com/"
@@ -790,7 +790,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:30.251227Z",
+      "verifiedAt": "2026-11-04T17:02:06.213621Z",
       "observationDigest": "7f62f27b95be9ce69cbda46c73ae4fd1baf21220798d32893dd71181abb3ff98",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.antiqueaddict.ca/"
@@ -805,7 +805,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:30.402550Z",
+      "verifiedAt": "2026-11-04T17:02:06.439592Z",
       "observationDigest": "3d6dae81bb4cbe7d158d42f264b4978f3546e95e89ade98cfd31492ebbfe8677",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://bernardisantiques.com/"
@@ -820,7 +820,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:30.705188Z",
+      "verifiedAt": "2026-11-04T17:02:06.734651Z",
       "observationDigest": "0acaadbc7d407e0f20694396cc96ab45f575d86c7085290778322f02a5d97145",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://vintagehomeboutique.ca/"
@@ -835,7 +835,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:31.041191Z",
+      "verifiedAt": "2026-11-04T17:02:07.051819Z",
       "observationDigest": "4999722b874b1771eed4a3d2ac5edc32ef04ed471e42bc8ad383437048a1fcf3",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.abcantiques.ca/"
@@ -850,7 +850,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:30.802829Z",
+      "verifiedAt": "2026-11-04T17:02:06.861739Z",
       "observationDigest": "ffb889acb438d5123769f4a13a51ef493ff14539c9a2f2e7cec8c18f21581e7c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://pastchinapatterns.com/"
@@ -865,7 +865,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:31.220634Z",
+      "verifiedAt": "2026-11-04T17:02:07.226952Z",
       "observationDigest": "c869e413433b8f0350b64854450e9e5f0f0fcb60765f9c156ed95f7018d1ff3d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.leafandstonebooks.com/"
@@ -880,7 +880,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:31.280487Z",
+      "verifiedAt": "2026-11-04T17:02:07.382515Z",
       "observationDigest": "4ca45612e60706e97481c8b0b0f01bc642e8392a235dab292208368954b1e03a",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.thompsonrarebooks.com/"
@@ -895,7 +895,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:31.549181Z",
+      "verifiedAt": "2026-11-04T17:02:07.551815Z",
       "observationDigest": "10e9a06d9e97e0df4b7b6e336b6034462224086d1b237f24f8c1a3da4c06a0fd",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.ironcrow.ca/"
@@ -910,7 +910,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:31.593702Z",
+      "verifiedAt": "2026-11-04T17:02:07.642455Z",
       "observationDigest": "24ad91d71436e88bf1e648ba109e23ef031187c21615eb411fe5f6eedf2cf258",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.maylenerosethriftology.com/shop-vintage"
@@ -925,7 +925,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:31.872428Z",
+      "verifiedAt": "2026-11-04T17:02:07.950631Z",
       "observationDigest": "d12b239270b42bcdfd7502b16535070c87fb1b344b3dab6ce3eb3bdbad3d24e4",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://spaffordbooks.ca/"
@@ -940,7 +940,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:32.069528Z",
+      "verifiedAt": "2026-11-04T17:02:08.064231Z",
       "observationDigest": "66d202120df2068f7a79df37e9755002821772e454abaddf855d602103c55fbe",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.reclaimvintage.ca/"
@@ -955,7 +955,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:32.066170Z",
+      "verifiedAt": "2026-11-04T17:02:08.137217Z",
       "observationDigest": "d0d3bd21f08c6fbcdc9877c7ae3f7fc811a892d8a809a68704abf9e8a014d974",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://brocantique.ca/"
@@ -970,7 +970,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:32.384219Z",
+      "verifiedAt": "2026-11-04T17:02:08.473697Z",
       "observationDigest": "9cb7011ed3871a598f538f21330b745368202b63bc9932d498bea85a4fc3c277",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.ionvintage.ca/"
@@ -985,7 +985,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:32.548956Z",
+      "verifiedAt": "2026-11-04T17:02:08.568362Z",
       "observationDigest": "bd6ef6d7220094c5f6ea9fb59de3e3fc93aaf1c40943d8c75f973e987be70d94",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.antiquitesaufildutemps.ca/"
@@ -1000,7 +1000,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:32.580542Z",
+      "verifiedAt": "2026-11-04T17:02:08.613128Z",
       "observationDigest": "66b41623dce0166c1eead6d9a56744a4131cfb7443a2426f5bf4d8f25b32e88d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.bonheurdoccasion.com/"
@@ -1015,7 +1015,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:32.880167Z",
+      "verifiedAt": "2026-11-04T17:02:08.978237Z",
       "observationDigest": "062286e0ea783a1fdd18b8b6137b0c99072fa67150ea1f0d9351a7b733d9f819",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.ovieuxbouquins.com/"
@@ -1030,7 +1030,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:33.234175Z",
+      "verifiedAt": "2026-11-04T17:02:09.276360Z",
       "observationDigest": "bf6dc1bd5a038fa36040fbba521a4a5e66490ac1dd0d00d5342ef7f9fbaf0127",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://delakeltd.com/"
@@ -1045,7 +1045,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:33.078018Z",
+      "verifiedAt": "2026-11-04T17:02:09.129533Z",
       "observationDigest": "65f2198f0bca9bfe3ac00fe6325b189d12cf7f0eabfdfe8dcfacee0f36711204",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.davidmasonbooks.com/"
@@ -1060,7 +1060,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:33.368761Z",
+      "verifiedAt": "2026-11-04T17:02:09.457028Z",
       "observationDigest": "c7e76172fea69f634abede64014aa134d520f57bc262f5828170c033ce633330",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.corbys.ca/"
@@ -1075,7 +1075,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:33.584634Z",
+      "verifiedAt": "2026-11-04T17:02:09.623342Z",
       "observationDigest": "7f406a07148348695f564974513283a453cd37954207642688b9d3a2a4b6ab27",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://mccloskys.com/"
@@ -1090,7 +1090,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:33.716978Z",
+      "verifiedAt": "2026-11-04T17:02:09.794039Z",
       "observationDigest": "0e18c3071be93c9829ffd24cfbace78fa897bd4def3ca38698830d1dd4aa60e8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.theargosy.ca/"
@@ -1105,7 +1105,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.030888Z",
+      "verifiedAt": "2026-11-04T17:02:10.162107Z",
       "observationDigest": "152dfca2b79e174ce891f7be935d35df0687eafc0af531a1990b832b6c80c569",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "http://www.delake.com/"
@@ -1120,7 +1120,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.045371Z",
+      "verifiedAt": "2026-11-04T17:02:10.130972Z",
       "observationDigest": "11560a1fe9ba9785f6993dce54cf4114df99b0b88c43ceffcb3464dedc508186",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://backlanebooks.com/"
@@ -1135,7 +1135,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.277490Z",
+      "verifiedAt": "2026-11-04T17:02:10.422754Z",
       "observationDigest": "25f94e3375a9f177d2509ce2d1d6d1a58dc85b395c7abee046df9c840cd8149c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://blacksbooks.ca/"
@@ -1150,7 +1150,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.507375Z",
+      "verifiedAt": "2026-11-04T17:02:10.628638Z",
       "observationDigest": "01b360dde57e890e22b31c517cbdf4a98c568623a39d70023f9204de17bdca88",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://contacteditions.com/"
@@ -1165,7 +1165,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.508558Z",
+      "verifiedAt": "2026-11-04T17:02:10.677180Z",
       "observationDigest": "594d71e86df2a0564a1c70c2551e7871c43916446afa83df64372cadfdd7ac4e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://coastconsignment.com/"
@@ -1180,7 +1180,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.833326Z",
+      "verifiedAt": "2026-11-04T17:02:10.903687Z",
       "observationDigest": "1c3aa94f41bc8eeb70dcdf9d19df8dfce96e21fe41246f7dc2332f6b75aae466",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.mcgahernbooks.ca/"
@@ -1195,7 +1195,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.999079Z",
+      "verifiedAt": "2026-11-04T17:02:11.152766Z",
       "observationDigest": "3ac6489ab7ad36573771197abf32b9a8d724c4db4ea221fcb301f7d6b4cf522f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.prairiecollectiveco.com/"
@@ -1210,7 +1210,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:34.987269Z",
+      "verifiedAt": "2026-11-04T17:02:11.200240Z",
       "observationDigest": "c16e434c6d5e1c0763cc09f76b1aa140a0742b8d4c97ab5d24c9f5a31e8dea41",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://ddstudiosloft.ca/"
@@ -1225,7 +1225,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:35.312761Z",
+      "verifiedAt": "2026-11-04T17:02:11.379167Z",
       "observationDigest": "252c75b147f7c31a106131d056d10f65867aec104150a7d72e7eab085138a248",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://demainpeutetre.ca/"
@@ -1240,7 +1240,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:35.454895Z",
+      "verifiedAt": "2026-11-04T17:02:11.702005Z",
       "observationDigest": "accfe493748c683bc21da0bdebfb9176d9b5f7af02f74d18f0ad7e3a5730a9d9",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://brocantelareconquete.com/"
@@ -1255,7 +1255,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:35.477826Z",
+      "verifiedAt": "2026-11-04T17:02:11.687152Z",
       "observationDigest": "23973b6c2f951b87b367fd3e99e443bb77fc4e0ebefd3a3f4aa8e610fbf9a7a9",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://brocantelabaraque.wixsite.com/brocante-la-baraque"
@@ -1270,7 +1270,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:35.770498Z",
+      "verifiedAt": "2026-11-04T17:02:11.893710Z",
       "observationDigest": "121cfe535cf51abf6ebfda66ff52d869d186d8b95d50ab1f7fd17fb5e5681a02",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.follyandfine.ca/"
@@ -1285,7 +1285,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:35.932937Z",
+      "verifiedAt": "2026-11-04T17:02:12.214356Z",
       "observationDigest": "021a26dcc30a631ff26f9198acf20d4bdb64f0c2b858e8e82f7c0faa96eeb7a1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://reves-antiques.com/"
@@ -1300,7 +1300,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:35.927806Z",
+      "verifiedAt": "2026-11-04T17:02:12.264645Z",
       "observationDigest": "45281493c4675601709dd40fa3a6248bbd2237d61d62820322308807d30e192d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.janevining.net/"
@@ -1315,7 +1315,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:36.272598Z",
+      "verifiedAt": "2026-11-04T17:02:12.432687Z",
       "observationDigest": "98162b5366c2fdd85e9db6b79606c4d4f9ecf8cb6fa70ccc4c80971c7953bfbb",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://retrospekthalifax.com/"
@@ -1330,7 +1330,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:36.426903Z",
+      "verifiedAt": "2026-11-04T17:02:12.744703Z",
       "observationDigest": "35efe5aeb72638f1daed80691cfb4406a10ce0a990ac97b93af96205dafc4d25",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.goldentonicjewellery.com/"
@@ -1345,7 +1345,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:36.470793Z",
+      "verifiedAt": "2026-11-04T17:02:12.810558Z",
       "observationDigest": "6504c04f84294bddc4e3ff5ba8fd7e4e33ec9121da4dece97cba29f2d40dc91a",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.antiquitesbrocantecharlevoix.com/"
@@ -1360,7 +1360,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:36.743871Z",
+      "verifiedAt": "2026-11-04T17:02:13.004027Z",
       "observationDigest": "ffd1a9e98b90f8aeca9c14f460faca586539aadace8ab7f4bf0df2e71cd32a83",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://mflibra.com/"
@@ -1375,7 +1375,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:36.899523Z",
+      "verifiedAt": "2026-11-04T17:02:13.262472Z",
       "observationDigest": "3206c377e907a2b0e9fcd616d9aa42a363317668634c763266f933f2216dd870",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.irolitabooks.com/"
@@ -1390,7 +1390,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:36.938253Z",
+      "verifiedAt": "2026-11-04T17:02:13.338204Z",
       "observationDigest": "6c934ad6ee8f1bb82e228fd016cd0fd26d9cbc37f3bd6f0ed7479abcff7a9111",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://filofinds.com/"
@@ -1405,7 +1405,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:37.205955Z",
+      "verifiedAt": "2026-11-04T17:02:13.520857Z",
       "observationDigest": "012f568c66812970e8aef76bd54b4039b0e3d30607730ed6990c9811a7e024aa",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.wilsonvillevintageantiques.ca/"
@@ -1420,7 +1420,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:37.393303Z",
+      "verifiedAt": "2026-11-04T17:02:13.797998Z",
       "observationDigest": "7189227e8cd3411bd4ff93b2daf2f113fa707cafa2c0e7302c6e6331b10ab5a6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://viliyasvintage.ca/"
@@ -1435,7 +1435,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:37.385458Z",
+      "verifiedAt": "2026-11-04T17:02:13.891473Z",
       "observationDigest": "faf26972b0ea1d16845ea8ca8110f5cfca0fb987af6d50c5160cb238851a5e18",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.cynthiafindlay.com/"
@@ -1450,7 +1450,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:37.682222Z",
+      "verifiedAt": "2026-11-04T17:02:14.044213Z",
       "observationDigest": "460ffbdc6d0fff8934d6f9f8f9952725fa1ba169a8920a9c13724a8fc25c7ffc",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.mapsandmore.ca/"
@@ -1465,7 +1465,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:37.842202Z",
+      "verifiedAt": "2026-11-04T17:02:14.320909Z",
       "observationDigest": "81d43b6e9425e16251ffc4a7f2411aa447b8dba15b0fd0b1cf0e8325993db7f5",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.myrubytuesday.ca/"
@@ -1480,7 +1480,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:37.848550Z",
+      "verifiedAt": "2026-11-04T17:02:14.412379Z",
       "observationDigest": "1053c7a29a173c9da063fbb1566312d38cc1c650850f37f7f87edcd4824be7aa",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://patronofdreamsvintage.com/"
@@ -1495,7 +1495,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:38.176705Z",
+      "verifiedAt": "2026-11-04T17:02:14.572975Z",
       "observationDigest": "30322d5a16cde85c1948ed4aed5faf29394a9a027b74d5e9a73511a38e12dce6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://ftjco.com/"
@@ -1510,7 +1510,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:38.376246Z",
+      "verifiedAt": "2026-11-04T17:02:14.858393Z",
       "observationDigest": "4b50b40ff78dd0426e46a6ae324cccf3048ed6b9db70a225bbf4d491e2afe821",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.georgemanzcoins.com/"
@@ -1525,7 +1525,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:38.342933Z",
+      "verifiedAt": "2026-11-04T17:02:14.942811Z",
       "observationDigest": "37a32436ecb00f91dbf86c101fb91ce8ab4d12d208b3f7782592dc0a4750c0bf",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.citadelcoinshalifax.com/"
@@ -1540,7 +1540,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:38.757971Z",
+      "verifiedAt": "2026-11-04T17:02:15.179857Z",
       "observationDigest": "b675e8c096ecb8cc980a374f3cb87e403e19c501abb6cbfdf6fa5e43027ed07c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.arpinphilately.com/"
@@ -1555,7 +1555,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:38.830901Z",
+      "verifiedAt": "2026-11-04T17:02:15.415663Z",
       "observationDigest": "af1062491407332edeec32a824ccbbee8800f7d107ec0e03e34c1931b2ab81a9",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.doullbooks.com/"
@@ -1570,7 +1570,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:38.781711Z",
+      "verifiedAt": "2026-11-04T17:02:15.419735Z",
       "observationDigest": "e257d9de9efe940db13d4bf71653ec32e34f25be735bf6870b42547d06548159",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.sellersandnewel.com/"
@@ -1585,7 +1585,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:39.242736Z",
+      "verifiedAt": "2026-11-04T17:02:15.703454Z",
       "observationDigest": "52eca24917ba5f56791549866c25ec6a57d609ede5a51dc5b1c3ab4aebf31089",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.schoonerbooks.com/"
@@ -1600,7 +1600,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:39.259750Z",
+      "verifiedAt": "2026-11-04T17:02:15.929250Z",
       "observationDigest": "7d141d1b9cf9f547c018f5ba53c55469859027cb98b370f031de29248ea7957b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.minotavrosbooks.com/"
@@ -1615,7 +1615,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:39.321630Z",
+      "verifiedAt": "2026-11-04T17:02:15.928540Z",
       "observationDigest": "3f815642cfc97ec4a613239b0fa7c23e04c7ade0efc4aa1abbd9ee30f7c32477",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.combat-relics.com/"
@@ -1630,7 +1630,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:39.707184Z",
+      "verifiedAt": "2026-11-04T17:02:16.227635Z",
       "observationDigest": "05843c54e5f8afab65a70afec3c19c0da71aad08b6784b6e0d288898f717303e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://thecanadiansoldier.com/"
@@ -1645,7 +1645,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:39.739621Z",
+      "verifiedAt": "2026-11-04T17:02:16.489400Z",
       "observationDigest": "c1d971436ef4be4b5e46bf3d98f8b431b45732b20b7b60a0a5e75983a7239144",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://grimshaw-military-antiques.myshopify.com/"
@@ -1660,7 +1660,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:39.804770Z",
+      "verifiedAt": "2026-11-04T17:02:16.435667Z",
       "observationDigest": "f21810149f3556c6375caa50ae2046f3d7ea4ce589f40feffe614c73cf6fbf2f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://barrysjewellers.com/"
@@ -1675,7 +1675,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:40.151541Z",
+      "verifiedAt": "2026-11-04T17:02:16.758607Z",
       "observationDigest": "d4679d2d506de1676dc10e7f1cd5f47dd8aa903a8adde8760dccc3c2b34459d9",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://paulnudelman.com/"
@@ -1690,7 +1690,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:40.204710Z",
+      "verifiedAt": "2026-11-04T17:02:16.935173Z",
       "observationDigest": "14b61d960e6b9beb3aad7da4486f2f562fdb3be1990bce5133ba79efd00aba1a",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://feheleyfinearts.com/"
@@ -1705,7 +1705,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:40.283572Z",
+      "verifiedAt": "2026-11-04T17:02:17.039336Z",
       "observationDigest": "50fa0f7e0f3db583b45f66eeec9ed1d3dc90516ebd731d97e69ec34b5188162f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.inuitartzone.com/"
@@ -1720,7 +1720,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:40.637313Z",
+      "verifiedAt": "2026-11-04T17:02:17.272914Z",
       "observationDigest": "4e3378a7e8a6c6ce089f4f61e6f1707e74ff8761852f078a526f21621d182c69",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://yukonart.ca/"
@@ -1735,7 +1735,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:40.693341Z",
+      "verifiedAt": "2026-11-04T17:02:17.442158Z",
       "observationDigest": "a9adaf56addbae0877a3a5b7b9e0f520e4218ab4a68a3bb10ab668ebdcb3ef94",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.annakkhome.com/"
@@ -1750,7 +1750,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:40.797047Z",
+      "verifiedAt": "2026-11-04T17:02:17.640669Z",
       "observationDigest": "ba8d2963554f98bd3d598a424790fa06861cdba5a134ec8e31dd2f17bd384d79",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "http://aquilabooks.com/"
@@ -1765,7 +1765,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:41.130937Z",
+      "verifiedAt": "2026-11-04T17:02:17.789347Z",
       "observationDigest": "d6b9cc9887ba82a332723cf32bb6e6cab34d70c5a7bef8b333e24a193fde330f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.benjaminbooks.ca/"
@@ -1780,7 +1780,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:41.257407Z",
+      "verifiedAt": "2026-11-04T17:02:17.949403Z",
       "observationDigest": "6d05fa809e8d9585e68037f864dd533a8f4d3f5e2f1ab83fda347d57e065311f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://brownanddickson.com/"
@@ -1795,7 +1795,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:41.280750Z",
+      "verifiedAt": "2026-11-04T17:02:18.161298Z",
       "observationDigest": "61a95f2fab177320f4f8ee6555832892fabf88c5bd5f262d3a5d9a79d5b3292b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.defreitasbooks.com/"
@@ -1810,7 +1810,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:41.619559Z",
+      "verifiedAt": "2026-11-04T17:02:18.369925Z",
       "observationDigest": "a545e028ca0f9b3abfd86cf29a46e6f386529859ca20a843ea650ed3273ea885",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://edmontonbookstore.com/"
@@ -1825,7 +1825,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:41.745306Z",
+      "verifiedAt": "2026-11-04T17:02:18.496455Z",
       "observationDigest": "d90de944122af6d020f87e6e2732ca44ae9a22a0a0d0416a745a73fecfb7472d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.theoddbook.ca/"
@@ -1840,7 +1840,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:41.744559Z",
+      "verifiedAt": "2026-11-04T17:02:18.664738Z",
       "observationDigest": "3f4969cb10db0fff40b00cca0f789a32f2386122d6d77cddc23840a595bb5dbf",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.bookbill.net/"
@@ -1855,7 +1855,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:42.150660Z",
+      "verifiedAt": "2026-11-04T17:02:18.863333Z",
       "observationDigest": "1a385bbcd88d9fd1ea9a0970801a4dba41b016c199f6c34a9c58dd980f703cc1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://webstermaps.com/"
@@ -1870,7 +1870,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:42.409779Z",
+      "verifiedAt": "2026-11-04T17:02:19.006145Z",
       "observationDigest": "4539b1a8f3e43cbf26272a7ac37c576c1c534eb8137c360a51a39f3fabdda863",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.paperbooks.ca/"
@@ -1885,7 +1885,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:42.305521Z",
+      "verifiedAt": "2026-11-04T17:02:19.208824Z",
       "observationDigest": "7656a8b1fb26e1a3fa4138e9d29bda82f4831402c8fb9bdbe495c4306d632eb7",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "http://www.lysecki.com/"
@@ -1900,7 +1900,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:42.834465Z",
+      "verifiedAt": "2026-11-04T17:02:19.386422Z",
       "observationDigest": "8b0116b157c8abbd18aeac461cf5a9f2f4a42cf960a6903d3092fdebe23807eb",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://posthorizonbooks.ca/"
@@ -1915,7 +1915,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:42.927975Z",
+      "verifiedAt": "2026-11-04T17:02:19.538570Z",
       "observationDigest": "bcb5f447d2bcbfe4b186d39bb92ac502e3c43b6e771e943f93eb834da033a421",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://sceneofthecrimebook.com/"
@@ -1930,7 +1930,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:42.960232Z",
+      "verifiedAt": "2026-11-04T17:02:19.706989Z",
       "observationDigest": "907db4c777e257e190cbba7d6cb21d06e698ded5787942c5154b03b4889e0864",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.theclockfactory.ca/"
@@ -1945,7 +1945,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:43.305304Z",
+      "verifiedAt": "2026-11-04T17:02:19.892757Z",
       "observationDigest": "1f850124719e8add0092e11ea5e70c7e4390505716a797691c93947f21c7a820",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.carvingsnunavut.com/"
@@ -1960,7 +1960,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:43.448100Z",
+      "verifiedAt": "2026-11-04T17:02:20.026822Z",
       "observationDigest": "0003cf4dfea4097d568c66982beff724575386e067bf97e9268a10d77b15c728",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://folkwaymusic.com/"
@@ -1975,7 +1975,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:43.425837Z",
+      "verifiedAt": "2026-11-04T17:02:20.215631Z",
       "observationDigest": "b99c427e34a2fe2afcc37122d806c86a30d1cf248d6df1bba3a2375509e69404",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.capsulemusic.com/"
@@ -1990,7 +1990,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:43.769447Z",
+      "verifiedAt": "2026-11-04T17:02:20.402568Z",
       "observationDigest": "73949b316b955dcacaa30730dd62e6e67047198f648b384369709b9ac031590b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.fineartandantiques.ca/"
@@ -2005,7 +2005,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:43.968471Z",
+      "verifiedAt": "2026-11-04T17:02:20.653669Z",
       "observationDigest": "cad77dd4b9ad2cc8726af8568395a91b852cfdbae947cfd4c6ab22799053da95",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.klinkhoff.ca/"
@@ -2020,7 +2020,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.028302Z",
+      "verifiedAt": "2026-11-04T17:02:20.798890Z",
       "observationDigest": "2f6ce2237dc07fa240e4f29bacc6178bb1df2c0e0be79064876fe23d88b02ab7",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.lochgallery.com/"
@@ -2035,7 +2035,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.184145Z",
+      "verifiedAt": "2026-11-04T17:02:20.827025Z",
       "observationDigest": "5453c773c8ae5c5d8f3528de301c54a077251a0589c446c3035dac7c78435485",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://inuit.com/"
@@ -2050,7 +2050,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.452153Z",
+      "verifiedAt": "2026-11-04T17:02:21.161306Z",
       "observationDigest": "05cd0c8cc19f21cdcd422ea23cc22296038caa7c717efc84905accfd1e8c4d12",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://douglasreynoldsgallery.com/"
@@ -2065,7 +2065,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.475521Z",
+      "verifiedAt": "2026-11-04T17:02:21.279597Z",
       "observationDigest": "1746a8393b555731c5cf426205f009ae0339f6219efe738ced6f853982c03725",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://coastalpeoples.com/"
@@ -2080,7 +2080,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.552006Z",
+      "verifiedAt": "2026-11-04T17:02:21.252581Z",
       "observationDigest": "85e67e793d833458c8af2b243a661674b674cf05e9fe5af6d299c8df89e8cf53",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://imagesboreales.com/"
@@ -2095,7 +2095,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.946702Z",
+      "verifiedAt": "2026-11-04T17:02:21.658658Z",
       "observationDigest": "6cd554cd4ec437db5938f4486043e51c7824f8cf9b45a249e9da0cfcfe629a95",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.hansellhalkett.com/"
@@ -2110,7 +2110,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.858381Z",
+      "verifiedAt": "2026-11-04T17:02:21.693720Z",
       "observationDigest": "0a46c285f74c33a42f2def64118b065ce10ecb9bbcc5d9d54d1ccd69f968e499",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.charmaines.org/"
@@ -2125,7 +2125,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:44.998113Z",
+      "verifiedAt": "2026-11-04T17:02:21.784783Z",
       "observationDigest": "1045c726062caf35cfe81e6f0133b7cb990a295382b7b508035b4dee12219b0d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://gallery78.com/"
@@ -2140,7 +2140,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:45.508342Z",
+      "verifiedAt": "2026-11-04T17:02:22.074031Z",
       "observationDigest": "57ff7b32318329927cb9be39f1fa80ace4518c1ce5a82eb536d556f7f329d7cd",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.galleryonqueen.com/"
@@ -2155,7 +2155,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:45.697566Z",
+      "verifiedAt": "2026-11-04T17:02:22.195121Z",
       "observationDigest": "731e157aa5266aa4b19542f4f75f3c2de6e013aafebf3c4cdd7a80ff0e18a925",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.trinitygalleries.ca/"
@@ -2170,7 +2170,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:45.721163Z",
+      "verifiedAt": "2026-11-04T17:02:22.277464Z",
       "observationDigest": "c8ce457001de56ff847c08d9f84a970961a81ab8dd7458f4af577ee2ba2c7018",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://woodlandsgallery.com/"
@@ -2185,7 +2185,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:45.886113Z",
+      "verifiedAt": "2026-11-04T17:02:22.526760Z",
       "observationDigest": "94f799284fbe7a064b690dac03f26a0ccd9c00569b971ddee42c3fd557a99a30",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.thedoorstore.ca/"
@@ -2200,7 +2200,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:46.190462Z",
+      "verifiedAt": "2026-11-04T17:02:22.708485Z",
       "observationDigest": "7b3fed69c2e52b6de17816e08fdde053ec5619339dcd852e749ad7ca9769391c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://artefacts.ca/"
@@ -2215,7 +2215,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:46.181667Z",
+      "verifiedAt": "2026-11-04T17:02:22.777804Z",
       "observationDigest": "fd734e5a4d8390735766edb2876bcf7d0c6d15044c5ebdd3f0a8f8f0f6f7fb46",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://legacyvintage.ca/"
@@ -2230,7 +2230,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:46.349532Z",
+      "verifiedAt": "2026-11-04T17:02:23.033419Z",
       "observationDigest": "4fd04b1fe652650408706d550159d2d850ef43ae41f08664db8fa6f2aa51fcf6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.cgoart.com/"
@@ -2245,7 +2245,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:46.651854Z",
+      "verifiedAt": "2026-11-04T17:02:23.193520Z",
       "observationDigest": "eb92483c66c11f4a05ee67148ef576c2f23c1d0f73abbafacb6a3d7fd581717a",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://mausparkantiques.ca/"
@@ -2260,7 +2260,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:46.654163Z",
+      "verifiedAt": "2026-11-04T17:02:23.286241Z",
       "observationDigest": "8aa0bb2b400145c8655e89a475ac3cbfa579fba80b5c6bc0075806a79c087f98",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.wallacegalleries.com/"
@@ -2275,7 +2275,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:46.794705Z",
+      "verifiedAt": "2026-11-04T17:02:23.524406Z",
       "observationDigest": "6afffc67b1a2640e3ecd162697b0450031309a4939434f07e521339c67832c7e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.argylefineart.com/"
@@ -2290,7 +2290,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.058698Z",
+      "verifiedAt": "2026-11-04T17:02:23.613285Z",
       "observationDigest": "21d634d474ad009160d24f986692a1c1152a95dea14717c54017eef044ed6cfb",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.downtoearth.ca/"
@@ -2305,7 +2305,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.100632Z",
+      "verifiedAt": "2026-11-04T17:02:23.797496Z",
       "observationDigest": "f3082213054ec147f33c758a005db31340329f98715b0446f79d75d62bd27485",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://signofthewhaleonline.com/"
@@ -2320,7 +2320,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.203162Z",
+      "verifiedAt": "2026-11-04T17:02:23.969471Z",
       "observationDigest": "4ccffead825dbb22438e0ccbadeb64c7615fac80e019f22df501cac19acf4d57",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.twelveacrehill.com/"
@@ -2335,7 +2335,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.515285Z",
+      "verifiedAt": "2026-11-04T17:02:24.144254Z",
       "observationDigest": "d01c53da7e46aa8a3a4c6a01ba55aaf258b3b4413286af183c0c1c0c689c2c1a",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.tonydiodati.com/"
@@ -2350,7 +2350,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.571464Z",
+      "verifiedAt": "2026-11-04T17:02:24.310732Z",
       "observationDigest": "b3028824d994a18907a1a1e4403f37d36b3fb1e43a4571e0223832049d4b1d67",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://14bells.com/"
@@ -2365,7 +2365,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.577695Z",
+      "verifiedAt": "2026-11-04T17:02:24.423449Z",
       "observationDigest": "e147ac7d35cf3e6ee421579c11feea71918a495f99bd4f552f7d5b9593e89805",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.katzmanartprojects.com/"
@@ -2380,7 +2380,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:47.930667Z",
+      "verifiedAt": "2026-11-04T17:02:24.567340Z",
       "observationDigest": "42e8f3ae2a6d61c7d79036e50cce14146d2b25074b26a139a1c20ccd8256ebbf",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.antiquiteslamaisonbleue.ca/"
@@ -2395,7 +2395,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.050712Z",
+      "verifiedAt": "2026-11-04T17:02:24.830311Z",
       "observationDigest": "6bf0483fa26601dfa074f858adb024fd2729ad26bb67dc95d2668a0be34fd32c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.blacksheepart.com/"
@@ -2410,7 +2410,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.077463Z",
+      "verifiedAt": "2026-11-04T17:02:24.891314Z",
       "observationDigest": "8b48022e5ccf37d53093e1ed77e960a19aff18c54bc60622b44354cc3023a827",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://wendyhamiltonantiques.com/"
@@ -2425,7 +2425,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.293627Z",
+      "verifiedAt": "2026-11-04T17:02:24.983982Z",
       "observationDigest": "2ccdca3fd3e72d48398a837f477c59b1fb3bfbade17ad633dcc988b50350d92f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://antiquestreasuresandtreats.ca/"
@@ -2440,7 +2440,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.414323Z",
+      "verifiedAt": "2026-11-04T17:02:25.282669Z",
       "observationDigest": "3378c9a45d710b55460d365a60666fa0501850078f5f3ea4fa911b4a5d0a1408",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://clappisonantiques.com/"
@@ -2455,7 +2455,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.475501Z",
+      "verifiedAt": "2026-11-04T17:02:25.318477Z",
       "observationDigest": "39da2dd5113288536d9da2c269edeed221797afc316807c2a6614cf1771d0d43",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://funkandgruven.blogspot.com/"
@@ -2470,7 +2470,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.750247Z",
+      "verifiedAt": "2026-11-04T17:02:25.509108Z",
       "observationDigest": "d0361c6da3b6495269e98e86b9199a23652cffb09148ada2078973926b86166f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://gadaboutvintage.com/"
@@ -2485,7 +2485,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.895565Z",
+      "verifiedAt": "2026-11-04T17:02:25.768317Z",
       "observationDigest": "1aec9476d7f269ac7d0a3677132463efd8b79b13ac6102722963972b6f4385e6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://tresjoliette.com/"
@@ -2500,7 +2500,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:48.950297Z",
+      "verifiedAt": "2026-11-04T17:02:25.818113Z",
       "observationDigest": "cbbfee4a7f998c11e41457bef49f084554b695c96800c6ee176c7f6544a365c8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://kgnovelties.com/"
@@ -2515,7 +2515,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:49.257201Z",
+      "verifiedAt": "2026-11-04T17:02:25.992430Z",
       "observationDigest": "8fd7f9917fee07137dd2e7938e8169ddb453533fba5caef3dae737c6efdb1571",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://oldtymers.ca/"
@@ -2530,7 +2530,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:49.340911Z",
+      "verifiedAt": "2026-11-04T17:02:26.269789Z",
       "observationDigest": "83cd511399c2cbedf701ef75be31b87c44954de261a69284b7be06e65f606028",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.redrockantiques.ca/"
@@ -2545,7 +2545,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:49.332916Z",
+      "verifiedAt": "2026-11-04T17:02:26.223437Z",
       "observationDigest": "9e02558edc21f5d705d66573492e8c9c3cb3704bd6437456e82053ab07489db7",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.rustictorefined.ca/"
@@ -2560,7 +2560,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:49.647443Z",
+      "verifiedAt": "2026-11-04T17:02:26.424482Z",
       "observationDigest": "8bcfc2a4604d5106fcd3e92a184d881b7d43a07019297c23532ad8b3cc112648",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://stoneacreantiques.ca/"
@@ -2575,7 +2575,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:49.815316Z",
+      "verifiedAt": "2026-11-04T17:02:26.696551Z",
       "observationDigest": "d4399b108c8ee352448a517975c62e9ef66edce29c338e6978b52849a1cfe24d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://sundayrestoration.com/"
@@ -2590,7 +2590,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:49.825302Z",
+      "verifiedAt": "2026-11-04T17:02:26.797166Z",
       "observationDigest": "e276fcd974321c789e0bd82ad9953c7b6f4e3e6b3fae135df07d6975657e0845",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://suitcaseantiques.square.site/"
@@ -2605,7 +2605,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.105925Z",
+      "verifiedAt": "2026-11-04T17:02:26.914218Z",
       "observationDigest": "c2becb8d089df0c0f46ed3e43143d662041eb3abc841de583d9525afd22a11ca",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://victorianrevival.store/"
@@ -2620,7 +2620,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.298467Z",
+      "verifiedAt": "2026-11-04T17:02:27.239906Z",
       "observationDigest": "016d394992d651215ad1729370431ccfaa7116d2584416ffe2ff164a899369f6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.petleyjones.com/"
@@ -2635,7 +2635,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.322870Z",
+      "verifiedAt": "2026-11-04T17:02:27.315658Z",
       "observationDigest": "25ac31d467688a0b877126ee5f3949eb0e786bf3f01f21aec29d560097c9c4e9",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://vanarthub.com/"
@@ -2650,7 +2650,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.517508Z",
+      "verifiedAt": "2026-11-04T17:02:27.357331Z",
       "observationDigest": "3a41d5b9e1daaa7dc0c6f6fab332c3211af3f30273b282fcba81095f01cc736f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.hambletongalleries.com/"
@@ -2665,7 +2665,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.766279Z",
+      "verifiedAt": "2026-11-04T17:02:27.756035Z",
       "observationDigest": "0252f1a3fef75b73718db643b89dfc234ebb59c8ea0a4d5de19ee570dda3456f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.whiterockgallery.com/"
@@ -2680,7 +2680,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.740928Z",
+      "verifiedAt": "2026-11-04T17:02:27.739647Z",
       "observationDigest": "34965baf92a44e211af6a35e01d1368b5160d04095e8da424ed38cd11f5daed6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://gallery421.ca/"
@@ -2695,7 +2695,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:50.924392Z",
+      "verifiedAt": "2026-11-04T17:02:27.779131Z",
       "observationDigest": "ba42ad05d92b16d7ab11c483d429f7332848a9c251d3e98157a8b656a5e84765",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://nomadgallery.ca/"
@@ -2710,7 +2710,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:51.253999Z",
+      "verifiedAt": "2026-11-04T17:02:28.224788Z",
       "observationDigest": "f09cbc9e3ef950823f6c22fb5e5689f9363ee5f3b4ac1914376eb0dc7f2b587c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://westendgalleryltd.com/"
@@ -2725,7 +2725,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:51.241356Z",
+      "verifiedAt": "2026-11-04T17:02:28.254885Z",
       "observationDigest": "f5c34fa22b52fd672b0e7fcedeec45917e1ca949513e71db72c0935ab072deba",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.pengal.com/home"
@@ -2740,7 +2740,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:51.483862Z",
+      "verifiedAt": "2026-11-04T17:02:28.380227Z",
       "observationDigest": "09a1dad8b8c6e5381a1b884b8c49fde92c1b10ad7eb894651cfc222debe507e1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://theavensgallery.com/"
@@ -2755,7 +2755,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:51.640348Z",
+      "verifiedAt": "2026-11-04T17:02:28.637273Z",
       "observationDigest": "9830cf2b5df631fe141fc6ae0836fbec732928c027ff6879c41e39fde26bc0a0",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://gibsonfineart.ca/"
@@ -2770,7 +2770,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:51.746471Z",
+      "verifiedAt": "2026-11-04T17:02:28.744885Z",
       "observationDigest": "adb1b356684752208f8c17c831680a8e4afd381580d39143c6215527a6ff3ed5",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://canvasgallery.ca/"
@@ -2785,7 +2785,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:51.963326Z",
+      "verifiedAt": "2026-11-04T17:02:28.854283Z",
       "observationDigest": "2b6515443d4329b1deea5ec6ade2ad50f64e7eea1931b1fd03067ad6348393f1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://artinteriors.ca/"
@@ -2800,7 +2800,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.026371Z",
+      "verifiedAt": "2026-11-04T17:02:29.080129Z",
       "observationDigest": "1b8b2074e9b283250bdbefb26dd44ddc972976ccc935ea546239fe042f36c78c",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.secordgallery.com/art/"
@@ -2815,7 +2815,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.216329Z",
+      "verifiedAt": "2026-11-04T17:02:29.240579Z",
       "observationDigest": "294d19eee566f41ee62db6b76b957c4b7fbb885c2939d191daa4ff737f392bcd",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://maud.ca/"
@@ -2830,7 +2830,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.431865Z",
+      "verifiedAt": "2026-11-04T17:02:29.369476Z",
       "observationDigest": "b83c2a2a4254eae622099d377e3c71e2c689820dba2c0da57b2ec6d118c27e45",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://zwickersgallery.ca/"
@@ -2845,7 +2845,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.485150Z",
+      "verifiedAt": "2026-11-04T17:02:29.575275Z",
       "observationDigest": "c2934b107454a19deb55ae679d79daa77278f8f7c0cdab04dd68658bc97a3b91",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.johnlawcorp.com/"
@@ -2860,7 +2860,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.686041Z",
+      "verifiedAt": "2026-11-04T17:02:29.739409Z",
       "observationDigest": "87b1dd67907e75e139f9b0a2b72a23953108f376922b8217f114d7b872b8bda4",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://galerielacerte.com/"
@@ -2875,7 +2875,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.905217Z",
+      "verifiedAt": "2026-11-04T17:02:29.872350Z",
       "observationDigest": "5044273431e5daf629c136e80f4d35a73aad6f93ef21ad20a53ee65d467ecaf6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://wallspacegallery.ca/"
@@ -2890,7 +2890,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:52.954237Z",
+      "verifiedAt": "2026-11-04T17:02:30.094395Z",
       "observationDigest": "d21cf35e2e7a3939b6332d2c1b5a023591d2dcd8f18a4c8ec49d6a4027cf305d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://koymangalleries.com/"
@@ -2905,7 +2905,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:53.167553Z",
+      "verifiedAt": "2026-11-04T17:02:30.512656Z",
       "observationDigest": "09a08633bafe4b4b403ddd6d0077fd60b507e19c687ee3d5c6d5ffbf9114c3e1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://demontignycontemporary.com/"
@@ -2920,7 +2920,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:53.363480Z",
+      "verifiedAt": "2026-11-04T17:02:30.422787Z",
       "observationDigest": "44c8a5ca1d9787d529c773dd61ec2a959795a9f32e83e6677c8e9489ea6b619f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.orangeartgallery.ca/"
@@ -2935,7 +2935,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:53.431367Z",
+      "verifiedAt": "2026-11-04T17:02:30.618272Z",
       "observationDigest": "ef9b1c2014bc3ece9d0cb2a3472cd1faa1b4f04ea36761bbb4f169424f5b63cd",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://galeriebeauchamp.com/"
@@ -2950,7 +2950,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:53.579531Z",
+      "verifiedAt": "2026-11-04T17:02:30.840289Z",
       "observationDigest": "062c6a6a5704a9af7de65254dd4a939ec11fcc0a317d0d0fad5b16a27fc2d6fa",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://galerienuances.com/"
@@ -2965,7 +2965,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:53.898047Z",
+      "verifiedAt": "2026-11-04T17:02:31.100678Z",
       "observationDigest": "7eb9e2adcbf456b92ea8d5f5c8c0b0e80a641f9600390635e90f4c370b45e15e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.galerieleroyer.com/"
@@ -2980,7 +2980,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:53.891432Z",
+      "verifiedAt": "2026-11-04T17:02:31.131493Z",
       "observationDigest": "790782be52b06198b08f210ee5a1c89210b77778697fb36fbffe451c8c4c8ea8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://assiniboia.com/"
@@ -2995,7 +2995,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.078990Z",
+      "verifiedAt": "2026-11-04T17:02:31.345244Z",
       "observationDigest": "96d9e1fe1a4a1a601583ed737cec117b4eae4ca8a241aa6c88fc7928bf124130",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://pulsegallery.ca/"
@@ -3010,7 +3010,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.379856Z",
+      "verifiedAt": "2026-11-04T17:02:31.583073Z",
       "observationDigest": "59a7483d7851b1aea47c0c9b2a1bf7aadddb91df9692c3a5a5415d4e48433ba3",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://soulgallery.ca/"
@@ -3025,7 +3025,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.274123Z",
+      "verifiedAt": "2026-11-04T17:02:31.543307Z",
       "observationDigest": "c622a4aa3be3a7c90a245076510a5477e64993100d61cac7f6544d9c6c616428",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.slategallery.ca/"
@@ -3040,7 +3040,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.463151Z",
+      "verifiedAt": "2026-11-04T17:02:31.762918Z",
       "observationDigest": "598230e7505c38cd821eb570eebe5ce4e68474d75194ee4e9b9571f2196514ba",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://lumberjacksdaughter.ca/"
@@ -3055,7 +3055,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.635607Z",
+      "verifiedAt": "2026-11-04T17:02:31.945599Z",
       "observationDigest": "4ec300b6a761a0f54022e19affd879471f197e9cd13f551fdca19a492102de90",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.redochregallery.ca/home.html"
@@ -3070,7 +3070,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.751220Z",
+      "verifiedAt": "2026-11-04T17:02:32.020886Z",
       "observationDigest": "c5fe6c80774e25403d963d37bdf44c73dc54450b8c22d857b89aaad186e4d991",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://jamesbaird.com/"
@@ -3085,7 +3085,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:54.938704Z",
+      "verifiedAt": "2026-11-04T17:02:32.260571Z",
       "observationDigest": "006b53723e7b92c96ae8126b7fba9ad90681bb8de95618cbae1cc116fdd50365",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.detailsfineart.com/"
@@ -3100,7 +3100,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.006329Z",
+      "verifiedAt": "2026-11-04T17:02:32.367600Z",
       "observationDigest": "0fe4519791d64d639a76a818c80a7c44cc2ac7cd7a33b2ff4809f4094f091963",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://christinaparkergallery.com/"
@@ -3115,7 +3115,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.127209Z",
+      "verifiedAt": "2026-11-04T17:02:32.408834Z",
       "observationDigest": "85aa69bf9c6b151cb3a1c0c78fc48bfb9ba4e3a1af594810fbf0e8b88a69fb84",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.peterlewisgallery.com/"
@@ -3130,7 +3130,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.435508Z",
+      "verifiedAt": "2026-11-04T17:02:32.760879Z",
       "observationDigest": "8ab0ef8735ad977b46361264d124b9d366d621d216869c5b906f285537ca3bc6",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.emmabutler.com/"
@@ -3145,7 +3145,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.371892Z",
+      "verifiedAt": "2026-11-04T17:02:32.764552Z",
       "observationDigest": "d31acb6e2c7e81d94f052c458178b8b0b0868c0f46c7ee113e97367aaa9b83f0",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://newfoundlandart.net/originals.html"
@@ -3160,7 +3160,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.581539Z",
+      "verifiedAt": "2026-11-04T17:02:32.902123Z",
       "observationDigest": "8ee30d29e53525a855efff4259accf7ff3e027eda49a7c671dc3184df087a0e4",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://newfoundlandshop.ca/NewfoundlandArt_Originals.htm"
@@ -3175,7 +3175,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.723266Z",
+      "verifiedAt": "2026-11-04T17:02:33.152513Z",
       "observationDigest": "c720681206816820d6681b3747077fddf472e67ee47994eb34bbd48b0dc48505",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://arts-underground.myshopify.com/collections/members-gallery"
@@ -3190,7 +3190,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.830431Z",
+      "verifiedAt": "2026-11-04T17:02:33.188729Z",
       "observationDigest": "cee9386379754ad6a74985920b644c843961915f1c773e59c455fc49cbe136d8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://saintjohnartclub.com/gallery/"
@@ -3205,7 +3205,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:55.961720Z",
+      "verifiedAt": "2026-11-04T17:02:33.341414Z",
       "observationDigest": "27d1f7a0c0cf28421fb17deb70610f7760521cc3b8cf0b5e780fabbbadf2bbb1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.canadiancoastalart.ca/art-gallery-2022"
@@ -3220,7 +3220,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:56.124938Z",
+      "verifiedAt": "2026-11-04T17:02:33.552934Z",
       "observationDigest": "52b84cba45a86bb25ae3a97ff30fb35af1d6351e69cd5b8115d0d67347ddd8ca",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://rowntreeantiques.com/"
@@ -3235,7 +3235,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:56.204375Z",
+      "verifiedAt": "2026-11-04T17:02:33.592220Z",
       "observationDigest": "b8c5d9f67038a9b2bede8181bfa2360ac0a0981b58e5eb99a04442eacba52e5d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.trianon-boutique.com/en/"
@@ -3250,7 +3250,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:56.420956Z",
+      "verifiedAt": "2026-11-04T17:02:33.849257Z",
       "observationDigest": "ecd1f2fa9ae3e57c347c8d5ec4f5c2dce39d34e5ca7ae014c3d1a8d634d00e48",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://withapast.com/"
@@ -3265,7 +3265,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:56.619111Z",
+      "verifiedAt": "2026-11-04T17:02:34.026198Z",
       "observationDigest": "772757305ec7cb5aa7d01ee0c7d7d20a71946820a1c42cf06e27b97e813c690d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.fionakennyantiques.com/catalog/"
@@ -3280,7 +3280,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:56.717354Z",
+      "verifiedAt": "2026-11-04T17:02:34.082683Z",
       "observationDigest": "381b507093131c9c518de3e21d865a3d68f661caa820e59be1a3ec16027dfd8f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www2.fionakennyantiques.com/catalog/"
@@ -3295,7 +3295,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:56.889024Z",
+      "verifiedAt": "2026-11-04T17:02:34.338549Z",
       "observationDigest": "46b717ea427806150c7932f21abb4776e5744e80d1e5dff1445d81c36e7967e5",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://paintbymunzy.com/pages/original-oil-paintings-for-sale"
@@ -3310,7 +3310,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.007732Z",
+      "verifiedAt": "2026-11-04T17:02:34.439415Z",
       "observationDigest": "731037f88945e741f1e1746d5ba490eca0f5e90f90bfdadd403ff7260b36c3ec",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.curioatelier.com/new-arts"
@@ -3325,7 +3325,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.166405Z",
+      "verifiedAt": "2026-11-04T17:02:34.479311Z",
       "observationDigest": "f185e7b44f6015c49ac7ad6c0aae97411369634b986cbc34f1afc54c7b2db1b1",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://gallerym2.com/de-curtis/"
@@ -3340,7 +3340,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.400449Z",
+      "verifiedAt": "2026-11-04T17:02:34.818362Z",
       "observationDigest": "328a67f1c11d4d1b24530cbc3432499615842d19969121c8b5517d8a469fd5f4",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.avantgardetoronto.com/shop"
@@ -3355,7 +3355,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.501608Z",
+      "verifiedAt": "2026-11-04T17:02:34.944785Z",
       "observationDigest": "85a788aed8a3c4618909b936afb5fc06c1c40769609ff7a2771df68108abc8d2",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://sanssouciag.com/"
@@ -3370,7 +3370,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.569291Z",
+      "verifiedAt": "2026-11-04T17:02:34.872929Z",
       "observationDigest": "47e0c6cf515c2bb2c577c58fb525c7a71f0df72f01bf19257bd27fd3ef442942",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.lorncurry.com/originalpaintings"
@@ -3385,7 +3385,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.870501Z",
+      "verifiedAt": "2026-11-04T17:02:35.296523Z",
       "observationDigest": "d274ccd2f45d904122baa8d81abf68a145d03c6c18c364e5b19c02526f590c0e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://moodyellow.com/products/paintings"
@@ -3400,7 +3400,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.913208Z",
+      "verifiedAt": "2026-11-04T17:02:35.262721Z",
       "observationDigest": "1ab31766e6bf4fe5cce2c21909741d8ac2c9c3e5ca53a6d3f6c7fa99dcf25333",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.cmawle.com/original-art-for-sale"
@@ -3415,7 +3415,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:57.977524Z",
+      "verifiedAt": "2026-11-04T17:02:35.343746Z",
       "observationDigest": "935aa627419849bf152f9a71165c7cbfc8b6ccf27d38a43de2873ac8ec06b102",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.wildexpressions.ca/shop"
@@ -3430,7 +3430,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:58.378252Z",
+      "verifiedAt": "2026-11-04T17:02:35.762486Z",
       "observationDigest": "b2db7b3cf2d22bffeb0e86ab993ac61510c65e8e36ba887c52d1138c61b52417",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.brandymasch.com/shop"
@@ -3445,7 +3445,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:58.416178Z",
+      "verifiedAt": "2026-11-04T17:02:35.795349Z",
       "observationDigest": "45be368232898f8f2fc85ff03080399a4f361811b0754f2ed5e5172730d53bd9",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.ronei.ca/the-glow-collection"
@@ -3460,7 +3460,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:58.492651Z",
+      "verifiedAt": "2026-11-04T17:02:35.819584Z",
       "observationDigest": "c7da697cf76d6df73f7d01ce43ba0b098ff631c671736b6377aed81a6eed9c41",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.howoriginal.ca/original-paintings"
@@ -3475,7 +3475,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:58.854482Z",
+      "verifiedAt": "2026-11-04T17:02:36.340492Z",
       "observationDigest": "9cbf2224f8e3d94b43b30ffe3ff48cad31190f3e91853158b5848a2922e40ba0",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.alettoart.com/peinture-aquarelle-originale"
@@ -3490,7 +3490,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:58.929131Z",
+      "verifiedAt": "2026-11-04T17:02:36.311322Z",
       "observationDigest": "fb1277cd06381a7157b7da709416e8bf4f496d4a506845703c879d6c3e1596f3",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.paulinelaroucheart.com/tableaux-a-vendre"
@@ -3505,7 +3505,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:58.963734Z",
+      "verifiedAt": "2026-11-04T17:02:36.331666Z",
       "observationDigest": "e65183427e8362f1bd888f3dde042e58c3470a8b60bcfe9e1f3a430d46cf9e22",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.egiclees.com/shop-originals"
@@ -3520,7 +3520,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:59.336371Z",
+      "verifiedAt": "2026-11-04T17:02:36.803783Z",
       "observationDigest": "ef114e1a16f4e38f439f9a41225a2e78d3aa18030dc1f56bd85113f33af94c2e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.shopartmb.ca/"
@@ -3535,7 +3535,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:59.427239Z",
+      "verifiedAt": "2026-11-04T17:02:36.816123Z",
       "observationDigest": "2a9b3f64a66023017cc726d2ee8a8fa62145be36c1d96ea07f6aee5c6c1ce6d8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.artbydodie.com/mixed-media--abstracts.html"
@@ -3550,7 +3550,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:59.354305Z",
+      "verifiedAt": "2026-11-04T17:02:36.764194Z",
       "observationDigest": "70b3f786ccf2a27879bca6b04a11ff764d44beacb31705ed1f22ace859e1cbd8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.handwave.ca/shop-paintings-drawings-prints"
@@ -3565,7 +3565,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:59.884364Z",
+      "verifiedAt": "2026-11-04T17:02:37.388868Z",
       "observationDigest": "71ddcd9a186326b0f65bcab4f5a9730d633b08b1077bb42454570c5e254757cd",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://blacksprucegallery.ca/new-arrivals/"
@@ -3580,7 +3580,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:59.830769Z",
+      "verifiedAt": "2026-11-04T17:02:37.331991Z",
       "observationDigest": "44689202f0eb0ee0666544230db70c4d6f22602a4b8d0773d875e5bcf74440df",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://nouveaugallery.com/exhibition/fall-behind/"
@@ -3595,7 +3595,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:59.825048Z",
+      "verifiedAt": "2026-11-04T17:02:37.239278Z",
       "observationDigest": "6a502a6213ca321d8b8a3d12e3705dbf96018f6a2dd312a99e7043a37738eac8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.dandelionartframing.ca/saskatoon-art-gallery-canadian-art-online"
@@ -3610,7 +3610,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:00.550011Z",
+      "verifiedAt": "2026-11-04T17:02:37.713476Z",
       "observationDigest": "e066b9499066bcfb4c44f03780041ba0b42c75eb9b1b03939cacdaf3048756ce",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://laureenmarchand.com/art-storefront-available/"
@@ -3625,7 +3625,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:00.465809Z",
+      "verifiedAt": "2026-11-04T17:02:37.747654Z",
       "observationDigest": "a095f065141b577efa5f7b0915ba9b96d2033de7a34be4b3d3b5bf175c53240d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.hansenrosshouse.com/artwork"
@@ -3640,7 +3640,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:00.559286Z",
+      "verifiedAt": "2026-11-04T17:02:37.797894Z",
       "observationDigest": "98e7d7dfce481d9900062026e47601cd9f458e69769d5abfeab11188609bb1cb",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.yvettemoore.com/medium/original-artwork/original-paintings/"
@@ -3655,7 +3655,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:00.888477Z",
+      "verifiedAt": "2026-11-04T17:02:38.162964Z",
       "observationDigest": "f969d71fd21a02a1a9abb406e58c38b7fd198ce679e3bd1d1967877227e8b689",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://traditionshandcraftgallery.ca/wow-pieces/"
@@ -3670,7 +3670,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:00.988370Z",
+      "verifiedAt": "2026-11-04T17:02:38.156157Z",
       "observationDigest": "afb114c94de1dc82e4684e788fc58a09980ce528e8f3b2050ce3cbbddf24ed74",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.thegalleryon47thstreet.com/s/shop"
@@ -3685,7 +3685,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:01.119619Z",
+      "verifiedAt": "2026-11-04T17:02:38.316832Z",
       "observationDigest": "ba073c1dd8ba4c9a47a518e29f5810da02d1ec48f7e21152d255ede7d37c041b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://rcraig.org/collections/art-prints"
@@ -3700,7 +3700,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:01.320196Z",
+      "verifiedAt": "2026-11-04T17:02:38.586213Z",
       "observationDigest": "15d6551264b38a3fcc9b3c28fdf8814aaa0de4140d58a1a05f82d3b1061ba79e",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.nataliemakletzoffartstudio.ca/gallery"
@@ -3715,7 +3715,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:01.498663Z",
+      "verifiedAt": "2026-11-04T17:02:38.660476Z",
       "observationDigest": "230dcfde62ade6eb3877398b7f128888ab8b5ed927785d0edc2d8aaf19e9583d",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.robynscott.ca/shop/original-painting/DAOA7S7AZWY2OBVSDLC62V32"
@@ -3730,7 +3730,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:01.601340Z",
+      "verifiedAt": "2026-11-04T17:02:38.833706Z",
       "observationDigest": "66cab671c8e4c7994b4cd505cf81901dee5431e70712a4fe3dabe7aa7f8efd03",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.kevinbolstad.com/gallery"
@@ -3745,7 +3745,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:01.709560Z",
+      "verifiedAt": "2026-11-04T17:02:39.008360Z",
       "observationDigest": "363d12d7a10224f62b4c8fa9e2e9f6e428c9fde0251848c5d50568bca46e92cb",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://landonpetersart.com/aviation-paintings/"
@@ -3760,7 +3760,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:01.986407Z",
+      "verifiedAt": "2026-11-04T17:02:39.168961Z",
       "observationDigest": "ddf95566f5c91444c91a1f9ffd39283dd8f948e4a0cca6df2cb3baca539c6a6a",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://newfinnart.com/collections/prints"
@@ -3775,7 +3775,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.111029Z",
+      "verifiedAt": "2026-11-04T17:02:39.330149Z",
       "observationDigest": "de3150010565730edbf43cc4106f73e7233a7fe765925008cd8c705ac4e43a7b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://newfinnart.artfunnels.com/"
@@ -3790,7 +3790,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.199564Z",
+      "verifiedAt": "2026-11-04T17:02:39.497283Z",
       "observationDigest": "8105dd2dd973020f5d74a0be009ae106006335d8cee5d1d1b8ef952720d2779b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.antiquitesmichelquintal.com/"
@@ -3805,7 +3805,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.485668Z",
+      "verifiedAt": "2026-11-04T17:02:39.670162Z",
       "observationDigest": "6d5afc65fec05533aa197763fc1adc21685b3cddae713b8a36b5dd61ac432e43",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://thedaisydoor.ca/"
@@ -3820,7 +3820,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.608374Z",
+      "verifiedAt": "2026-11-04T17:02:39.843037Z",
       "observationDigest": "33776c0eb087d32f886982617d4456cd076cd412af6af92739a8eac2b2117aea",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://boutique.antique3a.com/"
@@ -3835,7 +3835,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.605294Z",
+      "verifiedAt": "2026-11-04T17:02:39.913537Z",
       "observationDigest": "2eee0f4ce320fda1bae2cbba2b61215e0adf4319b9e68bb451645c758e2f5146",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://berriedaleantiques.ca/"
@@ -3850,7 +3850,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.875980Z",
+      "verifiedAt": "2026-11-04T17:02:40.064197Z",
       "observationDigest": "e6907dffa9ae54b5c69c29f928a57b557b2cf46ee544792c9a829f9ac2853a17",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://rariora.com/"
@@ -3865,7 +3865,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:02.988685Z",
+      "verifiedAt": "2026-11-04T17:02:40.261678Z",
       "observationDigest": "1ec5cc41ee84253bf533f71131ffd57ad9dbb892c9448245e1543b5cf6c8949f",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.rediscoveredonmarsh.ca/art-1"
@@ -3880,7 +3880,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:03.005233Z",
+      "verifiedAt": "2026-11-04T17:02:40.311197Z",
       "observationDigest": "662c0e23587c4f8279212efa0102d6a1f96c949d5917e1899e07110f2b60e69b",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.curioustimes.ca/"
@@ -3895,7 +3895,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:03.424869Z",
+      "verifiedAt": "2026-11-04T17:02:40.647787Z",
       "observationDigest": "b5f1e1eb76c1cef8c8de4508a0777d174c2554cc56ff7cee3486c28d7e015aef",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.frontstantiques.com/"
@@ -3910,7 +3910,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:03.453367Z",
+      "verifiedAt": "2026-11-04T17:02:40.767183Z",
       "observationDigest": "592f9cab4e2c4679208c2a3e35165be8319cee5949f3647c505cca32aab227b5",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.taylorsantiques250.com/shop"
@@ -3925,7 +3925,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:03.462425Z",
+      "verifiedAt": "2026-11-04T17:02:40.831774Z",
       "observationDigest": "a8b1a8ec23e8f69db5334cbc891370f5618c40de3380e3d657d6722dae4e7134",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://galerie-perreault.com/"
@@ -3940,7 +3940,7 @@
       "deliveryProfile": false,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:32:03.784367Z",
+      "verifiedAt": "2026-11-04T17:02:41.089468Z",
       "observationDigest": "e27c9e327ebddf7a28eef9796d8a014ada52d5a1a4f943e15524d3bf35bbd4f8",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://shannonbeersart.com/shop/ols/categories/original-paintings"
@@ -3955,7 +3955,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:48:30.238047Z",
+      "verifiedAt": "2026-11-04T17:02:41.252784Z",
       "observationDigest": "a828ec5ad8b7163bdbdefb5166b7eeb8e036ca4c86ef0637dd2a3927d1589b35",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.camillegravelartiste.com/originaux"
@@ -3970,10 +3970,520 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:48:30.242115Z",
+      "verifiedAt": "2026-11-04T17:02:41.365760Z",
       "observationDigest": "ea0ebecb88244de68e3ef81d1fb82a52c2a696e39386062bf3c20de377130a06",
       "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
       "catalogueUrl": "https://www.artdevivregalerie.com/"
+    },
+    {
+      "domain": "chantantiques.shop",
+      "listingSourceId": "ls_01m6kgxqqke2ety7e8cg9dh4s7",
+      "partyId": "pty_01m6kgxqpyeec96vqmyfpnpbf4",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX_STORES",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:41.476853Z",
+      "observationDigest": "a55398a6cae1a4bd3c4dfaeeab3fdd8179dacbb79ec60fd8cb4662a38ff3a110",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.chantantiques.shop/"
+    },
+    {
+      "domain": "annloart.com",
+      "listingSourceId": "ls_01m6kgxsf4es78b2bc4vjawkha",
+      "partyId": "pty_01m6kgxseme5avjxn64kwk597n",
+      "locations": 2,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:41.767315Z",
+      "observationDigest": "9589a781c4c952c48a931dc709962574d31e4289002284d2d3bad058f0eca29b",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://annloart.com/"
+    },
+    {
+      "domain": "joannartattoo.com",
+      "listingSourceId": "ls_01m6kgxvfze9mvdtsa5jdvcwnt",
+      "partyId": "pty_01m6kgxvffeyjvd6dz18z2t80d",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:41.766451Z",
+      "observationDigest": "a88eb43b6cd0bde1b8604d4818bcf441f45a5244243733e77049bd88e1d52ca1",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://joannartattoo.com/collections/pieces-originales"
+    },
+    {
+      "domain": "tanyaaubut.com",
+      "listingSourceId": "ls_01m6kgxx63e8abg5jtm2gtgqg6",
+      "partyId": "pty_01m6kgxx5ke50axw3gxrf4tjq6",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:41.898005Z",
+      "observationDigest": "9423db445016440459e7bcc0dbe99acd76f99213f8005890c2f63bf9cce7dc57",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.tanyaaubut.com/boutique-shop-tanya-aubut"
+    },
+    {
+      "domain": "lantiquaireduvillage.wixsite.com",
+      "listingSourceId": "ls_01m6kh7xbsef58djmwhbqhn2gh",
+      "partyId": "pty_01m6kh7xb8e9jsb8mqy0s735t4",
+      "locations": 1,
+      "logo": false,
+      "platform": "WIX_STORES",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:42.311848Z",
+      "observationDigest": "498ec11bbcf0a05a60aa0869b8431bc10e51b6de9c7b0c779833aafed2652e75",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://lantiquaireduvillage.wixsite.com/boutik"
+    },
+    {
+      "domain": "giselebenoit.org",
+      "listingSourceId": "ls_01m6khhve5e7w9mezvs549wzp8",
+      "partyId": "pty_01m6khhvdmeyntdjq3smy6pta8",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:42.418367Z",
+      "observationDigest": "341574bca05aa9cc9035b9e717e111235e6b11dc0cbd1bfcee966d1df7d435bf",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://giselebenoit.org/collections/originaux-1"
+    },
+    {
+      "domain": "jcveilleux.com",
+      "listingSourceId": "ls_01m6khz70vevw8cczevzdqs1bf",
+      "partyId": "pty_01m6khz70de8ybamb2fqzy9b99",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:42.525942Z",
+      "observationDigest": "9470e9ae19bd52e03c1ba43864991f4c5a06bfd7ca02a67173228dd73114d8b7",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.jcveilleux.com/"
+    },
+    {
+      "domain": "galeriequebecart.com",
+      "listingSourceId": "ls_01m6kjed30eyat6eq6h6ff3aa3",
+      "partyId": "pty_01m6kjed2hedmv3rr7d7jcm8m8",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:42.789114Z",
+      "observationDigest": "346ccef310fde134e669a335b6e4f9c60005949b937e0f748f2d665a85f20e12",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://galeriequebecart.com/"
+    },
+    {
+      "domain": "levivoir.com",
+      "listingSourceId": "ls_01m6kk1gzbemb85xks0cy3bdda",
+      "partyId": "pty_01m6kk1gyqee3anzdmjz728tyk",
+      "locations": 1,
+      "logo": true,
+      "platform": "K_ECOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:42.918216Z",
+      "observationDigest": "9da84e6e817482f755ec65dee1b2f6474e58e93270ff12b33025bb2d0cd59670",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://levivoir.com/arts-visuels"
+    },
+    {
+      "domain": "madronagallery.com",
+      "listingSourceId": "ls_01m6kkt8veegfacv62ny1ep3h2",
+      "partyId": "pty_01m6kkt8twecrvrtdk9nm6nymz",
+      "locations": 1,
+      "logo": true,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:42.928167Z",
+      "observationDigest": "c879b3539c79b949d6a59a2328755e3627868a222bba341a76a19c55bbff5752",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.madronagallery.com/"
+    },
+    {
+      "domain": "gallerymerrick.com",
+      "listingSourceId": "ls_01m6kktap1eq1bhtatdr73xtc7",
+      "partyId": "pty_01m6kktanje9f8724t0ewybtz9",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:43.266110Z",
+      "observationDigest": "a4dd9d584a095c5d9e4238bc3ba855ec9fd15e6d9a82067fc21cbceb17d597b7",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.gallerymerrick.com/"
+    },
+    {
+      "domain": "grantberggallery.com",
+      "listingSourceId": "ls_01m6kktcyxe1h98nfe6ggpz6vj",
+      "partyId": "pty_01m6kktcxsez8atdgrfmvsbwq6",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:43.325872Z",
+      "observationDigest": "46309865e319cb12d4f1aa03fe43bc6e98d203389fc92d085f471aa47cfcda09",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://grantberggallery.com/"
+    },
+    {
+      "domain": "ashdalegallery.com",
+      "listingSourceId": "ls_01m6kmx8hpep1b96ycz8m1ttsj",
+      "partyId": "pty_01m6kmx8h8ewar2rrnab195hxc",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:43.388650Z",
+      "observationDigest": "fcfac2d126e3a8fcc05491bd857541d33c3b3dd8f057ce3a359523db1e6c63b3",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://ashdalegallery.com/"
+    },
+    {
+      "domain": "theavenuegallery.com",
+      "listingSourceId": "ls_01m6kmxar7es5s29bn3ygkqse0",
+      "partyId": "pty_01m6kmxaqje7cr659r7wepfcb1",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:43.781642Z",
+      "observationDigest": "2763e9d5d6661e5150c6ee4f97a9821b054dd9d7d4ad08f067067f8ec3a3feb0",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://theavenuegallery.com/"
+    },
+    {
+      "domain": "kurbatoffgallery.com",
+      "listingSourceId": "ls_01m6knhn5yeqh86dvax897gdrg",
+      "partyId": "pty_01m6knhn5beew87pdepb3bde6b",
+      "locations": 1,
+      "logo": false,
+      "platform": null,
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:43.831344Z",
+      "observationDigest": "2323b259db0f6a53f9191c325c60fb28fd3387678fdd1a67ac6ce36955c76041",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.kurbatoffgallery.com/"
+    },
+    {
+      "domain": "virtualgallery.sivarulrasa.com",
+      "listingSourceId": "ls_01m6knhqbhea9v5cfy021g843c",
+      "partyId": "pty_01m6knhqb7ee9ap389jr4fp29k",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:43.863865Z",
+      "observationDigest": "e57bdd39ee7e5fe4dcc5faac81336a798c68ba8c434e964f0b7edd527a978022",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://virtualgallery.sivarulrasa.com/"
+    },
+    {
+      "domain": "iantangallery.com",
+      "listingSourceId": "ls_01m6knyah4e78a3ztcr7jcn7yk",
+      "partyId": "pty_01m6knyagdexdbaam4ygyd5y5g",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:44.284935Z",
+      "observationDigest": "b444846c918034a77a492c2bc9414642fc052d1d7ee61cb9bd9e31ef6876dd5b",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://iantangallery.com/"
+    },
+    {
+      "domain": "artworksbc.com",
+      "listingSourceId": "ls_01m6knychjen1tv0t7rmvrgc5t",
+      "partyId": "pty_01m6knych4eajvggfse1z407vy",
+      "locations": 1,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:44.306948Z",
+      "observationDigest": "a913e2ba6b42089571c8cba49d89d2863926e67b915cf80c02f2e037e41afff8",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://artworksbc.com/"
+    },
+    {
+      "domain": "equinoxgallery.com",
+      "listingSourceId": "ls_01m6kpcgrpeqbvxqne4scqpfwh",
+      "partyId": "pty_01m6kpcgr7esqbz1ypccvvjkkj",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:44.293417Z",
+      "observationDigest": "a2de473e8bfa76d789fd534a3feab983728d013a7576c4ae0dc558a15a581fbc",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.equinoxgallery.com/"
+    },
+    {
+      "domain": "monteclarkgallery.com",
+      "listingSourceId": "ls_01m6kpcjj1egya7nzatrcqbhcg",
+      "partyId": "pty_01m6kpcjh8e039ggfrz9e7af39",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:44.702890Z",
+      "observationDigest": "3fa2816f7b18e78d6def524894291e90f47394c31f97501e31f3155f11e8d62e",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://monteclarkgallery.com/"
+    },
+    {
+      "domain": "bau-xi.com",
+      "listingSourceId": "ls_01m6kpvae7ep38x44db4xdg3nc",
+      "partyId": "pty_01m6kpvadkepzakenek7rfxvsp",
+      "locations": 3,
+      "logo": true,
+      "platform": "SHOPIFY",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:44.978763Z",
+      "observationDigest": "dc86d12c907bc173ebcff983ef3fcabec00cb48f4c3c478f868eb2891309f77b",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://bau-xi.com/"
+    },
+    {
+      "domain": "newzones.com",
+      "listingSourceId": "ls_01m6kpvdbceta9v1m8bn1v2shz",
+      "partyId": "pty_01m6kpvdaveb3btanfh1y5vadt",
+      "locations": 1,
+      "logo": true,
+      "platform": "ART_GALLERIA",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:44.749572Z",
+      "observationDigest": "6b0b9ab02056819f5a74cdea096283310da88c74df6d3c4cd2a4792a06f75eeb",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://newzones.com/"
+    },
+    {
+      "domain": "herringerkissgallery.com",
+      "listingSourceId": "ls_01m6kpvf36efqah658kzt661be",
+      "partyId": "pty_01m6kpvf2pe0et4dn0vfaav4k0",
+      "locations": 1,
+      "logo": true,
+      "platform": "WIX_STORES",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:45.388972Z",
+      "observationDigest": "ea5152b1942b67948702318c2c4fae16430b6105647146121ebdb7d168b3530f",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.herringerkissgallery.com/"
+    },
+    {
+      "domain": "abbozzogallery.com",
+      "listingSourceId": "ls_01m6kqgfknevrstrhkk0y637ja",
+      "partyId": "pty_01m6kqgfjye41bqyc83v4401cq",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTCLOUD",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:45.366397Z",
+      "observationDigest": "6c3fa2754fe8e2a74094c8a3d9eb08029348347c4d6c183396dfd6a166c26626",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.abbozzogallery.com/"
+    },
+    {
+      "domain": "marionscottgallery.com",
+      "listingSourceId": "ls_01m6kr4cvvedhvax5bq4rtk7hf",
+      "partyId": "pty_01m6kr4cvdevs8mefpevdxf13w",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:45.676327Z",
+      "observationDigest": "5adcf55f9c06fb334e76158c2088aa02aec8fa7485ab8b0213094379f3cd1e49",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://marionscottgallery.com/"
+    },
+    {
+      "domain": "godardgallery.com",
+      "listingSourceId": "ls_01m6kr4eegep28reg5cf9qbh32",
+      "partyId": "pty_01m6kr4ee1ec3bnk5f7c7n9r1c",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:45.813949Z",
+      "observationDigest": "383c663f350fcca917a3b2b8e26b38c58a062bdb1aa4504bb42c3e10979ccc31",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://godardgallery.com/"
+    },
+    {
+      "domain": "rukajgallery.com",
+      "listingSourceId": "ls_01m6kr4g12e2ptmhdr3h5ajahk",
+      "partyId": "pty_01m6kr4g0peazbmfm38b7antvt",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:02:45.839982Z",
+      "observationDigest": "5a1ca6b4a7721e31bd98586593a4e4c4475f546f599f1d32ff586fd02b429d66",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.rukajgallery.com/"
+    },
+    {
+      "domain": "olgakorpergallery.com",
+      "listingSourceId": "ls_01m6kre7kxey7td3asdpdhftzk",
+      "partyId": "pty_01m6kre7kbeeqtztk04e9skxq5",
+      "locations": 1,
+      "logo": true,
+      "platform": "WOOCOMMERCE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:07:21.667177Z",
+      "observationDigest": "df719b3b835ec42f4315de21cf0818a62c3328018d723988462ae78afdaa7c8f",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.olgakorpergallery.com/"
+    },
+    {
+      "domain": "cuttsgallery.com",
+      "listingSourceId": "ls_01m6kre98we5ps92j3pkgkm74x",
+      "partyId": "pty_01m6kre98eec8ttzam41rf7je3",
+      "locations": 1,
+      "logo": true,
+      "platform": "WORDPRESS",
+      "deliveryProfile": true,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:07:21.762180Z",
+      "observationDigest": "bdff0ef50def760775070e5d1f66eaba90647691c43abfae822030dc21730fca",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://cuttsgallery.com/artwork/"
+    },
+    {
+      "domain": "clintroenisch.com",
+      "listingSourceId": "ls_01m6krebe0e6vaj5d5chhkgr5c",
+      "partyId": "pty_01m6krebdjep5t3sg0cqcjayhw",
+      "locations": 1,
+      "logo": false,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:07:21.668135Z",
+      "observationDigest": "964b39677e8cd9479e325b4174fadde9bcf0ed1b2852a0efeb7c0488ae2c7ff6",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.clintroenisch.com/"
+    },
+    {
+      "domain": "susanhobbs.com",
+      "listingSourceId": "ls_01m6krwj24ekete87ymw97k8da",
+      "partyId": "pty_01m6krwj14ecvb2gpytgc43p8g",
+      "locations": 1,
+      "logo": true,
+      "platform": null,
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:15:21.567904Z",
+      "observationDigest": "67523fdee57a17d38ef95476db434cf895ccf49d124034dc75bbd072f1f21baa",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://susanhobbs.com/"
+    },
+    {
+      "domain": "bulgergallery.com",
+      "listingSourceId": "ls_01m6krwkq4enh9zgvnj421ptxt",
+      "partyId": "pty_01m6krwkpvea7t85vk2q52zx3b",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:15:21.603262Z",
+      "observationDigest": "1957f4990645de15dfaf65ce8e515c8a26764b72d8d7de4f06ee911893543752",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.bulgergallery.com/"
+    },
+    {
+      "domain": "birchcontemporary.com",
+      "listingSourceId": "ls_01m6ks5649eeav93jqpjj45x71",
+      "partyId": "pty_01m6ks563qe5as48r72wzca3ej",
+      "locations": 1,
+      "logo": false,
+      "platform": "SQUARESPACE",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:20:05.706095Z",
+      "observationDigest": "969dd3cd990f44245e767eae581f5eb196928511d6e007fcd8df365507dcaff4",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.birchcontemporary.com/"
+    },
+    {
+      "domain": "corkingallery.com",
+      "listingSourceId": "ls_01m6ks57kke0gad437kc8b45tr",
+      "partyId": "pty_01m6ks57k2eacvzmmmsd2nsv5z",
+      "locations": 1,
+      "logo": true,
+      "platform": "ARTLOGIC",
+      "deliveryProfile": false,
+      "ingestionMethods": [],
+      "verified": true,
+      "verifiedAt": "2026-11-04T17:20:05.719616Z",
+      "observationDigest": "7bcc53d0dcfb990e8356ac261a027ad596a6d03497da854400fa2f969e99b184",
+      "ledgerPath": "data/dealer-discovery/countries/CA/dealers.jsonl",
+      "catalogueUrl": "https://www.corkingallery.com/"
     },
     {
       "domain": "bibliopolis.net",
@@ -3985,7 +4495,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:23.839690Z",
+      "verifiedAt": "2026-11-04T17:01:59.001267Z",
       "observationDigest": "f948de8953173611998a305caac6cb5402a80727a602e8f978d285e9db7a53f0",
       "ledgerPath": "data/dealer-discovery/countries/CA/hosted/francois-cote/dealers.jsonl",
       "catalogueUrl": "http://www.bibliopolis.net/cote/"
@@ -4000,7 +4510,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:22.520982Z",
+      "verifiedAt": "2026-11-04T17:01:59.215258Z",
       "observationDigest": "ccde47cb236ab4ed44d187be2e99626d37f41b29af10bc88fd9a15d85aa8715d",
       "ledgerPath": "data/dealer-discovery/countries/CA/hosted/high-park-books/dealers.jsonl",
       "catalogueUrl": "https://www.abebooks.com/High-Park-Books-Kitchener-ON-Canada/5286574/sf"
@@ -4015,7 +4525,7 @@
       "deliveryProfile": true,
       "ingestionMethods": [],
       "verified": true,
-      "verifiedAt": "2026-11-04T14:31:22.662529Z",
+      "verifiedAt": "2026-11-04T17:01:58.937165Z",
       "observationDigest": "87622ee088f6b17f24ddc1849b9624641242c07670b2fb98e12aefc75643695d",
       "ledgerPath": "data/dealer-discovery/countries/CA/hosted/reeve-and-clarke-books/dealers.jsonl",
       "catalogueUrl": "https://www.abebooks.com/reeve-clarke-books-abac-south-river/6826014/sf"

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-220",
+  "country": "IT",
+  "observedAt": "2026-11-04T15:54:29.170851Z",
+  "result": "PASSED",
+  "rawJournalFiles": 364,
+  "rawJournalRecordsScanned": 62728,
+  "apiWriteAttemptsThisRun": 11,
+  "decisions": {
+    "added": [
+      "aliprandiantichita.it",
+      "IT:ANTICOANTICO:1003",
+      "IT:PROANTIC:3886"
+    ],
+    "excluded": [],
+    "deferred": []
+  },
+  "freshApiIdentityCheck": "Fresh full global snapshot and explicit country-ledger onboarding checked new domains, operators and contacts. Every new resource, selected defaults and empty ingestion read back; all owned ledgers independently verified.",
+  "prewriteSnapshot": "/tmp/aura-dealer-discovery/IT/api-snapshot220-prewrite.json",
+  "verification": {
+    "path": "data/dealer-discovery/countries/IT/verification.json",
+    "scope": "INCREMENTAL",
+    "verifiedAt": "2026-11-04T15:53:14.689752Z",
+    "fullVerifiedAt": "2026-11-04T15:24:11.350538Z",
+    "counts": {
+      "parties": 402,
+      "listingSources": 402,
+      "locations": 455,
+      "logos": 285,
+      "identifiedPlatforms": 330,
+      "deliveryProfiles": 184,
+      "emptyIngestionMethods": 402,
+      "excluded": 27,
+      "deferred": 110
+    }
+  },
+  "crossLedgerOwnership": "All raw discovery journals including nested hosted ledgers read; no competing owner identity match for the adopted businesses.",
+  "omissions": [
+    "Aliprandi: current native-linked privacy explicitly full CristinaAliprandi personalbusiness; no verifiedVAT imported. Actual native1348x1080painting/version andoriginal1042x1042abstractheaderPNG inspected, not wordmark or originmetadata dimensions. HomepageSeicento versus specificXVIII notnormalized. ActualWooCommerce. Currentmerchant-authoredProantic4058 linksnative and explicitly businesswide world insuredshipping: partialANYWHERE/OFFERED/INSURED, unknown rates/times/packing/tracking/collection. Gallerybusiness only, nostock/dispatch/default orduplicatehostedsource.",
+    "Yesterday1003: completecurrentprimary/officialpositiveFrancoMilani02067810123. NativeDNSfailure notclosure/alias. Twofirstsampleoriginals403plusonepublicreferrerretry403, but thirdselectedcurrent184761 pair has actual900x700female-painted-surfacephoto inspected. No both-pair/frame/reverse/antiqueframeclaim, sellerexplicitnoncontemporaryframes retained. Bettolino17contactroles[] versus StradaVecchia3tax, noregistered/showroom/stock/dispatch/pickup/default. Nologo/email/fulfillmentverified.",
+    "AntichitaGonnelli3886: exactcurrentprimary ViaMoro32/36R/Firenze brand plus currentofficialfullANTICHITAGONNELLISRL04280410483/ViaMoro36R identity assessed.98; secondaryVATlead independentlyvalidated, no claim profilepublishesVAT. Actualofferedantiqueframe900x1120 inspected. CurrentofficialGONNELLICASADASTESRL07540680480/ViaAngelico49 distinct, existing gonnelli.it auctionexclusion preserved, no commonoperatorfromsurname/ownershiptransfer or currentauctionterms403-success claim. Narrowcomparison ownership-reconciliation220. ExactProantic merchantpath across linked.it/.com languagevariants, notplatformParty/wholehostalias. Contactroles[], no logo/email/fulfillment/registered/stock/dispatch/default.",
+    "Five current ProanticItaly directorypages172names/exactURLs/PublicIDs saved as lead-onlycountryfrontier. Rawpages outside repository. Directorylabel does not verifyhome/stock/operator or prove unowned; exactgalleryreferenceabsence does not override existingnative/hosted owners. ExistingaRitroso/Palladio records retained withoutduplicates."
+  ],
+  "noOtherCountryDealerMutations": true,
+  "paidResearchSpendUsd": 0,
+  "pendingOperations": []
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "run": "2026-11-02-it-226",
+  "domain": "antichitaponteduro.com",
+  "observedAt": "2026-11-04T16:45:39.761746Z",
+  "result": "RECOVERED_WITH_ORIGINAL_IDS",
+  "originalIds": {
+    "listingSourceId": "ls_01m6kq3974e4d90adf92r4pvr7",
+    "partyId": "pty_01m6kq396me8h8d8jmrdqh75zs",
+    "partyLocationIds": [
+      "ploc_01m6kq39kpe4y97hjk1j5xtqf3"
+    ]
+  },
+  "locationDefaultRevision": 2,
+  "shippingProfilesFound": 0,
+  "shippingDefaultRevision": 1,
+  "shippingProfileId": null,
+  "ingestionMethods": [],
+  "originalShippingCreationKey": "dealer-discovery-2026-11-01-v1",
+  "initialFailure": "Shipping profile POST returned HTTP400. Reviewed unresolved-area assertion was326 UTF8bytes; current documented schema maximum255.",
+  "reviewedCorrection": "Shorten only the assertion to162 bytes while preserving destination/weight/volume quote basis, item-holding-premises free50km condition, unknown holding site and unlisted countries. Full original evidence/notes remain in the ledger.",
+  "retryAuthorization": "Existing source, Party, one location and business-only default read and identity-checked; no profile/default write exists. Resume same dealer with original IDs and creation key, no source/location recreation.",
+  "correctedAssertionBytes": 162,
+  "completedAt": "2026-11-04T16:47:55.796575+00:00",
+  "finalBackend": {
+    "listingSourceId": "ls_01m6kq3974e4d90adf92r4pvr7",
+    "partyId": "pty_01m6kq396me8h8d8jmrdqh75zs",
+    "partyLocationIds": [
+      "ploc_01m6kq39kpe4y97hjk1j5xtqf3"
+    ],
+    "locationDefaultRevision": 2,
+    "shippingCreationKey": "dealer-discovery-2026-11-01-v1",
+    "shippingProfileId": "shp_01m6kq92ecea18qxnmsf2yc5hk",
+    "shippingDefaultRevision": 2
+  },
+  "finalVerifiedAt": "2026-11-04T16:46:35.817640Z",
+  "originalIdsPreserved": true,
+  "originalCreationKeyPreserved": true,
+  "finalReadbacks": "Onboarding helper read source/Party/location, created profile and both defaults; selected business association only and ingestionMethods[] verified."
+}
