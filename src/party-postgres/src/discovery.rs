@@ -41,7 +41,7 @@ WITH candidates AS (
  SELECT l.party_location_id, l.party_id, p.name AS party_name, l.label,
  l.geography, l.position, l.revision, l.input_revision,
  CASE WHEN b.guard=l.revision AND b.input_revision=l.input_revision
- AND c.storage_permitted AND NOT r.erased
+ AND NOT r.erased
  THEN r.evidence->'candidates'->COALESCE(
    CASE WHEN b.selected_generation=r.generation THEN b.selected_candidate END,
    (r.evidence->>'accepted_index')::integer)
@@ -49,7 +49,6 @@ WITH candidates AS (
  FROM party_locations l JOIN parties p ON p.party_id=l.party_id
  LEFT JOIN geo_resolution_bindings b ON b.subject_kind='PARTY_LOCATION' AND b.subject_id=l.party_location_id
  LEFT JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
- LEFT JOIN geo_resolution_provider_controls c ON c.profile=r.profile
  WHERE l.lifecycle='ACTIVE'
 ), effective AS (
  SELECT candidates.*,

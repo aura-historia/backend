@@ -5,7 +5,7 @@
 //! (`docs/crawler/extraction-and-review.md`, approval guard). The console's browser preview is
 //! another view: the instrumented page of `/api/review-pages/{id}/inspect`.
 
-use crate::review::product_markup::describes_one_product;
+use crate::review::product_markup::{JsonLdProductIds, describes_one_product, json_ld_product_ids};
 use crate::scraper::css_selector::product_schema_service::html_to_schema_prompt_dsl;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Serialize;
@@ -28,6 +28,9 @@ pub struct PageProjection {
     /// Whether the page's JSON-LD or microdata describes exactly one top-level schema.org
     /// `Product`, as [`describes_one_product`] decides it. Information only.
     pub describes_one_product: bool,
+    /// The identifiers of the page's JSON-LD `Product` that a `json_ld_product` rule reads,
+    /// which the projection strips with the scripts.
+    pub json_ld_product_ids: JsonLdProductIds,
 }
 
 /// What a page's `html` shows the review agents: its projection, and whether its structured data
@@ -36,6 +39,7 @@ pub struct PageProjection {
 pub struct ProjectedHtml {
     pub projection: String,
     pub describes_one_product: bool,
+    pub json_ld_product_ids: JsonLdProductIds,
 }
 
 impl ProjectedHtml {
@@ -45,6 +49,7 @@ impl ProjectedHtml {
         Self {
             projection: html_to_schema_prompt_dsl(html),
             describes_one_product: describes_one_product(html),
+            json_ld_product_ids: json_ld_product_ids(html),
         }
     }
 }
@@ -67,6 +72,22 @@ mod tests {
         assert!(!projected.projection.contains("ld+json"));
         assert!(!projected.projection.contains("Menu"));
         assert!(projected.describes_one_product);
+    }
+
+    #[test]
+    fn should_show_the_json_ld_product_identifiers_the_projection_strips() {
+        let html = r#"<html><head><script type="application/ld+json">
+            {"@type":"Product","productID":"9441317814427","sku":"R-1"}</script></head>
+            <body><h1>Ring</h1></body></html>"#;
+
+        let ids = ProjectedHtml::of(html).json_ld_product_ids;
+
+        assert_eq!(ids.product_id.as_deref(), Some("9441317814427"));
+        assert_eq!(ids.sku.as_deref(), Some("R-1"));
+        assert_eq!(
+            ProjectedHtml::of("<html><body><h1>Ring</h1></body></html>").json_ld_product_ids,
+            JsonLdProductIds::default()
+        );
     }
 
     #[test]

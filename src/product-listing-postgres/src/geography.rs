@@ -291,9 +291,6 @@ impl GeographyProjectionStore for Store<'_> {
             "RESOLUTION" => {
                 "SELECT d.listing_source_id FROM geo_resolution_bindings b JOIN listing_source_location_defaults d ON d.party_location_id=b.subject_id WHERE b.subject_kind='PARTY_LOCATION' AND b.resolution_id=$1::uuid"
             }
-            "PROFILE" => {
-                "SELECT d.listing_source_id FROM geo_resolutions r JOIN geo_resolution_bindings b USING(resolution_id) JOIN listing_source_location_defaults d ON d.party_location_id=b.subject_id WHERE b.subject_kind='PARTY_LOCATION' AND r.profile=$1"
-            }
             "LISTING" => {
                 "SELECT listing_source_id FROM product_listings WHERE product_listing_id=$1::uuid"
             }

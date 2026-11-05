@@ -47,9 +47,6 @@ impl WorkRow {
         {
             return true;
         }
-        if self.dependency_kind == "PROVIDER" {
-            return self.dependency_id.is_empty() || self.dependency_id.len() > 255;
-        }
         if !matches!(
             self.dependency_kind.as_str(),
             "SOURCE" | "PROFILE" | "LISTING" | "LOCATION" | "RESOLUTION"
@@ -131,7 +128,7 @@ impl ShippingProjectionStore for Store<'_> {
             "SOURCE" => {
                 "SELECT product_listing_id FROM product_listings WHERE listing_source_id=$1::uuid"
             }
-            "PROFILE" | "LOCATION" | "RESOLUTION" | "PROVIDER" => {
+            "PROFILE" | "LOCATION" | "RESOLUTION" => {
                 "SELECT product_listing_id FROM listing_shipping_dependencies WHERE dependency_kind=$4 AND dependency_id=$1"
             }
             _ => return Err(invalid()),
@@ -161,7 +158,7 @@ impl ShippingProjectionStore for Store<'_> {
         // that shared order so concurrent enrichment pages cannot deadlock.
         sqlx::query("SELECT product_listing_id FROM product_listings WHERE product_listing_id=ANY($1) ORDER BY product_listing_id FOR UPDATE").bind(&ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
         // Resolution readers/writers share provider -> resolution -> binding order.
-        sqlx::query("SELECT profile FROM geo_resolution_provider_controls WHERE profile IN (SELECT id FROM listing_shipping_references($1) WHERE kind='PROVIDER') ORDER BY profile FOR SHARE").bind(&ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
+        sqlx::query("SELECT profile FROM geo_resolution_provider_controls WHERE profile IN (SELECT profile FROM geo_resolutions WHERE resolution_id IN (SELECT id::uuid FROM listing_shipping_references($1) WHERE kind='RESOLUTION')) ORDER BY profile FOR SHARE").bind(&ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
         sqlx::query("SELECT resolution_id FROM geo_resolutions WHERE resolution_id IN (SELECT id::uuid FROM listing_shipping_references($1) WHERE kind='RESOLUTION') ORDER BY resolution_id FOR SHARE").bind(&ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
         sqlx::query("SELECT subject_id FROM geo_resolution_bindings WHERE subject_kind='PARTY_LOCATION' AND subject_id IN (SELECT id::uuid FROM listing_shipping_references($1) WHERE kind='LOCATION') ORDER BY subject_kind,subject_id FOR SHARE").bind(&ids).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let listing_ids = ids
@@ -214,7 +211,7 @@ impl ShippingProjectionStore for Store<'_> {
                 'components',(SELECT jsonb_agg((to_jsonb(i)-'owner_hash')||jsonb_build_object('owned',i.owner_hash IS NOT NULL) ORDER BY component) FROM listing_delivery_import_state i WHERE i.product_listing_id=p.product_listing_id),
                 'default',(SELECT jsonb_build_object('revision',d.revision,'profile',d.shipping_profile_id,'deleted',d.source_deleted,'observation',(to_jsonb(i)-'owner_hash')||jsonb_build_object('owned',i.owner_hash IS NOT NULL)) FROM shipping_source_defaults d LEFT JOIN shipping_default_import_state i USING(listing_source_id) WHERE d.listing_source_id=p.listing_source_id),
                 'profiles',(SELECT jsonb_agg(jsonb_build_object('id',v.shipping_profile_id,'managementRevision',v.management_revision,'termsRevision',v.terms_revision,'lifecycle',v.lifecycle,'currentSource',v.current_source_id,'integration',v.integration_method,'verifiedAt',v.verified_at,'observationRevision',i.observation_revision,'owned',i.owner_hash IS NOT NULL,'sourceRevision',i.source_revision) ORDER BY v.shipping_profile_id) FROM listing_shipping_dependencies dep JOIN shipping_profiles v ON v.shipping_profile_id=CASE WHEN dep.dependency_kind='PROFILE' THEN dep.dependency_id::uuid END LEFT JOIN shipping_profile_import_state i USING(shipping_profile_id) WHERE dep.product_listing_id=p.product_listing_id AND dep.dependency_kind='PROFILE'),
-                'locations',(SELECT jsonb_agg(jsonb_build_object('id',l.party_location_id,'revision',l.revision,'inputRevision',l.input_revision,'lifecycle',l.lifecycle,'bindingInputRevision',b.input_revision,'bindingGuard',b.guard,'selectedGeneration',b.selected_generation,'selectedCandidate',b.selected_candidate,'resolution',r.resolution_id,'generation',r.generation,'resolutionPolicy',r.policy_version,'storagePermitted',c.storage_permitted) ORDER BY l.party_location_id) FROM listing_shipping_dependencies dep JOIN party_locations l ON l.party_location_id=CASE WHEN dep.dependency_kind='LOCATION' THEN dep.dependency_id::uuid END LEFT JOIN geo_resolution_bindings b ON b.subject_kind='PARTY_LOCATION' AND b.subject_id=l.party_location_id LEFT JOIN geo_resolutions r USING(resolution_id) LEFT JOIN geo_resolution_provider_controls c ON c.profile=r.profile WHERE dep.product_listing_id=p.product_listing_id AND dep.dependency_kind='LOCATION')
+                'locations',(SELECT jsonb_agg(jsonb_build_object('id',l.party_location_id,'revision',l.revision,'inputRevision',l.input_revision,'lifecycle',l.lifecycle,'bindingInputRevision',b.input_revision,'bindingGuard',b.guard,'selectedGeneration',b.selected_generation,'selectedCandidate',b.selected_candidate,'resolution',r.resolution_id,'generation',r.generation,'resolutionPolicy',r.policy_version) ORDER BY l.party_location_id) FROM listing_shipping_dependencies dep JOIN party_locations l ON l.party_location_id=CASE WHEN dep.dependency_kind='LOCATION' THEN dep.dependency_id::uuid END LEFT JOIN geo_resolution_bindings b ON b.subject_kind='PARTY_LOCATION' AND b.subject_id=l.party_location_id LEFT JOIN geo_resolutions r USING(resolution_id) WHERE dep.product_listing_id=p.product_listing_id AND dep.dependency_kind='LOCATION')
             ) FROM product_listings p JOIN listing_sources s USING(listing_source_id) LEFT JOIN shipping_import_authority a USING(listing_source_id) WHERE p.product_listing_id=ANY($1)
         "#).bind(&ids).bind(POLICY).bind(shipping_core::assessment::POLICY_VERSION).fetch_all(&mut *self.connection).await.map_err(storage)?;
         let mut changed = 0;

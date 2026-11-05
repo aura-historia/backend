@@ -365,34 +365,86 @@ async fn insert_product_with_id(
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
 async fn shared_resolution_and_retained_evidence_never_require_per_listing_geocoding() {
     use geo_service::resolution::*;
-    let result:TestResult=async{
-        let pool=get_postgres_client().await;let (id,source,location)=fixture(&pool).await?;
-        sqlx::query("UPDATE party_locations SET geography=NULL,position=NULL WHERE party_location_id=$1").bind(location).execute(&pool).await?;
-        let owner:Uuid=sqlx::query_scalar("SELECT operator_party_id FROM listing_sources WHERE listing_source_id=$1").bind(source).fetch_one(&pool).await?;
-        let resolution_id=accepted_country_resolution(&pool,owner,location).await?;
-        let mut ids=vec![id];for _ in 0..3 {let (new,_)=insert_product_with_created_event(&pool).await?;sqlx::query("UPDATE product_listings SET listing_source_id=$2 WHERE product_listing_id=$1").bind(new.into_uuid()).bind(source).execute(&pool).await?;ids.push(new);}
-        drain(&pool,2).await?;
-        let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;
-        assert_eq!(ids.len(),views.len());for g in views.values(){let business=g.business.as_ref().ok_or("missing association")?;assert_eq!(Some(geo::CountryCode::DEU),business.country);assert!(business.position.is_none());}
-        let attempts:i32=sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1").bind(resolution_id.into_uuid()).fetch_one(&pool).await?;assert_eq!(1,attempts);
-        // Rights revocation schedules projection catch-up without blocking other reads.
-        sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G6'").execute(&pool).await?;
-
-        drain(&pool,2).await?;
-        assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.is_none()));
-        sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G6'").execute(&pool).await?;
-        drain(&pool,2).await?;
-        assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let (id, source, location) = fixture(&pool).await?;
+        sqlx::query(
+            "UPDATE party_locations SET geography=NULL,position=NULL WHERE party_location_id=$1",
+        )
+        .bind(location)
+        .execute(&pool)
+        .await?;
+        let owner: Uuid = sqlx::query_scalar(
+            "SELECT operator_party_id FROM listing_sources WHERE listing_source_id=$1",
+        )
+        .bind(source)
+        .fetch_one(&pool)
+        .await?;
+        let resolution_id = accepted_country_resolution(&pool, owner, location).await?;
+        let mut ids = vec![id];
+        for _ in 0..3 {
+            let (new, _) = insert_product_with_created_event(&pool).await?;
+            sqlx::query(
+                "UPDATE product_listings SET listing_source_id=$2 WHERE product_listing_id=$1",
+            )
+            .bind(new.into_uuid())
+            .bind(source)
+            .execute(&pool)
+            .await?;
+            ids.push(new);
+        }
+        drain(&pool, 2).await?;
+        let views = SqlxEffectiveListingGeographyBatchReader::new(pool.clone())
+            .read_many(&ids)
+            .await?;
+        assert_eq!(ids.len(), views.len());
+        for g in views.values() {
+            let business = g.business.as_ref().ok_or("missing association")?;
+            assert_eq!(Some(geo::CountryCode::DEU), business.country);
+            assert!(business.position.is_none());
+        }
+        let attempts: i32 =
+            sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1")
+                .bind(resolution_id.into_uuid())
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(1, attempts);
         // Evidence has no time limit: neither catch-up nor maintenance drops derived geography,
         // and nothing pays for another call.
-        for id in &ids {sqlx::query("SELECT enqueue_listing_geography('LISTING',$1)").bind(id.into_uuid().to_string()).execute(&pool).await?;}
-        drain(&pool,2).await?;
-        let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;assert_eq!(0,SqlxResolutionRepositoryFactory.resolutions(&mut tx).expire(100).await?);tx.commit().await?;
-        drain(&pool,2).await?;
-        let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;assert!(views.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
-        let attempts:i32=sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1").bind(resolution_id.into_uuid()).fetch_one(&pool).await?;assert_eq!(1,attempts);
+        for id in &ids {
+            sqlx::query("SELECT enqueue_listing_geography('LISTING',$1)")
+                .bind(id.into_uuid().to_string())
+                .execute(&pool)
+                .await?;
+        }
+        drain(&pool, 2).await?;
+        let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+        assert_eq!(
+            0,
+            SqlxResolutionRepositoryFactory
+                .resolutions(&mut tx)
+                .expire(100)
+                .await?
+        );
+        tx.commit().await?;
+        drain(&pool, 2).await?;
+        let views = SqlxEffectiveListingGeographyBatchReader::new(pool.clone())
+            .read_many(&ids)
+            .await?;
+        assert!(views.values().all(|g| {
+            g.business
+                .as_ref()
+                .is_some_and(|g| g.country == Some(geo::CountryCode::DEU))
+        }));
+        let attempts: i32 =
+            sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1")
+                .bind(resolution_id.into_uuid())
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(1, attempts);
         Ok(())
-    }.await;
+    }
+    .await;
     assert!(result.is_ok(), "shared accepted resolution: {result:?}");
 }
 
@@ -405,7 +457,11 @@ async fn accepted_country_resolution(
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(pool)
         .await?;
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G6',true,true,true)").execute(pool).await?;
+    sqlx::query(
+        "INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('TEST_G6',true)",
+    )
+    .execute(pool)
+    .await?;
     let input = ResolutionInput::new(
         GeocodingRequest::new(geo::AddressText::new("Shared eligible address")?),
         ResolutionScope::new(ScopeKind::Party, Some(owner))?,

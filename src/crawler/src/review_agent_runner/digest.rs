@@ -43,6 +43,8 @@ pub struct RollingCost {
     pub five_hour_cost_usd: f64,
     pub weekly_cost_usd: f64,
     pub paused_until: Option<(OffsetDateTime, String)>,
+    /// Until when the runner starts no reviewer process, after the agents' decision cap.
+    pub reviewers_paused_until: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -389,6 +391,13 @@ impl Digest {
                 let _ = writeln!(out, "Not paused.");
             }
         }
+        if let Some(until) = rolling.reviewers_paused_until {
+            let _ = writeln!(
+                out,
+                "Reviewers paused until {} (the agents' decision cap); authors keep running.",
+                timestamp(until)
+            );
+        }
     }
 
     /// Writes the digest to `digests/<to>.md` in `state_dir` and answers the file's path.
@@ -532,6 +541,7 @@ mod tests {
             five_hour_cost_usd: 1.5,
             weekly_cost_usd: 9.0,
             paused_until: None,
+            reviewers_paused_until: None,
         }
     }
 

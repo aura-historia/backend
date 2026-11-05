@@ -525,7 +525,11 @@ async fn accepted_country_resolution(
     sqlx::query("UPDATE geo_resolution_provider_controls SET is_default=false")
         .execute(pool)
         .await?;
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G6',true,true,true)").execute(pool).await?;
+    sqlx::query(
+        "INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('TEST_G6',true)",
+    )
+    .execute(pool)
+    .await?;
     let input = ResolutionInput::new(
         GeocodingRequest::new(geo::AddressText::new("Shared eligible address")?),
         ResolutionScope::new(ScopeKind::Party, Some(owner))?,
@@ -599,7 +603,7 @@ async fn accepted_country_resolution(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn explicit_sites_resolution_and_rights_invalidate_without_private_projection_data() {
+async fn explicit_sites_and_resolution_invalidate_without_private_projection_data() {
     use shipping_core::{coverage::*, inputs::Applicability, terms::*};
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
@@ -787,15 +791,6 @@ async fn explicit_sites_resolution_and_rights_invalidate_without_private_project
     management.rollback().await.unwrap();
     drop(tx);
     sqlx::query("UPDATE listing_shipping_work SET lease_until=clock_timestamp()-interval '1 second' WHERE work_id=$1").bind(work).execute(&pool).await.unwrap();
-    sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G6'").execute(&pool).await.unwrap();
-    drain(&pool).await;
-    assert!(
-        summary(&pool, ids[0]).await["country_offers"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
-    sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G6'").execute(&pool).await.unwrap();
     drain(&pool).await;
     assert_eq!(
         "DE",
@@ -825,7 +820,7 @@ async fn explicit_sites_resolution_and_rights_invalidate_without_private_project
         "DE",
         summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
-    // Evidence has no time limit: maintenance keeps bound, permitted shipping geography.
+    // Evidence has no time limit: maintenance keeps bound shipping geography.
     let mut maintenance = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     use geo_service::resolution::{ResolutionRepository, ResolutionRepositoryFactory};
     assert_eq!(

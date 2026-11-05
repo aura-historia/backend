@@ -156,9 +156,12 @@ invalidation. Synthetic adapter tests establish protocol behavior, not worldwide
 ### Provider terms and retention gate
 
 The reviewed profile is **Amazon Location Places v2 / default data / eu-central-1 /
-October 2026**. Operators must confirm applicable account/source terms, intended reuse,
-private-input purpose, attribution and budgets before enabling retained resolution.
-The profile records default data rather than claiming a specific underlying supplier.
+October 2026**. Geocoding with retained resolution is always on: the profile has no runtime
+switch, storage flag, database-held call budget or concurrency limit; parallelism follows the
+resolution worker's deployed concurrency. Account/source terms, intended reuse, private-input
+purpose, attribution and expected cost are reviewed with the code change that introduces or
+changes a provider profile, not at runtime. The profile records default data rather than
+claiming a specific underlying supplier.
 
 [AWS Service Terms §82](https://aws.amazon.com/service-terms/#82._Amazon_Location_Service)
 and the [intended-use contract](https://docs.aws.amazon.com/location/latest/developerguide/places-intended-use.html)
@@ -178,11 +181,11 @@ retainable candidate fails storage. Other providers/products/regions need separa
 Supplier processing may occur outside the AWS region; endpoint region alone is not a
 data-residency guarantee.
 
-Persistence owners check storage permission before retaining any derivatives and preserve
-reference release, provenance, attribution and profile. Private reuse stays isolated to its
-owner and purpose; address equality or hashes never authorize cross-user or public reuse.
-Revoke storage permission when rights cease; disabling paid calls alone leaves permitted
-cached evidence usable. End-user terms/product documentation must conspicuously link the
+Persistence owners retain only results whose provider retention permits storage and preserve
+reference release, provenance, attribution and profile. Private reuse stays isolated to its owner and purpose;
+address equality or hashes never authorize cross-user or public reuse. If retention rights
+cease, a reviewed release must stop provider calls and purge the retained evidence; there is
+no runtime switch. End-user terms/product documentation must conspicuously link the
 [AWS attribution page](https://docs.aws.amazon.com/location/latest/developerguide/data-attribution.html)
 and retain required supplier notices. Maps require additional review.
 
@@ -212,22 +215,23 @@ binding, not other locations reusing the result; submitted assertions always ret
 
 Evidence has no time limit, since the [provider terms](#provider-terms-and-retention-gate)
 impose none: time alone never causes another paid call or a repeated review. Only changed
-input, forced Retry, storage-rights revocation, erasure or losing every binding replace or
-purge evidence and its selections.
+input, forced Retry, erasure or losing every binding replace or purge evidence and its
+selections.
 
-Claims reserve provider/scope budgets before I/O and retain no transaction during the call.
-Completion rechecks lease, generation, current bindings and storage rights, then commits
-permitted evidence and a minimal signal. Reads suppress stale or revoked evidence
-immediately. Database coordination follows provider → resolution → binding lock order.
-Read-only repeatable snapshots use the same permission gate without
+Claims lease work before I/O and retain no transaction during the call. Completion rechecks
+lease, generation and current bindings, then commits valid evidence and a minimal signal.
+Reads suppress stale evidence immediately. Database coordination follows
+provider → resolution → binding lock order.
+Read-only repeatable snapshots use the same eligibility rules without
 acquiring mutation locks; [shipping assessment](shipping.md#shipping-on-listing-reads)
 uses these current facts instead of the listing-geography projection.
 
-Retries are bounded, with backoff, concurrency/daily budgets and a circuit for provider
-health failures. Unsupported input remains an input failure; errors never become no-match.
-A paid-call/commit crash can incur another call after lease expiry. Reservations and stale
-reply fences survive invalidation; exactly-once charging is not promised. Revocation, orphan
-cleanup and lost-delivery recovery are bounded and run even with paid calls disabled.
+Retries are bounded per resolution, with backoff and a circuit for provider health failures.
+Unsupported input remains an input
+failure; errors never become no-match. A paid-call/commit crash can incur another call after
+lease expiry. Attempt counts and stale reply fences survive invalidation; exactly-once
+charging is not promised. Orphan purges are bounded and run even while the circuit
+is open; lost-delivery requeue resumes once it closes.
 The [worker runbook](durable-worker-runbook.md#geographic-resolution-recovery) owns recovery.
 
 ## Effective listing geography (#2003)
@@ -252,7 +256,7 @@ in the same transaction; canonical revision and public history remain unchanged.
 ### Eventual projection consistency
 
 Listing search and geographic filter matching use available projections while durable
-invalidation catches up. Retirement, restrictive applicability and rights revocation
+invalidation catches up. Retirement and restrictive applicability
 can briefly leave earlier geography in results, ordering, counts and continuation. There is
 no global query gate. Writers reread current authority; versions/tombstones fence stale
 writes. PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read

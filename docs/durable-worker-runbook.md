@@ -523,11 +523,11 @@ publication are not provider acceptance. Reconcile ambiguous SES sends under
 ## Geographic resolution recovery
 
 [Geography](geography.md#durable-resolution-and-party-integration-2002) owns acceptance,
-privacy and retention. Resolution workers always process eligible work; provider controls
-govern provider availability, storage permission and budgets. New provider profiles default
-off. Before enabling a profile, confirm applicable provider/private-input
-rights, attribution, database capacity and call/concurrency budgets. Turning off paid calls
-preserves permitted cache entries; rights withdrawal requires revocation and physical purging.
+privacy and retention. Geocoding is [always on](geography.md#provider-terms-and-retention-gate):
+there is no provider-control procedure and no database access is needed to start geocoding.
+Only the automatic circuit breaker pauses calls, for five minutes after three consecutive
+provider-health failures. Stopping paid calls or withdrawing retention rights requires a
+reviewed release that removes the calls and purges retained evidence.
 
 Apply the consolidated geography migration with compatible API, router, workers and cleanup
 binaries through the [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
@@ -537,46 +537,45 @@ Request establishes work for preexisting eligible PartyLocations; CDC-only captu
 backfill them. Deploy compatible ProductListing geographic mappings and verify refreshed
 product search visibility before enabling new geographic filters.
 
-The hourly backend cleanup purges ineligible evidence and requeues bounded runnable work,
-even with paid calls disabled. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
-attempts, pending age, backoff and spent budgets; live leases retain their reservations.
-Additional bounded cleanup invocations follow ordinary operational approval when backlog or
-rights withdrawal requires faster erasure. Readers suppress ineligible evidence immediately;
+The hourly backend cleanup purges orphaned evidence and requeues bounded runnable work
+whose provider circuit is closed. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
+attempts, pending age and backoff; live leases keep their claims. Additional bounded cleanup
+invocations follow ordinary operational approval when backlog requires faster recovery or
+purging. Readers suppress ineligible evidence immediately;
 listing search accepts projection lag while removal propagates.
 
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
-deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
+deadline and circuit state. Monitor resolution reuse/outcomes, oldest pending age, maintenance
 counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
 provisioned metric filters; BLOCKED/FAILED work is acknowledged rather than retained, so inspect
 the recorded `geo_resolution_outcome` and resolution state for it. Never include private input
 or provider payloads in logs, operator evidence or replay messages.
 
 Transport custody follows what a redelivery could still achieve. The worker acknowledges a
-wake-up whose generation is settled: resolved, `BLOCKED` (also when controls change during the
-call), `FAILED`, out of attempts, erased, unbound or superseded. A redelivery of settled work
+wake-up whose generation is settled: resolved, `BLOCKED`, `FAILED`, out of attempts, erased,
+unbound or superseded. A redelivery of settled work
 makes no provider call. It retains a
-wake-up whose lease another claim holds, whose concurrency budget is saturated or whose retry
-backoff is running, and a transient provider failure with its diagnostic. Provider-gated
-wake-ups (provider disabled, storage not permitted, circuit open or a daily budget exhausted)
-are retained with reason `provider_gated` while the DLQ alarm is the only signal of a stalled
+wake-up whose lease another claim holds or whose retry backoff is running, and a transient
+provider failure with its diagnostic. Provider-gated wake-ups (provider circuit open) are
+retained with reason `provider_gated` while the DLQ alarm is the only signal of a stalled
 resolution backlog. Cleanup recovery republishes their PostgreSQL work regardless.
 
 An active claim is incomplete. A paid-call/commit crash may repeat charging after lease
-expiry; reservations are not refunded. Business Retry/selection requires current location
+expiry; attempts are not refunded. Business Retry/selection requires current location
 CAS and resolution generation. Unchanged completed retries reuse evidence; forced resolution
-invalidates derivatives/selections and cannot bypass budgets. Private addresses expose
-ordinary replacement/read APIs; corrected configuration gates allow bounded background
-recovery, while exhausted or invalid inputs require cause correction and changed input or
+invalidates derivatives/selections and cannot bypass the circuit. Private addresses expose
+ordinary replacement/read APIs; corrected provider configuration or authentication allows
+bounded background recovery, while exhausted or invalid inputs require cause correction and changed input or
 approved operational recovery. Cleanup requeues only private browsing blocks: business
 resolutions blocked as `STORAGE_NOT_PERMITTED` stay blocked after a retention-rule or
 reference-release correction until protected Retry, changed input, or approved operational
 recovery that reproduces Retry's generation fence, invalidation and wake-up. Each recovery is
-a paid call within budgets and blocks again when no candidate is retainable.
+a paid call and blocks again when no candidate is retainable.
 
 Redrive a small approved DLQ sample with original identities/generations: superseded and
 terminal work completes without a provider call, completed work reuses evidence, active leases
-defer and malformed jobs retain custody. Provider-gated copies need no redrive: once controls
-allow calls, cleanup republishes their work and the old copies complete as stale. Confirm
+defer and malformed jobs retain custody. Provider-gated copies need no redrive: once the circuit
+closes, cleanup republishes their work and the old copies complete as stale. Confirm
 completion and eligibility before expanding redrive. Never invent a new generation in a
 transport payload. Runbook checks do not establish deployed readiness.
 

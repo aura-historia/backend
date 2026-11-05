@@ -198,7 +198,7 @@ impl ResolutionInput {
             .map(|byte| format!("{byte:02x}"))
             .collect()
     }
-    pub fn budget_key(&self) -> String {
+    pub fn scope_key(&self) -> String {
         let mut hash = Sha256::new();
         hash.update(self.scope.kind.as_str());
         if let Some(id) = self.scope.owner {
@@ -265,12 +265,11 @@ pub enum ClaimOutcome {
     /// evidence, reached a durable status other than `PENDING`, or exhausted its attempts.
     /// Only a newer generation, which publishes its own wake-up, can call the provider again.
     Complete,
-    /// The generation is runnable, but provider controls refuse calls: provider disabled,
-    /// storage not permitted, circuit open or a daily budget exhausted. Cleanup recovery
-    /// republishes the work once the controls allow it.
+    /// The generation is runnable, but the provider circuit is open after consecutive
+    /// provider-health failures. Cleanup recovery republishes the work once it closes.
     ProviderGated,
-    /// A retry can succeed soon: another claim holds the lease, concurrency is saturated or
-    /// the retry backoff has not elapsed.
+    /// A retry can succeed soon: another claim holds the lease or the retry backoff has not
+    /// elapsed.
     Deferred,
 }
 /// What a fenced completion did with its claim's provider reply.
@@ -628,7 +627,7 @@ pub trait ResolutionRepositoryFactory<Tx>: Send + Sync {
 pub enum ResolveOutcome {
     /// The wake-up's generation is settled, whether resolved, terminal or stale.
     Complete,
-    /// Provider controls refuse calls for runnable work; see [`ClaimOutcome::ProviderGated`].
+    /// The provider circuit refuses calls for runnable work; see [`ClaimOutcome::ProviderGated`].
     ProviderGated,
     /// Contention or a scheduled retry; a redelivery can succeed.
     Deferred,

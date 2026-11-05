@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-05 — Geocoding results no longer expire (#2771)
 
-- Retained geocoding evidence no longer lapses after 7 days for ambiguous results or 30 days for other outcomes. The `resolution` in `/v1/me/addresses` reads no longer turns `UNAVAILABLE` over time. Derived Party-location and listing geography, including reviewed candidate selections, stays until the address changes, a retry is forced or storage rights are revoked. Revoked evidence is still `UNAVAILABLE` and suppressed.
+- Retained geocoding evidence no longer lapses after 7 days for ambiguous results or 30 days for other outcomes. The `resolution` in `/v1/me/addresses` reads no longer turns `UNAVAILABLE` over time. Derived Party-location and listing geography, including reviewed candidate selections, stays until the address changes or a retry is forced.
 - Anonymous listing, search, similar-listing and auction responses with shipping terms are no longer cached for a shorter time ahead of such a deadline.
 
 ## 2026-10-30 — Readable Party and ListingSource slugs (#2654)

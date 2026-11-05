@@ -1155,7 +1155,7 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn public_discovery_admits_current_derived_country_and_rejects_revoked_or_stale_evidence() {
+async fn public_discovery_admits_current_derived_country_and_rejects_stale_evidence() {
     use geo_postgres::SqlxResolutionRepositoryFactory;
     use geo_service::{geocoding::*, resolution::*};
     use party_service::discovery::*;
@@ -1170,7 +1170,12 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_or_
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO geo_resolution_provider_controls(profile,is_default,enabled,storage_permitted) VALUES('TEST_G7',true,true,true)").execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO geo_resolution_provider_controls(profile,is_default) VALUES('TEST_G7',true)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let input = ResolutionInput::new(
         GeocodingRequest::new(AddressText::new("Private submitted provider address").unwrap()),
         ResolutionScope::new(ScopeKind::Party, Some(owner.into_uuid())).unwrap(),
@@ -1262,13 +1267,9 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_or_
         },
     };
     let factory = party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory;
-    for phase in 0..4 {
+    for phase in 0..3 {
         match phase {
             1 => {
-                sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
-            }
-            2 => {
-                sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
                 sqlx::query(
                     "UPDATE party_locations SET revision=revision+1 WHERE party_location_id=$1",
                 )
@@ -1277,7 +1278,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_or_
                 .await
                 .unwrap();
             }
-            3 => {
+            2 => {
                 sqlx::query("UPDATE party_locations SET revision=1 WHERE party_location_id=$1")
                     .bind(location.id.into_uuid())
                     .execute(&pool)
@@ -1292,7 +1293,7 @@ async fn public_discovery_admits_current_derived_country_and_rejects_revoked_or_
             .discover(&request)
             .await
             .unwrap();
-        assert_eq!(usize::from(matches!(phase, 0 | 3)), result.items.len());
+        assert_eq!(usize::from(phase != 1), result.items.len());
         if let Some(item) = result.items.first() {
             assert_eq!("ACCEPTED_DERIVED", item.basis);
             assert_eq!(Some(CountryCode::DEU), item.country);
