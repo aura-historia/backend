@@ -307,6 +307,10 @@ async fn flush_batch(
         .iter()
         .filter(|outcome| **outcome == ProductListingRawCaptureOutcome::Persisted)
         .count();
+    let discarded_unsendable_count = outcomes
+        .iter()
+        .filter(|outcome| **outcome == ProductListingRawCaptureOutcome::DiscardedUnsendable)
+        .count();
     let discarded_missing_source_count = outcomes
         .iter()
         .filter(|outcome| **outcome == ProductListingRawCaptureOutcome::DiscardedMissingSource)
@@ -325,8 +329,11 @@ async fn flush_batch(
             queued.request.on_success,
             queued.request.on_failure,
         ) {
+            // An unsendable observation is terminal: completing the scrape moves the URL to its
+            // next due time instead of resubmitting the same oversized page at every pass.
             (
-                ProductListingRawCaptureOutcome::Persisted,
+                ProductListingRawCaptureOutcome::Persisted
+                | ProductListingRawCaptureOutcome::DiscardedUnsendable,
                 RawCaptureSuccessAction::MarkScraped(meta),
                 _,
             ) => {
@@ -384,7 +391,8 @@ async fn flush_batch(
                 }
             }
             (
-                ProductListingRawCaptureOutcome::Persisted,
+                ProductListingRawCaptureOutcome::Persisted
+                | ProductListingRawCaptureOutcome::DiscardedUnsendable,
                 RawCaptureSuccessAction::MarkRemoved {
                     listing_source_id,
                     url,
@@ -477,6 +485,7 @@ async fn flush_batch(
         oldest_item_age_ms,
         capture_latency_ms,
         persisted_count,
+        discarded_unsendable_count,
         discarded_missing_source_count,
         persistence_failure_count,
         mark_as_scraped_count,
@@ -487,24 +496,28 @@ async fn flush_batch(
 }
 
 /// Records, per ListingSource domain of the batch, how many of its observations raw
-/// capture persisted durably; a domain whose captures all failed records zero.
+/// capture submitted successfully and how many were discarded as unsendable; a domain whose captures all failed records zero.
 fn emit_products_captured(
     batch: &[QueuedRawCapture],
     outcomes: &[ProductListingRawCaptureOutcome],
 ) {
-    let mut captured: HashMap<(ListingSourceId, &str), u64> = HashMap::new();
+    let mut captured: HashMap<(ListingSourceId, &str), (u64, u64)> = HashMap::new();
     for (queued, outcome) in batch.iter().zip(outcomes) {
         let source = (
             queued.request.item.command.listing_source_id,
             queued.listing_source_domain.as_str(),
         );
-        *captured.entry(source).or_default() +=
-            u64::from(*outcome == ProductListingRawCaptureOutcome::Persisted);
+        let (persisted, discarded) = captured.entry(source).or_default();
+        *persisted += u64::from(*outcome == ProductListingRawCaptureOutcome::Persisted);
+        *discarded += u64::from(*outcome == ProductListingRawCaptureOutcome::DiscardedUnsendable);
     }
-    for ((listing_source_id, domain), count) in captured {
-        MetricRecord::for_listing_source_domain(&listing_source_id, domain)
-            .with_value(CrawlerMetric::ProductsCaptured, count)
-            .emit();
+    for ((listing_source_id, domain), (persisted, discarded)) in captured {
+        let mut record = MetricRecord::for_listing_source_domain(&listing_source_id, domain)
+            .with_value(CrawlerMetric::ProductsCaptured, persisted);
+        if discarded > 0 {
+            record = record.with_value(CrawlerMetric::ProductsDiscardedUnsendable, discarded);
+        }
+        record.emit();
     }
 }
 
@@ -6475,6 +6488,47 @@ mod tests {
             };
             assert_eq!(captured(persisted_source), vec![1]);
             assert_eq!(captured(failed_source), vec![0]);
+        }
+
+        #[tokio::test]
+        async fn should_count_unsendable_observations_and_complete_their_scrape() {
+            let (metrics, _guard) = capture_metrics();
+            let source = ListingSourceId::new();
+            let mut raw_capture = MockProductListingRawCaptureService::new();
+            raw_capture.expect_capture().once().returning(|_| {
+                Box::pin(async { vec![ProductListingRawCaptureOutcome::DiscardedUnsendable] })
+            });
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_as_scraped()
+                .once()
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
+            let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
+
+            flush_batch(
+                &raw_capture,
+                &scraper_candidates,
+                vec![queued(
+                    item(source, "huge"),
+                    meta(source, "https://example.test/p/huge", "huge"),
+                )],
+                0,
+            )
+            .await;
+
+            let for_source = |metric| {
+                metrics.values_with(
+                    metric,
+                    MetricDimension::ListingSourceId,
+                    &source.to_string(),
+                )
+            };
+            assert_eq!(
+                for_source(CrawlerMetric::ProductsDiscardedUnsendable),
+                vec![1]
+            );
+            assert_eq!(for_source(CrawlerMetric::ProductsCaptured), vec![0]);
         }
 
         #[tokio::test]

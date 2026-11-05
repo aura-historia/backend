@@ -156,11 +156,7 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
         return Vec::new();
     }
 
-    if is_collapsible_wrapper(&tag)
-        && text.is_none()
-        && is_layout_only_attrs(&attrs)
-        && !has_product_specific_context(&attrs)
-    {
+    if collapses_into_children(&tag, text.as_deref(), &attrs, &children) {
         return children;
     }
 
@@ -177,6 +173,43 @@ fn is_removed_dsl_tag(tag: &str) -> bool {
         || REMOVED_DSL_TAG_PREFIXES
             .iter()
             .any(|prefix| tag.starts_with(prefix))
+}
+
+/// A layout wrapper the projection leaves out, showing its children in its place: a grouping
+/// element without text of its own whose attributes say nothing about the product. A wrapper
+/// with a class or id that holds text blocks directly is kept: it is the container of prose,
+/// such as a CMS's description field, and often the only element a selector for that prose can
+/// name, while a grid wrapper holds other wrappers and stays out.
+fn collapses_into_children(
+    tag: &str,
+    text: Option<&str>,
+    attrs: &BTreeMap<String, String>,
+    children: &[HtmlYamlNode],
+) -> bool {
+    is_collapsible_wrapper(tag)
+        && text.is_none()
+        && is_layout_only_attrs(attrs)
+        && !has_product_specific_context(attrs)
+        && !(!attrs.is_empty() && children.iter().any(|child| is_text_block(&child.tag)))
+}
+
+/// An element that carries prose of its own rather than grouping other elements.
+fn is_text_block(tag: &str) -> bool {
+    matches!(
+        tag,
+        "p" | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "ul"
+            | "ol"
+            | "dl"
+            | "table"
+            | "blockquote"
+            | "pre"
+    )
 }
 
 fn is_collapsible_wrapper(tag: &str) -> bool {
@@ -580,6 +613,23 @@ mod tests {
         #[case] expected: &str,
     ) {
         assert_eq!(condensed_srcset(srcset), expected);
+    }
+
+    #[test]
+    fn should_keep_a_classed_wrapper_of_text_blocks_and_collapse_grid_wrappers() {
+        let html = r#"<main><div class="row"><div class="col-sm-6">
+            <h1>Oak chair</h1>
+            <div class="ezxmltext-field"><p>Solid oak, circa 1830.</p><p>Height 90 cm.</p></div>
+            <div><p>Unanchored paragraph.</p></div>
+        </div></div></main>"#;
+
+        let dsl = html_to_schema_prompt_dsl(html);
+
+        assert!(dsl.contains("class: ezxmltext-field"), "{dsl}");
+        assert!(dsl.contains("class: col-sm-6"), "{dsl}");
+        assert!(!dsl.contains("class: row"), "{dsl}");
+        assert_eq!(dsl.matches("tag: div").count(), 2, "{dsl}");
+        assert!(dsl.contains("Unanchored paragraph."), "{dsl}");
     }
 
     #[test]

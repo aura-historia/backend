@@ -184,7 +184,8 @@ mod tests {
                                 panic!("valid test listing source slug: {error}")
                             }),
                             crawl_enabled: true,
-                            fallback_currency: None,
+                            fallback_currency: crate::service::listing_source_registration::FallbackCurrency::Supplied(None),
+                            public_host: None,
                         },
                     ])
                 })

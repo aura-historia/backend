@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use crawler::scraper::candidate_service::ScraperCandidateService;
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
-    ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
+    FallbackCurrency, ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ListingSourceRegistrationService, ListingSourceRegistrationSource, ListingSourceSyncError,
     RegisteredListingSource,
 };
@@ -105,7 +105,8 @@ fn registered_listing_source(listing_source_id: ListingSourceId) -> RegisteredLi
         listing_source_slug: ListingSourceSlugId::raw("crawler-admission-source")
             .unwrap_or_else(|error| panic!("valid test ListingSource slug: {error}")),
         crawl_enabled: true,
-        fallback_currency: None,
+        fallback_currency: FallbackCurrency::Supplied(None),
+        public_host: None,
     }
 }
 

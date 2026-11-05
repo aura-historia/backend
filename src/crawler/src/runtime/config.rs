@@ -10,6 +10,9 @@ use std::time::Duration;
 use tracing::info;
 
 const AUTHORING_MODE_ENV: &str = "CRAWLER_AUTHORING_MODE";
+/// Whether a scope refresh registers the public host of a ListingSource without crawler-local
+/// domains as its domain; off unless set.
+const SEED_DOMAINS_ENV: &str = "CRAWLER_SEED_DOMAINS_FROM_API";
 
 /// Settings `CRAWLER_AUTHORING_MODE` replaced. A value in one of them fails startup, so an
 /// environment cannot keep a dead review setting and believe it still applies.
@@ -28,6 +31,9 @@ pub struct CrawlerRuntimeConfig {
     pub llm: CrawlerLlmConfig,
     /// How long running work may take to finish after the first SIGTERM or SIGINT.
     pub shutdown_grace_period: Duration,
+    /// Whether each scope refresh registers the public host the registration source presents
+    /// for an enabled ListingSource without crawler-local domains as its crawler domain.
+    pub seed_domains_from_public_hosts: bool,
 }
 
 /// Whether the crawler may call an LLM, and with which provider settings.
@@ -95,6 +101,8 @@ impl CrawlerRuntimeConfig {
             &CrawlerAuthoringMode::ALL.map(CrawlerAuthoringMode::as_str),
         )?;
         let agent_limits = AgentLimits::from_env()?;
+        let (seed_domains_from_public_hosts, _) =
+            enum_from_env(SEED_DOMAINS_ENV, parse_bool, &["true", "false"])?;
         let llm = if authoring.uses_llm() {
             CrawlerLlmConfig::VertexAi(CrawlerVertexAiLlmConfig::from_env()?)
         } else {
@@ -108,6 +116,11 @@ impl CrawlerRuntimeConfig {
             "Crawler authoring mode configured: {}",
             authoring_summary(authoring)
         );
+        if seed_domains_from_public_hosts {
+            info!(
+                "Crawler domain seeding enabled: a scope refresh registers the public host of each ListingSource without crawler-local domains"
+            );
+        }
         if let CrawlerLlmConfig::VertexAi(vertex) = &llm {
             info!(
                 llm_provider = "vertex_ai",
@@ -123,6 +136,7 @@ impl CrawlerRuntimeConfig {
             agent_limits,
             llm,
             shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
+            seed_domains_from_public_hosts,
         })
     }
 }
@@ -157,6 +171,14 @@ fn authoring_summary(authoring: CrawlerAuthoringMode) -> &'static str {
 
 /// The trimmed value of `name`; unset, empty and whitespace-only values count as unset so
 /// `NAME=` placeholders keep the default. A non-UTF-8 value is returned as `Err` for reporting.
+fn parse_bool(value: &str) -> Option<bool> {
+    match value {
+        value if value.eq_ignore_ascii_case("true") => Some(true),
+        value if value.eq_ignore_ascii_case("false") => Some(false),
+        _ => None,
+    }
+}
+
 fn env_value(name: &str) -> Result<Option<String>, String> {
     match std::env::var(name) {
         Ok(raw) if raw.trim().is_empty() => Ok(None),
@@ -201,7 +223,8 @@ mod tests {
         }
     }
 
-    const RUNTIME_ENV: [&str; 6] = [
+    const RUNTIME_ENV: [&str; 7] = [
+        SEED_DOMAINS_ENV,
         AUTHORING_MODE_ENV,
         "CRAWLER_REVIEW_REQUIRED",
         "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
@@ -280,6 +303,38 @@ mod tests {
 
         assert_eq!(config.authoring, CrawlerAuthoringMode::Review);
         assert!(matches!(config.llm, CrawlerLlmConfig::VertexAi(_)));
+    }
+
+    #[rstest]
+    #[case::unset(None, Ok(false))]
+    #[case::on(Some("true"), Ok(true))]
+    #[case::off_any_case(Some("FALSE"), Ok(false))]
+    #[case::other(Some("yes"), Err("yes"))]
+    #[serial]
+    fn should_read_the_domain_seeding_switch_off_unless_true(
+        #[case] value: Option<&'static str>,
+        #[case] expected: Result<bool, &'static str>,
+    ) {
+        let mut env = vec![(AUTHORING_MODE_ENV, "manual")];
+        if let Some(value) = value {
+            env.push((SEED_DOMAINS_ENV, value));
+        }
+
+        let config = runtime_config_from(&env);
+
+        match expected {
+            Ok(expected) => assert_eq!(
+                config
+                    .unwrap_or_else(|error| panic!("runtime config from env: {error}"))
+                    .seed_domains_from_public_hosts,
+                expected
+            ),
+            Err(rejected) => assert!(matches!(
+                config,
+                Err(CrawlerRuntimeConfigError::InvalidValue { name, value, .. })
+                    if name == SEED_DOMAINS_ENV && value == rejected
+            )),
+        }
     }
 
     #[rstest]

@@ -1,6 +1,6 @@
 use crawler::CrawlerDomainId;
 use crawler::service::listing_source_registration::{
-    ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
+    FallbackCurrency, ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     RegisteredListingSource,
 };
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
@@ -37,7 +37,8 @@ fn listing_source(
         listing_source_name: ListingSourceName::try_from("Test source").unwrap(),
         listing_source_slug: ListingSourceSlugId::raw("test-source").unwrap(),
         crawl_enabled,
-        fallback_currency: None,
+        fallback_currency: FallbackCurrency::Supplied(None),
+        public_host: None,
     }
 }
 
@@ -47,7 +48,7 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
     let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
     let mut source = listing_source(listing_source_id, true);
-    source.fallback_currency = Some(Currency::Ars);
+    source.fallback_currency = FallbackCurrency::Supplied(Some(Currency::Ars));
 
     repository.apply_snapshot(&[source.clone()]).await.unwrap();
     let persisted: Option<String> = sqlx::query_scalar(
@@ -59,7 +60,7 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
     .unwrap();
     assert_eq!(Some("ARS".to_owned()), persisted);
 
-    source.fallback_currency = None;
+    source.fallback_currency = FallbackCurrency::Supplied(None);
     repository.apply_snapshot(&[source]).await.unwrap();
     let cleared: Option<String> = sqlx::query_scalar(
         "SELECT fallback_currency FROM listing_sources WHERE listing_source_id = $1",
@@ -69,6 +70,28 @@ async fn should_persist_and_clear_fallback_currency_from_listing_source_snapshot
     .await
     .unwrap();
     assert_eq!(None, cleared);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_the_stored_fallback_currency_when_a_snapshot_does_not_supply_it() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    let mut source = listing_source(listing_source_id, true);
+    source.fallback_currency = FallbackCurrency::Supplied(Some(Currency::Ars));
+    repository.apply_snapshot(&[source.clone()]).await.unwrap();
+
+    source.fallback_currency = FallbackCurrency::NotSupplied;
+    repository.apply_snapshot(&[source]).await.unwrap();
+
+    let kept: Option<String> = sqlx::query_scalar(
+        "SELECT fallback_currency FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(Some("ARS".to_owned()), kept);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
