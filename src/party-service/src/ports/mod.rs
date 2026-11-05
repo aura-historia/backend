@@ -8,3 +8,4 @@ pub use party_repository::{
 pub use party_search_reader::{PartySearchReadError, PartySearchReader, PartySearchReaderFactory};
 pub mod party_location;
 pub mod party_location_manager_reader;
+pub mod party_location_resolution_review_reader;
