@@ -184,8 +184,7 @@ Dispatch/collection sites are omitted from public terms; a reference does not au
 publishing its management address. Exact pickup disclosure needs its own contract.
 Destination values, address identities/text, points, hashes and raw evidence never enter
 logs or public storage. Authenticated responses and errors are `no-store`. Generic anonymous
-responses follow discovery TTLs, shortened to geographic evidence reconsideration deadlines;
-those deadlines and evaluation times stay internal.
+responses follow discovery TTLs; evaluation times stay internal.
 
 ## Effective shipping discovery projection
 

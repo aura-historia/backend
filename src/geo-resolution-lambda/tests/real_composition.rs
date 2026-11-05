@@ -256,31 +256,41 @@ async fn real_worker_replay_partial_failure_and_scheduled_recovery_use_database_
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 
+    // Evidence has no time limit: a deadline the previous bundle wrote neither hides nor
+    // purges it.
     sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1")
         .bind(work.id.into_uuid()).execute(&pool).await.unwrap();
-    assert!(view(&pool, binding).await.evidence.is_none());
+    assert!(view(&pool, binding).await.evidence.is_some());
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=false")
         .execute(&pool)
         .await
         .unwrap();
     assert_eq!(
         ResolutionMaintenanceCounts {
-            expired: 1,
+            expired: 0,
             requeued: 0
         },
         maintenance.execute(&context, 100).await.unwrap()
     );
-    let expired = view(&pool, binding).await;
-    assert_eq!(recovered.generation + 1, expired.work.generation);
-    assert!(expired.evidence.is_none());
+    // Forced Retry requeues work that stays provider-gated while calls are disabled.
+    let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
+    SqlxResolutionRepositoryFactory
+        .resolutions(&mut tx)
+        .requeue(binding, recovered, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let retried = view(&pool, binding).await;
+    assert_eq!(recovered.generation + 1, retried.work.generation);
+    assert!(retried.evidence.is_none());
     assert!(
-        process([("expired-stale-redrive", job(current))], &use_case)
+        process([("retried-stale-redrive", job(current))], &use_case)
             .await
             .is_empty()
     );
     assert_eq!(
         vec!["disabled-pending"],
-        process([("disabled-pending", job(expired.work))], &use_case).await
+        process([("disabled-pending", job(retried.work))], &use_case).await
     );
     assert_eq!(2, provider.calls.load(Ordering::SeqCst));
 }

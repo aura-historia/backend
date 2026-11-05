@@ -50,7 +50,7 @@ async fn fixture(
     Ok((id, source, location))
 }
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn geographic_projection_reads_continue_during_unrelated_work_and_expiry_catch_up() {
+async fn geographic_projection_reads_continue_during_unrelated_work_and_retirement_catch_up() {
     let result: TestResult = async {
         let pool = get_postgres_client().await;
         let (id, _, location) = fixture(&pool).await?;
@@ -60,9 +60,6 @@ async fn geographic_projection_reads_continue_during_unrelated_work_and_expiry_c
             .bind(unrelated_source.to_string()).fetch_one(&pool).await?;
         assert!(pending);
         let reader = SqlxEffectiveListingGeographyBatchReader::new(pool.clone());
-        assert!(reader.read_many(&[id]).await?[&id].business.is_some());
-        sqlx::query("UPDATE product_listing_geographies SET valid_until=clock_timestamp()-interval '1 second' WHERE product_listing_id=$1")
-            .bind(id.into_uuid()).execute(&pool).await?;
         assert!(reader.read_many(&[id]).await?[&id].business.is_some());
         sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1")
             .bind(location).execute(&pool).await?;
@@ -366,7 +363,7 @@ async fn insert_product_with_id(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
+async fn shared_resolution_and_retained_evidence_never_require_per_listing_geocoding() {
     use geo_service::resolution::*;
     let result:TestResult=async{
         let pool=get_postgres_client().await;let (id,source,location)=fixture(&pool).await?;
@@ -386,17 +383,15 @@ async fn shared_resolution_and_expiry_never_require_per_listing_geocoding() {
         sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=true WHERE profile='TEST_G6'").execute(&pool).await?;
         drain(&pool,2).await?;
         assert!(SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
-        // Expiry is reflected by asynchronous projection catch-up.
+        // Evidence has no time limit: neither catch-up nor maintenance drops derived geography
+        // past a deadline the previous bundle wrote, and nothing pays for another call.
         sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution_id.into_uuid()).execute(&pool).await?;
-        sqlx::query("UPDATE product_listing_geographies SET valid_until=clock_timestamp()-interval '1 second'").execute(&pool).await?;
-
-        // Ordinary catch-up clears expired derivatives before maintenance.
         for id in &ids {sqlx::query("SELECT enqueue_listing_geography('LISTING',$1)").bind(id.into_uuid().to_string()).execute(&pool).await?;}
         drain(&pool,2).await?;
-
-        let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;SqlxResolutionRepositoryFactory.resolutions(&mut tx).expire(100).await?;tx.commit().await?;
+        let mut tx=SqlxUnitOfWork::new(pool.clone()).begin().await?;assert_eq!(0,SqlxResolutionRepositoryFactory.resolutions(&mut tx).expire(100).await?);tx.commit().await?;
         drain(&pool,2).await?;
-        let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;assert!(views.values().all(|g|g.business.is_none()));
+        let views=SqlxEffectiveListingGeographyBatchReader::new(pool.clone()).read_many(&ids).await?;assert!(views.values().all(|g|g.business.as_ref().is_some_and(|g|g.country==Some(geo::CountryCode::DEU))));
+        let attempts:i32=sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1").bind(resolution_id.into_uuid()).fetch_one(&pool).await?;assert_eq!(1,attempts);
         Ok(())
     }.await;
     assert!(result.is_ok(), "shared accepted resolution: {result:?}");

@@ -18198,7 +18198,7 @@ components:
       description: >-
         Assessment of a single listing for the authenticated owner's selected browsing destination. Omitted
         under the same conditions as PersonalizedShippingSummaryData. Destination facts include submitted
-        assertions and compatible permitted unexpired derived evidence. Browsing infers no quantity, variant,
+        assertions and compatible permitted derived evidence. Browsing infers no quantity, variant,
         shipment/order count or qualifying amount. This enrichment does not filter or reorder results.
       properties:
         destination: {$ref: '#/components/schemas/DeliveryAssessmentGeography'}
@@ -25648,7 +25648,7 @@ components:
       type: object
       additionalProperties: false
       description: Current backend geocoding state, returned with address CRUD/list reads. A unique compatible premises result can supply a point
-        automatically. Coarse results can supply administrative geography only. Expired or revoked evidence is UNAVAILABLE and suppressed. This is
+        automatically. Coarse results can supply administrative geography only. Evidence has no time limit; revoked evidence is UNAVAILABLE and suppressed. This is
         browsing enrichment, not address or delivery verification.
       required:
       - status

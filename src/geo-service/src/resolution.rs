@@ -9,7 +9,6 @@ use application::{
 use geo::{DerivedGeography, GeographicDescription, SpatialPrecision};
 use sha2::{Digest, Sha256};
 use std::{fmt, time::Duration};
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 domain_primitives::object_id_newtype!(ResolutionId, "gres");
@@ -294,14 +293,10 @@ pub enum ResolutionStatus {
     Blocked,
 }
 impl ResolutionStatus {
-    /// How long unreviewed evidence with this outcome serves before it is reconsidered with a
-    /// new paid call. Provider terms set no limit; a current review retains evidence without one.
-    pub fn retention_period(self) -> Option<time::Duration> {
-        match self {
-            Self::Accepted | Self::NoMatch => Some(time::Duration::days(30)),
-            Self::Ambiguous => Some(time::Duration::days(7)),
-            _ => None,
-        }
+    /// Whether this outcome records provider evidence. Evidence has no time limit: the provider
+    /// terms set none, so it stays until input, Retry, storage rights or bindings change.
+    pub fn carries_evidence(self) -> bool {
+        matches!(self, Self::Accepted | Self::Ambiguous | Self::NoMatch)
     }
     pub fn after_failure(kind: GeocodingFailure, attempt: u32) -> Self {
         match kind {
@@ -370,9 +365,6 @@ pub struct ResolutionView {
     pub guard: u64,
     pub status: ResolutionStatus,
     pub evidence: Option<ResolutionEvidence>,
-    /// Reconsideration deadline of `evidence`; `None` without evidence or while a current
-    /// review retains it without a deadline.
-    pub valid_until: Option<OffsetDateTime>,
     pub selected_candidate: Option<usize>,
     pub last_failure: Option<String>,
     pub attempts: u32,
@@ -597,8 +589,8 @@ pub trait ResolutionRepository: Send {
     ) -> Result<CompletionOutcome, ResolutionError>;
     /// Publish fresh fenced wake-ups for runnable work without resetting paid attempts.
     async fn recover_pending(&mut self, limit: u32) -> Result<u32, ResolutionError>;
-    /// Purge provider derivatives made ineligible by revocation, orphaning or an unreviewed
-    /// reconsideration deadline, and commit invalidation before requeue.
+    /// Purge provider derivatives that revoked storage rights or orphaning made ineligible, and
+    /// commit invalidation before requeue. Evidence never expires by time.
     async fn expire(&mut self, limit: u32) -> Result<u32, ResolutionError>;
     async fn select(
         &mut self,
@@ -844,15 +836,20 @@ mod tests {
         }
         assert_eq!(time::Duration::seconds(30), retry_delay(1));
         assert_eq!(time::Duration::seconds(480), retry_delay(MAX_ATTEMPTS));
-        assert_eq!(
-            Some(time::Duration::days(30)),
-            ResolutionStatus::NoMatch.retention_period()
-        );
-        assert_eq!(
-            Some(time::Duration::days(7)),
-            ResolutionStatus::Ambiguous.retention_period()
-        );
-        assert_eq!(None, ResolutionStatus::Failed.retention_period());
+        for status in [
+            ResolutionStatus::Accepted,
+            ResolutionStatus::Ambiguous,
+            ResolutionStatus::NoMatch,
+        ] {
+            assert!(status.carries_evidence());
+        }
+        for status in [
+            ResolutionStatus::Pending,
+            ResolutionStatus::Failed,
+            ResolutionStatus::Blocked,
+        ] {
+            assert!(!status.carries_evidence());
+        }
     }
 
     use geo::{

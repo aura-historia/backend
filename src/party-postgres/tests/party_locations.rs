@@ -1155,7 +1155,7 @@ async fn country_only_free_text_and_unresolved_sites_persist_without_enrichment(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn public_discovery_admits_current_or_reviewed_derived_country_and_rejects_revoked_expired_or_stale_evidence()
+async fn public_discovery_admits_derived_country_without_a_time_limit_and_rejects_revoked_or_stale_evidence()
  {
     use geo_postgres::SqlxResolutionRepositoryFactory;
     use geo_service::{geocoding::*, resolution::*};
@@ -1263,7 +1263,7 @@ async fn public_discovery_admits_current_or_reviewed_derived_country_and_rejects
         },
     };
     let factory = party_postgres::discovery::SqlxPartyLocationDiscoveryReaderFactory;
-    for phase in 0..6 {
+    for phase in 0..4 {
         match phase {
             1 => {
                 sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
@@ -1284,33 +1284,8 @@ async fn public_discovery_admits_current_or_reviewed_derived_country_and_rejects
                     .execute(&pool)
                     .await
                     .unwrap();
+                // A deadline the previous bundle wrote no longer hides evidence.
                 sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
-            }
-            4 => {
-                // Another binding's current review retains the shared evidence past its
-                // reconsideration deadline.
-                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()+interval '1 hour' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
-                let reviewer = ResolutionBinding {
-                    subject: ResolutionSubject::new(
-                        RetentionPurpose::PartyLocation,
-                        uuid::Uuid::now_v7(),
-                    )
-                    .unwrap(),
-                    ..binding
-                };
-                let mut tx = uow.begin().await.unwrap();
-                let mut resolutions = SqlxResolutionRepositoryFactory.resolutions(&mut tx);
-                assert_eq!(id, resolutions.bind(&input, reviewer).await.unwrap());
-                resolutions
-                    .select(reviewer, view.work, 0, "test-reviewer")
-                    .await
-                    .unwrap();
-                drop(resolutions);
-                tx.commit().await.unwrap();
-                sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(id.into_uuid()).execute(&pool).await.unwrap();
-            }
-            5 => {
-                sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false WHERE profile='TEST_G7'").execute(&pool).await.unwrap();
             }
             _ => {}
         }
@@ -1320,7 +1295,7 @@ async fn public_discovery_admits_current_or_reviewed_derived_country_and_rejects
             .discover(&request)
             .await
             .unwrap();
-        assert_eq!(usize::from(matches!(phase, 0 | 4)), result.items.len());
+        assert_eq!(usize::from(matches!(phase, 0 | 3)), result.items.len());
         if let Some(item) = result.items.first() {
             assert_eq!("ACCEPTED_DERIVED", item.basis);
             assert_eq!(Some(CountryCode::DEU), item.country);

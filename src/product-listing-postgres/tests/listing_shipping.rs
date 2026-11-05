@@ -599,7 +599,7 @@ async fn accepted_country_resolution(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_projection_data() {
+async fn explicit_sites_resolution_and_rights_invalidate_without_private_projection_data() {
     use shipping_core::{coverage::*, inputs::Applicability, terms::*};
     let pool = get_postgres_client().await;
     let (source, profile, ids) = seed(&pool).await;
@@ -825,21 +825,24 @@ async fn explicit_sites_resolution_rights_and_expiry_invalidate_without_private_
         "DE",
         summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
+    // Evidence has no time limit: maintenance keeps shipping geography past a deadline the
+    // previous bundle wrote.
     sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second' WHERE resolution_id=$1").bind(resolution.into_uuid()).execute(&pool).await.unwrap();
     let mut maintenance = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     use geo_service::resolution::{ResolutionRepository, ResolutionRepositoryFactory};
-    geo_postgres::SqlxResolutionRepositoryFactory
-        .resolutions(&mut maintenance)
-        .expire(100)
-        .await
-        .unwrap();
+    assert_eq!(
+        0,
+        geo_postgres::SqlxResolutionRepositoryFactory
+            .resolutions(&mut maintenance)
+            .expire(100)
+            .await
+            .unwrap()
+    );
     maintenance.commit().await.unwrap();
     drain(&pool).await;
-    assert!(
-        summary(&pool, ids[0]).await["country_offers"]
-            .as_array()
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        "DE",
+        summary(&pool, ids[0]).await["country_offers"][0]["country"]
     );
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("UPDATE party_locations SET lifecycle='RETIRED',revision=revision+1 WHERE party_location_id=$1").bind(location).execute(&mut *tx).await.unwrap();

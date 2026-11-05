@@ -545,9 +545,8 @@ rights withdrawal requires faster erasure. Readers suppress ineligible evidence 
 listing search accepts projection lag while removal propagates.
 
 Inspect only safe metadata: binding identity, generation, lease, attempts, failure category,
-deadline and budgets; reviewed evidence keeps a passed deadline by design, not from stalled
-cleanup. Monitor resolution reuse/outcomes, oldest pending age, maintenance counts, queue
-age/depth/DLQ and cleanup failures. Structured log fields are observations, not
+deadline and budgets. Monitor resolution reuse/outcomes, oldest pending age, maintenance
+counts, queue age/depth/DLQ and cleanup failures. Structured log fields are observations, not
 provisioned metric filters; BLOCKED/FAILED work is acknowledged rather than retained, so inspect
 the recorded `geo_resolution_outcome` and resolution state for it. Never include private input
 or provider payloads in logs, operator evidence or replay messages.
@@ -602,7 +601,7 @@ repopulate a missing index when derived values are unchanged. Preserve checkpoin
 projection versions and deletion tombstones. Repeat source traversal if source creation
 overlaps it; listing journals independently cover concurrent listings.
 
-Monitor oldest pending work, expired claims, retention deadlines, projection queue lag and
+Monitor oldest pending work, expired claims, projection queue lag and
 backlog age, failures/DLQ, version/fence correctness and rebuildability. Product projector
 acknowledgment means OpenSearch accepted the write or external versioning fenced it as stale.
 Search visibility follows the normal refresh cycle; no persisted acknowledgment claims

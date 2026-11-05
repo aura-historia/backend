@@ -1152,9 +1152,9 @@ async fn review_verifies_current_candidate_and_binding_and_revocation_purges_all
         .execute(&pool)
         .await
         .unwrap();
+    // A deadline the previous bundle wrote neither hides the evidence nor drops the review.
     let reviewed = inspect(&pool, location_binding(&changed)).await.unwrap();
     assert_eq!(Some(0), reviewed.selected_candidate);
-    assert!(reviewed.valid_until.is_none());
     assert!(reviewed.accepted_geography().unwrap().position().is_some());
     sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false")
         .execute(&pool)
@@ -1243,14 +1243,12 @@ async fn detach(pool: &PgPool, b: ResolutionBinding) {
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn reviewed_evidence_outlives_its_deadline_until_its_last_review_ends() {
+async fn evidence_has_no_time_limit_and_cleanup_purges_only_orphaned_evidence() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
-    let owner = Uuid::now_v7();
-    let a = input(owner, "Synthetic reviewed site");
+    let a = input(Uuid::now_v7(), "Synthetic retained site");
     let (first, second) = (binding(), binding());
     let w = bind(&pool, &a, first).await;
-    assert_eq!(w, bind(&pool, &a, second).await);
     let ClaimOutcome::Claimed(c) = claim(&pool, w).await else {
         panic!("claim required");
     };
@@ -1263,23 +1261,27 @@ async fn reviewed_evidence_outlives_its_deadline_until_its_last_review_ends() {
         )
         .await
     );
+    // The previous bundle still reads `valid_until` as a deadline; new evidence never reaches it.
+    let unreachable: bool = sqlx::query_scalar(
+        "SELECT valid_until='9999-12-31T00:00:00Z'::timestamptz FROM geo_resolutions WHERE resolution_id=$1",
+    )
+    .bind(w.id.into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(unreachable);
     review(&pool, first, w).await;
+
+    // A deadline the previous bundle wrote neither hides, purges nor refreshes evidence.
     sqlx::query("UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'")
         .execute(&pool)
         .await
         .unwrap();
-
-    // One current review retains the shared evidence for every binding, without a deadline.
     assert_eq!(0, expire(&pool).await);
-    let reviewed = inspect(&pool, first).await.unwrap();
-    assert_eq!(w, reviewed.work);
-    assert_eq!(Some(0), reviewed.selected_candidate);
-    assert!(reviewed.valid_until.is_none());
-    assert!(reviewed.accepted_geography().unwrap().position().is_some());
-    let sharing = inspect(&pool, second).await.unwrap();
-    assert!(sharing.selected_candidate.is_none());
-    assert!(sharing.valid_until.is_none());
-    assert!(sharing.accepted_geography().unwrap().position().is_none());
+    let retained = inspect(&pool, first).await.unwrap();
+    assert_eq!(w, retained.work);
+    assert_eq!(Some(0), retained.selected_candidate);
+    assert!(retained.accepted_geography().unwrap().position().is_some());
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(tx.connection())
@@ -1292,57 +1294,34 @@ async fn reviewed_evidence_outlives_its_deadline_until_its_last_review_ends() {
         .unwrap();
     assert_eq!(Some(0), snapshot.selected_candidate);
     tx.commit().await.unwrap();
-    // Retained evidence settles redeliveries without reserving another paid call, still
-    // accepts review and serves a newly bound subject from cache.
+    // Redeliveries settle without reserving a paid call; a new binding reuses the cache
+    // and can still be reviewed.
     let calls = provider_calls(&pool).await;
     assert!(matches!(claim(&pool, w).await, ClaimOutcome::Complete));
     assert_eq!(calls, provider_calls(&pool).await);
+    assert_eq!(w, bind(&pool, &a, second).await);
     review(&pool, second, w).await;
-    let third = binding();
-    assert_eq!(w, bind(&pool, &a, third).await);
-    assert!(inspect(&pool, third).await.unwrap().evidence.is_some());
     let resolved: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM geo_resolution_changes WHERE change_kind='RESOLVED' AND subject_id=$1",
     )
-    .bind(third.subject.id())
+    .bind(second.subject.id())
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(1, resolved);
 
-    // Detaching one reviewer leaves the other review retaining the evidence.
-    detach(&pool, second).await;
+    // Losing every binding is what purges evidence, with its selections.
+    detach(&pool, first).await;
     assert_eq!(0, expire(&pool).await);
-    assert!(inspect(&pool, third).await.unwrap().evidence.is_some());
-
-    // Changed input ends the last review and returns past-deadline evidence to ordinary expiry.
-    let moved = ResolutionBinding {
-        input_revision: 2,
-        guard: 2,
-        ..first
-    };
-    assert_ne!(
-        w.id,
-        bind(&pool, &input(owner, "Synthetic moved site"), moved)
-            .await
-            .id
-    );
-    assert!(inspect(&pool, third).await.unwrap().evidence.is_none());
+    detach(&pool, second).await;
     assert_eq!(1, expire(&pool).await);
-    let refreshed = inspect(&pool, third).await.unwrap();
-    assert_eq!(w.generation + 1, refreshed.work.generation);
-    assert_eq!(ResolutionStatus::Pending, refreshed.status);
-    let attempts: i32 =
-        sqlx::query_scalar("SELECT attempts FROM geo_resolutions WHERE resolution_id=$1")
+    let purged: bool =
+        sqlx::query_scalar("SELECT evidence IS NULL FROM geo_resolutions WHERE resolution_id=$1")
             .bind(w.id.into_uuid())
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(0, attempts);
-    assert!(matches!(
-        claim(&pool, refreshed.work).await,
-        ClaimOutcome::Claimed(_)
-    ));
+    assert!(purged);
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
@@ -1575,7 +1554,7 @@ async fn maintenance_recovery_preserves_paid_attempts_and_skips_live_or_locked_w
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn negative_results_reuse_until_reconsideration_and_terms_revocation_fails_closed() {
+async fn negative_results_are_reused_and_terms_revocation_fails_closed() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     for outcome in [
@@ -1917,7 +1896,7 @@ async fn bounded_resolution_reads_preserve_order_missing_entries_and_duplicates(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates() {
+async fn repeatable_read_only_snapshot_keeps_the_permission_gate_without_a_time_limit() {
     let pool = get_postgres_client().await;
     configure(&pool).await;
     let i = input(Uuid::now_v7(), "Synthetic snapshot site");
@@ -1935,8 +1914,8 @@ async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates
         )
         .await
     );
-    for state in ["accepted", "expired", "revoked"] {
-        if state == "expired" {
+    for state in ["accepted", "legacy_deadline_passed", "revoked"] {
+        if state == "legacy_deadline_passed" {
             sqlx::query(
                 "UPDATE geo_resolutions SET valid_until=clock_timestamp()-interval '1 second'",
             )
@@ -1945,12 +1924,6 @@ async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates
             .unwrap();
         }
         if state == "revoked" {
-            sqlx::query(
-                "UPDATE geo_resolutions SET valid_until=clock_timestamp()+interval '1 hour'",
-            )
-            .execute(&pool)
-            .await
-            .unwrap();
             sqlx::query("UPDATE geo_resolution_provider_controls SET storage_permitted=false")
                 .execute(&pool)
                 .await
@@ -1968,7 +1941,7 @@ async fn repeatable_read_only_snapshot_keeps_permission_and_logical_expiry_gates
         assert_eq!(2, snapshots.len());
         assert!(snapshots[1].is_none());
         assert_eq!(
-            state == "accepted",
+            state != "revoked",
             snapshots[0]
                 .as_ref()
                 .unwrap()

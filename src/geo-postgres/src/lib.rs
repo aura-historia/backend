@@ -24,7 +24,7 @@ impl ResolutionRepositoryFactory<SqlxTransaction> for SqlxResolutionRepositoryFa
     }
 }
 impl SqlxResolutionRepositoryFactory {
-    /// Read permitted, unexpired evidence inside an already established repeatable read
+    /// Read permitted evidence inside an already established repeatable read
     /// transaction. This reader takes no row locks and performs no writes or provider I/O.
     pub fn snapshot_reader(connection: &mut PgConnection) -> impl ResolutionReader + '_ {
         SnapshotReader(Repository { connection })
@@ -135,52 +135,13 @@ fn valid_evidence(e: &ResolutionEvidence, input: &ResolutionInput, profile: &str
             .is_some_and(|p| p.precision() == geo::SpatialPrecision::Premises)
 }
 
-/// SQL truth of "a current review retains this resolution's evidence" for a query that aliases
-/// `geo_resolutions` as `r`. A selection is current while it names the reviewed generation.
-macro_rules! reviewed_sql {
+/// SQL truth of "cleanup must purge `r`'s evidence" for a query that joins provider controls
+/// as `c`. Evidence has no time limit: only revoked storage rights or losing every binding
+/// purge it.
+macro_rules! purgeable_sql {
     () => {
-        "EXISTS(SELECT 1 FROM geo_resolution_bindings s WHERE s.resolution_id=r.resolution_id AND s.selected_generation=r.generation)"
+        "(NOT c.storage_permitted OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id))"
     };
-}
-/// SQL truth of "cleanup must purge `r`'s evidence" for a query that joins provider controls as
-/// `c` and binds the cleanup clock to `$1`. Reviewed evidence has no deadline, so only
-/// revocation or orphaning purges it.
-macro_rules! expirable_sql {
-    () => {
-        concat!(
-            "((r.valid_until<=$1 AND NOT ",
-            reviewed_sql!(),
-            ") OR NOT c.storage_permitted OR NOT EXISTS(SELECT 1 FROM geo_resolution_bindings b WHERE b.resolution_id=r.resolution_id))"
-        )
-    };
-}
-/// Resolution-wide facts, read beside a resolution row, that decide whether its evidence is current.
-#[derive(FromRow)]
-struct RetentionFacts {
-    storage_permitted: bool,
-    /// See [`reviewed_sql`].
-    reviewed: bool,
-}
-/// Whether persisted evidence still serves the bindings of its resolution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EvidenceEligibility {
-    /// No evidence, revoked storage rights or an unreviewed passed reconsideration deadline.
-    Ineligible,
-    /// Unreviewed evidence serves until this reconsideration deadline.
-    Until(OffsetDateTime),
-    /// A current review retains the evidence without a reconsideration deadline.
-    Reviewed,
-}
-impl EvidenceEligibility {
-    fn is_current(self) -> bool {
-        self != Self::Ineligible
-    }
-    fn deadline(self) -> Option<OffsetDateTime> {
-        match self {
-            Self::Until(until) => Some(until),
-            Self::Ineligible | Self::Reviewed => None,
-        }
-    }
 }
 
 #[derive(FromRow)]
@@ -199,7 +160,6 @@ struct ResolutionRow {
     lease_until: Option<OffsetDateTime>,
     next_attempt_at: OffsetDateTime,
     evidence: Option<serde_json::Value>,
-    valid_until: Option<OffsetDateTime>,
     last_failure: Option<String>,
 }
 impl ResolutionRow {
@@ -211,10 +171,8 @@ impl ResolutionRow {
             || input.budget_key() != self.scope_key
             || self.generation <= 0
             || !(0..=5).contains(&self.attempts)
-            || ResolutionStatus::from_code(&self.status).is_none()
-            || (matches!(self.status.as_str(), "ACCEPTED" | "AMBIGUOUS" | "NO_MATCH")
-                != self.evidence.is_some())
-            || self.evidence.is_some() != self.valid_until.is_some()
+            || ResolutionStatus::from_code(&self.status)
+                .is_none_or(|status| status.carries_evidence() != self.evidence.is_some())
             || self.last_failure.as_deref().is_some_and(|code| {
                 GeocodingFailure::from_code(code).is_none() && code != "LEASE_ATTEMPTS_EXHAUSTED"
             })
@@ -238,15 +196,10 @@ impl ResolutionRow {
             })
             .transpose()
     }
-    /// Storage rights gate all evidence. A current review retains it without a deadline;
-    /// unreviewed evidence lapses at its reconsideration deadline.
-    fn eligibility(&self, facts: &RetentionFacts, now: OffsetDateTime) -> EvidenceEligibility {
-        match self.valid_until {
-            Some(_) if !facts.storage_permitted => EvidenceEligibility::Ineligible,
-            Some(_) if facts.reviewed => EvidenceEligibility::Reviewed,
-            Some(until) if until > now => EvidenceEligibility::Until(until),
-            _ => EvidenceEligibility::Ineligible,
-        }
+    /// Evidence serves its bindings while storage rights permit retaining it. It has no time
+    /// limit; see `docs/geography.md#durable-resolution-and-party-integration-2002`.
+    fn evidence_eligible(&self, storage_permitted: bool) -> bool {
+        storage_permitted && self.evidence.is_some()
     }
 }
 #[derive(FromRow)]
@@ -274,7 +227,7 @@ impl Repository<'_> {
         sqlx::query_as(
             r#"
             SELECT
-            resolution_id,erased,fingerprint,profile,policy_version,scope_key,input,generation,status,attempts,lease_token,lease_until,next_attempt_at,evidence,valid_until,last_failure
+            resolution_id,erased,fingerprint,profile,policy_version,scope_key,input,generation,status,attempts,lease_token,lease_until,next_attempt_at,evidence,last_failure
             FROM geo_resolutions WHERE resolution_id=$1 FOR NO KEY UPDATE
             "#,
         ).bind(id.into_uuid()).fetch_optional(&mut *self.connection).await.map_err(sql_error)
@@ -309,27 +262,19 @@ impl Repository<'_> {
             "#,
         ).bind(profile).fetch_optional(&mut *self.connection).await.map_err(sql_error)?.ok_or_else(corrupt)
     }
-    /// Read the resolution-wide facts that decide whether `r`'s evidence is current.
-    async fn evidence_eligibility(
-        &mut self,
-        r: &ResolutionRow,
-        now: OffsetDateTime,
-    ) -> Result<EvidenceEligibility, ResolutionError> {
-        if r.valid_until.is_none() {
-            return Ok(EvidenceEligibility::Ineligible);
+    /// Read the storage right that decides whether `r`'s evidence serves its bindings.
+    async fn evidence_eligible(&mut self, r: &ResolutionRow) -> Result<bool, ResolutionError> {
+        if r.evidence.is_none() {
+            return Ok(false);
         }
-        let facts: RetentionFacts = sqlx::query_as(concat!(
-            "SELECT c.storage_permitted,",
-            reviewed_sql!(),
-            r#" AS reviewed FROM geo_resolutions r
-            JOIN geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.resolution_id=$1
-            "#,
-        ))
-        .bind(r.resolution_id)
+        let permitted = sqlx::query_scalar(
+            "SELECT storage_permitted FROM geo_resolution_provider_controls WHERE profile=$1",
+        )
+        .bind(&r.profile)
         .fetch_one(&mut *self.connection)
         .await
         .map_err(sql_error)?;
-        Ok(r.eligibility(&facts, now))
+        Ok(r.evidence_eligible(permitted))
     }
     async fn is_bound(&mut self, id: ResolutionId) -> Result<bool, ResolutionError> {
         sqlx::query_scalar(
@@ -499,8 +444,7 @@ impl ResolutionRepository for Repository<'_> {
                     .bind(old).execute(&mut *self.connection).await.map_err(sql_error)?;
             }
         }
-        let now = self.clock().await?;
-        if source_changed && self.evidence_eligibility(&row, now).await?.is_current() {
+        if source_changed && self.evidence_eligible(&row).await? {
             row.evidence(&stored_input)?;
             // A cached result has no new completion or CDC wake-up. Notify
             // dependents when it becomes current for a new source binding.
@@ -557,11 +501,11 @@ impl ResolutionRepository for Repository<'_> {
         if !self.is_bound(w.id).await? {
             return Ok(ClaimOutcome::Complete);
         }
-        if self.evidence_eligibility(&r, now).await?.is_current() {
+        if r.evidence_eligible(control.storage_permitted) {
             r.evidence(&input)?;
             return Ok(ClaimOutcome::Complete);
         }
-        // Settled work runs again only after expiry, revocation, recovery or Retry advances
+        // Settled work runs again only after revocation, orphaning, recovery or Retry advances
         // its generation, which publishes a new wake-up.
         if ResolutionStatus::from_code(&r.status).ok_or_else(corrupt)? != ResolutionStatus::Pending
         {
@@ -656,22 +600,24 @@ impl ResolutionRepository for Repository<'_> {
         };
         match completion {
             ResolutionCompletion::Evidence(e) => {
-                let retention = e
-                    .status
-                    .retention_period()
-                    .ok_or(ResolutionError::InvalidInput)?;
+                if !e.status.carries_evidence() {
+                    return Err(ResolutionError::InvalidInput);
+                }
                 let data = encode(&EvidenceData::from(&e))?;
                 let _: ResolutionEvidence = decode::<EvidenceData>(data.clone())?.try_into()?;
                 if !valid_evidence(&e, &persisted_input, &c.profile) {
                     return Err(ResolutionError::InvalidInput);
                 }
+                // Evidence has no time limit. `valid_until` stays populated with a never-reached
+                // instant only until a later release drops the column: the previous bundle
+                // still reads it as a deadline.
                 sqlx::query(
                     r#"
                     UPDATE geo_resolutions SET
-                    status=$2,evidence=$3,valid_until=$4,last_failure=NULL,lease_token=NULL,lease_until=NULL WHERE
-                    resolution_id=$1
+                    status=$2,evidence=$3,valid_until='9999-12-31T00:00:00Z',last_failure=NULL,lease_token=NULL,
+                    lease_until=NULL WHERE resolution_id=$1
                     "#,
-                ).bind(c.work.id.into_uuid()).bind(e.status.as_str()).bind(data).bind(now+retention).execute(&mut *self.connection).await.map_err(sql_error)?;
+                ).bind(c.work.id.into_uuid()).bind(e.status.as_str()).bind(data).execute(&mut *self.connection).await.map_err(sql_error)?;
                 sqlx::query("UPDATE geo_resolution_provider_controls SET consecutive_failures=0,open_until=NULL WHERE profile=$1").bind(&c.profile).execute(&mut *self.connection).await.map_err(sql_error)?;
                 self.signal(c.work, "RESOLVED", None).await?;
                 Ok(CompletionOutcome::Recorded(e.status))
@@ -784,10 +730,9 @@ impl ResolutionRepository for Repository<'_> {
             r#"
             SELECT r.resolution_id,r.generation FROM geo_resolutions r JOIN
             geo_resolution_provider_controls c ON c.profile=r.profile WHERE r.evidence IS NOT NULL AND "#,
-            expirable_sql!(),
-            " ORDER BY r.valid_until LIMIT $2 FOR NO KEY UPDATE OF r SKIP LOCKED",
+            purgeable_sql!(),
+            " ORDER BY r.resolution_id LIMIT $1 FOR NO KEY UPDATE OF r SKIP LOCKED",
         ))
-        .bind(now)
         .bind(i64::from(limit))
         .fetch_all(&mut *self.connection)
         .await
@@ -796,8 +741,8 @@ impl ResolutionRepository for Repository<'_> {
         for (id, g) in rows {
             let next = g.checked_add(1).ok_or_else(corrupt)?;
             let w = work(id, next)?;
-            // The candidate snapshot predates this lock. Selection needs the same lock, so
-            // rechecking on a fresh statement keeps a review committed in between.
+            // The candidate snapshot predates this lock. Binding needs the same lock, so
+            // rechecking on a fresh statement keeps evidence a new binding attached in between.
             let purged = sqlx::query(concat!(
                 r#"
                 UPDATE geo_resolutions r SET
@@ -805,7 +750,7 @@ impl ResolutionRepository for Repository<'_> {
                 status=CASE WHEN c.storage_permitted THEN 'PENDING' ELSE 'BLOCKED' END,next_attempt_at=$1,
                 pending_since=$1,last_failure=CASE WHEN c.storage_permitted THEN NULL ELSE 'STORAGE_NOT_PERMITTED' END
                 FROM geo_resolution_provider_controls c WHERE r.resolution_id=$2 AND c.profile=r.profile AND "#,
-                expirable_sql!(),
+                purgeable_sql!(),
             ))
             .bind(now)
             .bind(id)
@@ -843,10 +788,7 @@ impl ResolutionRepository for Repository<'_> {
             .ok_or(ResolutionError::Missing)?;
         let r = self.row(w.id).await?.ok_or(ResolutionError::Missing)?;
         let input = r.input()?;
-        let now = self.clock().await?;
-        if r.generation as u64 != w.generation
-            || !self.evidence_eligibility(&r, now).await?.is_current()
-        {
+        if r.generation as u64 != w.generation || !self.evidence_eligible(&r).await? {
             return Err(ResolutionError::Conflict);
         }
         let e = r.evidence(&input)?.ok_or(ResolutionError::Conflict)?;
@@ -942,34 +884,28 @@ struct BindingReadRow {
     guard: i64,
     selected_candidate: Option<i32>,
     selected_generation: Option<i64>,
-    #[sqlx(flatten)]
-    retention: RetentionFacts,
+    storage_permitted: bool,
 }
 impl ResolutionRow {
-    fn view(
-        &self,
-        binding: &BindingReadRow,
-        now: OffsetDateTime,
-    ) -> Result<ResolutionView, ResolutionError> {
+    fn view(&self, binding: &BindingReadRow) -> Result<ResolutionView, ResolutionError> {
         let input = self.input()?;
         if binding.subject_kind != input.purpose().as_str() {
             return Err(corrupt());
         }
-        let eligibility = self.eligibility(&binding.retention, now);
-        let evidence = if eligibility.is_current() {
+        let eligible = self.evidence_eligible(binding.storage_permitted);
+        let evidence = if eligible {
             self.evidence(&input)?
         } else {
             None
         };
-        let selected =
-            if binding.selected_generation == Some(self.generation) && eligibility.is_current() {
-                binding
-                    .selected_candidate
-                    .map(|i| usize::try_from(i).map_err(invalid))
-                    .transpose()?
-            } else {
-                None
-            };
+        let selected = if binding.selected_generation == Some(self.generation) && eligible {
+            binding
+                .selected_candidate
+                .map(|i| usize::try_from(i).map_err(invalid))
+                .transpose()?
+        } else {
+            None
+        };
         if let Some(index) = selected {
             let candidate = evidence
                 .as_ref()
@@ -986,7 +922,6 @@ impl ResolutionRow {
             guard: u64::try_from(binding.guard).map_err(invalid)?,
             status: ResolutionStatus::from_code(&self.status).ok_or_else(corrupt)?,
             evidence,
-            valid_until: eligibility.deadline(),
             selected_candidate: selected,
             last_failure: self.last_failure.clone(),
             attempts: self.attempts as u32,
@@ -1042,26 +977,24 @@ impl Repository<'_> {
                 .bind(profiles).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
         }
         // Lock each resolution once in stable order, then reread and lock bindings.
-        // This preserves selection/expiry coordination with a constant query count.
+        // This preserves selection/cleanup coordination with a constant query count.
         let rows: Vec<ResolutionRow> = sqlx::query_as(
             if lock { "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id FOR NO KEY UPDATE" }
             else { "SELECT r.* FROM geo_resolutions r WHERE resolution_id=ANY($1) ORDER BY resolution_id" },
         ).bind(&ids).fetch_all(&mut *self.connection).await.map_err(sql_error)?;
         let rows: std::collections::HashMap<_, _> =
             rows.into_iter().map(|r| (r.resolution_id, r)).collect();
-        let mut binding_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(concat!(
+        let mut binding_query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
             r#"
             SELECT b.subject_kind,b.subject_id,b.resolution_id,b.input_revision,b.guard,
-                b.selected_candidate,b.selected_generation,c.storage_permitted,"#,
-            reviewed_sql!(),
-            r#" AS reviewed
+                b.selected_candidate,b.selected_generation,c.storage_permitted
             FROM geo_resolution_bindings b
             JOIN unnest($1::text[],$2::uuid[]) AS wanted(subject_kind,subject_id) USING(subject_kind,subject_id)
             JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
             JOIN geo_resolution_provider_controls c ON c.profile=r.profile
             WHERE b.resolution_id=ANY($3) ORDER BY b.subject_kind,b.subject_id
             "#,
-        ));
+        );
         if lock {
             binding_query.push(" FOR SHARE OF b");
         }
@@ -1077,13 +1010,12 @@ impl Repository<'_> {
             .into_iter()
             .map(|b| ((b.subject_kind.clone(), b.subject_id), b))
             .collect();
-        let now = self.clock().await?;
         subjects
             .iter()
             .map(|s| {
                 bindings
                     .get(&(s.kind().as_str().to_owned(), s.id()))
-                    .map(|b| rows.get(&b.resolution_id).ok_or_else(corrupt)?.view(b, now))
+                    .map(|b| rows.get(&b.resolution_id).ok_or_else(corrupt)?.view(b))
                     .transpose()
             })
             .collect()

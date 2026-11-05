@@ -669,7 +669,7 @@ async fn saved_filters_survive_bookmark_changes_and_are_erased_with_the_account(
 }
 
 #[aura_integration_test(services=[SCHEMA], isolated = true)]
-async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
+async fn automatic_geocoding_without_expiry_snapshots_and_unrelated_preferences() {
     let (pool, h, a, b) = fixture().await;
     sqlx::query("UPDATE geo_resolution_provider_controls SET enabled=true,storage_permitted=true")
         .execute(&pool)
@@ -792,6 +792,7 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
     assert_eq!(1, unchanged_input.input_revision);
     assert_eq!(current.work, unchanged_input.work);
     assert_eq!(None, unchanged_input.selected_candidate);
+    // Evidence has no time limit: a deadline the previous bundle wrote does not hide it.
     sqlx::query(
         "UPDATE geo_resolutions SET valid_until=now()-interval '1 second' WHERE resolution_id=$1",
     )
@@ -804,7 +805,7 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
             .await
             .unwrap()
             .derived
-            .is_none()
+            .is_some()
     );
     assert!(
         inspect(&pool, &h, &a, id)
@@ -812,7 +813,7 @@ async fn automatic_geocoding_expiry_snapshots_and_unrelated_preferences() {
             .unwrap()
             .unwrap()
             .evidence
-            .is_none()
+            .is_some()
     );
     h.delete(&a, id, 2).await.unwrap();
     assert!(snapshot.derived.unwrap().position().is_some());

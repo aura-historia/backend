@@ -210,27 +210,24 @@ select a compatible candidate using current location revision and resolution gen
 Explicit point selection requires premises evidence. A selected candidate applies only to its
 binding, not other locations reusing the result; submitted assertions always retain precedence.
 
-Unreviewed evidence has a reconsideration deadline. It is freshness policy, since the
-[provider terms](#provider-terms-and-retention-gate) impose none. After the deadline, readers
-suppress the evidence and cleanup purges it and requeues one paid call. A current selection
-retains its resolution's evidence without a deadline for every binding that shares the
-resolution, so passing time never forces a review to be repeated. Changed input, forced Retry
-and detachment end a review; revocation and erasure take precedence over it. Once no current
-selection remains, past-deadline evidence follows ordinary expiry.
+Evidence has no time limit, since the [provider terms](#provider-terms-and-retention-gate)
+impose none: time alone never causes another paid call or a repeated review. Only changed
+input, forced Retry, storage-rights revocation, erasure or losing every binding replace or
+purge evidence and its selections.
 
 Claims reserve provider/scope budgets before I/O and retain no transaction during the call.
 Completion rechecks lease, generation, current bindings and storage rights, then commits
-permitted evidence and a minimal signal. Reads suppress stale, expired or revoked evidence
+permitted evidence and a minimal signal. Reads suppress stale or revoked evidence
 immediately. Database coordination follows provider → resolution → binding lock order.
-Read-only repeatable snapshots use the same permission and logical-expiry gates without
+Read-only repeatable snapshots use the same permission gate without
 acquiring mutation locks; [shipping assessment](shipping.md#shipping-on-listing-reads)
 uses these current facts instead of the listing-geography projection.
 
 Retries are bounded, with backoff, concurrency/daily budgets and a circuit for provider
 health failures. Unsupported input remains an input failure; errors never become no-match.
 A paid-call/commit crash can incur another call after lease expiry. Reservations and stale
-reply fences survive invalidation; exactly-once charging is not promised. Expiry, revocation,
-orphan cleanup and lost-delivery recovery are bounded and run even with paid calls disabled.
+reply fences survive invalidation; exactly-once charging is not promised. Revocation, orphan
+cleanup and lost-delivery recovery are bounded and run even with paid calls disabled.
 The [worker runbook](durable-worker-runbook.md#geographic-resolution-recovery) owns recovery.
 
 ## Effective listing geography (#2003)
@@ -255,7 +252,7 @@ in the same transaction; canonical revision and public history remain unchanged.
 ### Eventual projection consistency
 
 Listing search and geographic filter matching use available projections while durable
-invalidation catches up. Retirement, restrictive applicability, rights revocation and expiry
+invalidation catches up. Retirement, restrictive applicability and rights revocation
 can briefly leave earlier geography in results, ordering, counts and continuation. There is
 no global query gate. Writers reread current authority; versions/tombstones fence stale
 writes. PostgreSQL is authoritative; OpenSearch is a rebuildable, eventually consistent read

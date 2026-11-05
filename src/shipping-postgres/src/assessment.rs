@@ -247,9 +247,6 @@ impl LocationRow {
             (None, None)
         };
         Ok(LocationDependency {
-            valid_until: resolved
-                .filter(|r| r.accepted_geography().is_some())
-                .and_then(|r| r.valid_until),
             location: PartyLocation::rehydrate(
                 PartyLocationId::try_from(row.party_location_id).map_err(invalid)?,
                 PartyId::try_from(row.party_id).map_err(invalid)?,
