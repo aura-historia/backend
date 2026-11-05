@@ -119,7 +119,7 @@ async fn should_list_canonical_notifications_without_legacy_fields_and_follow_cu
         serde_json::json!("Acceptance Listing Source"),
         item["payload"]["listingSourceName"]
     );
-    assert!(item["payload"].get("image").is_some());
+    assert!(item["payload"].get("image").is_none());
     for internal_field in [
         "originEventId",
         "deliveryChannel",

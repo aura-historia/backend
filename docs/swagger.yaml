@@ -23,7 +23,8 @@ info:
     \ its value; `null` for any other member returns `400 BAD_BODY_VALUE`.\n  Use `[]`, not `null`, to replace a non-null\
     \ collection with an empty collection. Empty HTTP\n  bodies are invalid, `{}` is a valid object-PATCH no-op, and the partner-product\
     \ PATCH `[]`\n  remains a valid empty batch. Responses omit absent values\
-    \ and never contain `null` object members.\n- Product detail, watchlist,\
+    \ instead of returning `null` members; only advertised shipping terms, shipping profile content and listing delivery\
+    \ documents keep their required `null` members.\n- Product detail, watchlist,\
     \ and saved-search match reads accept optional **`language`** and\n  **`currency`** parameters. Currency defaults to `EUR`.\
     \ Detail pricing contains the seller's source\n  amounts, converted display amounts, and FX valuation metadata. Active\
     \ product-listings use the latest persisted\n  snapshot; sold product-listings use their immutable sale snapshot. Product\
@@ -25422,6 +25423,7 @@ components:
           description: Opaque cursor, omitted on the terminal page.
     PublicAuctionDirectoryCursorData:
       type: object
+      description: Returned without `null` members. Cursors that still carry `null` for an absent member remain accepted.
       additionalProperties: false
       required: [created, auctionId, scope]
       properties:

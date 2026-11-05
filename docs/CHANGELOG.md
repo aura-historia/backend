@@ -4,10 +4,10 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-05 — Responses omit absent values instead of `null` (#2785)
 
-- **Breaking change:** REST responses and MCP tool results no longer contain `null` object members; an absent value is now an omitted member. This affects, among others, listing `availability`, `contentPolicy`, `auction` and `lot`, lot and auction schedule instants, image `url` for hidden images (now an empty image object), product history `previous`/`current`, watchlist and search-filter notification `title`, `image`, prices and availability, public and admin Auction `name`, `format`, `reportedStatus`, `catalogueUrl`, `viewUrl` and `reportedLotCount`, admin listing summary and detail fields, partnership application approval references, `next` page cursors of Party location, location resolution and user address pages, `{"resolution": ...}` of the location resolution routes (now `{}` without geocoding work), listing delivery `delivery`, shipping and location default `assignment`, `shippingProfileId` and `eligibility`, and user address `resolution.derived`/`attribution`. Treat a missing member like the former `null`.
+- **Breaking change:** REST responses and MCP tool results omit absent members instead of returning `null`. Treat a missing member like the former `null`. A hidden image is now an empty image object, and the Party location resolution routes return `{}` when a location has no geocoding work.
 - The public Auction directory `searchAfter` object omits absent `scope` members and `scheduled`. Cursors that still contain `null` members remain valid; an unsorted cursor carrying `scheduled` returns `400`.
 - MCP tools with a bodyless outcome (`deleteWatchlistProduct`, `deleteUserAddress`, `deleteUserSearchFilter` and the notification seen and delete tools) return `{}` instead of `{"result": null}`.
-- Unchanged: requests still accept `null` where documented, for example to clear a PATCH member. Advertised shipping terms and listing delivery configuration documents keep their required `null` members, because they are versioned documents that clients send back unchanged.
+- Unchanged: requests accept `null` where documented. Advertised shipping terms, shipping profile `content` and listing delivery configuration documents keep their required `null` members, because clients send them back unchanged.
 
 ## 2026-11-05 — Original and localized listing text in one object (#2784)
 

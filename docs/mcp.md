@@ -72,7 +72,8 @@ Input schemas use Schemars deserialization direction; output schemas use
 serialization direction. Unsigned integer schemas include the exact bounds of their wire
 types. Inputs must be objects, including tagged unions whose
 variants are all objects. Object results retain their shared DTO shape and, like REST
-responses, omit absent members instead of emitting `null`. Bodyless business outcomes return
+responses, omit absent members instead of emitting `null`; only shipping terms, shipping
+profile content and listing delivery documents keep their required `null` members. Bodyless business outcomes return
 an empty object `{}`. Array, scalar or otherwise non-object root schemas use
 `{ "result": <shared response> }`, because legacy MCP output schemas
 require an object. The same value is emitted as structured content and JSON
@@ -283,7 +284,7 @@ with REST and calls the same inbound services directly.
 
 | Tool / source operation ID | Scope and contract |
 | --- | --- |
-| `getUserSearchFilters` | `search-filters:read`; empty arguments return every own filter with `items`, `from`, `size`, `total`. No truncation or invented continuation. |
+| `getUserSearchFilters` | `search-filters:read`; empty arguments return every own filter with `items`, `from`, `size` and, when known, `total`. No truncation or invented continuation. |
 | `createUserSearchFilter` | `search-filters:write`; complete REST body, including `acceptShippingDestination`, nested `search` and optional `notifications` (default `true`). Returns the saved filter. Non-idempotent. |
 | `getUserSearchFilter` | `search-filters:read`; `userSearchFilterId` returns the complete own filter. |
 | `deleteUserSearchFilter` | `search-filters:write`; `userSearchFilterId` deletes the own filter and returns `{}`. Missing filters remain `NOT_FOUND`. |
