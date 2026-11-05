@@ -223,7 +223,8 @@ mod tests {
         }
     }
 
-    const RUNTIME_ENV: [&str; 6] = [
+    const RUNTIME_ENV: [&str; 7] = [
+        SEED_DOMAINS_ENV,
         AUTHORING_MODE_ENV,
         "CRAWLER_REVIEW_REQUIRED",
         "CRAWLER_REVIEW_URL_PATTERN_REQUIRED",
