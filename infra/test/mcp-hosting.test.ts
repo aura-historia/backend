@@ -36,6 +36,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "ANY /v1", "GET /health", "HEAD /health", "GET /ready", "HEAD /ready",
       "GET /.well-known/oauth-protected-resource", "HEAD /.well-known/oauth-protected-resource",
       "GET /.well-known/oauth-protected-resource/v1", "HEAD /.well-known/oauth-protected-resource/v1",
+      "GET /.well-known/mcp/server-card.json", "HEAD /.well-known/mcp/server-card.json",
     ].sort());
     expect(MCP_ROUTE_CATALOG.map((route) => `${route.method} ${route.path}`).sort())
       .toEqual(routes.map((route) => route.Properties.RouteKey).sort());
@@ -116,7 +117,9 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
   });
 
   test("disables every shared cache and adds no-store to preflight and Gateway errors without stripping challenges or trace IDs", () => {
-    const [[policyId, responseHeaders]] = Object.entries(mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy"));
+    const policies = mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+    const [[policyId, responseHeaders]] = Object.entries(policies)
+      .filter(([, policy]) => policy.Properties.ResponseHeadersPolicyConfig.Name === `mcp-${stage}-no-store`);
     const [distribution] = Object.values(mcp.findResources("AWS::CloudFront::Distribution"));
     const front = distribution.Properties.DistributionConfig;
     expect(front.DefaultCacheBehavior).toMatchObject({
@@ -124,15 +127,52 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       CachedMethods: ["GET", "HEAD"], CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
       ResponseHeadersPolicyId: { Ref: policyId }, TargetOriginId: "McpHttpApiOrigin",
     });
-    expect(front.CacheBehaviors).toBeUndefined();
+    expect(front.CacheBehaviors.map((behavior: { PathPattern: string }) => behavior.PathPattern))
+      .toEqual(["/.well-known/mcp/server-card.json"]);
+    expect(Object.keys(policies)).toHaveLength(2);
     expect(responseHeaders.Properties.ResponseHeadersPolicyConfig).toEqual({
       Name: `mcp-${stage}-no-store`,
       CustomHeadersConfig: { Items: [{ Header: "Cache-Control", Value: "no-store", Override: true }] },
     });
     expect(front.CustomErrorResponses).toEqual([400, 403, 404, 405, 414, 416, 500, 501, 502, 503, 504]
       .map((ErrorCode) => ({ ErrorCode, ErrorCachingMinTTL: 0 })));
-    expect(mcp.findResources("AWS::CloudFront::CachePolicy")).toEqual({});
     expect(JSON.stringify(front)).not.toContain("aura-historia-api");
+  });
+
+  test("lets any origin read the server card and caches only it, briefly and without credentials in the key", () => {
+    const [distribution] = Object.values(mcp.findResources("AWS::CloudFront::Distribution"));
+    const [[cachePolicyId, cachePolicy]] = Object.entries(mcp.findResources("AWS::CloudFront::CachePolicy"));
+    const [[cardHeadersId, cardHeaders]] = Object.entries(mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy"))
+      .filter(([, policy]) => policy.Properties.ResponseHeadersPolicyConfig.Name === `mcp-${stage}-server-card`);
+    const [card] = distribution.Properties.DistributionConfig.CacheBehaviors;
+    expect(card).toEqual({
+      PathPattern: "/.well-known/mcp/server-card.json",
+      AllowedMethods: ["GET", "HEAD", "OPTIONS"], CachedMethods: ["GET", "HEAD"],
+      CachePolicyId: { Ref: cachePolicyId }, Compress: true,
+      OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+      ResponseHeadersPolicyId: { Ref: cardHeadersId }, TargetOriginId: "McpHttpApiOrigin",
+      ViewerProtocolPolicy: "redirect-to-https",
+    });
+    expect(cachePolicy.Properties.CachePolicyConfig).toEqual({
+      Name: `mcp-${stage}-server-card`, Comment: `${stage} MCP server card`,
+      MinTTL: 0, DefaultTTL: 0, MaxTTL: 300,
+      ParametersInCacheKeyAndForwardedToOrigin: {
+        CookiesConfig: { CookieBehavior: "none" },
+        EnableAcceptEncodingBrotli: true, EnableAcceptEncodingGzip: true,
+        HeadersConfig: { HeaderBehavior: "none" },
+        QueryStringsConfig: { QueryStringBehavior: "none" },
+      },
+    });
+    expect(cardHeaders.Properties.ResponseHeadersPolicyConfig).toEqual({
+      Name: `mcp-${stage}-server-card`,
+      CorsConfig: {
+        AccessControlAllowCredentials: false,
+        AccessControlAllowHeaders: { Items: ["*"] },
+        AccessControlAllowMethods: { Items: ["GET", "HEAD", "OPTIONS"] },
+        AccessControlAllowOrigins: { Items: ["*"] },
+        OriginOverride: true,
+      },
+    });
   });
 
   test("allocates a bounded Lambda with listing providers and no ingestion publication", () => {
