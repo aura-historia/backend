@@ -14,11 +14,13 @@ pub mod public_discovery;
 mod registry;
 mod runtime;
 mod server_card;
+mod server_info;
 
 pub use admission::{AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate};
 pub use authentication::AuraTokenGate;
 pub use config::{
     ConfigError, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT, TransportConfig,
+    UNRELEASED_SERVER_VERSION,
 };
 pub use error::OperationError;
 pub use http::router;

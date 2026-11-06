@@ -13,6 +13,7 @@ use crate::{
     metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
     server_card::{SERVER_CARD_MEDIA_TYPE, SERVER_CARD_PATH, server_card},
+    server_info::server_info,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
@@ -66,9 +67,9 @@ pub fn router(
     sdk_config = sdk_config.enforce_origin_validation();
     let handler = ProtocolHandler {
         registry: registry.clone(),
-        resource_policy: config.resource_policy,
+        info: server_info(&config),
     };
-    let server_card = server_card(&handler)?;
+    let server_card = server_card(&handler, config.resource_policy)?;
     let sdk = StreamableHttpService::new(
         move || Ok(handler.clone()),
         Arc::new(NeverSessionManager::default()),
@@ -94,6 +95,10 @@ pub fn router(
             get(protected_resource),
         )
         .route(SERVER_CARD_PATH, get(server_card_document))
+        .route(
+            "/.well-known/openai-apps-challenge",
+            get(openai_apps_challenge),
+        )
         .route("/health", get(probe))
         .route("/ready", get(probe))
         .with_state(state)
@@ -126,6 +131,21 @@ async fn server_card_document(State(state): State<HttpState>, headers: HeaderMap
         return status.into_response();
     }
     public_document(SERVER_CARD_MEDIA_TYPE, state.server_card.clone())
+}
+
+/// OpenAI verifies the MCP host by fetching exactly the token issued in its portal.
+async fn openai_apps_challenge(State(state): State<HttpState>, headers: HeaderMap) -> Response {
+    if let Err(status) = validate_origin_and_host(&headers, &state.config) {
+        return status.into_response();
+    }
+    match &state.config.openai_apps_challenge {
+        Some(token) => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            token.clone(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {

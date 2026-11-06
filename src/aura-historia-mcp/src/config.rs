@@ -5,6 +5,9 @@ use url::Url;
 pub const MAX_REQUEST_BYTES: usize = 256 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
+/// `serverInfo.version` of a server that is not a deployed release, such as a local one.
+pub const UNRELEASED_SERVER_VERSION: &str = "unreleased";
+const MAX_OPENAI_APPS_CHALLENGE_BYTES: usize = 512;
 
 #[derive(Clone)]
 pub struct TransportConfig {
@@ -16,6 +19,10 @@ pub struct TransportConfig {
     pub max_response_bytes: usize,
     pub request_timeout: Duration,
     pub max_concurrent_requests: usize,
+    /// The deployed release's source commit, or [`UNRELEASED_SERVER_VERSION`].
+    pub server_version: String,
+    /// OpenAI's domain verification token; absent means the challenge path is not found.
+    pub openai_apps_challenge: Option<String>,
 }
 
 impl Default for TransportConfig {
@@ -29,6 +36,8 @@ impl Default for TransportConfig {
             max_response_bytes: MAX_RESPONSE_BYTES,
             request_timeout: REQUEST_TIMEOUT,
             max_concurrent_requests: 64,
+            server_version: UNRELEASED_SERVER_VERSION.to_owned(),
+            openai_apps_challenge: None,
         }
     }
 }
@@ -51,6 +60,10 @@ impl TransportConfig {
         if let Some(value) = env("MCP_ALLOWED_ORIGINS")? {
             config.allowed_origins = value.split(',').map(str::to_owned).collect();
         }
+        if let Some(value) = env("COMMIT_SHA")? {
+            config.server_version = value;
+        }
+        config.openai_apps_challenge = env("MCP_OPENAI_APPS_CHALLENGE")?;
         config.validate()?;
         Ok(config)
     }
@@ -79,8 +92,34 @@ impl TransportConfig {
         {
             return Err(ConfigError::Limits);
         }
+        if !valid_server_version(&self.server_version) {
+            return Err(ConfigError::ServerVersion);
+        }
+        if self
+            .openai_apps_challenge
+            .as_deref()
+            .is_some_and(|token| !valid_openai_apps_challenge(token))
+        {
+            return Err(ConfigError::OpenAiAppsChallenge);
+        }
         Ok(())
     }
+}
+
+/// Releases are identified by their full source commit, as the deployment pipeline records it.
+fn valid_server_version(version: &str) -> bool {
+    version == UNRELEASED_SERVER_VERSION
+        || (version.len() == 40
+            && version
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// The challenge body is the exact token, so it must be one visible ASCII word.
+fn valid_openai_apps_challenge(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= MAX_OPENAI_APPS_CHALLENGE_BYTES
+        && token.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 pub(crate) fn normalized_origin(value: &str) -> Option<String> {
@@ -130,8 +169,12 @@ pub enum ConfigError {
     Origins,
     #[error("MCP limits exceed the bounded transport contract")]
     Limits,
+    #[error("COMMIT_SHA must be the deployed release's full lowercase source commit")]
+    ServerVersion,
+    #[error("MCP_OPENAI_APPS_CHALLENGE must be one visible ASCII token of at most 512 bytes")]
+    OpenAiAppsChallenge,
     #[error("invalid environment encoding for {0}")]
     Encoding(&'static str),
-    #[error("MCP server card cannot be built from the server identity")]
+    #[error("MCP server card cannot be serialized")]
     ServerCard(#[source] application::error::BoxError),
 }

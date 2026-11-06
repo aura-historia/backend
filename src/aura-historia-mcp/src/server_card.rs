@@ -2,8 +2,9 @@
 //! pre-connection discovery built from the handler that answers `initialize` and
 //! `server/discover`, so the card cannot drift from the live server identity.
 use crate::{ConfigError, authentication::resource_metadata_url, protocol::ProtocolHandler};
-use application::error::{box_error, static_error};
+use application::error::box_error;
 use axum::body::Bytes;
+use oauth_core::resource::AuraResourcePolicy;
 use rmcp::{
     ServerHandler,
     model::{Icon, ProtocolVersion},
@@ -15,6 +16,12 @@ pub(crate) const SERVER_CARD_PATH: &str = "/.well-known/mcp/server-card.json";
 pub(crate) const SERVER_CARD_MEDIA_TYPE: &str = "application/mcp-server-card+json";
 const SERVER_CARD_SCHEMA: &str =
     "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json";
+/// The card format requires a reverse-DNS name; `serverInfo.name` keeps the stable
+/// programmatic identifier that clients may already persist.
+const SERVER_CARD_NAME: &str = "com.aura-historia/mcp";
+/// The card format caps descriptions at 100 characters, below the reviewed `serverInfo`
+/// description that directories display.
+const SERVER_CARD_DESCRIPTION: &str = "Search art and antiques from dealers and auction houses; manage your watchlist and saved searches.";
 /// The card format carries no authorization fields; this vendor key points clients to the
 /// same RFC 9728 metadata that protected-call challenges reference.
 const PROTECTED_RESOURCE_METADATA_KEY: &str = "com.aura-historia/oauth-protected-resource";
@@ -24,11 +31,11 @@ const PROTECTED_RESOURCE_METADATA_KEY: &str = "com.aura-historia/oauth-protected
 struct ServerCard<'a> {
     #[serde(rename = "$schema")]
     schema: &'static str,
-    name: &'a str,
+    name: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<&'a str>,
     version: &'a str,
-    description: &'a str,
+    description: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     website_url: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,21 +54,20 @@ struct Remote<'a> {
     supported_protocol_versions: Vec<&'a str>,
 }
 
-/// Serializes the card once per router. A server identity without the card's required
-/// description fails router construction instead of publishing an invalid card.
-pub(crate) fn server_card(handler: &ProtocolHandler) -> Result<Bytes, ConfigError> {
-    let policy = handler.resource_policy;
+/// Serializes the card once per router. Title, version, website and icons are the handler's
+/// `serverInfo`; the remote lists exactly the protocol versions the handler negotiates.
+pub(crate) fn server_card(
+    handler: &ProtocolHandler,
+    policy: AuraResourcePolicy,
+) -> Result<Bytes, ConfigError> {
     let server_info = handler.get_info().server_info;
     let versions = handler.supported_protocol_versions();
-    let description = server_info.description.as_deref().ok_or_else(|| {
-        ConfigError::ServerCard(static_error("server identity has no description"))
-    })?;
     let card = ServerCard {
         schema: SERVER_CARD_SCHEMA,
-        name: &server_info.name,
+        name: SERVER_CARD_NAME,
         title: server_info.title.as_deref(),
         version: &server_info.version,
-        description,
+        description: SERVER_CARD_DESCRIPTION,
         website_url: server_info.website_url.as_deref(),
         icons: server_info.icons.as_deref(),
         remotes: [Remote {
@@ -82,16 +88,24 @@ pub(crate) fn server_card(handler: &ProtocolHandler) -> Result<Bytes, ConfigErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Registry, SUPPORTED_PROTOCOL_VERSIONS};
-    use oauth_core::resource::AuraResourcePolicy;
+    use crate::{Registry, SUPPORTED_PROTOCOL_VERSIONS, TransportConfig, server_info::server_info};
     use serde_json::{Value, json};
 
-    fn card(policy: AuraResourcePolicy) -> Value {
-        let handler = ProtocolHandler {
+    const RELEASE: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn handler(policy: AuraResourcePolicy) -> ProtocolHandler {
+        ProtocolHandler {
             registry: Registry::default(),
-            resource_policy: policy,
-        };
-        serde_json::from_slice(&server_card(&handler).unwrap()).unwrap()
+            info: server_info(&TransportConfig {
+                resource_policy: policy,
+                server_version: RELEASE.into(),
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn card(policy: AuraResourcePolicy) -> Value {
+        serde_json::from_slice(&server_card(&handler(policy), policy).unwrap()).unwrap()
     }
 
     fn strings(value: &Value) -> Vec<&str> {
@@ -105,8 +119,13 @@ mod tests {
 
     #[test]
     fn should_publish_the_runtime_version_and_protocol_versions() {
-        let card = card(AuraResourcePolicy::production());
-        assert_eq!(json!(env!("CARGO_PKG_VERSION")), card["version"]);
+        let policy = AuraResourcePolicy::production();
+        let card = card(policy);
+        assert_eq!(json!(RELEASE), card["version"]);
+        assert_eq!(
+            json!(handler(policy).get_info().server_info.version),
+            card["version"]
+        );
         assert_eq!(
             json!(
                 SUPPORTED_PROTOCOL_VERSIONS
@@ -119,22 +138,22 @@ mod tests {
     }
 
     #[test]
-    fn should_describe_each_environment_with_its_own_urls() {
+    fn should_describe_each_environment_with_its_own_identity_and_urls() {
         for policy in [
             AuraResourcePolicy::production(),
             AuraResourcePolicy::stage(),
         ] {
-            let site = policy.site_origin();
+            let info = serde_json::to_value(handler(policy).get_info().server_info).unwrap();
             let mcp = policy.mcp_origin();
             assert_eq!(
                 json!({
                     "$schema": SERVER_CARD_SCHEMA,
                     "name": "com.aura-historia/mcp",
-                    "title": "Aura Historia",
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "description": "Search art and antiques from dealers and auction houses; manage your watchlist and saved searches.",
-                    "websiteUrl": site,
-                    "icons": [{"src": format!("{site}/icon1080x1080.png"), "mimeType": "image/png", "sizes": ["1080x1080"]}],
+                    "title": info["title"],
+                    "version": RELEASE,
+                    "description": SERVER_CARD_DESCRIPTION,
+                    "websiteUrl": policy.site_origin(),
+                    "icons": info["icons"],
                     "remotes": [{
                         "type": "streamable-http",
                         "url": policy.mcp_resource(),
@@ -161,7 +180,7 @@ mod tests {
                 .into_iter()
                 .filter(|value| value.contains("://"))
                 .collect::<Vec<_>>();
-            assert_eq!(4, urls.len());
+            assert_eq!(5, urls.len());
             for url in urls {
                 assert!(
                     [policy.site_origin(), policy.mcp_origin()]

@@ -46,15 +46,19 @@ format and its [schema](https://static.modelcontextprotocol.io/schemas/v1/server
 The MCP router serializes it once, from the same handler that answers `initialize` and
 `server/discover`:
 
-- `name`, `title`, `description`, `version`, `websiteUrl` and `icons` are that handler's
-  `serverInfo`. The reverse-DNS `name` is the identity the card format and registries require.
+- `title`, `version`, `websiteUrl` and `icons` are that handler's `serverInfo`, so the card
+  reports the deployed release.
+- `name` is the reverse-DNS `com.aura-historia/mcp` that the card format and registries
+  require; `serverInfo.name` keeps the stable programmatic identifier `aura-historia-mcp`.
+  `description` is a summary within the card's 100-character limit; directories display the
+  longer `serverInfo` description.
 - One `streamable-http` remote is the canonical MCP endpoint, with exactly the protocol
   versions the transport supports.
 - `_meta["com.aura-historia/oauth-protected-resource"]` is the path-suffixed MCP
   protected-resource metadata URL that protected-call challenges also name.
 
-A server identity without the card's required description fails router construction instead
-of publishing an invalid card. The card lists no tools and no capabilities: SEP-2127 excludes
+Tests validate the card against the SEP-2127 schema. The card lists no tools and no
+capabilities: SEP-2127 excludes
 both, because they can vary per client and identity. Clients learn them from `server/discover`
 or `initialize`, whose live values win if they ever disagree with the card.
 

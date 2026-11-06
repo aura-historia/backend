@@ -91,14 +91,8 @@ async fn should_publish_a_server_card_that_matches_live_initialize_and_discovery
     let server_info = json_response(app.clone().oneshot(request(&initialize)).await.unwrap()).await
         ["result"]["serverInfo"]
         .clone();
-    for field in [
-        "name",
-        "title",
-        "version",
-        "description",
-        "websiteUrl",
-        "icons",
-    ] {
+    // The card's reverse-DNS name and short description are format-specific.
+    for field in ["title", "version", "websiteUrl", "icons"] {
         assert_eq!(server_info[field], card[field], "{field}");
     }
     let discovery = json_response(

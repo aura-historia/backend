@@ -51,6 +51,7 @@ async fn should_preserve_raw_fractional_numbers_across_flattened_shared_contract
     let app = app(vec![
         OperationDefinition::new(
             "testLocation",
+            "testLocation",
             "Location",
             policy(),
             |input: Flattened<CreateData>, _| async move {
@@ -60,6 +61,7 @@ async fn should_preserve_raw_fractional_numbers_across_flattened_shared_contract
         .unwrap(),
         OperationDefinition::new(
             "testSearch",
+            "testSearch",
             "Search",
             policy(),
             |input: Flattened<ProductListingSearchData>, _| async move {
@@ -68,6 +70,7 @@ async fn should_preserve_raw_fractional_numbers_across_flattened_shared_contract
         )
         .unwrap(),
         OperationDefinition::new(
+            "testSavedSearch",
             "testSavedSearch",
             "Saved search",
             policy(),
@@ -166,6 +169,7 @@ fn app(operations: Vec<OperationDefinition>) -> Router {
 async fn should_reuse_real_shared_contract_serde_and_directional_schemas_through_mcp() {
     let operation = OperationDefinition::new(
         "testLocalizedText",
+        "testLocalizedText",
         "Shared contract test",
         policy(),
         |input: LocalizedTextData, _| async move { Ok::<_, OperationError>(input) },
@@ -206,6 +210,7 @@ async fn should_reuse_real_shared_contract_serde_and_directional_schemas_through
 async fn should_preserve_shared_price_integer_precision_without_transport_field_remapping() {
     let operation = OperationDefinition::new(
         "testPrice",
+        "testPrice",
         "Shared price test",
         policy(),
         |input: PriceData, _| async move { Ok::<_, OperationError>(input) },
@@ -231,6 +236,7 @@ async fn should_preserve_shared_price_integer_precision_without_transport_field_
 #[tokio::test]
 async fn should_reuse_object_only_tagged_shared_contracts_without_an_envelope() {
     let operation = OperationDefinition::new(
+        "testListingPrice",
         "testListingPrice",
         "Shared tagged price test",
         policy(),

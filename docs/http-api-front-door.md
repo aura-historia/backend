@@ -171,11 +171,12 @@ Its canonical endpoint is `https://mcp.aura-historia.com/v1`; AWS **`dev`** serv
 independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths only:
 `/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
-The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
-`/.well-known/oauth-protected-resource/v1` serve the
-[protected-resource metadata](mcp.md#operation-families-and-admission), and the exact
-`GET`/`HEAD /.well-known/mcp/server-card.json` serves the
-[server card](agent-discovery.md#mcp-server-card). No proxy,
+Four further exact `GET`/`HEAD` paths serve discovery documents:
+`/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/v1` the
+[protected-resource metadata](mcp.md#operation-families-and-admission),
+`/.well-known/openai-apps-challenge` the
+[OpenAI domain verification token](mcp.md#directory-metadata), and
+`/.well-known/mcp/server-card.json` the [server card](agent-discovery.md#mcp-server-card). No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront
@@ -267,7 +268,8 @@ these checks before approving traffic:
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
-| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` identity and version, and the supported protocol versions |
+| `GET`/`HEAD /.well-known/openai-apps-challenge` | `200` `text/plain` with exactly the configured token, or `404` while none is configured; no-store |
+| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` title and release version, and the supported protocol versions |
 | API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
 | API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.stage.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
 | An unrelated `/v1/me` path | `404`, no REST response |
