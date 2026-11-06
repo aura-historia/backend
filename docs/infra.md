@@ -31,15 +31,20 @@ worker/message compatibility follows the [worker runbook](durable-worker-runbook
 The model receives pending migration SQL, schema differences, changed infrastructure
 properties, source/contract patches and merged PR descriptions from immutable squash
 commit bodies. Unchanged templates and schemas use verified digests; applied SQL and
-unchanged implementation files are omitted. The full inventory remains immutable
+unchanged implementation files are omitted. Patches cover only what an application release
+deploys and the contracts it changes: crates the release never deploys (such as the
+crawler), test and fixture code, crawler and report docs, repository tooling and the
+release control plane are listed by path and reason instead
+([`review-context.cjs`](../ci/delivery/review-context.cjs) owns the rules). The full inventory remains immutable
 evidence. Admission recomputes the focused context and verifies both its digest and
 its binding to that inventory. Release notes cannot override native facts or hard
 policy. The retained source inventory has a separate 16 MiB bound; full before/after
 file contents in that inventory do not consume the model's focused input budget.
 It excludes repository `data/`, which never enters a bundle, and records binary
 changes by path only.
-Focused model input is bounded to 3 MiB by default. Oversized inventory or relevant
-context still holds delivery; evidence is never truncated.
+Focused model input is bounded to 1.25 MiB by default, below the model's 1M-token window
+(code and JSON average about 2.3 bytes per token). Oversized inventory or relevant context
+still holds delivery; evidence is never truncated.
 Planning and admission read the same native property-level change-set view, resolving
 available references instead of treating every possible dependent update as a change.
 
