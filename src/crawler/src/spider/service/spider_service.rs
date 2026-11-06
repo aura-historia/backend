@@ -61,14 +61,11 @@ struct EndedCrawl {
 
 impl EndedCrawl {
     /// Product pages the ListingSource stores that the crawl found linked and, being incremental,
-    /// did not fetch again. They are product pages the shop still links, so the crawl is not judged
-    /// as if it had found no product page
-    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    /// did not fetch again, as an incremental crawl or the full crawl following a truncated one
+    /// does. They are product pages the shop still links, so the crawl is not judged as if it had
+    /// found no product page (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     fn skipped_known_products(&self) -> usize {
-        match self.kind {
-            CrawlKind::Incremental => self.diagnostics.known_skipped,
-            CrawlKind::Full => 0,
-        }
+        self.diagnostics.known_skipped
     }
 }
 
@@ -77,6 +74,9 @@ pub struct SpiderServiceConfig {
     pub db_batch_size: usize,
     pub max_sample_urls: usize,
     pub min_inference_sample_urls: usize,
+    /// Fewest URLs a crawl that completed may have and still open a manual URL-pattern review,
+    /// where the pattern is not inferred by the LLM.
+    pub min_review_sample_urls: usize,
     /// How crawled URLs are classified; the authoring mode selects it.
     pub url_classifier: UrlClassifier,
 }
@@ -230,6 +230,7 @@ impl Default for SpiderServiceConfig {
             db_batch_size: 100,
             max_sample_urls: 500,
             min_inference_sample_urls: 20,
+            min_review_sample_urls: 5,
             url_classifier: UrlClassifier::default(),
         }
     }
@@ -276,7 +277,10 @@ impl SpiderServiceImpl {
     }
 
     /// What the crawl starts from besides its root: the frontier the previous crawl left, and
-    /// the known product URLs an incremental crawl skips.
+    /// the known product URLs a crawl skips. An incremental crawl skips them always. A full crawl
+    /// skips them only while it follows a truncated crawl, which left a frontier (a crawl that
+    /// reached everything leaves none): its budget goes to that frontier and to new links, and a
+    /// full crawl of a complete shop still fetches product pages to notice their removal.
     async fn crawl_seeds(
         &self,
         listing_source_id: &ListingSourceId,
@@ -286,13 +290,16 @@ impl SpiderServiceImpl {
             .frontier_repository
             .load_frontier(listing_source_id)
             .await?;
-        let known = match kind {
-            CrawlKind::Full => KnownUrls::default(),
-            CrawlKind::Incremental => {
-                self.frontier_repository
-                    .known_urls(listing_source_id)
-                    .await?
-            }
+        let skips_known_pages = match kind {
+            CrawlKind::Full => !frontier.is_empty(),
+            CrawlKind::Incremental => true,
+        };
+        let known = if skips_known_pages {
+            self.frontier_repository
+                .known_urls(listing_source_id)
+                .await?
+        } else {
+            KnownUrls::default()
         };
         Ok(CrawlSeeds {
             frontier,
@@ -462,13 +469,14 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         crawl_root_url: &str,
         stage: &'static str,
+        min_sample_size: usize,
     ) -> Result<(), SpiderServiceError> {
-        if state.inference_sample.len() < self.config.min_inference_sample_urls {
+        if state.inference_sample.len() < min_sample_size {
             return Err(SpiderServiceError::InsufficientInferenceSample {
                 crawl_root_url: crawl_root_url.to_string(),
                 stage,
                 sample_size: state.inference_sample.len(),
-                min_sample_size: self.config.min_inference_sample_urls,
+                min_sample_size,
                 // Known once the crawl has ended; the run attaches them (`with_crawl_diagnostics`).
                 diagnostics: Box::default(),
             });
@@ -538,8 +546,14 @@ impl SpiderServiceImpl {
                 "Threshold reached, requesting product URL pattern"
             );
 
-            self.classify_and_save_for_stage(state, listing_source_id, crawl_root_url, "threshold")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                crawl_root_url,
+                "threshold",
+                self.config.min_inference_sample_urls,
+            )
+            .await?;
 
             state.classification_done = true;
             state.pattern_loaded_from_store = false;
@@ -614,12 +628,36 @@ impl SpiderServiceImpl {
                 listing_source_id,
                 crawl_root_url,
                 "end_of_crawl",
+                self.end_of_crawl_min_sample_size(state.inference_sample.len(), diagnostics),
             )
             .await?;
 
             state.classification_done = true;
         }
         Ok(())
+    }
+
+    /// The fewest URLs the end of the crawl classifies. A crawl that completed, so that the
+    /// shop has no more pages to give, opens a manual review with fewer than the inference
+    /// minimum: a small shop gets a review instead of a failure. Inference by the LLM keeps its
+    /// minimum.
+    fn end_of_crawl_min_sample_size(
+        &self,
+        sample_size: usize,
+        diagnostics: &CrawlDiagnostics,
+    ) -> usize {
+        let small_shop_review = (self.config.min_review_sample_urls
+            ..self.config.min_inference_sample_urls)
+            .contains(&sample_size)
+            && matches!(diagnostics.completion, CrawlCompletion::Completed)
+            && !self.pattern_service.infers_pattern();
+        match small_shop_review {
+            true => self
+                .config
+                .min_review_sample_urls
+                .min(self.config.min_inference_sample_urls),
+            false => self.config.min_inference_sample_urls,
+        }
     }
 
     #[tracing::instrument(
@@ -642,8 +680,14 @@ impl SpiderServiceImpl {
         {
             warn!("Persisted product URL pattern did not match crawl results, reclassifying");
 
-            self.classify_and_save_for_stage(state, listing_source_id, crawl_root_url, "refresh")
-                .await?;
+            self.classify_and_save_for_stage(
+                state,
+                listing_source_id,
+                crawl_root_url,
+                "refresh",
+                self.config.min_inference_sample_urls,
+            )
+            .await?;
         }
 
         Ok(())
@@ -1440,6 +1484,71 @@ mod service_tests {
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
         assert_eq!(result.product_urls_count, 1);
+    }
+
+    /// Runs a full crawl of a ListingSource that stores `frontier` and `known`, and checks the
+    /// spider is asked to crawl with `expected_seeds`.
+    async fn run_full_crawl_expecting_seeds(
+        frontier: Vec<Url>,
+        known: KnownUrls,
+        expected_seeds: CrawlSeeds,
+    ) {
+        let listing_source_id = ListingSourceId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
+        setup_mock_seeded_crawl(
+            &mut mock_spider,
+            CrawlRequest {
+                seeds: expected_seeds,
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            one_product_and_listing_pages(),
+            CrawlDiscovery::default(),
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(frontier, known, Some(Vec::new())),
+        );
+
+        service
+            .run(
+                &listing_source_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .unwrap();
+    }
+
+    /// A full crawl that follows a truncated one, which left a frontier, skips the pages the
+    /// ListingSource stores and spends its budget on the frontier.
+    #[tokio::test]
+    async fn should_load_known_urls_for_a_full_crawl_that_follows_a_truncated_crawl() {
+        run_full_crawl_expecting_seeds(
+            vec![example("/deep/1")],
+            known_products(),
+            CrawlSeeds {
+                frontier: vec![example("/deep/1")],
+                known: vec![example("/product/9")],
+                retired: Vec::new(),
+            },
+        )
+        .await;
+    }
+
+    /// A full crawl with no truncation pending fetches the stored product pages again, to notice
+    /// that they were removed.
+    #[tokio::test]
+    async fn should_not_load_known_urls_for_a_full_crawl_without_a_frontier() {
+        run_full_crawl_expecting_seeds(Vec::new(), known_products(), CrawlSeeds::default()).await;
     }
 
     /// An incremental crawl of `paths` whose pages link `known_skipped` stored product pages it
@@ -3476,6 +3585,131 @@ mod service_tests {
                 ..
             }) if url == crawl_root_url
         ));
+    }
+
+    /// A first crawl of `url_count` pages that ended as `completion`, for a pattern service that
+    /// `infers` the pattern or opens a manual review, which `reviews` is asked to answer with.
+    /// A run that classifies stores the pages; one that does not stores nothing.
+    async fn run_small_first_crawl(
+        url_count: usize,
+        completion: CrawlCompletion,
+        infers: bool,
+        classification_answer: Option<CrawlerReviewId>,
+    ) -> Result<SpiderRunResult, SpiderServiceError> {
+        let mut mock_spider = MockSpider::new();
+        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let listing_source_id = ListingSourceId::new();
+        let crawl_root_url = "https://example.com";
+
+        setup_mock_crawl_with_diagnostics(
+            &mut mock_spider,
+            crawl_root_url,
+            (0..url_count).map(|index| format!("/category/{index}")),
+            CrawlDiagnostics {
+                completion,
+                ..CrawlDiagnostics::default()
+            },
+        );
+        mock_pattern_service
+            .expect_load_pattern()
+            .returning(|_| Box::pin(async { Ok(None) }));
+        mock_pattern_service
+            .expect_infers_pattern()
+            .return_const(infers);
+        match classification_answer {
+            Some(review_id) => {
+                mock_pattern_service
+                    .expect_classify_and_save()
+                    .times(1)
+                    .returning(move |_, _, _, _| {
+                        Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
+                    });
+                setup_mock_review_still_pending(&mut mock_pattern_service);
+                setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
+                mock_url_repo
+                    .expect_upsert_links_batch()
+                    .times(1)
+                    .returning(|listing_source_id, links| {
+                        let stored = stored_as_given(listing_source_id, links);
+                        Box::pin(async move { Ok(stored) })
+                    });
+            }
+            None => {
+                mock_pattern_service.expect_classify_and_save().times(0);
+                mock_pattern_service.expect_mark_as_crawled().times(0);
+                mock_url_repo.expect_upsert_links_batch().times(0);
+            }
+        }
+
+        SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(mock_pattern_service),
+            Arc::new(mock_url_repo),
+            no_frontier(),
+        )
+        .run(
+            &listing_source_id,
+            crawl_root_url,
+            100,
+            CrawlPace::default(),
+            CrawlKind::Full,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn should_open_a_manual_review_when_a_completed_crawl_is_below_the_inference_minimum() {
+        let review_id = CrawlerReviewId::new();
+
+        let run = run_small_first_crawl(14, CrawlCompletion::Completed, false, Some(review_id))
+            .await
+            .expect("a small completed crawl opens a review");
+
+        assert_eq!(run.pending_url_pattern_review, Some(review_id));
+        assert_eq!(run.total_links, 14);
+    }
+
+    #[tokio::test]
+    async fn should_fail_a_small_crawl_when_the_pattern_is_inferred_by_the_llm() {
+        let error = run_small_first_crawl(14, CrawlCompletion::Completed, true, None)
+            .await
+            .expect_err("inference needs its minimum");
+
+        assert!(matches!(
+            error,
+            SpiderServiceError::InsufficientInferenceSample {
+                sample_size: 14,
+                min_sample_size: 20,
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_fail_a_small_crawl_that_was_cut_short_or_has_fewer_urls_than_the_review_floor()
+    {
+        for (url_count, completion) in [
+            (14, CrawlCompletion::HardTimeoutTruncated),
+            (14, CrawlCompletion::PageBudgetReached),
+            (4, CrawlCompletion::Completed),
+        ] {
+            let error = run_small_first_crawl(url_count, completion, false, None)
+                .await
+                .expect_err("the crawl is not a review");
+
+            assert!(
+                matches!(
+                    error,
+                    SpiderServiceError::InsufficientInferenceSample {
+                        min_sample_size: 20,
+                        ..
+                    }
+                ),
+                "{url_count} {completion:?}: {error:?}"
+            );
+        }
     }
 
     #[tokio::test]

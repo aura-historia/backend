@@ -249,6 +249,21 @@ impl FoundLinks {
             .into_iter()
             .filter_map(|link| self.stored_spelling(&page_url, link.inner()))
             .collect();
+        self.remember(stored);
+    }
+
+    /// The redirect target `resolved` as Spider requests it, when Spider follows it.
+    pub(super) fn redirect_target(&self, resolved: Url) -> Option<CrawledUrl> {
+        self.rules.followed(resolved)
+    }
+
+    /// Records a followed redirect target as a found link, so a crawl that ends before fetching
+    /// it carries it over.
+    pub(super) fn record_redirect_target(&self, target: &CrawledUrl) {
+        self.remember([target.as_url().as_str().to_string()]);
+    }
+
+    fn remember(&self, stored: impl IntoIterator<Item = String>) {
         let mut links = self.links.lock().unwrap_or_else(PoisonError::into_inner);
         for link in stored {
             if links.len() >= MAX_FOUND_LINKS {
