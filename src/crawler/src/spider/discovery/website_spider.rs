@@ -4667,8 +4667,9 @@ mod tests {
             "/robots.txt" => {
                 SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /private/\n".into())
             }
-            _ => pages(target)
-                .unwrap_or_else(|| SiteResponse::Html("404 Not Found", String::new())),
+            _ => {
+                pages(target).unwrap_or_else(|| SiteResponse::Html("404 Not Found", String::new()))
+            }
         })
     }
 
