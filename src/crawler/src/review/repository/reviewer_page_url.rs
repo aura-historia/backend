@@ -1,4 +1,4 @@
-use crate::network::policy::canonical_crawler_domain;
+use crate::network::policy::canonical_crawl_host;
 use crate::spider::utils::url::CrawledUrl;
 use url::Url;
 
@@ -25,7 +25,7 @@ impl ReviewPageIdentity {
     pub(super) fn of(url: &Url) -> Self {
         let page = CrawledUrl::new(url.clone()).page_spelling();
         Self {
-            host: page.host_str().map(canonical_crawler_domain),
+            host: page.host_str().map(canonical_crawl_host),
             path: page.path().to_owned(),
             query: page.query().map(str::to_owned),
         }
@@ -46,7 +46,7 @@ impl ReviewPageIdentity {
             .chain(page.slashed_twin());
         let mut spellings = Vec::new();
         for base in bases {
-            let Some(host) = base.host_str().map(canonical_crawler_domain) else {
+            let Some(host) = base.host_str().map(canonical_crawl_host) else {
                 continue;
             };
             for scheme in ["https", "http"] {

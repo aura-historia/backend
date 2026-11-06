@@ -1,4 +1,4 @@
-use crate::{CrawlerDomainId, CrawlerReviewId};
+use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use std::sync::Arc;
 
@@ -43,7 +43,7 @@ pub enum UrlPatternServiceError {
     },
 }
 
-/// A domain's completed URL classification: its product URL pattern, or a decided `NO_PATTERN`.
+/// A ListingSource's completed URL classification: its product URL pattern, or a decided `NO_PATTERN`.
 #[derive(Debug, Clone)]
 pub enum DecidedUrlPattern {
     Pattern(Regex),
@@ -57,16 +57,14 @@ pub trait UrlPatternService: Send + Sync {
     ///
     /// Returns `None` when no pattern has been stored yet or when the stored
     /// value is `NULL` in the database.
-    async fn load_pattern_for_domain(
+    async fn load_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
-    async fn save_pattern_for_domain(
+    async fn store_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         pattern: &Regex,
     ) -> Result<(), UrlPatternServiceError>;
 
@@ -74,17 +72,15 @@ pub trait UrlPatternService: Send + Sync {
     async fn reset_pattern_classification(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError>;
 
-    /// Re-reads the domain's pattern state for a crawl that classifies with `crawl_pattern`: the
+    /// Re-reads the ListingSource's pattern state for a crawl that classifies with `crawl_pattern`: the
     /// decision stored while the crawl ran, such as the approval of a URL-pattern review it waits
     /// on, which is `NO_PATTERN` or a stored pattern other than `crawl_pattern`. `None` while the
-    /// domain is undecided or still holds `crawl_pattern`.
+    /// source is undecided or still holds `crawl_pattern`.
     async fn decision_stored_during_crawl(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_pattern: Option<&Regex>,
     ) -> Result<Option<DecidedUrlPattern>, UrlPatternServiceError>;
 
@@ -98,25 +94,23 @@ pub trait UrlPatternService: Send + Sync {
     async fn classify_and_save(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         crawl_pattern: Option<&Regex>,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError>;
 
-    /// Records a full crawl of `root` now, while the domain still has that crawl root.
+    /// Records a full crawl of `root` now, while its ListingSource still has that crawl root.
     async fn mark_as_crawled(
         &self,
-        listing_source_id: &ListingSourceId,
         root: &CrawledRoot,
     ) -> Result<CrawlOutcomeWrite, UrlPatternServiceError>;
 }
 
-/// Where a domain's product URL pattern comes from.
+/// Where a ListingSource's product URL pattern comes from.
 pub enum UrlPatternAuthoring {
     /// The LLM infers the pattern. With a review repository, the inferred pattern is recorded as
     /// a review and waits for approval, or, with `apply_directly`, is approved at once. A pending
-    /// review for the domain blocks inference either way.
+    /// review for the source blocks inference either way.
     Inferred {
         classification_service: Box<dyn UrlClassificationService>,
         review_repository: Option<CrawlerReviewRepository>,
@@ -160,18 +154,14 @@ impl UrlPatternServiceImpl {
         &self,
         review_repository: &CrawlerReviewRepository,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         reason: &str,
         decision: UrlPatternDecision,
         urls: &[String],
     ) -> Result<CrawlerReviewId, UrlPatternServiceError> {
-        let current_pattern = self
-            .load_pattern_for_domain(listing_source_id, domain_id)
-            .await?;
+        let current_pattern = self.load_pattern(listing_source_id).await?;
         Ok(review_repository
             .create_url_pattern_review(
                 listing_source_id,
-                domain_id,
                 reason,
                 decision,
                 urls,
@@ -184,15 +174,11 @@ impl UrlPatternServiceImpl {
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
     #[tracing::instrument(skip(self), fields(listing_source_id = %listing_source_id))]
-    async fn load_pattern_for_domain(
+    async fn load_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
-        let record = self
-            .repository
-            .find_pattern(listing_source_id, domain_id)
-            .await?;
+        let record = self.repository.find_pattern(listing_source_id).await?;
 
         let Some(record) = record else {
             return Ok(None);
@@ -206,14 +192,13 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(Some(pattern))
     }
 
-    async fn save_pattern_for_domain(
+    async fn store_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         pattern: &Regex,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
-            .save_pattern(listing_source_id, domain_id, Some(pattern.as_str()))
+            .save_pattern(listing_source_id, Some(pattern.as_str()))
             .await?;
         Ok(())
     }
@@ -221,10 +206,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn reset_pattern_classification(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
-            .save_pattern(listing_source_id, domain_id, None)
+            .save_pattern(listing_source_id, None)
             .await?;
         Ok(())
     }
@@ -232,14 +216,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn decision_stored_during_crawl(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_pattern: Option<&Regex>,
     ) -> Result<Option<DecidedUrlPattern>, UrlPatternServiceError> {
-        let Some(record) = self
-            .repository
-            .find_pattern(listing_source_id, domain_id)
-            .await?
-        else {
+        let Some(record) = self.repository.find_pattern(listing_source_id).await? else {
             return Ok(None);
         };
         Ok(match (record.url_pattern_state, record.url_pattern) {
@@ -255,23 +234,25 @@ impl UrlPatternService for UrlPatternServiceImpl {
 
     #[tracing::instrument(
         skip(self, crawl_pattern, urls),
-        fields(listing_source_id = %listing_source_id, domain_id = %domain_id, crawl_root_url = %crawl_root_url, url_count = urls.len())
+        fields(listing_source_id = %listing_source_id, crawl_root_url = %crawl_root_url, url_count = urls.len())
     )]
     async fn classify_and_save(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         crawl_root_url: &str,
         crawl_pattern: Option<&Regex>,
         urls: &[String],
     ) -> Result<Option<Regex>, UrlPatternServiceError> {
         match self
-            .decision_stored_during_crawl(listing_source_id, domain_id, crawl_pattern)
+            .decision_stored_during_crawl(listing_source_id, crawl_pattern)
             .await?
         {
             Some(DecidedUrlPattern::NoPattern) => return Ok(None),
             Some(DecidedUrlPattern::Pattern(stored)) => {
-                debug!(crawl_root_url, domain_id = %domain_id, "Using product URL pattern stored during the crawl");
+                debug!(
+                    crawl_root_url,
+                    "Using product URL pattern stored during the crawl"
+                );
                 return Ok(Some(stored));
             }
             None => {}
@@ -279,7 +260,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
 
         if let Some(review_repository) = self.authoring.review_repository()
             && let Some(review_id) = review_repository
-                .latest_pending_url_pattern_review_id(listing_source_id, domain_id)
+                .latest_pending_url_pattern_review_id(listing_source_id)
                 .await?
         {
             return Err(UrlPatternServiceError::PendingReview {
@@ -299,7 +280,6 @@ impl UrlPatternService for UrlPatternServiceImpl {
                     .open_review(
                         review_repository,
                         listing_source_id,
-                        domain_id,
                         MANUAL_URL_PATTERN_REASON,
                         UrlPatternDecision::Undecided,
                         urls,
@@ -328,7 +308,6 @@ impl UrlPatternService for UrlPatternServiceImpl {
                 .open_review(
                     review_repository,
                     listing_source_id,
-                    domain_id,
                     "url_pattern_generation",
                     UrlPatternDecision::inferred(pattern.as_ref()),
                     urls,
@@ -350,7 +329,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
                         },
                     )
                     .await?;
-                debug!(crawl_root_url, domain_id = %domain_id, review_id = %review_id, "Applied inferred product URL pattern");
+                debug!(crawl_root_url, review_id = %review_id, "Applied inferred product URL pattern");
                 return Ok(pattern);
             }
             return Err(UrlPatternServiceError::PendingReview {
@@ -361,31 +340,24 @@ impl UrlPatternService for UrlPatternServiceImpl {
 
         match pattern.as_ref() {
             Some(pattern) => {
-                self.save_pattern_for_domain(listing_source_id, domain_id, pattern)
-                    .await?;
-                debug!(crawl_root_url, domain_id = %domain_id, "Persisted product URL pattern");
+                self.store_pattern(listing_source_id, pattern).await?;
+                debug!(crawl_root_url, "Persisted product URL pattern");
             }
             None => {
-                self.repository
-                    .save_no_pattern(listing_source_id, domain_id)
-                    .await?;
-                debug!(crawl_root_url, domain_id = %domain_id, "Persisted no product URL pattern");
+                self.repository.save_no_pattern(listing_source_id).await?;
+                debug!(crawl_root_url, "Persisted no product URL pattern");
             }
         }
 
         Ok(pattern)
     }
 
-    #[tracing::instrument(skip(self), fields(listing_source_id = %listing_source_id, domain_id = %root.domain_id))]
+    #[tracing::instrument(skip(self), fields(listing_source_id = %root.listing_source_id))]
     async fn mark_as_crawled(
         &self,
-        listing_source_id: &ListingSourceId,
         root: &CrawledRoot,
     ) -> Result<CrawlOutcomeWrite, UrlPatternServiceError> {
-        Ok(self
-            .repository
-            .mark_as_crawled(listing_source_id, root)
-            .await?)
+        Ok(self.repository.mark_as_crawled(root).await?)
     }
 }
 
@@ -397,23 +369,19 @@ mod tests {
     use crate::spider::classification::url_pattern_repository::{
         ListingSourceUrlPatternRecord, MockListingSourceUrlPatternRepository,
     };
-    use listing_source_core::Domain;
     use test_api::IntegrationTestService as _;
 
     #[tokio::test]
-    async fn should_not_reclassify_completed_no_pattern_domain_until_reset() {
+    async fn should_not_reclassify_a_completed_no_pattern_source_until_reset() {
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         let mut repository = MockListingSourceUrlPatternRepository::new();
         repository
             .expect_find_pattern()
             .times(1)
-            .returning(move |_, _| {
+            .returning(move |_| {
                 Box::pin(async move {
                     Ok(Some(ListingSourceUrlPatternRecord {
                         listing_source_id,
-                        domain_id,
-                        listing_source_domain: Domain::try_from("example.com").unwrap(),
                         url_pattern: None,
                         url_pattern_state: UrlPatternState::NoPattern,
                         last_crawled: None,
@@ -432,7 +400,6 @@ mod tests {
         let pattern = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://example.com",
                 None,
                 &["https://example.com/item/1".to_owned()],
@@ -443,10 +410,9 @@ mod tests {
         assert!(pattern.is_none());
     }
 
-    /// Inserts a ListingSource with one `manual.example.com` domain.
-    async fn insert_source_with_domain(pool: &sqlx::PgPool) -> (ListingSourceId, CrawlerDomainId) {
+    /// Inserts a ListingSource crawled on `manual.example.com`.
+    async fn insert_crawled_source(pool: &sqlx::PgPool) -> ListingSourceId {
         let listing_source_id = ListingSourceId::new();
-        let domain_id = CrawlerDomainId::new();
         sqlx::query(
             "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
              VALUES ($1, 'Manual source', 'manual-source', TRUE, NOW(), NOW())",
@@ -455,16 +421,13 @@ mod tests {
         .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-        sqlx::query(
-            "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-             VALUES ($1, $2, 'manual.example.com', 'manual.example.com')",
+        crate::test_support::store_crawl_root(
+            pool,
+            listing_source_id,
+            "https://manual.example.com/",
         )
-        .bind(domain_id.as_uuid())
-        .bind(listing_source_id.as_uuid())
-        .execute(pool)
-        .await
-        .unwrap_or_else(|error| panic!("insert domain: {error}"));
-        (listing_source_id, domain_id)
+        .await;
+        listing_source_id
     }
 
     fn auto_service(
@@ -485,7 +448,7 @@ mod tests {
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_apply_inferred_pattern_through_approved_review_when_authoring_is_auto() {
         let pool = test_api::get_postgres_client().await;
-        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        let listing_source_id = insert_crawled_source(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let mut classification = MockUrlClassificationService::new();
         classification
@@ -498,7 +461,6 @@ mod tests {
         let pattern = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 None,
                 &urls,
@@ -508,11 +470,10 @@ mod tests {
 
         assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
         let (live_pattern, review_status): (Option<String>, String) = sqlx::query_as(
-            "SELECT d.url_pattern, r.status FROM listing_source_domains d \
-             JOIN crawler_reviews r ON r.domain_id = d.domain_id \
-             WHERE d.domain_id = $1 AND r.artifact_type = 'URL_PATTERN'",
+            "SELECT s.url_pattern, r.status FROM listing_sources s \
+             JOIN crawler_reviews r ON r.listing_source_id = s.listing_source_id \
+             WHERE r.artifact_type = 'URL_PATTERN'",
         )
-        .bind(domain_id.as_uuid())
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|error| panic!("read applied pattern and its review: {error}"));
@@ -523,13 +484,12 @@ mod tests {
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_not_infer_pattern_while_a_review_is_pending_when_authoring_is_auto() {
         let pool = test_api::get_postgres_client().await;
-        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        let listing_source_id = insert_crawled_source(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let urls = ["https://manual.example.com/item/1".to_owned()];
         let pending = review_repository
             .create_url_pattern_review(
                 &listing_source_id,
-                &domain_id,
                 MANUAL_URL_PATTERN_REASON,
                 UrlPatternDecision::Undecided,
                 &urls,
@@ -544,7 +504,6 @@ mod tests {
         let result = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 None,
                 &urls,
@@ -560,7 +519,7 @@ mod tests {
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_open_undecided_review_without_llm_call_when_authoring_is_manual() {
         let pool = test_api::get_postgres_client().await;
-        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
+        let listing_source_id = insert_crawled_source(&pool).await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let service = UrlPatternServiceImpl::new(
             Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),
@@ -573,7 +532,6 @@ mod tests {
         let first = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 None,
                 &urls,
@@ -582,7 +540,6 @@ mod tests {
         let second = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 None,
                 &urls,
@@ -619,11 +576,10 @@ mod tests {
     async fn store_pattern(
         pool: &sqlx::PgPool,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         pattern: &str,
     ) {
         ListingSourceUrlPatternRepositoryImpl::new(pool.clone())
-            .save_pattern(listing_source_id, domain_id, Some(pattern))
+            .save_pattern(listing_source_id, Some(pattern))
             .await
             .unwrap_or_else(|error| panic!("store approved pattern: {error}"));
     }
@@ -632,15 +588,14 @@ mod tests {
     async fn reviews_and_llm_calls(
         pool: &sqlx::PgPool,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> (i64, i64) {
         sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM crawler_reviews WHERE domain_id = $2 AND artifact_type = 'URL_PATTERN'), \
+            "SELECT (SELECT COUNT(*) FROM crawler_reviews \
+                     WHERE listing_source_id = $1 AND artifact_type = 'URL_PATTERN'), \
                     llm_calls_count \
              FROM listing_sources WHERE listing_source_id = $1",
         )
         .bind(listing_source_id.as_uuid())
-        .bind(domain_id.as_uuid())
         .fetch_one(pool)
         .await
         .unwrap_or_else(|error| panic!("read reviews and LLM calls: {error}"))
@@ -649,8 +604,8 @@ mod tests {
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_use_pattern_stored_during_crawl_without_review_when_authoring_is_manual() {
         let pool = test_api::get_postgres_client().await;
-        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
-        store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
+        let listing_source_id = insert_crawled_source(&pool).await;
+        store_pattern(&pool, &listing_source_id, "/item/").await;
         let service = UrlPatternServiceImpl::new(
             Arc::new(ListingSourceUrlPatternRepositoryImpl::new(pool.clone())),
             UrlPatternAuthoring::Manual {
@@ -661,7 +616,6 @@ mod tests {
         let pattern = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 None,
                 &["https://manual.example.com/item/1".to_owned()],
@@ -671,7 +625,7 @@ mod tests {
 
         assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
         assert_eq!(
-            reviews_and_llm_calls(&pool, &listing_source_id, &domain_id).await,
+            reviews_and_llm_calls(&pool, &listing_source_id).await,
             (0, 0)
         );
     }
@@ -679,8 +633,8 @@ mod tests {
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_use_pattern_stored_during_crawl_without_inference_when_authoring_is_auto() {
         let pool = test_api::get_postgres_client().await;
-        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
-        store_pattern(&pool, &listing_source_id, &domain_id, "/item/").await;
+        let listing_source_id = insert_crawled_source(&pool).await;
+        store_pattern(&pool, &listing_source_id, "/item/").await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let mut classification = MockUrlClassificationService::new();
         classification.expect_find_product_url_pattern().never();
@@ -689,7 +643,6 @@ mod tests {
         let pattern = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 None,
                 &["https://manual.example.com/item/1".to_owned()],
@@ -699,7 +652,7 @@ mod tests {
 
         assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
         assert_eq!(
-            reviews_and_llm_calls(&pool, &listing_source_id, &domain_id).await,
+            reviews_and_llm_calls(&pool, &listing_source_id).await,
             (0, 0)
         );
     }
@@ -707,8 +660,8 @@ mod tests {
     #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
     async fn should_reclassify_stored_pattern_the_crawl_already_used_when_authoring_is_auto() {
         let pool = test_api::get_postgres_client().await;
-        let (listing_source_id, domain_id) = insert_source_with_domain(&pool).await;
-        store_pattern(&pool, &listing_source_id, &domain_id, "/product/").await;
+        let listing_source_id = insert_crawled_source(&pool).await;
+        store_pattern(&pool, &listing_source_id, "/product/").await;
         let review_repository = CrawlerReviewRepository::new(pool.clone());
         let mut classification = MockUrlClassificationService::new();
         classification
@@ -721,7 +674,6 @@ mod tests {
         let pattern = service
             .classify_and_save(
                 &listing_source_id,
-                &domain_id,
                 "https://manual.example.com",
                 Some(&failed_pattern),
                 &["https://manual.example.com/item/1".to_owned()],
@@ -731,7 +683,7 @@ mod tests {
 
         assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
         assert_eq!(
-            reviews_and_llm_calls(&pool, &listing_source_id, &domain_id).await,
+            reviews_and_llm_calls(&pool, &listing_source_id).await,
             (1, 1)
         );
     }

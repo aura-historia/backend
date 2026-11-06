@@ -1,110 +1,59 @@
-//! Synchronizes crawler-local ListingSource crawl eligibility from business truth.
+//! Synchronizes the crawler-local ListingSources, their crawl eligibility and their crawl roots
+//! from business truth (`docs/crawler/README.md#listingsource-scope`).
 
-use crate::network::policy::canonical_crawler_domain;
-use crate::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
+use crate::crawl_root::{CrawlRoot, CrawlRootRejection};
 use async_trait::async_trait;
-use listing_source_core::{Domain, ListingSourceId, ListingSourceName, ListingSourceSlugId};
-use money::Currency;
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use tracing::{debug, info, warn};
+use std::sync::Mutex;
+use tracing::{info, warn};
 
-/// How long an enabled ListingSource may stay without crawler-local domains before the
-/// condition is reported as a warning. Domains are registered by administration events
-/// after the ListingSource snapshot is applied, so right after startup the state is
-/// routinely temporary and only logged at debug level.
-const UNCONFIGURED_WARNING_GRACE: Duration = Duration::from_secs(10 * 60);
-
-/// Process-local memory of enabled ListingSources observed without crawler-local domains.
-#[derive(Debug, Default)]
-struct UnconfiguredListingSources {
-    first_seen: HashMap<ListingSourceId, Instant>,
-}
-
-/// Classification of one unconfigured observation.
-#[derive(Debug, PartialEq, Eq)]
-enum UnconfiguredObservation {
-    /// First seen less than the grace period ago; most likely bootstrap ordering.
-    WithinGrace,
-    /// Still unconfigured after the grace period; a genuine configuration gap.
-    Overdue,
-}
-
-impl UnconfiguredListingSources {
-    /// Records the current unconfigured set, forgets sources that gained domains, and
-    /// returns each remaining source's classification against `grace`, keyed by id.
-    fn observe(
-        &mut self,
-        unconfigured: &[ListingSourceId],
-        now: Instant,
-        grace: Duration,
-    ) -> HashMap<ListingSourceId, UnconfiguredObservation> {
-        self.first_seen
-            .retain(|listing_source_id, _| unconfigured.contains(listing_source_id));
-        unconfigured
-            .iter()
-            .map(|listing_source_id| {
-                let first_seen = *self.first_seen.entry(*listing_source_id).or_insert(now);
-                let observation = if now.saturating_duration_since(first_seen) >= grace {
-                    UnconfiguredObservation::Overdue
-                } else {
-                    UnconfiguredObservation::WithinGrace
-                };
-                (*listing_source_id, observation)
-            })
-            .collect()
-    }
-}
-
-/// What a registration source says about a ListingSource's fallback currency.
+/// Crawler-safe business identity, as the registration source reports it.
 ///
-/// The admin API does not return the currency, so a sync from it must not clear the value the
-/// crawler mirrors locally: that would also change the scraper-context fingerprint and recapture
-/// every page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FallbackCurrency {
-    /// The source states the currency, or states that the ListingSource has none (`None`).
-    Supplied(Option<Currency>),
-    /// The source does not carry the currency; the locally stored value stays as it is.
-    NotSupplied,
-}
-
-impl FallbackCurrency {
-    /// The currency a sync writes, or `None` to write no value.
-    fn supplied(self) -> Option<Option<Currency>> {
-        match self {
-            Self::Supplied(currency) => Some(currency),
-            Self::NotSupplied => None,
-        }
-    }
-}
-
-/// Crawler-safe business identity.
-///
-/// The registration source supplies canonical ListingSource values. `crawl_enabled` and
-/// `fallback_currency` are crawler-local state derived from a complete successful
-/// `WEB_CRAWL` scope read.
+/// The registration source supplies canonical ListingSource values. `crawl_enabled` is
+/// crawler-local state derived from a complete successful `WEB_CRAWL` scope read.
 #[derive(Debug, Clone)]
 pub struct RegisteredListingSource {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: ListingSourceName,
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
-    pub fallback_currency: FallbackCurrency,
-    /// The host of the public site the registration source presents for the shop, when it
-    /// names one that is a domain; `None` when the source carries no URL or its host is none.
-    /// [Domain seeding](ListingSourceRegistrationService::seeding_domains_from_public_hosts)
-    /// registers it for a source without crawler-local domains.
-    pub public_host: Option<Domain>,
+    /// The public site the registration source presents for the shop, untrusted and as given;
+    /// `None` when it presents none. The sync derives the source's crawl root from it.
+    pub presentation_url: Option<String>,
+}
+
+/// A ListingSource of an applied snapshot with the crawl root the sync derived for it; `None`
+/// leaves the source uncrawled.
+#[derive(Debug, Clone)]
+pub struct ScopedListingSource {
+    pub listing_source_id: ListingSourceId,
+    pub listing_source_name: ListingSourceName,
+    pub listing_source_slug: ListingSourceSlugId,
+    pub crawl_enabled: bool,
+    pub crawl_root: Option<CrawlRoot>,
+}
+
+/// Why the sync gives a ListingSource of the scope no crawl root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CrawlRootSkip {
+    /// The registration source presents no URL for the source.
+    NoPresentationUrl,
+    /// The presentation URL names no crawlable host.
+    Uncrawlable(CrawlRootRejection),
+    /// Another source of the scope presents the same host, typically a marketplace: crawling it
+    /// would walk the whole marketplace for each of them.
+    SharedHost(String),
 }
 
 /// Result of one atomically applied business snapshot.
 #[derive(Debug, Default)]
 pub struct ListingSourceSnapshotResult {
+    /// Crawl-enabled sources the snapshot no longer holds, now disabled.
     pub disabled: u64,
-    pub enabled_without_domains: Vec<RegisteredListingSource>,
+    /// Sources whose stored crawl root the snapshot replaced or removed.
+    pub moved_crawl_roots: u64,
 }
 
 /// Reads the authoritative crawler scope.
@@ -120,9 +69,13 @@ pub trait ListingSourceRegistrationSource: Send + Sync {
 #[async_trait]
 #[mockall::automock]
 pub trait ListingSourceRegistrationRepository: Send + Sync {
+    /// Upserts every source of `listing_sources`, disables every crawl-enabled source it does not
+    /// hold, and moves each source whose stored crawl root differs to the snapshot's: the move
+    /// clears the crawl state and frontier of the old root and keeps the source's URLs, URL
+    /// pattern and scrape state. All of it commits together or not at all.
     async fn apply_snapshot(
         &self,
-        listing_sources: &[RegisteredListingSource],
+        listing_sources: &[ScopedListingSource],
     ) -> Result<ListingSourceSnapshotResult, sqlx::Error>;
 }
 
@@ -137,10 +90,9 @@ pub enum ListingSourceSyncError {
 pub struct ListingSourceRegistrationService {
     source: Box<dyn ListingSourceRegistrationSource>,
     repository: Box<dyn ListingSourceRegistrationRepository>,
-    /// Registers the public host of a source without crawler-local domains as its domain;
-    /// `None` leaves every domain to operators.
-    domain_seeding: Option<Arc<dyn CrawlerDomainConfigurationRepository>>,
-    unconfigured: Mutex<UnconfiguredListingSources>,
+    /// The skip last logged for each source still skipped, so a sync logs a skip only when it
+    /// first appears or changes its reason.
+    reported_skips: Mutex<HashMap<ListingSourceId, CrawlRootSkip>>,
 }
 
 impl ListingSourceRegistrationService {
@@ -151,23 +103,8 @@ impl ListingSourceRegistrationService {
         Self {
             source,
             repository,
-            domain_seeding: None,
-            unconfigured: Mutex::new(UnconfiguredListingSources::default()),
+            reported_skips: Mutex::new(HashMap::new()),
         }
-    }
-
-    /// Makes every sync register, through `domains`, the public host of each enabled
-    /// ListingSource without crawler-local domains as its crawler domain, so a new crawler
-    /// database gets its scope's domains from the registration source instead of by hand. A
-    /// host two sources of the scope share is a marketplace rather than a shop's own site, and
-    /// a host another source already owns is refused by the registration; both stay with an
-    /// operator, as does a source whose registration fails.
-    pub fn seeding_domains_from_public_hosts(
-        mut self,
-        domains: Arc<dyn CrawlerDomainConfigurationRepository>,
-    ) -> Self {
-        self.domain_seeding = Some(domains);
-        self
     }
 
     #[tracing::instrument(name = "listing_source_registration_sync", skip(self))]
@@ -177,125 +114,136 @@ impl ListingSourceRegistrationService {
             .iter()
             .filter(|listing_source| listing_source.crawl_enabled)
             .count();
+        let (scope, skips) = scope_crawl_roots(listing_sources);
 
-        let result = self.repository.apply_snapshot(&listing_sources).await?;
+        let result = self.repository.apply_snapshot(&scope).await?;
         if result.disabled > 0 {
             info!(
                 disabled = result.disabled,
                 "disabled crawler-local listing sources absent from business crawl scope"
             );
         }
-        let unconfigured = self
-            .seed_domains(&listing_sources, result.enabled_without_domains)
-            .await;
-        self.report_unconfigured(&unconfigured);
+        if result.moved_crawl_roots > 0 {
+            info!(
+                event = "crawler.listing_source_crawl_roots_moved",
+                moved = result.moved_crawl_roots,
+                "moved the crawl roots of listing sources whose presentation URL changed"
+            );
+        }
+        self.report_skips(&scope, skips);
 
         Ok(enabled_count)
     }
 
-    /// Registers the public host of each of `enabled_without_domains` that no other source of
-    /// `scope` shares, and returns the sources still without domains.
-    async fn seed_domains(
+    /// Warns once about each crawl-enabled source the sync skipped, again when its reason
+    /// changes, and forgets the sources no longer skipped.
+    fn report_skips(
         &self,
-        scope: &[RegisteredListingSource],
-        enabled_without_domains: Vec<RegisteredListingSource>,
-    ) -> Vec<RegisteredListingSource> {
-        let Some(domains) = &self.domain_seeding else {
-            return enabled_without_domains;
-        };
-        let shared_hosts = shared_public_hosts(scope);
-        let mut unconfigured = Vec::new();
-        for listing_source in enabled_without_domains {
-            let Some(host) = listing_source.public_host.clone() else {
-                unconfigured.push(listing_source);
+        scope: &[ScopedListingSource],
+        skips: HashMap<ListingSourceId, CrawlRootSkip>,
+    ) {
+        let mut reported = self
+            .reported_skips
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reported.retain(|listing_source_id, _| skips.contains_key(listing_source_id));
+        for listing_source in scope {
+            let Some(skip) = skips.get(&listing_source.listing_source_id) else {
                 continue;
             };
-            if shared_hosts.contains(&canonical_crawler_domain(host.as_str())) {
-                warn!(
-                    event = "crawler.listing_source_domain_seed_skipped",
-                    listing_source_id = %listing_source.listing_source_id,
-                    listing_source_name = %listing_source.listing_source_name,
-                    host = %host,
-                    "public host is shared by another ListingSource of the scope; register the shop's own domain by hand"
-                );
-                unconfigured.push(listing_source);
+            if !listing_source.crawl_enabled
+                || reported.get(&listing_source.listing_source_id) == Some(skip)
+            {
                 continue;
             }
-            match domains
-                .register(listing_source.listing_source_id, host.clone())
-                .await
-            {
-                Ok(configuration) => info!(
-                    event = "crawler.listing_source_domain_seeded",
+            match skip {
+                CrawlRootSkip::NoPresentationUrl => warn!(
+                    event = "crawler.listing_source_crawl_skipped",
                     listing_source_id = %listing_source.listing_source_id,
                     listing_source_name = %listing_source.listing_source_name,
-                    domain = %configuration.domain,
-                    "registered the ListingSource's public host as its crawler domain"
+                    reason = "NO_PRESENTATION_URL",
+                    "the admin API presents no URL for the ListingSource; it is not crawled"
                 ),
-                Err(error) => {
-                    warn!(
-                        event = "crawler.listing_source_domain_seed_failed",
-                        listing_source_id = %listing_source.listing_source_id,
-                        listing_source_name = %listing_source.listing_source_name,
-                        host = %host,
-                        error = %error,
-                        "could not register the ListingSource's public host as its crawler domain"
-                    );
-                    unconfigured.push(listing_source);
-                }
-            }
-        }
-        unconfigured
-    }
-
-    /// Logs enabled ListingSources without crawler-local domains. The condition is only a
-    /// warning once it has persisted beyond [`UNCONFIGURED_WARNING_GRACE`]; before that it
-    /// is the normal bootstrap window in which domain registration has not caught up yet.
-    fn report_unconfigured(&self, enabled_without_domains: &[RegisteredListingSource]) {
-        let unconfigured_ids = enabled_without_domains
-            .iter()
-            .map(|listing_source| listing_source.listing_source_id)
-            .collect::<Vec<_>>();
-        let observations = self
-            .unconfigured
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .observe(
-                &unconfigured_ids,
-                Instant::now(),
-                UNCONFIGURED_WARNING_GRACE,
-            );
-        for listing_source in enabled_without_domains {
-            match observations.get(&listing_source.listing_source_id) {
-                None => {}
-                Some(UnconfiguredObservation::Overdue) => warn!(
-                    event = "crawler.listing_source_unconfigured",
+                CrawlRootSkip::Uncrawlable(rejection) => warn!(
+                    event = "crawler.listing_source_crawl_skipped",
                     listing_source_id = %listing_source.listing_source_id,
                     listing_source_name = %listing_source.listing_source_name,
-                    "enabled ListingSource still has no crawler-local domains after the bootstrap grace period"
+                    reason = "UNCRAWLABLE_PRESENTATION_URL",
+                    rejection = %rejection,
+                    "the ListingSource's presentation URL names no crawlable host; it is not crawled"
                 ),
-                Some(UnconfiguredObservation::WithinGrace) => debug!(
-                    event = "crawler.listing_source_unconfigured_pending",
+                CrawlRootSkip::SharedHost(host) => warn!(
+                    event = "crawler.listing_source_crawl_skipped",
                     listing_source_id = %listing_source.listing_source_id,
                     listing_source_name = %listing_source.listing_source_name,
-                    "enabled ListingSource has no crawler-local domains yet; waiting for domain registration"
+                    reason = "SHARED_HOST",
+                    host = %host,
+                    "another ListingSource of the scope presents the same host; neither is crawled"
                 ),
             }
+            reported.insert(listing_source.listing_source_id, skip.clone());
         }
     }
 }
 
-/// The canonical hosts, without `www.`, that more than one source of `scope` presents.
-fn shared_public_hosts(scope: &[RegisteredListingSource]) -> HashSet<String> {
+/// The scope with the crawl root each source's presentation URL derives, and why each source
+/// without one has none. A host that more than one crawl-enabled source presents is crawled for
+/// none of them.
+fn scope_crawl_roots(
+    listing_sources: Vec<RegisteredListingSource>,
+) -> (
+    Vec<ScopedListingSource>,
+    HashMap<ListingSourceId, CrawlRootSkip>,
+) {
+    let derived: Vec<(RegisteredListingSource, Result<CrawlRoot, CrawlRootSkip>)> = listing_sources
+        .into_iter()
+        .map(|listing_source| {
+            let root = match listing_source.presentation_url.as_deref() {
+                None => Err(CrawlRootSkip::NoPresentationUrl),
+                Some(url) => {
+                    CrawlRoot::from_presentation_url(url).map_err(CrawlRootSkip::Uncrawlable)
+                }
+            };
+            (listing_source, root)
+        })
+        .collect();
+    let shared_hosts = shared_hosts(
+        derived
+            .iter()
+            .filter(|(listing_source, _)| listing_source.crawl_enabled)
+            .filter_map(|(_, root)| root.as_ref().ok()),
+    );
+
+    let mut skips = HashMap::new();
+    let scope = derived
+        .into_iter()
+        .map(|(listing_source, root)| {
+            let root = root.and_then(|root| match shared_hosts.contains(root.host()) {
+                true => Err(CrawlRootSkip::SharedHost(root.host().to_owned())),
+                false => Ok(root),
+            });
+            let crawl_root = root
+                .map_err(|skip| skips.insert(listing_source.listing_source_id, skip))
+                .ok();
+            ScopedListingSource {
+                listing_source_id: listing_source.listing_source_id,
+                listing_source_name: listing_source.listing_source_name,
+                listing_source_slug: listing_source.listing_source_slug,
+                crawl_enabled: listing_source.crawl_enabled,
+                crawl_root,
+            }
+        })
+        .collect();
+    (scope, skips)
+}
+
+/// The crawl hosts more than one of `roots` names.
+fn shared_hosts<'a>(roots: impl Iterator<Item = &'a CrawlRoot>) -> HashSet<String> {
     let mut seen = HashSet::new();
     let mut shared = HashSet::new();
-    for host in scope
-        .iter()
-        .filter_map(|listing_source| listing_source.public_host.as_ref())
-    {
-        let canonical = canonical_crawler_domain(host.as_str());
-        if !seen.insert(canonical.clone()) {
-            shared.insert(canonical);
+    for root in roots {
+        if !seen.insert(root.host()) {
+            shared.insert(root.host().to_owned());
         }
     }
     shared
@@ -313,9 +261,12 @@ impl ListingSourceRegistrationRepositoryImpl {
 
 #[async_trait]
 impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepositoryImpl {
+    /// Disabling first and releasing moved roots before writing the new ones keeps the
+    /// one-host-per-enabled-source index satisfied after every statement, whichever order the
+    /// snapshot swaps hosts between sources in.
     async fn apply_snapshot(
         &self,
-        listing_sources: &[RegisteredListingSource],
+        listing_sources: &[ScopedListingSource],
     ) -> Result<ListingSourceSnapshotResult, sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
         let enabled_ids = listing_sources
@@ -323,35 +274,19 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
             .filter(|listing_source| listing_source.crawl_enabled)
             .map(|listing_source| uuid::Uuid::from(listing_source.listing_source_id))
             .collect::<Vec<_>>();
-
-        for listing_source in listing_sources {
-            sqlx::query(
-                "INSERT INTO listing_sources \
-                    (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, fallback_currency, created, updated) \
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) \
-                 ON CONFLICT (listing_source_id) DO UPDATE SET \
-                    listing_source_name = EXCLUDED.listing_source_name, \
-                    listing_source_slug = EXCLUDED.listing_source_slug, \
-                    crawl_enabled = EXCLUDED.crawl_enabled, \
-                    fallback_currency = CASE WHEN $6 THEN EXCLUDED.fallback_currency \
-                                             ELSE listing_sources.fallback_currency END, \
-                    updated = NOW()",
-            )
-            .bind(uuid::Uuid::from(listing_source.listing_source_id))
-            .bind(listing_source.listing_source_name.as_ref())
-            .bind(listing_source.listing_source_slug.to_string())
-            .bind(listing_source.crawl_enabled)
-            .bind(
+        let scope_ids = listing_sources
+            .iter()
+            .map(|listing_source| uuid::Uuid::from(listing_source.listing_source_id))
+            .collect::<Vec<_>>();
+        let scope_root_urls = listing_sources
+            .iter()
+            .map(|listing_source| {
                 listing_source
-                    .fallback_currency
-                    .supplied()
-                    .flatten()
-                    .map(Currency::as_str),
-            )
-            .bind(listing_source.fallback_currency.supplied().is_some())
-            .execute(&mut *transaction)
-            .await?;
-        }
+                    .crawl_root
+                    .as_ref()
+                    .map(|root| root.url().to_string())
+            })
+            .collect::<Vec<_>>();
 
         let disabled = sqlx::query(
             "UPDATE listing_sources \
@@ -364,33 +299,68 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
         .await?
         .rows_affected();
 
-        let unconfigured_ids = sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT s.listing_source_id \
-             FROM listing_sources s \
-             WHERE s.crawl_enabled = TRUE \
-               AND NOT EXISTS ( \
-                   SELECT 1 FROM listing_source_domains sd \
-                   WHERE sd.listing_source_id = s.listing_source_id \
-               )",
+        let moved_ids = sqlx::query_scalar::<_, uuid::Uuid>(
+            "UPDATE listing_sources AS s \
+             SET crawl_root_url = NULL, \
+                 crawl_host = NULL, \
+                 last_crawled = NULL, \
+                 next_crawl_at = NULL, \
+                 crawl_failure_count = 0, \
+                 last_crawl_error_kind = NULL, \
+                 last_crawl_outcome = NULL, \
+                 crawl_truncation_count = 0, \
+                 crawl_rate_limit_streak = 0, \
+                 crawl_rate_limited_until = NULL, \
+                 last_crawl_run_at = NULL, \
+                 updated = NOW() \
+             FROM UNNEST($1::uuid[], $2::text[]) AS scope(listing_source_id, crawl_root_url) \
+             WHERE s.listing_source_id = scope.listing_source_id \
+               AND s.crawl_root_url IS DISTINCT FROM scope.crawl_root_url \
+               AND s.crawl_root_url IS NOT NULL \
+             RETURNING s.listing_source_id",
         )
+        .bind(&scope_ids)
+        .bind(&scope_root_urls)
         .fetch_all(&mut *transaction)
         .await?;
+        sqlx::query("DELETE FROM listing_source_crawl_frontier WHERE listing_source_id = ANY($1)")
+            .bind(&moved_ids)
+            .execute(&mut *transaction)
+            .await?;
+
+        for listing_source in listing_sources {
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                    (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+                     crawl_root_url, crawl_host, created, updated) \
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) \
+                 ON CONFLICT (listing_source_id) DO UPDATE SET \
+                    listing_source_name = EXCLUDED.listing_source_name, \
+                    listing_source_slug = EXCLUDED.listing_source_slug, \
+                    crawl_enabled = EXCLUDED.crawl_enabled, \
+                    crawl_root_url = EXCLUDED.crawl_root_url, \
+                    crawl_host = EXCLUDED.crawl_host, \
+                    updated = NOW()",
+            )
+            .bind(uuid::Uuid::from(listing_source.listing_source_id))
+            .bind(listing_source.listing_source_name.as_ref())
+            .bind(listing_source.listing_source_slug.to_string())
+            .bind(listing_source.crawl_enabled)
+            .bind(
+                listing_source
+                    .crawl_root
+                    .as_ref()
+                    .map(|root| root.url().as_str()),
+            )
+            .bind(listing_source.crawl_root.as_ref().map(CrawlRoot::host))
+            .execute(&mut *transaction)
+            .await?;
+        }
 
         transaction.commit().await?;
-
-        let enabled_without_domains = listing_sources
-            .iter()
-            .filter(|listing_source| {
-                listing_source.crawl_enabled
-                    && unconfigured_ids
-                        .contains(&uuid::Uuid::from(listing_source.listing_source_id))
-            })
-            .cloned()
-            .collect();
-
         Ok(ListingSourceSnapshotResult {
             disabled,
-            enabled_without_domains,
+            moved_crawl_roots: moved_ids.len() as u64,
         })
     }
 }
@@ -399,7 +369,7 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
 mod tests {
     use super::*;
 
-    fn listing_source() -> RegisteredListingSource {
+    fn listing_source(presentation_url: Option<&str>) -> RegisteredListingSource {
         RegisteredListingSource {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: ListingSourceName::try_from("Source")
@@ -407,176 +377,83 @@ mod tests {
             listing_source_slug: ListingSourceSlugId::raw("source")
                 .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             crawl_enabled: true,
-            fallback_currency: FallbackCurrency::Supplied(None),
-            public_host: None,
+            presentation_url: presentation_url.map(str::to_owned),
         }
     }
 
-    fn shop(host: &str) -> RegisteredListingSource {
-        RegisteredListingSource {
-            public_host: Some(
-                Domain::try_from(host)
-                    .unwrap_or_else(|error| panic!("invalid test host {host}: {error}")),
-            ),
-            ..listing_source()
-        }
+    fn root_url(scoped: &ScopedListingSource) -> Option<&str> {
+        scoped.crawl_root.as_ref().map(|root| root.url().as_str())
     }
 
-    /// Records registrations and refuses the hosts it is told are owned elsewhere.
-    struct FakeDomains {
-        registered: Mutex<Vec<(ListingSourceId, Domain)>>,
-        owned_elsewhere: Vec<Domain>,
-    }
-
-    impl FakeDomains {
-        fn new(owned_elsewhere: &[&str]) -> Arc<Self> {
-            Arc::new(Self {
-                registered: Mutex::default(),
-                owned_elsewhere: owned_elsewhere
-                    .iter()
-                    .map(|host| Domain::try_from(*host).expect("valid test host"))
-                    .collect(),
-            })
-        }
-
-        fn registered(&self) -> Vec<(ListingSourceId, Domain)> {
-            self.registered
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone()
-        }
-    }
-
-    #[async_trait]
-    impl CrawlerDomainConfigurationRepository for FakeDomains {
-        async fn list_for_source(
-            &self,
-            _listing_source_id: ListingSourceId,
-        ) -> Result<
-            Vec<crate::service::crawler_domain_configuration::CrawlerDomainConfiguration>,
-            crate::service::crawler_domain_configuration::CrawlerDomainConfigurationError,
-        > {
-            Ok(Vec::new())
-        }
-
-        async fn register(
-            &self,
-            listing_source_id: ListingSourceId,
-            domain: Domain,
-        ) -> Result<
-            crate::service::crawler_domain_configuration::CrawlerDomainConfiguration,
-            crate::service::crawler_domain_configuration::CrawlerDomainConfigurationError,
-        > {
-            use crate::service::crawler_domain_configuration::{
-                CrawlerDomainConfiguration, CrawlerDomainConfigurationError,
-            };
-            if self.owned_elsewhere.contains(&domain) {
-                return Err(
-                    CrawlerDomainConfigurationError::DomainOwnedByAnotherListingSource {
-                        domain,
-                        requested_listing_source_id: listing_source_id,
-                        current_listing_source_id: ListingSourceId::new(),
-                    },
-                );
-            }
-            self.registered
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push((listing_source_id, domain.clone()));
-            Ok(CrawlerDomainConfiguration {
-                domain_id: crate::CrawlerDomainId::new(),
-                listing_source_id,
-                domain,
-                created: true,
-            })
-        }
-
-        async fn remove(
-            &self,
-            _listing_source_id: ListingSourceId,
-            _domain_id: crate::CrawlerDomainId,
-        ) -> Result<
-            crate::service::crawler_domain_configuration::CrawlerDomainRemoval,
-            crate::service::crawler_domain_configuration::CrawlerDomainConfigurationError,
-        > {
-            unreachable!("seeding never removes a domain")
-        }
-    }
-
-    /// A service whose business read answers `scope` and whose snapshot leaves every source
-    /// of `scope` without domains.
-    fn seeding_service(
-        scope: Vec<RegisteredListingSource>,
-        domains: Arc<FakeDomains>,
-    ) -> ListingSourceRegistrationService {
-        let mut source = MockListingSourceRegistrationSource::new();
-        let fetched = scope.clone();
-        source
-            .expect_fetch_registered_listing_sources()
-            .returning(move || {
-                let fetched = fetched.clone();
-                Box::pin(async move { Ok(fetched) })
-            });
-        let mut repository = MockListingSourceRegistrationRepository::new();
-        repository.expect_apply_snapshot().returning(move |_| {
-            let unconfigured = scope.clone();
-            Box::pin(async move {
-                Ok(ListingSourceSnapshotResult {
-                    disabled: 0,
-                    enabled_without_domains: unconfigured,
-                })
-            })
-        });
-        ListingSourceRegistrationService::new(Box::new(source), Box::new(repository))
-            .seeding_domains_from_public_hosts(domains)
-    }
-
-    #[tokio::test]
-    async fn should_seed_the_public_host_of_a_source_without_domains_and_skip_shared_hosts() {
-        let own_shop = shop("www.shop-a.example");
-        let scope = vec![
-            own_shop.clone(),
-            shop("www.marketplace.example"),
-            shop("marketplace.example"),
-            listing_source(),
+    #[test]
+    fn should_derive_crawl_roots_and_skip_hosts_another_source_presents() {
+        let own_shop = listing_source(Some("https://www.shop-a.example/en/"));
+        let marketplace_www = listing_source(Some("https://www.marketplace.example/shop/1"));
+        let marketplace_bare = listing_source(Some("https://marketplace.example/shop/2"));
+        let without_url = listing_source(None);
+        let uncrawlable = listing_source(Some("https://203.0.113.7/"));
+        let ids = [
+            own_shop.listing_source_id,
+            marketplace_www.listing_source_id,
+            marketplace_bare.listing_source_id,
+            without_url.listing_source_id,
+            uncrawlable.listing_source_id,
         ];
-        let domains = FakeDomains::new(&[]);
 
-        let synced = seeding_service(scope, Arc::clone(&domains)).sync().await;
+        let (scope, skips) = scope_crawl_roots(vec![
+            own_shop,
+            marketplace_www,
+            marketplace_bare,
+            without_url,
+            uncrawlable,
+        ]);
 
-        assert!(matches!(synced, Ok(4)));
         assert_eq!(
-            domains.registered(),
-            vec![(
-                own_shop.listing_source_id,
-                Domain::try_from("www.shop-a.example").expect("valid host")
-            )]
+            scope.iter().map(root_url).collect::<Vec<_>>(),
+            vec![
+                Some("https://www.shop-a.example/en/"),
+                None,
+                None,
+                None,
+                None
+            ]
+        );
+        assert_eq!(
+            skips,
+            HashMap::from([
+                (
+                    ids[1],
+                    CrawlRootSkip::SharedHost("marketplace.example".to_owned())
+                ),
+                (
+                    ids[2],
+                    CrawlRootSkip::SharedHost("marketplace.example".to_owned())
+                ),
+                (ids[3], CrawlRootSkip::NoPresentationUrl),
+                (
+                    ids[4],
+                    CrawlRootSkip::Uncrawlable(CrawlRootRejection::NoDomainHost)
+                ),
+            ])
         );
     }
 
-    #[tokio::test]
-    async fn should_keep_seeding_the_other_sources_when_a_registration_is_refused() {
-        let refused = shop("owned.example");
-        let seeded = shop("free.example");
-        let domains = FakeDomains::new(&["owned.example"]);
+    #[test]
+    fn should_not_count_a_disabled_source_as_sharing_a_host() {
+        let shop = listing_source(Some("https://shop.example/"));
+        let disabled = RegisteredListingSource {
+            crawl_enabled: false,
+            ..listing_source(Some("https://shop.example/old"))
+        };
 
-        let synced = seeding_service(vec![refused, seeded.clone()], Arc::clone(&domains))
-            .sync()
-            .await;
+        let (scope, _) = scope_crawl_roots(vec![shop, disabled]);
 
-        assert!(matches!(synced, Ok(2)));
-        assert_eq!(
-            domains.registered(),
-            vec![(
-                seeded.listing_source_id,
-                Domain::try_from("free.example").expect("valid host")
-            )]
-        );
+        assert_eq!(root_url(&scope[0]), Some("https://shop.example/"));
     }
 
     #[tokio::test]
     async fn should_apply_one_complete_snapshot_after_a_successful_business_read() {
-        let source_listing_source = listing_source();
+        let source_listing_source = listing_source(Some("https://shop.example/"));
         let mut source = MockListingSourceRegistrationSource::new();
         source
             .expect_fetch_registered_listing_sources()
@@ -589,7 +466,9 @@ mod tests {
         repository
             .expect_apply_snapshot()
             .times(1)
-            .withf(|sources| sources.len() == 1)
+            .withf(|sources| {
+                sources.len() == 1 && root_url(&sources[0]) == Some("https://shop.example/")
+            })
             .returning(|_| Box::pin(async { Ok(ListingSourceSnapshotResult::default()) }));
 
         let count = ListingSourceRegistrationService::new(Box::new(source), Box::new(repository))
@@ -599,79 +478,45 @@ mod tests {
     }
 
     #[test]
-    fn should_warn_about_unconfigured_listing_source_only_after_grace_period() {
-        let grace = Duration::from_secs(60);
-        let start = Instant::now();
-        let pending = ListingSourceId::new();
-        let configured_later = ListingSourceId::new();
-        let mut tracker = UnconfiguredListingSources::default();
+    fn should_report_a_skip_once_until_its_reason_changes() {
+        let skipped = listing_source(None);
+        let skipped_id = skipped.listing_source_id;
+        let scope = vec![ScopedListingSource {
+            listing_source_id: skipped_id,
+            listing_source_name: skipped.listing_source_name.clone(),
+            listing_source_slug: skipped.listing_source_slug.clone(),
+            crawl_enabled: true,
+            crawl_root: None,
+        }];
+        let service = ListingSourceRegistrationService::new(
+            Box::new(MockListingSourceRegistrationSource::new()),
+            Box::new(MockListingSourceRegistrationRepository::new()),
+        );
+        let reported = || {
+            service
+                .reported_skips
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+        };
 
-        let first = tracker.observe(&[pending, configured_later], start, grace);
+        service.report_skips(
+            &scope,
+            HashMap::from([(skipped_id, CrawlRootSkip::NoPresentationUrl)]),
+        );
         assert_eq!(
-            first,
-            HashMap::from([
-                (pending, UnconfiguredObservation::WithinGrace),
-                (configured_later, UnconfiguredObservation::WithinGrace),
-            ])
+            reported(),
+            HashMap::from([(skipped_id, CrawlRootSkip::NoPresentationUrl)])
         );
 
-        let within_grace = tracker.observe(&[pending], start + grace / 2, grace);
-        assert_eq!(
-            within_grace,
-            HashMap::from([(pending, UnconfiguredObservation::WithinGrace)])
-        );
+        let shared = CrawlRootSkip::SharedHost("marketplace.example".to_owned());
+        service.report_skips(&scope, HashMap::from([(skipped_id, shared.clone())]));
+        assert_eq!(reported(), HashMap::from([(skipped_id, shared)]));
 
-        let overdue = tracker.observe(&[pending, configured_later], start + grace, grace);
-        assert_eq!(
-            overdue,
-            HashMap::from([
-                (pending, UnconfiguredObservation::Overdue),
-                (configured_later, UnconfiguredObservation::WithinGrace),
-            ]),
-            "a source that gained domains and lost them again restarts its grace period"
-        );
-
-        assert!(tracker.observe(&[], start + grace * 2, grace).is_empty());
-        assert!(tracker.first_seen.is_empty());
-    }
-
-    #[tokio::test]
-    async fn should_track_unconfigured_listing_sources_across_syncs() {
-        let unconfigured = listing_source();
-        let unconfigured_id = unconfigured.listing_source_id;
-        let mut source = MockListingSourceRegistrationSource::new();
-        source
-            .expect_fetch_registered_listing_sources()
-            .times(2)
-            .returning(move || {
-                let source = unconfigured.clone();
-                Box::pin(async move { Ok(vec![source]) })
-            });
-
-        let mut repository = MockListingSourceRegistrationRepository::new();
-        repository
-            .expect_apply_snapshot()
-            .times(2)
-            .returning(|sources| {
-                let enabled_without_domains = sources.to_vec();
-                Box::pin(async move {
-                    Ok(ListingSourceSnapshotResult {
-                        disabled: 0,
-                        enabled_without_domains,
-                    })
-                })
-            });
-
-        let service = ListingSourceRegistrationService::new(Box::new(source), Box::new(repository));
-        assert!(matches!(service.sync().await, Ok(1)));
-        let first_seen = service.unconfigured.lock().unwrap().first_seen[&unconfigured_id];
-
-        assert!(matches!(service.sync().await, Ok(1)));
-        let tracked = service.unconfigured.lock().unwrap();
-        assert_eq!(tracked.first_seen.len(), 1);
-        assert_eq!(
-            tracked.first_seen[&unconfigured_id], first_seen,
-            "the first observation must survive later syncs so the grace period can elapse"
+        service.report_skips(&scope, HashMap::new());
+        assert!(
+            reported().is_empty(),
+            "a source no longer skipped is forgotten"
         );
     }
 

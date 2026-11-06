@@ -30,7 +30,7 @@ pub enum ToolError {
     #[error("invalid arguments: {0}")]
     InvalidArguments(String),
     #[error(
-        "URL `{0}` is not a plain http(s) URL on the default port, without credentials, on a domain of the review's ListingSource; the review tools fetch no other URL"
+        "URL `{0}` is not a plain http(s) URL on the default port, without credentials, on the crawl host of the review's ListingSource; the review tools fetch no other URL"
     )]
     UrlOutsideReviewSource(String),
     #[error(

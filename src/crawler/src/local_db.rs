@@ -15,7 +15,6 @@ use std::str::FromStr;
 use std::time::Duration;
 
 pub mod connect_retry;
-pub mod crawler_domain_configuration_repository;
 
 pub const LOCAL_POSTGRES_HOST: &str = "localhost";
 pub const LOCAL_POSTGRES_PORT: u16 = 5432;

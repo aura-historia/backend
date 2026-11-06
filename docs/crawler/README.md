@@ -1,6 +1,6 @@
 # Crawler
 
-The `crawler` crate discovers and extracts generic product evidence from enabled `WEB_CRAWL` ListingSources. It has its own Postgres state for domains, URLs, schemas, retries, budgets, and review artifacts.
+The `crawler` crate discovers and extracts generic product evidence from enabled `WEB_CRAWL` ListingSources. It has its own Postgres state for crawl roots, URLs, schemas, retries, budgets, and review artifacts.
 
 It is not a ProductListing writer and holds no business database credentials. It reads its ListingSource scope from the admin API and submits immutable raw observations to the shared product-listing ingestion queue; the normalization Lambda is the sole authority that turns raw evidence into canonical ProductListings after CDC activation. The crawler does not query canonical ProductListing tables, create ProductListing events, or assign Parties, sellers, auctioneers, auctions, or lot facts. R17 crawler-local scheduling, review and raw-capture completion remain independent of the worker transport: an accepted submission is not proof of capture, and a capture is not proof of normalization.
 
@@ -22,21 +22,30 @@ flowchart LR
 
 Each spider or scraper pass first refreshes the complete ListingSource scope from the admin API. A failed or partial refresh skips that pass; a scope is applied only whole. `crawl_enabled` admits work only; disabling a source retains its crawler history and configuration.
 
-A ListingSource keeps its business identity from the authoritative source. The crawler never derives it from a domain or URL. Crawler domains are operator state; with [domain seeding](operations.md#runtime-prerequisites) switched on, a scope refresh registers the public host the admin API presents for a source that has no domains yet, through the same registration an operator uses, and never replaces one. It mirrors only the local work scope, including `WEB_CRAWL` enablement and an optional fallback currency. The fallback applies only when an extracted price has no currency hint. The admin API does not return it, so a scope refresh leaves the locally stored value unchanged; it stays crawler-local until normalization resolves it from the source's `WEB_CRAWL` configuration.
+## ListingSource scope
+
+A ListingSource is the crawler's only entity. It keeps its business identity from the authoritative source, and the crawler mirrors only its work scope: `WEB_CRAWL` enablement and the crawl root. Nobody configures crawl roots; each scope refresh derives them ([`crawl_root.rs`](../../src/crawler/src/crawl_root.rs)):
+
+- The crawl root is the presentation URL the admin API gives the source, on `https`, without credentials, query or fragment. Its path is the start page; its host without one leading `www.` is the crawl host, the scope the spider stays on and the host that owns the source's URLs.
+- A source whose presentation URL is missing or names no domain host on the default port, or whose crawl host another crawl-enabled source of the scope presents (a marketplace), gets no crawl root. It is neither crawled nor scraped, and the refresh warns `crawler.listing_source_crawl_skipped` once per source and reason. Crawling a shared host needs a path-scoped crawl root, which the crawler does not have.
+- A refresh that gives a source another crawl root moves it: the crawl state of the old root (last crawls, failure and truncation counts, rate-limit hold, crawl outcome) and its frontier are cleared, so the next spider cycle crawls the new root in full. The source's URLs, URL pattern and scrape state stay. A run of the old root that is still crawling records nothing over the move.
+- A source that leaves the scope keeps its crawl root and history with `crawl_enabled = false`, and resumes from them when it returns with the same URL.
+
+Two crawl-enabled sources never share a crawl host; the schema refuses it.
 
 ## Local state
 
 Crawler-local Postgres is authoritative for crawler operations:
 
-- configured domains and crawl roots;
+- crawl roots and the crawl and scrape state of each ListingSource;
 - discovered URL class, disposition, scrape fingerprint, and retry metadata;
 - cached product and removed-page schemas;
 - LLM budget accounting; and
 - review artifacts and their audit state.
 
-A URL belongs to one configured `(listing_source_id, domain_id)` pair. Exact URLs cannot move between domains or sources. Removing a domain removes its URL state and domain-scoped URL-pattern reviews.
+A URL belongs to one ListingSource and lies on its crawl host. Exact URLs cannot move between sources.
 
-Crawler IDs exposed by the review service use TypeIDs: domains `cd`, reviews `cr`, review pages `crp`, and review URLs `cru`. Postgres stores their backing UUIDs. See [object IDs](../object-ids.md).
+Crawler IDs exposed by the review service use TypeIDs: reviews `cr`, review pages `crp`, review URLs `cru` and review events `cre`. Postgres stores their backing UUIDs. See [object IDs](../object-ids.md).
 
 ## Binaries
 

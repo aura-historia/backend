@@ -1,9 +1,7 @@
-use crate::CrawlerDomainId;
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::html_fetcher::DomainFetchStats;
 use listing_source_core::ListingSourceId;
-use money::Currency;
 use product_listing_normalization::ProductListingNormalizationInput;
 use std::cell::RefCell;
 use std::future::Future;
@@ -35,7 +33,7 @@ pub struct ScrapedProduct {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrapeMode {
     Normal,
-    DomainProbe,
+    CircuitProbe,
     /// Explicitly keeps the legacy direct API on the primary page only. This
     /// mode never samples persisted sibling URLs for schema generation.
     PrimaryOnly,
@@ -55,7 +53,7 @@ pub struct FetchFailureContext {
     pub retry_after: Option<std::time::Duration>,
     pub source: FetchFailureSource,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
-    /// The fetcher's view of the domain when the failure may open its circuit.
+    /// The fetcher's view of the host when the failure may open the scrape circuit.
     pub fetch_stats: Option<DomainFetchStats>,
 }
 
@@ -64,9 +62,6 @@ pub struct FetchFailureContext {
 /// call from growing another positional argument.
 #[derive(Debug, Clone)]
 pub struct ScrapeRequest {
-    /// Persisted crawler domain used for schema-seed fanout and circuit state.
-    /// `None` is valid only for [`ScrapeMode::PrimaryOnly`].
-    pub domain_id: Option<CrawlerDomainId>,
     pub listing_source_id: ListingSourceId,
     pub url: Url,
     pub source_record_key: String,
@@ -80,7 +75,6 @@ pub struct ScrapeRequest {
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
-    pub fallback_currency: Option<Currency>,
     pub mode: ScrapeMode,
 }
 
@@ -98,7 +92,7 @@ pub enum DomainFetchHealth {
 
 pub struct ScrapeOutcome {
     pub result: Result<Option<ScrapedProduct>, ScraperError>,
-    pub domain_health: DomainFetchHealth,
+    pub scrape_health: DomainFetchHealth,
     pub fetch_failure: Option<FetchFailureContext>,
 }
 
@@ -191,7 +185,7 @@ pub(crate) fn record_transport_fetch_error(
     status_code: Option<u16>,
     retry_after: Option<std::time::Duration>,
 ) {
-    record_transport_observation(domain_health_for_fetch_error(
+    record_transport_observation(scrape_health_for_fetch_error(
         kind,
         status_code,
         retry_after,
@@ -231,7 +225,7 @@ pub(crate) fn record_transport_failure(
 /// they are non-2xx, and so is a bot challenge the shop answered with.
 /// Connection, DNS, timeout, unsafe-target, and unknown failures do not prove
 /// that the remote domain responded.
-pub(crate) fn domain_health_for_fetch_error(
+pub(crate) fn scrape_health_for_fetch_error(
     network_kind: NetworkErrorKind,
     status_code: Option<u16>,
     retry_after: Option<std::time::Duration>,
@@ -257,7 +251,7 @@ pub(crate) fn domain_health_for_fetch_error(
     }
 }
 
-pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFetchHealth {
+pub(crate) fn scrape_health_for_scraper_error(error: &ScraperError) -> DomainFetchHealth {
     match error {
         // A robots.txt refusal sent nothing to the shop.
         error
@@ -305,9 +299,9 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)
         | ScraperError::LlmBudgetExceeded { .. } => DomainFetchHealth::Responsive,
-        ScraperError::NoHost { .. }
-        | ScraperError::MissingDomainContext { .. }
-        | ScraperError::PendingSchemaReview { .. } => DomainFetchHealth::NotObserved,
+        ScraperError::NoHost { .. } | ScraperError::PendingSchemaReview { .. } => {
+            DomainFetchHealth::NotObserved
+        }
     }
 }
 
@@ -319,7 +313,7 @@ pub(crate) fn domain_health_for_scraper_error(error: &ScraperError) -> DomainFet
 #[mockall::automock]
 pub trait ScraperService: Send + Sync {
     /// Executes one scrape request and returns both the product result and the
-    /// transport observation used by the domain circuit.
+    /// transport observation used by the scrape circuit.
     async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome;
 }
 
@@ -331,7 +325,7 @@ mod tests {
     fn responsive_http_statuses_prove_domain_health() {
         for status in [404, 410, 403, 425, 500, 502] {
             assert_eq!(
-                domain_health_for_fetch_error(
+                scrape_health_for_fetch_error(
                     NetworkErrorKind::HttpStatus(status),
                     Some(status),
                     None,
@@ -348,7 +342,7 @@ mod tests {
     fn a_bot_challenge_proves_domain_health() {
         for status in [200, 202, 403] {
             assert_eq!(
-                domain_health_for_fetch_error(NetworkErrorKind::BotChallenge, Some(status), None),
+                scrape_health_for_fetch_error(NetworkErrorKind::BotChallenge, Some(status), None),
                 DomainFetchHealth::Responsive,
                 "a challenge answered with {status} should be responsive"
             );
@@ -356,16 +350,16 @@ mod tests {
     }
 
     #[test]
-    fn only_policy_network_failures_open_domain_circuit() {
+    fn only_policy_network_failures_open_scrape_circuit() {
         assert!(matches!(
-            domain_health_for_fetch_error(NetworkErrorKind::HttpStatus(429), Some(429), None),
+            scrape_health_for_fetch_error(NetworkErrorKind::HttpStatus(429), Some(429), None),
             DomainFetchHealth::CircuitFailure {
                 kind: DomainFailureKind::Http429,
                 ..
             }
         ));
         assert_eq!(
-            domain_health_for_fetch_error(NetworkErrorKind::Request, None, None),
+            scrape_health_for_fetch_error(NetworkErrorKind::Request, None, None),
             DomainFetchHealth::NotObserved
         );
     }

@@ -274,41 +274,36 @@ function blockedByReview(source) {
     return Boolean(source.crawl_enabled) && Number(source.blocked_urls) > 0;
 }
 
-// The scraper circuit keeps a failure streak per domain; a ListingSource shows its longest, or
-// null while every domain scrapes.
-function failingScrapeDomain(source) {
-    return (source.domains || []).reduce((worst, domain) =>
-        scrapeFailureStreak(domain) > scrapeFailureStreak(worst) ? domain : worst, null);
+// The scraper circuit's failure streak of a ListingSource; 0 while it scrapes.
+function scrapeFailureStreak(source) {
+    return Number(source?.scrape_failure_streak) || 0;
 }
 
-function scrapeFailureStreak(domain) {
-    return Number(domain?.scrape_failure_streak) || 0;
-}
-
-// A domain recorded `NEEDS_OPERATOR` is crawled no more until an operator fixes its configuration.
-function needsOperatorDomains(source) {
-    return (source.domains || []).filter(domain => domain.last_crawl_outcome === 'NEEDS_OPERATOR');
+// A ListingSource recorded `NEEDS_OPERATOR` is crawled no more until its presentation URL changes
+// or its crawling is disabled.
+function crawlNeedsOperator(source) {
+    return source.last_crawl_outcome === 'NEEDS_OPERATOR';
 }
 
 function listingSourceName(source) {
     return String(source.listing_source_name || source.listing_source_id);
 }
 
-// What needs an operator: a crawl-enabled ListingSource that has a domain waiting for one, URLs
-// blocked on a review, a scrape failure streak or held removals.
+// What needs an operator: a crawl-enabled ListingSource whose crawl waits for one, URLs blocked
+// on a review, a scrape failure streak or held removals.
 function needsAttention(source) {
-    return Boolean(source.crawl_enabled) && (needsOperatorDomains(source).length > 0
+    return Boolean(source.crawl_enabled) && (crawlNeedsOperator(source)
         || Number(source.blocked_urls) > 0
-        || scrapeFailureStreak(failingScrapeDomain(source)) > 0
+        || scrapeFailureStreak(source) > 0
         || Number(source.held_removal_urls) > 0);
 }
 
 // Needs-operator ListingSources first; then the blocked ones, the longest failure streaks, the
 // held removals and finally by name.
 function compareSourceHealth(a, b) {
-    return Number(needsOperatorDomains(b).length > 0) - Number(needsOperatorDomains(a).length > 0)
+    return Number(crawlNeedsOperator(b)) - Number(crawlNeedsOperator(a))
         || Number(blockedByReview(b)) - Number(blockedByReview(a))
-        || scrapeFailureStreak(failingScrapeDomain(b)) - scrapeFailureStreak(failingScrapeDomain(a))
+        || scrapeFailureStreak(b) - scrapeFailureStreak(a)
         || Number(Number(b.held_removal_urls) > 0) - Number(Number(a.held_removal_urls) > 0)
         || listingSourceName(a).localeCompare(listingSourceName(b));
 }
@@ -420,11 +415,11 @@ function renderSourceHealth() {
 function renderSourceStats(sources) {
     const enabled = sources.filter(source => source.crawl_enabled);
     const sum = (list, field) => list.reduce((total, source) => total + (Number(source[field]) || 0), 0);
-    const operator = enabled.filter(source => needsOperatorDomains(source).length > 0).length;
-    const failing = enabled.filter(source => scrapeFailureStreak(failingScrapeDomain(source)) > 0).length;
+    const operator = enabled.filter(crawlNeedsOperator).length;
+    const failing = enabled.filter(source => scrapeFailureStreak(source) > 0).length;
     const tiles = [
         [sum(enabled, 'blocked_urls'), 'URLs blocked by a review', 'URLs blocked by a review', 'warn'],
-        [operator, 'Domain needs an operator', 'Domains need an operator', 'bad'],
+        [operator, 'Crawl needs an operator', 'Crawls need an operator', 'bad'],
         [failing, 'Source failing to scrape', 'Sources failing to scrape', 'bad'],
         [sum(sources, 'held_removal_urls'), 'Removal held', 'Removals held', 'warn'],
         [sum(enabled, 'missing_value_urls'), 'Page missing a value', 'Pages missing a value', '']
@@ -438,12 +433,12 @@ function renderSourceStats(sources) {
 
 function renderSourceRow(source, disabled) {
     const id = source.listing_source_id;
-    const domains = (source.domains || []).map(domain => domain.domain).join(', ');
+    const root = source.crawl_root_url || 'No crawl root';
     const urls = Number(source.product_urls) || 0;
     const pages = expandedMissingValueSources.get(id);
     return `<tr${disabled ? ' class="disabled"' : ''}>
       <td><div class="cell-main" title="${escapeHtmlAttr(listingSourceName(source))}">${escapeHtml(listingSourceName(source))}</div>
-        <div class="cell-sub" title="${escapeHtmlAttr(domains)}">${escapeHtml([domains, `${urls} URL${urls === 1 ? '' : 's'}`].filter(Boolean).join(' · '))}</div></td>
+        <div class="cell-sub" title="${escapeHtmlAttr(root)}">${escapeHtml([root, `${urls} URL${urls === 1 ? '' : 's'}`].join(' · '))}</div></td>
       <td>${renderSourceStatus(source)}</td>
       <td>${renderPendingReviewsCell(source)}</td>
       <td>${renderRecentErrors(source)}</td>
@@ -460,9 +455,9 @@ function issueLine(tone, headline, detail) {
 function renderSourceStatus(source) {
     const lines = [];
     if (source.crawl_enabled) {
-        for (const domain of needsOperatorDomains(source)) {
-            lines.push(issueLine('bad', 'Domain needs an operator',
-                `${escapeHtml(domain.domain)} · ${escapeHtml(errorKindLabel(domain.last_crawl_error_kind))} · ${escapeHtml(String(domain.crawl_failure_count))} failed crawls — fix the crawl root, re-register the domain or disable crawling`));
+        if (crawlNeedsOperator(source)) {
+            lines.push(issueLine('bad', 'Crawl needs an operator',
+                `${escapeHtml(errorKindLabel(source.last_crawl_error_kind))} · ${escapeHtml(String(source.crawl_failure_count))} failed crawls — fix the presentation URL in the admin API or disable crawling`));
         }
         const blocked = Number(source.blocked_urls) || 0;
         if (blocked > 0) {
@@ -473,13 +468,12 @@ function renderSourceStatus(source) {
             lines.push(issueLine('warn', headline,
                 `${blocked === total ? `All ${blocked} URLs wait on it` : `${blocked} of ${total} URLs wait on it`}${source.blocked_since ? ` · since ${timeBadge(source.blocked_since, 'Blocked since', true)}` : ''}`));
         }
-        const failing = failingScrapeDomain(source);
-        if (failing) {
-            const paused = failing.scrape_paused_until
-                ? ` · retries ${Date.parse(failing.scrape_paused_until) <= Date.now() ? 'now' : untilText(failing.scrape_paused_until)}`
+        if (scrapeFailureStreak(source) > 0) {
+            const paused = source.scrape_paused_until
+                ? ` · retries ${Date.parse(source.scrape_paused_until) <= Date.now() ? 'now' : untilText(source.scrape_paused_until)}`
                 : '';
             lines.push(issueLine('bad', 'Failing to scrape',
-                `${scrapeFailureStreak(failing)} in a row · ${escapeHtml(errorKindLabel(failing.last_scrape_error_kind))}${failing.scrape_failing_since ? ` · since ${timeBadge(failing.scrape_failing_since, 'Failing since', true)}` : ''}${paused}${(source.domains || []).length > 1 ? ` · ${escapeHtml(failing.domain)}` : ''}`));
+                `${scrapeFailureStreak(source)} in a row · ${escapeHtml(errorKindLabel(source.last_scrape_error_kind))}${source.scrape_failing_since ? ` · since ${timeBadge(source.scrape_failing_since, 'Failing since', true)}` : ''}${paused}`));
         }
         const held = Number(source.held_removal_urls) || 0;
         if (held > 0) {
@@ -522,10 +516,9 @@ function errorKindLabel(kind) {
     return text ? displayName(text).toLowerCase() : 'unknown failure';
 }
 
-// The earliest next crawl of the ListingSource's domains.
+// The ListingSource's next crawl.
 function renderNextCrawl(source) {
-    const next = (source.domains || []).map(domain => domain.next_crawl_at).filter(Boolean)
-        .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+    const next = source.next_crawl_at;
     if (!next) return '<span class="muted">—</span>';
     const text = Date.parse(next) <= Date.now() ? 'due' : untilText(next);
     return `<span class="time" title="${escapeHtmlAttr(`Next crawl: ${formatDate(next)}`)}">${escapeHtml(text)}</span>`;
@@ -1317,7 +1310,7 @@ function renderUrlPatternReview(review, urls) {
       </div>` : ''}`;
 }
 
-// How each sample URL classifies under the domain's current pattern and under the candidate: the
+// How each sample URL classifies under the ListingSource's current pattern and under the candidate: the
 // unsaved pattern `pattern` as the browser previews it when it differs from the saved one, else
 // the server's classification of the saved candidate.
 function urlPatternView(review, urls, pattern) {
@@ -1618,7 +1611,7 @@ function renderSampleLabelTakes(label) {
     return consistent ? escapeHtml(takesText) : badge(`${takesText} — inconsistent`, 'bad');
 }
 
-// The author agent's or a human's labels of URLs of the review's domain, its sample's among
+// The author agent's or a human's labels of URLs on the review's crawl host, its sample's among
 // them: which are product pages. An agent approval of the pattern rests on them alone; the
 // reviewer agent cannot change them.
 function renderSampleLabels(review) {
@@ -1640,7 +1633,7 @@ function renderSampleLabels(review) {
           <td>${editable ? `<button class="quiet danger" onclick="removeSampleLabel(${index})" type="button">Remove</button>` : ''}</td>
         </tr>`).join('');
     const adder = editable ? `<div class="actions">
-        <input id="sampleLabelUrl" placeholder="Another URL of the review's domain" aria-label="URL to label">
+        <input id="sampleLabelUrl" placeholder="Another URL on the review's crawl host" aria-label="URL to label">
         ${renderSampleLabelSelect('PRODUCT', '', false).replace('<select', '<select id="sampleLabelKind" aria-label="Label"')}
         <input id="sampleLabelReason" placeholder="Why" aria-label="Reason">
         <button onclick="addSampleLabel()" type="button">Add label</button>
@@ -1829,7 +1822,6 @@ function renderSelectorPanel(schemas, matrix) {
     const type = effectiveRule.type || 'text';
     const additional = Array.isArray(effectiveRule.additional_selectors) ? effectiveRule.additional_selectors : [];
     const findings = fieldFindings(matrixPage, selectedField);
-    const notes = pageNotices(matrixPage).filter(note => note.field === fieldKey(selectedField));
     return `<div class="tab-panel">
       ${renderCandidateEditHint(selectedDetail)}
       ${renderSchemaChips(schemas, disabled)}
@@ -1847,7 +1839,6 @@ function renderSelectorPanel(schemas, matrix) {
           </span>
         </label>
         ${findings.length ? notice('bad', 'Failed check', `${findings.map(finding => escapeHtml(findingDescription(finding))).join('; ')} on this page.`) : ''}
-        ${notes.length ? notice('warn', 'Note', `${notes.map(note => escapeHtml(note.text)).join('; ')} on this page. This blocks no approval.`) : ''}
         <div class="rule-grid">
           <label class="field">Matches
             <select ${disabled} onchange="setCurrentRuleCardinality(this.value)">
@@ -1894,10 +1885,9 @@ function renderSelectorPanel(schemas, matrix) {
     </div>`;
 }
 
-// " · failed check", " · note" or " · empty" after the field the selected page has something to say about.
+// " · failed check" or " · empty" after the field the selected page has something to say about.
 function fieldStateSuffix(page, field) {
     if (fieldFindings(page, field).length) return ' · failed check';
-    if (pageNotices(page).some(note => note.field === fieldKey(field))) return ' · note';
     if (optionalFieldMisses(page).some(miss => miss.field === fieldKey(field))) return ' · empty';
     return '';
 }
@@ -2470,8 +2460,7 @@ const CHECK_LABELS = {
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
-    DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity',
-    FOREIGN_PRICE_CURRENCY: 'Foreign currency'
+    DIFFERS_FROM_CAPTURED_IDENTITY: 'Differs from captured identity'
 };
 
 function checkLabel(check) {
@@ -2482,27 +2471,12 @@ function findingBadge(finding) {
     return `<span class="badge badge-bad" title="${escapeHtmlAttr(findingDescription(finding))}">${escapeHtml(checkLabel(finding.check))}</span>`;
 }
 
-function noticeBadge(note) {
-    return `<span class="badge badge-warn" title="${escapeHtmlAttr(note.text)}">${escapeHtml(checkLabel(note.check))}</span>`;
-}
-
 // The selected schema's pages that failed a check, by the check's description, in page order.
 function groupFindingsByDescription(candidate) {
     const groups = new Map();
     for (const page of candidate?.pages || []) {
         for (const description of new Set(pageFindings(page).map(findingDescription))) {
             groups.set(description, [...(groups.get(description) || []), page]);
-        }
-    }
-    return groups;
-}
-
-// The selected schema's pages that carry a note, by the note's text.
-function groupNoticesByText(candidate) {
-    const groups = new Map();
-    for (const page of candidate?.pages || []) {
-        for (const text of new Set(pageNotices(page).map(note => note.text))) {
-            groups.set(text, [...(groups.get(text) || []), page]);
         }
     }
     return groups;
@@ -2583,18 +2557,15 @@ function skippedElementLines(candidate) {
 
 function renderNotesSection(matrix) {
     const candidate = selectedCandidate(matrix);
-    const groups = groupNoticesByText(candidate);
     const lines = [...optionalMissLines(candidate), ...skippedElementLines(candidate)];
-    if (!groups.size && !lines.length) return '';
-    const total = (candidate.pages || []).length;
+    if (!lines.length) return '';
     const pageCount = (candidate.pages || []).filter(page =>
-        pageNotices(page).length || notedOptionalMisses(page).length || fieldsWithSkippedElements(page).length).length;
-    const notes = groups.size + lines.length;
+        notedOptionalMisses(page).length || fieldsWithSkippedElements(page).length).length;
+    const notes = lines.length;
     return `<div class="section">
       <div class="section-head"><h3><span class="dot dot-warn"></span>Notes</h3>${badge(`${notes} note${notes === 1 ? '' : 's'} · ${pageCount} page${pageCount === 1 ? '' : 's'}`, 'warn')}</div>
       <div class="small muted">Information next to its field; notes block no approval.</div>
       <div class="check-list">
-        ${[...groups].map(([text, pages]) => checkEntry('warn', text, `${schemaLabel(selectedSchemaIndex)} · ${pages.length} of ${total} page${total === 1 ? '' : 's'}`, pages)).join('')}
         ${lines.map(line => `<div class="small muted">${escapeHtml(line)}</div>`).join('')}
       </div>
     </div>`;
@@ -2640,21 +2611,6 @@ function renderContradictingIdentities(findings) {
         ));
     if (!values.length) return '';
     return `<div class="small muted">Contradicting identities: ${values.join(', ')}</div>`;
-}
-
-// Informational findings of a matrix page: a `foreign_price_currency`. It neither
-// fails the page nor blocks approval.
-function pageNotices(page) {
-    const notices = [];
-    const foreign = page?.foreign_price_currency;
-    if (foreign) {
-        notices.push({
-            field: foreign.field,
-            check: 'FOREIGN_PRICE_CURRENCY',
-            text: `${displayName(foreign.field)} names ${foreign.currency}, not the fallback currency ${foreign.fallback_currency}`
-        });
-    }
-    return notices;
 }
 
 // Mirrors `optional_field_misses` in the persisted schema matrix summary: a soft
@@ -2749,8 +2705,7 @@ function rawDataCell(raw, page) {
     return `<dl class="kv">${
         fields.map(([key, value]) => {
             const findings = fieldFindings(page, key);
-            const notes = pageNotices(page).filter(note => note.field === key);
-            const badges = findings.map(findingBadge).join('') + notes.map(noticeBadge).join('');
+            const badges = findings.map(findingBadge).join('');
             const shown = hasRawValue(value)
                 ? (key === 'images' && Array.isArray(value) ? renderImageCandidateGroups(value) : rawValue(value))
                 : '<span class="blank">blank</span>';

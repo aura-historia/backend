@@ -1,8 +1,9 @@
+use crawler::CrawlerReviewId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    DomainAwaitingReview, DomainCircuitOpenRequest, DomainHealthSnapshot, FetchFailureRequest,
-    RedirectDestination, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
-    ScrapeCompletion, ScraperCandidateService, ScraperCandidateServiceImpl,
+    FetchFailureRequest, RedirectDestination, RedirectUrlMove, SchemaReviewWait,
+    SchemaReviewWaitRequest, ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot,
+    ScraperCandidateService, ScraperCandidateServiceImpl, SourceAwaitingReview,
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, NEEDS_OPERATOR_CRAWL_OUTCOME,
@@ -21,7 +22,6 @@ use crawler::spider::crawl_frontier_repository::{
 use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlCompletion;
-use crawler::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -85,20 +85,18 @@ fn fetch_failure_request(
     }
 }
 
-fn domain_open_request(
+fn circuit_open_request(
     url_failure: FetchFailureRequest,
-    domain_id: CrawlerDomainId,
-    expected_domain_health: DomainHealthSnapshot,
-    domain_error_kind: DomainFailureKind,
-    domain_status_code: Option<i32>,
+    expected_scrape_health: ScrapeHealthSnapshot,
+    scrape_error_kind: DomainFailureKind,
+    scrape_status_code: Option<i32>,
     next_scrape_at: time::OffsetDateTime,
-) -> DomainCircuitOpenRequest {
-    DomainCircuitOpenRequest {
+) -> ScrapeCircuitOpenRequest {
+    ScrapeCircuitOpenRequest {
         url_failure,
-        domain_id,
-        expected_domain_health,
-        domain_error_kind,
-        domain_status_code,
+        expected_scrape_health,
+        scrape_error_kind,
+        scrape_status_code,
         next_scrape_at: Some(next_scrape_at),
     }
 }
@@ -107,44 +105,31 @@ fn domain_open_request(
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// Inserts a ListingSource and its first domain; returns the generated domain ID.
-async fn insert_listing_source_with_domain(
+/// Inserts a crawl-enabled ListingSource crawled from `https://{crawl_host}/`.
+async fn insert_listing_source(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
-    domain: &str,
-) -> CrawlerDomainId {
+    crawl_host: &str,
+) {
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, $2, $3, TRUE, NOW(), NOW())",
+        "INSERT INTO listing_sources \
+             (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+              crawl_root_url, crawl_host, created, updated) \
+         VALUES ($1, $2, $3, TRUE, $4, $5, NOW(), NOW())",
     )
     .bind(listing_source_id.as_uuid())
     .bind("Test source")
     .bind("test-source")
+    .bind(format!("https://{crawl_host}/"))
+    .bind(crawl_host)
     .execute(pool)
     .await
     .unwrap();
-
-    insert_domain_for_listing_source(pool, listing_source_id, domain).await
 }
 
-/// Inserts an additional domain row for an already-existing ListingSource.
-async fn insert_domain_for_listing_source(
-    pool: &sqlx::PgPool,
-    listing_source_id: ListingSourceId,
-    domain: &str,
-) -> CrawlerDomainId {
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) VALUES ($1, $2, $3, $3)",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(listing_source_id.as_uuid())
-    .bind(domain)
-    .execute(pool)
-    .await
-    .unwrap();
-
-    domain_id
+/// The crawl root a spider run of a source [`insert_listing_source`] inserted crawls.
+fn crawled_root(listing_source_id: ListingSourceId, crawl_host: &str) -> CrawledRoot {
+    CrawledRoot::new(listing_source_id, format!("https://{crawl_host}/"))
 }
 
 // ============================================================================
@@ -152,38 +137,35 @@ async fn insert_domain_for_listing_source(
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// get_candidates — newly-inserted domain (last_crawled IS NULL) is returned
-//                  and carries the correct domain_id
+// get_candidates — a newly-inserted ListingSource (last_crawled IS NULL) is returned
+//                  and carries its crawl root
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_should_return_candidate_with_correct_domain_id_when_never_crawled() {
+async fn spider_should_return_candidate_with_its_crawl_root_when_never_crawled() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "spider-never-crawled.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "spider-never-crawled.example.com").await;
 
     let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].listing_source_id, listing_source_id);
     assert_eq!(
-        candidates[0].domain_id, domain_id,
-        "candidate must carry the domain_id generated by listing_source_domains"
+        candidates[0].crawl_root.url().as_str(),
+        "https://spider-never-crawled.example.com/",
+        "candidate must carry the crawl root stored on its ListingSource"
     );
     assert_eq!(
-        candidates[0].listing_source_domain,
+        candidates[0].crawl_root.host(),
         "spider-never-crawled.example.com"
     );
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — domain crawled recently is NOT returned
+// get_candidates — a ListingSource crawled recently is NOT returned
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -192,15 +174,13 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-recent.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "spider-recent.example.com").await;
 
     sqlx::query(
-        "UPDATE listing_source_domains SET last_crawled = NOW(), last_crawl_run_at = NOW() \
-         WHERE domain_id = $1",
+        "UPDATE listing_sources SET last_crawled = NOW(), last_crawl_run_at = NOW() \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -208,47 +188,41 @@ async fn spider_should_not_return_candidate_when_recently_crawled() {
     let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     assert!(
-        !candidates.iter().any(|c| c.domain_id == domain_id),
-        "a domain crawled just now should not be returned as a candidate"
+        !candidates
+            .iter()
+            .any(|c| c.listing_source_id == listing_source_id),
+        "a ListingSource crawled just now should not be returned as a candidate"
     );
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — a recent full crawl makes the domain due for an incremental crawl a day after
-//                  its last run; an old one for a full crawl
+// get_candidates — a recent full crawl makes the ListingSource due for an incremental crawl a
+//                  day after its last run; an old one for a full crawl
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_should_select_full_and_incremental_crawls_by_their_intervals() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
-    let listing_source_id = ListingSourceId::new();
-    let incremental =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-daily.example.com")
-            .await;
-    let full =
-        insert_domain_for_listing_source(&pool, listing_source_id, "spider-weekly.example.com")
-            .await;
-    let ran_today =
-        insert_domain_for_listing_source(&pool, listing_source_id, "spider-today.example.com")
-            .await;
-    let held = insert_domain_for_listing_source(
-        &pool,
-        listing_source_id,
-        "spider-rate-limit-held.example.com",
-    )
-    .await;
+    let incremental = ListingSourceId::new();
+    insert_listing_source(&pool, incremental, "spider-daily.example.com").await;
+    let full = ListingSourceId::new();
+    insert_listing_source(&pool, full, "spider-weekly.example.com").await;
+    let ran_today = ListingSourceId::new();
+    insert_listing_source(&pool, ran_today, "spider-today.example.com").await;
+    let held = ListingSourceId::new();
+    insert_listing_source(&pool, held, "spider-rate-limit-held.example.com").await;
     let set_timers =
-        |domain_id: CrawlerDomainId, last_crawled: &'static str, last_run: &'static str| {
+        |listing_source_id: ListingSourceId, last_crawled: &'static str, last_run: &'static str| {
             let pool = pool.clone();
             async move {
                 sqlx::query(
-                    "UPDATE listing_source_domains \
+                    "UPDATE listing_sources \
                  SET last_crawled = NOW() - $2::text::interval, \
                      last_crawl_run_at = NOW() - $3::text::interval \
-                 WHERE domain_id = $1",
+                 WHERE listing_source_id = $1",
                 )
-                .bind(domain_id.as_uuid())
+                .bind(listing_source_id.as_uuid())
                 .bind(last_crawled)
                 .bind(last_run)
                 .execute(&pool)
@@ -261,20 +235,20 @@ async fn spider_should_select_full_and_incremental_crawls_by_their_intervals() {
     set_timers(ran_today, "3 days", "2 hours").await;
     set_timers(held, "3 days", "25 hours").await;
     sqlx::query(
-        "UPDATE listing_source_domains SET crawl_rate_limited_until = NOW() + INTERVAL '1 hour' \
-         WHERE domain_id = $1",
+        "UPDATE listing_sources SET crawl_rate_limited_until = NOW() + INTERVAL '1 hour' \
+         WHERE listing_source_id = $1",
     )
     .bind(held.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
 
-    let candidates: HashMap<CrawlerDomainId, CrawlKind> = service
+    let candidates: HashMap<ListingSourceId, CrawlKind> = service
         .get_candidates(10, &[])
         .await
         .unwrap()
         .into_iter()
-        .map(|candidate| (candidate.domain_id, candidate.kind))
+        .map(|candidate| (candidate.listing_source_id, candidate.kind))
         .collect();
 
     assert_eq!(candidates.get(&incremental), Some(&CrawlKind::Incremental));
@@ -291,21 +265,17 @@ async fn spider_should_select_full_and_incremental_crawls_by_their_intervals() {
 async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_limit_state() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        ListingSourceId::new(),
-        "spider-incremental.example.com",
-    )
-    .await;
-    let root = CrawledRoot::new(domain_id, "spider-incremental.example.com");
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "spider-incremental.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-incremental.example.com");
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET last_crawled = NOW() - INTERVAL '3 days', crawl_truncation_count = 2, \
              crawl_rate_limit_streak = 1, crawl_failure_count = 1, \
              last_crawl_error_kind = 'ConnectError' \
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -315,7 +285,7 @@ async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_
         .await
         .unwrap();
     let (failures, error_kind, next_crawl_at, outcome, truncations, last_crawled) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!((failures, error_kind.as_deref()), (1, Some("ConnectError")));
     assert_eq!(next_crawl_at, None);
     assert_eq!(outcome.as_deref(), Some("HARD_TIMEOUT_TRUNCATED"));
@@ -326,16 +296,16 @@ async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_
         .await
         .unwrap();
     let (failures, error_kind, _, outcome, truncations, last_crawled_after) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!((failures, error_kind), (0, None));
     assert_eq!(outcome.as_deref(), Some("COMPLETED"));
     assert_eq!(truncations, 2);
     assert_eq!(last_crawled_after, last_crawled, "never a full crawl");
     let (streak, last_run): (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
-        "SELECT crawl_rate_limit_streak, last_crawl_run_at FROM listing_source_domains \
-         WHERE domain_id = $1",
+        "SELECT crawl_rate_limit_streak, last_crawl_run_at FROM listing_sources \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -345,7 +315,7 @@ async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_
 }
 
 // ---------------------------------------------------------------------------
-// crawl frontier — replaced per crawl, read back in full, cleared with the domain
+// crawl frontier — replaced per crawl, read back in full, kept per ListingSource
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -353,14 +323,11 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
     let pool = get_postgres_client().await;
     let repository = CrawlFrontierRepositoryImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-frontier.example.com")
-            .await;
-    let root = CrawledRoot::new(domain_id, "spider-frontier.example.com");
-    let other =
-        insert_domain_for_listing_source(&pool, listing_source_id, "spider-other.example.com")
-            .await;
-    let other_root = CrawledRoot::new(other, "spider-other.example.com");
+    insert_listing_source(&pool, listing_source_id, "spider-frontier.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-frontier.example.com");
+    let other = ListingSourceId::new();
+    insert_listing_source(&pool, other, "spider-other.example.com").await;
+    let other_root = crawled_root(other, "spider-other.example.com");
     let url = |path: &str| {
         url::Url::parse(&format!("https://spider-frontier.example.com{path}")).unwrap()
     };
@@ -374,7 +341,7 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         .await
         .unwrap();
     assert_eq!(
-        repository.load_frontier(&domain_id).await.unwrap(),
+        repository.load_frontier(&listing_source_id).await.unwrap(),
         [url("/a"), url("/b")]
     );
 
@@ -383,13 +350,13 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         .await
         .unwrap();
     assert_eq!(
-        repository.load_frontier(&domain_id).await.unwrap(),
+        repository.load_frontier(&listing_source_id).await.unwrap(),
         [url("/c")]
     );
     repository.replace_frontier(&root, &[]).await.unwrap();
     assert!(
         repository
-            .load_frontier(&domain_id)
+            .load_frontier(&listing_source_id)
             .await
             .unwrap()
             .is_empty()
@@ -402,23 +369,16 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
     insert_product_url(
         &pool,
         listing_source_id,
-        domain_id,
         "https://spider-frontier.example.com/product/1",
     )
     .await;
     UrlMetadataRepositoryImpl::new(pool.clone())
-        .upsert_link(
-            &listing_source_id,
-            &domain_id,
-            &url("/about"),
-            &UrlClass::Other,
-        )
+        .upsert_link(&listing_source_id, &url("/about"), &UrlClass::Other)
         .await
         .unwrap();
     insert_product_url(
         &pool,
         listing_source_id,
-        domain_id,
         "https://spider-frontier.example.com/collections/all/products/1",
     )
     .await;
@@ -428,7 +388,7 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         .await
         .unwrap();
     assert_eq!(
-        repository.known_urls(&domain_id).await.unwrap(),
+        repository.known_urls(&listing_source_id).await.unwrap(),
         KnownUrls {
             products: vec![url("/product/1")],
             retired: vec![url("/collections/all/products/1")],
@@ -439,7 +399,6 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
     insert_product_url(
         &pool,
         listing_source_id,
-        domain_id,
         "https://spider-frontier.example.com/collections/all/products/2/",
     )
     .await;
@@ -462,7 +421,7 @@ async fn spider_crawl_frontier_should_be_replaced_by_each_crawl_and_known_produc
         .await
         .unwrap();
     assert_eq!(
-        repository.load_frontier(&domain_id).await.unwrap(),
+        repository.load_frontier(&listing_source_id).await.unwrap(),
         [url("/d")],
         "the frontier never carries a URL retired as a duplicate, in either spelling"
     );
@@ -479,7 +438,7 @@ async fn spider_should_respect_limit_when_multiple_candidates_exist() {
 
     for i in 0..3u32 {
         let listing_source_id = ListingSourceId::new();
-        insert_listing_source_with_domain(
+        insert_listing_source(
             &pool,
             listing_source_id,
             &format!("spider-limit-{}.example.com", i),
@@ -497,42 +456,6 @@ async fn spider_should_respect_limit_when_multiple_candidates_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — multiple domains on the same ListingSource are each returned
-//                  with their own domain_id
-// ---------------------------------------------------------------------------
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_should_return_each_domain_separately_for_listing_source_with_multiple_domains() {
-    let pool = get_postgres_client().await;
-    let service = SpiderCandidateServiceImpl::new(pool.clone());
-
-    let listing_source_id = ListingSourceId::new();
-    sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, $2, $3, TRUE, NOW(), NOW())",
-    )
-    .bind(listing_source_id.as_uuid())
-    .bind("Test source")
-    .bind("test-source")
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    let domain_id_a =
-        insert_domain_for_listing_source(&pool, listing_source_id, "spider-multi-a.example.com")
-            .await;
-    let domain_id_b =
-        insert_domain_for_listing_source(&pool, listing_source_id, "spider-multi-b.example.com")
-            .await;
-
-    let candidates = service.get_candidates(10, &[]).await.unwrap();
-
-    let ids: Vec<CrawlerDomainId> = candidates.iter().map(|c| c.domain_id).collect();
-    assert!(ids.contains(&domain_id_a), "domain_id_a should be present");
-    assert!(ids.contains(&domain_id_b), "domain_id_b should be present");
-}
-
-// ---------------------------------------------------------------------------
 // get_candidates — listing_source_id on the candidate matches the owning ListingSource
 // ---------------------------------------------------------------------------
 
@@ -542,16 +465,14 @@ async fn spider_should_return_correct_listing_source_id_on_candidate() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-source-id.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "spider-source-id.example.com").await;
 
     let candidates = service.get_candidates(10, &[]).await.unwrap();
 
     let candidate = candidates
         .iter()
-        .find(|c| c.domain_id == domain_id)
-        .expect("candidate for the inserted domain should be present");
+        .find(|c| c.listing_source_id == listing_source_id)
+        .expect("candidate for the inserted ListingSource should be present");
 
     assert_eq!(
         candidate.listing_source_id, listing_source_id,
@@ -569,20 +490,15 @@ async fn spider_should_return_crawl_failure_metadata_on_candidate() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "spider-failure-meta.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "spider-failure-meta.example.com").await;
 
     sqlx::query(
-        "UPDATE listing_source_domains
+        "UPDATE listing_sources
          SET crawl_failure_count = 2,
              last_crawl_error_kind = 'InsufficientInferenceSample'
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -590,8 +506,8 @@ async fn spider_should_return_crawl_failure_metadata_on_candidate() {
     let candidates = service.get_candidates(10, &[]).await.unwrap();
     let candidate = candidates
         .iter()
-        .find(|c| c.domain_id == domain_id)
-        .expect("candidate for the inserted domain should be present");
+        .find(|c| c.listing_source_id == listing_source_id)
+        .expect("candidate for the inserted ListingSource should be present");
 
     assert_eq!(candidate.crawl_failure_count, 2);
     assert_eq!(
@@ -610,13 +526,8 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "spider-mark-failure.example.com",
-    )
-    .await;
-    let root = CrawledRoot::new(domain_id, "spider-mark-failure.example.com");
+    insert_listing_source(&pool, listing_source_id, "spider-mark-failure.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-mark-failure.example.com");
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
 
     service
@@ -626,10 +537,10 @@ async fn spider_mark_crawl_failure_should_store_count_kind_and_next_crawl_at() {
 
     let row: (i32, Option<String>, Option<time::OffsetDateTime>) = sqlx::query_as(
         "SELECT crawl_failure_count, last_crawl_error_kind, next_crawl_at
-         FROM listing_source_domains
-         WHERE domain_id = $1",
+         FROM listing_sources
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
@@ -652,14 +563,14 @@ type CrawlStateRow = (
     Option<time::OffsetDateTime>,
 );
 
-async fn crawl_state(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) -> CrawlStateRow {
+async fn crawl_state(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) -> CrawlStateRow {
     sqlx::query_as(
         "SELECT crawl_failure_count, last_crawl_error_kind, next_crawl_at,
                 last_crawl_outcome, crawl_truncation_count, last_crawled
-         FROM listing_source_domains
-         WHERE domain_id = $1",
+         FROM listing_sources
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(pool)
     .await
     .unwrap()
@@ -672,12 +583,12 @@ async fn crawl_state(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) -> CrawlSt
 async fn due_spider_candidate(
     pool: &sqlx::PgPool,
     service: &SpiderCandidateServiceImpl,
-    domain_id: CrawlerDomainId,
+    listing_source_id: ListingSourceId,
 ) -> Option<crawler::spider::candidate_service::SpiderCandidate> {
     sqlx::query(
-        "UPDATE listing_source_domains SET next_crawl_at = NOW() - INTERVAL '1 minute' WHERE domain_id = $1",
+        "UPDATE listing_sources SET next_crawl_at = NOW() - INTERVAL '1 minute' WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -686,20 +597,16 @@ async fn due_spider_candidate(
         .await
         .unwrap()
         .into_iter()
-        .find(|candidate| candidate.domain_id == domain_id)
+        .find(|candidate| candidate.listing_source_id == listing_source_id)
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
+async fn spider_rate_limit_state_should_slow_the_source_until_a_full_crawl() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        ListingSourceId::new(),
-        "spider-rate-limited.example.com",
-    )
-    .await;
-    let root = CrawledRoot::new(domain_id, "spider-rate-limited.example.com");
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "spider-rate-limited.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-rate-limited.example.com");
     service
         .mark_crawl_failure(
             &root,
@@ -724,7 +631,7 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
         .unwrap();
 
     let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!(outcome.as_deref(), Some(RATE_LIMITED_CRAWL_OUTCOME));
     assert_eq!(
         (failure_count, error_kind.as_deref()),
@@ -745,23 +652,23 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
         .await
         .unwrap();
     assert!(
-        due_spider_candidate(&pool, &service, domain_id)
+        due_spider_candidate(&pool, &service, listing_source_id)
             .await
             .is_none(),
         "no other crawl-timer write brings the next crawl before the shop's limit"
     );
     sqlx::query(
-        "UPDATE listing_source_domains
+        "UPDATE listing_sources
          SET crawl_rate_limited_until = NOW() - INTERVAL '1 minute'
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
-    let candidate = due_spider_candidate(&pool, &service, domain_id)
+    let candidate = due_spider_candidate(&pool, &service, listing_source_id)
         .await
-        .expect("a rate-limited domain is due again after its cooldown");
+        .expect("a rate-limited ListingSource is due again after its cooldown");
     assert_eq!(
         candidate.crawl_rate_limit_streak, 1,
         "a crawl cut short without a rate limit steps the pace up by one level"
@@ -777,7 +684,7 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
         )
         .await
         .unwrap();
-    let candidate = due_spider_candidate(&pool, &service, domain_id)
+    let candidate = due_spider_candidate(&pool, &service, listing_source_id)
         .await
         .unwrap();
     assert_eq!(
@@ -789,9 +696,9 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
         .mark_crawl_completed(&root, CrawlCompletion::Completed)
         .await
         .unwrap();
-    let candidate = due_spider_candidate(&pool, &service, domain_id)
+    let candidate = due_spider_candidate(&pool, &service, listing_source_id)
         .await
-        .expect("the domain stays selectable in this test, which never marks it crawled");
+        .expect("the ListingSource stays selectable in this test, which never marks it crawled");
     assert_eq!(
         candidate.crawl_rate_limit_streak, 0,
         "a full crawl restores the configured pace"
@@ -799,16 +706,17 @@ async fn spider_rate_limit_state_should_slow_the_domain_until_a_full_crawl() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_rate_limit_state_should_survive_a_review_releasing_the_domain() {
+async fn spider_rate_limit_state_should_survive_a_review_releasing_the_source() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
-    let domain_id = insert_listing_source_with_domain(
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(
         &pool,
-        ListingSourceId::new(),
+        listing_source_id,
         "spider-rate-limited-review.example.com",
     )
     .await;
-    let root = CrawledRoot::new(domain_id, "spider-rate-limited-review.example.com");
+    let root = crawled_root(listing_source_id, "spider-rate-limited-review.example.com");
     service
         .mark_crawl_rate_limited(
             &root,
@@ -820,9 +728,9 @@ async fn spider_rate_limit_state_should_survive_a_review_releasing_the_domain() 
         .await
         .unwrap();
 
-    // What a review decision releasing the domain writes.
-    sqlx::query("UPDATE listing_source_domains SET next_crawl_at = NULL WHERE domain_id = $1")
-        .bind(domain_id.as_uuid())
+    // What a review decision releasing the ListingSource writes.
+    sqlx::query("UPDATE listing_sources SET next_crawl_at = NULL WHERE listing_source_id = $1")
+        .bind(listing_source_id.as_uuid())
         .execute(&pool)
         .await
         .unwrap();
@@ -833,8 +741,8 @@ async fn spider_rate_limit_state_should_survive_a_review_releasing_the_domain() 
             .await
             .unwrap()
             .iter()
-            .any(|candidate| candidate.domain_id == domain_id),
-        "the shop's limit still holds the domain back"
+            .any(|candidate| candidate.listing_source_id == listing_source_id),
+        "the shop's limit still holds the ListingSource back"
     );
 }
 
@@ -842,13 +750,14 @@ async fn spider_rate_limit_state_should_survive_a_review_releasing_the_domain() 
 async fn spider_rate_limit_streak_should_reject_a_negative_value() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
-    let domain_id = insert_listing_source_with_domain(
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(
         &pool,
-        ListingSourceId::new(),
+        listing_source_id,
         "spider-rate-limit-check.example.com",
     )
     .await;
-    let root = CrawledRoot::new(domain_id, "spider-rate-limit-check.example.com");
+    let root = crawled_root(listing_source_id, "spider-rate-limit-check.example.com");
 
     let written = service
         .mark_crawl_rate_limited(
@@ -869,17 +778,15 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-truncated.example.com")
-            .await;
-    let root = CrawledRoot::new(domain_id, "spider-truncated.example.com");
+    insert_listing_source(&pool, listing_source_id, "spider-truncated.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-truncated.example.com");
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
         .mark_crawl_failure(&root, "RateLimited", 2, None, past)
         .await
         .unwrap();
     assert_eq!(
-        crawl_state(&pool, domain_id).await.3.as_deref(),
+        crawl_state(&pool, listing_source_id).await.3.as_deref(),
         Some("FAILED")
     );
 
@@ -890,7 +797,7 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
         .unwrap();
 
     let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!(failure_count, 2);
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
     assert_eq!(outcome.as_deref(), Some("HARD_TIMEOUT_TRUNCATED"));
@@ -906,14 +813,14 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
             .await
             .unwrap()
             .iter()
-            .any(|c| c.domain_id == domain_id),
-        "a truncated domain waits for its follow-up cooldown"
+            .any(|c| c.listing_source_id == listing_source_id),
+        "a truncated ListingSource waits for its follow-up cooldown"
     );
 
     sqlx::query(
-        "UPDATE listing_source_domains SET next_crawl_at = NOW() - INTERVAL '1 minute' WHERE domain_id = $1",
+        "UPDATE listing_sources SET next_crawl_at = NOW() - INTERVAL '1 minute' WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -922,8 +829,8 @@ async fn spider_mark_crawl_truncated_should_keep_failure_metadata_and_defer_retr
         .await
         .unwrap()
         .into_iter()
-        .find(|c| c.domain_id == domain_id)
-        .expect("a truncated domain is due again after its cooldown");
+        .find(|c| c.listing_source_id == listing_source_id)
+        .expect("a truncated ListingSource is due again after its cooldown");
     assert_eq!(candidate.crawl_truncation_count, 1);
     assert_eq!(candidate.crawl_failure_count, 2);
 }
@@ -934,10 +841,8 @@ async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state()
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "spider-at-budget.example.com")
-            .await;
-    let root = CrawledRoot::new(domain_id, "spider-at-budget.example.com");
+    insert_listing_source(&pool, listing_source_id, "spider-at-budget.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-at-budget.example.com");
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(24);
     service
         .mark_crawl_failure(&root, "ConnectError", 1, None, future)
@@ -954,7 +859,7 @@ async fn spider_mark_crawl_completed_should_clear_failure_and_truncation_state()
         .unwrap();
 
     let (failure_count, error_kind, next_crawl_at, outcome, truncations, _) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!(failure_count, 0);
     assert_eq!(error_kind, None);
     assert_eq!(next_crawl_at, None);
@@ -968,13 +873,13 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "spider-misused-completed.example.com",
     )
     .await;
-    let root = CrawledRoot::new(domain_id, "spider-misused-completed.example.com");
+    let root = crawled_root(listing_source_id, "spider-misused-completed.example.com");
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(6);
     service
         .mark_crawl_failure(&root, "RateLimited", 2, None, future)
@@ -986,7 +891,7 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
         .await;
 
     assert!(result.is_err());
-    let (failure_count, error_kind, ..) = crawl_state(&pool, domain_id).await;
+    let (failure_count, error_kind, ..) = crawl_state(&pool, listing_source_id).await;
     assert_eq!(failure_count, 2);
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
 }
@@ -994,16 +899,14 @@ async fn spider_mark_crawl_completed_should_reject_truncated_outcome() {
 async fn insert_pending_url_pattern_review(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
-    domain_id: CrawlerDomainId,
 ) -> CrawlerReviewId {
     let review_id = CrawlerReviewId::new();
     sqlx::query(
-        "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload) \
-         VALUES ($1, $2, $3, 'URL_PATTERN', 'PENDING_REVIEW', 'manual_url_pattern_required', '{}'::jsonb)",
+        "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
+         VALUES ($1, $2, 'URL_PATTERN', 'PENDING_REVIEW', 'manual_url_pattern_required', '{}'::jsonb)",
     )
     .bind(review_id.as_uuid())
     .bind(listing_source_id.as_uuid())
-    .bind(domain_id.as_uuid())
     .execute(pool)
     .await
     .unwrap();
@@ -1016,14 +919,9 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "spider-review-wait.example.com",
-    )
-    .await;
-    let root = CrawledRoot::new(domain_id, "spider-review-wait.example.com");
-    let review_id = insert_pending_url_pattern_review(&pool, listing_source_id, domain_id).await;
+    insert_listing_source(&pool, listing_source_id, "spider-review-wait.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-review-wait.example.com");
+    let review_id = insert_pending_url_pattern_review(&pool, listing_source_id).await;
     let past = time::OffsetDateTime::now_utc() - time::Duration::hours(1);
     service
         .mark_crawl_failure(&root, "RateLimited", 2, None, past)
@@ -1038,7 +936,7 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
 
     assert_eq!(wait_write, UrlPatternReviewWaitWrite::Recorded);
     let (failure_count, error_kind, stored_next, outcome, truncations, last_crawled) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!(failure_count, 2, "a review wait is not a failure");
     assert_eq!(error_kind.as_deref(), Some("RateLimited"));
     assert_eq!(
@@ -1054,39 +952,35 @@ async fn spider_mark_crawl_awaiting_url_pattern_review_should_keep_failure_state
             .await
             .unwrap()
             .iter()
-            .any(|c| c.domain_id == domain_id),
-        "a domain waiting for a review is not crawled until the review is decided"
+            .any(|c| c.listing_source_id == listing_source_id),
+        "a ListingSource waiting for a review is not crawled until the review is decided"
     );
 }
 
-/// A domain waits only on a pending URL-pattern review of its own; a wait on any other review
-/// leaves its crawl state as it was.
+/// A ListingSource waits only on a pending URL-pattern review of its own; a wait on any other
+/// review leaves its crawl state as it was.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review_of_the_domain() {
+async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review_of_the_source() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(&pool, listing_source_id, "spider-wait-guard.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-wait-guard.example.com");
+    let other_listing_source_id = ListingSourceId::new();
+    insert_listing_source(
         &pool,
-        listing_source_id,
-        "spider-wait-guard.example.com",
-    )
-    .await;
-    let root = CrawledRoot::new(domain_id, "spider-wait-guard.example.com");
-    let other_domain_id = insert_domain_for_listing_source(
-        &pool,
-        listing_source_id,
+        other_listing_source_id,
         "spider-other-guard.example.com",
     )
     .await;
-    let other_domain_review_id =
-        insert_pending_url_pattern_review(&pool, listing_source_id, other_domain_id).await;
-    let crawl_state_before = crawl_state(&pool, domain_id).await;
+    let other_source_review_id =
+        insert_pending_url_pattern_review(&pool, other_listing_source_id).await;
+    let crawl_state_before = crawl_state(&pool, listing_source_id).await;
     let next_crawl_at = time::OffsetDateTime::now_utc() + time::Duration::days(7);
 
     for (review_id, case) in [
         (CrawlerReviewId::new(), "an unknown review"),
-        (other_domain_review_id, "another domain's review"),
+        (other_source_review_id, "another ListingSource's review"),
     ] {
         assert_eq!(
             service
@@ -1094,26 +988,29 @@ async fn spider_should_record_a_url_pattern_review_wait_only_on_a_pending_review
                 .await
                 .unwrap(),
             UrlPatternReviewWaitWrite::ReviewNotPending,
-            "a domain must not wait on {case}"
+            "a ListingSource must not wait on {case}"
         );
     }
 
-    assert_eq!(crawl_state(&pool, domain_id).await, crawl_state_before);
+    assert_eq!(
+        crawl_state(&pool, listing_source_id).await,
+        crawl_state_before
+    );
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn spider_mark_crawl_needs_operator_should_take_domain_out_of_the_schedule() {
+async fn spider_mark_crawl_needs_operator_should_take_source_out_of_the_schedule() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "spider-needs-operator.example.com",
     )
     .await;
-    let root = CrawledRoot::new(domain_id, "spider-needs-operator.example.com");
+    let root = crawled_root(listing_source_id, "spider-needs-operator.example.com");
 
     service
         .mark_crawl_needs_operator(&root, "NoUrlPattern", 5)
@@ -1121,7 +1018,7 @@ async fn spider_mark_crawl_needs_operator_should_take_domain_out_of_the_schedule
         .unwrap();
 
     let (failure_count, error_kind, next_crawl_at, outcome, ..) =
-        crawl_state(&pool, domain_id).await;
+        crawl_state(&pool, listing_source_id).await;
     assert_eq!(failure_count, 5);
     assert_eq!(error_kind.as_deref(), Some("NoUrlPattern"));
     assert_eq!(
@@ -1135,8 +1032,8 @@ async fn spider_mark_crawl_needs_operator_should_take_domain_out_of_the_schedule
             .await
             .unwrap()
             .iter()
-            .any(|c| c.domain_id == domain_id),
-        "a domain waiting for an operator is never selected"
+            .any(|c| c.listing_source_id == listing_source_id),
+        "a ListingSource waiting for an operator is never selected"
     );
 }
 
@@ -1145,17 +1042,12 @@ async fn spider_crawl_outcome_should_reject_unknown_values() {
     let pool = get_postgres_client().await;
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "spider-bad-outcome.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "spider-bad-outcome.example.com").await;
 
     let result = sqlx::query(
-        "UPDATE listing_source_domains SET last_crawl_outcome = 'Truncated' WHERE domain_id = $1",
+        "UPDATE listing_sources SET last_crawl_outcome = 'Truncated' WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await;
 
@@ -1166,7 +1058,7 @@ async fn spider_crawl_outcome_should_reject_unknown_values() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — ordering: NULL last_crawled comes before stale domains
+// get_candidates — ordering: NULL last_crawled comes before stale ListingSources
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -1177,13 +1069,13 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
     let listing_source_id_stale = ListingSourceId::new();
     let listing_source_id_never = ListingSourceId::new();
 
-    let domain_id_stale = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id_stale,
         "spider-order-stale.example.com",
     )
     .await;
-    let domain_id_never = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id_never,
         "spider-order-never.example.com",
@@ -1191,9 +1083,9 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
     .await;
 
     sqlx::query(
-        "UPDATE listing_source_domains SET last_crawled = NOW() - INTERVAL '10 days' WHERE domain_id = $1",
+        "UPDATE listing_sources SET last_crawled = NOW() - INTERVAL '10 days' WHERE listing_source_id = $1",
     )
-    .bind(domain_id_stale.as_uuid())
+    .bind(listing_source_id_stale.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -1202,12 +1094,12 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
 
     let pos_never = candidates
         .iter()
-        .position(|c| c.domain_id == domain_id_never)
-        .expect("never-crawled domain should be in candidates");
+        .position(|c| c.listing_source_id == listing_source_id_never)
+        .expect("never-crawled ListingSource should be in candidates");
     let pos_stale = candidates
         .iter()
-        .position(|c| c.domain_id == domain_id_stale)
-        .expect("stale domain should be in candidates");
+        .position(|c| c.listing_source_id == listing_source_id_stale)
+        .expect("stale ListingSource should be in candidates");
 
     assert!(
         pos_never < pos_stale,
@@ -1219,23 +1111,13 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
 // SCRAPER CANDIDATE SERVICE
 // ============================================================================
 
-/// Helper: inserts a product URL into listing_source_urls for the given ListingSource/domain.
-async fn insert_product_url(
-    pool: &sqlx::PgPool,
-    listing_source_id: ListingSourceId,
-    domain_id: CrawlerDomainId,
-    url: &str,
-) {
+/// Helper: inserts a product URL into listing_source_urls for the given ListingSource.
+async fn insert_product_url(pool: &sqlx::PgPool, listing_source_id: ListingSourceId, url: &str) {
     let parsed = url::Url::parse(url).unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(
-        &listing_source_id,
-        &domain_id,
-        &parsed,
-        &UrlClass::ProductListing,
-    )
-    .await
-    .unwrap();
+    repo.upsert_link(&listing_source_id, &parsed, &UrlClass::ProductListing)
+        .await
+        .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,13 +1164,10 @@ async fn scraper_should_return_candidate_when_schema_review_is_pending_and_schem
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-review.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-review.example.com").await;
     insert_product_url(
         &pool,
         listing_source_id,
-        domain_id,
         "https://scraper-review.example.com/p/1",
     )
     .await;
@@ -1316,13 +1195,10 @@ async fn scraper_should_not_return_candidate_when_schema_review_is_pending_witho
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-initial.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-initial.example.com").await;
     insert_product_url(
         &pool,
         listing_source_id,
-        domain_id,
         "https://scraper-initial.example.com/p/1",
     )
     .await;
@@ -1344,13 +1220,10 @@ async fn scraper_should_not_return_candidate_when_schema_review_is_pending_and_s
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-empty.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-empty.example.com").await;
     insert_product_url(
         &pool,
         listing_source_id,
-        domain_id,
         "https://scraper-empty.example.com/p/1",
     )
     .await;
@@ -1377,11 +1250,9 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-stale.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-stale.example.com").await;
     let url = "https://scraper-stale.example.com/p/1";
-    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    insert_product_url(&pool, listing_source_id, url).await;
 
     // Mark as scraped 2 days ago to isolate the time-based filter.
     let old_hash = "old_hash_differs";
@@ -1412,14 +1283,11 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-due.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-due.example.com").await;
     for index in 1..=3 {
         insert_product_url(
             &pool,
             listing_source_id,
-            domain_id,
             &format!("https://scraper-due.example.com/p/{index}"),
         )
         .await;
@@ -1438,36 +1306,32 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
 }
 
 // ---------------------------------------------------------------------------
-// domains_awaiting_review — the domains only a pending review keeps from scraping
+// sources_awaiting_review — the ListingSources only a pending review keeps from scraping
 // ---------------------------------------------------------------------------
 
-async fn match_url_pattern(pool: &sqlx::PgPool, domain_id: CrawlerDomainId) {
+async fn match_url_pattern(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
-         WHERE domain_id = $1",
+        "UPDATE listing_sources SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(pool)
     .await
     .unwrap();
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_list_only_domains_whose_scraping_a_pending_review_holds_back() {
+async fn scraper_should_list_only_sources_whose_scraping_a_pending_review_holds_back() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     // The ListingSource waits on its first product schema.
     let first_schema = ListingSourceId::new();
-    let first_schema_domain =
-        insert_listing_source_with_domain(&pool, first_schema, "first-schema.example.com").await;
-    match_url_pattern(&pool, first_schema_domain).await;
+    insert_listing_source(&pool, first_schema, "first-schema.example.com").await;
+    match_url_pattern(&pool, first_schema).await;
     insert_pending_product_schema_review(&pool, first_schema).await;
-    // Another domain of it has no product URL pattern and no URL-pattern review, so the first
-    // product schema would not get it scraped either.
-    insert_domain_for_listing_source(&pool, first_schema, "uncrawled.example.com").await;
     // The cached schema still extracts pages, so the scraper scrapes them.
     let cached_schema = ListingSourceId::new();
-    insert_listing_source_with_domain(&pool, cached_schema, "cached-schema.example.com").await;
+    insert_listing_source(&pool, cached_schema, "cached-schema.example.com").await;
     insert_cached_product_schemas(
         &pool,
         cached_schema,
@@ -1475,58 +1339,53 @@ async fn scraper_should_list_only_domains_whose_scraping_a_pending_review_holds_
     )
     .await;
     insert_pending_product_schema_review(&pool, cached_schema).await;
-    // Without a pattern the domain has no product URL until its review is decided.
+    // Without a pattern the ListingSource has no product URL until its review is decided.
     let pattern_review = ListingSourceId::new();
-    let pattern_review_domain =
-        insert_listing_source_with_domain(&pool, pattern_review, "pattern-review.example.com")
-            .await;
-    insert_pending_url_pattern_review(&pool, pattern_review, pattern_review_domain).await;
+    insert_listing_source(&pool, pattern_review, "pattern-review.example.com").await;
+    insert_pending_url_pattern_review(&pool, pattern_review).await;
     // A restored pattern is live while a newer URL-pattern review is pending.
     let matched = ListingSourceId::new();
-    let matched_domain =
-        insert_listing_source_with_domain(&pool, matched, "matched-pattern.example.com").await;
-    match_url_pattern(&pool, matched_domain).await;
-    insert_pending_url_pattern_review(&pool, matched, matched_domain).await;
+    insert_listing_source(&pool, matched, "matched-pattern.example.com").await;
+    match_url_pattern(&pool, matched).await;
+    insert_pending_url_pattern_review(&pool, matched).await;
     // A disabled ListingSource is not scraped whatever its reviews.
     let disabled = ListingSourceId::new();
-    let disabled_domain =
-        insert_listing_source_with_domain(&pool, disabled, "disabled.example.com").await;
-    insert_pending_url_pattern_review(&pool, disabled, disabled_domain).await;
+    insert_listing_source(&pool, disabled, "disabled.example.com").await;
+    insert_pending_url_pattern_review(&pool, disabled).await;
     sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
         .bind(disabled.as_uuid())
         .execute(&pool)
         .await
         .unwrap();
-    // An open domain circuit keeps the domain from scraping as well.
+    // An open scrape circuit keeps the ListingSource from scraping as well.
     let cooling = ListingSourceId::new();
-    let cooling_domain =
-        insert_listing_source_with_domain(&pool, cooling, "cooling-circuit.example.com").await;
-    insert_pending_url_pattern_review(&pool, cooling, cooling_domain).await;
+    insert_listing_source(&pool, cooling, "cooling-circuit.example.com").await;
+    insert_pending_url_pattern_review(&pool, cooling).await;
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET scrape_failure_streak = 3, last_scrape_error_kind = 'HTTP_503', \
              next_scrape_at = NOW() + INTERVAL '1 hour' \
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(cooling_domain.as_uuid())
+    .bind(cooling.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
     // No review is pending.
-    insert_listing_source_with_domain(&pool, ListingSourceId::new(), "no-review.example.com").await;
+    insert_listing_source(&pool, ListingSourceId::new(), "no-review.example.com").await;
 
-    let domains = service.domains_awaiting_review().await.unwrap();
+    let sources = service.sources_awaiting_review().await.unwrap();
 
     assert_eq!(
-        domains,
+        sources,
         vec![
-            DomainAwaitingReview {
+            SourceAwaitingReview {
                 listing_source_id: first_schema,
-                listing_source_domain: "first-schema.example.com".to_owned(),
+                crawl_host: "first-schema.example.com".to_owned(),
             },
-            DomainAwaitingReview {
+            SourceAwaitingReview {
                 listing_source_id: pattern_review,
-                listing_source_domain: "pattern-review.example.com".to_owned(),
+                crawl_host: "pattern-review.example.com".to_owned(),
             },
         ]
     );
@@ -1542,14 +1401,12 @@ async fn scraper_should_not_return_candidate_when_url_class_is_not_product() {
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-class.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-class.example.com").await;
 
     // Insert as a category URL (not product)
     let url = url::Url::parse("https://scraper-class.example.com/category/1").unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(&listing_source_id, &domain_id, &url, &UrlClass::Category)
+    repo.upsert_link(&listing_source_id, &url, &UrlClass::Category)
         .await
         .unwrap();
 
@@ -1571,31 +1428,16 @@ async fn scraper_should_persist_url_class_other_and_exclude_candidate_when_set_c
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "scraper-set-class.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-set-class.example.com").await;
     let target_url = url::Url::parse("https://scraper-set-class.example.com/p/target").unwrap();
     let other_url = url::Url::parse("https://scraper-set-class.example.com/p/other").unwrap();
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
-    repo.upsert_link(
-        &listing_source_id,
-        &domain_id,
-        &target_url,
-        &UrlClass::ProductListing,
-    )
-    .await
-    .unwrap();
-    repo.upsert_link(
-        &listing_source_id,
-        &domain_id,
-        &other_url,
-        &UrlClass::ProductListing,
-    )
-    .await
-    .unwrap();
+    repo.upsert_link(&listing_source_id, &target_url, &UrlClass::ProductListing)
+        .await
+        .unwrap();
+    repo.upsert_link(&listing_source_id, &other_url, &UrlClass::ProductListing)
+        .await
+        .unwrap();
 
     assert_eq!(
         service
@@ -1649,12 +1491,10 @@ async fn scraper_mark_scraped_without_capture_should_record_outcome_until_the_sc
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-untitled.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-untitled.example.com").await;
     let url =
         url::Url::parse("https://scraper-untitled.example.com/furniture/item-1208922").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
     sqlx::query(
         "UPDATE listing_source_urls \
          SET failure_count = 2, last_status_code = 503, last_error_kind = 'HTTP_503', \
@@ -1722,11 +1562,9 @@ async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabl
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-inactive.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-inactive.example.com").await;
     let url = "https://scraper-inactive.example.com/p/1";
-    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    insert_product_url(&pool, listing_source_id, url).await;
 
     sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
         .bind(listing_source_id.as_uuid())
@@ -1751,12 +1589,7 @@ async fn scraper_should_return_candidate_when_disposition_is_dormant_sold() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "scraper-disposition.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-disposition.example.com").await;
     let sold_url = url::Url::parse("https://scraper-disposition.example.com/p/sold").unwrap();
     let present_url =
         url::Url::parse("https://scraper-disposition.example.com/p/out-of-stock").unwrap();
@@ -1764,12 +1597,7 @@ async fn scraper_should_return_candidate_when_disposition_is_dormant_sold() {
 
     for url in [&sold_url, &present_url] {
         repository
-            .upsert_link(
-                &listing_source_id,
-                &domain_id,
-                url,
-                &UrlClass::ProductListing,
-            )
+            .upsert_link(&listing_source_id, url, &UrlClass::ProductListing)
             .await
             .unwrap();
     }
@@ -1800,7 +1628,7 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-removed-reactivation.example.com",
@@ -1809,12 +1637,7 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
     let url = url::Url::parse("https://scraper-removed-reactivation.example.com/p/1").unwrap();
     let repository = UrlMetadataRepositoryImpl::new(pool.clone());
     repository
-        .upsert_link(
-            &listing_source_id,
-            &domain_id,
-            &url,
-            &UrlClass::ProductListing,
-        )
+        .upsert_link(&listing_source_id, &url, &UrlClass::ProductListing)
         .await
         .unwrap();
     repository
@@ -1859,14 +1682,14 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-removed-page-hash.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-removed-page-hash.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
     let product_capture = raw_input_hash();
     service
         .mark_as_scraped(scrape_completion(
@@ -1921,14 +1744,14 @@ async fn scraper_mark_removed_should_record_the_templates_until_a_product_captur
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-removed-by-templates.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-removed-by-templates.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
     let template = crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema {
         selector: "p.notice".into(),
         text: Some("no longer available".to_owned()),
@@ -1982,14 +1805,14 @@ async fn scraper_candidate_should_carry_the_title_of_the_last_product_capture() 
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-captured-title.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-captured-title.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
     assert_eq!(candidate_title(&service, &url).await, Some(None));
 
     service
@@ -2043,14 +1866,14 @@ async fn scraper_forget_capture_before_removal_should_not_leave_the_url_on_the_p
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-removal-forget.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-removal-forget.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
     let product_capture = raw_input_hash();
     let product_completion = || {
         scrape_completion(
@@ -2117,15 +1940,12 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-limit.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-limit.example.com").await;
 
     for i in 0..5u32 {
         insert_product_url(
             &pool,
             listing_source_id,
-            domain_id,
             &format!("https://scraper-limit.example.com/p/{}", i),
         )
         .await;
@@ -2136,44 +1956,39 @@ async fn scraper_should_respect_limit_when_multiple_candidates_exist() {
     assert_eq!(
         candidates.len(),
         3,
-        "get_candidates(10, 3) should return at most 3 URLs from one selected domain"
+        "get_candidates(10, 3) should return at most 3 URLs from one selected ListingSource"
     );
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates - random domain-fair fetching caps domains and URLs per domain
+// get_candidates - random source-fair fetching caps ListingSources and URLs per ListingSource
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates() {
+async fn scraper_should_cap_sources_and_urls_per_source_when_fetching_candidates() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let hot_listing_source_id = ListingSourceId::new();
-    let hot_domain =
-        insert_listing_source_with_domain(&pool, hot_listing_source_id, "fair-hot.example.com")
-            .await;
+    insert_listing_source(&pool, hot_listing_source_id, "fair-hot.example.com").await;
     for i in 0..10u32 {
         insert_product_url(
             &pool,
             hot_listing_source_id,
-            hot_domain,
             &format!("https://fair-hot.example.com/p/{i}"),
         )
         .await;
     }
 
-    for domain_idx in 0..4u32 {
+    for source_idx in 0..4u32 {
         let listing_source_id = ListingSourceId::new();
-        let domain_name = format!("fair-cold-{domain_idx}.example.com");
-        let domain_id =
-            insert_listing_source_with_domain(&pool, listing_source_id, &domain_name).await;
+        let crawl_host = format!("fair-cold-{source_idx}.example.com");
+        insert_listing_source(&pool, listing_source_id, &crawl_host).await;
         for url_idx in 0..4u32 {
             insert_product_url(
                 &pool,
                 listing_source_id,
-                domain_id,
-                &format!("https://{domain_name}/p/{url_idx}"),
+                &format!("https://{crawl_host}/p/{url_idx}"),
             )
             .await;
         }
@@ -2193,11 +2008,11 @@ async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates
 
     assert!(
         counts_by_host.len() <= 3,
-        "candidate fetch should select at most 3 domains"
+        "candidate fetch should select at most 3 ListingSources"
     );
     assert!(
         counts_by_host.values().all(|count| *count <= 2),
-        "candidate fetch should select at most 2 URLs per domain"
+        "candidate fetch should select at most 2 URLs per ListingSource"
     );
     assert!(
         candidates.len() <= 6,
@@ -2209,29 +2024,27 @@ async fn scraper_should_cap_domains_and_urls_per_domain_when_fetching_candidates
             .copied()
             .unwrap_or(0)
             <= 2,
-        "hot domain must not fill the whole fetch"
+        "hot ListingSource must not fill the whole fetch"
     );
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates - selected domain set changes across repeated calls
+// get_candidates - selected ListingSource set changes across repeated calls
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
+async fn scraper_should_randomize_selected_sources_across_repeated_fetches() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     for i in 0..10u32 {
         let listing_source_id = ListingSourceId::new();
-        let domain_name = format!("random-domain-{i}.example.com");
-        let domain_id =
-            insert_listing_source_with_domain(&pool, listing_source_id, &domain_name).await;
+        let crawl_host = format!("random-source-{i}.example.com");
+        insert_listing_source(&pool, listing_source_id, &crawl_host).await;
         insert_product_url(
             &pool,
             listing_source_id,
-            domain_id,
-            &format!("https://{domain_name}/p/1"),
+            &format!("https://{crawl_host}/p/1"),
         )
         .await;
     }
@@ -2250,28 +2063,27 @@ async fn scraper_should_randomize_selected_domains_across_repeated_fetches() {
 
     assert!(
         observed_sets.len() > 1,
-        "random domain selection should not return the same host set every time"
+        "random ListingSource selection should not return the same host set every time"
     );
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates - selected URLs inside one domain are oldest first
+// get_candidates - selected URLs inside one ListingSource are oldest first
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_order_urls_within_selected_domain_by_oldest_work_first() {
+async fn scraper_should_order_urls_within_selected_source_by_oldest_work_first() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "fair-order.example.com").await;
+    insert_listing_source(&pool, listing_source_id, "fair-order.example.com").await;
     let never_url = "https://fair-order.example.com/p/never";
     let oldest_url = "https://fair-order.example.com/p/oldest";
     let newer_url = "https://fair-order.example.com/p/newer";
-    insert_product_url(&pool, listing_source_id, domain_id, newer_url).await;
-    insert_product_url(&pool, listing_source_id, domain_id, never_url).await;
-    insert_product_url(&pool, listing_source_id, domain_id, oldest_url).await;
+    insert_product_url(&pool, listing_source_id, newer_url).await;
+    insert_product_url(&pool, listing_source_id, never_url).await;
+    insert_product_url(&pool, listing_source_id, oldest_url).await;
 
     sqlx::query(
         "UPDATE listing_source_urls
@@ -2373,14 +2185,12 @@ async fn scraper_should_order_pages_waiting_on_a_schema_review_after_other_due_p
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-order.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "waiting-order.example.com").await;
     let waiting_url = "https://waiting-order.example.com/p/a-waiting";
     let never_url = "https://waiting-order.example.com/p/never";
     let stale_url = "https://waiting-order.example.com/p/stale";
     for url in [waiting_url, never_url, stale_url] {
-        insert_product_url(&pool, listing_source_id, domain_id, url).await;
+        insert_product_url(&pool, listing_source_id, url).await;
     }
     sqlx::query(
         "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '5 days' WHERE url = $1",
@@ -2430,12 +2240,10 @@ async fn scraper_should_keep_a_schema_review_wait_only_until_another_outcome_rep
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-state.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "waiting-state.example.com").await;
     let url = "https://waiting-state.example.com/p/1";
     let parsed_url = url::Url::parse(url).unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    insert_product_url(&pool, listing_source_id, url).await;
     let wait = SchemaReviewWait {
         review_id: insert_schemas_and_pending_review(&pool, listing_source_id).await,
         streak: 3,
@@ -2489,15 +2297,12 @@ async fn scraper_should_record_a_schema_review_wait_only_on_a_pending_review_of_
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-guard.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "waiting-guard.example.com").await;
     let url = "https://waiting-guard.example.com/p/1";
-    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    insert_product_url(&pool, listing_source_id, url).await;
     let review_id = insert_schemas_and_pending_review(&pool, listing_source_id).await;
     let other_listing_source_id = ListingSourceId::new();
-    insert_listing_source_with_domain(&pool, other_listing_source_id, "other-guard.example.com")
-        .await;
+    insert_listing_source(&pool, other_listing_source_id, "other-guard.example.com").await;
     let other_source_review_id =
         insert_pending_product_schema_review(&pool, other_listing_source_id).await;
     let wait_on = |review_id| SchemaReviewWait {
@@ -2557,14 +2362,12 @@ async fn scraper_should_keep_a_page_that_only_waited_on_a_schema_review_as_a_see
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "waiting-seed.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "waiting-seed.example.com").await;
     let primary_url = "https://waiting-seed.example.com/p/primary";
     let waiting_url = "https://waiting-seed.example.com/p/waiting";
     let failing_url = "https://waiting-seed.example.com/p/failing";
     for url in [primary_url, waiting_url, failing_url] {
-        insert_product_url(&pool, listing_source_id, domain_id, url).await;
+        insert_product_url(&pool, listing_source_id, url).await;
     }
     let review_id = insert_pending_product_schema_review(&pool, listing_source_id).await;
     let wait = |streak| SchemaReviewWait { review_id, streak };
@@ -2588,12 +2391,7 @@ async fn scraper_should_keep_a_page_that_only_waited_on_a_schema_review_as_a_see
     assert_eq!(url_failure_count(&pool, waiting_url).await, 0);
     assert_eq!(url_failure_count(&pool, failing_url).await, 1);
     let seeds: Vec<String> = service
-        .get_random_product_urls_for_schema_seed(
-            &listing_source_id,
-            &domain_id,
-            &[primary_url.to_owned()],
-            10,
-        )
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &[primary_url.to_owned()], 10)
         .await
         .unwrap()
         .into_iter()
@@ -2603,16 +2401,16 @@ async fn scraper_should_keep_a_page_that_only_waited_on_a_schema_review_as_a_see
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — excluded active domains are NOT returned
+// get_candidates — excluded active ListingSources are NOT returned
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
+async fn scraper_should_not_return_candidate_when_listing_source_is_excluded() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let blocked_listing_source_id = ListingSourceId::new();
-    let blocked_domain = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         blocked_listing_source_id,
         "scraper-blocked.example.com",
@@ -2621,29 +2419,22 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
     insert_product_url(
         &pool,
         blocked_listing_source_id,
-        blocked_domain,
         "https://scraper-blocked.example.com/p/1",
     )
     .await;
 
     let open_listing_source_id = ListingSourceId::new();
-    let open_domain = insert_listing_source_with_domain(
-        &pool,
-        open_listing_source_id,
-        "scraper-open.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, open_listing_source_id, "scraper-open.example.com").await;
     insert_product_url(
         &pool,
         open_listing_source_id,
-        open_domain,
         "https://scraper-open.example.com/p/1",
     )
     .await;
 
-    let excluded_domain_ids = vec![blocked_domain];
+    let excluded_listing_source_ids = vec![blocked_listing_source_id];
     let candidates = service
-        .get_candidates(10, 100, &excluded_domain_ids)
+        .get_candidates(10, 100, &excluded_listing_source_ids)
         .await
         .unwrap();
 
@@ -2651,13 +2442,13 @@ async fn scraper_should_not_return_candidate_when_domain_is_excluded() {
         !candidates
             .iter()
             .any(|c| c.url.host_str() == Some("scraper-blocked.example.com")),
-        "URL from excluded domain should not be returned"
+        "URL from excluded ListingSource should not be returned"
     );
     assert!(
         candidates
             .iter()
             .any(|c| c.url.host_str() == Some("scraper-open.example.com")),
-        "URL from non-excluded domain should still be returned"
+        "URL from non-excluded ListingSource should still be returned"
     );
 }
 
@@ -2671,11 +2462,9 @@ async fn scraper_mark_as_scraped_should_set_last_scraped_and_hash() {
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "scraper-mark.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-mark.example.com").await;
     let url_str = "https://scraper-mark.example.com/p/1";
-    insert_product_url(&pool, listing_source_id, domain_id, url_str).await;
+    insert_product_url(&pool, listing_source_id, url_str).await;
 
     let url = url::Url::parse(url_str).unwrap();
     let scraped_hash = "m".repeat(64);
@@ -2718,14 +2507,9 @@ async fn scraper_normal_fallback_identity_should_remain_stable_across_completion
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "fallback-identity.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "fallback-identity.example.com").await;
     let url = url::Url::parse("https://fallback-identity.example.com/product/foo").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
     let fallback_identity =
         product_listing_normalization::normalize_source_listing_id_with_url_sha_fallback("", &url)
             .unwrap()
@@ -2784,12 +2568,10 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "redirect-move.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "redirect-move.example.com").await;
     let original_url = url::Url::parse("https://redirect-move.example.com/old").unwrap();
     let effective_url = url::Url::parse("https://redirect-move.example.com/new").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, original_url.as_str()).await;
 
     assert_eq!(
         service
@@ -2828,7 +2610,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "redirect-known-destination.example.com",
@@ -2838,12 +2620,12 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
         url::Url::parse("https://redirect-known-destination.example.com/old").unwrap();
     let effective_url =
         url::Url::parse("https://redirect-known-destination.example.com/new").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
-    insert_product_url(&pool, listing_source_id, domain_id, effective_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, original_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, effective_url.as_str()).await;
 
     assert_eq!(
         service
-            .redirect_destination(&listing_source_id, &domain_id, &effective_url)
+            .redirect_destination(&listing_source_id, &effective_url)
             .await
             .unwrap(),
         RedirectDestination::ProductOfListingSource
@@ -2884,10 +2666,10 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
     assert!(rows.iter().any(|row| row.1 == effective_url.as_str()));
 }
 
-/// Only a product URL of the redirected URL's own ListingSource and domain that is not itself
-/// retired makes the redirected URL a duplicate (`docs/crawler/networking.md#duplicate-targets`).
-/// A page stored by another ListingSource or domain or as a non-product row is no product page of
-/// the ListingSource, and rows that disagree settle nothing. Rows are inserted directly, as any
+/// Only a product URL of the redirected URL's own ListingSource that is not itself retired makes
+/// the redirected URL a duplicate (`docs/crawler/networking.md#duplicate-targets`). A page stored
+/// by another ListingSource or as a non-product row is no product page of the ListingSource, and
+/// rows that disagree settle nothing. Rows are inserted directly, as any
 /// persisted row on the redirect's host must be judged by its owner and class.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_listing_source() {
@@ -2895,22 +2677,15 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let host = "redirect-scope.example.com";
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(&pool, listing_source_id, host).await;
-    let other_domain_id = insert_domain_for_listing_source(
-        &pool,
-        listing_source_id,
-        "shop.redirect-scope.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, host).await;
     let other_listing_source_id = ListingSourceId::new();
-    let other_listing_source_domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         other_listing_source_id,
         "other-redirect-scope.example.com",
     )
     .await;
     let store = |listing_source_id: ListingSourceId,
-                 domain_id: CrawlerDomainId,
                  path: &str,
                  class: UrlClass,
                  disposition: CrawlerDisposition| {
@@ -2919,12 +2694,11 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
         async move {
             sqlx::query(
                 "INSERT INTO listing_source_urls \
-                     (listing_source_id, domain_id, url, raw_source_record_key, url_class, \
+                     (listing_source_id, url, raw_source_record_key, url_class, \
                       crawler_disposition, created, updated) \
-                 VALUES ($1, $2, $3, $3, $4, $5, NOW(), NOW())",
+                 VALUES ($1, $2, $2, $3, $4, NOW(), NOW())",
             )
             .bind(listing_source_id.as_uuid())
-            .bind(domain_id.as_uuid())
             .bind(&url)
             .bind(class.as_str())
             .bind(disposition.as_str())
@@ -2935,17 +2709,9 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
     };
     use CrawlerDisposition::{Active, DormantSold, Duplicate};
     use UrlClass::{Category, Other, ProductListing};
+    store(listing_source_id, "/products/live", ProductListing, Active).await;
     store(
         listing_source_id,
-        domain_id,
-        "/products/live",
-        ProductListing,
-        Active,
-    )
-    .await;
-    store(
-        listing_source_id,
-        domain_id,
         "/products/sold",
         ProductListing,
         DormantSold,
@@ -2953,63 +2719,31 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
     .await;
     store(
         listing_source_id,
-        domain_id,
         "/products/retired",
         ProductListing,
         Duplicate,
     )
     .await;
-    // A page stored before the domain had a product pattern keeps the class it was stored with
+    // A page stored before the ListingSource had a product pattern keeps the class it was stored with
     // when a later crawl retires it as a duplicate of its canonical URL.
     store(
         listing_source_id,
-        domain_id,
         "/collections/a/products/retired",
         Other,
         Duplicate,
     )
     .await;
-    store(
-        listing_source_id,
-        domain_id,
-        "/category/chairs",
-        Category,
-        Active,
-    )
-    .await;
+    store(listing_source_id, "/category/chairs", Category, Active).await;
     store(
         other_listing_source_id,
-        other_listing_source_domain_id,
         "/products/elsewhere",
         ProductListing,
         Active,
     )
     .await;
-    store(
-        listing_source_id,
-        other_domain_id,
-        "/products/other-domain",
-        ProductListing,
-        Active,
-    )
-    .await;
     // Both trailing-slash spellings of one page, one a product URL and one a category row.
-    store(
-        listing_source_id,
-        domain_id,
-        "/products/mixed",
-        ProductListing,
-        Active,
-    )
-    .await;
-    store(
-        listing_source_id,
-        domain_id,
-        "/products/mixed/",
-        Category,
-        Active,
-    )
-    .await;
+    store(listing_source_id, "/products/mixed", ProductListing, Active).await;
+    store(listing_source_id, "/products/mixed/", Category, Active).await;
 
     for (path, expected) in [
         ("/products/unknown", RedirectDestination::Unknown),
@@ -3033,10 +2767,6 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
             "/products/elsewhere",
             RedirectDestination::NotAProductOfListingSource,
         ),
-        (
-            "/products/other-domain",
-            RedirectDestination::NotAProductOfListingSource,
-        ),
         ("/products/retired", RedirectDestination::Unsettled),
         (
             "/collections/a/products/retired",
@@ -3047,7 +2777,7 @@ async fn redirect_destination_should_count_only_a_live_product_url_of_the_same_l
         let destination = url::Url::parse(&format!("https://{host}{path}")).unwrap();
         assert_eq!(
             service
-                .redirect_destination(&listing_source_id, &domain_id, &destination)
+                .redirect_destination(&listing_source_id, &destination)
                 .await
                 .unwrap(),
             expected,
@@ -3069,16 +2799,16 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
     {
         let listing_source_id = ListingSourceId::new();
         let host = format!("redirect-slash-{index}.example.com");
-        let domain_id = insert_listing_source_with_domain(&pool, listing_source_id, &host).await;
+        insert_listing_source(&pool, listing_source_id, &host).await;
         let original_url = format!("https://{host}/old");
         let stored_destination = format!("https://{host}{stored_destination}");
         let effective_url = url::Url::parse(&format!("https://{host}{effective_path}")).unwrap();
-        insert_product_url(&pool, listing_source_id, domain_id, &original_url).await;
-        insert_product_url(&pool, listing_source_id, domain_id, &stored_destination).await;
+        insert_product_url(&pool, listing_source_id, &original_url).await;
+        insert_product_url(&pool, listing_source_id, &stored_destination).await;
 
         assert_eq!(
             service
-                .redirect_destination(&listing_source_id, &domain_id, &effective_url)
+                .redirect_destination(&listing_source_id, &effective_url)
                 .await
                 .unwrap(),
             RedirectDestination::ProductOfListingSource,
@@ -3126,7 +2856,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "redirect-identity-fence.example.com",
@@ -3134,7 +2864,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
     .await;
     let original_url = url::Url::parse("https://redirect-identity-fence.example.com/old").unwrap();
     let effective_url = url::Url::parse("https://redirect-identity-fence.example.com/new").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, original_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, original_url.as_str()).await;
 
     service
         .mark_as_scraped(scrape_completion(
@@ -3194,14 +2924,14 @@ async fn scraper_completion_should_not_overwrite_newer_dormant_scrape_metadata()
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-competing-completion.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-competing-completion.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let dormant_raw_input_hash = vec![9; 32];
     assert_eq!(
@@ -3262,14 +2992,9 @@ async fn scraper_newer_active_completion_should_fence_delayed_active_completion_
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "scraper-active-fence.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-active-fence.example.com").await;
     let url = url::Url::parse("https://scraper-active-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let observed_raw_input_sha256: Option<&[u8]> = None;
     let newer_raw_input_sha256 = vec![9; 32];
@@ -3345,14 +3070,9 @@ async fn scraper_newer_active_completion_should_fence_delayed_sold_completion() 
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "scraper-sold-fence.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-sold-fence.example.com").await;
     let url = url::Url::parse("https://scraper-sold-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let observed_raw_input_sha256 = vec![1; 32];
     assert_eq!(
@@ -3433,14 +3153,14 @@ async fn scraper_newer_active_completion_should_fence_delayed_disposition_change
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-removal-fence.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-removal-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let observed_raw_input_sha256 = vec![4; 32];
     assert_eq!(
@@ -3528,14 +3248,14 @@ async fn scraper_should_fence_delayed_observer_local_writes_when_newer_active_ca
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-delayed-observer-fence.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-delayed-observer-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let observed_raw_input_sha256 = vec![6; 32];
     assert_eq!(
@@ -3701,15 +3421,10 @@ async fn scraper_mark_as_scraped_should_exclude_url_from_subsequent_get_candidat
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "scraper-roundtrip.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "scraper-roundtrip.example.com").await;
     let url_str = "https://scraper-roundtrip.example.com/p/1";
     let hash = "n".repeat(64);
-    insert_product_url(&pool, listing_source_id, domain_id, url_str).await;
+    insert_product_url(&pool, listing_source_id, url_str).await;
 
     // Confirm it is returned before marking
     let before = service.get_candidates(10, 100, &[]).await.unwrap();
@@ -3753,18 +3468,12 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let seed_listing_source_id = ListingSourceId::new();
-    let seed_domain_id = insert_listing_source_with_domain(
-        &pool,
-        seed_listing_source_id,
-        "seed-filters.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, seed_listing_source_id, "seed-filters.example.com").await;
     let repo = UrlMetadataRepositoryImpl::new(pool.clone());
 
     let current_url = url::Url::parse("https://seed-filters.example.com/p/current").unwrap();
     repo.upsert_link(
         &seed_listing_source_id,
-        &seed_domain_id,
         &current_url,
         &UrlClass::ProductListing,
     )
@@ -3774,7 +3483,6 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     let eligible_url = url::Url::parse("https://seed-filters.example.com/p/eligible").unwrap();
     repo.upsert_link(
         &seed_listing_source_id,
-        &seed_domain_id,
         &eligible_url,
         &UrlClass::ProductListing,
     )
@@ -3784,7 +3492,6 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     let sold_url = url::Url::parse("https://seed-filters.example.com/p/sold").unwrap();
     repo.upsert_link(
         &seed_listing_source_id,
-        &seed_domain_id,
         &sold_url,
         &UrlClass::ProductListing,
     )
@@ -3801,7 +3508,6 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     let withdrawn_url = url::Url::parse("https://seed-filters.example.com/p/withdrawn").unwrap();
     repo.upsert_link(
         &seed_listing_source_id,
-        &seed_domain_id,
         &withdrawn_url,
         &UrlClass::ProductListing,
     )
@@ -3817,17 +3523,12 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
 
     let category_url =
         url::Url::parse("https://seed-filters.example.com/category/whatever").unwrap();
-    repo.upsert_link(
-        &seed_listing_source_id,
-        &seed_domain_id,
-        &category_url,
-        &UrlClass::Category,
-    )
-    .await
-    .unwrap();
+    repo.upsert_link(&seed_listing_source_id, &category_url, &UrlClass::Category)
+        .await
+        .unwrap();
 
     let other_listing_source_id = ListingSourceId::new();
-    let other_domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         other_listing_source_id,
         "seed-other-source.example.com",
@@ -3837,7 +3538,6 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
         url::Url::parse("https://seed-other-source.example.com/p/other").unwrap();
     repo.upsert_link(
         &other_listing_source_id,
-        &other_domain_id,
         &other_listing_source_url,
         &UrlClass::ProductListing,
     )
@@ -3847,7 +3547,6 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
     let sampled = service
         .get_random_product_urls_for_schema_seed(
             &seed_listing_source_id,
-            &seed_domain_id,
             &[current_url.to_string()],
             20,
         )
@@ -3889,67 +3588,45 @@ async fn scraper_seed_urls_should_include_same_listing_source_sold_product_urls(
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_seed_urls_are_isolated_by_persisted_domain_and_open_circuit() {
+async fn scraper_seed_urls_should_not_bypass_an_open_scrape_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_a =
-        insert_listing_source_with_domain(&pool, listing_source_id, "seed-domain-a.example.com")
-            .await;
-    let domain_b =
-        insert_domain_for_listing_source(&pool, listing_source_id, "seed-domain-b.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "seed-circuit.example.com").await;
 
-    let current_a = "https://seed-domain-a.example.com/p/current";
-    let seed_a = "https://seed-domain-a.example.com/p/seed";
-    let current_b = "https://seed-domain-b.example.com/p/current";
-    let seed_b = "https://seed-domain-b.example.com/p/seed";
-    insert_product_url(&pool, listing_source_id, domain_a, current_a).await;
-    insert_product_url(&pool, listing_source_id, domain_a, seed_a).await;
-    insert_product_url(&pool, listing_source_id, domain_b, current_b).await;
-    insert_product_url(&pool, listing_source_id, domain_b, seed_b).await;
+    let current = "https://seed-circuit.example.com/p/current";
+    let seed = "https://seed-circuit.example.com/p/seed";
+    insert_product_url(&pool, listing_source_id, current).await;
+    insert_product_url(&pool, listing_source_id, seed).await;
+    let excluded = [url::Url::parse(current).unwrap().to_string()];
 
-    let sampled_a = service
-        .get_random_product_urls_for_schema_seed(
-            &listing_source_id,
-            &domain_a,
-            &[url::Url::parse(current_a).unwrap().to_string()],
-            10,
-        )
+    let sampled = service
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &excluded, 10)
         .await
         .unwrap();
-    assert_eq!(sampled_a.len(), 1);
-    assert_eq!(
-        sampled_a[0].url,
-        url::Url::parse(seed_a).unwrap(),
-        "schema seeds must stay within the primary persisted domain"
-    );
+    assert_eq!(sampled.len(), 1);
+    assert_eq!(sampled[0].url, url::Url::parse(seed).unwrap());
 
     sqlx::query(
-        "UPDATE listing_source_domains
+        "UPDATE listing_sources
          SET scrape_failure_streak = 1,
              last_scrape_error_kind = 'HTTP_429',
              next_scrape_at = NOW() + INTERVAL '15 minutes'
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_b.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
 
-    let sampled_b = service
-        .get_random_product_urls_for_schema_seed(
-            &listing_source_id,
-            &domain_b,
-            &[url::Url::parse(current_b).unwrap().to_string()],
-            10,
-        )
+    let sampled = service
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &excluded, 10)
         .await
         .unwrap();
     assert!(
-        sampled_b.is_empty(),
-        "an open persisted domain must not be bypassed through schema seeding"
+        sampled.is_empty(),
+        "an open scrape circuit must not be bypassed through schema seeding"
     );
 }
 
@@ -3958,7 +3635,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "seed-failure-provenance.example.com",
@@ -3967,8 +3644,8 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     let primary_url =
         url::Url::parse("https://seed-failure-provenance.example.com/p/primary").unwrap();
     let seed_url = url::Url::parse("https://seed-failure-provenance.example.com/p/seed").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, primary_url.as_str()).await;
-    insert_product_url(&pool, listing_source_id, domain_id, seed_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, primary_url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, seed_url.as_str()).await;
 
     let seed_hash = vec![2; 32];
     sqlx::query(
@@ -3995,12 +3672,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     .unwrap();
 
     let selected_seed = service
-        .get_random_product_urls_for_schema_seed(
-            &listing_source_id,
-            &domain_id,
-            &[primary_url.to_string()],
-            1,
-        )
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &[primary_url.to_string()], 1)
         .await
         .unwrap();
     assert_eq!(selected_seed.len(), 1);
@@ -4039,14 +3711,14 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     .await
     .unwrap();
 
-    let expected_domain_health = DomainHealthSnapshot {
+    let expected_scrape_health = ScrapeHealthSnapshot {
         scrape_failure_streak: 0,
         last_scrape_error_kind: None,
         next_scrape_at: None,
     };
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 seed_url.clone(),
@@ -4056,8 +3728,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
                 next_retry_at,
                 Some(seed_hash),
             ),
-            domain_id,
-            expected_domain_health,
+            expected_scrape_health,
             DomainFailureKind::Http429,
             Some(429),
             next_retry_at,
@@ -4065,7 +3736,7 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
         .await
         .unwrap();
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
 
     let primary: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
         "SELECT failure_count, last_error_kind, last_status_code, next_retry_at
@@ -4100,26 +3771,21 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
     assert_eq!(seed.2, 429);
     assert!((seed.3 - next_retry_at).whole_microseconds().abs() <= 1);
 
-    let domain: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
+    let source_row: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
         "SELECT scrape_failure_streak, last_scrape_error_kind, last_scrape_status_code, next_scrape_at
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(domain.0, 1);
-    assert_eq!(domain.1, "HTTP_429");
-    assert_eq!(domain.2, 429);
-    assert!(domain.3 > time::OffsetDateTime::now_utc());
+    assert_eq!(source_row.0, 1);
+    assert_eq!(source_row.1, "HTTP_429");
+    assert_eq!(source_row.2, 429);
+    assert!(source_row.3 > time::OffsetDateTime::now_utc());
 
     let sampled = service
-        .get_random_product_urls_for_schema_seed(
-            &listing_source_id,
-            &domain_id,
-            &[primary_url.to_string()],
-            10,
-        )
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &[primary_url.to_string()], 10)
         .await
         .unwrap();
     assert!(
@@ -4129,18 +3795,18 @@ async fn scraper_seed_failure_updates_seed_url_without_poisoning_primary_url() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() {
+async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_scrape_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "primary-failure-fence.example.com",
     )
     .await;
     let url = url::Url::parse("https://primary-failure-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let expected_fence = raw_input_hash();
     sqlx::query(
@@ -4157,7 +3823,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() 
 
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4167,8 +3833,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() 
                 next_retry_at,
                 Some(expected_fence),
             ),
-            domain_id,
-            DomainHealthSnapshot {
+            ScrapeHealthSnapshot {
                 scrape_failure_streak: 0,
                 last_scrape_error_kind: None,
                 next_scrape_at: None,
@@ -4181,7 +3846,7 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() 
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(1));
 
     let url_row: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
@@ -4198,46 +3863,41 @@ async fn scraper_primary_429_with_non_null_fence_updates_url_and_opens_domain() 
     assert_eq!(url_row.2, 429);
     assert!((url_row.3 - next_retry_at).whole_microseconds().abs() <= 1);
 
-    let domain_row: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
+    let source_row: (i32, String, i32, time::OffsetDateTime) = sqlx::query_as(
         "SELECT scrape_failure_streak, last_scrape_error_kind, last_scrape_status_code, next_scrape_at
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(domain_row.0, 1);
-    assert_eq!(domain_row.1, "HTTP_429");
-    assert_eq!(domain_row.2, 429);
-    assert!(domain_row.3 > time::OffsetDateTime::now_utc());
+    assert_eq!(source_row.0, 1);
+    assert_eq!(source_row.1, "HTTP_429");
+    assert_eq!(source_row.2, 429);
+    assert!(source_row.3 > time::OffsetDateTime::now_utc());
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
+async fn scraper_recovery_probe_429_with_non_null_fence_reopens_scrape_circuit() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "recovery-probe-fence.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "recovery-probe-fence.example.com").await;
     let first_url = "https://recovery-probe-fence.example.com/p/1";
     let second_url = "https://recovery-probe-fence.example.com/p/2";
-    insert_product_url(&pool, listing_source_id, domain_id, first_url).await;
-    insert_product_url(&pool, listing_source_id, domain_id, second_url).await;
+    insert_product_url(&pool, listing_source_id, first_url).await;
+    insert_product_url(&pool, listing_source_id, second_url).await;
 
     let expired_at = time::OffsetDateTime::now_utc() - time::Duration::minutes(1);
     sqlx::query(
-        "UPDATE listing_source_domains
+        "UPDATE listing_sources
          SET scrape_failure_streak = 1,
              last_scrape_error_kind = 'HTTP_429',
              last_scrape_status_code = 429,
              next_scrape_at = $2
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .bind(expired_at)
     .execute(&pool)
     .await
@@ -4245,11 +3905,10 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
     sqlx::query(
         "UPDATE listing_source_urls
          SET last_captured_raw_input_sha256 = decode($2, 'hex')
-         WHERE listing_source_id = $1 AND domain_id = $3",
+         WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
     .bind("08".repeat(32))
-    .bind(domain_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
@@ -4257,7 +3916,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
     assert_eq!(candidates.len(), 1);
     let probe = &candidates[0];
-    assert!(probe.is_domain_probe);
+    assert!(probe.is_circuit_probe);
     assert!(probe.last_captured_raw_input_sha256.is_some());
 
     let probe_url = probe.url.clone();
@@ -4265,7 +3924,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(20);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 probe_url.clone(),
@@ -4275,8 +3934,7 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
                 next_retry_at,
                 probe_fence,
             ),
-            domain_id,
-            DomainHealthSnapshot {
+            ScrapeHealthSnapshot {
                 scrape_failure_streak: 1,
                 last_scrape_error_kind: Some("HTTP_429".to_owned()),
                 next_scrape_at: Some(expired_at),
@@ -4289,50 +3947,45 @@ async fn scraper_recovery_probe_429_with_non_null_fence_reopens_domain() {
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(2));
 
-    let domain_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
+    let source_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
         "SELECT scrape_failure_streak, last_scrape_error_kind, next_scrape_at
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(domain_row.0, 2);
-    assert_eq!(domain_row.1, "HTTP_429");
-    assert!(domain_row.2 > expired_at);
-    assert!(domain_row.2 > time::OffsetDateTime::now_utc());
+    assert_eq!(source_row.0, 2);
+    assert_eq!(source_row.1, "HTTP_429");
+    assert!(source_row.2 > expired_at);
+    assert!(source_row.2 > time::OffsetDateTime::now_utc());
 
     let candidates_after_failure = service.get_candidates(10, 100, &[]).await.unwrap();
     assert!(
         candidates_after_failure.is_empty(),
-        "the reopened domain must not immediately select the failed probe"
+        "the reopened scrape circuit must not immediately select the failed probe"
     );
 }
 
 /// A slow-host failure recorded as evidence (a streak without a cooldown)
-/// leaves the domain open: the next pass selects its full batch, not a probe.
+/// leaves the ListingSource open: the next pass selects its full batch, not a probe.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
+async fn scraper_recorded_scrape_failure_keeps_the_full_batch_eligible() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "recorded-evidence.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "recorded-evidence.example.com").await;
     let first_url = "https://recorded-evidence.example.com/p/1";
     let second_url = "https://recorded-evidence.example.com/p/2";
-    insert_product_url(&pool, listing_source_id, domain_id, first_url).await;
-    insert_product_url(&pool, listing_source_id, domain_id, second_url).await;
+    insert_product_url(&pool, listing_source_id, first_url).await;
+    insert_product_url(&pool, listing_source_id, second_url).await;
 
     let next_retry_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(5);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(DomainCircuitOpenRequest {
+        .mark_fetch_failure_and_open_scrape_circuit(ScrapeCircuitOpenRequest {
             url_failure: fetch_failure_request(
                 listing_source_id,
                 url::Url::parse(first_url).unwrap(),
@@ -4342,25 +3995,24 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
                 next_retry_at,
                 None,
             ),
-            domain_id,
-            expected_domain_health: DomainHealthSnapshot::default(),
-            domain_error_kind: DomainFailureKind::Timeout,
-            domain_status_code: None,
+            expected_scrape_health: ScrapeHealthSnapshot::default(),
+            scrape_error_kind: DomainFailureKind::Timeout,
+            scrape_status_code: None,
             next_scrape_at: None,
         })
         .await
         .unwrap();
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(1));
 
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
     assert_eq!(candidates.len(), 1, "the failed URL waits for its retry");
     let candidate = &candidates[0];
     assert_eq!(candidate.url.as_str(), second_url);
-    assert!(!candidate.is_domain_probe);
+    assert!(!candidate.is_circuit_probe);
     assert_eq!(
-        candidate.domain_health,
-        DomainHealthSnapshot {
+        candidate.scrape_health,
+        ScrapeHealthSnapshot {
             scrape_failure_streak: 1,
             last_scrape_error_kind: Some("TIMEOUT".to_owned()),
             next_scrape_at: None,
@@ -4368,7 +4020,7 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
     );
 
     let closed = service
-        .close_domain_circuit(&domain_id, &candidate.domain_health)
+        .close_scrape_circuit(&listing_source_id, &candidate.scrape_health)
         .await
         .unwrap();
     assert_eq!(closed, CrawlerUrlWriteOutcome::Applied);
@@ -4378,24 +4030,22 @@ async fn scraper_recorded_domain_failure_keeps_the_full_batch_eligible() {
 /// sets it, a further failure of the same kind keeps it, another kind restarts it and closing the
 /// circuit clears it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_domain_circuit_dates_the_current_failure_streak() {
+async fn scraper_scrape_circuit_dates_the_current_failure_streak() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "failing-since.example.com")
-            .await;
+    insert_listing_source(&pool, listing_source_id, "failing-since.example.com").await;
     let url = "https://failing-since.example.com/p/1";
-    insert_product_url(&pool, listing_source_id, domain_id, url).await;
+    insert_product_url(&pool, listing_source_id, url).await;
 
     async fn failing_since(
         pool: &sqlx::PgPool,
-        domain_id: CrawlerDomainId,
+        listing_source_id: ListingSourceId,
     ) -> Option<time::OffsetDateTime> {
         sqlx::query_scalar(
-            "SELECT scrape_failing_since FROM listing_source_domains WHERE domain_id = $1",
+            "SELECT scrape_failing_since FROM listing_sources WHERE listing_source_id = $1",
         )
-        .bind(domain_id.as_uuid())
+        .bind(listing_source_id.as_uuid())
         .fetch_one(pool)
         .await
         .unwrap()
@@ -4403,14 +4053,13 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
     async fn open(
         service: &ScraperCandidateServiceImpl,
         listing_source_id: ListingSourceId,
-        domain_id: CrawlerDomainId,
         url: &str,
-        health: DomainHealthSnapshot,
+        health: ScrapeHealthSnapshot,
         kind: DomainFailureKind,
-    ) -> DomainHealthSnapshot {
+    ) -> ScrapeHealthSnapshot {
         let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(30);
         let outcome = service
-            .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+            .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
                 fetch_failure_request(
                     listing_source_id,
                     url::Url::parse(url).unwrap(),
@@ -4420,7 +4069,6 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
                     time::OffsetDateTime::now_utc() + time::Duration::minutes(5),
                     None,
                 ),
-                domain_id,
                 health,
                 kind,
                 None,
@@ -4428,8 +4076,8 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
             ))
             .await
             .unwrap();
-        assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
-        DomainHealthSnapshot {
+        assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
+        ScrapeHealthSnapshot {
             scrape_failure_streak: i32::try_from(outcome.persisted_failure_streak.unwrap())
                 .unwrap(),
             last_scrape_error_kind: Some(kind.as_str().to_owned()),
@@ -4437,34 +4085,34 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
         }
     }
 
-    assert_eq!(failing_since(&pool, domain_id).await, None);
+    assert_eq!(failing_since(&pool, listing_source_id).await, None);
 
     let health = open(
         &service,
         listing_source_id,
-        domain_id,
         url,
-        DomainHealthSnapshot::default(),
+        ScrapeHealthSnapshot::default(),
         DomainFailureKind::Timeout,
     )
     .await;
-    let began = failing_since(&pool, domain_id)
+    let began = failing_since(&pool, listing_source_id)
         .await
         .expect("opening from streak 0 dates the streak");
     assert!(time::OffsetDateTime::now_utc() - began < time::Duration::minutes(1));
 
-    sqlx::query("UPDATE listing_source_domains SET scrape_failing_since = $2 WHERE domain_id = $1")
-        .bind(domain_id.as_uuid())
-        .bind(time::OffsetDateTime::now_utc() - time::Duration::hours(3))
-        .execute(&pool)
-        .await
-        .unwrap();
-    let backdated = failing_since(&pool, domain_id).await.unwrap();
+    sqlx::query(
+        "UPDATE listing_sources SET scrape_failing_since = $2 WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(time::OffsetDateTime::now_utc() - time::Duration::hours(3))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let backdated = failing_since(&pool, listing_source_id).await.unwrap();
 
     let health = open(
         &service,
         listing_source_id,
-        domain_id,
         url,
         health,
         DomainFailureKind::Timeout,
@@ -4472,7 +4120,7 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
     .await;
     assert_eq!(health.scrape_failure_streak, 2);
     assert_eq!(
-        failing_since(&pool, domain_id).await,
+        failing_since(&pool, listing_source_id).await,
         Some(backdated),
         "a further failure of the same kind keeps the date"
     );
@@ -4480,14 +4128,13 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
     let health = open(
         &service,
         listing_source_id,
-        domain_id,
         url,
         health,
         DomainFailureKind::Http429,
     )
     .await;
     assert_eq!(health.scrape_failure_streak, 1);
-    let restarted = failing_since(&pool, domain_id).await.unwrap();
+    let restarted = failing_since(&pool, listing_source_id).await.unwrap();
     assert!(
         restarted > backdated,
         "another kind restarts the streak and its date"
@@ -4495,12 +4142,12 @@ async fn scraper_domain_circuit_dates_the_current_failure_streak() {
 
     assert_eq!(
         service
-            .close_domain_circuit(&domain_id, &health)
+            .close_scrape_circuit(&listing_source_id, &health)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
     );
-    assert_eq!(failing_since(&pool, domain_id).await, None);
+    assert_eq!(failing_since(&pool, listing_source_id).await, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -4513,17 +4160,15 @@ async fn scraper_seed_urls_should_respect_limit() {
     let service = ScraperCandidateServiceImpl::new(pool.clone());
 
     let listing_source_id = ListingSourceId::new();
-    let domain_id =
-        insert_listing_source_with_domain(&pool, listing_source_id, "seed-limit.example.com").await;
+    insert_listing_source(&pool, listing_source_id, "seed-limit.example.com").await;
 
     let current_url = "https://seed-limit.example.com/p/current";
-    insert_product_url(&pool, listing_source_id, domain_id, current_url).await;
+    insert_product_url(&pool, listing_source_id, current_url).await;
 
     for i in 0..6u32 {
         insert_product_url(
             &pool,
             listing_source_id,
-            domain_id,
             &format!("https://seed-limit.example.com/p/{i}"),
         )
         .await;
@@ -4531,12 +4176,7 @@ async fn scraper_seed_urls_should_respect_limit() {
 
     let exclude = url::Url::parse(current_url).unwrap();
     let sampled = service
-        .get_random_product_urls_for_schema_seed(
-            &listing_source_id,
-            &domain_id,
-            &[exclude.to_string()],
-            3,
-        )
+        .get_random_product_urls_for_schema_seed(&listing_source_id, &[exclude.to_string()], 3)
         .await
         .unwrap();
 
@@ -4544,30 +4184,30 @@ async fn scraper_seed_urls_should_respect_limit() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_after_recovery() {
+async fn scraper_scrape_failure_streaks_are_same_kind_consecutive_and_reset_after_recovery() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-streak-semantics.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-streak-semantics.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let first_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_000).unwrap();
     let second_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_100).unwrap();
     let third_next = time::OffsetDateTime::from_unix_timestamp(2_000_000_200).unwrap();
-    let initial = DomainHealthSnapshot {
+    let initial = ScrapeHealthSnapshot {
         scrape_failure_streak: 0,
         last_scrape_error_kind: None,
         next_scrape_at: None,
     };
 
     let first = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4577,7 +4217,6 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
                 first_next,
                 None,
             ),
-            domain_id,
             initial.clone(),
             DomainFailureKind::Http429,
             Some(429),
@@ -4586,16 +4225,16 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         .await
         .unwrap();
     assert_eq!(first.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(first.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(first.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(first.persisted_failure_streak, Some(1));
 
-    let after_first = DomainHealthSnapshot {
+    let after_first = ScrapeHealthSnapshot {
         scrape_failure_streak: 1,
         last_scrape_error_kind: Some("HTTP_429".to_owned()),
         next_scrape_at: Some(first_next),
     };
     let second = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4605,7 +4244,6 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
                 second_next,
                 None,
             ),
-            domain_id,
             after_first.clone(),
             DomainFailureKind::Http429,
             Some(429),
@@ -4615,13 +4253,13 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         .unwrap();
     assert_eq!(second.persisted_failure_streak, Some(2));
 
-    let after_second = DomainHealthSnapshot {
+    let after_second = ScrapeHealthSnapshot {
         scrape_failure_streak: 2,
         last_scrape_error_kind: Some("HTTP_429".to_owned()),
         next_scrape_at: Some(second_next),
     };
     let changed_kind = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4631,7 +4269,6 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
                 third_next,
                 None,
             ),
-            domain_id,
             after_second.clone(),
             DomainFailureKind::Timeout,
             None,
@@ -4641,14 +4278,14 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
         .unwrap();
     assert_eq!(changed_kind.persisted_failure_streak, Some(1));
 
-    let recovering = DomainHealthSnapshot {
+    let recovering = ScrapeHealthSnapshot {
         scrape_failure_streak: 1,
         last_scrape_error_kind: Some("TIMEOUT".to_owned()),
         next_scrape_at: Some(third_next),
     };
     assert_eq!(
         service
-            .close_domain_circuit(&domain_id, &recovering)
+            .close_scrape_circuit(&listing_source_id, &recovering)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -4656,21 +4293,21 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
 
     let row: (i32, Option<String>, Option<time::OffsetDateTime>) = sqlx::query_as(
         "SELECT scrape_failure_streak, last_scrape_error_kind, next_scrape_at
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(row, (0, None, None));
 
-    let after_recovery = DomainHealthSnapshot {
+    let after_recovery = ScrapeHealthSnapshot {
         scrape_failure_streak: 0,
         last_scrape_error_kind: None,
         next_scrape_at: None,
     };
     let restarted = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4680,7 +4317,6 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
                 first_next,
                 None,
             ),
-            domain_id,
             after_recovery,
             DomainFailureKind::Http429,
             Some(429),
@@ -4692,50 +4328,50 @@ async fn scraper_domain_failure_streaks_are_same_kind_consecutive_and_reset_afte
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state() {
+async fn scraper_stale_scrape_failure_does_not_overwrite_kind_compatible_state() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
-        "scraper-stale-domain-fence.example.com",
+        "scraper-stale-circuit-fence.example.com",
     )
     .await;
-    let url = url::Url::parse("https://scraper-stale-domain-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    let url = url::Url::parse("https://scraper-stale-circuit-fence.example.com/p/1").unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     let observed_next = time::OffsetDateTime::from_unix_timestamp(2_100_000_000).unwrap();
     sqlx::query(
-        "UPDATE listing_source_domains
+        "UPDATE listing_sources
          SET scrape_failure_streak = 2,
              last_scrape_error_kind = 'HTTP_429',
              next_scrape_at = $2
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .bind(observed_next)
     .execute(&pool)
     .await
     .unwrap();
 
-    let expected = DomainHealthSnapshot {
+    let expected = ScrapeHealthSnapshot {
         scrape_failure_streak: 2,
         last_scrape_error_kind: Some("HTTP_429".to_owned()),
         next_scrape_at: Some(observed_next),
     };
     sqlx::query(
-        "UPDATE listing_source_domains
+        "UPDATE listing_sources
          SET last_scrape_error_kind = 'HTTP_503'
-         WHERE domain_id = $1",
+         WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
 
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4745,7 +4381,6 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
                 observed_next,
                 None,
             ),
-            domain_id,
             expected.clone(),
             DomainFailureKind::Http429,
             Some(429),
@@ -4755,20 +4390,20 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::Applied);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::NoopStale);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::NoopStale);
     assert_eq!(outcome.persisted_failure_streak, None);
 
-    let domain_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
+    let source_row: (i32, String, time::OffsetDateTime) = sqlx::query_as(
         "SELECT scrape_failure_streak, last_scrape_error_kind, next_scrape_at
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(domain_row.0, 2);
-    assert_eq!(domain_row.1, "HTTP_503");
-    assert_eq!(domain_row.2, observed_next);
+    assert_eq!(source_row.0, 2);
+    assert_eq!(source_row.1, "HTTP_503");
+    assert_eq!(source_row.2, observed_next);
 
     let url_row: (String, Option<i32>) = sqlx::query_as(
         "SELECT last_error_kind, last_status_code
@@ -4783,18 +4418,18 @@ async fn scraper_stale_domain_failure_does_not_overwrite_kind_compatible_state()
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
+async fn scraper_stale_url_failure_does_not_block_current_circuit_open() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
+    insert_listing_source(
         &pool,
         listing_source_id,
         "scraper-stale-url-fence.example.com",
     )
     .await;
     let url = url::Url::parse("https://scraper-stale-url-fence.example.com/p/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, url.as_str()).await;
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
 
     sqlx::query(
         "UPDATE listing_source_urls
@@ -4821,7 +4456,7 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
 
     let next_scrape_at = time::OffsetDateTime::now_utc() + time::Duration::minutes(10);
     let outcome = service
-        .mark_fetch_failure_and_open_domain_circuit(domain_open_request(
+        .mark_fetch_failure_and_open_scrape_circuit(circuit_open_request(
             fetch_failure_request(
                 listing_source_id,
                 url.clone(),
@@ -4831,8 +4466,7 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
                 next_scrape_at,
                 Some(vec![0x0a; 32]),
             ),
-            domain_id,
-            DomainHealthSnapshot {
+            ScrapeHealthSnapshot {
                 scrape_failure_streak: 0,
                 last_scrape_error_kind: None,
                 next_scrape_at: None,
@@ -4845,7 +4479,7 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
         .unwrap();
 
     assert_eq!(outcome.url_failure, CrawlerUrlWriteOutcome::NoopStale);
-    assert_eq!(outcome.domain_circuit, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(outcome.scrape_circuit, CrawlerUrlWriteOutcome::Applied);
     assert_eq!(outcome.persisted_failure_streak, Some(1));
 
     let url_row: (i32, Option<String>, Option<i32>) = sqlx::query_as(
@@ -4859,15 +4493,15 @@ async fn scraper_stale_url_failure_does_not_block_current_domain_open() {
     .unwrap();
     assert_eq!(url_row, (0, None, None));
 
-    let domain_row: (i32, Option<String>, Option<i32>) = sqlx::query_as(
+    let source_row: (i32, Option<String>, Option<i32>) = sqlx::query_as(
         "SELECT scrape_failure_streak, last_scrape_error_kind, last_scrape_status_code
-         FROM listing_source_domains WHERE domain_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
-    .bind(domain_id.as_uuid())
+    .bind(listing_source_id.as_uuid())
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(domain_row, (1, Some("HTTP_429".to_owned()), Some(429)));
+    assert_eq!(source_row, (1, Some("HTTP_429".to_owned()), Some(429)));
 }
 
 /// A URL retired as a duplicate of a stored page is terminal: neither scraped nor counted as due.
@@ -4876,17 +4510,12 @@ async fn scraper_should_never_select_a_url_retired_as_duplicate() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
-    let domain_id = insert_listing_source_with_domain(
-        &pool,
-        listing_source_id,
-        "duplicate-retired.example.com",
-    )
-    .await;
+    insert_listing_source(&pool, listing_source_id, "duplicate-retired.example.com").await;
     let duplicate =
         url::Url::parse("https://duplicate-retired.example.com/collections/a/products/1").unwrap();
     let destination = url::Url::parse("https://duplicate-retired.example.com/products/1").unwrap();
-    insert_product_url(&pool, listing_source_id, domain_id, duplicate.as_str()).await;
-    insert_product_url(&pool, listing_source_id, domain_id, destination.as_str()).await;
+    insert_product_url(&pool, listing_source_id, duplicate.as_str()).await;
+    insert_product_url(&pool, listing_source_id, destination.as_str()).await;
 
     assert_eq!(
         service

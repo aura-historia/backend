@@ -1,4 +1,4 @@
-use crate::{CrawlerDomainId, CrawlerReviewId};
+use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -11,7 +11,10 @@ pub struct CrawlerReview {
     /// Whether the ListingSource is crawled; a pending review of a disabled one holds back no
     /// crawling or scraping.
     pub listing_source_crawl_enabled: bool,
-    pub domain_id: Option<CrawlerDomainId>,
+    /// The host the ListingSource is crawled on (`docs/crawler/README.md#listingsource-scope`),
+    /// the only host whose URLs the console fetches for the review; `None` while the source has
+    /// no crawl root.
+    pub listing_source_crawl_host: Option<String>,
     pub artifact_type: String,
     pub status: String,
     pub reason: String,

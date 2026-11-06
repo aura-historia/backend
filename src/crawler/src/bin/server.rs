@@ -31,7 +31,6 @@
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
-//! | `CRAWLER_SEED_DOMAINS_FROM_API` | `true` registers, at each scope refresh, the public host the admin API presents for an enabled ListingSource without crawler-local domains as its domain; unset or `false` leaves domains to operators. See `docs/crawler/operations.md#runtime-prerequisites` |
 //! | `CRAWLER_LOCAL_MAX_PUSHED_LISTINGS` | Local only: stop gracefully after this many observations reached the queue. Debug builds only; a release build refuses to start while it is set |
 //! | `CRAWLER_START_REVIEW_AGENT_RUNNER` | `true` starts `review-agent-runner` from next to this binary as its child in `agent` mode, as `dev` does; unset or `false` leaves it to its own service. Never set it next to a runner service: two runners would work the same reviews. Any other value fails startup |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
@@ -299,7 +298,7 @@ async fn main() {
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_mins(5),
             scraper_interval: Duration::from_mins(5),
-            scraper_urls_per_domain: 100,
+            scraper_urls_per_source: 100,
             spider_concurrency: 5,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 5,

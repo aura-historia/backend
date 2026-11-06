@@ -95,8 +95,9 @@ pub struct ReviewView {
     pub reason: String,
     pub listing_source_id: String,
     pub listing_source_name: Option<String>,
-    /// The domain a URL-pattern review decides.
-    pub domain_id: Option<String>,
+    /// The host the review's ListingSource is crawled on, the only host whose URLs the review
+    /// tools fetch; `None` while the source has no crawl root.
+    pub crawl_host: Option<String>,
     /// The candidate's version, which edits and approvals name as `expected_candidate_version`.
     pub candidate_version: i64,
     /// Whether the review is approved and its candidate is the ListingSource's live schema list.
@@ -134,10 +135,10 @@ pub enum CandidateView {
         schemas: Vec<ProductCssSelectorSchema>,
         removed_page_schemas: Vec<RemovedPageSchema>,
     },
-    /// The domain's product URL pattern decision and the sample labels it must follow.
+    /// The ListingSource's product URL pattern decision and the sample labels it must follow.
     UrlPattern {
         decision: UrlPatternDecisionView,
-        /// The domain's pattern when the review opened.
+        /// The ListingSource's pattern when the review opened.
         current_pattern: Option<String>,
         sample_labels: Vec<SampleLabelView>,
         labelled_at: Option<String>,
@@ -149,7 +150,7 @@ pub enum CandidateView {
 pub enum UrlPatternDecisionView {
     /// A regex; a URL it matches anywhere is a product URL.
     Pattern { value: String },
-    /// The domain has no product URLs.
+    /// The ListingSource has no product URLs.
     NoPattern,
     /// No decision staged yet.
     Undecided,
@@ -181,7 +182,7 @@ pub struct ReviewPageView {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SampleUrlView {
     pub url: String,
-    /// How the domain's current pattern classified the URL before the review.
+    /// How the ListingSource's current pattern classified the URL before the review.
     pub previous_class: Option<String>,
     pub current_pattern_match: Option<bool>,
     /// Whether the candidate's pattern matches the URL.
@@ -339,7 +340,7 @@ impl ReviewView {
             reason: review.reason,
             listing_source_id: review.listing_source_id.to_string(),
             listing_source_name: review.listing_source_name,
-            domain_id: review.domain_id.map(|domain_id| domain_id.to_string()),
+            crawl_host: review.listing_source_crawl_host,
             candidate_version: review.candidate_version,
             candidate_is_live,
             reviewer_notes: review.reviewer_notes.as_deref().map(note),
@@ -544,7 +545,7 @@ mod tests {
             "listing_source_id": listing_source_core::ListingSourceId::new().to_string(),
             "listing_source_name": "Antiques",
             "listing_source_crawl_enabled": true,
-            "domain_id": null,
+            "listing_source_crawl_host": "antiques.example",
             "artifact_type": artifact_type,
             "status": status,
             "reason": "manual_schema_required",
@@ -579,7 +580,6 @@ mod tests {
             "review_id": CrawlerReviewId::new().to_string(),
             "listing_source_id": listing_source_core::ListingSourceId::new().to_string(),
             "listing_source_name": "Antiques",
-            "domain_id": null,
             "artifact_type": "PRODUCT_SCHEMA",
             "reason": "manual_schema_required",
             "candidate_version": 3,

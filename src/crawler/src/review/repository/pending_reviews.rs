@@ -9,8 +9,8 @@
 
 use super::repair_rounds::{agent_round_binds, agent_rounds_of_review};
 use super::{
-    ReviewRepositoryError, crawler_domain_id_from_uuid, crawler_review_id_from_uuid,
-    listing_source_id_from_uuid, row_to_repair_request,
+    ReviewRepositoryError, crawler_review_id_from_uuid, listing_source_id_from_uuid,
+    row_to_repair_request,
 };
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
@@ -75,7 +75,7 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
          SELECT q.*, (q.agent_rounds >= $4::bigint) IS TRUE AS waits_for_human \
          FROM ( \
-             SELECT r.review_id, r.listing_source_id, s.listing_source_name, r.domain_id, \
+             SELECT r.review_id, r.listing_source_id, s.listing_source_name, \
                     r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
                     r.repair_note, r.created, r.updated, \
                     (SELECT MAX(h.created) FROM crawler_review_events h \
@@ -185,10 +185,6 @@ fn row_to_summary(
         review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
         listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
         listing_source_name: row.try_get("listing_source_name")?,
-        domain_id: row
-            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-            .map(crawler_domain_id_from_uuid)
-            .transpose()?,
         artifact_type: row.try_get("artifact_type")?,
         reason: row.try_get("reason")?,
         candidate_version: row.try_get("candidate_version")?,

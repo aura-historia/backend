@@ -24,7 +24,7 @@ pub const MAX_FRONTIER_URLS: usize = 20_000;
 /// compute.
 const MAX_FOUND_LINKS: usize = 200_000;
 
-/// Which crawl of its schedule a domain runs.
+/// Which crawl of its schedule a ListingSource runs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CrawlKind {
     /// Discovers the whole shop: every page the crawl reaches is fetched, and its last full crawl
@@ -32,7 +32,7 @@ pub enum CrawlKind {
     #[default]
     Full,
     /// Rediscovers new product URLs between full crawls: listing and category pages are fetched
-    /// again, product pages the domain already stores are not.
+    /// again, product pages the ListingSource already stores are not.
     Incremental,
 }
 
@@ -55,7 +55,7 @@ impl std::fmt::Display for CrawlKind {
 /// What a crawl starts from besides its root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CrawlSeeds {
-    /// URLs the domain's previous crawl found or was seeded with but did not visit.
+    /// URLs the ListingSource's previous crawl found or was seeded with but did not visit.
     pub frontier: Vec<Url>,
     /// URLs the crawl does not fetch: the product URLs an incremental crawl already knows.
     pub known: Vec<Url>,
@@ -64,7 +64,7 @@ pub struct CrawlSeeds {
     pub retired: Vec<Url>,
 }
 
-/// One crawl of a domain.
+/// One crawl of a ListingSource.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrawlRequest {
     pub crawl_root_url: String,
@@ -73,7 +73,7 @@ pub struct CrawlRequest {
 }
 
 impl CrawlRequest {
-    /// A crawl from the root alone, as the first crawl of a domain runs.
+    /// A crawl from the root alone, as the first crawl of a ListingSource runs.
     pub fn from_root(crawl_root_url: impl Into<String>, pace: CrawlPace) -> Self {
         Self {
             crawl_root_url: crawl_root_url.into(),

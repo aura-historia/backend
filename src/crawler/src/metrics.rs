@@ -44,28 +44,28 @@ impl MetricUnit {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CrawlerMetric {
-    /// Scraper URLs whose scrape completed, changed or not, per domain batch.
+    /// Scraper URLs whose scrape completed, changed or not, per scraper batch.
     ScrapesSucceeded,
-    /// Scraper URLs whose scrape failed, per domain batch.
+    /// Scraper URLs whose scrape failed, per scraper batch.
     ScrapesFailed,
-    /// Scraper URLs whose page waits on a pending product-schema review, per domain batch: no
+    /// Scraper URLs whose page waits on a pending product-schema review, per scraper batch: no
     /// failure, so neither in `ScrapesFailed` nor in `UrlFailures`.
     ScrapesAwaitingSchemaReview,
-    /// 1 when a scraper domain batch completed a scrape or a page of it waited on a
-    /// product-schema review, else 0; and 1 per scraper pass for each domain whose scraping only
-    /// a pending review holds back, which has no batch. The no-successful-scrape alarm reads it
-    /// alone, so a domain that only waits on a reviewer does not alarm.
+    /// 1 when a scraper batch completed a scrape or a page of it waited on a product-schema review,
+    /// else 0; and 1 per scraper pass for each ListingSource whose scraping only a pending review
+    /// holds back, which has no batch. The no-successful-scrape alarm reads it alone, so a
+    /// ListingSource that only waits on a reviewer does not alarm.
     ScrapedOrAwaitingReview,
     /// Raw observations the ingestion queue accepted, per capture batch.
     ProductsCaptured,
     /// Raw observations discarded because they exceed the ingestion message limit or cannot be
     /// encoded, per capture batch; only recorded when non-zero.
     ProductsDiscardedUnsendable,
-    /// Scraper URL failures of one `failure_kind`, per domain batch.
+    /// Scraper URL failures of one `failure_kind`, per scraper batch.
     UrlFailures,
-    /// Scraper domain circuits opened.
-    DomainCircuitOpened,
-    /// Product URLs a spider crawl classified with the domain's URL pattern.
+    /// Scrape circuits opened.
+    ScrapeCircuitOpened,
+    /// Product URLs a spider crawl classified with the ListingSource's URL pattern.
     CrawlProductUrls,
     /// 1 when a spider crawl was cut short before its bounds, else 0.
     CrawlTruncated,
@@ -87,7 +87,7 @@ impl CrawlerMetric {
             Self::ProductsCaptured => "ProductsCaptured",
             Self::ProductsDiscardedUnsendable => "ProductsDiscardedUnsendable",
             Self::UrlFailures => "UrlFailures",
-            Self::DomainCircuitOpened => "DomainCircuitOpened",
+            Self::ScrapeCircuitOpened => "ScrapeCircuitOpened",
             Self::CrawlProductUrls => "CrawlProductUrls",
             Self::CrawlTruncated => "CrawlTruncated",
             Self::CrawlOutcome => "CrawlOutcome",
@@ -108,8 +108,6 @@ impl CrawlerMetric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MetricDimension {
     ListingSourceId,
-    /// The configured ListingSource domain, never a page URL.
-    Domain,
     /// A persisted URL error kind such as `HTTP_503` or `Timeout`.
     FailureKind,
     /// A persisted `last_crawl_outcome` value.
@@ -120,7 +118,6 @@ impl MetricDimension {
     pub(crate) const fn key(self) -> &'static str {
         match self {
             Self::ListingSourceId => "listing_source_id",
-            Self::Domain => "domain",
             Self::FailureKind => "failure_kind",
             Self::CrawlOutcome => "crawl_outcome",
         }
@@ -143,16 +140,11 @@ impl MetricRecord {
         }
     }
 
-    pub(crate) fn for_listing_source_domain(
-        listing_source_id: &ListingSourceId,
-        domain: &str,
-    ) -> Self {
-        Self::global()
-            .with_dimension(
-                MetricDimension::ListingSourceId,
-                listing_source_id.to_string(),
-            )
-            .with_dimension(MetricDimension::Domain, domain)
+    pub(crate) fn for_listing_source(listing_source_id: &ListingSourceId) -> Self {
+        Self::global().with_dimension(
+            MetricDimension::ListingSourceId,
+            listing_source_id.to_string(),
+        )
     }
 
     pub(crate) fn with_dimension(
@@ -371,7 +363,7 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     fn source_record() -> MetricRecord {
-        MetricRecord::for_listing_source_domain(&ListingSourceId::new(), "shop.example")
+        MetricRecord::for_listing_source(&ListingSourceId::new())
             .with_value(CrawlerMetric::ScrapesSucceeded, 3)
             .with_value(CrawlerMetric::ScrapesFailed, 1)
     }
@@ -385,10 +377,7 @@ mod tests {
         let directive = &record["_aws"]["CloudWatchMetrics"][0];
         assert_eq!(record["_aws"]["Timestamp"], 1_793_016_000_000_i64);
         assert_eq!(directive["Namespace"], "AuraHistoria/Crawler");
-        assert_eq!(
-            directive["Dimensions"],
-            json!([["listing_source_id", "domain"]])
-        );
+        assert_eq!(directive["Dimensions"], json!([["listing_source_id"]]));
         assert_eq!(
             directive["Metrics"],
             json!([
@@ -396,7 +385,6 @@ mod tests {
                 { "Name": "ScrapesFailed", "Unit": "Count" },
             ])
         );
-        assert_eq!(record["domain"], "shop.example");
         assert!(record["listing_source_id"].is_string());
         assert_eq!(record["ScrapesSucceeded"], 3);
         assert_eq!(record["ScrapesFailed"], 1);
@@ -420,10 +408,9 @@ mod tests {
     /// Operators define the no-successful-scrape alarm on this name, so it is a contract.
     #[test]
     fn should_publish_the_scrape_alarm_metric_under_its_documented_name() {
-        let record =
-            MetricRecord::for_listing_source_domain(&ListingSourceId::new(), "shop.example")
-                .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
-                .to_emf(time::OffsetDateTime::now_utc());
+        let record = MetricRecord::for_listing_source(&ListingSourceId::new())
+            .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
+            .to_emf(time::OffsetDateTime::now_utc());
 
         assert_eq!(
             record["_aws"]["CloudWatchMetrics"][0]["Metrics"],
@@ -480,7 +467,8 @@ mod tests {
     #[test]
     fn should_write_a_metric_event_as_the_bare_record_inside_a_span() {
         let lines = json_log_lines(|| {
-            let _span = tracing::info_span!("scrape_domain", domain_id = "cd_test").entered();
+            let _span =
+                tracing::info_span!("scrape_batch", listing_source_id = "ls_test").entered();
             source_record().emit();
         });
 

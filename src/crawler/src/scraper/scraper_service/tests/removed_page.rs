@@ -247,7 +247,7 @@ async fn should_mark_product_removed_although_page_hash_and_fingerprint_are_unch
     let request = ScrapeRequest {
         last_scraped_hash: Some(hash_page(html, &schemas)),
         last_scraped_schema_fingerprint: Some(
-            fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas, None)
+            fingerprint_scraper_context(EXTRACTOR_VERSION, &schemas)
                 .unwrap_or_else(|error| panic!("test schema must serialize: {error}")),
         ),
         ..primary_only_request(&id, &url)

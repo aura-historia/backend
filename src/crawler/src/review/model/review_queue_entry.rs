@@ -2,10 +2,10 @@
 //! `docs/crawler/operations.md` (review service).
 
 use super::RepairRequest;
+use crate::CrawlerReviewId;
 use crate::scraper::css_selector::product_schema_service::{
     SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
 };
-use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -22,7 +22,6 @@ pub struct ReviewQueueEntry {
     /// Whether the ListingSource is crawled; a pending review of a disabled one holds back no
     /// crawling or scraping.
     pub listing_source_crawl_enabled: bool,
-    pub domain_id: Option<CrawlerDomainId>,
     pub artifact_type: String,
     pub status: String,
     pub reason: String,
@@ -73,7 +72,6 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: Some("Antiques".to_owned()),
             listing_source_crawl_enabled: true,
-            domain_id: None,
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             status: "PENDING_REVIEW".to_owned(),
             reason: "initial_schema_generation".to_owned(),

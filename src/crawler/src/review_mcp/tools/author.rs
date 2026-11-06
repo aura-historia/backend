@@ -3,7 +3,7 @@
 use super::shared::encoded;
 use super::{
     Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail, review_path,
-    review_source_domains, review_source_url, review_source_urls, settled,
+    review_source_crawl_host, review_source_url, review_source_urls, settled,
 };
 use crate::review::model::CrawlerReviewPage;
 use crate::review_mcp::errors::ToolError;
@@ -22,17 +22,17 @@ use std::sync::Arc;
 
 const EVALUATE_CANDIDATE: &str = "Test a product-schema candidate before you stage it, without storing anything: the console fetches the review's pages and up to four further `urls` of the review's ListingSource live, at the shop's crawl delay, and evaluates on them what approving this candidate would make live. The answer has the matrix refresh_matrix answers; pages from `urls` are named by input_index, their position in `urls`. Use it to test every candidate on sold, price-on-application and photo-less pages of the shop before update_candidate. schemas is the whole schema list; removed_page_schemas, when given, replaces the candidate's removed-page templates, otherwise the stored ones are evaluated. The candidate is checked like an edit (INVALID_REQUEST names what is wrong), a URL off the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE, and on a review with human_required true the evaluation is refused with CONFLICT and reason HUMAN_REQUIRED before anything is fetched. An evaluation is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. Waits while the console fetches and answers STILL_RUNNING after 15 minutes. When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is.";
 
-const UPDATE_CANDIDATE: &str = "Stage a whole candidate on a pending review, replacing the current one. For a PRODUCT_SCHEMA review give kind PRODUCT_SCHEMA with the whole `schemas` list (add, change, reorder or drop schemas here; every core field rule needs selector and type, raw attributes only with keys of the raw attribute registry) and optionally `removed_page_schemas`, which replaces the removed-page templates (left out, they stay; an empty list retires them all). For a URL_PATTERN review give kind URL_PATTERN with the decision: type PATTERN with a regex `value` that matches every URL labelled PRODUCT and no URL labelled NOT_PRODUCT (the spider matches it anywhere in the URL, with or without the URL's trailing slash, so anchor it as needed), or type NO_PATTERN for a domain without product pages; its sample labels stay as label_sample_urls set them. expected_candidate_version is the candidate_version you read; when the review changed since, the edit is refused with CONFLICT and the current candidate_version: read the review again and redo the edit on its current candidate. Answers the new candidate_version. Any change drops the stored matrix: refresh_matrix afterwards.";
+const UPDATE_CANDIDATE: &str = "Stage a whole candidate on a pending review, replacing the current one. For a PRODUCT_SCHEMA review give kind PRODUCT_SCHEMA with the whole `schemas` list (add, change, reorder or drop schemas here; every core field rule needs selector and type, raw attributes only with keys of the raw attribute registry) and optionally `removed_page_schemas`, which replaces the removed-page templates (left out, they stay; an empty list retires them all). For a URL_PATTERN review give kind URL_PATTERN with the decision: type PATTERN with a regex `value` that matches every URL labelled PRODUCT and no URL labelled NOT_PRODUCT (the spider matches it anywhere in the URL, with or without the URL's trailing slash, so anchor it as needed), or type NO_PATTERN for a ListingSource without product pages; its sample labels stay as label_sample_urls set them. expected_candidate_version is the candidate_version you read; when the review changed since, the edit is refused with CONFLICT and the current candidate_version: read the review again and redo the edit on its current candidate. Answers the new candidate_version. Any change drops the stored matrix: refresh_matrix afterwards.";
 
 const UPDATE_SCHEMA_FIELD: &str = "Change one rule of one schema of a pending product-schema review's candidate. schema_index is the schema's position in the candidate's schemas; field is a core field (source_listing_id, title, description, price, price_estimate_min, price_estimate_max, state, images) or `raw_attributes.<key>` with a key of the raw attribute registry; rule is the whole new rule, or null to delete an optional rule (title, state and images cannot be deleted). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT and the current candidate_version. Answers the new candidate_version. The change drops the stored matrix: refresh_matrix afterwards.";
 
-const ADD_REVIEW_PAGE: &str = "Add a page of the review's ListingSource to a pending product-schema review, so every later matrix evaluates the candidate on it too: use it for sold, price-on-application or photo-less product pages the candidate must cover. url must be an http(s) URL on a domain of the review's ListingSource (otherwise URL_OUTSIDE_REVIEW_SOURCE, before anything is fetched). The console fetches the page now; a redirect to a page that is no product page, a page already on the review, and more than four added pages are refused with INVALID_REQUEST or CONFLICT. A page the shop answers with a bot challenge is not added: the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE; retry later. Answers the new review_page_id. Drops the stored matrix: refresh_matrix afterwards.";
+const ADD_REVIEW_PAGE: &str = "Add a page of the review's ListingSource to a pending product-schema review, so every later matrix evaluates the candidate on it too: use it for sold, price-on-application or photo-less product pages the candidate must cover. url must be an http(s) URL on the crawl host of the review's ListingSource (otherwise URL_OUTSIDE_REVIEW_SOURCE, before anything is fetched). The console fetches the page now; a redirect to a page that is no product page, a page already on the review, and more than four added pages are refused with INVALID_REQUEST or CONFLICT. A page the shop answers with a bot challenge is not added: the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE; retry later. Answers the new review_page_id. Drops the stored matrix: refresh_matrix afterwards.";
 
 const REMOVE_REVIEW_PAGE: &str = "Remove a page that was added to the review, or that waits on it, from a pending product-schema review, for example once the shop deleted the page and every matrix refresh fails on it. Seed and triggering pages cannot be removed (INVALID_REQUEST). review_page_id must be a page of the given review. Drops the stored matrix: refresh_matrix afterwards.";
 
 const DECLARE_REMOVED_PAGE: &str = "Declare a kind of review page removed instead of authoring a schema for it: for a sold or withdrawn item the shop still serves with HTTP 200, a removal notice and no product. Adds one removed-page template to the pending product-schema candidate: selector selects the element holding the notice, and exactly one of text (the notice's text) or regex (a regex the notice's text matches; one that matches any text is refused). Declare a page removed only where the page itself shows a removal notice. The matrix then lists the pages the template matches and whether a schema still extracts a product from them (PRODUCT_STILL_EXTRACTS, a template too broad for that page). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT. Answers the new candidate_version; refresh_matrix afterwards.";
 
-const LABEL_SAMPLE_URLS: &str = "Set the sample labels of a pending URL-pattern review: for URLs of the review's domain, its URL sample's among them, say whether each is the page of one product (PRODUCT) or not (NOT_PRODUCT: a category, search, article, imprint or other page), each with a short reason saying what the page shows. Open the pages with inspect_page before labelling them; describes_one_product is a hint, not proof. The list replaces every label the review has, so always send all labels; an empty list removes them. An approval needs at least the console's minimum of each label, and a pattern that takes every PRODUCT URL and no NOT_PRODUCT URL. A URL off the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE; one on another domain of the ListingSource, a URL labelled twice and a missing reason with INVALID_REQUEST. expected_candidate_version is the candidate_version you read; labels belong to the candidate, so they move its version. Answers the new candidate_version.";
+const LABEL_SAMPLE_URLS: &str = "Set the sample labels of a pending URL-pattern review: for URLs on the crawl host of the review's ListingSource, its URL sample's among them, say whether each is the page of one product (PRODUCT) or not (NOT_PRODUCT: a category, search, article, imprint or other page), each with a short reason saying what the page shows. Open the pages with inspect_page before labelling them; describes_one_product is a hint, not proof. The list replaces every label the review has, so always send all labels; an empty list removes them. An approval needs at least the console's minimum of each label, and a pattern that takes every PRODUCT URL and no NOT_PRODUCT URL. A URL off the crawl host of the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE; a URL labelled twice and a missing reason with INVALID_REQUEST. expected_candidate_version is the candidate_version you read; labels belong to the candidate, so they move its version. Answers the new candidate_version.";
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -81,7 +81,7 @@ pub(super) enum CandidateArgument {
 pub(super) enum UrlPatternDecisionArgument {
     /// A regex; a URL it matches anywhere is a product URL.
     Pattern { value: String },
-    /// The domain has no product pages.
+    /// The ListingSource has no product pages.
     NoPattern,
 }
 
@@ -108,7 +108,7 @@ pub(super) struct AddReviewPageArguments {
     /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
     #[schemars(with = "String")]
     review_id: CrawlerReviewId,
-    /// An http(s) URL on a domain of the review's ListingSource.
+    /// An http(s) URL on the crawl host of the review's ListingSource.
     url: String,
 }
 
@@ -156,7 +156,7 @@ pub(super) struct LabelSampleUrlsArguments {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SampleLabelArgument {
-    /// A URL of the review's domain.
+    /// A URL on the crawl host of the review's ListingSource.
     url: String,
     label: SampleLabelKind,
     /// What the page shows that makes it a product page or not, in a few words.
@@ -277,7 +277,7 @@ async fn update_candidate(
             }
         }
         CandidateArgument::UrlPattern { decision } => {
-            // The domain's pattern when the review opened stays as the review stores it.
+            // The ListingSource's pattern when the review opened stays as the review stores it.
             let current_pattern = match candidate_of(&review_detail(&context, review_id).await?)? {
                 wire::Candidate::UrlPattern(candidate) => candidate.current_pattern,
                 wire::Candidate::ProductSchema(_) => {
@@ -332,8 +332,8 @@ async fn add_review_page(
     context: Arc<ToolContext>,
 ) -> Result<PageAdded, ToolError> {
     let review_id = arguments.review_id;
-    let domains = review_source_domains(&context, review_id).await?;
-    let url = review_source_url(&arguments.url, &domains)?;
+    let crawl_host = review_source_crawl_host(&context, review_id).await?;
+    let url = review_source_url(&arguments.url, crawl_host.as_deref())?;
     let page: CrawlerReviewPage = context
         .console
         .post(

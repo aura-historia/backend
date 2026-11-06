@@ -1,4 +1,3 @@
-use crate::CrawlerDomainId;
 use crate::review::model::{PAGE_ROLE_PRIMARY, PAGE_ROLE_SEED, SchemaReviewPageInput};
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, schema_matrix_deterministic_approval_ok,
@@ -47,7 +46,6 @@ impl ScraperServiceImpl {
         &self,
         page: FetchedPage<'_>,
         product_url_pattern: Option<&str>,
-        domain_id: Option<&CrawlerDomainId>,
         mode: ScrapeMode,
     ) -> Result<ListingSourceProductSchema, ScraperError> {
         let FetchedPage {
@@ -69,14 +67,7 @@ impl ScraperServiceImpl {
         }
 
         let seed_pages = self
-            .collect_schema_seed_pages(
-                listing_source_id,
-                domain_id,
-                url,
-                product_url_pattern,
-                html,
-                mode,
-            )
+            .collect_schema_seed_pages(listing_source_id, url, product_url_pattern, html, mode)
             .await?;
         if self.review_repository.is_some() {
             if let Some(existing) = self

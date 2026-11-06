@@ -1,10 +1,8 @@
 //! `GET /api/listing_sources`: the operator's ListingSource overview. The contract is in
 //! `docs/crawler/operations.md` (review service).
 
-use crate::review::model::{DomainCrawlOverview, ListingSourceOverview, UrlErrorKindCount};
-use crate::review::repository::{
-    crawler_domain_id_from_uuid, crawler_review_id_from_uuid, listing_source_id_from_uuid,
-};
+use crate::review::model::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
+use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use sqlx::{PgPool, Row};
@@ -21,8 +19,8 @@ impl ListingSourceOverviewReader {
         Self { pool }
     }
 
-    /// Lists ListingSources, those that need an operator first: a crawl-enabled ListingSource with
-    /// a domain waiting for an operator, URLs blocked on a pending review, a scrape failure
+    /// Lists ListingSources, those that need an operator first: a crawl-enabled ListingSource
+    /// whose crawl waits for an operator, with URLs blocked on a pending review, a scrape failure
     /// streak or held removals is never cut off by `limit`, which only bounds the others.
     pub async fn list_listing_sources(
         &self,
@@ -63,8 +61,16 @@ impl ListingSourceOverviewReader {
                     s.crawl_enabled,
                     s.llm_calls_count,
                     s.updated,
-                    COALESCE(d.domain_count, 0) AS domain_count,
-                    d.last_successful_crawl,
+                    s.crawl_root_url,
+                    s.last_crawled AS last_successful_crawl,
+                    s.last_crawl_outcome,
+                    s.last_crawl_error_kind,
+                    s.crawl_failure_count,
+                    s.next_crawl_at,
+                    s.scrape_failure_streak,
+                    s.last_scrape_error_kind,
+                    s.scrape_failing_since,
+                    s.next_scrape_at AS scrape_paused_until,
                     u.last_successful_scrape,
                     COALESCE(r.pending_reviews, 0) AS pending_reviews,
                     COALESCE(u.product_urls, 0) AS product_urls,
@@ -74,15 +80,8 @@ impl ListingSourceOverviewReader {
                     COALESCE(u.held_removal_urls, 0) AS held_removal_urls,
                     u.held_since,
                     COALESCE(u.missing_value_urls, 0) AS missing_value_urls,
-                    COALESCE(d.needs_operator_domains, 0) AS needs_operator_domains,
-                    COALESCE(d.max_scrape_failure_streak, 0) AS max_scrape_failure_streak
+                    s.last_crawl_outcome IS NOT DISTINCT FROM $2 AS needs_operator
                 FROM listing_sources s
-                LEFT JOIN (
-                    SELECT listing_source_id, COUNT(*) AS domain_count, MAX(last_crawled) AS last_successful_crawl,
-                           COUNT(*) FILTER (WHERE last_crawl_outcome = $2) AS needs_operator_domains,
-                           MAX(scrape_failure_streak) AS max_scrape_failure_streak
-                    FROM listing_source_domains GROUP BY listing_source_id
-                ) d ON d.listing_source_id = s.listing_source_id
                 LEFT JOIN (
                     SELECT listing_source_id, COUNT(*) AS pending_reviews
                     FROM crawler_reviews
@@ -135,14 +134,14 @@ impl ListingSourceOverviewReader {
                 LEFT JOIN blocking bl ON bl.listing_source_id = s.listing_source_id
             ), ranked AS (
                 SELECT overview.*,
-                       crawl_enabled AND (needs_operator_domains > 0 OR blocked_urls > 0
-                                          OR max_scrape_failure_streak > 0
+                       crawl_enabled AND (needs_operator OR blocked_urls > 0
+                                          OR scrape_failure_streak > 0
                                           OR held_removal_urls > 0) AS needs_attention,
                        ROW_NUMBER() OVER (
                            ORDER BY crawl_enabled DESC,
-                                    (needs_operator_domains > 0) DESC,
+                                    needs_operator DESC,
                                     (blocked_urls > 0) DESC,
-                                    max_scrape_failure_streak DESC,
+                                    scrape_failure_streak DESC,
                                     (held_removal_urls > 0) DESC,
                                     pending_reviews DESC, updated DESC
                        ) AS position
@@ -167,7 +166,7 @@ impl ListingSourceOverviewReader {
                 listing_source_name: row.try_get("listing_source_name")?,
                 crawl_enabled: row.try_get("crawl_enabled")?,
                 llm_calls_count: row.try_get("llm_calls_count")?,
-                domain_count: row.try_get("domain_count")?,
+                crawl_root_url: row.try_get("crawl_root_url")?,
                 last_successful_crawl: row.try_get("last_successful_crawl")?,
                 last_successful_scrape: row.try_get("last_successful_scrape")?,
                 pending_reviews: row.try_get("pending_reviews")?,
@@ -182,20 +181,25 @@ impl ListingSourceOverviewReader {
                 held_since: row.try_get("held_since")?,
                 url_error_kinds: Vec::new(),
                 missing_value_urls: row.try_get("missing_value_urls")?,
-                domains: Vec::new(),
+                crawl_state: CrawlStateOverview {
+                    last_crawl_outcome: row.try_get("last_crawl_outcome")?,
+                    last_crawl_error_kind: row.try_get("last_crawl_error_kind")?,
+                    crawl_failure_count: row.try_get("crawl_failure_count")?,
+                    next_crawl_at: row.try_get("next_crawl_at")?,
+                    scrape_failure_streak: row.try_get("scrape_failure_streak")?,
+                    last_scrape_error_kind: row.try_get("last_scrape_error_kind")?,
+                    scrape_failing_since: row.try_get("scrape_failing_since")?,
+                    scrape_paused_until: row.try_get("scrape_paused_until")?,
+                },
             });
         }
         let listing_source_ids = listing_sources
             .iter()
             .map(|overview| uuid::Uuid::from(overview.listing_source_id))
             .collect::<Vec<_>>();
-        let mut domains = self.list_domain_states(&listing_source_ids).await?;
         let mut error_kinds = self.list_url_error_kinds(&listing_source_ids).await?;
         for overview in &mut listing_sources {
             overview.url_error_kinds = error_kinds
-                .remove(&uuid::Uuid::from(overview.listing_source_id))
-                .unwrap_or_default();
-            overview.domains = domains
                 .remove(&uuid::Uuid::from(overview.listing_source_id))
                 .unwrap_or_default();
         }
@@ -229,45 +233,6 @@ impl ListingSourceOverviewReader {
                 .push(UrlErrorKindCount {
                     kind: row.try_get("last_error_kind")?,
                     count: row.try_get("url_count")?,
-                });
-        }
-        Ok(by_listing_source)
-    }
-
-    /// The spider's and the scraper's last recorded state per domain, grouped by ListingSource.
-    async fn list_domain_states(
-        &self,
-        listing_source_ids: &[uuid::Uuid],
-    ) -> Result<HashMap<uuid::Uuid, Vec<DomainCrawlOverview>>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT listing_source_id, domain_id, listing_source_domain, last_crawled,
-                    last_crawl_outcome, last_crawl_error_kind, crawl_failure_count, next_crawl_at,
-                    scrape_failure_streak, last_scrape_error_kind, scrape_failing_since,
-                    next_scrape_at AS scrape_paused_until
-             FROM listing_source_domains
-             WHERE listing_source_id = ANY($1)
-             ORDER BY listing_source_domain",
-        )
-        .bind(listing_source_ids)
-        .fetch_all(&self.pool)
-        .await?;
-        let mut by_listing_source: HashMap<uuid::Uuid, Vec<DomainCrawlOverview>> = HashMap::new();
-        for row in rows {
-            by_listing_source
-                .entry(row.try_get("listing_source_id")?)
-                .or_default()
-                .push(DomainCrawlOverview {
-                    domain_id: crawler_domain_id_from_uuid(row.try_get("domain_id")?)?,
-                    domain: row.try_get("listing_source_domain")?,
-                    last_crawled: row.try_get("last_crawled")?,
-                    last_crawl_outcome: row.try_get("last_crawl_outcome")?,
-                    last_crawl_error_kind: row.try_get("last_crawl_error_kind")?,
-                    crawl_failure_count: row.try_get("crawl_failure_count")?,
-                    next_crawl_at: row.try_get("next_crawl_at")?,
-                    scrape_failure_streak: row.try_get("scrape_failure_streak")?,
-                    last_scrape_error_kind: row.try_get("last_scrape_error_kind")?,
-                    scrape_failing_since: row.try_get("scrape_failing_since")?,
-                    scrape_paused_until: row.try_get("scrape_paused_until")?,
                 });
         }
         Ok(by_listing_source)

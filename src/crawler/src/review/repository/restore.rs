@@ -1,5 +1,5 @@
 //! A human's restore of what an approval replaced: the ListingSource's schema list and
-//! removed-page templates, or the domain's URL-pattern decision, as the approval's event keeps
+//! removed-page templates, or its URL-pattern decision, as the approval's event keeps
 //! them. Any approval whose event keeps what it made live can be restored, whoever approved it,
 //! once and only while that is still the live configuration.
 
@@ -8,13 +8,12 @@ use super::review_events::{
     ProductSchemaApprovalRecord, RecordedApproval, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event, fetch_recorded_approval,
 };
-use super::sample_labels::missing_url_pattern_review_domain;
 use super::verdicts::{
-    WaitingWork, lock_domain_url_pattern, make_url_pattern_live, release_work_waiting_on,
+    WaitingWork, lock_live_url_pattern, make_url_pattern_live, release_work_waiting_on,
 };
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
-    listing_source_id_from_uuid, lock_live_product_schemas, persist_product_schemas,
+    CrawlerReviewRepository, ReviewRepositoryError, listing_source_id_from_uuid,
+    lock_live_product_schemas, persist_product_schemas,
 };
 use crate::CrawlerReviewId;
 use crate::review::model::{
@@ -93,7 +92,7 @@ async fn lock_approved_review(
     review_id: CrawlerReviewId,
 ) -> Result<WaitingWork, ReviewRepositoryError> {
     let review = sqlx::query(
-        "SELECT status, listing_source_id, domain_id, artifact_type \
+        "SELECT status, listing_source_id, artifact_type \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
     )
     .bind(review_id.as_uuid())
@@ -108,10 +107,6 @@ async fn lock_approved_review(
         listing_source_id: listing_source_id_from_uuid(
             review.try_get::<uuid::Uuid, _>("listing_source_id")?,
         )?,
-        domain_id: review
-            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-            .map(crawler_domain_id_from_uuid)
-            .transpose()?,
     })
 }
 
@@ -183,7 +178,7 @@ async fn restore_product_schemas<'a>(
 }
 
 /// Stores the URL-pattern decision the approval replaced, while the one it made live is still
-/// live, and classifies the domain's stored URLs with it by `url_classifier` as approval does.
+/// live, and classifies the ListingSource's stored URLs with it by `url_classifier` as approval does.
 async fn restore_url_pattern<'a>(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -193,26 +188,19 @@ async fn restore_url_pattern<'a>(
     url_classifier: UrlClassifier,
 ) -> Result<ReviewMutation<'a>, ReviewRepositoryError> {
     let record: UrlPatternApprovalRecord = approval_record(review_id, approval)?;
-    let domain_id = review
-        .domain_id
-        .ok_or_else(|| missing_url_pattern_review_domain(review_id, None))?;
-    let live = lock_domain_url_pattern(transaction, &review.listing_source_id, domain_id)
-        .await?
-        .ok_or_else(|| missing_url_pattern_review_domain(review_id, Some(domain_id)))?;
+    let live = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
     if live != record.approved_url_pattern {
         return Err(ReviewRepositoryError::LiveConfigurationChangedSinceApproval(review_id));
     }
     let reclassified = make_url_pattern_live(
         transaction,
         &review.listing_source_id,
-        domain_id,
         &record.replaced_url_pattern,
         url_classifier,
     )
     .await?;
     info!(
         review_id = %review_id,
-        domain_id = %domain_id,
         reclassified_urls = reclassified,
         "Restored the URL pattern an approval replaced"
     );

@@ -6,9 +6,8 @@
 //! `crawler_demo` and waits for Postgres to become ready before applying migrations. It waits
 //! only while Postgres is starting: an unknown database, a refused login or a host that does not
 //! resolve fails startup at once, and a server on another host fails it after 30 seconds
-//! (`docs/crawler/operations.md#local-database`). It registers a demo shop's crawler domain only
-//! while the shop has none, so domains and crawl roots changed in the review console survive a
-//! restart.
+//! (`docs/crawler/operations.md#local-database`). Each demo shop is crawled from the presentation
+//! URL its demo ListingSource carries, as a shop of the admin API scope is.
 //! No manual setup required — just:
 //!
 //! ```powershell
@@ -64,14 +63,12 @@
 
 use listing_source_core::ListingSourceId;
 use std::env;
-use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use crawler::local_db::{
     DEMO_DB_NAME, DevDatabase,
     connect_retry::{self, PostgresConnectError},
-    crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl,
 };
 use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
@@ -79,14 +76,11 @@ use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
-use crawler::service::crawler_domain_configuration::{
-    CrawlerDomainConfigurationError, CrawlerDomainConfigurationRepository,
-};
 use crawler::service::cron::{
     CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
 };
 use crawler::service::listing_source_registration::{
-    FallbackCurrency, ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
+    ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
@@ -114,29 +108,54 @@ impl ListingSourceRegistrationSource for DemoListingSourceSource {
 /// crawler-dev-verify and crawler-soak-test skills use to reuse a shop's state in `crawler_demo`.
 fn demo_listing_sources() -> Vec<RegisteredListingSource> {
     [
-        (0x74, "Holt Antique Furniture", "holt-antique-furniture"),
-        (0x75, "Martlesham Antiques", "martlesham-antiques"),
-        (0x76, "Loveday Antiques", "loveday-antiques"),
-        (0x77, "Freshfords", "freshfords"),
-        (0x78, "Antique Furniture Direct", "antique-furniture-direct"),
+        (
+            0x74,
+            "Holt Antique Furniture",
+            "holt-antique-furniture",
+            "https://holtantiquefurniture.com/",
+        ),
+        (
+            0x75,
+            "Martlesham Antiques",
+            "martlesham-antiques",
+            "https://martleshamantiques.com/",
+        ),
+        (
+            0x76,
+            "Loveday Antiques",
+            "loveday-antiques",
+            "https://lovedayantiques.co.uk/",
+        ),
+        (0x77, "Freshfords", "freshfords", "https://freshfords.com/"),
+        (
+            0x78,
+            "Antique Furniture Direct",
+            "antique-furniture-direct",
+            "https://antiquefurnituredirect.co.uk/",
+        ),
     ]
     .into_iter()
     .map(
-        |(index, listing_source_name, listing_source_slug)| RegisteredListingSource {
-            listing_source_id: ListingSourceId::try_from(
-                uuid::Uuid::parse_str(&format!("01890a5d-ac96-774b-af1d-d5586c639f{index:02x}"))
+        |(index, listing_source_name, listing_source_slug, presentation_url)| {
+            RegisteredListingSource {
+                listing_source_id: ListingSourceId::try_from(
+                    uuid::Uuid::parse_str(&format!(
+                        "01890a5d-ac96-774b-af1d-d5586c639f{index:02x}"
+                    ))
                     .unwrap_or_else(|error| panic!("invalid demo ListingSource ID: {error}")),
-            )
-            .unwrap_or_else(|error| panic!("invalid demo ListingSource ID version: {error}")),
-            listing_source_name: listing_source_core::ListingSourceName::try_from(
-                listing_source_name,
-            )
-            .unwrap_or_else(|error| panic!("invalid demo ListingSource name: {error}")),
-            listing_source_slug: listing_source_core::ListingSourceSlugId::raw(listing_source_slug)
+                )
+                .unwrap_or_else(|error| panic!("invalid demo ListingSource ID version: {error}")),
+                listing_source_name: listing_source_core::ListingSourceName::try_from(
+                    listing_source_name,
+                )
+                .unwrap_or_else(|error| panic!("invalid demo ListingSource name: {error}")),
+                listing_source_slug: listing_source_core::ListingSourceSlugId::raw(
+                    listing_source_slug,
+                )
                 .unwrap_or_else(|error| panic!("invalid demo ListingSource slug: {error}")),
-            crawl_enabled: true,
-            fallback_currency: FallbackCurrency::Supplied(None),
-            public_host: None,
+                crawl_enabled: true,
+                presentation_url: Some(presentation_url.to_owned()),
+            }
         },
     )
     .collect()
@@ -174,7 +193,7 @@ async fn main() {
         let config = CrawlerCronConfig {
             spider_interval: Duration::from_secs(120),
             scraper_interval: Duration::from_secs(30),
-            scraper_urls_per_domain: 50,
+            scraper_urls_per_source: 50,
             spider_concurrency: 100,
             spider_site_concurrency_limit: 8,
             scraper_concurrency: 10,
@@ -208,7 +227,7 @@ async fn main() {
 
         apply_local_migrations(&pool).await;
 
-        // Seed the demo ListingSources and their crawler domains before the first cron cycle.
+        // Seed the demo ListingSources and their crawl roots before the first cron cycle.
         let listing_source_source = Box::new(DemoListingSourceSource {
             listing_sources: demo_listing_sources(),
         });
@@ -220,27 +239,6 @@ async fn main() {
             error!(error = ?error, "Failed to synchronize demo ListingSources");
             return;
         }
-        let domain_configuration =
-            Arc::new(CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()));
-        for (listing_source, domain) in demo_listing_sources().into_iter().zip([
-            "holtantiquefurniture.com",
-            "martleshamantiques.com",
-            "lovedayantiques.co.uk",
-            "freshfords.com",
-            "antiquefurnituredirect.co.uk",
-        ]) {
-            if let Err(error) = seed_demo_crawler_domain(
-                domain_configuration.as_ref(),
-                listing_source.listing_source_id,
-                domain,
-            )
-            .await
-            {
-                error!(error = ?error, domain, "Failed to configure demo crawler domain");
-                return;
-            }
-        }
-
         let review_config = ReviewServerConfig::from_env()
             .unwrap_or_else(|error| panic!("invalid crawler review console configuration: {error}"))
             .allow_local_mutations_without_token();
@@ -280,29 +278,6 @@ async fn main() {
     }
     .instrument(span)
     .await;
-}
-
-/// Registers a demo shop's crawler domain unless the shop already has one. Registering a domain
-/// again applies its crawl root, so seeding every start would undo a crawl root or domain an
-/// operator set in the review console.
-async fn seed_demo_crawler_domain(
-    domain_configuration: &dyn CrawlerDomainConfigurationRepository,
-    listing_source_id: ListingSourceId,
-    domain: &str,
-) -> Result<(), CrawlerDomainConfigurationError> {
-    if !domain_configuration
-        .list_for_source(listing_source_id)
-        .await?
-        .is_empty()
-    {
-        return Ok(());
-    }
-    let domain = listing_source_core::Domain::try_from(domain)
-        .unwrap_or_else(|error| panic!("invalid demo crawler domain: {error}"));
-    domain_configuration
-        .register(listing_source_id, domain)
-        .await
-        .map(drop)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,4 @@
 use super::*;
-use money::Currency;
 
 fn numeric_price_schema(listing_source_id: ListingSourceId) -> ListingSourceProductSchema {
     let mut schemas = listing_source_product_schemas(listing_source_id);
@@ -12,9 +11,7 @@ fn numeric_price_schema(listing_source_id: ListingSourceId) -> ListingSourceProd
     schemas
 }
 
-async fn scrape_numeric_price(
-    fallback_currency: Option<Currency>,
-) -> crate::scraper::scraper_service::ScrapedProduct {
+async fn scrape_numeric_price() -> crate::scraper::scraper_service::ScrapedProduct {
     let id = listing_source_id();
     let url = product_url();
     let html = r#"<!DOCTYPE html>
@@ -57,10 +54,7 @@ async fn scrape_numeric_price(
     );
 
     service
-        .scrape(ScrapeRequest {
-            fallback_currency,
-            ..primary_only_request(&id, &url)
-        })
+        .scrape(primary_only_request(&id, &url))
         .await
         .result
         .unwrap_or_else(|error| panic!("numeric price scrape must succeed: {error}"))
@@ -68,30 +62,8 @@ async fn scrape_numeric_price(
 }
 
 #[tokio::test]
-async fn should_capture_numeric_price_with_operational_fallback_currency() {
-    let product = scrape_numeric_price(Some(Currency::Ars)).await;
-
-    assert_eq!(
-        Some(&serde_json::json!("5500")),
-        product.raw_input.source_payload().value().get("price")
-    );
-    assert_eq!(
-        Some(&serde_json::json!({"action": "SET", "value": "5500"})),
-        product.raw_input.raw_values().value().get("price")
-    );
-    assert_eq!(
-        Some(&serde_json::json!("ARS")),
-        product
-            .raw_input
-            .normalization_context()
-            .value()
-            .get("fallbackCurrency")
-    );
-}
-
-#[tokio::test]
-async fn should_capture_unresolved_numeric_price_for_worker_preservation_when_fallback_is_absent() {
-    let product = scrape_numeric_price(None).await;
+async fn should_capture_an_unresolved_numeric_price_for_the_worker_without_a_fallback_currency() {
+    let product = scrape_numeric_price().await;
 
     assert_eq!(
         Some(&serde_json::json!("5500")),
@@ -104,7 +76,7 @@ async fn should_capture_unresolved_numeric_price_for_worker_preservation_when_fa
         product.raw_input.raw_values().value().get("price")
     );
     assert_eq!(
-        Some(&serde_json::Value::Null),
+        None,
         product
             .raw_input
             .normalization_context()

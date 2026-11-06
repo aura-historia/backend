@@ -14,7 +14,6 @@
 
 use crate::authoring::CrawlerAuthoringMode;
 use crate::llm_runtime::{CrawlerLlmGovernor, DisabledLlm};
-use crate::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
 use crate::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crate::review::agent_tokens::provision_review_agents;
 use crate::review::repository::CrawlerReviewRepository;
@@ -24,7 +23,6 @@ use crate::scraper::css_selector::product_schema_repository::ListingSourceProduc
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crate::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crate::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
-use crate::service::crawler_domain_configuration::CrawlerDomainAdministrationHandler;
 use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crate::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
@@ -148,7 +146,6 @@ pub fn build(
         agent_limits,
         llm,
         shutdown_grace_period,
-        seed_domains_from_public_hosts,
     } = config;
     profile.review_config =
         provision_review_agents(profile.review_config, authoring, &profile.state_directory)
@@ -164,7 +161,6 @@ pub fn build(
                 profile,
                 authoring,
                 agent_limits,
-                seed_domains_from_public_hosts,
                 models,
                 Some(governor),
             )
@@ -174,7 +170,6 @@ pub fn build(
             profile,
             authoring,
             agent_limits,
-            seed_domains_from_public_hosts,
             CrawlerLlmModels::disabled(),
             None,
         ),
@@ -191,7 +186,6 @@ fn wire<Llm>(
     profile: CrawlerRuntimeProfile,
     authoring: CrawlerAuthoringMode,
     agent_limits: AgentLimits,
-    seed_domains_from_public_hosts: bool,
     models: CrawlerLlmModels<Llm>,
     llm_governor: Option<Arc<CrawlerLlmGovernor>>,
 ) -> (ReviewServer, CrawlerCronJob)
@@ -296,14 +290,8 @@ where
 
     // Sync crawler scope from the profile's ListingSource source.
     let listing_source_repo = Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone()));
-    let mut listing_source_registration =
+    let listing_source_registration =
         ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
-    if seed_domains_from_public_hosts {
-        listing_source_registration = listing_source_registration
-            .seeding_domains_from_public_hosts(Arc::new(
-                CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
-            ));
-    }
 
     let db_max_connections = cron_config.effective_db_max_connections();
     let scraper_max_llm_calls_per_listing_source =
@@ -335,14 +323,7 @@ where
         review_bind_addr = %review_config.bind_addr,
         "Crawler Server is fully initialized. Starting background tasks..."
     );
-    let review_server = ReviewServer::new(
-        review_repo,
-        Arc::new(CrawlerDomainAdministrationHandler::new(Arc::new(
-            CrawlerDomainConfigurationRepositoryImpl::new(pool.clone()),
-        ))),
-        review_config,
-        fetcher,
-    );
+    let review_server = ReviewServer::new(review_repo, review_config, fetcher);
 
     (review_server, cron_job)
 }
@@ -552,7 +533,6 @@ mod tests {
             agent_limits: AgentLimits::default(),
             llm: CrawlerLlmConfig::Disabled,
             shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
-            seed_domains_from_public_hosts: false,
         }
     }
 

@@ -184,8 +184,7 @@ mod tests {
                                 panic!("valid test listing source slug: {error}")
                             }),
                             crawl_enabled: true,
-                            fallback_currency: crate::service::listing_source_registration::FallbackCurrency::Supplied(None),
-                            public_host: None,
+                            presentation_url: None,
                         },
                     ])
                 })
@@ -242,7 +241,7 @@ mod tests {
             .expect_count_due_urls()
             .returning(|| Box::pin(async { Ok(0) }));
         scraper_candidates
-            .expect_domains_awaiting_review()
+            .expect_sources_awaiting_review()
             .returning(|| Box::pin(async { Ok(Vec::new()) }));
         let scraper_counter = Arc::clone(&scraper_passes);
         scraper_candidates

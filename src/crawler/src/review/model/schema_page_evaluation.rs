@@ -2,9 +2,8 @@ use super::SelectorFieldEvaluation;
 use crate::CrawlerReviewPageId;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::plausibility::{
-    CrossPageFindings, IdentityAgreementFindings, PlausibilityField, PlausibilityFindings,
+    CrossPageFindings, IdentityAgreementFindings, PlausibilityFindings,
 };
-use crate::scraper::raw_input::ForeignPriceCurrency;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,35 +34,7 @@ pub struct SchemaPageEvaluation {
     /// schemas' and the captured one. A cached matrix without them predates the check and
     /// is refreshed from the live pages.
     pub identity_agreement_findings: IdentityAgreementFindings,
-    /// The price of this extraction that names another currency than the ListingSource's
-    /// fallback currency, for the reviewer to see before approving. It is information, not a
-    /// check: the capture keeps the value as extracted, so it neither fails the page nor blocks
-    /// approval. Set when the matrix is evaluated for a review's live pages. A matrix without it,
-    /// such as a cached one or one of generated-schema inputs, reports no foreign currency.
-    #[serde(default)]
-    pub foreign_price_currency: Option<ForeignPriceCurrencyFinding>,
     pub fields: Vec<SelectorFieldEvaluation>,
-}
-
-/// A captured price in another currency than the ListingSource's fallback currency, as the
-/// ProductListing normalization worker would read it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ForeignPriceCurrencyFinding {
-    pub field: PlausibilityField,
-    /// ISO 4217 code of the currency the price names.
-    pub currency: String,
-    /// ISO 4217 code of the ListingSource's fallback currency.
-    pub fallback_currency: String,
-}
-
-impl From<ForeignPriceCurrency> for ForeignPriceCurrencyFinding {
-    fn from(foreign: ForeignPriceCurrency) -> Self {
-        Self {
-            field: foreign.field,
-            currency: foreign.currency.as_str().to_owned(),
-            fallback_currency: foreign.fallback_currency.as_str().to_owned(),
-        }
-    }
 }
 
 impl SchemaPageEvaluation {

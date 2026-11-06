@@ -35,10 +35,10 @@ pub enum CrawlerClientError {
     Build(#[source] reqwest::Error),
 }
 
-/// Stable, scraper-specific health categories persisted on crawler domains.
+/// Stable, scraper-specific health categories persisted on each ListingSource's scrape circuit.
 ///
 /// This is intentionally separate from [`NetworkErrorKind`]: the latter also
-/// contains URL-scoped and security outcomes which must not open a domain
+/// contains URL-scoped and security outcomes which must not open a scrape
 /// circuit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainFailureKind {
@@ -52,7 +52,7 @@ pub enum DomainFailureKind {
     Http504,
     Http5xxBurst,
     /// Distinct URLs of one batch answered the same status that rejects the
-    /// crawler as such (`scraper::domain_circuit`); the status is persisted as
+    /// crawler as such (`scraper::scrape_circuit`); the status is persisted as
     /// the circuit's diagnostic status code.
     HttpStatusBurst,
 }
@@ -75,7 +75,7 @@ impl DomainFailureKind {
 
     /// Whether one observation of this kind opens the circuit. A timeout,
     /// a connection failure or a DNS timeout also comes from a slow host, so
-    /// those kinds need sustained evidence first (`scraper::domain_circuit`).
+    /// those kinds need sustained evidence first (`scraper::scrape_circuit`).
     pub const fn opens_on_first_failure(self) -> bool {
         !matches!(self, Self::Timeout | Self::Connect | Self::DnsTimeout)
     }
@@ -228,17 +228,17 @@ pub fn is_same_or_www_host(left: &Url, right: &Url) -> bool {
     let Some(right) = right.host_str() else {
         return false;
     };
-    canonical_crawler_domain(left) == canonical_crawler_domain(right)
+    canonical_crawl_host(left) == canonical_crawl_host(right)
 }
 
-pub fn url_matches_configured_domain(url: &Url, domain: &str) -> bool {
+pub fn url_on_crawl_host(url: &Url, crawl_host: &str) -> bool {
     url.host_str()
-        .is_some_and(|host| canonical_crawler_domain(host) == canonical_crawler_domain(domain))
+        .is_some_and(|host| canonical_crawl_host(host) == canonical_crawl_host(crawl_host))
 }
 
 /// Crawler ownership identity: lowercase DNS host, no trailing dot, and at
 /// most one leading `www.` removed. This is deliberately crawler-local.
-pub fn canonical_crawler_domain(host: &str) -> String {
+pub fn canonical_crawl_host(host: &str) -> String {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     host.strip_prefix("www.").unwrap_or(&host).to_owned()
 }
@@ -484,7 +484,7 @@ pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
 
 /// Durable cooldown persisted after all inline fetch attempts fail.
 ///
-/// Do not use this inside a domain worker between fetch attempts; use
+/// Do not use this inside a scraper batch worker between fetch attempts; use
 /// [`inline_retry_backoff_for`] there so one slow crawl root cannot block the worker
 /// for minutes.
 pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
@@ -731,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn should_exponentially_backoff_domain_circuits_and_cap_retry_after() {
+    fn should_exponentially_backoff_scrape_circuits_and_cap_retry_after() {
         assert_eq!(
             domain_cooldown(DomainFailureKind::Http429, 1, None),
             Duration::from_secs(10 * 60)
@@ -942,10 +942,10 @@ mod tests {
         let subdomain = Url::parse("https://catalog.example.com/products/1").unwrap();
 
         assert!(is_same_or_www_host(&bare, &www));
-        assert_eq!(canonical_crawler_domain("Example.COM."), "example.com");
-        assert_eq!(canonical_crawler_domain("www.example.com"), "example.com");
-        assert!(url_matches_configured_domain(&www, "example.com"));
+        assert_eq!(canonical_crawl_host("Example.COM."), "example.com");
+        assert_eq!(canonical_crawl_host("www.example.com"), "example.com");
+        assert!(url_on_crawl_host(&www, "example.com"));
         assert!(!is_same_or_www_host(&bare, &subdomain));
-        assert!(!url_matches_configured_domain(&subdomain, "example.com"));
+        assert!(!url_on_crawl_host(&subdomain, "example.com"));
     }
 }

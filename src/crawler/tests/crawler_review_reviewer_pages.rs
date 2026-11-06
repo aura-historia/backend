@@ -54,23 +54,17 @@ fn url(raw: &str) -> Url {
     Url::parse(raw).unwrap()
 }
 
-/// A ListingSource on `example.com` with a pending schema review over one product page.
+/// A ListingSource crawled from `https://www.example.com/` (crawl host `example.com`) with a
+/// pending schema review over one product page.
 async fn pending_schema_review(pool: &PgPool) -> (ListingSourceId, CrawlerReviewId) {
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
         "INSERT INTO listing_sources \
-         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
-         VALUES ($1, 'Test source', 'test-source', TRUE, NOW(), NOW())",
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+          crawl_root_url, crawl_host, created, updated) \
+         VALUES ($1, 'Test source', 'test-source', TRUE, \
+                 'https://www.example.com/', 'example.com', NOW(), NOW())",
     )
-    .bind(listing_source_id.as_uuid())
-    .execute(pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, 'example.com', 'www.example.com')",
-    )
-    .bind(crawler::CrawlerDomainId::new().as_uuid())
     .bind(listing_source_id.as_uuid())
     .execute(pool)
     .await
@@ -93,8 +87,8 @@ async fn pending_schema_review(pool: &PgPool) -> (ListingSourceId, CrawlerReview
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_listing_source_domain()
-{
+async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_listing_source_crawl_host()
+ {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
@@ -160,7 +154,7 @@ async fn should_evaluate_reviewer_added_page_in_schema_matrix_when_url_is_on_lis
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_reviewer_page_when_url_is_outside_listing_source_domains() {
+async fn should_refuse_reviewer_page_when_url_is_off_listing_source_crawl_host() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (_, review_id) = pending_schema_review(&pool).await;
@@ -647,7 +641,7 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
         )
         .await;
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET url_pattern = '/products/', url_pattern_state = 'MATCHED' \
          WHERE listing_source_id = $1",
     )
@@ -700,7 +694,7 @@ async fn should_store_reviewer_page_without_the_language_segment_the_shop_redire
     let repository = CrawlerReviewRepository::new(pool.clone());
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET url_pattern = '/products/', url_pattern_state = 'MATCHED' \
          WHERE listing_source_id = $1",
     )
@@ -1013,7 +1007,7 @@ async fn should_not_treat_rejection_as_verdict_on_waiting_pages() {
     );
 }
 
-/// The crawler URL `url` of the ListingSource's only domain, stored with `url_class` and a retry
+/// The crawler URL `url` of the ListingSource, stored with `url_class` and a retry
 /// delay, as the rejection's scrape left a page it classified as other.
 async fn insert_crawler_url(
     pool: &PgPool,
@@ -1023,9 +1017,9 @@ async fn insert_crawler_url(
 ) {
     sqlx::query(
         "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, url_class, raw_source_record_key, next_retry_at) \
-         SELECT listing_source_id, domain_id, $2, $3, $2, NOW() + INTERVAL '1 hour' \
-         FROM listing_source_domains WHERE listing_source_id = $1",
+         (listing_source_id, url, url_class, raw_source_record_key, next_retry_at) \
+         SELECT listing_source_id, $2, $3, $2, NOW() + INTERVAL '1 hour' \
+         FROM listing_sources WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
     .bind(url)
@@ -1059,7 +1053,7 @@ async fn should_keep_a_page_other_when_another_rejection_still_covers_it() {
         .await
         .unwrap();
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
          WHERE listing_source_id = $1",
     )
@@ -1117,7 +1111,7 @@ async fn should_keep_a_page_other_when_another_rejection_still_covers_it() {
 }
 
 /// A human's revocation lifts the rejection's verdict on its seed and triggering pages, in either
-/// trailing-slash spelling: the ones the domain's pattern takes become product pages again with no
+/// trailing-slash spelling: the ones the source's pattern takes become product pages again with no
 /// retry delay, sold ones too, since the rejection's scrape classified them as well, the others
 /// keep the class the pattern gives them, and pages the rejection never judged keep theirs. The
 /// review stays rejected and its trail records the revocation once.
@@ -1131,7 +1125,7 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
         .await
         .unwrap();
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
          WHERE listing_source_id = $1",
     )
@@ -1376,7 +1370,7 @@ async fn should_refuse_to_revoke_a_review_whose_rejection_classified_no_page() {
     );
 }
 
-/// A revocation classifies the rejected pages by the domain's URL-pattern decision as it stands
+/// A revocation classifies the rejected pages by the source's URL-pattern decision as it stands
 /// when the revocation commits: one that meets a pattern change in flight waits for it and
 /// classifies with the changed pattern instead of overwriting what that change classified.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -1390,10 +1384,10 @@ async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhil
         .unwrap();
     let rejected_page = "https://www.example.com/products/1";
     insert_crawler_url(&pool, &listing_source_id, rejected_page, "other").await;
-    // An approval of the domain's URL pattern holds the domain's row until it commits.
+    // An approval of the source's URL pattern holds the source's row until it commits.
     let mut pattern_change = pool.begin().await.unwrap();
     sqlx::query(
-        "UPDATE listing_source_domains \
+        "UPDATE listing_sources \
          SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
          WHERE listing_source_id = $1",
     )
@@ -1424,7 +1418,7 @@ async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhil
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "the revocation never waited on the domain's URL-pattern decision"
+            "the revocation never waited on the source's URL-pattern decision"
         );
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
@@ -1445,10 +1439,10 @@ async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhil
 async fn record_missing_value_page(pool: &PgPool, listing_source_id: ListingSourceId, page: &str) {
     sqlx::query(
         "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, url_class, raw_source_record_key, last_scraped, \
+         (listing_source_id, url, url_class, raw_source_record_key, last_scraped, \
           last_error_kind, last_error_message) \
-         SELECT $1, domain_id, $2, 'product', $2, NOW(), 'MissingRequiredValue', '`title` is blank' \
-         FROM listing_source_domains WHERE listing_source_id = $1",
+         SELECT $1, $2, 'product', $2, NOW(), 'MissingRequiredValue', '`title` is blank' \
+         FROM listing_sources WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
     .bind(page)

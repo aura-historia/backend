@@ -1,4 +1,3 @@
-use crate::network::policy::url_matches_configured_domain;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::approval_guard::FailedApprovalCheck;
 use crate::review::model::*;
@@ -17,7 +16,7 @@ use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
 use crate::spider::classification::url_classifier::UrlClassifier;
-use crate::{CrawlerDomainId, CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
+use crate::{CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
@@ -111,20 +110,13 @@ pub enum ReviewRepositoryError {
     #[error("invalid URL-pattern review candidate")]
     InvalidUrlPatternCandidate,
     #[error(
-        "URL-pattern review {0} names no domain, so it decides no domain's URL pattern; reject it"
+        "the ListingSource of URL-pattern review {0} has no crawl root, so no URL of it can be labelled or checked; reject the review"
     )]
-    UrlPatternReviewWithoutDomain(CrawlerReviewId),
-    #[error(
-        "domain {domain_id} of URL-pattern review {review_id} is no longer a domain of its ListingSource, so its URL pattern cannot be decided; reject the review"
-    )]
-    UrlPatternReviewDomainMissing {
-        review_id: CrawlerReviewId,
-        domain_id: CrawlerDomainId,
-    },
+    UrlPatternReviewSourceNotCrawled(CrawlerReviewId),
     #[error("a URL-pattern review holds at most {MAX_SAMPLE_LABELS} sample labels")]
     TooManySampleLabels,
     #[error(
-        "URL `{0}` is neither a URL of the review's sample nor an http(s) URL on the default port, without credentials, on the review's domain, the one domain its decision applies to"
+        "URL `{0}` is neither a URL of the review's sample nor an http(s) URL on the default port, without credentials, on the crawl host of the review's ListingSource, the one its decision applies to"
     )]
     SampleLabelUrlNotAllowed(String),
     #[error(
@@ -175,7 +167,7 @@ pub enum ReviewRepositoryError {
     )]
     NoLiveProductSchemas(ListingSourceId),
     #[error(
-        "URL `{0}` is not an http(s) URL on the default port, without credentials, on a domain of the review's ListingSource"
+        "URL `{0}` is not an http(s) URL on the default port, without credentials, on the crawl host of the review's ListingSource"
     )]
     ReviewPageUrlNotAllowed(String),
     #[error("URL `{0}` is already a page of this review")]
@@ -290,7 +282,7 @@ pub struct CrawlerReviewRepository {
     /// crawler wires shares: whether a review waits for a human and the limits of the agents'
     /// decisions. Without review agents unless [`Self::with_agent_decisions`] sets it.
     agent_decisions: AgentDecisionPolicy,
-    /// How a URL-pattern review's sample and, once a decision goes live, the domain's stored URLs
+    /// How a URL-pattern review's sample and, once a decision goes live, the source's stored URLs
     /// are classified: as the spider classifies them in the configured authoring mode.
     url_classifier: UrlClassifier,
 }
@@ -402,15 +394,13 @@ impl CrawlerReviewRepository {
     pub async fn has_pending_url_pattern_review(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM crawler_reviews \
-             WHERE listing_source_id = $1 AND domain_id = $2 \
+             WHERE listing_source_id = $1 \
                AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW')",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .fetch_one(&self.pool)
         .await
     }
@@ -418,16 +408,14 @@ impl CrawlerReviewRepository {
     pub async fn latest_pending_url_pattern_review_id(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<Option<CrawlerReviewId>, sqlx::Error> {
         sqlx::query_scalar::<_, uuid::Uuid>(
             "SELECT review_id FROM crawler_reviews \
-             WHERE listing_source_id = $1 AND domain_id = $2 \
+             WHERE listing_source_id = $1 \
                AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW' \
              ORDER BY created DESC LIMIT 1",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .fetch_optional(&self.pool)
         .await?
         .map(crawler_review_id_from_uuid)
@@ -460,7 +448,7 @@ impl CrawlerReviewRepository {
         let row = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name,
                     COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
-                    r.domain_id, r.artifact_type, r.status, r.reason,
+                    s.crawl_host AS listing_source_crawl_host, r.artifact_type, r.status, r.reason,
                     r.candidate_payload, r.candidate_version, r.validation_summary, r.reviewer_notes,
                     r.repair_requested, r.repair_note, r.created, r.updated, r.reviewed
              FROM crawler_reviews r
@@ -563,7 +551,6 @@ impl CrawlerReviewRepository {
     pub async fn create_url_pattern_review(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         reason: &str,
         decision: UrlPatternDecision,
         urls: &[String],
@@ -580,27 +567,25 @@ impl CrawlerReviewRepository {
             "candidate_product_count": candidate_product_count(urls, candidate_pattern),
         });
         let mut transaction = self.pool.begin().await?;
-        let domain_owned = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM listing_source_domains \
-             WHERE listing_source_id = $1 AND domain_id = $2 FOR KEY SHARE)",
+        let source_exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM listing_sources \
+             WHERE listing_source_id = $1 FOR KEY SHARE)",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .fetch_one(&mut *transaction)
         .await?;
-        if !domain_owned {
+        if !source_exists {
             return Err(ReviewRepositoryError::Database(sqlx::Error::RowNotFound));
         }
         let requested_review_id = CrawlerReviewId::new();
         let inserted = sqlx::query_scalar::<_, uuid::Uuid>(
-            "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
-             VALUES ($1, $2, $3, 'URL_PATTERN', 'PENDING_REVIEW', $4, $5, $6, NULL, NULL) \
-             ON CONFLICT (domain_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'URL_PATTERN' \
+            "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed) \
+             VALUES ($1, $2, 'URL_PATTERN', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL) \
+             ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'URL_PATTERN' \
              DO NOTHING RETURNING review_id",
         )
         .bind(requested_review_id.as_uuid())
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .bind(reason)
         .bind(candidate_payload)
         .bind(validation_summary)
@@ -611,12 +596,11 @@ impl CrawlerReviewRepository {
             None => {
                 let review_id = sqlx::query_scalar::<_, uuid::Uuid>(
                     "SELECT review_id FROM crawler_reviews \
-                     WHERE listing_source_id = $1 AND domain_id = $2 \
+                     WHERE listing_source_id = $1 \
                        AND artifact_type = 'URL_PATTERN' AND status = 'PENDING_REVIEW' \
                      ORDER BY created DESC LIMIT 1",
                 )
                 .bind(uuid::Uuid::from(*listing_source_id))
-                .bind(domain_id.as_uuid())
                 .fetch_one(&mut *transaction)
                 .await?;
                 (crawler_review_id_from_uuid(review_id)?, false)
@@ -705,8 +689,8 @@ impl CrawlerReviewRepository {
         let mut transaction = self.pool.begin().await?;
         let inserted = if status == STATUS_PENDING_REVIEW {
             sqlx::query_scalar::<_, uuid::Uuid>(
-                "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
-                 VALUES ($1, $2, NULL, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
+                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+                 VALUES ($1, $2, 'PRODUCT_SCHEMA', 'PENDING_REVIEW', $3, $4, $5, NULL, NULL, $6) \
                  ON CONFLICT (listing_source_id) WHERE status = 'PENDING_REVIEW' AND artifact_type = 'PRODUCT_SCHEMA' \
                  DO NOTHING RETURNING review_id",
             )
@@ -721,8 +705,8 @@ impl CrawlerReviewRepository {
         } else {
             Some(
                 sqlx::query_scalar::<_, uuid::Uuid>(
-                    "INSERT INTO crawler_reviews (review_id, listing_source_id, domain_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
-                     VALUES ($1, $2, NULL, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
+                    "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload, validation_summary, reviewer_notes, reviewed, removed_page_schemas_base) \
+                     VALUES ($1, $2, 'PRODUCT_SCHEMA', $3, $4, $5, $6, $7, CASE WHEN $3 = 'PENDING_REVIEW' THEN NULL ELSE NOW() END, $8) \
                      RETURNING review_id",
                 )
                 .bind(requested_review_id.as_uuid())
@@ -1512,9 +1496,9 @@ async fn drop_cached_schema_matrix(
 
 /// Locks the review and checks that `actor` may make `url` a reviewer page of it: the review is a
 /// pending product schema review, or an approved one and `actor` is not a review agent, a review
-/// agent's review does not wait for a human by `agent_decisions`, `url` is an http(s) URL on a
-/// domain of the review's ListingSource, it is not a page of the review yet, and the reviewer page
-/// limit is not reached. Returns the product URL pattern of the domain `url` is on, once one is
+/// agent's review does not wait for a human by `agent_decisions`, `url` is an http(s) URL on the
+/// crawl host of the review's ListingSource, it is not a page of the review yet, and the reviewer
+/// page limit is not reached. Returns the ListingSource's product URL pattern, once one is
 /// decided.
 async fn lock_reviewer_page_target(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -1574,34 +1558,29 @@ async fn lock_reviewer_page_target(
     Ok(product_url_pattern)
 }
 
-/// The approved product URL pattern of the ListingSource's domain that `url` is on, `None`
-/// without one. A URL a reviewer may not add, on no domain of the ListingSource or not an
-/// http(s) URL on the default port without credentials, is refused.
+/// The approved product URL pattern of the ListingSource, `None` without one. A URL a reviewer may
+/// not add, off the ListingSource's crawl host or not an http(s) URL on the default port without
+/// credentials, is refused.
 async fn review_source_url_pattern<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     listing_source_id: uuid::Uuid,
     url: &Url,
 ) -> Result<Option<String>, ReviewRepositoryError> {
-    let domains = sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT listing_source_domain, \
+    let (crawl_host, product_url_pattern) = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT crawl_host, \
                 CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
-         FROM listing_source_domains WHERE listing_source_id = $1",
+         FROM listing_sources WHERE listing_source_id = $1",
     )
     .bind(listing_source_id)
-    .fetch_all(executor)
-    .await?;
-    let (domain_names, product_url_patterns): (Vec<String>, Vec<Option<String>>) =
-        domains.into_iter().unzip();
-    if !is_review_source_url(url, &domain_names) {
+    .fetch_optional(executor)
+    .await?
+    .unwrap_or_default();
+    if !is_review_source_url(url, crawl_host.as_deref()) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
     }
-    Ok(domain_names
-        .iter()
-        .zip(product_url_patterns)
-        .find(|(domain, _)| url_matches_configured_domain(url, domain))
-        .and_then(|(_, pattern)| pattern))
+    Ok(product_url_pattern)
 }
 
 fn log_approved_schema_edit(
@@ -1664,10 +1643,7 @@ fn row_to_review(
         )?,
         listing_source_name: row.try_get("listing_source_name")?,
         listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
-        domain_id: row
-            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-            .map(crawler_domain_id_from_uuid)
-            .transpose()?,
+        listing_source_crawl_host: row.try_get("listing_source_crawl_host")?,
         artifact_type: row.try_get("artifact_type")?,
         human_required: agent_decisions.waits_for_human(&status, agent_rounds),
         status,
@@ -1748,13 +1724,6 @@ pub(crate) fn listing_source_id_from_uuid(
 ) -> Result<ListingSourceId, sqlx::Error> {
     ListingSourceId::try_from(value)
         .map_err(|source| persisted_object_id_error("ListingSourceId", value, source))
-}
-
-pub(crate) fn crawler_domain_id_from_uuid(
-    value: uuid::Uuid,
-) -> Result<CrawlerDomainId, sqlx::Error> {
-    CrawlerDomainId::try_from(value)
-        .map_err(|source| persisted_object_id_error("CrawlerDomainId", value, source))
 }
 
 pub(crate) fn crawler_review_id_from_uuid(

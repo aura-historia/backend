@@ -15,7 +15,7 @@ use crate::spider::utils::url::canonical::{ShopPlatform, platform_product_url};
 /// What a known page is to the crawl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum KnownPage {
-    /// A product page the domain stores, which the crawl reports as found linked.
+    /// A product page the ListingSource stores, which the crawl reports as found linked.
     Product,
     /// A page retired as a duplicate of another, which is no product page of its own.
     Retired,

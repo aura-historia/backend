@@ -13,8 +13,7 @@ pub use stop::CronStop;
 
 #[cfg(test)]
 pub(super) mod test_support {
-    use crate::CrawlerDomainId;
-    use crate::scraper::candidate_service::{DomainHealthSnapshot, ScraperCandidate};
+    use crate::scraper::candidate_service::{ScrapeHealthSnapshot, ScraperCandidate};
     use crate::service::listing_source_registration::{
         ListingSourceRegistrationService, MockListingSourceRegistrationRepository,
         MockListingSourceRegistrationSource,
@@ -51,27 +50,27 @@ pub(super) mod test_support {
         Box::new(capture)
     }
 
+    /// A scraper candidate of `url` whose ListingSource is derived from the URL's host, so the
+    /// candidates of one host form one ListingSource batch.
     pub(super) fn scraper_candidate(listing_source_name: &str, url: url::Url) -> ScraperCandidate {
-        let domain = url
+        let crawl_host = url
             .host_str()
             .unwrap_or_default()
             .trim_start_matches("www.")
             .to_owned();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        domain.hash(&mut hasher);
+        crawl_host.hash(&mut hasher);
         let bits = hasher.finish();
         let mut raw = u128::from(bits) << 64 | u128::from(bits);
         raw = (raw & !(0xf_u128 << 76)) | (7_u128 << 76);
         raw = (raw & !(0x3_u128 << 62)) | (2_u128 << 62);
         let raw_uuid = uuid::Uuid::from_u128(raw);
-        let domain_id = CrawlerDomainId::try_from(raw_uuid)
-            .expect("test domain UUID should use the UUIDv7 representation");
+        let listing_source_id = ListingSourceId::try_from(raw_uuid)
+            .expect("test ListingSource UUID should use the UUIDv7 representation");
         ScraperCandidate {
-            listing_source_id: ListingSourceId::new(),
-            domain_id,
-            listing_source_domain: domain,
+            listing_source_id,
+            crawl_host,
             listing_source_name: listing_source_name.to_string(),
-            fallback_currency: None,
             url_pattern: None,
             url: url.clone(),
             source_record_key: url.to_string(),
@@ -80,12 +79,12 @@ pub(super) mod test_support {
             last_scraped_hash: None,
             last_scraped_schema_fingerprint: None,
             last_captured_raw_input_sha256: None,
-            domain_health: DomainHealthSnapshot {
+            scrape_health: ScrapeHealthSnapshot {
                 scrape_failure_streak: 0,
                 last_scrape_error_kind: None,
                 next_scrape_at: None,
             },
-            is_domain_probe: false,
+            is_circuit_probe: false,
             schema_review_wait: None,
         }
     }

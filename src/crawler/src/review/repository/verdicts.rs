@@ -10,16 +10,16 @@ use super::rearm::rearm_pages_for_new_configuration;
 use super::rejected_pages::RejectedPages;
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
-    DomainUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
+    LiveUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
     commit_with_event,
 };
-use super::sample_labels::{missing_url_pattern_review_domain, url_pattern_review_domain};
+use super::sample_labels::url_pattern_review_crawl_host;
 use super::schema_payload::ProductSchemaReviewCandidate;
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, crawler_domain_id_from_uuid,
-    fetch_review_pages, listing_source_id_from_uuid, lock_live_product_schemas,
-    persist_product_schemas,
+    CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages,
+    listing_source_id_from_uuid, lock_live_product_schemas, persist_product_schemas,
 };
+use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::approval_guard::{
     CurrentReview, FailedApprovalCheck, product_schema_approval_checks, url_pattern_approval_checks,
@@ -35,7 +35,6 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
-use crate::{CrawlerDomainId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde::Deserialize;
@@ -92,12 +91,13 @@ impl CrawlerReviewRepository {
                 let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
                     .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
                 if guarded {
-                    let domain = url_pattern_review_domain(&mut transaction, review_id).await?;
+                    let crawl_host =
+                        url_pattern_review_crawl_host(&mut transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
                         url_pattern_approval_checks(
                             &candidate,
-                            &domain,
+                            &crawl_host,
                             self.agent_decisions.limits().min_labelled_urls,
                         ),
                     )?;
@@ -173,7 +173,7 @@ impl CrawlerReviewRepository {
 
     /// Closes the review without changing configuration and, as approval does, releases the work
     /// waiting on it: the review is decided, so a page that waited on a product-schema review is
-    /// retried at once and the next crawl of a domain that waited on a URL-pattern review may open
+    /// retried at once and the next crawl of a source that waited on a URL-pattern review may open
     /// a new one. A review agent's rejection says why in its notes.
     pub async fn reject_review(
         &self,
@@ -426,20 +426,18 @@ async fn close_approved_review(
         "UPDATE crawler_reviews \
          SET status = 'SUPERSEDED', reviewed = NOW(), updated = NOW() \
          WHERE listing_source_id = $1 AND artifact_type = $2 \
-           AND status = 'PENDING_REVIEW' AND review_id <> $3 \
-           AND ($4::uuid IS NULL OR domain_id = $4)",
+           AND status = 'PENDING_REVIEW' AND review_id <> $3",
     )
     .bind(uuid::Uuid::from(review.listing_source_id))
     .bind(&review.artifact_type)
     .bind(review_id.as_uuid())
-    .bind(review.domain_id.map(CrawlerDomainId::into_uuid))
     .execute(&mut **transaction)
     .await?;
     Ok(())
 }
 
 /// Makes the reviewed decision of the URL-pattern review, its `candidate`, the live decision of
-/// its domain inside the approval's transaction, classifies the domain's stored URLs with it by
+/// its ListingSource inside the approval's transaction, classifies the source's stored URLs with it by
 /// `url_classifier`, and returns the decision it replaced and the one it made live.
 async fn make_reviewed_url_pattern_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -451,13 +449,8 @@ async fn make_reviewed_url_pattern_live(
     let pattern = candidate
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    let domain_id = review
-        .domain_id
-        .ok_or_else(|| missing_url_pattern_review_domain(review_id, None))?;
-    let replaced = lock_domain_url_pattern(transaction, &review.listing_source_id, domain_id)
-        .await?
-        .ok_or_else(|| missing_url_pattern_review_domain(review_id, Some(domain_id)))?;
-    let approved = DomainUrlPattern {
+    let replaced = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
+    let approved = LiveUrlPattern {
         url_pattern: pattern.map(str::to_owned),
         url_pattern_state: if pattern.is_some() {
             "MATCHED"
@@ -469,16 +462,14 @@ async fn make_reviewed_url_pattern_live(
     let reclassified = make_url_pattern_live(
         transaction,
         &review.listing_source_id,
-        domain_id,
         &approved,
         url_classifier,
     )
     .await?;
     info!(
         review_id = %review_id,
-        domain_id = %domain_id,
         reclassified_urls = reclassified,
-        "Approved URL pattern classified the domain's stored URLs"
+        "Approved URL pattern classified the ListingSource's stored URLs"
     );
     Ok(UrlPatternApprovalRecord {
         replaced_url_pattern: replaced,
@@ -486,42 +477,39 @@ async fn make_reviewed_url_pattern_live(
     })
 }
 
-/// Locks and reads the domain's live URL-pattern decision, `None` when the domain is gone.
-pub(super) async fn lock_domain_url_pattern(
+/// Locks and reads the ListingSource's live URL-pattern decision. A review's ListingSource
+/// outlives it, so a source that is gone fails as a database error.
+pub(super) async fn lock_live_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
-    domain_id: CrawlerDomainId,
-) -> Result<Option<DomainUrlPattern>, ReviewRepositoryError> {
-    Ok(sqlx::query_as::<_, (Option<String>, String)>(
-        "SELECT url_pattern, url_pattern_state FROM listing_source_domains \
-         WHERE listing_source_id = $1 AND domain_id = $2 FOR UPDATE",
+) -> Result<LiveUrlPattern, ReviewRepositoryError> {
+    let (url_pattern, url_pattern_state) = sqlx::query_as::<_, (Option<String>, String)>(
+        "SELECT url_pattern, url_pattern_state FROM listing_sources \
+         WHERE listing_source_id = $1 FOR UPDATE",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(domain_id.as_uuid())
-    .fetch_optional(&mut **transaction)
-    .await?
-    .map(|(url_pattern, url_pattern_state)| DomainUrlPattern {
+    .fetch_one(&mut **transaction)
+    .await?;
+    Ok(LiveUrlPattern {
         url_pattern,
         url_pattern_state,
-    }))
+    })
 }
 
-/// Stores `decision` as the domain's live URL-pattern decision and classifies the domain's
+/// Stores `decision` as the ListingSource's live URL-pattern decision and classifies the source's
 /// stored URLs with it by `url_classifier`, as the spider would on its next crawl. Returns how
 /// many URLs changed class. Only a `MATCHED` decision classifies URLs as products.
 pub(super) async fn make_url_pattern_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
-    domain_id: CrawlerDomainId,
-    decision: &DomainUrlPattern,
+    decision: &LiveUrlPattern,
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_source_domains SET url_pattern = $3, url_pattern_state = $4 \
-         WHERE listing_source_id = $1 AND domain_id = $2",
+        "UPDATE listing_sources SET url_pattern = $2, url_pattern_state = $3 \
+         WHERE listing_source_id = $1",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(domain_id.as_uuid())
     .bind(decision.url_pattern.as_deref())
     .bind(&decision.url_pattern_state)
     .execute(&mut **transaction)
@@ -529,10 +517,9 @@ pub(super) async fn make_url_pattern_live(
     let live_pattern = decision
         .live_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-    reclassify_domain_urls(
+    reclassify_source_urls(
         transaction,
         listing_source_id,
-        domain_id,
         live_pattern.as_ref(),
         url_classifier,
     )
@@ -623,7 +610,6 @@ async fn make_product_schemas_live(
 /// The state of a pending review a verdict decides on, read under the review's row lock.
 struct ReviewUnderVerdict {
     listing_source_id: ListingSourceId,
-    domain_id: Option<CrawlerDomainId>,
     artifact_type: String,
     candidate_payload: serde_json::Value,
     candidate_version: i64,
@@ -653,7 +639,6 @@ impl ReviewUnderVerdict {
         WaitingWork {
             artifact_type: self.artifact_type.clone(),
             listing_source_id: self.listing_source_id,
-            domain_id: self.domain_id,
         }
     }
 }
@@ -669,7 +654,7 @@ async fn lock_review_for_verdict(
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<ReviewUnderVerdict, ReviewRepositoryError> {
     let review = sqlx::query(
-        "SELECT status, listing_source_id, domain_id, artifact_type, candidate_payload, \
+        "SELECT status, listing_source_id, artifact_type, candidate_payload, \
                 candidate_version, validation_summary, removed_page_schemas_base \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
     )
@@ -687,10 +672,6 @@ async fn lock_review_for_verdict(
         listing_source_id: listing_source_id_from_uuid(
             review.try_get::<uuid::Uuid, _>("listing_source_id")?,
         )?,
-        domain_id: review
-            .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-            .map(crawler_domain_id_from_uuid)
-            .transpose()?,
         artifact_type: review.try_get("artifact_type")?,
         candidate_payload: review.try_get("candidate_payload")?,
         candidate_version: review.try_get("candidate_version")?,
@@ -742,16 +723,15 @@ fn check_approval_coverage(
 }
 
 /// The work that waits on a review: the pages of its ListingSource that wait on its
-/// product-schema review, or the domain whose crawl waits on its URL-pattern review.
+/// product-schema review, or its crawl that waits on its URL-pattern review.
 pub(super) struct WaitingWork {
     pub(super) artifact_type: String,
     pub(super) listing_source_id: ListingSourceId,
-    pub(super) domain_id: Option<CrawlerDomainId>,
 }
 
 /// Releases the work that waited on a decided review for an immediate retry: every page of the
-/// ListingSource that waits on its product-schema review, or the domain whose crawl waits on its
-/// URL-pattern review. A verdict runs it last in its transaction, after the review row is locked
+/// ListingSource that waits on its product-schema review, or its crawl that waits on its URL-pattern
+/// review. A verdict runs it last in its transaction, after the review row is locked
 /// and closed, so a wait written while the verdict commits waits for it and then finds the review
 /// closed instead of holding back a page the verdict released; a restore releases the same work
 /// once the configuration it brought back is stored.
@@ -775,37 +755,28 @@ pub(super) async fn release_work_waiting_on(
             .await?;
         }
         ARTIFACT_URL_PATTERN => {
-            if let Some(domain_id) = review.domain_id {
-                release_domain_waiting_for_url_pattern(
-                    transaction,
-                    &review.listing_source_id,
-                    domain_id,
-                )
-                .await?;
-            }
+            release_crawl_waiting_for_url_pattern(transaction, &review.listing_source_id).await?;
         }
         _ => {}
     }
     Ok(())
 }
 
-/// Classifies the domain's stored URLs with the pattern decision that just went live, as the
+/// Classifies the ListingSource's stored URLs with the pattern decision that just went live, as the
 /// spider would on its next crawl, so URLs a crawl stored while the review was pending need no
 /// second crawl from the root. Sold URLs keep their class, as a re-crawl leaves them, and a page
 /// a rejection covers stays `other`, as the spider stores it.
-async fn reclassify_domain_urls(
+async fn reclassify_source_urls(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
-    domain_id: CrawlerDomainId,
     pattern: Option<&Regex>,
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     let stored = sqlx::query_as::<_, (String, String)>(
         "SELECT url, url_class FROM listing_source_urls \
-         WHERE listing_source_id = $1 AND domain_id = $2 AND crawler_disposition = 'ACTIVE'",
+         WHERE listing_source_id = $1 AND crawler_disposition = 'ACTIVE'",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(domain_id.as_uuid())
     .fetch_all(&mut **transaction)
     .await?;
     let rejected = RejectedPages::load(&mut **transaction, listing_source_id).await?;
@@ -828,57 +799,55 @@ async fn reclassify_domain_urls(
         "UPDATE listing_source_urls AS u \
          SET url_class = input.url_class, updated = NOW() \
          FROM UNNEST($1::text[], $2::text[]) AS input(url, url_class) \
-         WHERE u.url = input.url AND u.listing_source_id = $3 AND u.domain_id = $4",
+         WHERE u.url = input.url AND u.listing_source_id = $3",
     )
     .bind(&urls)
     .bind(&classes)
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(domain_id.as_uuid())
     .execute(&mut **transaction)
     .await?;
     Ok(result.rows_affected())
 }
 
-/// Lets the scheduler crawl a domain again whose last crawl stopped at a URL-pattern review,
-/// now that the review is decided, and clears that crawl's review-wait outcome, so the domain
-/// reports no crawl outcome until its next crawl records one. A domain that still has a pending
-/// URL-pattern review keeps the outcome, which then reports its wait on that review; only a
-/// restore can find one, since a verdict has just closed the domain's one pending review. Rows
+/// Lets the scheduler crawl a ListingSource again whose last crawl stopped at a URL-pattern
+/// review, now that the review is decided, and clears that crawl's review-wait outcome, so the
+/// source reports no crawl outcome until its next crawl records one. A source that still has a
+/// pending URL-pattern review keeps the outcome, which then reports its wait on that review; only
+/// a restore can find one, since a verdict has just closed the source's one pending review. Rows
 /// written before the review-wait outcome existed carry the wait as `last_crawl_error_kind`
-/// instead and are released the same way. A released domain no longer matches, so releasing it
+/// instead and are released the same way. A released source no longer matches, so releasing it
 /// again changes nothing.
 ///
-/// The pending-review check takes no lock of its own: a review opened for the domain while the
+/// The pending-review check takes no lock of its own: a review opened for the source while the
 /// caller's transaction runs is either seen by it or commits after it. Opening a review locks
-/// the domain row `FOR KEY SHARE`, which waits for the `FOR UPDATE` lock approval and restore
-/// take on it first, and a rejection's closed review keeps the domain's one pending URL-pattern
+/// the source row `FOR KEY SHARE`, which waits for the `FOR UPDATE` lock approval and restore
+/// take on it first, and a rejection's closed review keeps the source's one pending URL-pattern
 /// review slot in the unique index until it commits. A crawl that opens a review after the
 /// release records its own wait on it.
-async fn release_domain_waiting_for_url_pattern(
+async fn release_crawl_waiting_for_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
-    domain_id: CrawlerDomainId,
 ) -> Result<(), ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_source_domains AS d \
+        "UPDATE listing_sources AS s \
          SET next_crawl_at = NULL, \
              last_crawl_error_kind = CASE \
-                 WHEN d.last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
-                 ELSE d.last_crawl_error_kind \
+                 WHEN s.last_crawl_error_kind = 'PendingUrlPatternReview' THEN NULL \
+                 ELSE s.last_crawl_error_kind \
              END, \
              last_crawl_outcome = CASE \
-                 WHEN d.last_crawl_outcome = $3 AND NOT EXISTS ( \
+                 WHEN s.last_crawl_outcome = $2 AND NOT EXISTS ( \
                      SELECT 1 FROM crawler_reviews r \
-                     WHERE r.domain_id = d.domain_id AND r.artifact_type = 'URL_PATTERN' \
+                     WHERE r.listing_source_id = s.listing_source_id \
+                       AND r.artifact_type = 'URL_PATTERN' \
                        AND r.status = 'PENDING_REVIEW' \
                  ) THEN NULL \
-                 ELSE d.last_crawl_outcome \
+                 ELSE s.last_crawl_outcome \
              END \
-         WHERE d.listing_source_id = $1 AND d.domain_id = $2 \
-           AND (d.last_crawl_error_kind = 'PendingUrlPatternReview' OR d.last_crawl_outcome = $3)",
+         WHERE s.listing_source_id = $1 \
+           AND (s.last_crawl_error_kind = 'PendingUrlPatternReview' OR s.last_crawl_outcome = $2)",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
-    .bind(domain_id.as_uuid())
     .bind(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME)
     .execute(&mut **transaction)
     .await?;

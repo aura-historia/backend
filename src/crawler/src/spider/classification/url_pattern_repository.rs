@@ -1,9 +1,8 @@
-//! Repository for crawler-domain URL patterns and crawl scheduling state.
+//! Repository for ListingSource URL patterns and crawl scheduling state.
 
-use crate::CrawlerDomainId;
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use async_trait::async_trait;
-use listing_source_core::{Domain, ListingSourceId};
+use listing_source_core::ListingSourceId;
 use sqlx::{FromRow, PgPool, Row};
 use strum::IntoEnumIterator;
 use thiserror::Error;
@@ -41,8 +40,6 @@ impl UrlPatternState {
 #[derive(Debug, Clone)]
 pub struct ListingSourceUrlPatternRecord {
     pub listing_source_id: ListingSourceId,
-    pub domain_id: CrawlerDomainId,
-    pub listing_source_domain: Domain,
     pub url_pattern: Option<String>,
     pub url_pattern_state: UrlPatternState,
     pub last_crawled: Option<OffsetDateTime>,
@@ -51,15 +48,9 @@ pub struct ListingSourceUrlPatternRecord {
 impl FromRow<'_, sqlx::postgres::PgRow> for ListingSourceUrlPatternRecord {
     fn from_row(row: &sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         let listing_source_id: uuid::Uuid = row.try_get("listing_source_id")?;
-        let listing_source_domain =
-            Domain::try_from(row.try_get::<String, _>("listing_source_domain")?)
-                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
         Ok(Self {
             listing_source_id: ListingSourceId::try_from(listing_source_id)
                 .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-            domain_id: CrawlerDomainId::try_from(row.try_get::<uuid::Uuid, _>("domain_id")?)
-                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-            listing_source_domain,
             url_pattern: row.try_get("url_pattern")?,
             url_pattern_state: UrlPatternState::from_persisted(
                 row.try_get::<String, _>("url_pattern_state")?,
@@ -76,28 +67,19 @@ pub trait ListingSourceUrlPatternRepository: Send + Sync {
     async fn find_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error>;
 
     async fn save_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
-    async fn save_no_pattern(
-        &self,
-        listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
-    ) -> Result<(), sqlx::Error>;
+    async fn save_no_pattern(&self, listing_source_id: &ListingSourceId)
+    -> Result<(), sqlx::Error>;
 
-    /// Records a full crawl of `root` now, while the domain still has that crawl root.
-    async fn mark_as_crawled(
-        &self,
-        listing_source_id: &ListingSourceId,
-        root: &CrawledRoot,
-    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
+    /// Records a full crawl of `root` now, while its ListingSource still has that crawl root.
+    async fn mark_as_crawled(&self, root: &CrawledRoot) -> Result<CrawlOutcomeWrite, sqlx::Error>;
 
     async fn increment_listing_source_llm_calls(
         &self,
@@ -121,16 +103,13 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn find_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error> {
         sqlx::query_as::<_, ListingSourceUrlPatternRecord>(
-            "SELECT listing_source_id, domain_id, listing_source_domain, \
-                    url_pattern, url_pattern_state, last_crawled \
-             FROM listing_source_domains \
-             WHERE listing_source_id = $1 AND domain_id = $2",
+            "SELECT listing_source_id, url_pattern, url_pattern_state, last_crawled \
+             FROM listing_sources \
+             WHERE listing_source_id = $1",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .fetch_optional(&self.pool)
         .await
     }
@@ -138,17 +117,15 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn save_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         pattern: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE listing_source_domains \
-             SET url_pattern = $3, \
-                 url_pattern_state = CASE WHEN $3 IS NULL THEN 'UNKNOWN' ELSE 'MATCHED' END \
-             WHERE listing_source_id = $1 AND domain_id = $2",
+            "UPDATE listing_sources \
+             SET url_pattern = $2, \
+                 url_pattern_state = CASE WHEN $2 IS NULL THEN 'UNKNOWN' ELSE 'MATCHED' END \
+             WHERE listing_source_id = $1",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .bind(pattern)
         .execute(&self.pool)
         .await?;
@@ -161,15 +138,13 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     async fn save_no_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE listing_source_domains \
+            "UPDATE listing_sources \
              SET url_pattern = NULL, url_pattern_state = 'NO_PATTERN' \
-             WHERE listing_source_id = $1 AND domain_id = $2",
+             WHERE listing_source_id = $1",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .execute(&self.pool)
         .await?;
         if result.rows_affected() == 0 {
@@ -178,35 +153,26 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
         Ok(())
     }
 
-    async fn mark_as_crawled(
-        &self,
-        listing_source_id: &ListingSourceId,
-        root: &CrawledRoot,
-    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+    async fn mark_as_crawled(&self, root: &CrawledRoot) -> Result<CrawlOutcomeWrite, sqlx::Error> {
         let result = sqlx::query(
-            "UPDATE listing_source_domains \
+            "UPDATE listing_sources \
              SET last_crawled = NOW() \
-             WHERE listing_source_id = $1 AND domain_id = $2 AND crawl_root_host = $3",
+             WHERE listing_source_id = $1 AND crawl_root_url = $2",
         )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(root.domain_id.as_uuid())
-        .bind(&root.crawl_root_host)
+        .bind(root.listing_source_id.as_uuid())
+        .bind(&root.crawl_root_url)
         .execute(&self.pool)
         .await?;
         if result.rows_affected() > 0 {
             return Ok(CrawlOutcomeWrite::Recorded);
         }
-        let domain_is_owned = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS ( \
-                 SELECT 1 FROM listing_source_domains \
-                 WHERE listing_source_id = $1 AND domain_id = $2 \
-             )",
+        let source_exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM listing_sources WHERE listing_source_id = $1)",
         )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(root.domain_id.as_uuid())
+        .bind(root.listing_source_id.as_uuid())
         .fetch_one(&self.pool)
         .await?;
-        match domain_is_owned {
+        match source_exists {
             true => Ok(CrawlOutcomeWrite::RootMoved),
             false => Err(sqlx::Error::RowNotFound),
         }

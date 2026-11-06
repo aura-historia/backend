@@ -521,13 +521,13 @@ async fn should_report_the_shop_responsive_when_it_redirects_to_a_url_robots_txt
     ] {
         let service = scraper_with_redirect_disallowed(Url::parse(final_url).unwrap());
 
-        let outcome = with_test_scrape_domain(
+        let outcome = with_test_scrape_observation(
             service.scrape(primary_only_request_with_pattern(&id, &url, r"/items/")),
         )
         .await;
 
         assert_eq!(
-            outcome.domain_health,
+            outcome.scrape_health,
             crate::scraper::scraper_service::domain::product::DomainFetchHealth::Responsive,
             "{final_url}"
         );
@@ -617,7 +617,7 @@ fn scraper_with_stored_destination(
     cand_svc
         .expect_redirect_destination()
         .once()
-        .returning(move |_, _, _| Box::pin(async move { Ok(destination) }));
+        .returning(move |_, _| Box::pin(async move { Ok(destination) }));
     ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
@@ -730,7 +730,7 @@ async fn should_extract_the_page_when_no_row_stores_the_redirect_target() {
     cand_svc
         .expect_redirect_destination()
         .once()
-        .returning(|_, _, _| Box::pin(async { Ok(RedirectDestination::Unknown) }));
+        .returning(|_, _| Box::pin(async { Ok(RedirectDestination::Unknown) }));
     let service = ScraperServiceImpl::new_with_schema_seed_pages(
         Box::new(fetcher),
         Box::new(schema_svc),
@@ -832,23 +832,21 @@ fn should_store_the_target_spelling_the_pattern_takes_for_a_redirect_that_adds_a
     assert_eq!(unjudged.url.as_str(), "https://shop.example/en-us/item/2");
 }
 
-/// Stores a crawler URL row of `class` and `disposition` on `domain_id`.
+/// Stores a crawler URL row of `class` of `listing_source_id`.
 async fn store_crawler_url(
     pool: &sqlx::PgPool,
     listing_source_id: ListingSourceId,
-    domain_id: crate::CrawlerDomainId,
     url: &Url,
     class: crate::spider::classification::url_metadata::UrlClass,
     last_source_listing_id: Option<&str>,
 ) {
     sqlx::query(
         "INSERT INTO listing_source_urls \
-             (listing_source_id, domain_id, url, raw_source_record_key, url_class, \
+             (listing_source_id, url, raw_source_record_key, url_class, \
               crawler_disposition, last_source_listing_id, created, updated) \
-         VALUES ($1, $2, $3, $3, $4, $5, $6, NOW(), NOW())",
+         VALUES ($1, $2, $2, $3, $4, $5, NOW(), NOW())",
     )
     .bind(listing_source_id.as_uuid())
-    .bind(domain_id.as_uuid())
     .bind(url.as_str())
     .bind(class.as_str())
     .bind(CrawlerDisposition::Active.as_str())
@@ -867,7 +865,6 @@ async fn should_settle_a_redirect_by_the_stored_rows_at_its_target_before_extrac
     use crate::spider::classification::url_metadata::UrlClass;
     let pool = test_api::get_postgres_client().await;
     let id = listing_source_id();
-    let domain_id = crate::CrawlerDomainId::new();
     sqlx::query(
         "INSERT INTO listing_sources \
          (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, created, updated) \
@@ -877,38 +874,20 @@ async fn should_settle_a_redirect_by_the_stored_rows_at_its_target_before_extrac
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("insert listing source: {error}"));
-    sqlx::query(
-        "INSERT INTO listing_source_domains \
-         (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, 'example.com', 'example.com')",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(id.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("insert domain: {error}"));
+    crate::test_support::store_crawl_root(&pool, id, "https://example.com/").await;
     let url = Url::parse("https://example.com/products/ladle").unwrap();
     let product = Url::parse("https://example.com/products/spoon").unwrap();
     let category = Url::parse("https://example.com/products/ladles").unwrap();
+    store_crawler_url(&pool, id, &url, UrlClass::ProductListing, Some("LADLE-7")).await;
     store_crawler_url(
         &pool,
         id,
-        domain_id,
-        &url,
-        UrlClass::ProductListing,
-        Some("LADLE-7"),
-    )
-    .await;
-    store_crawler_url(
-        &pool,
-        id,
-        domain_id,
         &product,
         UrlClass::ProductListing,
         Some("SPOON-3"),
     )
     .await;
-    store_crawler_url(&pool, id, domain_id, &category, UrlClass::Category, None).await;
+    store_crawler_url(&pool, id, &category, UrlClass::Category, None).await;
     let scraper_redirecting_to = |served: Url| {
         let mut fetcher = MockHtmlFetcher::new();
         fetcher.expect_fetch().once().returning(move |_| {
@@ -928,10 +907,7 @@ async fn should_settle_a_redirect_by_the_stored_rows_at_its_target_before_extrac
             DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
         )
     };
-    let request = ScrapeRequest {
-        domain_id: Some(domain_id),
-        ..request_captured_as_another_identity(&id, &url)
-    };
+    let request = request_captured_as_another_identity(&id, &url);
 
     let duplicate = scraper_redirecting_to(product.clone())
         .scrape(request.clone())

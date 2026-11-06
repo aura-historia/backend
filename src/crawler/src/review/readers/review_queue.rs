@@ -5,8 +5,8 @@ use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{AutoSchemaEvaluationOutcome, ReviewQueueEntry};
 use crate::review::repository::{
-    CrawlerReviewRepository, agent_repair_rounds, crawler_domain_id_from_uuid,
-    crawler_review_id_from_uuid, listing_source_id_from_uuid, row_to_repair_request,
+    CrawlerReviewRepository, agent_repair_rounds, crawler_review_id_from_uuid,
+    listing_source_id_from_uuid, row_to_repair_request,
 };
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -38,7 +38,7 @@ impl ReviewQueueReader {
         let rows = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name,
                     COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
-                    r.domain_id, r.artifact_type, r.status, r.reason, r.candidate_version,
+                    r.artifact_type, r.status, r.reason, r.candidate_version,
                     r.repair_requested, r.repair_note,
                     r.validation_summary -> 'auto_schema_evaluation' AS auto_schema_evaluation,
                     r.created, r.updated, r.reviewed
@@ -93,10 +93,6 @@ impl ReviewQueueReader {
             listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
             listing_source_name: row.try_get("listing_source_name")?,
             listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
-            domain_id: row
-                .try_get::<Option<uuid::Uuid>, _>("domain_id")?
-                .map(crawler_domain_id_from_uuid)
-                .transpose()?,
             artifact_type: row.try_get("artifact_type")?,
             human_required: self.agent_decisions.waits_for_human(&status, agent_rounds),
             status,

@@ -4,7 +4,6 @@
 //! (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 
 use async_trait::async_trait;
-use crawler::CrawlerDomainId;
 use crawler::review::repository::CrawlerReviewRepository;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
@@ -33,6 +32,9 @@ use url::Url;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 const HOST: &str = "deep-shop.example.com";
+/// The shop's crawl root. The local listener serves plain HTTP, so the run crawls, and the
+/// ListingSource stores, an `http` root.
+const CRAWL_ROOT_URL: &str = "http://deep-shop.example.com/";
 /// Category pages chained one below the other, far more than one crawl reaches.
 const DEPTH: usize = 60;
 /// How long the shop takes to answer a category page.
@@ -166,28 +168,28 @@ impl SpiderTransport for PinnedTransport {
     }
 }
 
-async fn register_domain(pool: &PgPool) -> (ListingSourceId, CrawlerDomainId) {
+/// A crawl-enabled ListingSource crawled from [`CRAWL_ROOT_URL`]. Every write of a run's outcome
+/// compares the run's root with the stored one, so the stored root must be the `http` root the
+/// run crawls; this isolated database therefore drops the schema's `https`-only check on stored
+/// crawl roots, which production roots always meet.
+async fn register_listing_source(pool: &PgPool) -> ListingSourceId {
+    sqlx::query("ALTER TABLE listing_sources DROP CONSTRAINT listing_sources_crawl_root_url_check")
+        .execute(pool)
+        .await
+        .unwrap();
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled) \
-         VALUES ($1, 'Deep shop', 'deep-shop', TRUE)",
+        "INSERT INTO listing_sources \
+         (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, crawl_root_url, crawl_host) \
+         VALUES ($1, 'Deep shop', 'deep-shop', TRUE, $2, $3)",
     )
     .bind(listing_source_id.as_uuid())
-    .execute(pool)
-    .await
-    .unwrap();
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, $3, $3)",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(listing_source_id.as_uuid())
+    .bind(CRAWL_ROOT_URL)
     .bind(HOST)
     .execute(pool)
     .await
     .unwrap();
-    (listing_source_id, domain_id)
+    listing_source_id
 }
 
 fn spider_service(pool: &PgPool, shop: &DeepShop) -> SpiderServiceImpl {
@@ -220,16 +222,14 @@ fn spider_service(pool: &PgPool, shop: &DeepShop) -> SpiderServiceImpl {
 async fn failing_runs_on_a_deep_shop_should_reach_further_each_time() {
     configure_spider_body_limit();
     let pool = get_postgres_client().await;
-    let (listing_source_id, domain_id) = register_domain(&pool).await;
+    let listing_source_id = register_listing_source(&pool).await;
     let shop = DeepShop::spawn().await;
     let service = spider_service(&pool, &shop);
     let frontier = CrawlFrontierRepositoryImpl::new(pool.clone());
-    let crawl_root_url = format!("http://{HOST}/");
     let crawl = || {
         service.run(
             &listing_source_id,
-            &domain_id,
-            &crawl_root_url,
+            CRAWL_ROOT_URL,
             400,
             CrawlPace::default(),
             CrawlKind::Full,
@@ -240,7 +240,7 @@ async fn failing_runs_on_a_deep_shop_should_reach_further_each_time() {
         .await
         .expect_err("too few pages for an inference sample");
     let first_deepest = shop.take_deepest_category();
-    let first_frontier = frontier.load_frontier(&domain_id).await.unwrap();
+    let first_frontier = frontier.load_frontier(&listing_source_id).await.unwrap();
 
     assert!(
         matches!(
@@ -275,7 +275,7 @@ async fn failing_runs_on_a_deep_shop_should_reach_further_each_time() {
         "the second run continues from the first run's frontier: reached {second_deepest} after {first_deepest}"
     );
     assert_ne!(
-        frontier.load_frontier(&domain_id).await.unwrap(),
+        frontier.load_frontier(&listing_source_id).await.unwrap(),
         first_frontier,
         "the second run replaced the frontier with its own"
     );

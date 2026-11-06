@@ -46,10 +46,10 @@ impl ReviewAccess {
     }
 
     /// Authorizes a request and resolves who it acts as, or `None` when it is refused as
-    /// unauthorized. An agent token reads the console API and makes review mutations as its
-    /// role, never opens or closes a browser session, never administers domains and never fetches
-    /// a live preview; what each role may change is the repository's to refuse. The review token,
-    /// a browser session (reads and logout only) and the `dev` binary's local same-origin
+    /// unauthorized. An agent token reads the console API and makes review mutations as its role,
+    /// never opens or closes a browser session, never mutates ListingSource routes and never
+    /// fetches a live preview; what each role may change is the repository's to refuse. The review
+    /// token, a browser session (reads and logout only) and the `dev` binary's local same-origin
     /// mutations act as [`ReviewActor::Human`]. Without a configured review token the API is open
     /// to reads, which record nothing; only a generated agent token is ever resolved as an agent.
     /// An `Authorization` header that matches no token is refused on every API route: a supplied
@@ -121,8 +121,8 @@ fn is_mutation_method(method: &str) -> bool {
     matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
 }
 
-/// The review routes the agent tokens may mutate: reviews and their pages, not domain
-/// administration or sessions.
+/// The review routes the agent tokens may mutate: reviews and their pages, not ListingSource
+/// routes or sessions.
 fn is_review_route(path: &str) -> bool {
     path.starts_with("/api/reviews/") || path.starts_with("/api/review-pages/")
 }
@@ -237,13 +237,13 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
-    #[case::author_token_registers_no_domain(
-        "POST /api/listing-sources/ls_1/domains",
+    #[case::author_token_opens_no_missing_value_page_review(
+        "POST /api/listing-sources/ls_1/missing-value-pages/review",
         Some(AUTHOR_TOKEN),
         None
     )]
-    #[case::reviewer_token_removes_no_domain(
-        "DELETE /api/listing-sources/ls_1/domains/cd_1",
+    #[case::reviewer_token_opens_no_missing_value_page_review(
+        "POST /api/listing-sources/ls_1/missing-value-pages/review",
         Some(REVIEWER_TOKEN),
         None
     )]

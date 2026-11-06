@@ -7,11 +7,11 @@
 
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
-use money::Currency;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use url::Url;
 
+use crate::CrawlerReviewId;
 use crate::network::policy::DomainFailureKind;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::share_stored_removed_page_schemas;
@@ -20,7 +20,6 @@ use crate::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
 };
 use crate::spider::utils::url::CrawledUrl;
-use crate::{CrawlerDomainId, CrawlerReviewId};
 
 // ---------------------------------------------------------------------------
 // ScraperCandidate
@@ -30,10 +29,9 @@ use crate::{CrawlerDomainId, CrawlerReviewId};
 #[derive(Clone)]
 pub struct ScraperCandidate {
     pub listing_source_id: ListingSourceId,
-    pub domain_id: CrawlerDomainId,
-    pub listing_source_domain: String,
+    /// The host the ListingSource is crawled on (`docs/crawler/README.md#listingsource-scope`).
+    pub crawl_host: String,
     pub listing_source_name: String,
-    pub fallback_currency: Option<Currency>,
     pub url_pattern: Option<String>,
     pub url: Url,
     /// Stable raw-stream identity retained when the crawler URL moves.
@@ -44,8 +42,8 @@ pub struct ScraperCandidate {
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub last_captured_raw_input_sha256: Option<Vec<u8>>,
-    pub domain_health: DomainHealthSnapshot,
-    pub is_domain_probe: bool,
+    pub scrape_health: ScrapeHealthSnapshot,
+    pub is_circuit_probe: bool,
     /// The pending product-schema review the URL's last scrape waited on, if it did.
     pub schema_review_wait: Option<SchemaReviewWait>,
 }
@@ -99,11 +97,11 @@ pub struct RedirectUrlMove {
 pub enum RedirectDestination {
     /// No row stores the page: the redirected URL's row moves there.
     Unknown,
-    /// Every row of the page is a product URL of the redirected URL's ListingSource and domain
+    /// Every row of the page is a product URL of the redirected URL's ListingSource
     /// that is not itself retired: the page is scraped under its own row, so the redirected URL
     /// is its duplicate.
     ProductOfListingSource,
-    /// Every row of the page belongs to another ListingSource or domain or is a non-product URL
+    /// Every row of the page belongs to another ListingSource or is a non-product URL
     /// of the ListingSource that is not retired: the page is no product page of the
     /// ListingSource, as for any redirect to a non-product page.
     NotAProductOfListingSource,
@@ -136,24 +134,24 @@ pub struct SchemaSeedCandidate {
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
-/// The scraper health columns of a crawler domain, which fence every domain
-/// write. A streak without `next_scrape_at` is recorded evidence: the domain
+/// The scraper health columns of a ListingSource, which fence every scrape-circuit
+/// write. A streak without `next_scrape_at` is recorded evidence: the ListingSource
 /// is scraped normally and the evidence counts towards opening the circuit.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DomainHealthSnapshot {
+pub struct ScrapeHealthSnapshot {
     pub scrape_failure_streak: i32,
     pub last_scrape_error_kind: Option<String>,
     pub next_scrape_at: Option<OffsetDateTime>,
 }
 
-/// The two independently fenced writes performed when a domain-opening fetch
+/// The two independently fenced writes performed when a circuit-opening fetch
 /// failure is recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DomainCircuitOpenOutcome {
+pub struct ScrapeCircuitOpenOutcome {
     pub url_failure: CrawlerUrlWriteOutcome,
-    pub domain_circuit: CrawlerUrlWriteOutcome,
-    /// The streak known to have been persisted when the domain write applied.
-    /// This is `None` when the domain write was stale.
+    pub scrape_circuit: CrawlerUrlWriteOutcome,
+    /// The streak known to have been persisted when the scrape-circuit write applied.
+    /// This is `None` when the scrape-circuit write was stale.
     pub persisted_failure_streak: Option<u32>,
 }
 
@@ -171,32 +169,31 @@ pub struct FetchFailureRequest {
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
-/// The independently fenced URL and domain writes for a domain-opening
-/// failure. The URL request identifies the actual failing URL; the domain
-/// snapshot remains the candidate domain's complete optimistic-concurrency
+/// The independently fenced URL and scrape-circuit writes for a circuit-opening
+/// failure. The URL request identifies the actual failing URL; the scrape-health
+/// snapshot remains the candidate ListingSource's complete optimistic-concurrency
 /// fence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DomainCircuitOpenRequest {
+pub struct ScrapeCircuitOpenRequest {
     pub url_failure: FetchFailureRequest,
-    pub domain_id: CrawlerDomainId,
-    pub expected_domain_health: DomainHealthSnapshot,
-    pub domain_error_kind: DomainFailureKind,
-    pub domain_status_code: Option<i32>,
-    /// End of the domain cooldown. `None` records the kind and streak as
-    /// evidence while the domain stays open for scraping.
+    pub expected_scrape_health: ScrapeHealthSnapshot,
+    pub scrape_error_kind: DomainFailureKind,
+    pub scrape_status_code: Option<i32>,
+    /// End of the scrape-circuit cooldown. `None` records the kind and streak as
+    /// evidence while the ListingSource stays open for scraping.
     pub next_scrape_at: Option<OffsetDateTime>,
 }
 
-/// Calculates the next domain failure streak from one candidate snapshot.
+/// Calculates the next scrape failure streak from one candidate snapshot.
 ///
-/// A streak is consecutive only for the same persisted domain failure kind.
-pub fn next_domain_failure_streak(
-    expected_domain_health: &DomainHealthSnapshot,
-    domain_error_kind: DomainFailureKind,
+/// A streak is consecutive only for the same persisted scrape failure kind.
+pub fn next_scrape_failure_streak(
+    expected_scrape_health: &ScrapeHealthSnapshot,
+    scrape_error_kind: DomainFailureKind,
 ) -> u32 {
-    if expected_domain_health.last_scrape_error_kind.as_deref() == Some(domain_error_kind.as_str())
+    if expected_scrape_health.last_scrape_error_kind.as_deref() == Some(scrape_error_kind.as_str())
     {
-        expected_domain_health
+        expected_scrape_health
             .scrape_failure_streak
             .max(0)
             .saturating_add(1) as u32
@@ -205,12 +202,12 @@ pub fn next_domain_failure_streak(
     }
 }
 
-/// A domain whose scraping only a pending review holds back, so it has no scraper batch to
-/// record its scrapes until the review is decided.
+/// A ListingSource whose scraping only a pending review holds back, so it has no scraper batch
+/// to record its scrapes until the review is decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DomainAwaitingReview {
+pub struct SourceAwaitingReview {
     pub listing_source_id: ListingSourceId,
-    pub listing_source_domain: String,
+    pub crawl_host: String,
 }
 
 /// Per-ListingSource LLM usage snapshot for operational logging.
@@ -229,19 +226,19 @@ pub struct ListingSourceLlmUsage {
 pub trait ScraperCandidateService: Send + Sync {
     async fn get_candidates(
         &self,
-        domain_limit: i64,
-        urls_per_domain: i64,
-        excluded_domain_ids: &[CrawlerDomainId],
+        source_limit: i64,
+        urls_per_source: i64,
+        excluded_listing_source_ids: &[ListingSourceId],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error>;
     /// Counts the URLs due for scraping, by the same eligibility rule as
     /// [`ScraperCandidateService::get_candidates`].
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
-    /// Lists the domains whose scraping only a pending review holds back: domains that pass
-    /// the ListingSource and domain conditions of [`ScraperCandidateService::get_candidates`]
-    /// while they have a product URL pattern and their ListingSource has no product schema and
-    /// a pending product-schema review, or while they have no product URL pattern and their
-    /// URL-pattern review is pending, so the spider classified none of their URLs as products.
-    async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error>;
+    /// Lists the ListingSources whose scraping only a pending review holds back: sources that pass
+    /// the conditions of [`ScraperCandidateService::get_candidates`] while they have a product URL
+    /// pattern, no product schema and a pending product-schema review, or while they have no
+    /// product URL pattern and their URL-pattern review is pending, so the spider classified none
+    /// of their URLs as products.
+    async fn sources_awaiting_review(&self) -> Result<Vec<SourceAwaitingReview>, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
     /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
     /// A URL is drawn only while its retry is due and it recorded no fetch failure or
@@ -254,7 +251,6 @@ pub trait ScraperCandidateService: Send + Sync {
     async fn get_random_product_urls_for_schema_seed(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         excluded_urls: &[String],
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error>;
@@ -262,12 +258,11 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
-    /// What the crawler stores at the page a scrape of a URL of `listing_source_id` and
-    /// `domain_id` was redirected to, read before any raw observation is queued.
+    /// What the crawler stores at the page a scrape of a URL of `listing_source_id` was
+    /// redirected to, read before any raw observation is queued.
     async fn redirect_destination(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         effective_url: &Url,
     ) -> Result<RedirectDestination, sqlx::Error>;
     /// Apply a redirect move only when the destination is still absent.
@@ -336,16 +331,16 @@ pub trait ScraperCandidateService: Send + Sync {
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
 
-    /// Records URL failure state and attempts to open the domain circuit.
+    /// Records URL failure state and attempts to open the scrape circuit.
     ///
-    /// The result keeps the URL and domain write outcomes separate because a
-    /// current URL failure may commit even when the domain snapshot is stale.
-    /// The domain update is fenced by the candidate's complete health snapshot.
+    /// The result keeps the URL and scrape-circuit write outcomes separate because a
+    /// current URL failure may commit even when the scrape-health snapshot is stale.
+    /// The scrape-circuit update is fenced by the candidate's complete health snapshot.
     #[allow(clippy::too_many_arguments)]
-    async fn mark_fetch_failure_and_open_domain_circuit(
+    async fn mark_fetch_failure_and_open_scrape_circuit(
         &self,
-        request: DomainCircuitOpenRequest,
-    ) -> Result<DomainCircuitOpenOutcome, sqlx::Error> {
+        request: ScrapeCircuitOpenRequest,
+    ) -> Result<ScrapeCircuitOpenOutcome, sqlx::Error> {
         let url_failure = request.url_failure;
         let url_failure_outcome = self
             .mark_fetch_failure(
@@ -360,20 +355,20 @@ pub trait ScraperCandidateService: Send + Sync {
                     .as_deref(),
             )
             .await?;
-        Ok(DomainCircuitOpenOutcome {
+        Ok(ScrapeCircuitOpenOutcome {
             url_failure: url_failure_outcome,
-            domain_circuit: CrawlerUrlWriteOutcome::NoopStale,
+            scrape_circuit: CrawlerUrlWriteOutcome::NoopStale,
             persisted_failure_streak: None,
         })
     }
 
     /// Closes a recovering circuit if the candidate still owns the observed
-    /// health snapshot. The default is a no-op for adapters without domain
+    /// health snapshot. The default is a no-op for adapters without scrape-circuit
     /// persistence; the Postgres implementation provides the fence.
-    async fn close_domain_circuit(
+    async fn close_scrape_circuit(
         &self,
-        _domain_id: &CrawlerDomainId,
-        _expected_domain_health: &DomainHealthSnapshot,
+        _listing_source_id: &ListingSourceId,
+        _expected_scrape_health: &ScrapeHealthSnapshot,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         Ok(CrawlerUrlWriteOutcome::NoopStale)
     }
@@ -589,10 +584,8 @@ fn schema_review_wait_from_row(
 #[derive(sqlx::FromRow)]
 struct ScraperCandidateRow {
     listing_source_id: uuid::Uuid,
-    domain_id: uuid::Uuid,
-    listing_source_domain: String,
+    crawl_host: String,
     listing_source_name: String,
-    fallback_currency: Option<String>,
 
     url_pattern: Option<String>,
     url: String,
@@ -603,42 +596,43 @@ struct ScraperCandidateRow {
     scrape_failure_streak: i32,
     last_scrape_error_kind: Option<String>,
     next_scrape_at: Option<OffsetDateTime>,
-    is_domain_probe: bool,
+    is_circuit_probe: bool,
     last_source_listing_id: Option<String>,
     last_captured_title: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
 }
 
-/// The ListingSource and domain conditions of scraper eligibility over `listing_sources s` and
-/// `listing_source_domains sd`: crawling is enabled, the ListingSource has LLM budget left
-/// (`$1`, the per-ListingSource LLM call cap) and the domain circuit is not cooling down.
-macro_rules! scrapable_domain_conditions {
+/// The ListingSource conditions of scraper eligibility over `listing_sources s`: crawling is
+/// enabled, the source has a crawl root, it has LLM budget left (`$1`, the per-ListingSource LLM
+/// call cap) and its scrape circuit is not cooling down.
+macro_rules! scrapable_source_conditions {
     () => {
         r#"s.crawl_enabled = TRUE
+          AND s.crawl_host IS NOT NULL
           AND s.llm_calls_count < $1
-          AND (sd.scrape_failure_streak = 0
-               OR sd.next_scrape_at IS NULL
-               OR sd.next_scrape_at <= NOW())"#
+          AND (s.scrape_failure_streak = 0
+               OR s.next_scrape_at IS NULL
+               OR s.next_scrape_at <= NOW())"#
     };
 }
 
-/// Whether the ListingSource of `listing_source_domains sd` waits on its first product schema:
-/// it has no product schema while its product-schema review is pending, so none of its URLs is
-/// scraped until the review is decided.
+/// Whether the ListingSource `listing_sources s` waits on its first product schema: it has no
+/// product schema while its product-schema review is pending, so none of its URLs is scraped
+/// until the review is decided.
 macro_rules! awaits_first_product_schema {
     () => {
         r#"(NOT EXISTS (
                   SELECT 1
                   FROM listing_source_product_schemas ps
-                  WHERE ps.listing_source_id = sd.listing_source_id
+                  WHERE ps.listing_source_id = s.listing_source_id
                     AND (jsonb_typeof(ps.product_schema) <> 'array'
                          OR jsonb_array_length(ps.product_schema) > 0)
               )
               AND EXISTS (
                   SELECT 1
                   FROM crawler_reviews cr
-                  WHERE cr.listing_source_id = sd.listing_source_id
+                  WHERE cr.listing_source_id = s.listing_source_id
                     AND cr.artifact_type = 'PRODUCT_SCHEMA'
                     AND cr.status = 'PENDING_REVIEW'
               ))"#
@@ -647,26 +641,26 @@ macro_rules! awaits_first_product_schema {
 
 /// The URLs due for scraping, shared by every query that selects or counts them so their
 /// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
-/// domain IDs to leave out.
+/// ListingSource IDs to leave out.
 macro_rules! eligible_scraper_urls_cte {
     () => {
         concat!(
             r#"
     WITH eligible_urls AS (
         SELECT
-            su.listing_source_id, sd.domain_id, sd.listing_source_domain,
-            s.listing_source_name, s.fallback_currency, sd.url_pattern, su.url,
+            su.listing_source_id, s.crawl_host,
+            s.listing_source_name, s.url_pattern, su.url,
             su.raw_source_record_key AS source_record_key,
             su.last_scraped,
             su.last_scraped_hash,
             su.last_scraped_schema_fingerprint,
             su.last_captured_raw_input_sha256,
-            sd.scrape_failure_streak,
-            sd.last_scrape_error_kind,
-            sd.next_scrape_at,
-            (sd.scrape_failure_streak > 0
-                AND sd.next_scrape_at IS NOT NULL
-                AND sd.next_scrape_at <= NOW()) AS is_domain_probe
+            s.scrape_failure_streak,
+            s.last_scrape_error_kind,
+            s.next_scrape_at,
+            (s.scrape_failure_streak > 0
+                AND s.next_scrape_at IS NOT NULL
+                AND s.next_scrape_at <= NOW()) AS is_circuit_probe
             , su.last_source_listing_id
             , su.last_captured_title
             , su.last_error_kind = 'PendingSchemaReview' AS waits_on_schema_review
@@ -676,10 +670,8 @@ macro_rules! eligible_scraper_urls_cte {
                    THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
-        JOIN listing_source_domains sd
-          ON sd.listing_source_id = su.listing_source_id AND sd.domain_id = su.domain_id
         WHERE "#,
-            scrapable_domain_conditions!(),
+            scrapable_source_conditions!(),
             r#"
           AND su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
@@ -688,21 +680,21 @@ macro_rules! eligible_scraper_urls_cte {
           AND NOT "#,
             awaits_first_product_schema!(),
             r#"
-          AND NOT (sd.domain_id = ANY($2))
+          AND NOT (s.listing_source_id = ANY($2))
     )"#
         )
     };
 }
 
-/// Binds `$3`, the number of domains, and `$4`, the URLs per domain, after the
+/// Binds `$3`, the number of ListingSources, and `$4`, the URLs per ListingSource, after the
 /// [`eligible_scraper_urls_cte`] parameters.
 const SCRAPER_CANDIDATE_QUERY: &str = concat!(
     eligible_scraper_urls_cte!(),
     r#",
-    selected_domains AS (
-        SELECT domain_id
+    selected_sources AS (
+        SELECT listing_source_id
         FROM eligible_urls
-        GROUP BY domain_id
+        GROUP BY listing_source_id
         ORDER BY random()
         LIMIT $3
     ),
@@ -710,26 +702,26 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         SELECT
             eu.*,
             row_number() OVER (
-                PARTITION BY eu.domain_id
+                PARTITION BY eu.listing_source_id
                 ORDER BY eu.waits_on_schema_review IS TRUE, eu.last_scraped NULLS FIRST, eu.url
-            ) AS domain_url_rank
+            ) AS source_url_rank
         FROM eligible_urls eu
-        JOIN selected_domains sd ON sd.domain_id = eu.domain_id
+        JOIN selected_sources ss ON ss.listing_source_id = eu.listing_source_id
     )
     SELECT
-        listing_source_id, domain_id, listing_source_domain, listing_source_name,
-        fallback_currency, url_pattern, url,
+        listing_source_id, crawl_host, listing_source_name,
+        url_pattern, url,
         source_record_key,
         last_scraped_hash,
         last_scraped_schema_fingerprint,
         last_captured_raw_input_sha256,
-        scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_domain_probe,
+        scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
         last_source_listing_id, last_captured_title, schema_review_waited_on,
         schema_review_wait_streak
     FROM ranked_urls
-    WHERE (is_domain_probe AND domain_url_rank = 1)
-       OR (NOT is_domain_probe AND domain_url_rank <= $4)
-    ORDER BY domain_id, domain_url_rank, url
+    WHERE (is_circuit_probe AND source_url_rank = 1)
+       OR (NOT is_circuit_probe AND source_url_rank <= $4)
+    ORDER BY listing_source_id, source_url_rank, url
     "#
 );
 
@@ -739,34 +731,33 @@ const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
 );
 
 /// Binds `$1`, the per-ListingSource LLM call cap, as the [`eligible_scraper_urls_cte`] does.
-/// A domain without a `MATCHED` pattern has no active product URL: the spider stores none of its
-/// URLs as a product, and every URL-pattern decision classifies the domain's stored active URLs with
-/// the live pattern. So the first product schema holds back only a domain with a `MATCHED`
-/// pattern, and a domain without one waits only on its own URL-pattern review; any other domain
-/// without product URLs is stuck on its crawl, not on a review. Reading the pattern state keeps
-/// the query off the domain's URLs, which a crawl waiting on its review may have stored by the
-/// hundred thousand.
-const DOMAINS_AWAITING_REVIEW_QUERY: &str = concat!(
+/// A ListingSource without a `MATCHED` pattern has no active product URL: the spider stores none
+/// of its URLs as a product, and every URL-pattern decision classifies the source's stored active
+/// URLs with the live pattern. So the first product schema holds back only a source with a
+/// `MATCHED` pattern, and a source without one waits only on its own URL-pattern review; any other
+/// source without product URLs is stuck on its crawl, not on a review. Reading the pattern state
+/// keeps the query off the source's URLs, which a crawl waiting on its review may have stored by
+/// the hundred thousand.
+const SOURCES_AWAITING_REVIEW_QUERY: &str = concat!(
     r#"
-    SELECT sd.listing_source_id, sd.listing_source_domain
-    FROM listing_source_domains sd
-    JOIN listing_sources s ON s.listing_source_id = sd.listing_source_id
+    SELECT s.listing_source_id, s.crawl_host
+    FROM listing_sources s
     WHERE "#,
-    scrapable_domain_conditions!(),
+    scrapable_source_conditions!(),
     r#"
-      AND ((sd.url_pattern_state = 'MATCHED'
+      AND ((s.url_pattern_state = 'MATCHED'
             AND "#,
     awaits_first_product_schema!(),
     r#")
-           OR (sd.url_pattern_state <> 'MATCHED'
+           OR (s.url_pattern_state <> 'MATCHED'
                AND EXISTS (
                    SELECT 1
                    FROM crawler_reviews cr
-                   WHERE cr.domain_id = sd.domain_id
+                   WHERE cr.listing_source_id = s.listing_source_id
                      AND cr.artifact_type = 'URL_PATTERN'
                      AND cr.status = 'PENDING_REVIEW'
                )))
-    ORDER BY sd.listing_source_domain
+    ORDER BY s.crawl_host
     "#
 );
 
@@ -774,19 +765,19 @@ const DOMAINS_AWAITING_REVIEW_QUERY: &str = concat!(
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(
         &self,
-        domain_limit: i64,
-        urls_per_domain: i64,
-        excluded_domain_ids: &[CrawlerDomainId],
+        source_limit: i64,
+        urls_per_source: i64,
+        excluded_listing_source_ids: &[ListingSourceId],
     ) -> Result<Vec<ScraperCandidate>, sqlx::Error> {
-        let excluded_domain_uuids: Vec<uuid::Uuid> = excluded_domain_ids
+        let excluded_listing_source_uuids: Vec<uuid::Uuid> = excluded_listing_source_ids
             .iter()
-            .map(|domain_id| *domain_id.as_uuid())
+            .map(|listing_source_id| uuid::Uuid::from(*listing_source_id))
             .collect();
         let rows = sqlx::query_as::<_, ScraperCandidateRow>(SCRAPER_CANDIDATE_QUERY)
             .bind(self.max_llm_calls_per_listing_source)
-            .bind(excluded_domain_uuids)
-            .bind(domain_limit)
-            .bind(urls_per_domain)
+            .bind(excluded_listing_source_uuids)
+            .bind(source_limit)
+            .bind(urls_per_source)
             .fetch_all(&self.pool)
             .await?;
 
@@ -795,17 +786,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             let Some(url) = Url::parse(&row.url).ok() else {
                 continue;
             };
-            let fallback_currency = row
-                .fallback_currency
-                .as_deref()
-                .map(|value| {
-                    Currency::from_code(value).ok_or_else(|| {
-                        sqlx::Error::Decode(Box::new(std::io::Error::other(
-                            "persisted crawler fallback currency is invalid",
-                        )))
-                    })
-                })
-                .transpose()?;
             let schema_review_wait = schema_review_wait_from_row(
                 row.schema_review_waited_on,
                 row.schema_review_wait_streak,
@@ -813,23 +793,20 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-                domain_id: CrawlerDomainId::try_from(row.domain_id)
-                    .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-                listing_source_domain: row.listing_source_domain,
+                crawl_host: row.crawl_host,
                 listing_source_name: row.listing_source_name,
-                fallback_currency,
                 url_pattern: row.url_pattern,
                 url,
                 source_record_key: row.source_record_key,
                 last_scraped_hash: row.last_scraped_hash,
                 last_scraped_schema_fingerprint: row.last_scraped_schema_fingerprint,
                 last_captured_raw_input_sha256: row.last_captured_raw_input_sha256,
-                domain_health: DomainHealthSnapshot {
+                scrape_health: ScrapeHealthSnapshot {
                     scrape_failure_streak: row.scrape_failure_streak,
                     last_scrape_error_kind: row.last_scrape_error_kind,
                     next_scrape_at: row.next_scrape_at,
                 },
-                is_domain_probe: row.is_domain_probe,
+                is_circuit_probe: row.is_circuit_probe,
                 last_source_listing_id: row.last_source_listing_id,
                 last_captured_title: row.last_captured_title,
                 schema_review_wait,
@@ -848,17 +825,17 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
     }
 
-    async fn domains_awaiting_review(&self) -> Result<Vec<DomainAwaitingReview>, sqlx::Error> {
-        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(DOMAINS_AWAITING_REVIEW_QUERY)
+    async fn sources_awaiting_review(&self) -> Result<Vec<SourceAwaitingReview>, sqlx::Error> {
+        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(SOURCES_AWAITING_REVIEW_QUERY)
             .bind(self.max_llm_calls_per_listing_source)
             .fetch_all(&self.pool)
             .await?;
         rows.into_iter()
-            .map(|(listing_source_id, listing_source_domain)| {
-                Ok(DomainAwaitingReview {
+            .map(|(listing_source_id, crawl_host)| {
+                Ok(SourceAwaitingReview {
                     listing_source_id: ListingSourceId::try_from(listing_source_id)
                         .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-                    listing_source_domain,
+                    crawl_host,
                 })
             })
             .collect()
@@ -867,40 +844,34 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_random_product_urls_for_schema_seed(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         excluded_urls: &[String],
         limit: i64,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
-        let domain_id_uuid = (*domain_id).into_uuid();
         let rows: Vec<(String, Option<Vec<u8>>)> = sqlx::query_as(
             r#"
             SELECT su.url, su.last_captured_raw_input_sha256
             FROM listing_source_urls su
             JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
-            JOIN listing_source_domains sd
-              ON sd.listing_source_id = su.listing_source_id
-             AND sd.domain_id = su.domain_id
             WHERE s.crawl_enabled = TRUE
+              AND s.crawl_host IS NOT NULL
               AND su.listing_source_id = $1
-              AND su.domain_id = $2
               AND su.url_class = 'product'
               AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-              AND su.url <> ALL($3::text[])
+              AND su.url <> ALL($2::text[])
               AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
               AND su.failure_count = 0
-              AND (sd.scrape_failure_streak = 0
-                   OR sd.next_scrape_at IS NULL
-                   OR sd.next_scrape_at <= NOW())
+              AND (s.scrape_failure_streak = 0
+                   OR s.next_scrape_at IS NULL
+                   OR s.next_scrape_at <= NOW())
             -- Intentional: schema seeding runs on a rare path (typically once per
             -- ListingSource), so ORDER BY RANDOM() keeps this simple. If rows per ListingSource grow
             -- to millions, switch to TABLESAMPLE BERNOULLI or keyset-random.
             ORDER BY RANDOM()
-            LIMIT $4
+            LIMIT $3
             "#,
         )
         .bind(listing_source_id_uuid)
-        .bind(domain_id_uuid)
         .bind(excluded_urls)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -981,24 +952,22 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn redirect_destination(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         effective_url: &Url,
     ) -> Result<RedirectDestination, sqlx::Error> {
         let (rows, products, foreign): (i64, i64, i64) = sqlx::query_as(
             "SELECT COUNT(*),
                     COUNT(*) FILTER (
-                        WHERE listing_source_id = $2 AND domain_id = $3
+                        WHERE listing_source_id = $2
                           AND url_class = 'product'
                           AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')),
                     COUNT(*) FILTER (
-                        WHERE listing_source_id <> $2 OR domain_id <> $3
+                        WHERE listing_source_id <> $2
                            OR (url_class <> 'product' AND crawler_disposition <> 'DUPLICATE'))
              FROM listing_source_urls
              WHERE url = ANY($1::text[])",
         )
         .bind(destination_spellings(effective_url))
         .bind(uuid::Uuid::from(*listing_source_id))
-        .bind(domain_id.as_uuid())
         .fetch_one(&self.pool)
         .await?;
         Ok(match rows {
@@ -1373,10 +1342,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn mark_fetch_failure_and_open_domain_circuit(
+    async fn mark_fetch_failure_and_open_scrape_circuit(
         &self,
-        request: DomainCircuitOpenRequest,
-    ) -> Result<DomainCircuitOpenOutcome, sqlx::Error> {
+        request: ScrapeCircuitOpenRequest,
+    ) -> Result<ScrapeCircuitOpenOutcome, sqlx::Error> {
         let url_failure = request.url_failure;
         let url_failure_outcome = self
             .mark_fetch_failure(
@@ -1393,84 +1362,84 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             .await?;
 
         let next_streak =
-            next_domain_failure_streak(&request.expected_domain_health, request.domain_error_kind);
-        let domain_result = sqlx::query(
-            "UPDATE listing_source_domains
-             SET scrape_failure_streak = $2,
-                 last_scrape_error_kind = $3,
-                 last_scrape_status_code = $4,
-                 next_scrape_at = $5,
+            next_scrape_failure_streak(&request.expected_scrape_health, request.scrape_error_kind);
+        let circuit_result = sqlx::query(
+            "UPDATE listing_sources
+             SET scrape_failure_streak = $1,
+                 last_scrape_error_kind = $2,
+                 last_scrape_status_code = $3,
+                 next_scrape_at = $4,
                  scrape_failing_since = CASE
                      WHEN scrape_failure_streak = 0
-                          OR last_scrape_error_kind IS DISTINCT FROM $3 THEN NOW()
+                          OR last_scrape_error_kind IS DISTINCT FROM $2 THEN NOW()
                      ELSE scrape_failing_since
                  END
-             WHERE domain_id = $1
-               AND scrape_failure_streak = $6
-               AND next_scrape_at IS NOT DISTINCT FROM $7
-               AND last_scrape_error_kind IS NOT DISTINCT FROM $8",
+             WHERE listing_source_id = $8
+               AND scrape_failure_streak = $5
+               AND next_scrape_at IS NOT DISTINCT FROM $6
+               AND last_scrape_error_kind IS NOT DISTINCT FROM $7",
         )
-        .bind(request.domain_id.as_uuid())
-        .bind(i32::try_from(next_streak).expect("domain failure streak must fit persisted INT"))
-        .bind(request.domain_error_kind.as_str())
-        .bind(request.domain_status_code)
+        .bind(i32::try_from(next_streak).expect("scrape failure streak must fit persisted INT"))
+        .bind(request.scrape_error_kind.as_str())
+        .bind(request.scrape_status_code)
         .bind(request.next_scrape_at)
-        .bind(request.expected_domain_health.scrape_failure_streak)
-        .bind(request.expected_domain_health.next_scrape_at)
+        .bind(request.expected_scrape_health.scrape_failure_streak)
+        .bind(request.expected_scrape_health.next_scrape_at)
         .bind(
             request
-                .expected_domain_health
+                .expected_scrape_health
                 .last_scrape_error_kind
                 .as_deref(),
         )
+        .bind(url_failure.listing_source_id.as_uuid())
         .execute(&self.pool)
         .await?;
 
-        let domain_circuit = if domain_result.rows_affected() == 1 {
+        let scrape_circuit = if circuit_result.rows_affected() == 1 {
             CrawlerUrlWriteOutcome::Applied
         } else {
             CrawlerUrlWriteOutcome::NoopStale
         };
 
-        if domain_circuit == CrawlerUrlWriteOutcome::NoopStale {
+        if scrape_circuit == CrawlerUrlWriteOutcome::NoopStale {
             tracing::debug!(
-                domain_id = %request.domain_id,
-                "Skipped stale scraper domain circuit opening"
+                listing_source_id = %url_failure.listing_source_id,
+                "Skipped stale scrape circuit opening"
             );
         }
-        Ok(DomainCircuitOpenOutcome {
+        Ok(ScrapeCircuitOpenOutcome {
             url_failure: url_failure_outcome,
-            domain_circuit,
-            persisted_failure_streak: (domain_circuit == CrawlerUrlWriteOutcome::Applied)
+            scrape_circuit,
+            persisted_failure_streak: (scrape_circuit == CrawlerUrlWriteOutcome::Applied)
                 .then_some(next_streak),
         })
     }
 
-    async fn close_domain_circuit(
+    async fn close_scrape_circuit(
         &self,
-        domain_id: &CrawlerDomainId,
-        expected_domain_health: &DomainHealthSnapshot,
+        listing_source_id: &ListingSourceId,
+        expected_scrape_health: &ScrapeHealthSnapshot,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
-        if expected_domain_health.scrape_failure_streak <= 0 {
+        if expected_scrape_health.scrape_failure_streak <= 0 {
             return Ok(CrawlerUrlWriteOutcome::Applied);
         }
 
         let result = sqlx::query(
-            "UPDATE listing_source_domains
+            "UPDATE listing_sources
              SET scrape_failure_streak = 0,
                  last_scrape_error_kind = NULL,
                  last_scrape_status_code = NULL,
                  next_scrape_at = NULL,
                  scrape_failing_since = NULL
-             WHERE domain_id = $1
-               AND scrape_failure_streak = $2
-               AND next_scrape_at IS NOT DISTINCT FROM $3
-               AND last_scrape_error_kind IS NOT DISTINCT FROM $4",
+             WHERE listing_source_id = $4
+               AND scrape_failure_streak = $1
+               AND next_scrape_at IS NOT DISTINCT FROM $2
+               AND last_scrape_error_kind IS NOT DISTINCT FROM $3",
         )
-        .bind(domain_id.as_uuid())
-        .bind(expected_domain_health.scrape_failure_streak)
-        .bind(expected_domain_health.next_scrape_at)
-        .bind(expected_domain_health.last_scrape_error_kind.as_deref())
+        .bind(expected_scrape_health.scrape_failure_streak)
+        .bind(expected_scrape_health.next_scrape_at)
+        .bind(expected_scrape_health.last_scrape_error_kind.as_deref())
+        .bind(listing_source_id.as_uuid())
         .execute(&self.pool)
         .await?;
 
@@ -1666,8 +1635,8 @@ struct PersistedListingSourceIdError {
 #[cfg(test)]
 mod candidate_query_tests {
     use super::{
-        DomainFailureKind, DomainHealthSnapshot, SCRAPER_CANDIDATE_QUERY, SchemaReviewWait,
-        next_domain_failure_streak, schema_review_wait_from_row,
+        DomainFailureKind, SCRAPER_CANDIDATE_QUERY, SchemaReviewWait, ScrapeHealthSnapshot,
+        next_scrape_failure_streak, schema_review_wait_from_row,
     };
     use crate::CrawlerReviewId;
 
@@ -1679,46 +1648,46 @@ mod candidate_query_tests {
     }
 
     #[test]
-    fn should_select_by_persisted_domain_and_return_one_probe() {
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.domain_id = ANY($2)"));
-        assert!(SCRAPER_CANDIDATE_QUERY.contains("sd.scrape_failure_streak = 0"));
+    fn should_select_by_listing_source_and_return_one_probe() {
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("s.listing_source_id = ANY($2)"));
+        assert!(SCRAPER_CANDIDATE_QUERY.contains("s.scrape_failure_streak = 0"));
         assert!(
-            SCRAPER_CANDIDATE_QUERY.contains("WHERE (is_domain_probe AND domain_url_rank = 1)")
+            SCRAPER_CANDIDATE_QUERY.contains("WHERE (is_circuit_probe AND source_url_rank = 1)")
         );
     }
 
     /// Recorded evidence (a streak without a cooldown) keeps the whole batch.
     #[test]
-    fn should_probe_only_a_domain_whose_cooldown_expired() {
+    fn should_probe_only_a_source_whose_cooldown_expired() {
         assert!(SCRAPER_CANDIDATE_QUERY.contains(
-            "(sd.scrape_failure_streak > 0\n                AND sd.next_scrape_at IS NOT NULL\n                AND sd.next_scrape_at <= NOW()) AS is_domain_probe"
+            "(s.scrape_failure_streak > 0\n                AND s.next_scrape_at IS NOT NULL\n                AND s.next_scrape_at <= NOW()) AS is_circuit_probe"
         ));
     }
 
     #[test]
-    fn should_increment_only_same_kind_domain_failure_streaks() {
-        let expected = DomainHealthSnapshot {
+    fn should_increment_only_same_kind_scrape_failure_streaks() {
+        let expected = ScrapeHealthSnapshot {
             scrape_failure_streak: 2,
             last_scrape_error_kind: Some("HTTP_429".to_owned()),
             next_scrape_at: None,
         };
 
         assert_eq!(
-            next_domain_failure_streak(&expected, DomainFailureKind::Http429),
+            next_scrape_failure_streak(&expected, DomainFailureKind::Http429),
             3
         );
         assert_eq!(
-            next_domain_failure_streak(&expected, DomainFailureKind::Timeout),
+            next_scrape_failure_streak(&expected, DomainFailureKind::Timeout),
             1
         );
 
-        let timeout = DomainHealthSnapshot {
+        let timeout = ScrapeHealthSnapshot {
             scrape_failure_streak: 1,
             last_scrape_error_kind: Some("TIMEOUT".to_owned()),
             next_scrape_at: None,
         };
         assert_eq!(
-            next_domain_failure_streak(&timeout, DomainFailureKind::Timeout),
+            next_scrape_failure_streak(&timeout, DomainFailureKind::Timeout),
             2
         );
     }
@@ -1758,15 +1727,15 @@ mod candidate_query_tests {
     }
 
     #[test]
-    fn should_start_domain_streak_at_one_after_recovery() {
-        let expected = DomainHealthSnapshot {
+    fn should_start_scrape_failure_streak_at_one_after_recovery() {
+        let expected = ScrapeHealthSnapshot {
             scrape_failure_streak: 0,
             last_scrape_error_kind: None,
             next_scrape_at: None,
         };
 
         assert_eq!(
-            next_domain_failure_streak(&expected, DomainFailureKind::Http429),
+            next_scrape_failure_streak(&expected, DomainFailureKind::Http429),
             1
         );
     }

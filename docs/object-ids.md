@@ -38,7 +38,6 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `ProductListingRawStreamId` | `prs` |
 | `ProductListingRawRevisionId` | `prr` |
 | `EventId` | `evt` |
-| `CrawlerDomainId` | `cd` |
 | `CrawlerReviewId` | `cr` |
 | `CrawlerReviewPageId` | `crp` |
 | `CrawlerReviewUrlId` | `cru` |

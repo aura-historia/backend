@@ -1,4 +1,3 @@
-use crate::CrawlerDomainId;
 use crate::network::policy::domain_failure_kind;
 use crate::scraper::candidate_service::SchemaSeedCandidate;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
@@ -29,7 +28,6 @@ impl ScraperServiceImpl {
     pub(crate) async fn collect_schema_seed_pages(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: Option<&CrawlerDomainId>,
         url: &Url,
         product_url_pattern: Option<&str>,
         primary_html: &str,
@@ -40,25 +38,13 @@ impl ScraperServiceImpl {
             raw_html: primary_html.to_string(),
         }];
         if self.schema_seed_pages <= 1
-            || matches!(mode, ScrapeMode::DomainProbe | ScrapeMode::PrimaryOnly)
+            || matches!(mode, ScrapeMode::CircuitProbe | ScrapeMode::PrimaryOnly)
         {
             return Ok(pages);
         }
 
-        let Some(domain_id) = domain_id else {
-            return Err(ScraperError::MissingDomainContext {
-                url: url.clone(),
-                mode: "normal",
-            });
-        };
-
         let sample_urls = match self
-            .sample_schema_seed_candidates(
-                listing_source_id,
-                domain_id,
-                url,
-                self.schema_seed_pages - 1,
-            )
+            .sample_schema_seed_candidates(listing_source_id, url, self.schema_seed_pages - 1)
             .await
         {
             Ok(urls) => urls,
@@ -96,7 +82,7 @@ impl ScraperServiceImpl {
                     });
                 }
                 Err(err) => {
-                    if let Some(error) = domain_failure_error(&sample_url, err.clone()) {
+                    if let Some(error) = scrape_failure_error(&sample_url, err.clone()) {
                         record_fetch_transport_error(
                             &sample_url,
                             seed_candidate
@@ -129,7 +115,7 @@ impl ScraperServiceImpl {
         Ok(pages)
     }
 
-    /// Samples up to `limit` stored product URLs of `domain_id` other than `url` to seed a new
+    /// Samples up to `limit` stored product URLs of `listing_source_id` other than `url` to seed a new
     /// schema for the page `url` with, each URL once. A page a rejected manual review covers is
     /// never taken: the sample is drawn again without it, so other product pages take its place,
     /// and when none is left the new review opens with fewer seed pages, or with the page alone.
@@ -139,11 +125,10 @@ impl ScraperServiceImpl {
     /// back, so a URL drawn before is dropped again here, and a draw that brings no URL not drawn
     /// before ends the sampling, as the next draw would leave out the same URLs: a rejected page
     /// stored in another spelling would otherwise be drawn again forever. The new review may then
-    /// open with fewer seed pages than the domain still has.
+    /// open with fewer seed pages than the ListingSource still has.
     async fn sample_schema_seed_candidates(
         &self,
         listing_source_id: &ListingSourceId,
-        domain_id: &CrawlerDomainId,
         url: &Url,
         limit: usize,
     ) -> Result<Vec<SchemaSeedCandidate>, sqlx::Error> {
@@ -155,7 +140,6 @@ impl ScraperServiceImpl {
                 .candidate_service
                 .get_random_product_urls_for_schema_seed(
                     listing_source_id,
-                    domain_id,
                     &excluded_urls,
                     wanted as i64,
                 )
@@ -206,7 +190,7 @@ fn record_fetch_transport_error(
     );
 }
 
-fn domain_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
+fn scrape_failure_error(url: &Url, error: FetchError) -> Option<ScraperError> {
     match error {
         FetchError::Network { kind, details } if domain_failure_kind(kind).is_some() => {
             Some(ScraperError::HttpError {

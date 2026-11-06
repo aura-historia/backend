@@ -1,4 +1,3 @@
-use crate::CrawlerDomainId;
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
 use listing_source_core::ListingSourceId;
@@ -51,44 +50,46 @@ impl LocalLockManager {
         LocalLock::try_acquire(Arc::clone(&self.locks), key)
     }
 
-    /// Reports whether a component currently holds its domain lock. This is a
+    /// Reports whether a component currently holds its work lock on a ListingSource. This is a
     /// point-in-time observation for diagnostics, not a synchronization primitive.
-    pub fn is_domain_locked(&self, scope: DomainLockScope, domain_id: CrawlerDomainId) -> bool {
-        self.locks.contains_key(&scope.key(domain_id))
+    pub fn is_work_locked(&self, scope: WorkLockScope, listing_source_id: ListingSourceId) -> bool {
+        self.locks.contains_key(&scope.key(listing_source_id))
     }
 }
 
-/// The crawler component that owns a domain lock.
+/// The crawler component that owns a work lock.
 ///
-/// Spider and scraper hold independent domain locks: each component excludes
-/// only itself, so both may work on the same domain concurrently while their
-/// own per-domain throttles bound request pressure.
+/// Spider and scraper hold independent work locks: each component excludes
+/// only itself, so both may work on the same ListingSource concurrently while
+/// their own per-host throttles bound request pressure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DomainLockScope {
+pub enum WorkLockScope {
     Spider,
     Scraper,
 }
 
-impl DomainLockScope {
-    fn key(self, domain_id: CrawlerDomainId) -> String {
+impl WorkLockScope {
+    fn key(self, listing_source_id: ListingSourceId) -> String {
         match self {
-            Self::Spider => format!("spider-domain:{domain_id}"),
-            Self::Scraper => format!("scraper-domain:{domain_id}"),
+            Self::Spider => format!("spider:{listing_source_id}"),
+            Self::Scraper => format!("scraper:{listing_source_id}"),
         }
     }
 }
 
-/// RAII lock for one component's work on one crawler domain, keyed by persisted
-/// `domain_id` and [`DomainLockScope`].
-pub struct DomainLock(#[allow(dead_code)] LocalLock);
+/// RAII lock for one component's work on one ListingSource, keyed by its id and
+/// [`WorkLockScope`].
+pub struct WorkLock(#[allow(dead_code)] LocalLock);
 
-impl DomainLock {
+impl WorkLock {
     pub fn try_acquire(
         lock_manager: &LocalLockManager,
-        scope: DomainLockScope,
-        domain_id: CrawlerDomainId,
+        scope: WorkLockScope,
+        listing_source_id: ListingSourceId,
     ) -> Option<Self> {
-        lock_manager.try_acquire(scope.key(domain_id)).map(Self)
+        lock_manager
+            .try_acquire(scope.key(listing_source_id))
+            .map(Self)
     }
 }
 
@@ -101,20 +102,6 @@ impl UrlLock {
     }
 }
 
-/// RAII lock for scraper work scoped to a ListingSource.
-pub struct ListingSourceLock(#[allow(dead_code)] LocalLock);
-
-impl ListingSourceLock {
-    pub fn try_acquire(
-        lock_manager: &LocalLockManager,
-        listing_source_id: ListingSourceId,
-    ) -> Option<Self> {
-        lock_manager
-            .try_acquire(format!("listing-source:{listing_source_id}"))
-            .map(Self)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -124,55 +111,65 @@ mod tests {
     use super::*;
 
     #[test]
-    fn same_scope_domain_is_locked_until_first_guard_is_dropped() {
-        for scope in [DomainLockScope::Spider, DomainLockScope::Scraper] {
+    fn same_scope_work_is_locked_until_first_guard_is_dropped() {
+        for scope in [WorkLockScope::Spider, WorkLockScope::Scraper] {
             let manager = LocalLockManager::new();
-            let domain_id = CrawlerDomainId::new();
+            let listing_source_id = ListingSourceId::new();
 
-            let first = DomainLock::try_acquire(&manager, scope, domain_id);
+            let first = WorkLock::try_acquire(&manager, scope, listing_source_id);
             assert!(first.is_some(), "{scope:?}");
             assert!(
-                DomainLock::try_acquire(&manager, scope, domain_id).is_none(),
+                WorkLock::try_acquire(&manager, scope, listing_source_id).is_none(),
                 "{scope:?}"
             );
-            assert!(manager.is_domain_locked(scope, domain_id), "{scope:?}");
+            assert!(
+                manager.is_work_locked(scope, listing_source_id),
+                "{scope:?}"
+            );
 
             drop(first);
 
-            assert!(!manager.is_domain_locked(scope, domain_id), "{scope:?}");
             assert!(
-                DomainLock::try_acquire(&manager, scope, domain_id).is_some(),
+                !manager.is_work_locked(scope, listing_source_id),
+                "{scope:?}"
+            );
+            assert!(
+                WorkLock::try_acquire(&manager, scope, listing_source_id).is_some(),
                 "{scope:?}"
             );
         }
     }
 
     #[test]
-    fn spider_and_scraper_can_lock_the_same_domain_concurrently() {
+    fn spider_and_scraper_can_lock_the_same_listing_source_concurrently() {
         let manager = LocalLockManager::new();
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
 
-        let spider = DomainLock::try_acquire(&manager, DomainLockScope::Spider, domain_id);
-        let scraper = DomainLock::try_acquire(&manager, DomainLockScope::Scraper, domain_id);
+        let spider = WorkLock::try_acquire(&manager, WorkLockScope::Spider, listing_source_id);
+        let scraper = WorkLock::try_acquire(&manager, WorkLockScope::Scraper, listing_source_id);
 
         assert!(spider.is_some());
         assert!(scraper.is_some());
-        assert!(DomainLock::try_acquire(&manager, DomainLockScope::Spider, domain_id).is_none());
-        assert!(DomainLock::try_acquire(&manager, DomainLockScope::Scraper, domain_id).is_none());
+        assert!(
+            WorkLock::try_acquire(&manager, WorkLockScope::Spider, listing_source_id).is_none()
+        );
+        assert!(
+            WorkLock::try_acquire(&manager, WorkLockScope::Scraper, listing_source_id).is_none()
+        );
     }
 
     #[test]
-    fn different_domains_can_be_locked_concurrently() {
+    fn different_listing_sources_can_be_locked_concurrently() {
         let manager = LocalLockManager::new();
 
         let locks: Vec<_> = [
-            DomainLockScope::Spider,
-            DomainLockScope::Spider,
-            DomainLockScope::Scraper,
-            DomainLockScope::Scraper,
+            WorkLockScope::Spider,
+            WorkLockScope::Spider,
+            WorkLockScope::Scraper,
+            WorkLockScope::Scraper,
         ]
         .into_iter()
-        .map(|scope| DomainLock::try_acquire(&manager, scope, CrawlerDomainId::new()))
+        .map(|scope| WorkLock::try_acquire(&manager, scope, ListingSourceId::new()))
         .collect();
 
         assert!(locks.iter().all(Option::is_some));
@@ -190,19 +187,5 @@ mod tests {
         drop(first);
 
         assert!(UrlLock::try_acquire(&manager, &url).is_some());
-    }
-
-    #[test]
-    fn listing_source_is_locked_until_first_guard_is_dropped() {
-        let manager = LocalLockManager::new();
-        let listing_source_id = ListingSourceId::new();
-
-        let first = ListingSourceLock::try_acquire(&manager, listing_source_id);
-        assert!(first.is_some());
-        assert!(ListingSourceLock::try_acquire(&manager, listing_source_id).is_none());
-
-        drop(first);
-
-        assert!(ListingSourceLock::try_acquire(&manager, listing_source_id).is_some());
     }
 }

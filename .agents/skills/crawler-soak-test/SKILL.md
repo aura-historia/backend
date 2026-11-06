@@ -53,9 +53,11 @@ the round uses and `<console>` the review console address, `CRAWLER_REVIEW_BIND_
    auction houses and marketplaces; keep one deliberately awkward host (slow, HTTP-only, apex/www
    split) per round if it exposes a general bug class. Record the preflight line for every shop,
    including the dropped ones.
-2. **Register the round.** Replace the `(index, name, slug)` tuple array in
-   `demo_listing_sources()` and the domain list zipped in `main()` in
-   [`src/crawler/src/bin/dev.rs`](../../../src/crawler/src/bin/dev.rs) with the round's shops.
+2. **Register the round.** Replace the `(index, name, slug, presentation URL)` tuple array in
+   `demo_listing_sources()` in
+   [`src/crawler/src/bin/dev.rs`](../../../src/crawler/src/bin/dev.rs) with the round's shops,
+   each with the root URL its preflight fetched as presentation URL; the crawler derives the
+   crawl root from it ([ListingSource scope](../../../docs/crawler/README.md#listingsource-scope)).
    Use a start index above every index used so far in this database: the ID suffix is
    `...639f{index:02x}`. These edits are temporary test state: never commit them;
    revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end. Make sure the checkout is
@@ -71,13 +73,13 @@ the round uses and `<console>` the review console address, `CRAWLER_REVIEW_BIND_
    14 KB per URL); stdout to `target/soak/<date>/round-<n>.jsonl`, stderr to a separate file. Run
    it in a terminal tab or in the background and note the start time in UTC and the binary's own
    process ID.
-   Do not wait for cooldowns or recrawl timers when the round needs a domain to run now: set
-   `next_crawl_at = now()` (spider) or `next_scrape_at = now()` (scraper circuit) for that domain
-   in `listing_source_domains`, and list every such reset in the note's local state.
-4. **Observe.** Every 10–15 minutes take a database snapshot (per-domain spider state and
+   Do not wait for cooldowns or recrawl timers when the round needs a shop to run now: set
+   `next_crawl_at = now()` (spider) or `next_scrape_at = now()` (scrape circuit) for that
+   ListingSource in `listing_sources`, and list every such reset in the note's local state.
+4. **Observe.** Every 10–15 minutes take a database snapshot (per-source spider state and
    timers, URL counts by class and disposition, scraped and failed URLs with error kinds, pending
    reviews, LLM budget per source) and a log summary (records by level and message, pass totals
-   and durations, LLM retries and timeouts, spider outcomes per domain, heartbeat share). Keep a
+   and durations, LLM retries and timeouts, spider outcomes per source, heartbeat share). Keep a
    timeline of anomalies with timestamps: stalled passes, circuits, 429/403, zero-product crawls,
    regeneration loops. Live-fetch pages with curl when a selector or pattern looks wrong.
    **Review every pending schema before approving it**, as a reviewer would in production:
@@ -131,7 +133,7 @@ the round uses and `<console>` the review console address, `CRAWLER_REVIEW_BIND_
    approved review whose candidate is still live accepts edits (`candidate_is_live`), and
    removed-page templates change only while a review is pending. Make a change after approval
    on that review, not in the `listing_source_product_schemas` row, and say so in the note.
-5. **Stop** after 60–90 minutes, or earlier if every domain is terminal, with SIGINT as in
+5. **Stop** after 60–90 minutes, or earlier if every shop is terminal, with SIGINT as in
    [crawler-dev-verify step 7](../crawler-dev-verify/SKILL.md#procedure) (Ctrl+C in the tab), and
    wait for the process to exit.
    Take a final database snapshot and log summary. The scraper pass is a barrier, so a pass that
@@ -156,8 +158,8 @@ the round uses and `<console>` the review console address, `CRAWLER_REVIEW_BIND_
 
 | Source | Where | What it answers |
 |---|---|---|
-| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`: `listing_source_domains` (pattern state, crawl outcome and timers, scrape failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, identity), `crawler_reviews` and `crawler_review_pages`, `listing_sources.llm_calls_count`, `listing_source_product_schemas` | spider state per domain, URL classes, scrape outcomes, retry timers, reviews, LLM budget |
-| JSON log | `target/soak/<date>/round-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` and `spans[*].domain` | pass totals and durations (`Scraper scheduler pass complete`, `Spider scheduler pass complete`), LLM retries/timeouts, crawl diagnostics, circuits, every `WARN` and `ERROR` kind |
+| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`: `listing_sources` (crawl root, pattern state, crawl outcome and timers, scrape failure streak, `llm_calls_count`), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, identity), `crawler_reviews` and `crawler_review_pages`, `listing_source_product_schemas` | spider state per ListingSource, URL classes, scrape outcomes, retry timers, reviews, LLM budget |
+| JSON log | `target/soak/<date>/round-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url`, `spans[*].listing_source_id` and, on spider records, `spans[*].crawl_root_url` | pass totals and durations (`Scraper scheduler pass complete`, `Spider scheduler pass complete`), LLM retries/timeouts, crawl diagnostics, circuits, every `WARN` and `ERROR` kind |
 | Review console | `http://<console>` (`GET /api/reviews`, `GET /api/listing_sources`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair\|candidate\|schema-field`) | schema candidates, deterministic gate, blocked URLs, review decisions |
 | Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was actually extracted |
 | Live pages | curl with the crawler user agent (`CRAWLER_USER_AGENT`) | whether a selector or pattern is right |
@@ -168,7 +170,7 @@ Mutations on the console need an `Origin: http://<console>` header on the reques
 
 - Spend LLM budget deliberately: a round of 10 shops costs roughly 20–60 schema and classification
   calls. Do not loop on a shop that keeps timing out; record it and move on.
-- Be polite to shops: one round per shop, no manual hammering, stop a domain that returns 429.
+- Be polite to shops: one round per shop, no manual hammering, stop a shop that returns 429.
 - Never log or paste credentials, `.env` values or raw provider payloads into the note.
 - Findings cite code as `path:line` and evidence as a DB count, a log line or a live fetch.
   "Looks wrong" without one of those is a hypothesis, labelled as such.

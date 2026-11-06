@@ -19,8 +19,8 @@ never in the repo. The evidence sources are:
 
 | Source | Where | What it answers |
 |---|---|---|
-| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`, `<db>` being `crawler_demo` or your copy | `listing_source_domains` (crawl and scrape timers, failure streak), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages), `listing_sources.llm_calls_count` |
-| JSON log | `target/soak/<date>/verify-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` | pass totals (`Scraper scheduler pass complete`), every `WARN` and `ERROR` kind, the change's own diagnostic, LLM retries |
+| Crawler DB | `docker exec crawler-postgres-1 psql -U postgres -d <db>`, `<db>` being `crawler_demo` or your copy | `listing_sources` (crawl root and host, pattern state, crawl and scrape timers, failure streaks, `llm_calls_count`), `listing_source_urls` (class, disposition, `last_scraped`, failure fields, `last_source_listing_id`), `listing_source_product_schemas` (live schemas), `crawler_reviews` and `crawler_review_pages` (status, reason, seed pages) |
+| JSON log | `target/soak/<date>/verify-<n>.jsonl`, one record per line with `timestamp`, `level`, `fields.message`, `spans[*].url` and `spans[*].listing_source_id` (spider spans also carry `crawl_root_url`; scraper batch events name the source in `fields.listing_source_id`) | pass totals (`Scraper scheduler pass complete`), every `WARN` and `ERROR` kind, the change's own diagnostic, LLM retries |
 | Review console | `CRAWLER_REVIEW_BIND_ADDR`, default `http://127.0.0.1:7878`: `GET /api/reviews`, `GET /api/reviews/{id}`, `GET /api/reviews/{id}/matrix?refresh=true`, `POST /api/reviews/{id}/approve\|reject\|needs-repair` with an `Origin` header naming the same address (an approval carries the `expected_candidate_version` it was based on) | candidates, the deterministic gate on live seed pages, review decisions |
 | Raw captures | `scraped_raw_observations.json` in the binary's working directory (a JSON array; `sourceRecordKey`, `sourcePayload`, `rawValues`) | what was extracted per page |
 | Live pages | curl with the crawler user agent (`AuraHistoriaBot/1.0 (+https://aura-historia.com)`) | whether a selector is right for a page variant |
@@ -68,14 +68,18 @@ it to the user as a ticket or a separate decision.
    schema a page uses, and therefore needs an `EXTRACTOR_VERSION` raise under the rule in the
    [extraction contract](../../../docs/crawler/extraction-and-review.md#extraction-contract);
    a change to raw extraction alone changes the page hash and needs none.
-2. **Register the shops.** The committed `dev.rs` registers five demo shops. To run others,
-   replace them temporarily: edit the `(index, name, slug)` tuple array and the domain list
-   zipped in `main()`. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so reuse the
-   index of a shop already in `listing_sources` (the last two hex digits of its ID, e.g. `0x0b`)
-   and give a new shop an index above every one in use. Mark the edit `TEMPORARY`,
-   never commit it, and revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end.
-   Registration disables listing sources that are not in the list, so include every source the
-   run needs.
+2. **Register the shops.** The committed `dev.rs` registers five demo shops in
+   `demo_listing_sources()`, each an `(index, name, slug, presentation URL)` tuple; every scope
+   refresh derives a shop's crawl root from its presentation URL, as for the admin API
+   ([ListingSource scope](../../../docs/crawler/README.md#listingsource-scope)). To run others,
+   replace the tuples temporarily. IDs are `01890a5d-ac96-774b-af1d-d5586c639f{index:02x}`, so
+   reuse the index of a shop already in `listing_sources` (the last two hex digits of its ID,
+   e.g. `0x0b`) with its stored `crawl_root_url`, and give a new shop an index above every one in
+   use. Another presentation URL for a reused index moves the source: its crawl state and
+   frontier reset, its URLs, pattern and scrape state stay. Two shops on one crawl host are both
+   skipped (`crawler.listing_source_crawl_skipped`). Mark the edit `TEMPORARY`, never commit it,
+   and revert with `git checkout -- src/crawler/src/bin/dev.rs` at the end. Registration
+   disables listing sources that are not in the list, so include every source the run needs.
 3. **Prepare the state on a copy.** Unless the task needs `crawler_demo` itself, run against a
    copy: `CREATE DATABASE crawler_<n> TEMPLATE crawler_demo` (it fails while another session is
    connected to `crawler_demo`; retry), then start with
@@ -88,16 +92,17 @@ it to the user as a ticket or a separate decision.
      the optional-field path.
    - URL eligibility (`candidate_service.rs`, `eligible_urls`): a product URL is scraped when
      `last_scraped` is null or older than one day, `next_retry_at` is null or past, the source
-     has no `PENDING_REVIEW` product-schema review, and the domain has no open circuit. To
+     has no `PENDING_REVIEW` product-schema review, and its scrape circuit is not open. To
      rescrape a sample set `last_scraped`, `last_scraped_hash`,
      `last_scraped_schema_fingerprint` and `last_captured_raw_input_sha256` to null; the last
      one forces a new capture even when the extracted input is unchanged.
    - Pick the sample from the previous captures in the repo-root `scraped_raw_observations.json`
      (index by `sourceRecordKey`) and from `crawler_review_pages` of the reviews the task cites,
      so the exact pages that misbehaved are in the run. 150–400 URLs is enough.
-   - Keep the run focused: defer other domains' pending URLs with `next_retry_at` (the domain
-     `next_scrape_at` only gates domains with a failure streak), and push `next_crawl_at` out so
-     the spider stays quiet unless the change is a spider change.
+   - Keep the run focused: defer other sources' pending URLs with `next_retry_at`
+     (`listing_sources.next_scrape_at` only gates sources with a scrape failure streak), and push
+     `listing_sources.next_crawl_at` out so the spider stays quiet unless the change is a spider
+     change.
 4. **Build and start.** `cargo build --locked -p crawler --bin dev` (with
    `CARGO_PROFILE_DEV_DEBUG=0` on a small disk), then run `target/debug/dev` (`dev.exe` on
    Windows, under `CARGO_TARGET_DIR` when set) from the worktree root with
@@ -108,11 +113,11 @@ it to the user as a ticket or a separate decision.
    `pgrep -x <name>` on a private copy named for the run (at most 15 characters, all that
    `pgrep -x` compares). `$!` after a backgrounded `cd … && …` chain names the wrapping shell,
    which does not pass SIGINT on.
-   The scraper runs 50 URLs per domain per pass and the pass is a barrier, so a 360-URL sample
-   over three domains takes about five passes of four minutes in a debug build.
+   The scraper runs 50 URLs per ListingSource per pass and the pass is a barrier, so a 360-URL
+   sample over three shops takes about five passes of four minutes in a debug build.
 5. **Watch.** Tail the log for `Scraper scheduler pass complete`, review creation, schema
    generation, `"level":"ERROR"` and every `WARN` kind; count the change's own diagnostic.
-   Check the database every pass: scraped and pending per domain, `crawler_reviews` created
+   Check the database every pass: scraped and pending per ListingSource, `crawler_reviews` created
    since the start, `llm_calls_count`. Stop as soon as the sample is exhausted or a pass repeats
    the same skipped URLs; a pass that only skips is itself a finding.
 6. **Judge with evidence.**
@@ -227,7 +232,7 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
 - Only `src/crawler` changes; see the scope rule above.
 - Spend LLM budget deliberately: a verification run should need zero or a handful of calls; an
   unexpected generation is a finding.
-- Be polite to shops: one pass over a sample, no re-fetch loops, stop a domain that returns 429.
+- Be polite to shops: one pass over a sample, no re-fetch loops, stop a shop that returns 429.
 - Never log or paste `.env` values, credentials or raw provider payloads.
 - Findings that are not caused by the change go into tickets or the hand-over note, not into
   the change.

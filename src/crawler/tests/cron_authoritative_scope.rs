@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use crawler::scraper::candidate_service::ScraperCandidateService;
 use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
-    FallbackCurrency, ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
+    ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ListingSourceRegistrationService, ListingSourceRegistrationSource, ListingSourceSyncError,
-    RegisteredListingSource,
+    RegisteredListingSource, ScopedListingSource,
 };
 use crawler::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
@@ -14,7 +14,7 @@ use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::CrawlPace;
 use crawler::spider::local_lock::LocalLockManager;
 use crawler::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
-use crawler::{CrawlerDomainId, scraper};
+use crawler::{CrawlRoot, scraper};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use std::sync::{
     Arc,
@@ -56,7 +56,6 @@ impl SpiderService for NoWorkSpider {
     async fn run(
         &self,
         _: &ListingSourceId,
-        _: &CrawlerDomainId,
         _: &str,
         _: usize,
         _: CrawlPace,
@@ -97,16 +96,18 @@ impl ProductListingRawCaptureService for NoWorkRawCapture {
     }
 }
 
-fn registered_listing_source(listing_source_id: ListingSourceId) -> RegisteredListingSource {
-    RegisteredListingSource {
+fn scoped_listing_source(listing_source_id: ListingSourceId) -> ScopedListingSource {
+    ScopedListingSource {
         listing_source_id,
         listing_source_name: ListingSourceName::try_from("Crawler admission source")
             .unwrap_or_else(|error| panic!("valid test ListingSource name: {error}")),
         listing_source_slug: ListingSourceSlugId::raw("crawler-admission-source")
             .unwrap_or_else(|error| panic!("valid test ListingSource slug: {error}")),
         crawl_enabled: true,
-        fallback_currency: FallbackCurrency::Supplied(None),
-        public_host: None,
+        crawl_root: Some(
+            CrawlRoot::from_presentation_url("https://crawler-admission.example/")
+                .unwrap_or_else(|error| panic!("valid test presentation URL: {error}")),
+        ),
     }
 }
 
@@ -219,28 +220,16 @@ async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     let listing_source_id = ListingSourceId::new();
     let registration_repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
     registration_repository
-        .apply_snapshot(&[registered_listing_source(listing_source_id)])
+        .apply_snapshot(&[scoped_listing_source(listing_source_id)])
         .await
         .unwrap_or_else(|error| panic!("seed enabled crawler ListingSource: {error}"));
-    let domain_id = CrawlerDomainId::new();
-    sqlx::query(
-        "INSERT INTO listing_source_domains \
-         (domain_id, listing_source_id, listing_source_domain, crawl_root_host) \
-         VALUES ($1, $2, 'crawler-admission.example', 'crawler-admission.example')",
-    )
-    .bind(domain_id.as_uuid())
-    .bind(listing_source_id.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap_or_else(|error| panic!("seed crawler domain: {error}"));
     sqlx::query(
         "INSERT INTO listing_source_urls \
-         (listing_source_id, domain_id, url, raw_source_record_key, url_class) \
-         VALUES ($1, $2, 'https://crawler-admission.example/products/1', \
+         (listing_source_id, url, raw_source_record_key, url_class) \
+         VALUES ($1, 'https://crawler-admission.example/products/1', \
                  'https://crawler-admission.example/products/1', 'product')",
     )
     .bind(listing_source_id.as_uuid())
-    .bind(domain_id.as_uuid())
     .execute(&pool)
     .await
     .unwrap_or_else(|error| panic!("seed crawler product URL: {error}"));

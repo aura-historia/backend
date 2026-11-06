@@ -2,13 +2,12 @@ use listing_source_core::ListingSourceId;
 mod bookkeeping;
 mod budget;
 mod cached_schema_selection;
-mod contract;
-mod fallback_currency;
 mod fresh_schema_generation;
 mod happy_path;
 mod hash_skip;
 mod image_evidence;
 mod manual_schema_authoring;
+mod numeric_price;
 mod redirect_guard;
 mod removed_page;
 mod richest_schema_selection;
@@ -56,7 +55,6 @@ pub(super) fn primary_only_request(
     url: &Url,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: None,
         listing_source_id: *listing_source_id,
         url: url.clone(),
         source_record_key: url.to_string(),
@@ -66,7 +64,6 @@ pub(super) fn primary_only_request(
         last_scraped_hash: None,
         last_scraped_schema_fingerprint: None,
         expected_last_captured_raw_input_sha256: None,
-        fallback_currency: None,
         mode: ScrapeMode::PrimaryOnly,
     }
 }
@@ -84,7 +81,6 @@ pub(super) fn primary_only_request_with_pattern(
 
 pub(super) fn normal_request(listing_source_id: &ListingSourceId, url: &Url) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: Some(crate::CrawlerDomainId::new()),
         mode: ScrapeMode::Normal,
         ..primary_only_request(listing_source_id, url)
     }
@@ -96,7 +92,6 @@ pub(super) fn normal_request_with_pattern(
     product_url_pattern: &str,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        domain_id: Some(crate::CrawlerDomainId::new()),
         mode: ScrapeMode::Normal,
         ..primary_only_request_with_pattern(listing_source_id, url, product_url_pattern)
     }
@@ -149,7 +144,7 @@ pub(super) fn fetch_result_for(html: String, final_url: Url) -> FetchedHtml {
     FetchedHtml::new(html, final_url, reqwest::StatusCode::OK)
 }
 
-pub(super) async fn with_test_scrape_domain<F, T>(future: F) -> T
+pub(super) async fn with_test_scrape_observation<F, T>(future: F) -> T
 where
     F: Future<Output = T>,
 {

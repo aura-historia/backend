@@ -1,5 +1,6 @@
 use super::job::CrawlerCronJob;
 use super::metrics::emit_pass_duration;
+use crate::CrawlerReviewId;
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
@@ -17,10 +18,8 @@ use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
     CrawlCompletion, CrawlCooldownProfile, CrawlFailureKind, CrawlPace, SpiderDiscoveryError,
 };
-use crate::spider::local_lock::{DomainLock, DomainLockScope};
+use crate::spider::local_lock::{WorkLock, WorkLockScope};
 use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
-use crate::{CrawlerDomainId, CrawlerReviewId};
-#[cfg(test)]
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -74,7 +73,7 @@ fn rate_limited_crawl_cooldown(rate_limit_streak: i32, retry_after: Option<Durat
 }
 
 /// What a run whose crawl a shop's rate-limit answer stopped records,
-/// whatever its outcome: the domain's rate-limit streak grows by one and its
+/// whatever its outcome: the ListingSource's rate-limit streak grows by one and its
 /// next crawl waits for the rate-limit cooldown, returned for the log.
 fn rate_limited_crawl_write(
     candidate: &SpiderCandidate,
@@ -89,7 +88,7 @@ fn rate_limited_crawl_write(
     (write, cooldown)
 }
 
-/// The pace of the domain's next crawl, slowed by its rate-limit streak.
+/// The pace of the ListingSource's next crawl, slowed by its rate-limit streak.
 fn crawl_pace(candidate: &SpiderCandidate) -> CrawlPace {
     CrawlPace::after_rate_limited_crawls(
         u32::try_from(candidate.crawl_rate_limit_streak).unwrap_or(0),
@@ -103,8 +102,8 @@ fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
 /// Persisted error kinds of the failures whose run delivered pages but found no product URL
 /// ([`SpiderServiceError::found_no_product_urls`]). They count as one failure streak, so a site
 /// without a catalogue whose runs alternate between them is escalated like one that repeats a
-/// single kind: each such run moves the domain's crawl frontier on, and the streak bounds how
-/// often it does (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+/// single kind: each such run moves the ListingSource's crawl frontier on, and the streak bounds
+/// how often it does (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 const NO_PRODUCT_URL_ERROR_KINDS: [&str; 3] = [
     "InsufficientInferenceSample",
     "NoProductUrls",
@@ -119,7 +118,7 @@ fn in_shared_failure_streak(error_kind: &str) -> bool {
         || error_kind == CrawlFailureKind::BotProtection.as_str()
 }
 
-/// Whether a failure of `error_kind` continues the streak of the domain's last failure.
+/// Whether a failure of `error_kind` continues the streak of the ListingSource's last failure.
 fn continues_failure_streak(last_error_kind: Option<&str>, error_kind: &str) -> bool {
     last_error_kind.is_some_and(|last| {
         last == error_kind
@@ -156,7 +155,7 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
 }
 
 /// Consecutive failures of one streak ([`continues_failure_streak`]) after
-/// which a domain stops retrying and waits for an operator. Failures that
+/// which a ListingSource stops retrying and waits for an operator. Failures that
 /// need a site or configuration change (the recoverable profile) escalate:
 /// with two short retries and then the long cooldown, the fifth failure comes
 /// about a week after the first. So does `BotProtection`, which keeps its
@@ -174,7 +173,7 @@ fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
 
 /// Cooldown for the catch-all `spider_run_error` case (internal or config
 /// faults without a crawl profile). Starts at the generic durable retry
-/// cooldown and escalates like the scraper domain circuit, so a persistent
+/// cooldown and escalates like the scrape circuit, so a persistent
 /// fault cannot retry every few minutes forever.
 fn unclassified_cooldown_for_failure_count(failure_count: i32) -> Duration {
     let failure_streak = u32::try_from(failure_count).unwrap_or(1);
@@ -205,7 +204,7 @@ fn error_kind_for_spider_error(error: &SpiderServiceError) -> &'static str {
     }
 }
 
-/// A domain waiting for a URL-pattern review is released by the review's
+/// A ListingSource waiting for a URL-pattern review is released by the review's
 /// decision; this bound only keeps an undecided review from parking it
 /// forever.
 const URL_PATTERN_REVIEW_WAIT: Duration = SPIDER_RECRAWL_INTERVAL;
@@ -219,21 +218,21 @@ enum SpiderSlotStatus {
     /// The crawl stopped classifying at a pending URL-pattern review.
     AwaitingReview,
     /// The crawl waited on a URL-pattern review that was decided before the run recorded the
-    /// wait. The decision released the domain, so the run records no outcome over it.
+    /// wait. The decision released the ListingSource, so the run records no outcome over it.
     ReviewDecided,
     Failed,
-    /// Repeated deterministic failures; the domain is not retried until an
+    /// Repeated deterministic failures; the ListingSource is not retried until an
     /// operator acts.
     StoppedForOperator,
-    /// The domain moved to another crawl root while the run crawled the old one, so the run
+    /// The ListingSource moved to another crawl root while the run crawled the old one, so the run
     /// records no outcome over the move.
     RootMoved,
-    /// Another spider worker holds the domain lock.
+    /// Another spider worker holds the spider ListingSource lock.
     Deferred,
 }
 
 struct SpiderSlotOutcome {
-    domain_id: CrawlerDomainId,
+    listing_source_id: ListingSourceId,
     status: SpiderSlotStatus,
 }
 
@@ -241,7 +240,7 @@ fn next_crawl_after(cooldown: Duration) -> time::OffsetDateTime {
     time::OffsetDateTime::now_utc() + time::Duration::seconds(cooldown.as_secs() as i64)
 }
 
-/// The run's write of `outcome` found the domain on another crawl root: the move cleared the
+/// The run's write of `outcome` found the ListingSource on another crawl root: the move cleared the
 /// old root's crawl state, and the run's outcome, which describes the old root, is not recorded
 /// over it (`docs/crawler/operations.md#manual-authoring`). A failed run names its `failure`
 /// here, since it writes no failure log either.
@@ -251,11 +250,11 @@ fn record_root_moved(
     failure: Option<(&SpiderServiceError, &str)>,
 ) -> SpiderSlotStatus {
     info!(
-        domain = %candidate.listing_source_domain,
+        crawl_host = %candidate.crawl_root.host(),
         outcome,
         error = failure.map(|(error, _)| tracing::field::display(error)),
         error_kind = failure.map(|(_, error_kind)| error_kind),
-        "Domain moved to another crawl root while the spider run crawled this one; the run's outcome is not recorded"
+        "ListingSource moved to another crawl root while the spider run crawled this one; the run's outcome is not recorded"
     );
     SpiderSlotStatus::RootMoved
 }
@@ -276,7 +275,7 @@ async fn record_completed_run(
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist crawl completion metadata"
         ),
     }
@@ -284,9 +283,9 @@ async fn record_completed_run(
 }
 
 /// Neither a success nor a failure: failure and truncation metadata stay
-/// untouched, and the reviewer's decision releases the domain. A decision
+/// untouched, and the reviewer's decision releases the ListingSource. A decision
 /// that came first, such as a rejection while the crawl ran, already
-/// released it; the domain keeps the crawl state that decision left.
+/// released it; the ListingSource keeps the crawl state that decision left.
 async fn record_review_wait_run(
     spider_candidates: &dyn SpiderCandidateService,
     candidate: &SpiderCandidate,
@@ -310,28 +309,28 @@ async fn record_review_wait_run(
         Ok(UrlPatternReviewWaitWrite::RootMoved) => {
             return record_root_moved(candidate, AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, None);
         }
-        // The decision released the domain, but not from the shop's limit.
+        // The decision released the ListingSource, but not from the shop's limit.
         Ok(UrlPatternReviewWaitWrite::ReviewNotPending) if let Some(rate_limit) = rate_limit => {
             return record_rate_limited_run(spider_candidates, candidate, result, rate_limit).await;
         }
         Ok(UrlPatternReviewWaitWrite::ReviewNotPending) => {
             info!(
-                domain = %candidate.listing_source_domain,
+                crawl_host = %candidate.crawl_root.host(),
                 review_id = %review_id,
                 completion = %result.completion,
                 total_crawled = result.total_links,
-                "URL pattern review was decided before the spider run recorded its wait; the domain keeps the crawl state the decision left"
+                "URL pattern review was decided before the spider run recorded its wait; the ListingSource keeps the crawl state the decision left"
             );
             return SpiderSlotStatus::ReviewDecided;
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist crawl review-wait metadata"
         ),
     }
     info!(
-        domain = %candidate.listing_source_domain,
+        crawl_host = %candidate.crawl_root.host(),
         review_id = %review_id,
         completion = %result.completion,
         total_crawled = result.total_links,
@@ -367,12 +366,12 @@ async fn record_truncated_run(
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist crawl truncation metadata"
         ),
     }
     warn!(
-        domain = %candidate.listing_source_domain,
+        crawl_host = %candidate.crawl_root.host(),
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
@@ -385,7 +384,7 @@ async fn record_truncated_run(
     SpiderSlotStatus::Truncated
 }
 
-/// An incremental crawl between full crawls: it keeps the domain's full-crawl,
+/// An incremental crawl between full crawls: it keeps the ListingSource's full-crawl,
 /// truncation and rate-limit state, and the next one is due a day after it.
 /// What it left unvisited carries over like a full crawl's frontier.
 async fn record_incremental_run(
@@ -403,12 +402,12 @@ async fn record_incremental_run(
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist incremental crawl metadata"
         ),
     }
     info!(
-        domain = %candidate.listing_source_domain,
+        crawl_host = %candidate.crawl_root.host(),
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
@@ -441,12 +440,12 @@ async fn record_rate_limited_run(
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist rate-limited crawl metadata"
         ),
     }
     warn!(
-        domain = %candidate.listing_source_domain,
+        crawl_host = %candidate.crawl_root.host(),
         completion = %result.completion,
         rate_limit_status = rate_limit.status,
         retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
@@ -507,7 +506,7 @@ async fn record_failed_run(
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist crawl failure metadata"
         ),
     }
@@ -521,7 +520,7 @@ async fn record_failed_run(
     );
     if let Some((rate_limit, (write, _))) = rate_limit {
         warn!(
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             rate_limit_status = rate_limit.status,
             retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
             rate_limit_streak = write.streak,
@@ -533,7 +532,7 @@ async fn record_failed_run(
 }
 
 /// The failure is recorded like any other, but without a cooldown: the
-/// domain leaves the schedule until an operator changes its configuration.
+/// ListingSource leaves the schedule until an operator changes its configuration.
 async fn record_run_stopped_for_operator(
     spider_candidates: &dyn SpiderCandidateService,
     candidate: &SpiderCandidate,
@@ -555,16 +554,16 @@ async fn record_run_stopped_for_operator(
         }
         Err(err) => warn!(
             error = ?err,
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             "Failed to persist crawl needs-operator metadata"
         ),
     }
     warn!(
-        domain = %candidate.listing_source_domain,
+        crawl_host = %candidate.crawl_root.host(),
         error = %error.cause(),
         error_kind,
         failure_count,
-        "Spider run kept failing; domain waits for an operator"
+        "Spider run kept failing; ListingSource waits for an operator"
     );
     SpiderSlotStatus::StoppedForOperator
 }
@@ -586,7 +585,7 @@ fn log_spider_failure(
             diagnostics,
             ..
         } => warn!(
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -623,7 +622,7 @@ fn log_spider_failure(
             diagnostics,
             ..
         } => warn!(
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -660,7 +659,7 @@ fn log_spider_failure(
             preflight @ SpiderDiscoveryError::Preflight { reason, source, .. },
         ) => {
             warn!(
-                domain = %candidate.listing_source_domain,
+                crawl_host = %candidate.crawl_root.host(),
                 error = %error,
                 error_kind,
                 failure_count,
@@ -679,7 +678,7 @@ fn log_spider_failure(
             completion,
             ..
         } => warn!(
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -697,7 +696,7 @@ fn log_spider_failure(
             completion,
             ..
         } => warn!(
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -710,7 +709,7 @@ fn log_spider_failure(
             "Spider run failed"
         ),
         _ => warn!(
-            domain = %candidate.listing_source_domain,
+            crawl_host = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -748,7 +747,7 @@ async fn record_run_outcome(
     }
 }
 
-/// The `last_crawl_outcome` a run left on its domain.
+/// The `last_crawl_outcome` a run left on its ListingSource.
 fn persisted_crawl_outcome(
     run: &Result<SpiderRunResult, SpiderServiceError>,
     status: SpiderSlotStatus,
@@ -768,7 +767,7 @@ fn persisted_crawl_outcome(
 }
 
 /// The product URL count and completion of a run that classified its URLs with the
-/// domain's product pattern, including a pattern that matched nothing. An incremental crawl
+/// ListingSource's product pattern, including a pattern that matched nothing. An incremental crawl
 /// counts the stored product pages it found linked and did not fetch again too, so a day
 /// without new products does not read as a pattern that matched nothing.
 fn classified_crawl(
@@ -792,12 +791,7 @@ fn emit_crawl_metrics(
     run: &Result<SpiderRunResult, SpiderServiceError>,
     status: SpiderSlotStatus,
 ) {
-    let record = || {
-        MetricRecord::for_listing_source_domain(
-            &candidate.listing_source_id,
-            &candidate.listing_source_domain,
-        )
-    };
+    let record = || MetricRecord::for_listing_source(&candidate.listing_source_id);
     if let Some(outcome) = persisted_crawl_outcome(run, status) {
         record()
             .with_dimension(MetricDimension::CrawlOutcome, outcome)
@@ -815,13 +809,6 @@ fn emit_crawl_metrics(
     }
 }
 
-/// The crawl root is always `https://{host}`: the stored host is a bare host, never a URL, and
-/// there is no plain-HTTP fallback. A host that merely starts with `http` (`httpbin.org`) is
-/// still a host.
-fn crawl_root_url(host: &str) -> String {
-    format!("https://{host}")
-}
-
 fn spawn_spider_candidate(
     join_set: &mut JoinSet<SpiderSlotOutcome>,
     candidate: SpiderCandidate,
@@ -830,31 +817,27 @@ fn spawn_spider_candidate(
     lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
 ) {
-    let crawl_root_url = crawl_root_url(&candidate.listing_source_domain);
-    let domain_id = candidate.domain_id;
+    let crawl_root_url = candidate.crawl_root.url().to_string();
+    let listing_source_id = candidate.listing_source_id;
     let pace = crawl_pace(&candidate);
     let span = tracing::info_span!(
         "spider_candidate",
         listing_source_id = %candidate.listing_source_id,
-        domain_id = %candidate.domain_id,
         crawl_root_url = %crawl_root_url,
         kind = %candidate.kind
     );
 
     join_set.spawn(
         async move {
-            let Some(_lock) = DomainLock::try_acquire(
-                &lock_manager,
-                DomainLockScope::Spider,
-                candidate.domain_id,
-            ) else {
+            let Some(_lock) =
+                WorkLock::try_acquire(&lock_manager, WorkLockScope::Spider, listing_source_id)
+            else {
                 debug!(
-                    listing_source_id = %candidate.listing_source_id,
-                    domain_id = %candidate.domain_id,
-                    "Deferring domain - lock held by another spider worker"
+                    listing_source_id = %listing_source_id,
+                    "Deferring ListingSource - lock held by another spider worker"
                 );
                 return SpiderSlotOutcome {
-                    domain_id,
+                    listing_source_id,
                     status: SpiderSlotStatus::Deferred,
                 };
             };
@@ -862,7 +845,6 @@ fn spawn_spider_candidate(
             let run = spider_service
                 .run(
                     &candidate.listing_source_id,
-                    &candidate.domain_id,
                     &crawl_root_url,
                     threshold,
                     pace,
@@ -871,7 +853,10 @@ fn spawn_spider_candidate(
                 .await;
             let status = record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
             emit_crawl_metrics(&candidate, &run, status);
-            SpiderSlotOutcome { domain_id, status }
+            SpiderSlotOutcome {
+                listing_source_id,
+                status,
+            }
         }
         .instrument(span),
     );
@@ -892,7 +877,7 @@ impl CrawlerCronJob {
         }
 
         let pass_start = tokio::time::Instant::now();
-        let mut excluded_domain_ids: HashSet<CrawlerDomainId> = HashSet::new();
+        let mut excluded_listing_source_ids: HashSet<ListingSourceId> = HashSet::new();
         let mut join_set: JoinSet<SpiderSlotOutcome> = JoinSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
@@ -916,7 +901,8 @@ impl CrawlerCronJob {
 
                 let open_slots = spider_concurrency - join_set.len();
                 let limit = (open_slots as i64).max(1);
-                let excluded: Vec<CrawlerDomainId> = excluded_domain_ids.iter().copied().collect();
+                let excluded: Vec<ListingSourceId> =
+                    excluded_listing_source_ids.iter().copied().collect();
                 let candidates = match self
                     .spider_candidates
                     .get_candidates(limit, &excluded)
@@ -953,7 +939,7 @@ impl CrawlerCronJob {
                     if join_set.len() >= spider_concurrency {
                         break;
                     }
-                    if !excluded_domain_ids.insert(candidate.domain_id) {
+                    if !excluded_listing_source_ids.insert(candidate.listing_source_id) {
                         continue;
                     }
                     scheduled_any = true;
@@ -979,7 +965,7 @@ impl CrawlerCronJob {
 
             match join_set.join_next().await {
                 Some(Ok(outcome)) => {
-                    excluded_domain_ids.insert(outcome.domain_id);
+                    excluded_listing_source_ids.insert(outcome.listing_source_id);
                     match outcome.status {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
@@ -1023,6 +1009,7 @@ impl CrawlerCronJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CrawlRoot;
     use crate::network::policy::MAX_EXPONENTIAL_COOLDOWN;
     use crate::scraper::candidate_service::MockScraperCandidateService;
     use crate::scraper::scraper_service::MockScraperService;
@@ -1039,29 +1026,17 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::Notify;
 
-    #[test]
-    fn crawl_root_url_is_always_https_host() {
-        for (host, expected) in [
-            ("example.com", "https://example.com"),
-            ("httpbin.org", "https://httpbin.org"),
-            ("httpbin.org:8443", "https://httpbin.org:8443"),
-            ("https-shop.example", "https://https-shop.example"),
-        ] {
-            assert_eq!(crawl_root_url(host), expected);
-        }
-    }
-
     #[tokio::test]
-    async fn should_crawl_a_host_starting_with_http_from_its_https_root() {
-        let domain_id = CrawlerDomainId::new();
+    async fn should_crawl_a_candidate_from_its_crawl_root_url_with_its_path() {
+        let listing_source_id = ListingSourceId::new();
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
                     Ok(vec![SpiderCandidate {
-                        listing_source_domain: "httpbin.org".to_string(),
-                        ..spider_candidate(domain_id)
+                        crawl_root: crawl_root("https://httpbin.org/en/antiques/"),
+                        ..spider_candidate(listing_source_id)
                     }])
                 })
             });
@@ -1073,8 +1048,10 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .withf(|_, _, crawl_root_url, _, _, _| crawl_root_url == "https://httpbin.org")
-            .returning(|_, _, _, _, _, _| {
+            .withf(|_, crawl_root_url, _, _, _| {
+                crawl_root_url == "https://httpbin.org/en/antiques/"
+            })
+            .returning(|_, _, _, _, _| {
                 Box::pin(async {
                     Err(crate::spider::service::SpiderServiceError::Database(
                         sqlx::Error::RowNotFound,
@@ -1087,11 +1064,15 @@ mod tests {
             .await;
     }
 
-    fn spider_candidate(domain_id: CrawlerDomainId) -> SpiderCandidate {
+    fn crawl_root(presentation_url: &str) -> CrawlRoot {
+        CrawlRoot::from_presentation_url(presentation_url)
+            .unwrap_or_else(|error| panic!("{presentation_url} is a crawl root: {error}"))
+    }
+
+    fn spider_candidate(listing_source_id: ListingSourceId) -> SpiderCandidate {
         SpiderCandidate {
-            listing_source_id: ListingSourceId::new(),
-            domain_id,
-            listing_source_domain: "example.com".to_string(),
+            listing_source_id,
+            crawl_root: crawl_root("https://example.com/"),
             crawl_failure_count: 0,
             last_crawl_error_kind: None,
             crawl_truncation_count: 0,
@@ -1108,7 +1089,7 @@ mod tests {
 
     #[test]
     fn next_failure_count_increments_for_same_error_kind() {
-        let mut candidate = spider_candidate(CrawlerDomainId::new());
+        let mut candidate = spider_candidate(ListingSourceId::new());
         candidate.crawl_failure_count = 2;
         candidate.last_crawl_error_kind = Some("InsufficientInferenceSample".to_string());
 
@@ -1125,7 +1106,7 @@ mod tests {
             ("NoProductUrls", "NoUrlPattern"),
             ("NoUrlPattern", "InsufficientInferenceSample"),
         ] {
-            let mut candidate = spider_candidate(CrawlerDomainId::new());
+            let mut candidate = spider_candidate(ListingSourceId::new());
             candidate.crawl_failure_count = 2;
             candidate.last_crawl_error_kind = Some(last.to_string());
 
@@ -1136,7 +1117,7 @@ mod tests {
     #[test]
     fn next_failure_count_resets_between_a_no_product_url_kind_and_another_kind() {
         for (last, next) in [("NoUrlPattern", "TinyCrawl"), ("TinyCrawl", "NoUrlPattern")] {
-            let mut candidate = spider_candidate(CrawlerDomainId::new());
+            let mut candidate = spider_candidate(ListingSourceId::new());
             candidate.crawl_failure_count = 2;
             candidate.last_crawl_error_kind = Some(last.to_string());
 
@@ -1164,7 +1145,7 @@ mod tests {
 
     #[test]
     fn next_failure_count_should_count_an_alternating_run_of_bot_protection_and_no_product_kinds() {
-        let mut candidate = spider_candidate(CrawlerDomainId::new());
+        let mut candidate = spider_candidate(ListingSourceId::new());
         let mut count = 0;
         for kind in [
             "BotProtection",
@@ -1197,7 +1178,7 @@ mod tests {
 
     #[test]
     fn next_failure_count_resets_for_changed_error_kind() {
-        let mut candidate = spider_candidate(CrawlerDomainId::new());
+        let mut candidate = spider_candidate(ListingSourceId::new());
         candidate.crawl_failure_count = 2;
         candidate.last_crawl_error_kind = Some("TinyCrawl".to_string());
 
@@ -1541,10 +1522,10 @@ mod tests {
 
     #[tokio::test]
     async fn should_record_an_incremental_run_without_touching_full_crawl_or_truncation_state() {
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         let candidate = SpiderCandidate {
             kind: CrawlKind::Incremental,
-            ..spider_candidate(domain_id)
+            ..spider_candidate(listing_source_id)
         };
         for (completion, status) in [
             (CrawlCompletion::Completed, "COMPLETED"),
@@ -1556,7 +1537,9 @@ mod tests {
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
                 .expect_mark_incremental_crawl_finished()
-                .withf(move |root, recorded| root.domain_id == domain_id && *recorded == completion)
+                .withf(move |root, recorded| {
+                    root.listing_source_id == listing_source_id && *recorded == completion
+                })
                 .times(1)
                 .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             spider_candidates.expect_mark_crawl_completed().times(0);
@@ -1571,11 +1554,11 @@ mod tests {
 
     #[tokio::test]
     async fn should_hold_back_an_incremental_run_a_shop_rate_limited_like_any_crawl() {
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         let candidate = SpiderCandidate {
             kind: CrawlKind::Incremental,
             crawl_rate_limit_streak: 1,
-            ..spider_candidate(domain_id)
+            ..spider_candidate(listing_source_id)
         };
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
@@ -1584,7 +1567,7 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_rate_limited()
             .withf(move |root, write| {
-                root.domain_id == domain_id
+                root.listing_source_id == listing_source_id
                     && write.streak == 2
                     && next_crawl_at_is_about(
                         write.not_before,
@@ -1607,24 +1590,27 @@ mod tests {
     #[tokio::test]
     async fn should_run_spider_candidates() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
-                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_listing_source_id)]) })
             });
         spider_candidates
             .expect_mark_crawl_completed()
             .withf(move |root, completion| {
-                root.domain_id == expected_domain_id && *completion == CrawlCompletion::Completed
+                root.listing_source_id == expected_listing_source_id
+                    && *completion == CrawlCompletion::Completed
             })
             .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
         spider_service
             .expect_run()
-            .withf(move |_, domain_id, _, _, _, _| *domain_id == expected_domain_id)
-            .returning(|_, _, _, _, _, _| {
+            .withf(move |listing_source_id, _, _, _, _| {
+                *listing_source_id == expected_listing_source_id
+            })
+            .returning(|_, _, _, _, _| {
                 Box::pin(async {
                     Ok(SpiderRunResult {
                         total_links: 10,
@@ -1660,9 +1646,9 @@ mod tests {
 
     #[tokio::test]
     async fn should_refill_spider_slot_while_slow_crawl_is_running() {
-        let slow_domain_id = CrawlerDomainId::new();
-        let fast_domain_id = CrawlerDomainId::new();
-        let refill_domain_id = CrawlerDomainId::new();
+        let slow_listing_source_id = ListingSourceId::new();
+        let fast_listing_source_id = ListingSourceId::new();
+        let refill_listing_source_id = ListingSourceId::new();
 
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
@@ -1672,14 +1658,14 @@ mod tests {
                 Box::pin(async move {
                     if excluded.is_empty() {
                         Ok(vec![
-                            spider_candidate(slow_domain_id),
-                            spider_candidate(fast_domain_id),
+                            spider_candidate(slow_listing_source_id),
+                            spider_candidate(fast_listing_source_id),
                         ])
-                    } else if excluded.contains(&slow_domain_id)
-                        && excluded.contains(&fast_domain_id)
-                        && !excluded.contains(&refill_domain_id)
+                    } else if excluded.contains(&slow_listing_source_id)
+                        && excluded.contains(&fast_listing_source_id)
+                        && !excluded.contains(&refill_listing_source_id)
                     {
-                        Ok(vec![spider_candidate(refill_domain_id)])
+                        Ok(vec![spider_candidate(refill_listing_source_id)])
                     } else {
                         Ok(vec![])
                     }
@@ -1701,21 +1687,21 @@ mod tests {
         spider_service
             .expect_run()
             .times(3)
-            .returning(move |_, domain_id, _, _, _, _| {
-                let domain_id = *domain_id;
+            .returning(move |listing_source_id, _, _, _, _| {
+                let listing_source_id = *listing_source_id;
                 let release_slow = Arc::clone(&release_slow_for_mock);
                 let slow_running = Arc::clone(&slow_running_for_mock);
                 let refill_started = Arc::clone(&refill_started_for_mock);
                 Box::pin(async move {
-                    if domain_id == slow_domain_id {
+                    if listing_source_id == slow_listing_source_id {
                         slow_running.store(true, Ordering::SeqCst);
                         release_slow.notified().await;
                         slow_running.store(false, Ordering::SeqCst);
-                    } else if domain_id == fast_domain_id {
+                    } else if listing_source_id == fast_listing_source_id {
                         while !slow_running.load(Ordering::SeqCst) {
                             tokio::time::sleep(Duration::from_millis(1)).await;
                         }
-                    } else if domain_id == refill_domain_id {
+                    } else if listing_source_id == refill_listing_source_id {
                         if slow_running.load(Ordering::SeqCst) {
                             refill_started.store(true, Ordering::SeqCst);
                         }
@@ -1764,7 +1750,7 @@ mod tests {
             .expect_get_candidates()
             .once()
             .returning(|_, _| {
-                Box::pin(async { Ok(vec![spider_candidate(CrawlerDomainId::new())]) })
+                Box::pin(async { Ok(vec![spider_candidate(ListingSourceId::new())]) })
             });
         spider_candidates
             .expect_mark_crawl_completed()
@@ -1778,7 +1764,7 @@ mod tests {
         spider_service
             .expect_run()
             .once()
-            .returning(move |_, _, _, _, _, _| {
+            .returning(move |_, _, _, _, _| {
                 let crawl_started = Arc::clone(&crawl_started_for_mock);
                 let release_crawl = Arc::clone(&release_crawl_for_mock);
                 Box::pin(async move {
@@ -1819,16 +1805,16 @@ mod tests {
     #[tokio::test]
     async fn should_mark_crawl_failure_when_spider_run_errors() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
-                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_listing_source_id)]) })
             });
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "spider_run_error"
                     && *failure_count == 1
                     && next_crawl_at_is_about(
@@ -1839,7 +1825,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _| {
             Box::pin(async {
                 Err(crate::spider::service::SpiderServiceError::Database(
                     sqlx::Error::RowNotFound,
@@ -1871,16 +1857,16 @@ mod tests {
     #[tokio::test]
     async fn should_mark_insufficient_inference_sample_failure_with_specific_error_kind() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
-                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_listing_source_id)]) })
             });
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "InsufficientInferenceSample"
                     && *failure_count == 1
                     && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
@@ -1888,7 +1874,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
@@ -1926,12 +1912,12 @@ mod tests {
     #[tokio::test]
     async fn should_escalate_cooldown_after_repeated_spider_run_errors() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("spider_run_error".to_string());
                     Ok(vec![candidate])
@@ -1940,7 +1926,7 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "spider_run_error"
                     && *failure_count == 3
                     && next_crawl_at_is_about(
@@ -1951,7 +1937,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _| {
             Box::pin(async {
                 Err(crate::spider::service::SpiderServiceError::Database(
                     sqlx::Error::RowNotFound,
@@ -1983,12 +1969,12 @@ mod tests {
     #[tokio::test]
     async fn should_use_long_cooldown_after_repeated_insufficient_inference_sample_failures() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind =
                         Some("InsufficientInferenceSample".to_string());
@@ -1998,7 +1984,7 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "InsufficientInferenceSample"
                     && *failure_count == 3
                     && next_crawl_at_is_about(*next_crawl_at, RECOVERABLE_CRAWL_LONG_COOLDOWN)
@@ -2006,7 +1992,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
@@ -2046,16 +2032,16 @@ mod tests {
         expected_error_kind: &'static str,
     ) {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
-                Box::pin(async move { Ok(vec![spider_candidate(expected_domain_id)]) })
+                Box::pin(async move { Ok(vec![spider_candidate(expected_listing_source_id)]) })
             });
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == expected_error_kind
                     && *failure_count == 1
                     && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
@@ -2065,7 +2051,7 @@ mod tests {
         let mut spider_service = MockSpiderService::new();
         spider_service
             .expect_run()
-            .returning(move |_, _, _, _, _, _| Box::pin(async move { Err(crawl_failed(kind)) }));
+            .returning(move |_, _, _, _, _| Box::pin(async move { Err(crawl_failed(kind)) }));
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -2113,12 +2099,12 @@ mod tests {
     #[tokio::test]
     async fn should_persist_typed_preflight_failure_instead_of_generic_run_error() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("ConnectError".to_string());
                     Ok(vec![candidate])
@@ -2127,7 +2113,7 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "ConnectError"
                     && *failure_count == 3
                     && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
@@ -2135,7 +2121,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _| {
             Box::pin(async { Err(preflight_failed(CrawlFailureKind::ConnectError)) })
         });
 
@@ -2161,12 +2147,12 @@ mod tests {
     #[tokio::test]
     async fn should_use_long_cooldown_after_repeated_diagnostic_failures() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
                 Box::pin(async move {
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("RateLimited".to_string());
                     Ok(vec![candidate])
@@ -2175,7 +2161,7 @@ mod tests {
         spider_candidates
             .expect_mark_crawl_failure()
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "RateLimited"
                     && *failure_count == 3
                     && next_crawl_at_is_about(*next_crawl_at, TRANSIENT_CRAWL_LONG_COOLDOWN)
@@ -2183,7 +2169,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _| {
             Box::pin(async move { Err(crawl_failed(CrawlFailureKind::RateLimited)) })
         });
 
@@ -2265,7 +2251,7 @@ mod tests {
 
     #[test]
     fn rate_limited_crawl_should_extend_the_streak_and_wait_for_its_cooldown() {
-        let mut candidate = spider_candidate(CrawlerDomainId::new());
+        let mut candidate = spider_candidate(ListingSourceId::new());
         candidate.crawl_rate_limit_streak = 2;
 
         let (write, cooldown) = rate_limited_crawl_write(&candidate, signal(None));
@@ -2286,7 +2272,7 @@ mod tests {
     #[tokio::test]
     async fn should_record_rate_limited_crawl_with_a_short_cooldown_and_crawl_slower_next_time() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
@@ -2295,7 +2281,7 @@ mod tests {
                     if !first_call {
                         return Ok(vec![]);
                     }
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("ConnectError".to_string());
                     candidate.crawl_rate_limit_streak = 1;
@@ -2306,7 +2292,7 @@ mod tests {
             .expect_mark_crawl_rate_limited()
             .times(1)
             .withf(move |root, write| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && write.streak == 2
                     && next_crawl_at_is_about(write.not_before, HOUR * 2)
             })
@@ -2319,8 +2305,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .withf(|_, _, _, _, pace, _| *pace == CrawlPace::after_rate_limited_crawls(1))
-            .returning(|_, _, _, _, _, _| {
+            .withf(|_, _, _, pace, _| *pace == CrawlPace::after_rate_limited_crawls(1))
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(run_result(rate_limited(Some(Duration::from_secs(1_800))))) })
             });
 
@@ -2332,14 +2318,14 @@ mod tests {
     #[tokio::test]
     async fn should_wait_for_a_retry_after_longer_than_the_rate_limit_backoff() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
                 let first_call = excluded.is_empty();
                 Box::pin(async move {
                     Ok(if first_call {
-                        vec![spider_candidate(expected_domain_id)]
+                        vec![spider_candidate(expected_listing_source_id)]
                     } else {
                         vec![]
                     })
@@ -2349,7 +2335,7 @@ mod tests {
             .expect_mark_crawl_rate_limited()
             .times(1)
             .withf(move |root, write| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && write.streak == 1
                     && next_crawl_at_is_about(write.not_before, HOUR * 5)
             })
@@ -2359,8 +2345,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .withf(|_, _, _, _, pace, _| *pace == CrawlPace::default())
-            .returning(|_, _, _, _, _, _| {
+            .withf(|_, _, _, pace, _| *pace == CrawlPace::default())
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(run_result(rate_limited(Some(HOUR * 5)))) })
             });
 
@@ -2373,7 +2359,7 @@ mod tests {
     /// sample to infer a URL pattern, so the run fails with its own kind.
     #[tokio::test]
     async fn should_slow_the_next_crawl_and_honour_retry_after_when_a_rate_limited_run_fails() {
-        let mut spider_candidates = failing_candidate_service(CrawlerDomainId::new(), 0, "None");
+        let mut spider_candidates = failing_candidate_service(ListingSourceId::new(), 0, "None");
         spider_candidates
             .expect_mark_crawl_failure()
             .times(1)
@@ -2407,7 +2393,7 @@ mod tests {
 
     #[tokio::test]
     async fn should_keep_the_rate_limit_state_when_a_failure_saw_no_rate_limit() {
-        let mut spider_candidates = failing_candidate_service(CrawlerDomainId::new(), 0, "None");
+        let mut spider_candidates = failing_candidate_service(ListingSourceId::new(), 0, "None");
         spider_candidates
             .expect_mark_crawl_failure()
             .times(1)
@@ -2426,14 +2412,14 @@ mod tests {
     #[tokio::test]
     async fn should_slow_the_next_crawl_and_honour_retry_after_when_a_rate_limit_fails_the_crawl() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
                 let first_call = excluded.is_empty();
                 Box::pin(async move {
                     Ok(if first_call {
-                        vec![spider_candidate(expected_domain_id)]
+                        vec![spider_candidate(expected_listing_source_id)]
                     } else {
                         vec![]
                     })
@@ -2444,7 +2430,7 @@ mod tests {
             .times(1)
             .withf(
                 move |root, error_kind, failure_count, rate_limit, next_crawl_at| {
-                    root.domain_id == expected_domain_id
+                    root.listing_source_id == expected_listing_source_id
                         && error_kind == "RateLimited"
                         && *failure_count == 1
                         && rate_limit.is_some_and(|write| write.streak == 1)
@@ -2458,7 +2444,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async {
                     let SpiderServiceError::CrawlFailed {
                         crawl_root_url,
@@ -2538,7 +2524,7 @@ mod tests {
     #[tokio::test]
     async fn should_mark_truncated_without_resetting_prior_failure_metadata() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
@@ -2547,7 +2533,7 @@ mod tests {
                     if !first_call {
                         return Ok(vec![]);
                     }
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("RateLimited".to_string());
                     candidate.crawl_truncation_count = 1;
@@ -2558,7 +2544,7 @@ mod tests {
             .expect_mark_crawl_truncated()
             .times(1)
             .withf(move |root, truncation_count, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && *truncation_count == 2
                     && next_crawl_at_is_about(*next_crawl_at, truncated_crawl_cooldown())
             })
@@ -2570,7 +2556,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
             });
 
@@ -2582,14 +2568,14 @@ mod tests {
     #[tokio::test]
     async fn should_treat_page_budget_as_completed_crawl() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
                 let first_call = excluded.is_empty();
                 Box::pin(async move {
                     Ok(if first_call {
-                        vec![spider_candidate(expected_domain_id)]
+                        vec![spider_candidate(expected_listing_source_id)]
                     } else {
                         vec![]
                     })
@@ -2599,7 +2585,7 @@ mod tests {
             .expect_mark_crawl_completed()
             .times(1)
             .withf(move |root, completion| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && *completion == CrawlCompletion::PageBudgetReached
             })
             .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
@@ -2609,7 +2595,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::PageBudgetReached)) })
             });
 
@@ -2621,7 +2607,7 @@ mod tests {
     #[tokio::test]
     async fn should_keep_genuine_failure_classification_after_truncation() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
@@ -2630,7 +2616,7 @@ mod tests {
                     if !first_call {
                         return Ok(vec![]);
                     }
-                    let mut candidate = spider_candidate(expected_domain_id);
+                    let mut candidate = spider_candidate(expected_listing_source_id);
                     candidate.crawl_truncation_count = 3;
                     Ok(vec![candidate])
                 })
@@ -2639,7 +2625,7 @@ mod tests {
             .expect_mark_crawl_failure()
             .times(1)
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "ConnectError"
                     && *failure_count == 1
                     && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
@@ -2652,7 +2638,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async { Err(crawl_failed(CrawlFailureKind::ConnectError)) })
             });
 
@@ -2662,9 +2648,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_complete_other_domains_while_one_crawl_is_truncated() {
-        let truncated_domain_id = CrawlerDomainId::new();
-        let completed_domain_id = CrawlerDomainId::new();
+    async fn should_complete_other_sources_while_one_crawl_is_truncated() {
+        let truncated_listing_source_id = ListingSourceId::new();
+        let completed_listing_source_id = ListingSourceId::new();
 
         let mut spider_candidates = MockSpiderCandidateService::new();
         spider_candidates
@@ -2674,8 +2660,8 @@ mod tests {
                 Box::pin(async move {
                     Ok(if first_call {
                         vec![
-                            spider_candidate(truncated_domain_id),
-                            spider_candidate(completed_domain_id),
+                            spider_candidate(truncated_listing_source_id),
+                            spider_candidate(completed_listing_source_id),
                         ]
                     } else {
                         vec![]
@@ -2686,14 +2672,15 @@ mod tests {
             .expect_mark_crawl_truncated()
             .times(1)
             .withf(move |root, truncation_count, _| {
-                root.domain_id == truncated_domain_id && *truncation_count == 1
+                root.listing_source_id == truncated_listing_source_id && *truncation_count == 1
             })
             .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         spider_candidates
             .expect_mark_crawl_completed()
             .times(1)
             .withf(move |root, completion| {
-                root.domain_id == completed_domain_id && *completion == CrawlCompletion::Completed
+                root.listing_source_id == completed_listing_source_id
+                    && *completion == CrawlCompletion::Completed
             })
             .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
@@ -2701,8 +2688,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(2)
-            .returning(move |_, domain_id, _, _, _, _| {
-                let completion = if *domain_id == truncated_domain_id {
+            .returning(move |listing_source_id, _, _, _, _| {
+                let completion = if *listing_source_id == truncated_listing_source_id {
                     CrawlCompletion::HardTimeoutTruncated
                 } else {
                     CrawlCompletion::Completed
@@ -2716,12 +2703,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_run_spider_candidate_while_the_scraper_holds_its_own_domain_lock() {
+    async fn should_run_spider_candidate_while_the_scraper_holds_its_own_source_lock() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
-            .returning(move |_, _| Box::pin(async move { Ok(vec![spider_candidate(domain_id)]) }));
+            .returning(move |_, _| {
+                Box::pin(async move { Ok(vec![spider_candidate(listing_source_id)]) })
+            });
         spider_candidates
             .expect_mark_crawl_completed()
             .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
@@ -2730,7 +2719,7 @@ mod tests {
         spider_service
             .expect_run()
             .once()
-            .returning(|_, _, _, _, _, _| {
+            .returning(|_, _, _, _, _| {
                 Box::pin(async {
                     Ok(SpiderRunResult {
                         total_links: 10,
@@ -2751,7 +2740,8 @@ mod tests {
         let scraper_service = MockScraperService::new();
         let lock_manager = Arc::new(LocalLockManager::new());
         let _scraper_lock =
-            DomainLock::try_acquire(&lock_manager, DomainLockScope::Scraper, domain_id).unwrap();
+            WorkLock::try_acquire(&lock_manager, WorkLockScope::Scraper, listing_source_id)
+                .unwrap();
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
@@ -2768,13 +2758,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_skip_spider_candidate_when_domain_lock_is_already_held() {
+    async fn should_skip_spider_candidate_when_source_lock_is_already_held() {
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let locked_domain_id = CrawlerDomainId::new();
+        let locked_listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, _| {
-                Box::pin(async move { Ok(vec![spider_candidate(locked_domain_id)]) })
+                Box::pin(async move { Ok(vec![spider_candidate(locked_listing_source_id)]) })
             });
 
         let mut spider_service = MockSpiderService::new();
@@ -2787,9 +2777,12 @@ mod tests {
 
         let scraper_service = MockScraperService::new();
         let lock_manager = Arc::new(LocalLockManager::new());
-        let _prelock =
-            DomainLock::try_acquire(&lock_manager, DomainLockScope::Spider, locked_domain_id)
-                .unwrap();
+        let _prelock = WorkLock::try_acquire(
+            &lock_manager,
+            WorkLockScope::Spider,
+            locked_listing_source_id,
+        )
+        .unwrap();
 
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
@@ -2818,7 +2811,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(move |_, _, _, _, _, _| {
+            .returning(move |_, _, _, _, _| {
                 Box::pin(async move {
                     Ok(SpiderRunResult {
                         pending_url_pattern_review: Some(review_id),
@@ -2835,14 +2828,14 @@ mod tests {
     async fn should_record_a_rate_limited_crawl_even_when_its_review_was_decided_first() {
         let review_id = CrawlerReviewId::new();
         let mut spider_candidates = MockSpiderCandidateService::new();
-        let domain_id = CrawlerDomainId::new();
+        let listing_source_id = ListingSourceId::new();
         spider_candidates
             .expect_get_candidates()
             .returning(move |_, excluded| {
                 let first_call = excluded.is_empty();
                 Box::pin(async move {
                     Ok(if first_call {
-                        vec![spider_candidate(domain_id)]
+                        vec![spider_candidate(listing_source_id)]
                     } else {
                         vec![]
                     })
@@ -2859,7 +2852,7 @@ mod tests {
             .expect_mark_crawl_rate_limited()
             .times(1)
             .withf(move |root, write| {
-                root.domain_id == domain_id
+                root.listing_source_id == listing_source_id
                     && write.streak == 1
                     && next_crawl_at_is_about(write.not_before, HOUR)
             })
@@ -2874,10 +2867,10 @@ mod tests {
         .await;
     }
 
-    /// A candidate service with one due domain that records no outcome but a review wait, which
-    /// its write reports as `wait_write`.
+    /// A candidate service with one due ListingSource that records no outcome but a review wait,
+    /// which its write reports as `wait_write`.
     fn candidate_service_recording_review_wait(
-        domain_id: CrawlerDomainId,
+        listing_source_id: ListingSourceId,
         review_id: CrawlerReviewId,
         wait_write: UrlPatternReviewWaitWrite,
     ) -> MockSpiderCandidateService {
@@ -2890,7 +2883,7 @@ mod tests {
                     if !first_call {
                         return Ok(vec![]);
                     }
-                    let mut candidate = spider_candidate(domain_id);
+                    let mut candidate = spider_candidate(listing_source_id);
                     candidate.crawl_failure_count = 2;
                     candidate.last_crawl_error_kind = Some("RateLimited".to_string());
                     Ok(vec![candidate])
@@ -2900,7 +2893,7 @@ mod tests {
             .expect_mark_crawl_awaiting_url_pattern_review()
             .times(1)
             .withf(move |root, written_review_id, rate_limit, next_crawl_at| {
-                root.domain_id == domain_id
+                root.listing_source_id == listing_source_id
                     && *written_review_id == review_id
                     && rate_limit.is_none()
                     && next_crawl_at_is_about(*next_crawl_at, URL_PATTERN_REVIEW_WAIT)
@@ -2919,7 +2912,7 @@ mod tests {
     async fn should_record_review_wait_without_failure_or_completion_state() {
         let review_id = CrawlerReviewId::new();
         let spider_candidates = candidate_service_recording_review_wait(
-            CrawlerDomainId::new(),
+            ListingSourceId::new(),
             review_id,
             UrlPatternReviewWaitWrite::Recorded,
         );
@@ -2930,7 +2923,7 @@ mod tests {
     }
 
     fn failing_candidate_service(
-        domain_id: CrawlerDomainId,
+        listing_source_id: ListingSourceId,
         failure_count: i32,
         last_error_kind: &'static str,
     ) -> MockSpiderCandidateService {
@@ -2943,7 +2936,7 @@ mod tests {
                     if !first_call {
                         return Ok(vec![]);
                     }
-                    let mut candidate = spider_candidate(domain_id);
+                    let mut candidate = spider_candidate(listing_source_id);
                     candidate.crawl_failure_count = failure_count;
                     candidate.last_crawl_error_kind = Some(last_error_kind.to_string());
                     Ok(vec![candidate])
@@ -2959,19 +2952,20 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(move |_, _, _, _, _, _| Box::pin(async move { Err(error()) }));
+            .returning(move |_, _, _, _, _| Box::pin(async move { Err(error()) }));
         spider_service
     }
 
     #[tokio::test]
     async fn should_record_crawl_without_product_urls_as_failure_instead_of_completion() {
-        let expected_domain_id = CrawlerDomainId::new();
-        let mut spider_candidates = failing_candidate_service(expected_domain_id, 3, "TinyCrawl");
+        let expected_listing_source_id = ListingSourceId::new();
+        let mut spider_candidates =
+            failing_candidate_service(expected_listing_source_id, 3, "TinyCrawl");
         spider_candidates
             .expect_mark_crawl_failure()
             .times(1)
             .withf(move |root, error_kind, failure_count, _, next_crawl_at| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "NoProductUrls"
                     && *failure_count == 1
                     && next_crawl_at_is_about(*next_crawl_at, CRAWL_RETRY_COOLDOWN)
@@ -2991,10 +2985,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_stop_domain_for_operator_when_no_pattern_failures_keep_repeating() {
-        let expected_domain_id = CrawlerDomainId::new();
+    async fn should_stop_source_for_operator_when_no_pattern_failures_keep_repeating() {
+        let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
-            expected_domain_id,
+            expected_listing_source_id,
             NEEDS_OPERATOR_FAILURE_COUNT - 1,
             "NoUrlPattern",
         );
@@ -3002,7 +2996,7 @@ mod tests {
             .expect_mark_crawl_needs_operator()
             .times(1)
             .withf(move |root, error_kind, failure_count| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "NoUrlPattern"
                     && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT
             })
@@ -3021,10 +3015,10 @@ mod tests {
     /// Runs that alternate between the kinds that found no product URL reach the operator at
     /// the count a single repeated kind does.
     #[tokio::test]
-    async fn should_stop_domain_for_operator_when_no_product_url_failures_alternate_kinds() {
-        let expected_domain_id = CrawlerDomainId::new();
+    async fn should_stop_source_for_operator_when_no_product_url_failures_alternate_kinds() {
+        let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
-            expected_domain_id,
+            expected_listing_source_id,
             NEEDS_OPERATOR_FAILURE_COUNT - 1,
             "InsufficientInferenceSample",
         );
@@ -3032,7 +3026,7 @@ mod tests {
             .expect_mark_crawl_needs_operator()
             .times(1)
             .withf(move |root, error_kind, failure_count| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "NoUrlPattern"
                     && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT
             })
@@ -3059,10 +3053,10 @@ mod tests {
     /// Alternating `BotProtection` and no-product runs reach the operator at the shared count,
     /// and a bot-protected run below it keeps retrying on the transient cooldown.
     #[tokio::test]
-    async fn should_stop_domain_for_operator_when_bot_protection_continues_a_no_product_streak() {
-        let expected_domain_id = CrawlerDomainId::new();
+    async fn should_stop_source_for_operator_when_bot_protection_continues_a_no_product_streak() {
+        let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
-            expected_domain_id,
+            expected_listing_source_id,
             NEEDS_OPERATOR_FAILURE_COUNT - 1,
             "NoProductUrls",
         );
@@ -3070,7 +3064,7 @@ mod tests {
             .expect_mark_crawl_needs_operator()
             .times(1)
             .withf(move |root, error_kind, failure_count| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "BotProtection"
                     && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT
             })
@@ -3088,9 +3082,9 @@ mod tests {
 
     #[tokio::test]
     async fn should_keep_retrying_bot_protection_below_the_escalation_count() {
-        let expected_domain_id = CrawlerDomainId::new();
+        let expected_listing_source_id = ListingSourceId::new();
         let mut spider_candidates = failing_candidate_service(
-            expected_domain_id,
+            expected_listing_source_id,
             NEEDS_OPERATOR_FAILURE_COUNT - 2,
             "BotProtection",
         );
@@ -3098,7 +3092,7 @@ mod tests {
             .expect_mark_crawl_failure()
             .times(1)
             .withf(move |root, error_kind, failure_count, _, _| {
-                root.domain_id == expected_domain_id
+                root.listing_source_id == expected_listing_source_id
                     && error_kind == "BotProtection"
                     && *failure_count == NEEDS_OPERATOR_FAILURE_COUNT - 1
             })
@@ -3123,6 +3117,7 @@ mod tests {
         #[tokio::test]
         async fn should_emit_outcome_product_count_and_truncation_when_a_crawl_is_truncated() {
             let (metrics, _guard) = capture_metrics();
+            let listing_source_id = ListingSourceId::new();
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
                 .expect_get_candidates()
@@ -3130,7 +3125,7 @@ mod tests {
                     let first_call = excluded.is_empty();
                     Box::pin(async move {
                         Ok(if first_call {
-                            vec![spider_candidate(CrawlerDomainId::new())]
+                            vec![spider_candidate(listing_source_id)]
                         } else {
                             vec![]
                         })
@@ -3140,7 +3135,7 @@ mod tests {
                 .expect_mark_crawl_truncated()
                 .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             let mut spider_service = MockSpiderService::new();
-            spider_service.expect_run().returning(|_, _, _, _, _, _| {
+            spider_service.expect_run().returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
             });
 
@@ -3159,16 +3154,16 @@ mod tests {
             assert_eq!(
                 metrics.values_with(
                     CrawlerMetric::CrawlProductUrls,
-                    MetricDimension::Domain,
-                    "example.com"
+                    MetricDimension::ListingSourceId,
+                    &listing_source_id.to_string()
                 ),
                 vec![1_200]
             );
             assert_eq!(
                 metrics.values_with(
                     CrawlerMetric::CrawlTruncated,
-                    MetricDimension::Domain,
-                    "example.com"
+                    MetricDimension::ListingSourceId,
+                    &listing_source_id.to_string()
                 ),
                 vec![1]
             );
@@ -3176,7 +3171,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_emit_the_pass_duration_when_no_domain_is_due() {
+        async fn should_emit_the_pass_duration_when_no_source_is_due() {
             let (metrics, _guard) = capture_metrics();
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
@@ -3192,15 +3187,15 @@ mod tests {
             assert!(durations[0].0.is_empty(), "pass duration is crawler-wide");
         }
 
-        /// A review decided before the run records its wait, such as one rejected while the
-        /// crawl ran, leaves the domain's crawl state as the decision left it: the run writes
+        /// A review decided before the run records its wait, such as one rejected while the crawl
+        /// ran, leaves the ListingSource's crawl state as the decision left it: the run writes
         /// nothing else and reports no crawl outcome.
         #[tokio::test]
         async fn should_record_no_outcome_when_the_url_pattern_review_is_decided_before_the_wait() {
             let (metrics, _guard) = capture_metrics();
             let review_id = CrawlerReviewId::new();
             let spider_candidates = candidate_service_recording_review_wait(
-                CrawlerDomainId::new(),
+                ListingSourceId::new(),
                 review_id,
                 UrlPatternReviewWaitWrite::ReviewNotPending,
             );
@@ -3269,13 +3264,11 @@ mod tests {
         }
     }
 
-    /// A domain registered again with another crawl root while a run crawled the old one
-    /// (`docs/crawler/operations.md#manual-authoring`).
+    /// A ListingSource whose presentation URL a scope refresh moved to another crawl root while a
+    /// run crawled the old one (`docs/crawler/README.md#listingsource-scope`).
     mod crawl_root_moved_during_the_run {
         use super::*;
-        use crate::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
         use crate::review::repository::CrawlerReviewRepository;
-        use crate::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
         use crate::spider::candidate_service::SpiderCandidateServiceImpl;
         use crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
         use crate::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
@@ -3290,13 +3283,13 @@ mod tests {
         use crate::spider::discovery::website_spider::{CrawledPage, MockSpider, SpiderCrawl};
         use crate::spider::service::{SpiderServiceConfig, SpiderServiceImpl};
         use crate::spider::utils::url::CrawledUrl;
-        use listing_source_core::Domain;
+        use crate::test_support::refresh_scope_with_crawl_root;
         use sqlx::PgPool;
         use test_api::IntegrationTestService as _;
         use tokio::sync::{mpsc, oneshot};
 
         /// A candidate service whose every write of a run's outcome names `root` and finds the
-        /// domain on another crawl root.
+        /// ListingSource on another crawl root.
         fn candidate_service_after_the_move(root: CrawledRoot) -> MockSpiderCandidateService {
             let mut spider_candidates = MockSpiderCandidateService::new();
             let moved = || Box::pin(async { Ok::<_, sqlx::Error>(CrawlOutcomeWrite::RootMoved) });
@@ -3342,8 +3335,8 @@ mod tests {
 
         #[tokio::test]
         async fn should_record_no_outcome_whatever_the_run_ended_with() {
-            let domain_id = CrawlerDomainId::new();
-            let full = || spider_candidate(domain_id);
+            let listing_source_id = ListingSourceId::new();
+            let full = || spider_candidate(listing_source_id);
             let runs: [(
                 &str,
                 SpiderCandidate,
@@ -3398,10 +3391,10 @@ mod tests {
             }
         }
 
-        const OLD_ROOT: &str = "moving-shop.example.com";
-        const NEW_ROOT: &str = "www.moving-shop.example.com";
+        const OLD_ROOT: &str = "https://moving-shop.example.com/";
+        const NEW_ROOT: &str = "https://www.moving-shop.example.com/";
 
-        /// A crawl of the old root during which the domain is registered with `NEW_ROOT`. It
+        /// A crawl of the old root during which a scope refresh moves the source to `NEW_ROOT`. It
         /// then delivers product and listing pages of the old root and leaves one unvisited.
         fn spider_moving_the_root_mid_crawl(
             pool: PgPool,
@@ -3410,14 +3403,10 @@ mod tests {
             let mut spider = MockSpider::new();
             spider.expect_crawl().times(1).return_once(move |request| {
                 Box::pin(async move {
-                    assert_eq!(request.crawl_root_url, format!("https://{OLD_ROOT}"));
-                    let moved = CrawlerDomainConfigurationRepositoryImpl::new(pool)
-                        .register(listing_source_id, Domain::try_from(NEW_ROOT).unwrap())
-                        .await
-                        .unwrap();
-                    assert_eq!(moved.domain.as_str(), NEW_ROOT);
+                    assert_eq!(request.crawl_root_url, OLD_ROOT);
+                    refresh_scope_with_crawl_root(&pool, listing_source_id, NEW_ROOT).await;
                     let page = |path: &str| {
-                        let url = url::Url::parse(&format!("https://{OLD_ROOT}{path}")).unwrap();
+                        let url = url::Url::parse(OLD_ROOT).unwrap().join(path).unwrap();
                         CrawledPage::new(CrawledUrl::new(url))
                     };
                     let (pages_tx, pages) = mpsc::channel(8);
@@ -3442,7 +3431,7 @@ mod tests {
             spider
         }
 
-        /// The domain's crawl root, last full crawl, failure count, outcome and last run.
+        /// The source's crawl root, last full crawl, failure count, outcome and last run.
         type CrawlState = (
             String,
             Option<time::OffsetDateTime>,
@@ -3451,13 +3440,13 @@ mod tests {
             Option<time::OffsetDateTime>,
         );
 
-        async fn crawl_state(pool: &PgPool, domain_id: CrawlerDomainId) -> CrawlState {
+        async fn crawl_state(pool: &PgPool, listing_source_id: ListingSourceId) -> CrawlState {
             sqlx::query_as(
-                "SELECT crawl_root_host, last_crawled, crawl_failure_count, last_crawl_outcome, \
+                "SELECT crawl_root_url, last_crawled, crawl_failure_count, last_crawl_outcome, \
                         last_crawl_run_at \
-                 FROM listing_source_domains WHERE domain_id = $1",
+                 FROM listing_sources WHERE listing_source_id = $1",
             )
-            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
             .fetch_one(pool)
             .await
             .unwrap()
@@ -3476,19 +3465,15 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-            let domain_id = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone())
-                .register(listing_source_id, Domain::try_from(OLD_ROOT).unwrap())
-                .await
-                .unwrap()
-                .domain_id;
+            refresh_scope_with_crawl_root(&pool, listing_source_id, OLD_ROOT).await;
             sqlx::query(
-                "UPDATE listing_source_domains \
+                "UPDATE listing_sources \
                  SET url_pattern = '/item/', url_pattern_state = 'MATCHED', \
                      crawl_failure_count = 1, last_crawl_error_kind = 'ConnectError', \
                      last_crawl_outcome = 'FAILED', last_crawl_run_at = NOW() - INTERVAL '1 day' \
-                 WHERE domain_id = $1",
+                 WHERE listing_source_id = $1",
             )
-            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
             .execute(&pool)
             .await
             .unwrap();
@@ -3528,24 +3513,25 @@ mod tests {
             job.run_spider_once().await;
 
             assert_eq!(
-                crawl_state(&pool, domain_id).await,
+                crawl_state(&pool, listing_source_id).await,
                 (NEW_ROOT.to_owned(), None, 0, None, None),
                 "the move's cleared crawl state survives the old root's completed crawl"
             );
             assert!(
                 CrawlFrontierRepositoryImpl::new(pool.clone())
-                    .load_frontier(&domain_id)
+                    .load_frontier(&listing_source_id)
                     .await
                     .unwrap()
                     .is_empty(),
                 "the old root's frontier is not kept"
             );
-            let stored_urls: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM listing_source_urls WHERE domain_id = $1")
-                    .bind(domain_id.as_uuid())
-                    .fetch_one(&pool)
-                    .await
-                    .unwrap();
+            let stored_urls: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM listing_source_urls WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
             assert_eq!(
                 stored_urls, 4,
                 "the crawled URLs belong to the site and stay"
@@ -3556,7 +3542,7 @@ mod tests {
                 .unwrap();
             assert_eq!(next.len(), 1);
             assert_eq!(
-                (next[0].listing_source_domain.as_str(), next[0].kind),
+                (next[0].crawl_root.url().as_str(), next[0].kind),
                 (NEW_ROOT, CrawlKind::Full),
                 "the next spider cycle crawls the new root in full"
             );
@@ -3569,17 +3555,15 @@ mod tests {
     /// streak (`docs/crawler/scheduling-and-retries.md#spider-failure-escalation`).
     mod bot_protection_escalation {
         use super::*;
-        use crate::local_db::crawler_domain_configuration_repository::CrawlerDomainConfigurationRepositoryImpl;
-        use crate::service::crawler_domain_configuration::CrawlerDomainConfigurationRepository;
         use crate::spider::candidate_service::SpiderCandidateServiceImpl;
-        use listing_source_core::Domain;
+        use crate::test_support::refresh_scope_with_crawl_root;
         use sqlx::PgPool;
         use std::collections::VecDeque;
         use std::sync::Mutex;
         use test_api::IntegrationTestService as _;
 
-        const ROOT: &str = "challenged-shop.example.com";
-        const MOVED_ROOT: &str = "www.challenged-shop.example.com";
+        const ROOT: &str = "https://challenged-shop.example.com/";
+        const MOVED_ROOT: &str = "https://www.challenged-shop.example.com/";
 
         /// How one spider run fails.
         type RunFailure = fn() -> SpiderServiceError;
@@ -3592,7 +3576,7 @@ mod tests {
             spider_service
                 .expect_run()
                 .times(runs)
-                .returning(move |_, _, _, _, _, _| {
+                .returning(move |_, _, _, _, _| {
                     let failure = failures.lock().unwrap().pop_front().unwrap();
                     Box::pin(async move { Err(failure()) })
                 });
@@ -3619,28 +3603,28 @@ mod tests {
             )
         }
 
-        /// The domain's failure count, last error kind and outcome, and whether a cooldown holds it.
+        /// The source's failure count, last error kind and outcome, and whether a cooldown holds it.
         async fn failure_state(
             pool: &PgPool,
-            domain_id: CrawlerDomainId,
+            listing_source_id: ListingSourceId,
         ) -> (i32, Option<String>, Option<String>, bool) {
             sqlx::query_as(
                 "SELECT crawl_failure_count, last_crawl_error_kind, last_crawl_outcome, \
                         next_crawl_at IS NOT NULL \
-                 FROM listing_source_domains WHERE domain_id = $1",
+                 FROM listing_sources WHERE listing_source_id = $1",
             )
-            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
             .fetch_one(pool)
             .await
             .unwrap()
         }
 
-        /// Lets the next spider cycle select the domain as if its cooldown had passed.
-        async fn expire_cooldown(pool: &PgPool, domain_id: CrawlerDomainId) {
+        /// Lets the next spider cycle select the source as if its cooldown had passed.
+        async fn expire_cooldown(pool: &PgPool, listing_source_id: ListingSourceId) {
             sqlx::query(
-                "UPDATE listing_source_domains SET next_crawl_at = NULL WHERE domain_id = $1",
+                "UPDATE listing_sources SET next_crawl_at = NULL WHERE listing_source_id = $1",
             )
-            .bind(domain_id.as_uuid())
+            .bind(listing_source_id.as_uuid())
             .execute(pool)
             .await
             .unwrap();
@@ -3667,12 +3651,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-            let domains = CrawlerDomainConfigurationRepositoryImpl::new(pool.clone());
-            let domain_id = domains
-                .register(listing_source_id, Domain::try_from(ROOT).unwrap())
-                .await
-                .unwrap()
-                .domain_id;
+            refresh_scope_with_crawl_root(&pool, listing_source_id, ROOT).await;
             let runs: [(RunFailure, &str); 5] = [
                 (bot_challenged_crawl, "BotProtection"),
                 (no_product_urls, "NoProductUrls"),
@@ -3699,7 +3678,7 @@ mod tests {
                 job.run_spider_once().await;
                 let escalated = failure_count == NEEDS_OPERATOR_FAILURE_COUNT;
                 assert_eq!(
-                    failure_state(&pool, domain_id).await,
+                    failure_state(&pool, listing_source_id).await,
                     (
                         failure_count,
                         Some((*error_kind).to_owned()),
@@ -3715,25 +3694,22 @@ mod tests {
                     ),
                     "run {failure_count} continues the shared streak"
                 );
-                expire_cooldown(&pool, domain_id).await;
+                expire_cooldown(&pool, listing_source_id).await;
             }
             assert!(
                 !is_candidate(&pool).await,
-                "a domain waiting for an operator is not crawled again"
+                "a source waiting for an operator is not crawled again"
             );
 
-            domains
-                .register(listing_source_id, Domain::try_from(MOVED_ROOT).unwrap())
-                .await
-                .unwrap();
+            refresh_scope_with_crawl_root(&pool, listing_source_id, MOVED_ROOT).await;
             assert!(
                 is_candidate(&pool).await,
-                "the re-armed domain is scheduled"
+                "the source re-armed by a moved crawl root is scheduled"
             );
             job.run_spider_once().await;
 
             assert_eq!(
-                failure_state(&pool, domain_id).await,
+                failure_state(&pool, listing_source_id).await,
                 (
                     1,
                     Some("BotProtection".to_owned()),

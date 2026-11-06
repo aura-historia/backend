@@ -464,7 +464,6 @@ mod tests {
                 review_id: review.review_id,
                 listing_source_id: review.listing_source_id,
                 listing_source_name: review.listing_source_name.clone().unwrap_or_default(),
-                domain_id: review.domain_id,
                 artifact_type: review.artifact_type.clone(),
                 reason: review.reason.clone(),
                 candidate_version: review.candidate_version,
@@ -542,7 +541,7 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: Some("Antiques".to_owned()),
             listing_source_crawl_enabled: crawl_enabled,
-            domain_id: None,
+            listing_source_crawl_host: Some("antiques.example".to_owned()),
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             status: status.to_owned(),
             reason: "manual_schema_required".to_owned(),
@@ -1030,7 +1029,7 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v4");
+        assert_eq!(ledger[0]["prompt_version"], "author.v5");
         assert_eq!(ledger[1]["prompt_version"], "reviewer.v3");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
