@@ -128,6 +128,7 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing history and ready similar results | 300 s |
 | Public catalogue overview | 900 s |
 | [API catalog](agent-discovery.md#api-catalog), including `HEAD` | 300 s |
+| [Website discovery documents](agent-discovery.md#website-documents), including `HEAD` | 300 s |
 
 Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
 responses containing advertised shipping cap this TTL at referenced geographic provider
@@ -139,7 +140,8 @@ forwarded but not keyed: never add cookie-dependent data to a shared representat
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
 Only reviewed discovery path behaviors, including the exact `/v1/overview` and
-`/.well-known/api-catalog` paths, use this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
+`/.well-known/api-catalog` paths and `/v1/site-discovery/*`, whose routes are all exact anonymous
+documents, use this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
 expansion requires route/cache review and tests. Do not add token-derived keys, cookie
 partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
@@ -271,6 +273,7 @@ these checks before approving traffic:
 | `GET`/`HEAD /.well-known/openai-apps-challenge` | `200` `text/plain` with exactly the configured token, or `404` while none is configured; no-store |
 | `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` title and release version, and the supported protocol versions |
 | API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
+| API `GET`/`HEAD` on each [website document](agent-discovery.md#website-documents) below `/v1/site-discovery/`, with a foreign Origin | `200` with the document's media type, `Access-Control-Allow-Origin: *` and stage URLs only; a repeat is an edge hit; the index digests match the served skills; an unlisted skill name is `404` no-store |
 | API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.stage.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
 | An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |

@@ -176,6 +176,224 @@ paths:
           headers:
             Link:
               $ref: '#/components/headers/ApiCatalogLink'
+  /v1/site-discovery/ai-catalog.json:
+    get:
+      summary: Get the website's AI catalog
+      description: >-
+        The AI catalog ([Agentic Resource Discovery](https://agenticresourcediscovery.org/), ai-catalog
+        data model) that the website publishes at `/.well-known/ai-catalog.json`. The host is the
+        website's domain, and its entries are the MCP server (its Server Card), the REST API (its
+        OpenAPI document) and the agent skills index, each with a `urn:air:` identifier under that
+        domain and representative queries. Every URL belongs to the configured environment, apart
+        from the shared documentation site. Credentials and query strings are not evaluated; send none.
+        See docs/agent-discovery.md.
+      operationId: getSiteAiCatalog
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The AI catalog. Anonymous responses use `public, max-age=0, s-maxage=300, stale-if-error=0`; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/SiteDiscoveryAllowOrigin'
+          content:
+            application/ai-catalog+json:
+              schema:
+                $ref: '#/components/schemas/SiteAiCatalogData'
+              example:
+                specVersion: "1.0"
+                host:
+                  displayName: Aura Historia
+                  identifier: aura-historia.com
+                  documentationUrl: https://docs.api.aura-historia.com/
+                  logoUrl: https://aura-historia.com/icon1080x1080.png
+                entries:
+                  - identifier: urn:air:aura-historia.com:mcp:aura-historia
+                    displayName: Aura Historia MCP server
+                    type: application/mcp-server-card+json
+                    url: https://mcp.aura-historia.com/.well-known/mcp/server-card.json
+                    description: Search art, antiques and design objects offered by dealers, auction houses, marketplaces and auction platforms without an account; sign in to manage a watchlist, saved searches and notifications.
+                    representativeQueries: [find Art Nouveau silver vases offered by European dealers, which upcoming auctions include Meissen porcelain]
+                  - identifier: urn:air:aura-historia.com:api:rest
+                    displayName: Aura Historia REST API
+                    type: application/vnd.oai.openapi
+                    url: https://docs.api.aura-historia.com/swagger.yaml
+                    description: OpenAPI description of the REST API for catalogue search, user accounts and partner listing synchronization.
+                    representativeQueries: [search antique listings by price range and country, look up a listing source by its slug]
+                  - identifier: urn:air:aura-historia.com:skills:index
+                    displayName: Aura Historia agent skills
+                    type: application/agent-skills+json
+                    url: https://aura-historia.com/.well-known/agent-skills/index.json
+                    description: Instructions for searching the catalogue, connecting a user's account and submitting partner listing batches.
+                    representativeQueries: [how does an agent search the Aura Historia catalogue, sign a user in to Aura Historia from an agent]
+    head:
+      summary: Check the website's AI catalog
+      description: Returns the `GET` headers without a body.
+      operationId: headSiteAiCatalog
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The AI catalog exists.
+  /v1/site-discovery/poppy.json:
+    get:
+      summary: Get the website's Personal Agent Protocol declaration
+      description: >-
+        The [Personal Agent Protocol](https://personalagentprotocol.org/) declaration that the website
+        publishes at `/.well-known/poppy.json`, in protocol version `0.1`. `organization.domain` is the
+        website's domain. It declares the website only (`web: {}`): it lists no `apis` and no `auth`,
+        because Aura Historia's issuer publishes no `poppy_domains` binding and its APIs accept no
+        Poppy session tokens. Credentials and query strings are not evaluated; send none. See
+        docs/agent-discovery.md.
+      operationId: getSitePoppyDeclaration
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The declaration. Anonymous responses use `public, max-age=0, s-maxage=300, stale-if-error=0`; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/SiteDiscoveryAllowOrigin'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SitePoppyDeclarationData'
+              example:
+                protocol_version: "0.1"
+                organization:
+                  name: Aura Historia
+                  domain: aura-historia.com
+                web: {}
+    head:
+      summary: Check the website's Personal Agent Protocol declaration
+      description: Returns the `GET` headers without a body.
+      operationId: headSitePoppyDeclaration
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The declaration exists.
+  /v1/site-discovery/agent-skills/index.json:
+    get:
+      summary: Get the website's agent skills index
+      description: >-
+        The [Agent Skills Discovery](https://github.com/cloudflare/agent-skills-discovery-rfc) v0.2.0
+        index that the website publishes at `/.well-known/agent-skills/index.json`. Each `skill-md`
+        entry carries the skill's name and description from its `SKILL.md` front matter, the website
+        URL it is published at, and the SHA-256 digest of exactly the bytes served for it.
+        Credentials and query strings are not evaluated; send none. See docs/agent-discovery.md.
+      operationId: getSiteAgentSkillsIndex
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The skills index. Anonymous responses use `public, max-age=0, s-maxage=300, stale-if-error=0`; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/SiteDiscoveryAllowOrigin'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteAgentSkillsIndexData'
+              example:
+                $schema: https://schemas.agentskills.io/discovery/0.2.0/schema.json
+                skills:
+                  - name: catalogue-search
+                    type: skill-md
+                    description: Search Aura Historia's index of art, antiques and design objects offered by dealers, auction houses, marketplaces and auction platforms, and read listing details, price history, auctions and sources. Use when someone wants to find, compare or research such objects. No account is needed.
+                    url: https://aura-historia.com/.well-known/agent-skills/catalogue-search/SKILL.md
+                    digest: sha256:644c3e14a6b82c96100b9a0a074e1a9cb8ac9879601aac2777a8c67e975def28
+    head:
+      summary: Check the website's agent skills index
+      description: Returns the `GET` headers without a body.
+      operationId: headSiteAgentSkillsIndex
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The skills index exists.
+  /v1/site-discovery/agent-skills/{skillName}/SKILL.md:
+    get:
+      summary: Get one of the website's agent skills
+      description: >-
+        One `SKILL.md` that the website publishes at `/.well-known/agent-skills/{skillName}/SKILL.md`:
+        YAML front matter with `name` and `description`, then Markdown instructions whose URLs belong
+        to the configured environment. The skills are `catalogue-search`, `connect-account` and
+        `partner-listing-batches`; the index lists them with their digests. Credentials and query
+        strings are not evaluated; send none. See docs/agent-discovery.md.
+      operationId: getSiteAgentSkill
+      tags: [Agent Discovery]
+      security: []
+      parameters:
+        - name: skillName
+          in: path
+          required: true
+          description: The skill's name, as the index lists it.
+          schema:
+            type: string
+            enum: [catalogue-search, connect-account, partner-listing-batches]
+      responses:
+        "200":
+          description: The skill. Anonymous responses use `public, max-age=0, s-maxage=300, stale-if-error=0`; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/SiteDiscoveryAllowOrigin'
+          content:
+            text/markdown; charset=utf-8:
+              schema: { type: string }
+        "404":
+          description: No skill has this name. The response has no body and is `private, no-store`.
+    head:
+      summary: Check one of the website's agent skills
+      description: Returns the `GET` headers without a body.
+      operationId: headSiteAgentSkill
+      tags: [Agent Discovery]
+      security: []
+      parameters:
+        - name: skillName
+          in: path
+          required: true
+          description: The skill's name, as the index lists it.
+          schema:
+            type: string
+            enum: [catalogue-search, connect-account, partner-listing-batches]
+      responses:
+        "200":
+          description: The skill exists.
+        "404":
+          description: No skill has this name.
+  /v1/site-discovery/auth.md:
+    get:
+      summary: Get the website's auth.md
+      description: >-
+        How agents authenticate with Aura Historia, as Markdown that the website publishes at
+        `/auth.md`. Its first heading contains `auth.md`. It covers anonymous access, signing a user
+        in from an agent with a Client ID Metadata Document, registered clients and personal access
+        tokens, with the environment's issuer and metadata URLs. It has no `agent_auth` block and the
+        authorization server metadata advertises none, because Aura Historia registers no agent
+        identities. Credentials and query strings are not evaluated; send none. See
+        docs/agent-discovery.md.
+      operationId: getSiteAuthMd
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The document. Anonymous responses use `public, max-age=0, s-maxage=300, stale-if-error=0`; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/SiteDiscoveryAllowOrigin'
+          content:
+            text/markdown; charset=utf-8:
+              schema: { type: string }
+    head:
+      summary: Check the website's auth.md
+      description: Returns the `GET` headers without a body.
+      operationId: headSiteAuthMd
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The document exists.
   /v1/health:
     get:
       summary: Check process liveness
@@ -18327,6 +18545,9 @@ components:
     OAuthNoCache:
       description: Legacy cache prevention for OAuth credential traffic.
       schema: { type: string, enum: [no-cache] }
+    SiteDiscoveryAllowOrigin:
+      description: Any origin may read website discovery documents.
+      schema: { type: string, enum: ['*'] }
     ApiCatalogLink:
       description: The catalog's own URL with the `api-catalog` relation (RFC 9727).
       schema: { type: string }
@@ -18543,6 +18764,96 @@ components:
           items:
             type: string
             enum: ['users:read', 'users:write', 'search-filters:read', 'search-filters:write', 'watchlist:read', 'watchlist:write', 'notifications:read', 'notifications:write']
+    SiteAiCatalogData:
+      type: object
+      additionalProperties: false
+      required: [specVersion, host, entries]
+      description: AI catalog (ai-catalog data model). Other hosts' catalogs may carry further members; this one carries exactly these.
+      properties:
+        specVersion:
+          type: string
+          enum: ["1.0"]
+          description: The ai-catalog data model version.
+        host:
+          type: object
+          additionalProperties: false
+          required: [displayName, identifier, documentationUrl, logoUrl]
+          properties:
+            displayName: { type: string }
+            identifier:
+              type: string
+              enum: [aura-historia.com, stage.aura-historia.com]
+              description: The website's domain.
+            documentationUrl: { type: string }
+            logoUrl: { type: string }
+        entries:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [identifier, displayName, type, url, description, representativeQueries]
+            properties:
+              identifier:
+                type: string
+                description: '`urn:air:<website domain>:<namespace>:<name>`.'
+              displayName: { type: string }
+              type:
+                type: string
+                description: Media type of the linked document.
+              url: { type: string }
+              description: { type: string }
+              representativeQueries:
+                type: array
+                minItems: 2
+                maxItems: 5
+                items: { type: string }
+    SitePoppyDeclarationData:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, organization, web]
+      properties:
+        protocol_version:
+          type: string
+          enum: ["0.1"]
+        organization:
+          type: object
+          additionalProperties: false
+          required: [name, domain]
+          properties:
+            name: { type: string }
+            domain:
+              type: string
+              enum: [aura-historia.com, stage.aura-historia.com]
+              description: The website's domain, which must equal the host serving the declaration.
+        web:
+          type: object
+          additionalProperties: false
+          description: Agents browse the website as signed-out visitors.
+    SiteAgentSkillsIndexData:
+      type: object
+      additionalProperties: false
+      required: [$schema, skills]
+      properties:
+        $schema:
+          type: string
+          enum: [https://schemas.agentskills.io/discovery/0.2.0/schema.json]
+        skills:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, type, description, url, digest]
+            properties:
+              name: { type: string }
+              type: { type: string, enum: [skill-md] }
+              description: { type: string, maxLength: 1024 }
+              url:
+                type: string
+                description: The website URL the skill is published at.
+              digest:
+                type: string
+                pattern: '^sha256:[0-9a-f]{64}$'
+                description: SHA-256 of the exact `SKILL.md` bytes served.
     ApiCatalogData:
       type: object
       additionalProperties: false
@@ -27118,4 +27429,4 @@ tags:
   - name: OAuth
     description: OAuth 2.0 authorization, token, revocation, introspection, and OAuth client metadata management.
   - name: Agent Discovery
-    description: Machine-readable documents that describe the Aura APIs to agents.
+    description: Machine-readable documents that describe the Aura APIs and the Aura Historia website to agents.

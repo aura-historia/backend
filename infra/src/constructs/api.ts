@@ -88,6 +88,12 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-protected-resource", ["GET"]),
   // RFC 9727 requires HEAD; Gateway routes do not imply it from GET.
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/api-catalog", ["GET", "HEAD"]),
+  // Website discovery documents, which the webapp publishes on its own origin; HEAD is explicit.
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/ai-catalog.json", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/poppy.json", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/index.json", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/auth.md", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 
@@ -393,6 +399,7 @@ export class BackendHttpApi extends Construct {
       "/v1/product-listings/*",
       "/v1/overview",
       "/.well-known/api-catalog",
+      "/v1/site-discovery/*",
     ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
