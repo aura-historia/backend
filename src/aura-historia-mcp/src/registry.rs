@@ -61,12 +61,7 @@ impl OperationDefinition {
         F: Fn(I, InvocationContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<O, OperationError>> + Send + 'static,
     {
-        if operation_id.is_empty()
-            || operation_id.len() > 128
-            || !operation_id
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
-        {
+        if !valid_operation_id(operation_id) {
             return Err(RegistryError::Name);
         }
         if policy.read_only && policy.destructive {
@@ -180,6 +175,14 @@ impl Registry {
             .and_then(|_| tools.last().map(|tool| tool.name.to_string()));
         Ok((tools, next))
     }
+}
+
+fn valid_operation_id(operation_id: &str) -> bool {
+    !operation_id.is_empty()
+        && operation_id.len() <= 128
+        && operation_id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
 }
 
 fn schema<T: JsonSchema>(settings: SchemaSettings) -> Result<JsonObject, RegistryError> {
