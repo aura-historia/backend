@@ -38,9 +38,9 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses", "cloudwatch:PutMetricData",
           ...(kind === "runtime" ? ["geo-places:Geocode"] : []),
         ], resources: ["*"] }),
-        // Runtime credentials arrive in function and task configuration at deployment; only the migrator reads its secret.
-        ...(kind === "migration" ? [new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
-          resources: [arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/migrator-??????`)] })] : []),
+        new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], resources: [
+          arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/${kind === "runtime" ? "runtime" : "migrator"}-??????`),
+        ] }),
         new iam.PolicyStatement({ actions: ["s3:GetObject", "s3:GetObjectVersion"], resources: [bucket.arnForObjects("objects/sha256/*"), bucket.arnForObjects("mail/*")] }),
         ...(kind === "runtime" ? [
           new iam.PolicyStatement({ actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility",
@@ -61,6 +61,7 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [functionArn(`backend-cleanup-lambda-${stage}:*`), functionArn(`fxrate-lambda-${stage}`), functionArn(`CodeDeployHook_*_${stage}`)] }),
           new iam.PolicyStatement({ actions: ["cloudwatch:DescribeAlarms", "ecr:GetAuthorizationToken"], resources: ["*"] }),
           new iam.PolicyStatement({ actions: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], resources: CONTAINER_IMAGE_CATALOG.map((image) => arn("ecr", "repository", image.repository)) }),
+          new iam.PolicyStatement({ actions: ["ssm:GetParameters"], resources: [arn("ssm", "parameter", `opensearch/${stage}/*`), arn("ssm", "parameter", `secrets/${stage}/*`)] }),
           new iam.PolicyStatement({ actions: ["ecs:RunTask"], resources: [arn("ecs", "task-definition", `*-${stage}:*`)] }),
           new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [arn("iam", "role", `aura-historia/runtime/${stage}/*`, "")], conditions: { StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" } } }),
           new iam.PolicyStatement({ actions: ["s3:ListBucket"], resources: [`arn:${stack.partition}:s3:::aura-historia-cdc-router-failures-${stage}`] }),

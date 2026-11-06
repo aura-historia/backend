@@ -117,7 +117,7 @@ actual PostgreSQL/account headroom including REST, workers, migration/admin rese
 and version/drain overlap before traffic or increasing either setting. Recycle/drain
 old environments and measure real connections during promotion; Gateway rate limits
 are not a database capacity guarantee. MCP receives private database/TLS and shared listing
-provider configuration and has no secret-store access. Its public
+provider configuration and reads no secret store. Its public
 catalogue requires no billing, newsletter or Cognito configuration. Add provider credentials only with their selected family.
 Certificate/DNS prerequisites and the generic stage smoke belong to the
 [MCP front-door procedure](http-api-front-door.md#mcp-deployment-and-stage-verification).

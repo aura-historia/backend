@@ -3,7 +3,7 @@ import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
 import { credentialSecrets } from "../src/credentials";
-import { credentialReference, releaseVersionDescription } from "./credential-reference";
+import { credentialReference, releaseVersionDescription, transitionalRuntimeSecretGrant } from "./credential-reference";
 import { QUEUE_DEFINITIONS } from "../src/constructs/queues";
 import { importWorkerQueueCatalog, WorkerQueues } from "../src/constructs/worker-queues";
 import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerScope } from "../src/worker-queue-config";
@@ -327,6 +327,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       { id: consumer.policyId, action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"] },
     ]));
     expect(consumer.statements).toEqual([
+      transitionalRuntimeSecretGrant(stage),
       { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
       custodyGrant,
     ]);
@@ -416,7 +417,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     ] });
     const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
     expect(lambda.Properties.VpcConfig).toBeDefined();
-    expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue")).toEqual([]);
+    expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
+      .toEqual([transitionalRuntimeSecretGrant(stage)]);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     expect(mappings).toHaveLength(16);
     const shopifyMapping = mappings.find((mapping) =>
@@ -776,7 +778,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Effect: "Allow",
       Resource: sourceArn,
     }, { Action: "sqs:SendMessage", Effect: "Allow", Resource: dlqArn }]);
-    expect(consumer.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue")).toEqual([]);
+    expect(consumer.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
+      .toEqual([transitionalRuntimeSecretGrant(stage)]);
     expect(JSON.stringify(consumer.statements)).not.toMatch(/sqs:PurgeQueue|ses:|s3:|es:|cognito-idp:/);
   });
 

@@ -8,7 +8,7 @@ import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG } fr
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
 import { credentialSecrets } from "../src/credentials";
-import { credentialReference, releaseVersionDescription } from "./credential-reference";
+import { credentialReference, releaseVersionDescription, transitionalRuntimeSecretGrant } from "./credential-reference";
 
 describe.each(STAGES)("%s MCP hosting", (stage) => {
   const config = stageConfig(stage);
@@ -195,7 +195,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       .find((statement) => statement.Action === "sqs:SendMessage");
     expect(restSend).toBeDefined();
     expect(JSON.stringify(restSend.Resource)).not.toBe('"*"');
-    expect(statements).toEqual([]);
+    expect(statements).toEqual([transitionalRuntimeSecretGrant(stage)]);
     expect(JSON.stringify(statements)).not.toContain("sqs:");
     const [alias] = Object.values(compute.findResources("AWS::Lambda::Alias"))
       .filter((resource) => resource.Properties.FunctionName.Ref === functionId);
