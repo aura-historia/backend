@@ -97,6 +97,7 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                     REQUEST_ID_HEADER,
                     CORRELATION_ID_HEADER,
                     IDEMPOTENCY_KEY_HEADER,
+                    header::WWW_AUTHENTICATE,
                 ]),
         )
         .layer(axum::middleware::from_fn(request_metadata))

@@ -1,5 +1,6 @@
 pub(crate) mod admin_overview;
 pub mod admin_product_listings;
+pub mod agent_discovery;
 pub mod auctions;
 pub mod auth;
 pub mod billing;
@@ -1071,8 +1072,21 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(partnerships::router(partnerships));
     }
 
+    // Every bearer-authenticated route above accepts Aura access tokens. OAuth protocol and
+    // first-party consent routes, merged below, keep their own credential semantics and get
+    // no Aura challenge.
+    if let Some(discovery) = &state.agent_discovery {
+        let challenge =
+            agent_discovery::protected_resource::bearer_challenge(discovery.resource_policy);
+        routes = routes.layer(axum::middleware::map_response(move |response| {
+            agent_discovery::protected_resource::add_bearer_challenge(challenge.clone(), response)
+        }));
+    }
     if let Some(oauth) = state.oauth {
         routes = routes.merge(oauth_routes(oauth));
+    }
+    if let Some(discovery) = state.agent_discovery {
+        routes = routes.merge(agent_discovery_routes(discovery));
     }
 
     with_transport_middleware(routes, request_timeout)
@@ -1111,6 +1125,20 @@ fn oauth_routes(oauth: OAuthState) -> Router {
         .route("/v1/oauth/revoke", post(oauth::revoke::revoke))
         .route("/v1/oauth/introspect", post(oauth::introspect::introspect))
         .with_state(oauth)
+}
+
+fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Router {
+    Router::new()
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(agent_discovery::protected_resource::get_protected_resource_metadata),
+        )
+        .route(
+            "/.well-known/api-catalog",
+            get(agent_discovery::api_catalog::get_api_catalog)
+                .head(agent_discovery::api_catalog::get_api_catalog),
+        )
+        .with_state(discovery)
 }
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
@@ -1887,6 +1915,9 @@ async fn app_state_from_config_and_runtime(
             Arc::new(apply_loops_preference_event),
         ))
         .with_oauth(oauth_state)
+        .with_agent_discovery(agent_discovery::AgentDiscoveryState::new(
+            config.oauth_resource_policy(),
+        ))
         .with_search_filters(search_filters_state)
         .with_notifications(notifications_state)
         .with_billing(billing_state)

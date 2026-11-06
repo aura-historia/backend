@@ -88,6 +88,11 @@ impl AuraResourcePolicy {
         self.mcp.as_str()
     }
 
+    /// The shared Aura default resource: the REST API origin, which is also the issuer.
+    pub const fn rest_resource(self) -> &'static str {
+        self.rest.as_str()
+    }
+
     /// The website origin, which also hosts the browser consent page.
     pub const fn site_origin(self) -> &'static str {
         self.site_origin
@@ -96,6 +101,11 @@ impl AuraResourcePolicy {
     /// The origin of the MCP host; the MCP resource is its `/v1` endpoint.
     pub const fn mcp_origin(self) -> &'static str {
         self.mcp_origin
+    }
+
+    /// The public API documentation site, shared by both environments.
+    pub const fn documentation_origin(self) -> &'static str {
+        "https://docs.api.aura-historia.com"
     }
 
     pub const fn allowed_resources(self) -> [&'static str; 2] {
@@ -159,6 +169,11 @@ mod tests {
             ),
         ] {
             assert_eq!(site, policy.site_origin());
+            assert_eq!(policy.issuer(), policy.rest_resource());
+            assert_eq!(
+                policy.rest_resource(),
+                policy.resolve(None).unwrap().as_str()
+            );
             assert_eq!(policy.mcp_resource(), format!("{}/v1", policy.mcp_origin()));
         }
     }

@@ -3228,14 +3228,27 @@ impl From<CreateBillingManagementSessionError> for ApiError {
     }
 }
 
+/// Marks a response whose bearer credential was missing or invalid, so routes that accept
+/// Aura access tokens can add their Bearer challenge.
+#[derive(Clone, Copy)]
+pub(crate) struct BearerAuthenticationFailure;
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
+        let bearer_authentication_failed =
+            self.status_code() == StatusCode::UNAUTHORIZED && self.error == INVALID_CREDENTIALS;
+        let mut response = (
             self.status_code(),
             [(header::CONTENT_TYPE, "application/problem+json")],
             Json(self),
         )
-            .into_response()
+            .into_response();
+        if bearer_authentication_failed {
+            response
+                .extensions_mut()
+                .insert(BearerAuthenticationFailure);
+        }
+        response
     }
 }
 
