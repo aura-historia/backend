@@ -11,8 +11,10 @@ Searching and reading the public catalogue needs no account, registration or tok
 - **MCP:** `{{mcp_endpoint}}` with the Streamable HTTP transport.
 - **REST:** `{{api_origin}}/v1`, described by the OpenAPI document `{{documentation_origin}}/swagger.yaml`.
 
-Send no `Authorization` header for anonymous calls. A supplied token is always checked, and an
-invalid one is rejected even on a public call.
+Send no `Authorization` header for anonymous calls. MCP and the REST routes that accept a
+token check any token you send and reject an invalid one, even on a public call. Routes that
+never use a token, such as `GET /v1/overview`, ignore it, so their answer says nothing about
+a token.
 
 ## Signing a user in
 
@@ -41,23 +43,30 @@ when the authorization server metadata has `client_id_metadata_document_supporte
 - `client_id` is the HTTPS URL of your Client ID Metadata Document. Aura Historia fetches it
   at sign-in. It must contain `client_id` equal to its own URL, `client_name`, your
   `redirect_uris`, `token_endpoint_auth_method: none` and `grant_types` with
-  `authorization_code`, and no client secret.
+  `authorization_code`, and no client secret. List `refresh_token` in `grant_types` too, or
+  request `offline_access`, to receive refresh tokens.
 - Callbacks are HTTPS URLs, or HTTP URLs on `127.0.0.1`, `[::1]` or `localhost`, where any
   port matches.
-- Request only user scopes, and send `resource={{mcp_endpoint}}` for MCP.
+- Request only user scopes, and send `resource={{mcp_endpoint}}` for MCP. To add scopes
+  later, authorize again with the scopes you hold and the new ones.
 - Exchange the code at the token endpoint with `client_id` and `code_verifier`, without a
   secret.
-- Tokens are short-lived; the token response states the lifetime in `expires_in`. Sign the
-  user in again when a token is rejected.
+- Access tokens are short-lived; `expires_in` states their lifetime. Refresh them with
+  `grant_type=refresh_token`, your `client_id` and the refresh token, without a secret. Each
+  refresh rotates the refresh token: store the new one, because the old one stops working and
+  presenting it again signs that installation out. `invalid_grant` means sign the user in
+  again.
 
-There is no dynamic client registration.
+All of a user's sign-ins with one client form one connection. There is no dynamic client
+registration.
 
 ### Registered clients
 
 Integrations that need more than the user scopes, such as shop platforms that synchronize a
 partner's listings, use a confidential client that Aura Historia's administrators register for
 them. Its `client_id` starts with `oc_`. It authenticates at the token endpoint with
-`client_secret_post` and uses exact, registered HTTPS callbacks.
+`client_secret_post`, uses exact, registered HTTPS callbacks and receives access tokens that do
+not expire.
 
 ## Personal access tokens
 
@@ -68,5 +77,7 @@ or a partner's listing synchronization. The token is shown once. Send it as
 
 ## Disconnecting
 
-The access-token section of the dashboard lists personal access tokens and every connected
-agent or integration. Revoking an entry there makes the next request with its token fail.
+The access-token section of the dashboard lists the user's personal access tokens and one
+entry for each connected agent or integration. Disconnecting an entry there makes the next
+request with its tokens fail. An agent ends its own connection by revoking its refresh token
+at `{{issuer}}/v1/oauth/revoke` with `token` and its `client_id`, without a secret.

@@ -46,7 +46,8 @@ continuation.
 - **Sources:** pass the returned opaque `searchAfter` cursor unchanged, with the same `query`
   and `size`.
 - **Seller locations:** pass the returned `searchAfter` object unchanged, with the same
-  geography.
+  geography. On REST, send its members as `searchAfter[locationId]` and
+  `searchAfter[distanceKm]`.
 - **History and similar listings** return complete results and have no continuation.
 
 A listing search page holds at most 100 items. If similar listings are not ready yet (MCP

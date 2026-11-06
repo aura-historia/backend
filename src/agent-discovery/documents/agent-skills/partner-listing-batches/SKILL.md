@@ -34,18 +34,21 @@ to 100 listings, keyed by your own `sourceListingId`. Keep that key stable for e
 
 ## Asynchronous submission
 
-The same verbs on `/v1/listing-sources/{listingSourceId}/product-listings/async` queue up to 100
-items and return as soon as the queue has accepted them.
+The same verbs on `/v1/listing-sources/{listingSourceId}/product-listings/async` submit up to
+100 items to a queue and return once each item has been queued or has failed to queue.
 
-- `202` means queued, not applied: listings appear later, and business conflicts such as an
-  existing `sourceListingId` are decided then and are not reported back. Check the outcome with
-  `GET` on the synchronous path.
-- The report accounts for every item by its zero-based index as accepted or rejected, with a
-  reason and whether a retry can help.
+- Queued is not applied: listings change later, and business conflicts such as an existing
+  `sourceListingId` are decided then and are not reported back. Check the outcome with `GET`
+  on the synchronous path.
+- The report gives `acceptedCount` and one `failures` entry per item that was not confirmed as
+  queued, with its zero-based `index`, an `error` code and whether resending can help
+  (`retryable`). An `ENQUEUE_UNCONFIRMED` item may already be queued.
+- `202` means at least one item was queued. When none was, the same report comes with `400`,
+  `413`, `500` or `503`.
 - Send an `Idempotency-Key` of up to 128 visible ASCII characters without commas. To retry an
   uncertain or partially accepted submission, resend the identical batch, in the same order and
-  with the same key, including items that were rejected. Never change, reorder or drop items
-  under a key; send corrected items in a new request with a new key.
+  with the same key, including items that failed. Never change, reorder or drop items under a
+  key; send corrected items in a new request with a new key.
 
 ## Limits
 

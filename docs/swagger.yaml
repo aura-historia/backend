@@ -242,8 +242,8 @@ paths:
         The [Personal Agent Protocol](https://personalagentprotocol.org/) declaration that the website
         publishes at `/.well-known/poppy.json`, in protocol version `0.1`. `organization.domain` is the
         website's domain. It declares the website only (`web: {}`): it lists no `apis` and no `auth`,
-        because Aura Historia's issuer publishes no `poppy_domains` binding and its APIs accept no
-        Poppy session tokens. Credentials and query strings are not evaluated; send none. See
+        because in version `0.1` that would require Aura Historia's issuer to bind the domain in
+        `poppy_domains` and its APIs to accept Poppy session tokens, and neither is the case. Credentials and query strings are not evaluated; send none. See
         docs/agent-discovery.md.
       operationId: getSitePoppyDeclaration
       tags: [Agent Discovery]
@@ -280,8 +280,9 @@ paths:
         The [Agent Skills Discovery](https://github.com/cloudflare/agent-skills-discovery-rfc) v0.2.0
         index that the website publishes at `/.well-known/agent-skills/index.json`. Each `skill-md`
         entry carries the skill's name and description from its `SKILL.md` front matter, the website
-        URL it is published at, and the SHA-256 digest of exactly the bytes served for it.
-        Credentials and query strings are not evaluated; send none. See docs/agent-discovery.md.
+        URL it is published at, and the SHA-256 digest of exactly the bytes served for it; a digest
+        changes with every revision of its skill, so the example's is illustrative. Credentials and
+        query strings are not evaluated; send none. See docs/agent-discovery.md.
       operationId: getSiteAgentSkillsIndex
       tags: [Agent Discovery]
       security: []
@@ -302,7 +303,7 @@ paths:
                     type: skill-md
                     description: Search Aura Historia's index of art, antiques and design objects offered by dealers, auction houses, marketplaces and auction platforms, and read listing details, price history, auctions and sources. Use when someone wants to find, compare or research such objects. No account is needed.
                     url: https://aura-historia.com/.well-known/agent-skills/catalogue-search/SKILL.md
-                    digest: sha256:644c3e14a6b82c96100b9a0a074e1a9cb8ac9879601aac2777a8c67e975def28
+                    digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     head:
       summary: Check the website's agent skills index
       description: Returns the `GET` headers without a body.
@@ -368,8 +369,9 @@ paths:
       description: >-
         How agents authenticate with Aura Historia, as Markdown that the website publishes at
         `/auth.md`. Its first heading contains `auth.md`. It covers anonymous access, signing a user
-        in from an agent with a Client ID Metadata Document, registered clients and personal access
-        tokens, with the environment's issuer and metadata URLs. It has no `agent_auth` block and the
+        in from an agent with a Client ID Metadata Document and refreshing its tokens, registered
+        clients, personal access tokens and disconnecting, with the environment's issuer and
+        metadata URLs. It has no `agent_auth` block and the
         authorization server metadata advertises none, because Aura Historia registers no agent
         identities. Credentials and query strings are not evaluated; send none. See
         docs/agent-discovery.md.

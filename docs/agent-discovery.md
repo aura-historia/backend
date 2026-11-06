@@ -115,7 +115,7 @@ path, where agents and agent-readiness scanners look for it.
 
 | Document | API path below `/v1/site-discovery/` | Website path | Media type |
 | --- | --- | --- | --- |
-| [AI catalog](#ai-catalog) | `ai-catalog.json` | `/.well-known/ai-catalog.json` | `application/ai-catalog+json` |
+| [AI catalog](#ai-catalog) | `ai-catalog.json` | `/.well-known/ai-catalog.json` and `/.well-known/ard.json` | `application/ai-catalog+json` |
 | [Poppy declaration](#poppy-declaration) | `poppy.json` | `/.well-known/poppy.json` | `application/json` |
 | [Agent skills index](#agent-skills) | `agent-skills/index.json` | `/.well-known/agent-skills/index.json` | `application/json` |
 | [Agent skill](#agent-skills) | `agent-skills/{name}/SKILL.md` | `/.well-known/agent-skills/{name}/SKILL.md` | `text/markdown; charset=utf-8` |
@@ -133,17 +133,20 @@ its domain because Aura publishes no DID document. Its three entries link to the
 [MCP Server Card](#mcp-server-card), the OpenAPI document and the
 [agent skills index](#agent-skills). Each has a `urn:air:<website domain>:<namespace>:<name>`
 identifier, a display name, the linked document's media type, a description and two to five
-representative queries. ARD 0.91 names `/.well-known/ard.json` as its primary path and reads
-the same `entries`, so the webapp may publish the same body there too.
+representative queries. ARD 0.91 makes `/.well-known/ard.json` the path consumers must fetch
+and reads the same `entries`, while scanners still probe `ai-catalog.json`, so the webapp
+publishes the same body at both paths.
 
 ### Poppy declaration
 
 The [Personal Agent Protocol](https://personalagentprotocol.org/) declaration uses protocol
-version `0.1`, the version agent-readiness scanners validate. `organization.domain` is the
-website's domain. It declares the website only, as `web: {}`, so agents browse it as signed-out
-visitors. Declaring `apis` would oblige the issuer to list the domain in `poppy_domains` and
-every listed API to accept Poppy session tokens; Aura does neither, so the declaration has no
-`apis` and no `auth`.
+version `0.1`, the version agent-readiness scanners validate; move to a later version once they
+validate it, because pre-1.0 agents read only their own `major.minor`. `organization.domain`
+is the website's domain. It declares the website only, as `web: {}`, so agents browse it as
+signed-out visitors. In `0.1`, declaring `apis` requires an `auth.issuer` whose
+authorization-server metadata lists the domain in `poppy_domains` (later drafts bind through
+`protected_resources`), and every listed API must accept Poppy session tokens. Aura does
+neither, so the declaration has no `apis` and no `auth`.
 
 ### Agent skills
 
@@ -158,15 +161,15 @@ bytes, which are exactly the bytes served.
 | Skill | Covers |
 | --- | --- |
 | `catalogue-search` | MCP tools and REST routes for the public catalogue, continuation rules, and that Aura is a discovery service, not a marketplace |
-| `connect-account` | Signing a user in from an agent, scopes, and disconnecting |
+| `connect-account` | Signing a user in from an agent, scopes, refreshing tokens and disconnecting |
 | `partner-listing-batches` | Synchronous and asynchronous partner listing batches over REST, with their retry rules |
 
 ### auth.md
 
 `auth.md` tells agents how to authenticate. Its first heading contains `auth.md`. It covers
-anonymous access, signing a user in from an agent with a Client ID Metadata Document,
-administrator-registered clients and personal access tokens, with the environment's issuer,
-metadata URLs and user scopes. It describes [OAuth](oauth.md) and states no token lifetimes:
+anonymous access, signing a user in from an agent with a Client ID Metadata Document and
+refreshing its tokens, administrator-registered clients, personal access tokens and
+disconnecting, with the environment's issuer, metadata URLs and user scopes. It describes [OAuth](oauth.md) and states no token lifetimes:
 clients read them from the token response. It has no `agent_auth` block, and the
 authorization-server metadata advertises none, because Aura registers no agent identities.
 Scanners that require `agent_auth` or a registration flow therefore do not pass it.
@@ -179,4 +182,5 @@ Gateway route, its CloudFront behaviour and a row in the
 [stage verification table](http-api-front-door.md#mcp-deployment-and-stage-verification); a new
 website document also needs its publication in the webapp. Editing a skill changes its digest;
 the index follows automatically. Keep skills and `auth.md` in line with the contracts they
-summarize, and link only to the environment's origins.
+summarize, and link only to the environment's origins; tests reject a REST route or MCP tool
+they name that the API or MCP server does not offer.

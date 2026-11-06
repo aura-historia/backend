@@ -1,6 +1,6 @@
-//! Discovery documents link to documents that other hosts serve. Resolve every such link against
-//! the routers and documentation in this repository, so a renamed path cannot leave a document
-//! pointing at nothing.
+//! Discovery documents link to documents that other hosts serve and describe operations of the
+//! API and MCP server. Resolve every such link and name against the routers, documentation and
+//! manifests in this repository, so a renamed path cannot leave a document pointing at nothing.
 use agent_discovery::{DiscoveryEnvironment, SiteDocuments};
 use aura_historia_api::{agent_discovery::AgentDiscoveryState, app, state::AppState};
 use aura_historia_mcp::{AnonymousGate, Registry, TransportConfig, router};
@@ -11,7 +11,8 @@ use axum::{
 };
 use oauth_core::resource::AuraResourcePolicy;
 use serde_json::Value;
-use std::{path::Path, sync::Arc};
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeSet, path::Path, sync::Arc};
 use tower::ServiceExt;
 
 const POLICIES: [AuraResourcePolicy; 2] = [
@@ -129,9 +130,10 @@ async fn should_resolve_every_catalog_link_served_from_this_repository() {
     }
 }
 
-/// Website links resolve in the agent-discovery crate's own tests; endpoints such as the MCP
-/// `/v1` and the REST `/v1` base are named, not fetched. The authorization-server metadata
-/// needs the OAuth state, and its route is covered by the OAuth discovery tests.
+/// Website links resolve in the agent-discovery crate's own tests. Endpoints such as the MCP
+/// `/v1`, the REST `/v1` base and the `POST`-only revocation endpoint are named, not fetched.
+/// The authorization-server metadata needs the OAuth state, and its route is covered by the
+/// OAuth discovery tests.
 #[tokio::test]
 async fn should_resolve_every_site_document_link_to_another_host() {
     for policy in POLICIES {
@@ -145,6 +147,7 @@ async fn should_resolve_every_site_document_link_to_another_host() {
                 "{}/.well-known/oauth-authorization-server",
                 environment.issuer()
             ),
+            format!("{}/v1/oauth/revoke", environment.issuer()),
         ];
         let mut resolved = 0;
         for document in SiteDocuments::render(environment).iter() {
@@ -161,4 +164,184 @@ async fn should_resolve_every_site_document_link_to_another_host() {
         }
         assert!(resolved >= 8, "{resolved}");
     }
+}
+
+/// Fetches the skills index from the API and every skill it lists, at the API path of the
+/// website URL the index names, and hashes the bytes the router returns.
+#[tokio::test]
+async fn should_list_each_skill_with_the_digest_of_the_bytes_the_api_serves() {
+    for policy in POLICIES {
+        let hosts = Hosts::new(policy);
+        let environment = DiscoveryEnvironment::from(policy);
+        let documents = SiteDocuments::render(environment);
+        let index: Value = serde_json::from_slice(
+            &served(&hosts.api, "/v1/site-discovery/agent-skills/index.json").await,
+        )
+        .unwrap();
+        let skills = index["skills"].as_array().unwrap();
+        assert_eq!(3, skills.len());
+        for skill in skills {
+            let url = skill["url"].as_str().unwrap();
+            let document = documents
+                .iter()
+                .find(|document| {
+                    url == format!("{}{}", environment.site_origin(), document.site_path())
+                })
+                .expect("every listed skill is a website document");
+            let body = served(
+                &hosts.api,
+                &format!("/v1/site-discovery/{}", document.path()),
+            )
+            .await;
+            let hex: String = Sha256::digest(&body)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            assert_eq!(format!("sha256:{hex}"), skill["digest"], "{url}");
+        }
+    }
+}
+
+/// The skills and auth.md name REST routes and MCP tools. Every backticked `/v1/…` route, with
+/// its method where one is given, must be an OpenAPI operation, and every tool in an
+/// "MCP tool" table column must be in an MCP operation manifest.
+#[test]
+fn should_name_only_operations_that_the_api_and_mcp_server_offer() {
+    let operations = swagger_operations();
+    let tools = mcp_tools();
+    let documents = SiteDocuments::render(AuraResourcePolicy::production().into());
+    let (mut routes, mut named_tools) = (0, 0);
+    for document in documents
+        .iter()
+        .filter(|document| document.path().ends_with(".md"))
+    {
+        for span in backticked(document.body()) {
+            let (method, path) = match span.split_once(' ') {
+                Some((method, path)) if method.bytes().all(|b| b.is_ascii_uppercase()) => {
+                    (Some(method.to_ascii_lowercase()), path)
+                }
+                _ => (None, span),
+            };
+            if !path.starts_with("/v1/") || path.contains(' ') {
+                continue;
+            }
+            let path = normalize(path);
+            assert!(
+                operations
+                    .iter()
+                    .any(|(m, p)| *p == path && method.as_ref().is_none_or(|method| m == method)),
+                "`{span}` in {} is not an OpenAPI operation",
+                document.path()
+            );
+            routes += 1;
+        }
+        for tool in mcp_tool_column(document.body()) {
+            assert!(
+                tools.contains(tool),
+                "{tool} in {} is no MCP tool",
+                document.path()
+            );
+            named_tools += 1;
+        }
+    }
+    assert!(routes >= 15, "{routes}");
+    assert_eq!(12, named_tools);
+}
+
+async fn served(router: &Router, path: &str) -> Vec<u8> {
+    let response = router
+        .clone()
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::OK, response.status(), "{path}");
+    to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .to_vec()
+}
+
+fn backticked(text: &str) -> impl Iterator<Item = &str> {
+    text.split('`').skip(1).step_by(2)
+}
+
+/// Path parameters compare by position, not by name.
+fn normalize(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if segment.starts_with('{') && segment.ends_with('}') {
+                "{}"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `(method, normalized path)` of every OpenAPI operation.
+fn swagger_operations() -> Vec<(String, String)> {
+    let swagger = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/swagger.yaml"),
+    )
+    .unwrap();
+    let mut path = None;
+    let mut operations = Vec::new();
+    for line in swagger.lines() {
+        if let Some(route) = line
+            .strip_prefix("  /")
+            .and_then(|rest| rest.strip_suffix(':'))
+        {
+            path = Some(normalize(&format!("/{route}")));
+        } else if let Some(method) = line
+            .strip_prefix("    ")
+            .and_then(|rest| rest.strip_suffix(':'))
+            .filter(|method| ["get", "post", "put", "patch", "delete", "head"].contains(method))
+            && let Some(path) = &path
+        {
+            operations.push((method.to_owned(), path.clone()));
+        }
+    }
+    operations
+}
+
+fn mcp_tools() -> BTreeSet<String> {
+    ["public-operations.json", "authenticated-operations.json"]
+        .into_iter()
+        .flat_map(|manifest| {
+            let manifest: Value = serde_json::from_str(
+                &std::fs::read_to_string(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../aura-historia-mcp")
+                        .join(manifest),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            manifest["operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|operation| operation["operationId"].as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Backticked names in the "MCP tool" column of Markdown tables.
+fn mcp_tool_column(markdown: &str) -> Vec<&str> {
+    let mut column = None;
+    let mut tools = Vec::new();
+    for line in markdown.lines() {
+        let Some(row) = line.strip_prefix('|') else {
+            column = None;
+            continue;
+        };
+        let cells: Vec<&str> = row.split('|').map(str::trim).collect();
+        match column {
+            None => column = cells.iter().position(|cell| *cell == "MCP tool"),
+            Some(index) => tools.extend(backticked(cells[index])),
+        }
+    }
+    tools
 }

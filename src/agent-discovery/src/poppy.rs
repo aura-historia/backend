@@ -1,8 +1,9 @@
 //! The [Personal Agent Protocol](https://personalagentprotocol.org/) declaration. It declares
-//! the website only (`web: {}`), with the protocol version that agent-readiness scanners
-//! validate. Declaring `apis` would require the issuer to bind this domain in its metadata
-//! (`poppy_domains`) and every listed API to accept Poppy session tokens; Aura Historia does
-//! neither, so agents browse the website as signed-out visitors.
+//! the website only (`web: {}`), in version `0.1`, which agent-readiness scanners validate.
+//! In `0.1`, declaring `apis` requires an `auth.issuer` whose metadata lists this domain in
+//! `poppy_domains` (later drafts bind through `protected_resources`), and every listed API must
+//! accept Poppy session tokens. Aura Historia does neither, so agents browse the website as
+//! signed-out visitors.
 use crate::DiscoveryEnvironment;
 use serde::Serialize;
 
