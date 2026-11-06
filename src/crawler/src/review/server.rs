@@ -17,6 +17,7 @@ use crate::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
+use crate::spider::local_lock::LocalLockManager;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use listing_source_core::ListingSourceId;
 use serde::Deserialize;
@@ -88,6 +89,15 @@ impl ReviewServer {
             matrix_refreshes: MatrixRefreshes::default(),
             matrix_refresh_wait: MATRIX_REFRESH_RESPONSE_WAIT,
             candidate_evaluations: CandidateEvaluations::default(),
+        }
+    }
+
+    /// This console reporting, in the ListingSource overview, which sources the crawler of this
+    /// process is crawling or scraping right now from `work_locks`, its lock manager.
+    pub fn with_work_locks(self, work_locks: Arc<LocalLockManager>) -> Self {
+        Self {
+            listing_sources: self.listing_sources.with_work_locks(work_locks),
+            ..self
         }
     }
 

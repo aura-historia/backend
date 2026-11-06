@@ -382,7 +382,11 @@ function renderSourceHealth() {
     }
     const sources = latestListingSources.slice().sort(compareSourceHealth);
     const needing = sources.filter(needsAttention);
-    const meta = `${sources.length} source${sources.length === 1 ? '' : 's'} · ${needing.length ? `${needing.length} need${needing.length === 1 ? 's' : ''} you` : 'nothing needs you'}`;
+    const crawling = sources.filter(source => source.crawling_since).length;
+    const scraping = sources.filter(source => source.scraping_since).length;
+    const meta = [`${sources.length} source${sources.length === 1 ? '' : 's'}`,
+        needing.length ? `${needing.length} need${needing.length === 1 ? 's' : ''} you` : 'nothing needs you',
+        crawling ? `${crawling} crawling now` : '', scraping ? `${scraping} scraping now` : ''].filter(Boolean).join(' · ');
     const groups = [
         ['Needs attention', needing, false],
         ['Healthy', sources.filter(source => source.crawl_enabled && !needsAttention(source)), false],
@@ -492,10 +496,14 @@ function renderSourceStatus(source) {
     if (source.crawl_enabled && missing > 0) {
         lines.push(issueLine('', `<button class="toggle-link" aria-expanded="${expandedMissingValueSources.has(source.listing_source_id)}" onclick="toggleMissingValuePages('${id}')" type="button">${missing} page${missing === 1 ? '' : 's'} missing a required value</button>`, ''));
     }
-    if (!lines.length) {
+    const running = [];
+    if (source.crawling_since) running.push(issueLine('ok', 'Crawling now', `started ${timeBadge(source.crawling_since, 'Crawling since')}`));
+    if (source.scraping_since) running.push(issueLine('ok', 'Scraping now', `started ${timeBadge(source.scraping_since, 'Scraping since')}`));
+    if (!lines.length && !running.length) {
         lines.push(!source.crawl_enabled ? issueLine('', 'Crawling disabled', '')
             : source.last_successful_scrape ? issueLine('ok', 'Scraping', '') : issueLine('', 'Not scraped yet', ''));
     }
+    lines.push(...running);
     return `<div class="issues">${lines.join('')}</div>`;
 }
 

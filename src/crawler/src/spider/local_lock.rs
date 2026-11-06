@@ -55,6 +55,31 @@ impl LocalLockManager {
     pub fn is_work_locked(&self, scope: WorkLockScope, listing_source_id: ListingSourceId) -> bool {
         self.locks.contains_key(&scope.key(listing_source_id))
     }
+
+    /// The work locks held at this moment, in no particular order: a point-in-time observation
+    /// for the console, not a synchronization primitive. URL locks are not listed.
+    pub fn running_work(&self) -> Vec<RunningWork> {
+        self.locks
+            .iter()
+            .filter_map(|entry| {
+                let (scope, listing_source_id) = WorkLockScope::parse_key(entry.key())?;
+                Some(RunningWork {
+                    scope,
+                    listing_source_id,
+                    since: *entry.value(),
+                })
+            })
+            .collect()
+    }
+}
+
+/// A work lock a component holds right now, as the console reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunningWork {
+    pub scope: WorkLockScope,
+    pub listing_source_id: ListingSourceId,
+    /// When the lock was acquired.
+    pub since: Instant,
 }
 
 /// The crawler component that owns a work lock.
@@ -74,6 +99,17 @@ impl WorkLockScope {
             Self::Spider => format!("spider:{listing_source_id}"),
             Self::Scraper => format!("scraper:{listing_source_id}"),
         }
+    }
+
+    /// The inverse of [`Self::key`]: `None` for a URL lock's key.
+    fn parse_key(key: &str) -> Option<(Self, ListingSourceId)> {
+        let (scope, id) = key.split_once(':')?;
+        let scope = match scope {
+            "spider" => Self::Spider,
+            "scraper" => Self::Scraper,
+            _ => return None,
+        };
+        Some((scope, id.parse().ok()?))
     }
 }
 
@@ -173,6 +209,52 @@ mod tests {
         .collect();
 
         assert!(locks.iter().all(Option::is_some));
+    }
+
+    #[test]
+    fn running_work_lists_held_work_locks_with_their_scope_and_not_url_locks() {
+        let manager = LocalLockManager::new();
+        let spidered = ListingSourceId::new();
+        let scraped = ListingSourceId::new();
+        let url = url::Url::parse("https://example.com/product/42").unwrap();
+
+        let spider = WorkLock::try_acquire(&manager, WorkLockScope::Spider, spidered);
+        let scraper = WorkLock::try_acquire(&manager, WorkLockScope::Scraper, scraped);
+        let url_lock = UrlLock::try_acquire(&manager, &url);
+
+        let mut running: Vec<_> = manager
+            .running_work()
+            .into_iter()
+            .map(|work| (work.scope, work.listing_source_id))
+            .collect();
+        running.sort_by_key(|(scope, _)| *scope as u8);
+        assert_eq!(
+            running,
+            vec![
+                (WorkLockScope::Spider, spidered),
+                (WorkLockScope::Scraper, scraped)
+            ]
+        );
+
+        drop((spider, scraper, url_lock));
+
+        assert!(manager.running_work().is_empty());
+    }
+
+    #[test]
+    fn work_lock_key_round_trips_through_parse_key() {
+        let listing_source_id = ListingSourceId::new();
+
+        for scope in [WorkLockScope::Spider, WorkLockScope::Scraper] {
+            assert_eq!(
+                WorkLockScope::parse_key(&scope.key(listing_source_id)),
+                Some((scope, listing_source_id))
+            );
+        }
+        assert_eq!(
+            WorkLockScope::parse_key("url:https://example.com/product/42"),
+            None
+        );
     }
 
     #[test]

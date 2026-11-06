@@ -46,10 +46,12 @@ use crawler::spider::classification::url_metadata_repository::{
     DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::spider::crawled_root::CrawledRoot;
+use crawler::spider::local_lock::{LocalLockManager, WorkLock, WorkLockScope};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
 use sqlx::{AssertSqlSafe, PgPool};
+use std::sync::Arc;
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -5292,4 +5294,50 @@ async fn should_not_list_an_expired_mass_removal_confirmation() {
 
     assert_eq!(source.mass_removal_confirmed_until, None);
     assert_eq!(source.mass_removal_confirmed_by, None);
+}
+
+/// A source the crawler is working on right now is listed beyond the row limit, with the
+/// component and since when; a source nothing works on carries neither.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_a_running_source_beyond_the_row_limit() {
+    let pool = get_postgres_client().await;
+    let sources = [
+        ListingSourceId::new(),
+        ListingSourceId::new(),
+        ListingSourceId::new(),
+    ];
+    for listing_source_id in sources {
+        insert_listing_source(&pool, listing_source_id).await;
+    }
+    let work_locks = Arc::new(LocalLockManager::new());
+    let reader =
+        ListingSourceOverviewReader::new(pool.clone()).with_work_locks(Arc::clone(&work_locks));
+
+    let unlocked = reader.list_listing_sources(1).await.unwrap();
+    assert_eq!(unlocked.len(), 1);
+    let running_id = sources
+        .into_iter()
+        .find(|id| *id != unlocked[0].listing_source_id)
+        .unwrap();
+    let _lock = WorkLock::try_acquire(&work_locks, WorkLockScope::Scraper, running_id).unwrap();
+
+    let listed = reader.list_listing_sources(1).await.unwrap();
+
+    assert_eq!(listed.len(), 2);
+    let running = listed
+        .iter()
+        .find(|source| source.listing_source_id == running_id)
+        .expect("the running source is listed");
+    let since = running.scraping_since.expect("scraping since");
+    assert!(
+        (OffsetDateTime::now_utc() - since).abs() < time::Duration::seconds(10),
+        "{since}"
+    );
+    assert_eq!(running.crawling_since, None);
+    assert!(
+        listed
+            .iter()
+            .filter(|source| source.listing_source_id != running_id)
+            .all(|source| source.scraping_since.is_none() && source.crawling_since.is_none())
+    );
 }
