@@ -13,6 +13,7 @@ pub mod public;
 pub mod public_discovery;
 mod registry;
 mod runtime;
+mod server_card;
 
 pub use admission::{AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate};
 pub use authentication::AuraTokenGate;

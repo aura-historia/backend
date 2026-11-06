@@ -132,4 +132,6 @@ pub enum ConfigError {
     Limits,
     #[error("invalid environment encoding for {0}")]
     Encoding(&'static str),
+    #[error("MCP server card cannot be built from the server identity")]
+    ServerCard(#[source] application::error::BoxError),
 }
