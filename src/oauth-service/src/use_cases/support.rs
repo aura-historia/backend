@@ -14,9 +14,6 @@ use user_service::use_cases::queries::check_user_admin::{
 
 pub(crate) const AUTHORIZATION_CODE_TTL: time::Duration = time::Duration::minutes(10);
 pub(crate) const THIRD_PARTY_EXCHANGE_CODE_TTL: time::Duration = time::Duration::seconds(60);
-/// Public clients hold short-lived tokens; they reauthorize when one expires.
-pub(crate) const METADATA_DOCUMENT_CLIENT_ACCESS_TOKEN_TTL: time::Duration =
-    time::Duration::hours(1);
 
 pub(crate) fn authorize_oauth_admin(context: &OperationContext) -> Result<(), OAuthServiceError> {
     context

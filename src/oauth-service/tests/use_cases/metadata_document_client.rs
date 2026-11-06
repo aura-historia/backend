@@ -87,6 +87,7 @@ fn authorize_handler(
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        ports.clone(),
         MetadataDocumentClients::new(policy, documents),
         AuraResourcePolicy::production(),
     )
@@ -98,11 +99,8 @@ fn token_handler(
 ) -> impl TokenByAuthorizationCodeUseCase {
     TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        policy,
+        token_exchange_stores(&ports.clone()),
+        credentials(policy),
         AuraResourcePolicy::production(),
     )
 }
@@ -114,6 +112,7 @@ fn request(redirect_uri: &str, scope: HashSet<Scope>) -> AuthorizeRequest {
         redirect_uri: url(redirect_uri),
         resource: Some("https://mcp.aura-historia.com/v1".to_owned()),
         scope,
+        offline_access: false,
         state: Some(OAuthState::from("state-1")),
         code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
         code_challenge_method: CodeChallengeMethod::S256,
@@ -186,14 +185,23 @@ async fn should_issue_an_expiring_token_without_exchange_code_to_a_metadata_docu
     assert!(expires <= OffsetDateTime::now_utc() + time::Duration::hours(1));
     assert_eq!(None, token.third_party_exchange_code);
     assert_eq!(
+        None, token.refresh_token,
+        "the document asks for no refresh tokens"
+    );
+    assert_eq!(
         HashSet::from([Scope::UsersRead, Scope::WatchlistWrite]),
         token.scopes
     );
     let state = lock(&ports.0);
     let issued = state.issued.clone().unwrap();
+    let connection = state
+        .connections
+        .first()
+        .expect("approval records a connection");
     assert_eq!(
         &AccessTokenOrigin::OAuthMetadataDocument {
-            client_id: client_id()
+            client_id: client_id(),
+            connection_id: connection.id(),
         },
         issued.origin()
     );
@@ -202,7 +210,7 @@ async fn should_issue_an_expiring_token_without_exchange_code_to_a_metadata_docu
         issued
             .name()
             .as_ref()
-            .starts_with("agent.example (OAuth-Client ")
+            .starts_with("Example Agent (OAuth-Client ")
     );
     assert!(state.exchange.is_none());
     assert!(state.code.is_none());
@@ -421,7 +429,10 @@ async fn should_keep_pkce_mandatory_for_metadata_document_clients() {
 }
 
 fn consent_handler(documents: FakeDocuments) -> impl GetMetadataDocumentConsentClientUseCase {
-    GetMetadataDocumentConsentClientHandler::new(MetadataDocumentClients::new(enabled(), documents))
+    GetMetadataDocumentConsentClientHandler::new(
+        MetadataDocumentClients::new(enabled(), documents),
+        FakePorts::default(),
+    )
 }
 
 fn consent_request(redirect_uri: &str) -> GetMetadataDocumentConsentClientRequest {
@@ -452,6 +463,7 @@ async fn should_describe_the_verified_hosts_of_a_metadata_document_client_for_co
         oauth_core::metadata_document_client::metadata_document_client_scopes(),
         view.scopes
     );
+    assert!(view.granted_scopes.is_empty());
 
     let hosted = consent_handler(FakeDocuments::serving(ClientMetadataDocumentClaims {
         redirect_uris: Some(vec!["https://callback.example/oauth".to_owned()]),

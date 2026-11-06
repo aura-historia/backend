@@ -159,14 +159,28 @@ export interface StageConfig {
 
 /**
  * Public OAuth clients that sign in with a Client ID Metadata Document instead of a registration.
- * Production stays disabled until rotating refresh tokens are deployed (#2802); until then such a
- * client's one-hour token forces its user to approve it again every hour.
+ * They hold short-lived access tokens and rotating refresh tokens; see docs/oauth.md.
  */
 export interface OAuthMetadataDocumentClientsConfig {
   readonly enabled: boolean;
   /** Domains, including their subdomains, whose documents are refused. */
   readonly deniedHosts: readonly string[];
+  readonly accessTokenTtlSeconds: number;
+  /** A refresh-token family ends when unused this long... */
+  readonly refreshTokenIdleTtlSeconds: number;
+  /** ...and at the latest this long after the sign-in that started it. */
+  readonly refreshTokenAbsoluteTtlSeconds: number;
 }
+
+const DAY_SECONDS = 24 * 60 * 60;
+
+const OAUTH_METADATA_DOCUMENT_CLIENTS: OAuthMetadataDocumentClientsConfig = {
+  enabled: true,
+  deniedHosts: [],
+  accessTokenTtlSeconds: 60 * 60,
+  refreshTokenIdleTtlSeconds: 30 * DAY_SECONDS,
+  refreshTokenAbsoluteTtlSeconds: 90 * DAY_SECONDS,
+};
 
 export function isStageName(value: string): value is StageName {
   return (STAGES as readonly string[]).includes(value);
@@ -214,7 +228,7 @@ export function stageConfig(stage: StageName): StageConfig {
     apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
     apiCloudFrontAliases,
     apiCorsAllowOrigins: ["*"],
-    oauthMetadataDocumentClients: { enabled: !isProd, deniedHosts: [] },
+    oauthMetadataDocumentClients: OAUTH_METADATA_DOCUMENT_CLIENTS,
     mcp: {
       domainName: isProd ? "mcp.aura-historia.com" : "mcp.stage.aura-historia.com",
       gatewayCertificateArn: ssmValue(`/certificates/${stage}/mcp-regional-certificate-arn`),

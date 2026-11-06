@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
-    Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken,
+    OAuthConnectionId, RawAccessToken, Scope,
 };
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
@@ -24,8 +24,9 @@ use user_postgres::{
     SqlxUserRepositoryFactory,
 };
 use user_service::ports::{
-    AccessTokenRepository, AccessTokenRepositoryFactory, AdminAccessTokenListReader,
-    AdminAccessTokenListReaderFactory, UserRepository, UserRepositoryFactory,
+    AccessTokenListEntry, AccessTokenListEntryId, AccessTokenRepository,
+    AccessTokenRepositoryFactory, AdminAccessTokenListReader, AdminAccessTokenListReaderFactory,
+    UserRepository, UserRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -64,6 +65,19 @@ async fn should_read_bounded_target_tokens_with_expired_and_current_metadata() {
     insert_token(&tokens, &mut tx, &expired).await;
     insert_token(&tokens, &mut tx, &current).await;
     insert_token(&tokens, &mut tx, &unrelated_token).await;
+    // Created before both tokens, so the first page ends on a connection cursor.
+    let connection_id = OAuthConnectionId::new();
+    sqlx::query(
+        "INSERT INTO oauth_connections \
+            (connection_id, user_id, client_id, client_name, scopes, created, last_used) \
+         VALUES ($1, $2, 'https://agent.example/client.json', 'Agent', '{}', \
+            now() - interval '1 hour', now())",
+    )
+    .bind(connection_id.into_uuid())
+    .bind(target.id().into_uuid())
+    .execute(tx.connection())
+    .await
+    .unwrap();
 
     let first_page = match reader
         .in_transaction(&mut tx)
@@ -83,7 +97,14 @@ async fn should_read_bounded_target_tokens_with_expired_and_current_metadata() {
     commit(tx).await;
 
     assert_eq!(1, first_page.items.len());
-    assert!(next_cursor.is_some());
+    assert!(matches!(
+        &first_page.items[0],
+        AccessTokenListEntry::Connection(connection) if connection.connection_id == connection_id
+    ));
+    assert!(matches!(
+        next_cursor,
+        Some(cursor) if cursor.entry_id == AccessTokenListEntryId::Connection(connection_id)
+    ));
 
     let mut tx = begin(&unit_of_work).await;
     let second_page = match reader
@@ -91,7 +112,7 @@ async fn should_read_bounded_target_tokens_with_expired_and_current_metadata() {
         .list_for_user(
             target.id(),
             Cursor {
-                size: 1,
+                size: 2,
                 search_after: next_cursor,
             },
         )
@@ -102,14 +123,16 @@ async fn should_read_bounded_target_tokens_with_expired_and_current_metadata() {
     };
     commit(tx).await;
 
-    assert_eq!(1, second_page.items.len());
+    assert_eq!(2, second_page.items.len());
     assert!(second_page.cursor.search_after.is_none());
-    let listed = first_page
+    let listed = second_page
         .items
         .into_iter()
-        .chain(second_page.items)
+        .map(|entry| match entry {
+            AccessTokenListEntry::AccessToken(listed) => listed.token,
+            AccessTokenListEntry::Connection(_) => panic!("unexpected connection entry"),
+        })
         .collect::<Vec<_>>();
-    assert_eq!(2, listed.len());
     assert!(listed.iter().any(|token| {
         token.name == AccessTokenName::from("expired admin token")
             && token.expires == Some(OffsetDateTime::UNIX_EPOCH)

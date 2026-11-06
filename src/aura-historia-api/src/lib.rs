@@ -89,16 +89,20 @@ use oauth_client_metadata_http::HttpClientMetadataDocumentSource;
 use oauth_core::metadata_document_client::{
     DeniedMetadataDocumentHosts, MetadataDocumentClientPolicy,
 };
+use oauth_core::refresh_token::{InvalidTokenLifetimes, MetadataDocumentClientTokenLifetimes};
 use oauth_postgres::{
     SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
     SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
-    SqlxThirdPartyExchangeCodeRepositoryFactory,
+    SqlxOAuthConnectionGrantReader, SqlxOAuthConnectionRepositoryFactory,
+    SqlxRefreshTokenFamilyRepositoryFactory, SqlxThirdPartyExchangeCodeRepositoryFactory,
 };
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler,
-    GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler, GetOAuthConsentClientHandler,
-    IntrospectTokenHandler, ListOAuthClientsHandler, MetadataDocumentClients, RevokeTokenHandler,
-    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+    DisconnectOAuthClientHandler, GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler,
+    GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
+    MetadataDocumentClientCredentials, MetadataDocumentClients, RevocationStores,
+    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByRefreshTokenHandler,
+    TokenByThirdPartyCodeHandler, TokenExchangeStores, UpdateOAuthClientHandler,
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
@@ -234,6 +238,13 @@ pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
 pub const OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV: &str =
     "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED";
 pub const OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV: &str = "OAUTH_METADATA_DOCUMENT_DENIED_HOSTS";
+pub const OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV: &str =
+    "OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS";
+pub const OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV: &str = "OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS";
+pub const OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV: &str =
+    "OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS";
+const MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS: u64 = 24 * 60 * 60;
+const MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS: u64 = 365 * 24 * 60 * 60;
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
@@ -255,6 +266,7 @@ pub struct ApiConfig {
     cognito_jwt: CognitoJwtConfig,
     oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
     oauth_metadata_document_client_policy: MetadataDocumentClientPolicy,
+    oauth_metadata_document_client_token_lifetimes: MetadataDocumentClientTokenLifetimes,
     cognito_user_pool_id: String,
     product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
@@ -291,6 +303,8 @@ impl ApiConfig {
         .map_err(ApiConfigError::InvalidOAuthIssuer)?;
         let oauth_metadata_document_client_policy =
             oauth_metadata_document_client_policy(&mut get)?;
+        let oauth_metadata_document_client_token_lifetimes =
+            oauth_metadata_document_client_token_lifetimes(&mut get)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
@@ -363,6 +377,7 @@ impl ApiConfig {
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             oauth_resource_policy,
             oauth_metadata_document_client_policy,
+            oauth_metadata_document_client_token_lifetimes,
             cognito_user_pool_id,
             product_listings,
             stripe_billing,
@@ -385,6 +400,15 @@ impl ApiConfig {
 
     pub fn oauth_metadata_document_client_policy(&self) -> &MetadataDocumentClientPolicy {
         &self.oauth_metadata_document_client_policy
+    }
+
+    /// How the token endpoint admits metadata document clients and how long their
+    /// credentials live.
+    pub fn oauth_metadata_document_client_credentials(&self) -> MetadataDocumentClientCredentials {
+        MetadataDocumentClientCredentials::new(
+            self.oauth_metadata_document_client_policy.clone(),
+            self.oauth_metadata_document_client_token_lifetimes,
+        )
     }
 
     pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
@@ -452,6 +476,41 @@ where
             value: value.to_owned(),
         }),
     }
+}
+
+/// Access-token and refresh-token lifetimes of metadata document clients, in seconds, with the
+/// documented defaults when unset.
+fn oauth_metadata_document_client_token_lifetimes<F>(
+    get: &mut F,
+) -> Result<MetadataDocumentClientTokenLifetimes, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let seconds = |get: &mut F, name, default: time::Duration, max| {
+        optional_bounded_u64_config(get, name, default.whole_seconds().unsigned_abs(), 60, max)
+            .map(|seconds| time::Duration::seconds(seconds.cast_signed()))
+    };
+    MetadataDocumentClientTokenLifetimes::new(
+        seconds(
+            get,
+            OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV,
+            MetadataDocumentClientTokenLifetimes::DEFAULT_ACCESS_TOKEN,
+            MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+        )?,
+        seconds(
+            get,
+            OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV,
+            MetadataDocumentClientTokenLifetimes::DEFAULT_REFRESH_TOKEN_IDLE,
+            MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+        )?,
+        seconds(
+            get,
+            OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV,
+            MetadataDocumentClientTokenLifetimes::DEFAULT_REFRESH_TOKEN_ABSOLUTE,
+            MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+        )?,
+    )
+    .map_err(ApiConfigError::InvalidOAuthTokenLifetimes)
 }
 
 fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, ApiConfigError>
@@ -530,6 +589,8 @@ pub enum ApiConfigError {
     ),
     #[error("invalid boolean configuration {name}: {value}")]
     InvalidBooleanConfig { name: &'static str, value: String },
+    #[error("invalid OAuth token lifetimes")]
+    InvalidOAuthTokenLifetimes(#[source] InvalidTokenLifetimes),
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
     InvalidBindAddr {
         value: String,
@@ -980,7 +1041,8 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     "/v1/me/access-tokens",
                     get(users::access_tokens::list_access_tokens)
                         .post(users::access_tokens::post_access_token)
-                        .patch(users::access_tokens::patch_access_token),
+                        .patch(users::access_tokens::patch_access_token)
+                        .delete(users::access_tokens::delete_access_tokens),
                 )
                 .route(
                     "/v1/me/access-tokens/{access_token_id}",
@@ -1754,6 +1816,12 @@ async fn app_state_from_config_and_runtime(
             SqlxUserAdminReaderFactory::new(),
             SqlxUserAccountReaderFactory::new(),
         )),
+        disconnect_oauth_client: Arc::new(DisconnectOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            SqlxAccessTokenRepositoryFactory::new(),
+        )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let saved_searches = runtime.saved_searches(Arc::clone(&embeddings));
@@ -1800,7 +1868,10 @@ async fn app_state_from_config_and_runtime(
             SqlxOAuthClientDetailsReader::new(pool.clone()),
         )),
         get_metadata_document_consent_client: Arc::new(
-            GetMetadataDocumentConsentClientHandler::new(metadata_document_clients.clone()),
+            GetMetadataDocumentConsentClientHandler::new(
+                metadata_document_clients.clone(),
+                SqlxOAuthConnectionGrantReader::new(pool.clone()),
+            ),
         ),
         update_client: Arc::new(UpdateOAuthClientHandler::new(
             unit_of_work.clone(),
@@ -1816,16 +1887,29 @@ async fn app_state_from_config_and_runtime(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
             metadata_document_clients,
             config.oauth_resource_policy(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAuthorizationCodeRepositoryFactory::new(),
-            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+            TokenExchangeStores {
+                clients: SqlxOAuthClientRepositoryFactory::new(),
+                codes: SqlxAuthorizationCodeRepositoryFactory::new(),
+                exchange_codes: SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+                access_tokens: SqlxAccessTokenRepositoryFactory::new(),
+                connections: SqlxOAuthConnectionRepositoryFactory::new(),
+                refresh_token_families: SqlxRefreshTokenFamilyRepositoryFactory::new(),
+            },
+            config.oauth_metadata_document_client_credentials(),
+            config.oauth_resource_policy(),
+        )),
+        token_by_refresh_token: Arc::new(TokenByRefreshTokenHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            SqlxRefreshTokenFamilyRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
-            config.oauth_metadata_document_client_policy().clone(),
+            config.oauth_metadata_document_client_credentials(),
             config.oauth_resource_policy(),
         )),
         token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
@@ -1834,8 +1918,13 @@ async fn app_state_from_config_and_runtime(
         )),
         revoke: Arc::new(RevokeTokenHandler::new(
             unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAccessTokenRepositoryFactory::new(),
+            RevocationStores {
+                clients: SqlxOAuthClientRepositoryFactory::new(),
+                access_tokens: SqlxAccessTokenRepositoryFactory::new(),
+                connections: SqlxOAuthConnectionRepositoryFactory::new(),
+                refresh_token_families: SqlxRefreshTokenFamilyRepositoryFactory::new(),
+            },
+            config.oauth_metadata_document_client_credentials(),
         )),
         introspect: Arc::new(IntrospectTokenHandler::new(
             SqlxOAuthClientAuthenticationReader::new(pool.clone()),
@@ -2232,6 +2321,52 @@ mod tests {
                 ),
             ]),
             Err(ApiConfigError::InvalidOAuthMetadataDocumentDeniedHost(_))
+        ));
+    }
+
+    #[test]
+    fn should_configure_metadata_document_client_token_lifetimes_with_defaults() {
+        let config = |entries: &[(&'static str, &str)]| {
+            let mut values = valid_api_config_values();
+            for (name, value) in entries {
+                values.insert(name, (*value).to_owned());
+            }
+            ApiConfig::from_getter(|name| values.get(name).cloned())
+        };
+
+        assert_eq!(
+            MetadataDocumentClientTokenLifetimes::default(),
+            config(&[])
+                .unwrap()
+                .oauth_metadata_document_client_token_lifetimes
+        );
+        assert_eq!(
+            MetadataDocumentClientTokenLifetimes::new(
+                time::Duration::minutes(5),
+                time::Duration::days(1),
+                time::Duration::days(7),
+            )
+            .unwrap(),
+            config(&[
+                (OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV, "300"),
+                (OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV, "86400"),
+                (OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV, "604800"),
+            ])
+            .unwrap()
+            .oauth_metadata_document_client_token_lifetimes
+        );
+        assert!(matches!(
+            config(&[(OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV, "59")]),
+            Err(ApiConfigError::OutOfRangeIntegerConfig { .. })
+        ));
+        assert!(matches!(
+            config(&[
+                (OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV, "604801"),
+                (OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV, "604800"),
+            ]),
+            Err(ApiConfigError::InvalidOAuthTokenLifetimes(
+                InvalidTokenLifetimes::IdleExceedsAbsolute
+            ))
         ));
     }
 

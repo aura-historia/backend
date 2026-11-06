@@ -416,9 +416,11 @@ cargo test --locked -p aura-historia-api --test api \
 
 A second runner, `mcp_oauth::should_verify_metadata_document_clients_and_real_hybrid_mcp`,
 signs a public agent in through consent metadata, approval and a secret-free token exchange
-on a loopback callback, then calls MCP with its token. A context-owned loopback origin serves
-the agent's metadata documents, valid and deliberately broken; other hosts keep the
-production outbound policy.
+on a loopback callback, then calls MCP with its token. It also runs the full connection
+cycle: the access token expires, MCP rejects it, the agent refreshes, calls MCP again, and
+after the user disconnects the client MCP and refresh both fail. A context-owned loopback
+origin serves the agent's metadata documents, valid and deliberately broken; other hosts
+keep the production outbound policy.
 
 That fixture constructs the advertised browser handoff and exercises backend approval with
 test first-party identity. It does not render or test the webapp. Local fixtures, compatibility

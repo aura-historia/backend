@@ -26,7 +26,7 @@ impl AccessTokenAuthenticationReader for SqlxAccessTokenAuthenticationReader {
         let row = sqlx::query_as::<_, AccessTokenAuthenticationRow>(
             "SELECT access_tokens.access_token_id, access_tokens.user_id, access_tokens.scopes, \
                     access_tokens.origin, access_tokens.oauth_client_id, \
-                    access_tokens.oauth_metadata_document_client_id, access_tokens.expires_at \
+                    access_tokens.oauth_metadata_document_client_id, access_tokens.oauth_connection_id, access_tokens.expires_at \
              FROM access_tokens \
              JOIN users ON users.user_id = access_tokens.user_id \
              WHERE access_tokens.token_short = $1 \

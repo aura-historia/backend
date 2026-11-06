@@ -2748,13 +2748,20 @@ fn should_keep_own_access_token_openapi_contract_aligned() {
     let create = yaml_block(collection_path, "post", 4);
     let list = yaml_block(collection_path, "get", 4);
     let update = yaml_block(collection_path, "patch", 4);
+    let disconnect = yaml_block(collection_path, "delete", 4);
+    assert!(disconnect.contains("name: clientId"));
+    assert!(disconnect.contains("Requires a Cognito access JWT."));
+    assert!(!disconnect.contains("- AccessTokenAuth: []"));
+    assert!(disconnect.contains(
+        "detail: Aura Historia access tokens cannot disconnect OAuth clients; use a Cognito access JWT."
+    ));
     let item_path = yaml_block(swagger, "/v1/me/access-tokens/{accessTokenId}", 2);
     let get = yaml_block(item_path, "get", 4);
     let delete = yaml_block(item_path, "delete", 4);
 
     assert!(create.contains("#/components/schemas/PostAccessTokenData"));
     assert!(create.contains("#/components/schemas/CreatedAccessTokenData"));
-    assert!(list.contains("#/components/schemas/OwnAccessTokenData"));
+    assert!(list.contains("#/components/schemas/OwnAccessTokenListEntryData"));
     assert!(update.contains("#/components/schemas/PatchAccessTokenData"));
     assert!(update.contains("#/components/schemas/OwnAccessTokenData"));
     assert!(get.contains("#/components/schemas/OwnAccessTokenData"));

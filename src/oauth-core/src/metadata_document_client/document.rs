@@ -33,6 +33,7 @@ pub struct ClientMetadataDocument {
     redirect_uris: Vec<MetadataDocumentRedirectUri>,
     client_uri: Option<Url>,
     logo_uri: Option<Url>,
+    declares_refresh_token_grant: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -88,6 +89,7 @@ impl ClientMetadataDocument {
             redirect_uris: redirect_uris(claims.redirect_uris)?,
             client_uri: https_metadata_uri(claims.client_uri.as_deref(), "client_uri")?,
             logo_uri: https_metadata_uri(claims.logo_uri.as_deref(), "logo_uri")?,
+            declares_refresh_token_grant: contains(claims.grant_types.as_deref(), "refresh_token"),
         })
     }
 
@@ -112,6 +114,12 @@ impl ClientMetadataDocument {
         self.redirect_uris
             .iter()
             .any(|redirect_uri| redirect_uri.admits(requested))
+    }
+
+    /// Whether the document's `grant_types` lists `refresh_token`, which asks for refresh
+    /// tokens without the `offline_access` scope.
+    pub fn declares_refresh_token_grant(&self) -> bool {
+        self.declares_refresh_token_grant
     }
 
     /// Whether every listed callback returns to the user's own device.
@@ -240,6 +248,19 @@ mod tests {
         );
         assert!(
             !document.admits_redirect_uri(&Url::parse("https://client.example/callback").unwrap())
+        );
+    }
+
+    #[test]
+    fn should_record_whether_the_document_declares_the_refresh_token_grant() {
+        assert!(validate(claims()).unwrap().declares_refresh_token_grant());
+        assert!(
+            !validate(ClientMetadataDocumentClaims {
+                grant_types: Some(vec!["authorization_code".to_owned()]),
+                ..claims()
+            })
+            .unwrap()
+            .declares_refresh_token_grant()
         );
     }
 

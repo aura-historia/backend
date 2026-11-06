@@ -1,4 +1,4 @@
-use crate::ports::AccessTokenDetails;
+use crate::ports::AccessTokenListEntry;
 use crate::use_cases::queries::list_admin_access_tokens::AccessTokenSearchCursor;
 use application::error::BoxError;
 use application::pagination::{Cursor, CursoredResult};
@@ -25,12 +25,13 @@ pub enum AdminAccessTokenListReadError {
 
 #[async_trait::async_trait]
 pub trait AdminAccessTokenListReader: Send {
+    /// One page of the user's credential entries, ordered by creation time, then entry ID.
     async fn list_for_user(
         &mut self,
         user_id: UserId,
         cursor: Cursor<AccessTokenSearchCursor>,
     ) -> Result<
-        CursoredResult<AccessTokenDetails, AccessTokenSearchCursor>,
+        CursoredResult<AccessTokenListEntry, AccessTokenSearchCursor>,
         AdminAccessTokenListReadError,
     >;
 }

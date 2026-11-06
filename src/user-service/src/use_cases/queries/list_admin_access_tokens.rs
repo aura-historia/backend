@@ -1,26 +1,25 @@
 use crate::ports::{
-    AdminAccessTokenListReadError, AdminAccessTokenListReader, AdminAccessTokenListReaderFactory,
-    UserAccountReadError, UserAccountReader, UserAccountReaderFactory, UserAdminReadError,
-    UserAdminReaderFactory,
+    AccessTokenListEntry, AccessTokenListEntryId, AdminAccessTokenListReadError,
+    AdminAccessTokenListReader, AdminAccessTokenListReaderFactory, UserAccountReadError,
+    UserAccountReader, UserAccountReaderFactory, UserAdminReadError, UserAdminReaderFactory,
 };
 use crate::use_cases::authorization::{
     RequireAdminActorError, require_admin_actor, require_admin_actor_credential,
 };
-use crate::use_cases::queries::get_access_token::AccessTokenView;
 use application::error::BoxError;
 use application::operation_context::{CredentialCapability, OperationContext};
 use application::pagination::{Cursor, CursoredResult};
 use application::transaction::{Transaction, UnitOfWork};
 use time::OffsetDateTime;
-use user_core::access_token::AccessTokenId;
 use user_core::user_id::UserId;
 
 const MAX_CURSOR_SIZE: u64 = 100;
 
+/// Continues the listing after the entry created at `position` with ID `entry_id`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AccessTokenSearchCursor {
     pub position: OffsetDateTime,
-    pub access_token_id: AccessTokenId,
+    pub entry_id: AccessTokenListEntryId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +28,8 @@ pub struct ListAdminAccessTokensRequest {
     pub cursor: Option<Cursor<AccessTokenSearchCursor>>,
 }
 
-pub type ListAdminAccessTokensResult = CursoredResult<AccessTokenView, AccessTokenSearchCursor>;
+pub type ListAdminAccessTokensResult =
+    CursoredResult<AccessTokenListEntry, AccessTokenSearchCursor>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ListAdminAccessTokensError {
@@ -149,7 +149,7 @@ where
                 ListAdminAccessTokensError::CommitTransactionFailed(Box::new(source))
             })?;
 
-            Ok(result.map_item(AccessTokenView::from))
+            Ok(result)
         }
         .await;
 
@@ -231,8 +231,8 @@ impl From<AdminAccessTokenListReadError> for ListAdminAccessTokensError {
 mod tests {
     use super::*;
     use crate::ports::{
-        AccessTokenDetails, AdminAccessTokenListReader, UserAccountReader, UserAdminActorView,
-        UserAdminReader, UserDetailsView,
+        AccessTokenDetails, AdminAccessTokenListReader, ListedAccessToken, UserAccountReader,
+        UserAdminActorView, UserAdminReader, UserDetailsView,
     };
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
@@ -241,7 +241,7 @@ mod tests {
     use serde_email::Email;
     use std::collections::{BTreeSet, HashSet};
     use std::sync::{Arc, Mutex, MutexGuard};
-    use user_core::access_token::{AccessTokenName, AccessTokenOrigin, Scope};
+    use user_core::access_token::{AccessTokenId, AccessTokenName, AccessTokenOrigin, Scope};
     use user_core::role::UserRole;
     use user_core::tier::UserTier;
 
@@ -254,7 +254,7 @@ mod tests {
         token_reads: usize,
         admin_role: Option<UserRole>,
         target_exists: bool,
-        items: Vec<AccessTokenDetails>,
+        items: Vec<AccessTokenListEntry>,
         cursor: Option<Cursor<AccessTokenSearchCursor>>,
     }
 
@@ -371,7 +371,7 @@ mod tests {
             _user_id: UserId,
             cursor: Cursor<AccessTokenSearchCursor>,
         ) -> Result<
-            CursoredResult<AccessTokenDetails, AccessTokenSearchCursor>,
+            CursoredResult<AccessTokenListEntry, AccessTokenSearchCursor>,
             crate::ports::AdminAccessTokenListReadError,
         > {
             let mut state = lock(&self.0.0);
@@ -393,14 +393,20 @@ mod tests {
             let mut state = lock(&fakes.0);
             state.admin_role = Some(UserRole::Admin);
             state.target_exists = true;
-            state.items.push(AccessTokenDetails {
-                user_id,
-                access_token_id: AccessTokenId::new(),
-                name: AccessTokenName::from("admin inspection"),
-                scopes: HashSet::from([Scope::UsersRead]),
-                origin: AccessTokenOrigin::User,
-                expires: None,
-            });
+            state.items.push(AccessTokenListEntry::AccessToken(
+                ListedAccessToken::new(
+                    AccessTokenDetails {
+                        user_id,
+                        access_token_id: AccessTokenId::new(),
+                        name: AccessTokenName::from("admin inspection"),
+                        scopes: HashSet::from([Scope::UsersRead]),
+                        origin: AccessTokenOrigin::User,
+                        expires: None,
+                    },
+                    None,
+                )
+                .unwrap_or_else(|error| panic!("valid listed token: {error}")),
+            ));
         }
 
         let result = ListAdminAccessTokensHandler::new(

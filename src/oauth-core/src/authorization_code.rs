@@ -23,6 +23,7 @@ pub struct AuthorizationCode {
     scopes: HashSet<Scope>,
     code_challenge: OAuthCodeChallenge,
     code_challenge_method: CodeChallengeMethod,
+    issues_refresh_token: bool,
     expires: OffsetDateTime,
 }
 
@@ -38,6 +39,9 @@ pub struct RehydratedAuthorizationCodeState {
     pub scopes: HashSet<Scope>,
     pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
+    /// Whether exchanging the code also starts a refresh-token family. Only metadata document
+    /// clients receive refresh tokens.
+    pub issues_refresh_token: bool,
     pub expires: OffsetDateTime,
 }
 
@@ -57,6 +61,7 @@ impl AuthorizationCode {
             scopes: state.scopes,
             code_challenge: state.code_challenge,
             code_challenge_method: state.code_challenge_method,
+            issues_refresh_token: state.issues_refresh_token,
             expires: state.expires,
         }
     }
@@ -88,6 +93,10 @@ impl AuthorizationCode {
 
     pub fn code_challenge(&self) -> &OAuthCodeChallenge {
         &self.code_challenge
+    }
+
+    pub fn issues_refresh_token(&self) -> bool {
+        self.issues_refresh_token
     }
 
     pub fn expires(&self) -> OffsetDateTime {

@@ -20,6 +20,9 @@ pub(crate) enum OAuthError {
     InvalidGrant,
     #[error("unsupported_grant_type")]
     UnsupportedGrantType,
+    /// The client may not use the requested grant type.
+    #[error("unauthorized_client")]
+    UnauthorizedClient,
     #[error("unsupported_response_type")]
     UnsupportedResponseType,
     #[error("invalid_scope")]
@@ -65,10 +68,16 @@ impl From<OAuthServiceError> for OAuthError {
             | OAuthServiceError::AuthorizationCodeClientMismatch
             | OAuthServiceError::AuthorizationCodeRedirectUriMismatch
             | OAuthServiceError::InvalidCodeVerifier
+            | OAuthServiceError::ConnectionNotFound
+            | OAuthServiceError::RefreshTokenInvalid
+            | OAuthServiceError::RefreshTokenExpired
+            | OAuthServiceError::RefreshTokenReplaced
+            | OAuthServiceError::RefreshTokenReused
             | OAuthServiceError::ThirdPartyExchangeCodeNotFound
             | OAuthServiceError::ThirdPartyExchangeCodeExpired => Self::InvalidGrant,
             OAuthServiceError::InvalidResource
-            | OAuthServiceError::AuthorizationCodeResourceMismatch => Self::InvalidTarget,
+            | OAuthServiceError::AuthorizationCodeResourceMismatch
+            | OAuthServiceError::RefreshTokenResourceMismatch => Self::InvalidTarget,
             OAuthServiceError::InvalidScope => Self::InvalidScope,
             OAuthServiceError::InvalidRedirectUri | OAuthServiceError::InvalidClientMetadata(_) => {
                 Self::InvalidRequest
@@ -76,7 +85,8 @@ impl From<OAuthServiceError> for OAuthError {
             OAuthServiceError::AuthenticatedActorRequired
             | OAuthServiceError::Forbidden
             | OAuthServiceError::DelegatedAuthorizationForbidden
-            | OAuthServiceError::DelegatedClientRegistrationForbidden => Self::AccessDenied,
+            | OAuthServiceError::DelegatedClientRegistrationForbidden
+            | OAuthServiceError::DelegatedDisconnectForbidden => Self::AccessDenied,
             error @ OAuthServiceError::TemporarilyUnavailable { .. } => {
                 Self::TemporarilyUnavailable {
                     source: box_error(error),
@@ -151,6 +161,20 @@ mod tests {
                 "invalid_grant",
             ),
             (OAuthServiceError::InvalidCodeVerifier, 400, "invalid_grant"),
+            (OAuthServiceError::ConnectionNotFound, 400, "invalid_grant"),
+            (OAuthServiceError::RefreshTokenInvalid, 400, "invalid_grant"),
+            (OAuthServiceError::RefreshTokenExpired, 400, "invalid_grant"),
+            (
+                OAuthServiceError::RefreshTokenReplaced,
+                400,
+                "invalid_grant",
+            ),
+            (OAuthServiceError::RefreshTokenReused, 400, "invalid_grant"),
+            (
+                OAuthServiceError::RefreshTokenResourceMismatch,
+                400,
+                "invalid_target",
+            ),
             (OAuthServiceError::InvalidScope, 400, "invalid_scope"),
             (
                 OAuthServiceError::InvalidMetadataDocumentClient {

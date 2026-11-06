@@ -9,6 +9,7 @@ fn authorize_handler(ports: &FakePorts, policy: AuraResourcePolicy) -> impl Auth
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        ports.clone(),
         no_metadata_document_clients(),
         policy,
     )
@@ -20,11 +21,8 @@ fn token_handler(
 ) -> impl TokenByAuthorizationCodeUseCase {
     TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        MetadataDocumentClientPolicy::Disabled,
+        token_exchange_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         policy,
     )
 }
@@ -345,17 +343,23 @@ async fn should_authenticate_mcp_tokens_with_shared_authentication_and_apply_dat
     );
     assert!(!authenticated.scopes.contains(&Scope::UsersWrite));
     let client_id = lock(&ports.0).client.as_ref().unwrap().client_id();
-    RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::System),
-            RevokeTokenRequest {
+    RevokeTokenHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        revocation_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
+    )
+    .execute(
+        &context(Principal::System),
+        RevokeTokenRequest {
+            token: RevocableToken::AccessToken(token.access_token),
+            client: OAuthTokenClientAuthentication::ClientSecretPost {
                 client_id,
                 client_secret: secret,
-                token: token.access_token,
             },
-        )
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
     assert!(matches!(
         authenticator
             .execute(&context(Principal::Anonymous), request)

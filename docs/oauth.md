@@ -8,7 +8,9 @@ apart by the submitted `client_id`, and neither ever falls back to the other:
   authenticate with `client_secret_post`, use exact HTTPS callbacks and receive the
   first-party default of non-expiring tokens.
 - **Metadata document clients** are public clients whose `client_id` is the HTTPS URL of
-  their Client ID Metadata Document. See [metadata document clients](#metadata-document-clients).
+  their Client ID Metadata Document. They hold short-lived access tokens and rotating
+  refresh tokens, grouped into one connection per user. See
+  [metadata document clients](#metadata-document-clients).
 
 Both use short-lived single-use authorization codes and mandatory S256 PKCE. Delegated Aura
 credentials cannot approve authorization requests. The public wire contract is in
@@ -55,7 +57,9 @@ fail before grant consumption. Outstanding legacy codes whose persisted resource
 use the configured shared Aura default; invalid persisted identifiers fail closed.
 
 Resource selection does not change requested scopes, client association, user ownership,
-expiry policy or revocation. It introduces no refresh tokens or dynamic client registration.
+expiry policy or revocation. A refresh-token family keeps the resource of the code that
+started it; a refresh may repeat it or omit `resource`, and any other identifier fails with
+`invalid_target` without consuming the refresh token.
 
 ## Authorization-server discovery
 
@@ -88,8 +92,9 @@ metadata grants no permission. Other existing registered-client scopes remain su
 While metadata document clients are enabled, discovery also advertises
 `client_id_metadata_document_supported: true` and adds `none` to
 `token_endpoint_auth_methods_supported`; clients such as Claude use metadata documents only
-when both are present. No refresh grant, `offline_access` or dynamic registration is
-advertised. Revocation and introspection remain
+when both are present. It then also adds `refresh_token` to `grant_types_supported` and
+`offline_access` to `scopes_supported`; the MCP protected-resource metadata never lists
+`offline_access`. Dynamic registration is not supported. Revocation and introspection remain
 available through the existing API but are omitted from discovery: revocation rejects a
 token issued to another client, and introspection currently permits authenticated clients
 to inspect Aura tokens beyond their own grants. Discovery does not imply broader standards
@@ -160,10 +165,10 @@ name and logo. Operators stop abusive clients with a host denylist: an entry den
 domain and its subdomains, before any fetch and again at the token endpoint. Per
 environment, `OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED` (default `false`) turns the whole
 client kind on, and `OAUTH_METADATA_DOCUMENT_DENIED_HOSTS` lists the denied domains,
-comma-separated; [`infra/src/config.ts`](../infra/src/config.ts) sets both. While disabled,
-URL client IDs are rejected and discovery does not advertise them. Production stays
-disabled until rotating refresh tokens are deployed (#2802): a public client's token expires
-after an hour, so without them its user must approve it again every hour.
+comma-separated; [`infra/src/config.ts`](../infra/src/config.ts) sets both, and enables the
+kind in every environment. While disabled, URL client IDs are rejected and discovery does
+not advertise them. A public client must never hold a non-expiring token, so enabling the
+kind requires the [refresh tokens](#refresh-tokens) below.
 
 **Outbound policy.** Document fetches fail closed: HTTPS on port 443 only, to a host whose
 every resolved address is public under the shared public-network policy, with the
@@ -188,16 +193,105 @@ point.
 listed loopback callback matches on any port ([RFC 8252 §7.3](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)),
 because native clients bind an ephemeral port; scheme, host, path and query still match
 exactly. Requested scopes must lie within the ordinary-user vocabulary that discovery
-advertises. The authorization code persists the `client_id` URL.
+advertises. Approval records the [connection](#connections) and the authorization code
+persists the `client_id` URL.
 
 **Token exchange.** The client sends `client_id` without a secret; a `client_secret` from
 it is `invalid_client`. S256 PKCE and the resource rules above apply unchanged, and only the
 `client_id` the code was issued to may exchange it. A rejected exchange consumes the code,
 except when a metadata document client presents another client's code: having proved no
-credential, it cannot burn that code. The client receives a Bearer token that
-expires after 1 hour and no third-party exchange code. The access token records the
-`client_id` URL as its client, so the user lists and revokes it with their other tokens. Its
-scopes and expiry can only be narrowed afterwards, not widened or removed.
+credential, it cannot burn that code. A code whose connection the user ended in the
+meantime fails with `invalid_grant`. The client receives an expiring Bearer token within its
+connection and no third-party exchange code, and a refresh token when the
+[issuance rule](#refresh-tokens) applies. An individual access token's scopes and expiry can
+only be narrowed afterwards, not widened or removed.
+
+### Connections
+
+A connection is one user's grant to one metadata document client. It holds the union of
+the scopes the user approved, when it was created and last used, the client's access
+tokens and the refresh-token families of its sign-ins. Every approval adds its scopes to the
+connection and refreshes the client name the document asserts; MCP clients asking for more
+scopes request the union of earlier and newly challenged scopes, and the
+[consent metadata](#consent-metadata) shows which scopes are already granted. The
+connection is last used when the user approves the client or the client obtains an access
+token, by code exchange or refresh.
+
+Each completed sign-in starts its own refresh-token family. Several installations of the
+same client, such as Claude Code on two machines, therefore stay signed in side by side,
+and a refresh issues the scopes of its own sign-in. A connection keeps at most five
+families: a further sign-in ends the least recently used one, which bounds the families a
+re-signed-in installation leaves behind. Ending the connection, by the user or by the client
+revoking a refresh token, ends every family and access token it holds, so one installation
+signing out signs out all of them. Reuse detection likewise revokes the access tokens of all
+installations, which then refresh with their own families. Disconnecting also withdraws
+approvals the client has not exchanged yet.
+
+Users see each connection as one entry of the account's
+[access-token listing](swagger.yaml), not its rotating access tokens, and end it with
+`DELETE /v1/me/access-tokens?clientId=…`. That call revokes all of the user's credentials
+for one client: the connection of a metadata document client, or every access token of a
+registered client. Like issuing an access token, it requires a first-party Cognito session;
+a delegated Aura credential receives `403`. An administrator revoking all of a user's access
+tokens also ends all of the user's connections.
+
+### Token lifetimes
+
+| Client kind | Access token | Refresh token |
+| --- | --- | --- |
+| Registered client | Does not expire | None |
+| Metadata document client | 1 hour | Rotating; ends 30 days after its last use and at the latest 90 days after sign-in |
+| Personal access token | As the user chooses | None |
+
+`OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS`, `OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS`
+and `OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS` configure the metadata document client
+lifetimes per environment; the idle limit may not exceed the absolute limit. An expired
+access token receives `401` on REST and MCP, with a Bearer challenge; MCP's reports
+`invalid_token`. Either makes the client refresh.
+
+### Refresh tokens
+
+**Issuance.** The code exchange returns a `refresh_token` when the client's document lists
+`refresh_token` in `grant_types`, or when the authorization request's `scope` included
+`offline_access`. `offline_access` is a request flag, not an Aura scope: it never appears on
+a token. A registered client requesting it receives `invalid_scope`.
+
+**Refresh.** A metadata document client sends `grant_type=refresh_token`, `refresh_token`
+and its `client_id`, without a secret, to the token endpoint. `scope` may narrow the new
+access token to a subset of its sign-in's scopes; `resource` may repeat the sign-in's
+resource. Registered clients receive `unauthorized_client`.
+
+**Rotation.** Every successful refresh returns a new refresh token and a new access token.
+The presented refresh token stops working at once.
+
+**Reuse detection.** Aura keeps every replaced token of a family until the family ends.
+Presenting one again means that someone else may hold the family: Aura ends the family and
+revokes every access token of the connection. Other families of the connection keep their
+refresh tokens.
+
+**Concurrent refreshes.** Refreshes of one family are serialized. When two requests present
+the same token, the first rotates it and the second fails with `invalid_grant`. A token
+replaced at most 10 seconds earlier is treated as such a race, not as reuse, and leaves the
+family intact. After that, presenting it is reuse.
+
+**Expiry.** A family ends when its current token was not used for the idle limit, and at the
+latest at its absolute limit, counted from the sign-in. Expiry is checked on every refresh.
+
+**Errors.** Every unusable refresh token returns `400 invalid_grant`, whatever the reason:
+unknown, malformed, expired, replaced or reused, issued to another client, or of an ended
+connection. A `scope` beyond the sign-in's returns `invalid_scope`, another resource
+`invalid_target`, and a disabled or denied client `401 invalid_client`; none of them consumes
+the token. A refresh needs no outbound call and answers within the token endpoint's
+ordinary database budget.
+
+**Revocation.** `POST /v1/oauth/revoke` accepts a metadata document client identified by its
+`client_id` without a secret. It may revoke its own access tokens, which ends only that
+token, and its own refresh tokens, which ends the whole connection. Another client's token
+is refused, and an unknown token succeeds as already revoked.
+
+**Cleanup.** The scheduled credential cleanup removes the tokens of expired families, then
+the families, then connections that hold no access token, no family and no outstanding
+authorization code, each in bounded batches.
 
 ### Consent metadata
 
@@ -207,15 +301,15 @@ parameter, because a URL does not fit the `/v1/oauth/clients/{clientId}` path th
 clients keep using. It loads and validates the current document and returns `400` unless
 the callback matches it. The response carries the document's name and optional client and
 logo URIs, the `client_id` host, the callback host, whether the document lists only loopback
-callbacks, and the scope ceiling.
+callbacks, the scope ceiling and the scopes the user already granted the client.
 
 ## Protocol errors and cache prevention
 
 Authorization input/client/resource/scope failures and token, revocation and introspection
 protocol failures return `application/json` with a standard OAuth `error` value. Malformed
 or repeated ordinary parameters return `invalid_request`; unsupported grants return
-`unsupported_grant_type`; invalid, expired, replayed or mismatched codes/verifiers return
-`invalid_grant`; unknown or disallowed scopes return `invalid_scope`; invalid or ambiguous
+`unsupported_grant_type`, and a grant the client may not use `unauthorized_client`; invalid,
+expired, replayed or mismatched codes, verifiers and refresh tokens return `invalid_grant`; unknown or disallowed scopes return `invalid_scope`; invalid or ambiguous
 resources and resource substitution return `invalid_target`. Invalid client credentials,
 and a metadata document client that is disabled, denied, unavailable or invalid, return
 `invalid_client`: `401` at the token endpoint, `400` at the authorization endpoint, whose

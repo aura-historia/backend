@@ -29,10 +29,14 @@ pub use access_token_authentication_reader::{
 pub use access_token_details_reader::{
     AccessTokenDetails, AccessTokenDetailsReadError, AccessTokenDetailsReader,
 };
-pub use access_token_list_reader::{AccessTokenListReadError, AccessTokenListReader};
+pub use access_token_list_reader::{
+    AccessTokenListEntry, AccessTokenListEntryId, AccessTokenListReadError, AccessTokenListReader,
+    InvalidAccessTokenListEntry, ListedAccessToken, ListedOAuthConnection,
+    RegisteredOAuthClientDisplay,
+};
 pub use access_token_repository::{
     AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
-    AccessTokenStorageVersion, VersionedAccessToken,
+    AccessTokenStorageVersion, OAuthTokenHolder, VersionedAccessToken,
 };
 pub use admin_access_token_list_reader::{
     AdminAccessTokenListReadError, AdminAccessTokenListReader, AdminAccessTokenListReaderFactory,
