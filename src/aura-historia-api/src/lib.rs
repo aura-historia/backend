@@ -797,44 +797,6 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
-    if let Some(oauth) = state.oauth {
-        routes = routes.merge(
-            Router::new()
-                .route(
-                    "/.well-known/oauth-authorization-server",
-                    get(oauth::discovery::discovery),
-                )
-                .route(
-                    "/v1/admin/oauth-clients",
-                    get(oauth::list_clients::list_clients)
-                        .post(oauth::create_client::create_client),
-                )
-                .route(
-                    "/v1/admin/oauth-clients/{client_id}",
-                    get(oauth::get_client::get_client)
-                        .patch(oauth::update_client::update_client)
-                        .delete(oauth::delete_client::delete_client),
-                )
-                .route(
-                    "/v1/oauth/metadata-document-clients",
-                    get(oauth::get_metadata_document_consent_client::get_metadata_document_consent_client),
-                )
-                .route(
-                    "/v1/oauth/clients/{client_id}",
-                    get(oauth::get_consent_client::get_consent_client),
-                )
-                .route("/v1/oauth/authorize", get(oauth::authorize::authorize))
-                .route("/v1/oauth/token", post(oauth::token::token))
-                .route(
-                    "/v1/oauth/tokens/by-third-party-code/{third_party_code}",
-                    get(oauth::token_by_third_party_code::token_by_third_party_code),
-                )
-                .route("/v1/oauth/revoke", post(oauth::revoke::revoke))
-                .route("/v1/oauth/introspect", post(oauth::introspect::introspect))
-                .with_state(oauth),
-        );
-    }
-
     if let Some(addresses) = state.user_addresses {
         routes = routes.merge(
             Router::new()
@@ -1109,7 +1071,46 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(partnerships::router(partnerships));
     }
 
+    if let Some(oauth) = state.oauth {
+        routes = routes.merge(oauth_routes(oauth));
+    }
+
     with_transport_middleware(routes, request_timeout)
+}
+
+fn oauth_routes(oauth: OAuthState) -> Router {
+    Router::new()
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth::discovery::discovery),
+        )
+        .route(
+            "/v1/admin/oauth-clients",
+            get(oauth::list_clients::list_clients).post(oauth::create_client::create_client),
+        )
+        .route(
+            "/v1/admin/oauth-clients/{client_id}",
+            get(oauth::get_client::get_client)
+                .patch(oauth::update_client::update_client)
+                .delete(oauth::delete_client::delete_client),
+        )
+        .route(
+            "/v1/oauth/metadata-document-clients",
+            get(oauth::get_metadata_document_consent_client::get_metadata_document_consent_client),
+        )
+        .route(
+            "/v1/oauth/clients/{client_id}",
+            get(oauth::get_consent_client::get_consent_client),
+        )
+        .route("/v1/oauth/authorize", get(oauth::authorize::authorize))
+        .route("/v1/oauth/token", post(oauth::token::token))
+        .route(
+            "/v1/oauth/tokens/by-third-party-code/{third_party_code}",
+            get(oauth::token_by_third_party_code::token_by_third_party_code),
+        )
+        .route("/v1/oauth/revoke", post(oauth::revoke::revoke))
+        .route("/v1/oauth/introspect", post(oauth::introspect::introspect))
+        .with_state(oauth)
 }
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
