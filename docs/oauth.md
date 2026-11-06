@@ -225,7 +225,8 @@ Users see each connection as one entry of the account's
 `DELETE /v1/me/access-tokens?clientId=…`. That call revokes all of the user's credentials
 for one client: the connection of a metadata document client, or every access token of a
 registered client. Like issuing an access token, it requires a first-party Cognito session;
-a delegated Aura credential receives `403`.
+a delegated Aura credential receives `403`. An administrator revoking all of a user's access
+tokens also ends all of the user's connections.
 
 ### Token lifetimes
 

@@ -192,7 +192,7 @@ async fn should_delete_access_token_and_report_missing_token() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_delete_all_access_tokens_for_target_user_without_touching_other_users() {
     let pool = get_postgres_client().await;
-    let unit_of_work = SqlxUnitOfWork::new(pool);
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let users = SqlxUserRepositoryFactory::new();
     let tokens = SqlxAccessTokenRepositoryFactory::new();
     let target = sample_user("access-token-bulk-target");
@@ -226,6 +226,18 @@ async fn should_delete_all_access_tokens_for_target_user_without_touching_other_
     insert_token(&tokens, &mut tx, &second_target_token).await;
     insert_token(&tokens, &mut tx, &unrelated_token).await;
     commit(tx).await;
+    for user in [&target, &unrelated] {
+        sqlx::query(
+            "INSERT INTO oauth_connections \
+                (connection_id, user_id, client_id, client_name, scopes, created, last_used) \
+             VALUES ($1, $2, 'https://agent.example/client.json', 'Agent', '{}', now(), now())",
+        )
+        .bind(OAuthConnectionId::new().into_uuid())
+        .bind(user.id().into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
 
     let mut tx = begin(&unit_of_work).await;
     let deleted = match tokens
@@ -251,6 +263,16 @@ async fn should_delete_all_access_tokens_for_target_user_without_touching_other_
     commit(tx).await;
 
     assert_eq!(2, deleted);
+    let connected_users: Vec<uuid::Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM oauth_connections")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        vec![unrelated.id().into_uuid()],
+        connected_users,
+        "revoking all of a user's tokens also ends the user's connections"
+    );
     assert!(matches!(first_target_remaining, Ok(None)));
     assert!(matches!(second_target_remaining, Ok(None)));
     assert!(matches!(unrelated_remaining, Ok(Some(_))));

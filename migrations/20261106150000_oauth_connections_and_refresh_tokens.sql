@@ -220,7 +220,8 @@ BEGIN
         JOIN oauth_refresh_token_families AS families USING (family_id)
         WHERE families.expires_at < cleanup_now
         LIMIT batch_size
-        FOR UPDATE OF tokens SKIP LOCKED
+        -- A refresh holds its family's lock; skip that family rather than race its rotation.
+        FOR UPDATE OF tokens, families SKIP LOCKED
     ), deleted AS (
         DELETE FROM oauth_refresh_tokens AS tokens
         USING candidates

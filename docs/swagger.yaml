@@ -7869,7 +7869,8 @@ paths:
     delete:
       summary: Revoke all of a user's Aura Historia access tokens as admin
       description: |
-        Revokes all Aura Historia access tokens owned by the target user in one atomic PostgreSQL transaction.
+        Revokes all Aura Historia access tokens owned by the target user in one atomic PostgreSQL transaction,
+        and ends the user's OAuth connections with their refresh tokens, so no client can obtain new tokens.
 
         Cognito JWTs and Aura Historia access tokens are accepted. The caller's persisted user role
         must be `ADMIN`; delegated Aura Historia access tokens must also have `access-tokens:write`.
