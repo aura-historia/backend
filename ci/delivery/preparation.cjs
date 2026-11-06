@@ -15,6 +15,8 @@ const schema = require("./schema.cjs");
 const reviewer = require("./review.cjs");
 const reviewObservations = require("./review-observations.cjs");
 const storage = require("./storage.cjs");
+const { redactResolvedValues } = require("./change-set-redaction.cjs");
+const { credentialVersionParameters } = require("./credential-versions.cjs");
 const imageCatalog = require("../container-images.json");
 
 function loadTargetConfig(target, env = process.env) {
@@ -158,6 +160,18 @@ function effectiveParameters(template, live, values) {
       );
   }
   return { changeset, native };
+}
+function routineStack(target, name) {
+  return new RegExp(
+    `^application-${target}-(migrate|compute|api|observability)$`,
+  ).test(name);
+}
+function routineTemplates(target, stackNames, templates) {
+  return Object.fromEntries(
+    stackNames
+      .filter((name) => routineStack(target, name) && templates[name])
+      .map((name) => [name, templates[name].template]),
+  );
 }
 function candidateTemplates(bundle, target, store = storage) {
   const templates = {};
@@ -456,17 +470,20 @@ async function prepare(env = process.env, options = {}) {
           path: name,
           detail: "New stack ownership is separately approved platform work",
         });
-    const values = artifactParameters(bundle),
+    const values = {
+        ...artifactParameters(bundle),
+        ...credentialVersionParameters(
+          ctx,
+          routineTemplates(ctx.target, operational.stackNames, templates),
+          api,
+        ),
+      },
       plans = [];
     for (const name of operational.stackNames) {
       const desired = templates[name],
         before = live.stacks[name];
       if (!desired) throw new Error(`Candidate omits target stack ${name}`);
-      if (
-        !new RegExp(
-          `^application-${ctx.target}-(migrate|compute|api|observability)$`,
-        ).test(name)
-      ) {
+      if (!routineStack(ctx.target, name)) {
         if (digest(before.template) !== digest(desired.template))
           findings.push({
             code: "PROTECTED_STACK_TEMPLATE_CHANGED",
@@ -509,6 +526,11 @@ async function prepare(env = process.env, options = {}) {
           requestId: env.DELIVERY_REQUEST_ID,
         },
         { api, delay: options.delay },
+      );
+      changes.changes = redactResolvedValues(
+        changes.changes,
+        before.template,
+        desired.template,
       );
       findings.push(
         ...inspection.resourceFindings(

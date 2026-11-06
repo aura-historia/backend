@@ -26,6 +26,7 @@ const {
 const storage = require("./storage.cjs");
 const { reviewContext } = require("./review-context.cjs");
 const { revalidateRules } = require("./review-observations.cjs");
+const { redactResolvedValues } = require("./change-set-redaction.cjs");
 
 function evidenceObject(reference, store = storage) {
   const uri = new URL(reference.uri);
@@ -156,7 +157,7 @@ function assertOwned(store, approved) {
     );
   return current;
 }
-function revalidatePlans(ctx, plans, config, api) {
+function revalidatePlans(ctx, plans, stacks, config, api) {
   for (const plan of plans) {
     const expectedRole =
       plan.boundary === "migrate"
@@ -178,7 +179,13 @@ function revalidatePlans(ctx, plans, config, api) {
       value.ChangeSetId !== plan.changeSet.id ||
       value.StackId !== plan.changeSet.stackId ||
       digest(value.Parameters || []) !== plan.changeSet.parametersDigest ||
-      digest(value.Changes || []) !== digest(plan.changeSet.changes)
+      digest(
+        redactResolvedValues(
+          value.Changes || [],
+          stacks[plan.stackName]?.template,
+          plan.template,
+        ),
+      ) !== digest(plan.changeSet.changes)
     )
       throw new Error("Approved native change set changed");
     if (plan.changeSet.status === "AVAILABLE") {
@@ -262,6 +269,7 @@ async function admit(env = process.env, options = {}) {
     revalidatePlans(
       approved.ctx,
       approved.inventory.plans,
+      approved.inventory.aws.stacks,
       approved.config,
       api,
     );

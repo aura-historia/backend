@@ -4,6 +4,7 @@ const state = require("./admission.cjs");
 const inspection = require("./inspection.cjs");
 const preparation = require("./preparation.cjs");
 const { verifyHealth } = require("./health.cjs");
+const { credentialVersionParameterNames } = require("./credential-versions.cjs");
 
 function verifyArtifacts(ctx, bundle, plans, live, api) {
   const values = preparation.artifactParameters(bundle);
@@ -26,10 +27,13 @@ function verifyArtifacts(ctx, bundle, plans, live, api) {
         throw new Error(
           `Deployed ${key} differs from approved artifact/configuration`,
         );
+    const credentials = credentialVersionParameterNames(plan.template);
     if (
       digest(
         (actual.Parameters || []).filter(
-          (item) => !Object.hasOwn(values, item.ParameterKey),
+          (item) =>
+            !Object.hasOwn(values, item.ParameterKey) &&
+            !credentials.includes(item.ParameterKey),
         ),
       ) !== plan.preservedParametersDigest
     )
