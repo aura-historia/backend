@@ -140,6 +140,7 @@ async fn should_fail_closed_for_supplied_credentials_and_leave_protected_tools_d
     protected.required_scopes = vec![CredentialCapability::UsersRead];
     let op = OperationDefinition::new(
         "privateOperation",
+        "privateOperation",
         "Private",
         protected,
         |_: Arguments, _| async { Ok(json!({})) },
@@ -187,7 +188,7 @@ async fn should_fail_closed_for_supplied_credentials_and_leave_protected_tools_d
 async fn should_challenge_before_sdk_dispatch_and_preserve_exact_delegated_capabilities() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
-    let op = OperationDefinition::new("testOperation","Test",policy(), move |_: Arguments, context| {
+    let op = OperationDefinition::new("testOperation", "testOperation", "Test",policy(), move |_: Arguments, context| {
         observed.fetch_add(1,Ordering::SeqCst);
         async move {
             assert!(matches!(context.operation.principal,Principal::DelegatedUser { capabilities, .. } if capabilities == BTreeSet::from([CredentialCapability::UsersRead])));
@@ -238,6 +239,7 @@ async fn should_cancel_operation_at_deadline_and_when_request_is_dropped() {
         let observed_token = token.clone();
         let observed_started = started.clone();
         let op = OperationDefinition::new(
+            "testOperation",
             "testOperation",
             "Test",
             policy(),
@@ -308,6 +310,7 @@ async fn should_cancel_operation_when_native_http_connection_is_closed() {
     let observed_started = started.clone();
     let op = OperationDefinition::new(
         "testOperation",
+        "testOperation",
         "Test",
         policy(),
         move |_: Arguments, context| {
@@ -360,13 +363,19 @@ async fn should_cancel_operation_when_native_http_connection_is_closed() {
 async fn should_bound_concurrent_request_admission_before_business_work() {
     let entered = Arc::new(tokio::sync::Notify::new());
     let notify = entered.clone();
-    let op = OperationDefinition::new("testOperation", "Test", policy(), move |_: Arguments, _| {
-        let notify = notify.clone();
-        async move {
-            notify.notify_one();
-            std::future::pending::<Result<Value, OperationError>>().await
-        }
-    })
+    let op = OperationDefinition::new(
+        "testOperation",
+        "testOperation",
+        "Test",
+        policy(),
+        move |_: Arguments, _| {
+            let notify = notify.clone();
+            async move {
+                notify.notify_one();
+                std::future::pending::<Result<Value, OperationError>>().await
+            }
+        },
+    )
     .unwrap();
     let mut config = config();
     config.max_concurrent_requests = 1;

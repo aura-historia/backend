@@ -168,6 +168,7 @@ mod tests {
         let (tools, next) = registry.page(None).unwrap();
         assert_eq!(38, tools.len());
         assert!(next.is_none());
+        assert_directory_metadata(&tools);
         assert_eq!(38, expected.len());
         assert_eq!(
             expected.keys().cloned().collect::<Vec<_>>(),
@@ -194,6 +195,33 @@ mod tests {
                 ("output", serde_json::to_value(tool.output_schema).unwrap()),
             ] {
                 assert_unsigned_bounds(&schema, &format!("{}.{kind}", tool.name));
+            }
+        }
+    }
+
+    /// The Claude and ChatGPT directories require a display title and explicit hints.
+    fn assert_directory_metadata(tools: &[rmcp::model::Tool]) {
+        let mut titles = std::collections::BTreeSet::new();
+        for tool in tools {
+            let published = serde_json::to_value(tool).unwrap();
+            let title = published["title"].as_str().unwrap_or_default();
+            assert!(!title.is_empty(), "{}: missing title", tool.name);
+            assert!(
+                titles.insert(title.to_lowercase()),
+                "{}: repeated title {title}",
+                tool.name
+            );
+            for hint in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(
+                    published["annotations"][hint].is_boolean(),
+                    "{}: missing {hint}",
+                    tool.name
+                );
             }
         }
     }

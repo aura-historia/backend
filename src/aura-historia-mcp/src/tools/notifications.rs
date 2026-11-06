@@ -104,7 +104,8 @@ pub fn operations(services: Notifications) -> Result<Vec<OperationDefinition>, R
 fn list(list: Arc<dyn ListNotificationsUseCase>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "listNotifications",
-        "List your complete notification inbox payloads and listing snapshots in the requested language, honoring your sensitive-content preference. size defaults to 21 and is clamped to 1 through 100. Serialize the returned searchAfter array as a JSON string to continue.",
+        "List notifications",
+        "List the signed-in user's notifications, such as watchlist changes and new saved-search matches, with each listing as it was when notified, in the requested language. Returns up to size notifications (default 21, 1 to 100); pass the returned searchAfter array as a JSON string to get the next page.",
         read_policy(),
         move |input: ListArguments, invocation| {
             let list = list.clone();
@@ -129,7 +130,8 @@ fn update_one(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateNotificationSeen",
-        "Set seen on one owned notification identified by notificationId. Missing or foreign IDs return not found. Returns an empty object on success.",
+        "Mark notification seen or unseen",
+        "Mark one of the signed-in user's notifications as seen or unseen by notificationId. Returns an empty object; an unknown ID returns NOT_FOUND.",
         mutation_policy(),
         move |input: SingleSeenArguments, invocation| {
             let update = update.clone();
@@ -155,7 +157,8 @@ fn update_selected(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateNotificationsSeen",
-        "Set seen on selected notificationIds in your inbox. At least one ID is required; duplicates are deduplicated and missing or foreign IDs are ignored. Returns an empty object on success without per-item reports.",
+        "Mark selected notifications seen or unseen",
+        "Mark the signed-in user's notifications with the given notificationIds (at least one) as seen or unseen. Unknown IDs are ignored. Returns an empty object.",
         mutation_policy(),
         move |input: SelectedSeenArguments, invocation| {
             let update = update.clone();
@@ -188,7 +191,8 @@ fn update_all(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateAllNotificationsSeen",
-        "Set seen to the supplied boolean for every notification in your entire inbox, including items beyond the listed page. Returns an empty object on success.",
+        "Mark all notifications seen or unseen",
+        "Mark every notification of the signed-in user as seen or unseen, including those beyond the listed page. Returns an empty object.",
         mutation_policy(),
         move |input: AllSeenArguments, invocation| {
             let update = update.clone();
@@ -213,7 +217,8 @@ fn delete_one(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteNotification",
-        "Permanently delete one owned notification identified by notificationId. Missing or foreign IDs return not found. Returns an empty object on success.",
+        "Delete notification",
+        "Permanently delete one of the signed-in user's notifications by notificationId. Returns an empty object; an unknown ID returns NOT_FOUND.",
         mutation_policy(),
         move |input: NotificationArguments, invocation| {
             let delete = delete.clone();
@@ -238,7 +243,8 @@ fn delete_all(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteNotifications",
-        "Permanently delete your entire notification inbox, including items beyond the listed page. Takes no IDs or business body: arguments must be {}. Returns an empty object on success.",
+        "Delete all notifications",
+        "Permanently delete every notification of the signed-in user, including those beyond the listed page. Takes no arguments. Returns an empty object.",
         mutation_policy(),
         move |_: EmptyArguments, invocation| {
             let delete = delete.clone();
