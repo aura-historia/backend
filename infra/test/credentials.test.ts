@@ -117,7 +117,7 @@ describe("delivery permissions for deploy-time credentials", () => {
     }
   });
 
-  test("the planner reads secret metadata and only the reviewer key", () => {
+  test("the planner reads secret metadata and only the reviewer key, and runtime roles cannot read secrets", () => {
     const plannerSecretStatements = statementsFor("prodGitHubPlanner")
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:"));
     expect(plannerSecretStatements.map((statement) => statement.Action)).toEqual([
@@ -125,5 +125,11 @@ describe("delivery permissions for deploy-time credentials", () => {
     ]);
     expect(JSON.stringify(plannerSecretStatements[0].Resource)).toContain("secret:/aura-historia/prod/app/anthropic-??????");
     for (const secret of runtimeSecrets) expect(JSON.stringify(plannerSecretStatements[1].Resource)).toContain(secret);
+    const boundaries = Object.values(template.findResources("AWS::IAM::ManagedPolicy"));
+    const boundary = (name: string) => JSON.stringify(boundaries
+      .find((policy) => policy.Properties.ManagedPolicyName === name)!.Properties.PolicyDocument);
+    expect(boundary("runtime-prod")).not.toContain("secretsmanager:");
+    expect(boundary("runtime-prod")).not.toContain("ssm:GetParameters");
+    expect(boundary("migration-prod")).toContain("secret:/aura-historia/prod/postgres/migrator-??????");
   });
 });

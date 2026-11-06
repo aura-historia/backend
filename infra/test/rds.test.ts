@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import type { StageName } from "../src/config";
 import { credentialSecrets } from "../src/credentials";
-import { credentialReference, transitionalRuntimeSecretGrant } from "./credential-reference";
+import { credentialReference } from "./credential-reference";
 
 const REAL_STAGES = ["dev", "prod"] as const;
 const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
@@ -217,15 +217,9 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       .filter(([id]) => id.includes("PeriodicMatcherExecutionRole"))
       .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
-    // Runtime functions and the matcher task receive credentials at deployment; only the compute
-    // Lambdas keep a transitional grant. Bootstrap (five role secrets), inspection and migration
-    // read theirs when invoked.
-    const transitional = JSON.stringify(transitionalRuntimeSecretGrant(stage));
-    const computeRuntimeFunctions = runtimeFunctions.filter((resource) => resource.Properties.FunctionName !== `fxrate-lambda-${stage}`);
-    expect(secretReadStatements.filter((statement) => JSON.stringify(statement) === transitional))
-      .toHaveLength(computeRuntimeFunctions.length);
-    expect(secretReadStatements.filter((statement) => JSON.stringify(statement) !== transitional)
-      .map((statement) => JSON.stringify(statement.Resource).match(/Postgres(\w+?)Credentials/g)))
+    // Runtime functions and the matcher task receive credentials at deployment and read no secret;
+    // only bootstrap (five role secrets), inspection and migration read theirs when invoked.
+    expect(secretReadStatements.map((statement) => JSON.stringify(statement.Resource).match(/Postgres(\w+?)Credentials/g)))
       .toEqual([
         ["PostgresAdminCredentials", "PostgresRuntimeCredentials", "PostgresMigrationCredentials",
           "PostgresReplicationCredentials", "PostgresInspectionCredentials"],

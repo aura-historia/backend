@@ -595,19 +595,6 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     actions: ["ses:SendEmail"],
     resources: sesSendResources,
   }));
-
-  // Transitional (#2798): versions deployed before deploy-time credentials read the runtime secret on
-  // every invocation until the release that replaces them completes. Remove after that cutover.
-  if (props.postgres.secretArn) {
-    for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
-      if (definition.postgres) {
-        functions[key].addToRolePolicy(new iam.PolicyStatement({
-          actions: ["secretsmanager:GetSecretValue"],
-          resources: [props.postgres.secretArn],
-        }));
-      }
-    }
-  }
 }
 
 export function addUserPoolEnvironment(
