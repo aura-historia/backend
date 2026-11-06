@@ -157,6 +157,7 @@ function createDistribution(scope: Construct, config: StageConfig, domain: apigw
  * The card is identical for every viewer and ignores credentials, so the edge honors its
  * short origin TTL and shields the bounded MCP Lambda from discovery traffic. Gateway CORS
  * keeps the exact protocol origins; this behavior alone lets any origin read the card.
+ * The origin always sets Cache-Control; the non-overriding no-store covers Gateway errors.
  */
 function serverCardBehavior(scope: Construct, config: StageConfig, originId: string): cloudfront.CfnDistribution.CacheBehaviorProperty {
   const cachePolicy = new cloudfront.CfnCachePolicy(scope, "ServerCardCachePolicy", {
@@ -176,6 +177,7 @@ function serverCardBehavior(scope: Construct, config: StageConfig, originId: str
   const responseHeaders = new cloudfront.CfnResponseHeadersPolicy(scope, "ServerCardResponseHeaders", {
     responseHeadersPolicyConfig: {
       name: `mcp-${config.stage}-server-card`,
+      customHeadersConfig: { items: [{ header: "Cache-Control", value: "no-store", override: false }] },
       corsConfig: {
         accessControlAllowCredentials: false,
         accessControlAllowHeaders: { items: ["*"] },

@@ -173,17 +173,28 @@ mod tests {
         }
     }
 
+    /// The schema is vendored from modelcontextprotocol/experimental-ext-server-card at
+    /// 526201bbc80231daa40ffcdecfc9da4e54e5dc93, the snapshot SEP-2127 accepted.
     #[test]
-    fn should_satisfy_the_card_schema_limits() {
-        let card = card(AuraResourcePolicy::production());
-        let name = card["name"].as_str().unwrap();
-        assert_eq!(1, name.matches('/').count());
-        for field in ["title", "description"] {
-            let length = card[field].as_str().unwrap().chars().count();
-            assert!(
-                (1..=100).contains(&length),
-                "{field} has {length} characters"
-            );
+    fn should_validate_against_the_server_card_schema() {
+        // The vendored document only defines `$defs`; validate against its card definition.
+        let mut schema: Value =
+            serde_json::from_str(include_str!("../server-card.schema.json")).unwrap();
+        schema["$ref"] = json!("#/$defs/ServerCard");
+        let validator = jsonschema::validator_for(&schema).unwrap();
+        for policy in [
+            AuraResourcePolicy::production(),
+            AuraResourcePolicy::stage(),
+        ] {
+            let card = card(policy);
+            let errors = validator
+                .iter_errors(&card)
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>();
+            assert!(errors.is_empty(), "{errors:?}");
         }
+        let mut incomplete = card(AuraResourcePolicy::production());
+        incomplete.as_object_mut().unwrap().remove("description");
+        assert!(!validator.is_valid(&incomplete));
     }
 }

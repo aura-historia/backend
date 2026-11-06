@@ -74,26 +74,20 @@ async fn should_publish_public_exact_discovery_without_authentication() {
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_challenge_aura_token_routes_but_not_first_party_consent_routes() {
+    // Unit tests own the metadata and challenge values; this proves the composed router.
     let client = reqwest::Client::new();
     let base = AURA_API.base_url();
-    let metadata = client
-        .get(format!("{base}/.well-known/oauth-protected-resource"))
-        .send()
-        .await
-        .unwrap();
-    let (status, metadata) = json_response(metadata).await;
-    assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!("https://api.aura-historia.com", metadata["resource"]);
-
     let protected = client
         .get(format!("{base}/v1/me/account"))
         .send()
         .await
         .unwrap();
     assert_eq!(reqwest::StatusCode::UNAUTHORIZED, protected.status());
-    assert_eq!(
-        "Bearer resource_metadata=\"https://api.aura-historia.com/.well-known/oauth-protected-resource\"",
+    assert!(
         protected.headers()[reqwest::header::WWW_AUTHENTICATE]
+            .to_str()
+            .unwrap()
+            .starts_with("Bearer resource_metadata=")
     );
 
     // Consent requires a first-party session, which an Aura token cannot satisfy.

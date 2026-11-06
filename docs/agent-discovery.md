@@ -83,16 +83,18 @@ The API host serves [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata 
 Aura default resource: `resource` and the single `authorization_servers` entry are the issuer,
 `bearer_methods_supported` is `header`, and `scopes_supported` is the ordinary-user vocabulary
 that authorization-server discovery also advertises. A client's scope ceiling remains
-authoritative.
+authoritative. `resource` is the shared default, the API origin, not each request URL: a client
+that follows a challenge here must accept a `resource` that is the origin of the URL it
+requested, as MCP clients already do. RFC 9728 §3.3 literally asks for the full request URL,
+which one resource identifier for every REST path cannot satisfy.
 
-A `401` for a missing or invalid bearer (`INVALID_CREDENTIALS`) on a route that accepts Aura
-access tokens carries `WWW-Authenticate: Bearer resource_metadata="<this metadata URL>"`. REST
-CORS exposes the header. The challenge is deliberately absent from:
-
-- OAuth protocol endpoints, whose errors follow [OAuth](oauth.md#protocol-errors-and-cache-prevention);
-- the first-party consent and approval routes and the OAuth client administration routes,
-  which an Aura access token can never satisfy;
-- provider-signature failures on webhooks, which involve no bearer.
+A `401` for a missing or invalid bearer (`INVALID_CREDENTIALS`) on any REST route outside the
+OAuth group carries `WWW-Authenticate: Bearer resource_metadata="<this metadata URL>"`; every
+bearer-authenticated route there accepts Aura access tokens. REST CORS exposes the header. The
+OAuth group gets no challenge: protocol endpoints keep the errors in
+[OAuth](oauth.md#protocol-errors-and-cache-prevention), and consent, approval and OAuth client
+administration are first-party flows that take a Cognito session, not an Aura access token. Other
+`401` codes, such as webhook signature failures, involve no bearer and get no challenge.
 
 The challenge names no `error` or `scope`; each operation's scopes are in [OpenAPI](swagger.yaml).
 

@@ -127,7 +127,7 @@ paths:
       description: Public RFC 9727 API catalog in the Linkset format. The catalog's own context lists the REST and MCP endpoints as `item` links; each API context links its description (`service-desc`, the OpenAPI document or the MCP server card), documentation (`service-doc`) and status probe (`status`). Every URL belongs to the configured environment, apart from the shared documentation site. Credentials and query strings are not evaluated; send none. See docs/agent-discovery.md.
       operationId: getApiCatalog
       tags:
-        - Discovery
+        - Agent Discovery
       security: []
       responses:
         "200":
@@ -168,7 +168,7 @@ paths:
       description: Returns the `GET` headers without a body, including the `api-catalog` link that RFC 9727 requires.
       operationId: headApiCatalog
       tags:
-        - Discovery
+        - Agent Discovery
       security: []
       responses:
         "200":
@@ -27064,6 +27064,7 @@ x-tagGroups:
   - name: Operations
     tags:
       - Operations
+      - Agent Discovery
   - name: Discovery
     tags:
       - ProductListings
@@ -27116,5 +27117,5 @@ tags:
     description: Partnership application submission, review tracking, administration, and decision workflows.
   - name: OAuth
     description: OAuth 2.0 authorization, token, revocation, introspection, and OAuth client metadata management.
-  - name: Discovery
+  - name: Agent Discovery
     description: Machine-readable documents that describe the Aura APIs to agents.

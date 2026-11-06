@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, stageConfig } from "../src/config";
-import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG } from "../src/constructs/mcp";
+import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG, MCP_SERVER_CARD_PATH } from "../src/constructs/mcp";
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
 import { credentialSecrets } from "../src/credentials";
@@ -116,7 +116,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(mcp.findResources("AWS::Route53::RecordSet")).toEqual({});
   });
 
-  test("disables every shared cache and adds no-store to preflight and Gateway errors without stripping challenges or trace IDs", () => {
+  test("disables shared caching on every protocol behavior and adds no-store to preflight and Gateway errors without stripping challenges or trace IDs", () => {
     const policies = mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy");
     const [[policyId, responseHeaders]] = Object.entries(policies)
       .filter(([, policy]) => policy.Properties.ResponseHeadersPolicyConfig.Name === `mcp-${stage}-no-store`);
@@ -137,6 +137,14 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(front.CustomErrorResponses).toEqual([400, 403, 404, 405, 414, 416, 500, 501, 502, 503, 504]
       .map((ErrorCode) => ({ ErrorCode, ErrorCachingMinTTL: 0 })));
     expect(JSON.stringify(front)).not.toContain("aura-historia-api");
+  });
+
+  test("routes the server card at the path the MCP transport and the API catalog serve", () => {
+    const declaration = (file: string, name: string) => readFileSync(resolve(__dirname, "../..", file), "utf8")
+      .match(new RegExp(`const ${name}: &str = "([^"]+)";`))?.[1];
+    expect(declaration("src/aura-historia-mcp/src/server_card.rs", "SERVER_CARD_PATH")).toBe(MCP_SERVER_CARD_PATH);
+    expect(declaration("src/aura-historia-api/src/agent_discovery/api_catalog.rs", "MCP_SERVER_CARD_PATH"))
+      .toBe(MCP_SERVER_CARD_PATH);
   });
 
   test("lets any origin read the server card and caches only it, briefly and without credentials in the key", () => {
@@ -165,6 +173,8 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     });
     expect(cardHeaders.Properties.ResponseHeadersPolicyConfig).toEqual({
       Name: `mcp-${stage}-server-card`,
+      // The origin's own Cache-Control wins; only Gateway-generated errors lack one.
+      CustomHeadersConfig: { Items: [{ Header: "Cache-Control", Value: "no-store", Override: false }] },
       CorsConfig: {
         AccessControlAllowCredentials: false,
         AccessControlAllowHeaders: { Items: ["*"] },

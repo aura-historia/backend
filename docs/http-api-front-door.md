@@ -188,7 +188,8 @@ no-store` response policy, including Gateway-generated errors and preflight. No
 headers or status codes are rewritten to hide authentication/protocol errors. The
 server card's exact-path behavior is the only cached one: it honors the card's
 five-minute origin TTL, keys on the path alone and neither keys nor forwards credentials,
-so discovery traffic stays off the bounded MCP Lambda.
+so discovery traffic stays off the bounded MCP Lambda. Its response policy adds `no-store`
+only where Gateway generated the response without one.
 
 Gateway owns browser preflight; its exact origin list is also passed to the native
 Origin validator. The public server card is the exception: its behavior's CloudFront CORS
@@ -266,7 +267,7 @@ these checks before approving traffic:
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
-| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the release version and the supported protocol versions |
+| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` identity and version, and the supported protocol versions |
 | API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
 | API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.stage.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
 | An unrelated `/v1/me` path | `404`, no REST response |

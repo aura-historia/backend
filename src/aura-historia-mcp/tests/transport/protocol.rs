@@ -78,6 +78,15 @@ async fn should_publish_a_server_card_that_matches_live_initialize_and_discovery
             .contains_key("access-control-allow-origin")
     );
 
+    let metadata = card["_meta"]["com.aura-historia/oauth-protected-resource"]
+        .as_str()
+        .unwrap();
+    let metadata_path = url::Url::parse(metadata).unwrap().path().to_owned();
+    let mut metadata_request = card_request("GET", None);
+    *metadata_request.uri_mut() = metadata_path.parse().unwrap();
+    let response = app.clone().oneshot(metadata_request).await.unwrap();
+    assert_eq!(StatusCode::OK, response.status());
+
     let initialize = json!({"jsonrpc":"2.0", "id":0, "method":"initialize", "params":{"protocolVersion":"2025-11-25", "capabilities":{}, "clientInfo":{"name":"card", "version":"1"}}});
     let server_info = json_response(app.clone().oneshot(request(&initialize)).await.unwrap()).await
         ["result"]["serverInfo"]
