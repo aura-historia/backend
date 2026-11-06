@@ -12,7 +12,6 @@ aws-sdk-sqs = { workspace = true }
 platform-observability = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
-platform-postgres-secretsmanager = { workspace = true }
 
 lambda_runtime = { workspace = true }
 listing-source-core = { workspace = true }

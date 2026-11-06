@@ -10,19 +10,15 @@ pub use google_adc::{
 
 use lambda_runtime::Context;
 use platform_observability::{LogLevel, LoggingConfig};
-use platform_postgres::{
-    PostgresCredentialRefreshError, PostgresCredentials, PostgresCredentialsProvider,
-    PostgresPoolConfig, VersionedPostgresCredentials,
-};
+use platform_postgres::{PostgresCredentials, PostgresPoolConfig};
 use std::{
     env,
     future::Future,
     path::PathBuf,
-    sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum LambdaBootstrapConfigError {
@@ -54,43 +50,6 @@ impl LambdaPostgresConfig {
         })
     }
 
-    pub fn pool_config(
-        &self,
-        credentials: &PostgresCredentials,
-    ) -> Result<PostgresPoolConfig, LambdaBootstrapConfigError> {
-        PostgresPoolConfig::lambda(
-            self.host.clone(),
-            self.port,
-            self.database.clone(),
-            credentials.username().to_owned(),
-            credentials.password().to_owned(),
-            self.max_connections,
-            self.root_certificate.clone(),
-        )
-        .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)
-    }
-
-    /// Creates the invocation's runtime pool for `credentials`. Invalid configuration fails with a
-    /// static error; a pool failure is also recorded once as a setup diagnostic. The pool connects
-    /// lazily, so a refused login surfaces on first use, in the failing work's own diagnostic.
-    pub async fn connect(
-        &self,
-        component: &'static str,
-        credentials: &PostgresCredentials,
-    ) -> Result<sqlx::PgPool, lambda_runtime::Error> {
-        self.pool_config(credentials)
-            .map_err(|_| lambda_runtime::Error::from("invalid PostgreSQL configuration"))?
-            .connect()
-            .await
-            .map_err(|error| {
-                setup_failed(
-                    component,
-                    FailureDiagnostic::postgres("pool_connect", &error),
-                    "failed to create PostgreSQL pool",
-                )
-            })
-    }
-
     pub fn migration_pool_config(
         &self,
         credentials: &PostgresCredentials,
@@ -108,106 +67,90 @@ impl LambdaPostgresConfig {
     }
 }
 
-/// A cloned lease keeps its composed pool and handlers alive until its invocation completes.
+/// The runtime PostgreSQL target with the credentials CloudFormation resolved into the function
+/// configuration at deployment. Changing a credential takes a release; nothing reads a secret
+/// store per invocation. See docs/infra.md#deployment-inputs-and-approvals.
 #[derive(Clone)]
-pub struct VersionedCompositionLease<T> {
-    version_id: String,
-    value: Arc<T>,
+pub struct RuntimePostgresConfig {
+    target: LambdaPostgresConfig,
+    credentials: PostgresCredentials,
 }
 
-impl<T> VersionedCompositionLease<T> {
-    pub fn version_id(&self) -> &str {
-        &self.version_id
+impl RuntimePostgresConfig {
+    pub fn from_env() -> Result<Self, LambdaBootstrapConfigError> {
+        let target = LambdaPostgresConfig::from_env()?;
+        let credentials = PostgresCredentials::new(
+            required_env("POSTGRES_USERNAME")?,
+            required_env("POSTGRES_PASSWORD")?,
+        )
+        .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)?;
+        Ok(Self {
+            target,
+            credentials,
+        })
     }
 
-    pub fn value(&self) -> &T {
-        self.value.as_ref()
+    fn pool_config(&self) -> Result<PostgresPoolConfig, LambdaBootstrapConfigError> {
+        PostgresPoolConfig::lambda(
+            self.target.host.clone(),
+            self.target.port,
+            self.target.database.clone(),
+            self.credentials.username().to_owned(),
+            self.credentials.password().to_owned(),
+            self.target.max_connections,
+            self.target.root_certificate.clone(),
+        )
+        .map_err(|_| LambdaBootstrapConfigError::InvalidPostgres)
+    }
+
+    /// Creates the runtime pool. Invalid configuration fails with a static error; a pool failure
+    /// is also recorded once as a setup diagnostic. The pool connects lazily, so a refused login
+    /// surfaces on first use, in the failing work's own diagnostic.
+    pub async fn connect(
+        &self,
+        component: &'static str,
+    ) -> Result<sqlx::PgPool, lambda_runtime::Error> {
+        self.pool_config()
+            .map_err(|_| lambda_runtime::Error::from("invalid PostgreSQL configuration"))?
+            .connect()
+            .await
+            .map_err(|error| {
+                setup_failed(
+                    component,
+                    FailureDiagnostic::postgres("pool_connect", &error),
+                    "failed to create PostgreSQL pool",
+                )
+            })
     }
 }
 
-struct CachedComposition<T> {
-    version_id: String,
-    value: Arc<T>,
+/// Builds one composition per execution environment on first use and shares it with every later
+/// invocation. A failed build stores nothing, so the next invocation retries it.
+pub struct LazyComposition<T> {
+    value: OnceCell<T>,
 }
 
-/// Holds only the active composition. Replacing it never explicitly closes an old pool.
-pub struct VersionedCompositionCache<T> {
-    current: Mutex<Option<CachedComposition<T>>>,
-}
-
-impl<T> VersionedCompositionCache<T> {
-    pub fn new() -> Self {
+impl<T: Clone> LazyComposition<T> {
+    pub const fn new() -> Self {
         Self {
-            current: Mutex::new(None),
+            value: OnceCell::const_new(),
         }
     }
 
-    /// Serializes a version change so concurrent invocations build one composition for one version.
-    pub async fn get_or_try_build<E, F, Fut>(
-        &self,
-        version_id: &str,
-        build: F,
-    ) -> Result<VersionedCompositionLease<T>, E>
+    /// Concurrent first invocations wait for a single build.
+    pub async fn get_or_try_build<E, F, Fut>(&self, build: F) -> Result<T, E>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, E>>,
     {
-        let mut current = self.current.lock().await;
-        if let Some(cached) = current.as_ref()
-            && cached.version_id == version_id
-        {
-            return Ok(VersionedCompositionLease {
-                version_id: cached.version_id.clone(),
-                value: Arc::clone(&cached.value),
-            });
-        }
-
-        let value = Arc::new(build().await?);
-        let lease = VersionedCompositionLease {
-            version_id: version_id.to_owned(),
-            value: Arc::clone(&value),
-        };
-        *current = Some(CachedComposition {
-            version_id: version_id.to_owned(),
-            value,
-        });
-        Ok(lease)
+        self.value.get_or_try_init(build).await.cloned()
     }
 }
 
-impl<T> Default for VersionedCompositionCache<T> {
+impl<T: Clone> Default for LazyComposition<T> {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Loads the PostgreSQL credentials current for this invocation. A failure is recorded once as a
-/// setup diagnostic, so a failed rotation names its class rather than only a static message.
-pub async fn current_postgres_credentials(
-    component: &'static str,
-    provider: &dyn PostgresCredentialsProvider,
-) -> Result<VersionedPostgresCredentials, lambda_runtime::Error> {
-    provider.current().await.map_err(|error| {
-        record_credential_refresh_failure(component, error);
-        lambda_runtime::Error::from("PostgreSQL credential refresh unavailable")
-    })
-}
-
-/// Records a failed credential refresh once as a setup diagnostic, for a caller that keeps its
-/// own typed error.
-pub fn record_credential_refresh_failure(
-    component: &'static str,
-    error: PostgresCredentialRefreshError,
-) {
-    record_setup_failure(
-        component,
-        FailureDiagnostic::new(
-            "credential_refresh",
-            Dependency::SecretsManager,
-            error.diagnostic_category(),
-            None,
-        ),
-    );
 }
 
 /// Records a failed composition step with only its bounded labels and standardized codes, and
@@ -355,7 +298,10 @@ where
 mod tests {
     use super::*;
     use platform_postgres::VersionedPostgresCredentials;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[test]
     fn should_use_default_when_optional_configuration_is_absent() {
@@ -396,93 +342,101 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reuse_same_version_and_build_changed_version_once_concurrently() {
-        let cache = Arc::new(VersionedCompositionCache::<usize>::new());
+    async fn should_build_once_for_concurrent_first_invocations_and_reuse_the_composition() {
+        let composition = Arc::new(LazyComposition::<usize>::new());
         let builds = Arc::new(AtomicUsize::new(0));
-
-        let first = cache
-            .get_or_try_build("version-1", {
-                let builds = Arc::clone(&builds);
-                move || async move { Ok::<_, ()>(builds.fetch_add(1, Ordering::AcqRel) + 1) }
-            })
-            .await;
-        let first = match first {
-            Ok(lease) => lease,
-            Err(()) => panic!("first composition failed"),
-        };
-        let same = cache
-            .get_or_try_build("version-1", || async { Ok::<_, ()>(99) })
-            .await;
-        let same = match same {
-            Ok(lease) => lease,
-            Err(()) => panic!("same-version composition failed"),
-        };
-
-        let left_cache = Arc::clone(&cache);
-        let left_builds = Arc::clone(&builds);
-        let right_cache = Arc::clone(&cache);
-        let right_builds = Arc::clone(&builds);
-        let (left, right) = tokio::join!(
-            left_cache.get_or_try_build("version-2", move || async move {
+        let build = |builds: Arc<AtomicUsize>| {
+            move || async move {
                 tokio::task::yield_now().await;
-                Ok::<_, ()>(left_builds.fetch_add(1, Ordering::AcqRel) + 1)
-            }),
-            right_cache.get_or_try_build("version-2", move || async move {
-                Ok::<_, ()>(right_builds.fetch_add(1, Ordering::AcqRel) + 1)
-            }),
-        );
-        let left = match left {
-            Ok(lease) => lease,
-            Err(()) => panic!("left refreshed composition failed"),
-        };
-        let right = match right {
-            Ok(lease) => lease,
-            Err(()) => panic!("right refreshed composition failed"),
+                Ok::<_, ()>(builds.fetch_add(1, Ordering::AcqRel) + 1)
+            }
         };
 
-        assert_eq!(first.version_id(), "version-1");
-        assert_eq!(*first.value(), 1);
-        assert_eq!(same.version_id(), "version-1");
-        assert_eq!(*same.value(), 1);
-        assert_eq!(left.version_id(), "version-2");
-        assert_eq!(right.version_id(), "version-2");
-        assert_eq!(*left.value(), *right.value());
-        assert_eq!(builds.load(Ordering::Acquire), 2);
+        let (left, right) = tokio::join!(
+            composition.get_or_try_build(build(Arc::clone(&builds))),
+            composition.get_or_try_build(build(Arc::clone(&builds))),
+        );
+        let warm = composition
+            .get_or_try_build(|| async { Ok::<_, ()>(99) })
+            .await;
+
+        assert_eq!((Ok(1), Ok(1), Ok(1)), (left, right, warm));
+        assert_eq!(1, builds.load(Ordering::Acquire));
     }
 
-    struct FailingCredentials(platform_postgres::PostgresCredentialRefreshError);
+    #[tokio::test]
+    async fn should_retry_a_failed_build_on_the_next_invocation() {
+        let composition = LazyComposition::<&'static str>::new();
 
-    #[async_trait::async_trait]
-    impl PostgresCredentialsProvider for FailingCredentials {
-        async fn current(
-            &self,
-        ) -> Result<VersionedPostgresCredentials, platform_postgres::PostgresCredentialRefreshError>
-        {
-            Err(self.0)
+        let failed = composition
+            .get_or_try_build(|| async { Err::<&str, _>("provider unavailable") })
+            .await;
+        let retried = composition
+            .get_or_try_build(|| async { Ok::<_, &str>("composed") })
+            .await;
+
+        assert_eq!(Err("provider unavailable"), failed);
+        assert_eq!(Ok("composed"), retried);
+    }
+
+    #[test]
+    fn should_read_deploy_time_runtime_credentials_and_reject_blank_ones() {
+        for (password, expected) in [("fixture-password", "ok"), (" ", "missing")] {
+            let mut command =
+                std::process::Command::new(std::env::current_exe().expect("test executable"));
+            command
+                .args([
+                    "--exact",
+                    "tests::runtime_credentials_probe",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env_clear()
+                .envs([
+                    ("POSTGRES_HOST", "localhost"),
+                    ("POSTGRES_PORT", "9"),
+                    ("POSTGRES_DATABASE", "fixture"),
+                    ("POSTGRES_USERNAME", "fixture"),
+                    ("POSTGRES_PASSWORD", password),
+                    ("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem"),
+                    ("RUNTIME_CREDENTIALS_PROBE_EXPECTED", expected),
+                ]);
+            // Keep subprocess coverage in CI's per-process output directory.
+            if let Some(profile) = std::env::var_os("LLVM_PROFILE_FILE") {
+                command.env("LLVM_PROFILE_FILE", profile);
+            }
+            let output = command.output().expect("probe process");
+            assert!(
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout)
+                        .contains("test result: ok. 1 passed"),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
     }
 
     #[tokio::test]
-    async fn should_record_a_failed_credential_refresh_as_a_setup_diagnostic() {
-        let (logs, guard) = test_api::CapturedLogs::start();
-
-        let result = current_postgres_credentials(
-            "test-lambda",
-            &FailingCredentials(platform_postgres::PostgresCredentialRefreshError::Timeout),
-        )
-        .await;
-        drop(guard);
-
-        assert_eq!(
-            Some("PostgreSQL credential refresh unavailable".to_owned()),
-            result.err().map(|error| error.to_string())
-        );
-        let events = logs.events_where("event", "lambda.setup.failed");
-        assert_eq!(1, events.len());
-        assert_eq!(Some("test-lambda"), events[0]["component"].as_str());
-        assert_eq!(Some("credential_refresh"), events[0]["stage"].as_str());
-        assert_eq!(Some("secrets_manager"), events[0]["dependency"].as_str());
-        assert_eq!(Some("timeout"), events[0]["error_category"].as_str());
+    #[ignore = "invoked by the runtime credentials test in a clean subprocess"]
+    async fn runtime_credentials_probe() {
+        let config = RuntimePostgresConfig::from_env();
+        match env::var("RUNTIME_CREDENTIALS_PROBE_EXPECTED").as_deref() {
+            Ok("ok") => {
+                let pool = config
+                    .expect("runtime credentials from the environment")
+                    .connect("runtime-credentials-probe")
+                    .await
+                    .expect("lazy pool");
+                assert_eq!(0, pool.size());
+            }
+            _ => assert!(matches!(
+                config,
+                Err(LambdaBootstrapConfigError::Missing {
+                    name: "POSTGRES_PASSWORD"
+                })
+            )),
+        }
     }
 
     #[test]

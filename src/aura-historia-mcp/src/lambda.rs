@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn should_bound_pending_credential_refresh_by_the_invocation_deadline() {
+    async fn should_bound_pending_router_composition_by_the_invocation_deadline() {
         let start = tokio::time::Instant::now();
         let response = dispatch_invocation(request(start + Duration::from_secs(3)), || async {
             std::future::pending::<Result<Router, std::io::Error>>().await

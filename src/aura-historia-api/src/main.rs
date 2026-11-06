@@ -2,9 +2,9 @@ use aura_historia_api::{
     ApiConfig, ApiConfigError, ApiRunError, ApiStateError, lambda_app_from_config_and_runtime,
     run_until_shutdown,
 };
-use aura_historia_runtime::RotatingRuntime;
+use aura_historia_runtime::Runtime;
 use platform_lambda_bootstrap::{
-    VersionedCompositionCache, log_cold_start, materialize_google_application_credentials_from_env,
+    LazyComposition, log_cold_start, materialize_google_application_credentials_from_env,
 };
 use platform_observability::{LogLevel, LoggingConfig, init};
 use std::sync::Arc;
@@ -28,23 +28,23 @@ fn main() -> Result<(), MainError> {
         .map_err(MainError::Runtime)?
         .block_on(async move {
             if is_lambda {
-                let config = ApiConfig::from_env()?;
-                let runtime = Arc::new(RotatingRuntime::from_env(LAMBDA_COMPONENT).await?);
-                let routers = Arc::new(VersionedCompositionCache::new());
+                let config = Arc::new(ApiConfig::from_env()?);
+                let runtime = Arc::new(Runtime::from_env().await?);
+                let routers = Arc::new(LazyComposition::new());
 
                 log_cold_start(LAMBDA_COMPONENT, initialization_started_at);
                 aura_historia_api::lambda::run(move || {
-                    let config = config.clone();
+                    let config = Arc::clone(&config);
                     let runtime = Arc::clone(&runtime);
                     let routers = Arc::clone(&routers);
                     async move {
-                        let runtime = runtime.current().await?;
-                        let router = routers
-                            .get_or_try_build(runtime.version_id(), || async {
-                                lambda_app_from_config_and_runtime(&config, runtime.value()).await
+                        routers
+                            .get_or_try_build(|| async {
+                                lambda_app_from_config_and_runtime(&config, &runtime)
+                                    .await
+                                    .map_err(MainError::from)
                             })
-                            .await?;
-                        Ok::<_, MainError>(router.value().clone())
+                            .await
                     }
                 })
                 .await?;

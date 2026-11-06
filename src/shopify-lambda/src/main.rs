@@ -3,11 +3,10 @@ use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use listing_source_postgres::SqlxListingSourceReaders;
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
+    logging_config_from_env,
 };
 use platform_observability::init;
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_ingestion_sqs::{
     ScopedSqsProductListingIngestionPublisher, SqsProductListingIngestionPublisher,
     with_publication_deadline,
@@ -25,20 +24,16 @@ async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
-    let postgres = LambdaPostgresConfig::from_env()?;
+    let postgres = RuntimePostgresConfig::from_env()?;
     let queue_url = std::env::var("PRODUCT_LISTING_INGESTION_QUEUE_URL")
         .map_err(|_| Error::from("product listing ingestion queue URL unavailable"))?;
     let aws_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let sqs_client = aws_sdk_sqs::Client::new(&aws_config);
-    let credentials = postgres_credentials_provider_from_env()
-        .await
-        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
-    let processors = Arc::new(VersionedCompositionCache::new());
+    let processors = Arc::new(LazyComposition::new());
 
     log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
-        let credentials = Arc::clone(&credentials);
         let processors = Arc::clone(&processors);
         let sqs_client = sqs_client.clone();
         let queue_url = queue_url.clone();
@@ -46,14 +41,10 @@ async fn main() -> Result<(), Error> {
             log_invocation_start(COMPONENT, &event.context);
             let deadline = publication_deadline(&event.context);
             with_publication_deadline(deadline, async move {
-                let credentials =
-                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 let processor = processors
-                    .get_or_try_build(credentials.version_id(), || async {
-                        let pool = postgres
-                            .connect(COMPONENT, credentials.credentials())
-                            .await?;
-                        Ok::<_, Error>(ProcessShopifyProductListingHandler::new(
+                    .get_or_try_build(|| async {
+                        let pool = postgres.connect(COMPONENT).await?;
+                        Ok::<_, Error>(Arc::new(ProcessShopifyProductListingHandler::new(
                             SqlxListingSourceReaders::new(pool),
                             SubmitInternalProductListingIngestionHandler::new(
                                 ScopedSqsProductListingIngestionPublisher::new(
@@ -61,11 +52,11 @@ async fn main() -> Result<(), Error> {
                                 ),
                             ),
                             ShopifyProductPayloadDecoder,
-                        ))
+                        )))
                     })
                     .await?;
 
-                handler(event, processor.value()).await
+                handler(event, processor.as_ref()).await
             })
             .await
         }

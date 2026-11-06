@@ -1072,7 +1072,7 @@ pub async fn lambda_app_from_env() -> Result<Router, ApiStateError> {
     lambda_app_from_config_and_runtime(&config, &runtime).await
 }
 
-/// Composes a complete Lambda router for one PostgreSQL credential version.
+/// Composes the complete Lambda router once for a warm execution environment.
 pub async fn lambda_app_from_config_and_runtime(
     config: &ApiConfig,
     runtime: &Runtime,

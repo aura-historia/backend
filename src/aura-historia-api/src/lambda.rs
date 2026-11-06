@@ -14,7 +14,7 @@ use tower::ServiceExt;
 const COMPONENT: &str = "aura-historia-api";
 const LAMBDA_RESPONSE_HEADROOM: Duration = Duration::from_secs(1);
 
-/// Refreshes the caller-owned full router composition before each Lambda invocation.
+/// Obtains the caller-owned full router composition for each Lambda invocation.
 pub async fn run<F, Fut, E>(router_for_invocation: F) -> Result<(), lambda_http::Error>
 where
     F: Fn() -> Fut + Clone + Send + Sync + 'static,
@@ -59,8 +59,8 @@ where
     .await
 }
 
-/// Returns `None` only when the invocation has no time left for credential refresh and
-/// composition. Provider failures remain failures rather than silently using an old router.
+/// Returns `None` only when the invocation has no time left for composition. Composition failures
+/// remain invocation failures.
 async fn compose_router_with_budget<F, Fut, E>(
     budget: Option<Duration>,
     compose: F,
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_reserve_the_api_deadline_for_router_refresh_and_composition() {
+    async fn should_reserve_the_api_deadline_for_router_composition() {
         let exhausted: Result<Option<Router>, String> =
             compose_router_with_budget(Some(Duration::ZERO), || async {
                 panic!("exhausted invocation must not compose a router")
@@ -308,12 +308,12 @@ mod tests {
         assert!(matches!(timed_out, Ok(None)));
 
         let provider_failure = compose_router_with_budget(Some(Duration::from_secs(1)), || async {
-            Err::<Router, _>("PostgreSQL credential refresh unavailable".to_owned())
+            Err::<Router, _>("listing providers unavailable".to_owned())
         })
         .await;
         assert!(matches!(
             provider_failure,
-            Err(ref error) if error == "PostgreSQL credential refresh unavailable"
+            Err(ref error) if error == "listing providers unavailable"
         ));
     }
 
@@ -321,20 +321,20 @@ mod tests {
     async fn should_preserve_typed_composition_failure_before_the_lambda_boundary() {
         use std::error::Error;
         let result = compose_router_with_budget(Some(Duration::from_secs(1)), || async {
-            Err::<Router, _>(aura_historia_runtime::RuntimeError::CredentialsRefresh(
-                platform_postgres::PostgresCredentialRefreshError::Unavailable,
+            Err::<Router, _>(aura_historia_runtime::RuntimeError::Pool(
+                sqlx::Error::PoolTimedOut,
             ))
         })
         .await;
         let error = match result {
             Err(error) => error,
-            Ok(_) => panic!("credential refresh failure must remain an invocation failure"),
+            Ok(_) => panic!("composition failure must remain an invocation failure"),
         };
-        assert!(error.source().is_some_and(|source| {
-            source
-                .downcast_ref::<platform_postgres::PostgresCredentialRefreshError>()
-                .is_some()
-        }));
+        assert!(
+            error
+                .source()
+                .is_some_and(|source| source.downcast_ref::<sqlx::Error>().is_some())
+        );
     }
 
     #[derive(Clone, Copy)]

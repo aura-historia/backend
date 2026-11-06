@@ -10,12 +10,11 @@ use notification_delivery_lambda::{
 use notification_email_aws::EmailDeliveryConfig;
 use notification_service::use_cases::commands::deliver_notification::DeliverNotificationUseCase;
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
-    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
+    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
+    logging_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::{future::Future, sync::Arc, time::Instant};
 
 const COMPONENT: &str = "notification-delivery-lambda";
@@ -25,11 +24,8 @@ async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
-    let postgres = LambdaPostgresConfig::from_env()?;
+    let postgres = RuntimePostgresConfig::from_env()?;
     let email = email_config()?;
-    let credentials = postgres_credentials_provider_from_env()
-        .await
-        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
     let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
         .timeout_config(
             TimeoutConfig::builder()
@@ -42,26 +38,21 @@ async fn main() -> Result<(), Error> {
         .await;
     let s3 = S3Client::new(&aws_config);
     let ses = SesClient::new(&aws_config);
-    let use_cases = Arc::new(VersionedCompositionCache::new());
+    let use_cases = Arc::new(LazyComposition::new());
 
     log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<SqsEvent>| {
         let postgres = postgres.clone();
         let email = email.clone();
-        let credentials = Arc::clone(&credentials);
         let s3 = s3.clone();
         let ses = ses.clone();
         let use_cases = Arc::clone(&use_cases);
         async move {
             log_invocation_start(COMPONENT, &event.context);
             handle_invocation(event, move || async move {
-                let credentials =
-                    current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                 use_cases
-                    .get_or_try_build(credentials.version_id(), || async {
-                        let pool = postgres
-                            .connect(COMPONENT, credentials.credentials())
-                            .await?;
+                    .get_or_try_build(|| async {
+                        let pool = postgres.connect(COMPONENT).await?;
                         compose_delivery_use_case(pool, s3, ses, email)
                     })
                     .await
@@ -73,7 +64,6 @@ async fn main() -> Result<(), Error> {
 }
 
 type DeliveryUseCase = Arc<dyn DeliverNotificationUseCase>;
-type DeliveryUseCaseLease = VersionedCompositionLease<DeliveryUseCase>;
 
 async fn handle_invocation<F, Fut>(
     event: LambdaEvent<SqsEvent>,
@@ -81,7 +71,7 @@ async fn handle_invocation<F, Fut>(
 ) -> Result<aws_lambda_events::sqs::SqsBatchResponse, Error>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<DeliveryUseCaseLease, Error>>,
+    Fut: Future<Output = Result<DeliveryUseCase, Error>>,
 {
     handle_sqs_invocation(
         event,
@@ -89,7 +79,7 @@ where
         invocation_budget,
         setup,
         |event, use_case, budget| async move {
-            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+            handler_with_invocation_budget(event, use_case.as_ref(), &budget).await
         },
     )
     .await
