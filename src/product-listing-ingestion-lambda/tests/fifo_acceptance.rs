@@ -189,7 +189,7 @@ async fn real_processor_acknowledges_a_rejected_update_without_blocking_its_grou
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')")
         .bind(source.into_uuid())
         .bind(format!("ingestion-{}", source.into_uuid().simple()))
         .bind("FIFO ingestion source")

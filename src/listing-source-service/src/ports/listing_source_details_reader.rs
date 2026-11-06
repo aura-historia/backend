@@ -1,7 +1,7 @@
 use application::error::BoxError;
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
-    PlatformTechnology,
+    ListingSourceType, PlatformTechnology,
 };
 use party_core::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
 use time::OffsetDateTime;
@@ -11,6 +11,7 @@ pub struct ListingSourceDetails {
     pub listing_source_id: ListingSourceId,
     pub slug_id: ListingSourceSlugId,
     pub name: ListingSourceName,
+    pub listing_source_type: ListingSourceType,
     pub operator_party_id: PartyId,
     pub operator_slug_id: PartySlugId,
     pub operator_name: PartyName,

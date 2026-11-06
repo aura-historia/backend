@@ -636,6 +636,7 @@ mod tests {
                     id: listing_source_id,
                     name: ListingSourceName::try_from("Source")
                         .unwrap_or_else(|error| panic!("invalid test ListingSource name: {error}")),
+                    listing_source_type: listing_source_core::ListingSourceType::Dealer,
                     operator_party_id,
                     ingestion_methods: std::collections::HashSet::new(),
                     presentation: ListingSourcePresentation::default(),

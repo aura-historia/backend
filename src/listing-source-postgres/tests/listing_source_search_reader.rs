@@ -187,7 +187,7 @@ async fn insert_source(
     operator: party_core::party_id::PartyId,
     created: OffsetDateTime,
 ) {
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, created, updated) VALUES ($1, $2, $3, $4, $5, $5)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, created, updated, listing_source_type) VALUES ($1, $2, $3, $4, $5, $5, 'DEALER')")
         .bind(id.into_uuid())
         .bind(format!("search-source-{}", id.as_uuid().simple()))
         .bind(name)

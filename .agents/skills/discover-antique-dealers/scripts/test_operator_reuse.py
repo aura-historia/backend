@@ -69,6 +69,7 @@ class StatefulApi:
             self.sources["ls_second"] = self.source(body["url"], body["name"], party,
                                                      body.get("platformTechnology"))
             assert body["ingestionConfiguration"] == []
+            assert body["listingSourceType"] == "DEALER"
             if self.fail_after_source:
                 raise RuntimeError("Fixture lost response after source creation")
             return {"listingSourceId": "ls_second", "partyId": party}

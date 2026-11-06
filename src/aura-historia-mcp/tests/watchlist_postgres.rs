@@ -112,7 +112,7 @@ async fn catalog(pool: &PgPool) -> TestResult<Vec<ProductListingId>> {
     let source = ListingSourceId::new();
     let fx = FxRateId::new();
     sqlx::query("INSERT INTO parties(party_id,party_slug_id,name) VALUES($1,'watchlist-party','Watchlist party')").bind(party.as_uuid()).execute(pool).await?;
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id,url) VALUES($1,'watchlist-source','Watchlist source',$2,'https://shop.example.test')").bind(source.as_uuid()).bind(party.as_uuid()).execute(pool).await?;
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id,url, listing_source_type) VALUES($1,'watchlist-source','Watchlist source',$2,'https://shop.example.test', 'DEALER')").bind(source.as_uuid()).bind(party.as_uuid()).execute(pool).await?;
     sqlx::query("INSERT INTO fx_rates(fx_rate_id,captured_at,source,source_event_id) VALUES($1,now(),'fxratesapi','watchlist-fixture')").bind(fx.as_uuid()).execute(pool).await?;
     for currency in [
         "EUR", "GBP", "USD", "AUD", "CAD", "NZD", "CNY", "BRL", "PLN", "TRY", "JPY", "CZK", "RUB",

@@ -17,6 +17,7 @@ struct SourceRow {
     listing_source_id: uuid::Uuid,
     listing_source_slug_id: String,
     name: String,
+    listing_source_type: String,
     operator_party_id: uuid::Uuid,
     url: Option<String>,
     image: Option<String>,
@@ -46,7 +47,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         id: ListingSourceId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1",
+            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1",
         )
         .bind(id.into_uuid())
         .fetch_optional(&mut *self.connection)
@@ -62,7 +63,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         slug: &ListingSourceSlugId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_slug_id=$1",
+            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_slug_id=$1",
         )
         .bind(slug.as_ref())
         .fetch_optional(&mut *self.connection)
@@ -78,7 +79,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         id: ListingSourceId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE",
+            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE",
         )
         .bind(id.into_uuid())
         .fetch_optional(&mut *self.connection)
@@ -186,11 +187,12 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
-            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (listing_source_slug_id) DO NOTHING RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (listing_source_slug_id) DO NOTHING RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
         .bind(source.id().into_uuid())
         .bind(source.slug_id().as_ref())
         .bind(source.name().as_ref())
+        .bind(source.listing_source_type().as_str())
         .bind(source.operator_party_id().into_uuid())
         .bind(source.presentation().url.as_ref().map(Url::as_str))
         .bind(source.presentation().image.as_ref().map(Url::as_str))
@@ -225,9 +227,10 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = referral_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
-            "UPDATE listing_sources SET name=$1,operator_party_id=$2,url=$3,image=$4,platform_technology=$5,referral_configuration=$6,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$7 AND version=$8 RETURNING listing_source_id,listing_source_slug_id,name,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+            "UPDATE listing_sources SET name=$1,listing_source_type=$2,operator_party_id=$3,url=$4,image=$5,platform_technology=$6,referral_configuration=$7,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$8 AND version=$9 RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
         .bind(source.name().as_ref())
+        .bind(source.listing_source_type().as_str())
         .bind(source.operator_party_id().into_uuid())
         .bind(source.presentation().url.as_ref().map(Url::as_str))
         .bind(source.presentation().image.as_ref().map(Url::as_str))
@@ -301,6 +304,7 @@ async fn load(
         id: listing_source_id,
         slug_id: row.listing_source_slug_id,
         name: row.name,
+        listing_source_type: row.listing_source_type,
         operator_party_id,
         ingestion_methods: methods,
         presentation: ListingSourcePresentation {
@@ -577,7 +581,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert source operator: {error}"));
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(format!(
@@ -615,6 +619,7 @@ mod tests {
             NewListingSource {
                 id: source_id,
                 name,
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id,
                 ingestion_methods: HashSet::from([method]),
                 presentation: ListingSourcePresentation::default(),
@@ -637,11 +642,12 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert missing-configuration operator: {error}"));
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id) VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(source.id().into_uuid())
         .bind(source.slug_id().as_ref())
         .bind(source.name().as_ref())
+        .bind(source.listing_source_type().as_str())
         .bind(source.operator_party_id().into_uuid())
         .execute(&mut *connection)
         .await
@@ -715,6 +721,7 @@ mod tests {
             id: ListingSourceId::new(),
             name: ListingSourceName::try_from("Shared Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+            listing_source_type: listing_source_core::ListingSourceType::Dealer,
             operator_party_id,
             ingestion_methods: HashSet::from([ListingIngestionMethod::WebCrawl]),
             presentation: ListingSourcePresentation::default(),
@@ -791,6 +798,7 @@ mod tests {
                 id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Provider Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id,
                 ingestion_methods: HashSet::from([
                     ListingIngestionMethod::WebCrawl,
@@ -1197,7 +1205,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert auction blocker party: {error}"));
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(format!(
@@ -1492,7 +1500,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert operator party: {error}"));
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(format!(
@@ -1543,7 +1551,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert wrong-version source operator: {error}"));
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(slug.as_ref())
@@ -1583,7 +1591,7 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("insert wrong-version source operator: {error}"));
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(uuid::Uuid::new_v4())
         .bind(slug.as_ref())

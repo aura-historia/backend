@@ -114,7 +114,7 @@ async fn fixture() -> (axum::Router, ProductListingId, sqlx::PgPool) {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES ($1,$2,'Admin source',$3)").bind(source.as_uuid()).bind(format!("source-{}",source.as_uuid())).bind(party).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) VALUES ($1,$2,'Admin source',$3, 'DEALER')").bind(source.as_uuid()).bind(format!("source-{}",source.as_uuid())).bind(party).execute(&pool).await.unwrap();
     // A Partnership grant does not make this user an administrator.
     let partnership = uuid::Uuid::now_v7();
     sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1,$2)")

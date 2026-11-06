@@ -88,7 +88,7 @@ async fn source(p: &PgPool) -> (PartyId, ListingSourceId) {
         .execute(p)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES($1,$2,'Gallery',$3)").bind(source.into_uuid()).bind(format!("gallery-{}",source.as_uuid().simple())).bind(owner.into_uuid()).execute(p).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) VALUES($1,$2,'Gallery',$3, 'DEALER')").bind(source.into_uuid()).bind(format!("gallery-{}",source.as_uuid().simple())).bind(owner.into_uuid()).execute(p).await.unwrap();
     (owner, source)
 }
 fn content(amount: u64) -> ShippingProfileContent {

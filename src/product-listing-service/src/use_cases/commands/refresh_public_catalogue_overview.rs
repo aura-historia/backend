@@ -216,6 +216,12 @@ mod tests {
             overview: PublicCatalogueOverview {
                 as_of: datetime!(2026-10-19 12:00 UTC),
                 sources_indexed: 2,
+                sources_indexed_by_type: crate::use_cases::SourcesIndexedByType {
+                    dealers: 1,
+                    auction_houses: 1,
+                    marketplaces: 0,
+                    auction_platforms: 0,
+                },
                 live_objects: 5,
                 countries: 1,
                 languages: 3,

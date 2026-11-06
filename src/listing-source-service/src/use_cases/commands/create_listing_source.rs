@@ -22,6 +22,7 @@ pub enum ListingSourceOperator {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateListingSourceCommand {
     pub name: ListingSourceName,
+    pub listing_source_type: ListingSourceType,
     pub operator: ListingSourceOperator,
 
     pub ingestion_configuration: ListingSourceIngestionConfigurations,
@@ -169,6 +170,7 @@ where
             NewListingSource {
                 id: ListingSourceId::new(),
                 name: command.name,
+                listing_source_type: command.listing_source_type,
                 operator_party_id,
                 ingestion_methods,
                 presentation: command.presentation,
@@ -497,6 +499,7 @@ mod tests {
         CreateListingSourceCommand {
             name: ListingSourceName::try_from("Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+            listing_source_type: ListingSourceType::Dealer,
             operator: ListingSourceOperator::New(NewParty {
                 id: PartyId::new(),
                 name: PartyName::try_from("Operator")

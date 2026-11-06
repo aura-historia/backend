@@ -269,6 +269,7 @@ fn proposed_source() -> serde_json::Value {
             "name": "Northwind Source",
             "url": null,
             "image": null,
+            "listing_source_type": "DEALER",
             "requested_ingestion_methods": ["PARTNER_API"]
         }
     })
@@ -505,7 +506,7 @@ async fn should_approve_concurrent_existing_source_applications_with_one_partner
         .await;
     assert!(party.is_ok());
     let source = sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Concurrent Source', $3)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Concurrent Source', $3, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(format!(
@@ -592,7 +593,7 @@ async fn should_approve_existing_source_and_expose_granted_source_authorization(
         .await;
     assert!(party.is_ok());
     let source = sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, 'existing-source', 'Existing Source', $2)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, 'existing-source', 'Existing Source', $2, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(party_id.into_uuid())
@@ -661,7 +662,7 @@ async fn should_approve_proposed_source_under_next_slugs_when_same_named_records
         .await;
     assert!(existing_party.is_ok());
     let existing_source = sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, 'northwind-source', 'Northwind Source', $2)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, 'northwind-source', 'Northwind Source', $2, 'DEALER')",
         )
         .bind(ListingSourceId::new().into_uuid())
         .bind(existing_party_id.into_uuid())

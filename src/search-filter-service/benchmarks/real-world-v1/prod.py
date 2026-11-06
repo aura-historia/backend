@@ -77,7 +77,8 @@ def deployment():
 
 def create_source(api, workspace, state):
     source = api.call("POST", "/v1/admin/listing-sources", {
-        "name": state["name"], "operator": {"type": "NEW", "name": state["name"]},
+        "name": state["name"], "listingSourceType": "DEALER",
+        "operator": {"type": "NEW", "name": state["name"]},
         "ingestionConfiguration": [{"type": "PARTNER_API"}]})
     state["source_id"] = source["listingSourceId"]
     save_state(workspace, state)

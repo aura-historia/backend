@@ -312,6 +312,12 @@ impl GetPublicCatalogueOverviewUseCase for Fixture {
         Ok(PublicCatalogueOverview {
             as_of: OffsetDateTime::UNIX_EPOCH,
             sources_indexed: 12,
+            sources_indexed_by_type: product_listing_service::use_cases::SourcesIndexedByType {
+                dealers: 5,
+                auction_houses: 4,
+                marketplaces: 2,
+                auction_platforms: 1,
+            },
             live_objects: 101,
             countries: 7,
             languages: 5,

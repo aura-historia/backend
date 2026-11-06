@@ -285,7 +285,7 @@ async fn insert_product_with_discovered_event(
     .bind(format!("translation-party-{party_id}"))
     .execute(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Translation source', $3)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Translation source', $3, 'DEALER')")
         .bind(listing_source_id)
         .bind(format!("translation-source-{listing_source_id}"))
         .bind(party_id)

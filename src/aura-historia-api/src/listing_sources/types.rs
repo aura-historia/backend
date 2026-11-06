@@ -11,8 +11,8 @@ use crate::{
 };
 use application::patch_field::PatchField;
 use listing_source_core::{
-    Domain, ListingSourceName, ListingSourcePresentation, PartnerizeCamref, PlatformTechnology,
-    ReferralConfiguration,
+    Domain, ListingSourceName, ListingSourcePresentation, ListingSourceType, PartnerizeCamref,
+    PlatformTechnology, ReferralConfiguration,
 };
 use listing_source_service::ports::{
     ListingIngestionConfiguration, ListingIngestionConfigurationUpdate,
@@ -35,6 +35,7 @@ use url::Url;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CreateListingSourceData {
     pub(crate) name: String,
+    pub(crate) listing_source_type: String,
     pub(crate) operator: ListingSourceOperatorData,
 
     pub(crate) ingestion_configuration: Vec<CreateListingIngestionConfigurationData>,
@@ -65,6 +66,7 @@ impl TryFrom<CreateListingSourceData> for CreateListingSourceCommand {
 
         Ok(Self {
             name,
+            listing_source_type: parse_listing_source_type(&data.listing_source_type)?,
             operator,
             ingestion_configuration:
                 listing_source_service::ports::ListingSourceIngestionConfigurations(
@@ -127,6 +129,8 @@ impl TryFrom<ListingSourceOperatorData> for ListingSourceOperator {
 pub(crate) struct UpdateListingSourceData {
     #[serde(default)]
     pub(crate) name: PatchValue<String>,
+    #[serde(default)]
+    pub(crate) listing_source_type: PatchValue<String>,
 
     #[serde(default)]
     pub(crate) ingestion_configuration: PatchValue<Vec<UpdateListingIngestionConfigurationData>>,
@@ -149,6 +153,11 @@ impl UpdateListingSourceData {
                         .with_detail("name must be nonblank and at most 255 UTF-8 bytes.")
                 })
             })?,
+            listing_source_type: map_required_patch(
+                self.listing_source_type,
+                "listingSourceType",
+                |value| parse_listing_source_type(&value),
+            )?,
 
             ingestion_configuration: map_required_patch(
                 self.ingestion_configuration,
@@ -171,6 +180,7 @@ impl UpdateListingSourceData {
 
 pub(crate) struct UpdateListingSourceDataParts {
     pub(crate) name: RequiredPatch<listing_source_core::ListingSourceName>,
+    pub(crate) listing_source_type: RequiredPatch<ListingSourceType>,
 
     pub(crate) ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub(crate) url: PatchField<Url>,
@@ -385,6 +395,10 @@ fn update_configurations(
         .map(UpdateListingSourceIngestionConfigurations)
 }
 
+fn parse_listing_source_type(value: &str) -> Result<ListingSourceType, ApiError> {
+    value.parse().map_err(|_| invalid_body("listingSourceType"))
+}
+
 fn parse_platform_technology(value: String) -> Result<PlatformTechnology, ApiError> {
     PlatformTechnology::try_from(value).map_err(|_| invalid_body("platformTechnology"))
 }
@@ -416,6 +430,7 @@ mod tests {
         let source: CreateListingSourceData = serde_json::from_str(
             r#"{
                 "name":"Source",
+                "listingSourceType":"DEALER",
                 "operator":{"type":"EXISTING","partyId":"pty_01h455vb4pex5vy7enb1p677vn"},
                 "ingestionConfiguration":[{"type":"WEB_CRAWL","fallbackCurrency":"ZAR"},{"type":"PARTNER_API"}]
             }"#,
@@ -447,6 +462,10 @@ mod tests {
             .map_err(|error| serde_json::Error::io(std::io::Error::other(error.to_string())))?;
 
         assert!(matches!(parts.name, RequiredPatch::Unchanged));
+        assert!(matches!(
+            parts.listing_source_type,
+            RequiredPatch::Unchanged
+        ));
         assert!(matches!(
             parts.ingestion_configuration,
             RequiredPatch::Unchanged
@@ -526,9 +545,58 @@ mod tests {
     fn create_data() -> serde_json::Value {
         serde_json::json!({
             "name": "Source",
+            "listingSourceType": "DEALER",
             "operator": {"type": "NEW", "name": "Operator"},
             "ingestionConfiguration": []
         })
+    }
+
+    #[test]
+    fn should_require_canonical_listing_source_type_on_create() {
+        let create: CreateListingSourceData = serde_json::from_value(create_data()).unwrap();
+        assert_eq!(
+            ListingSourceType::Dealer,
+            CreateListingSourceCommand::try_from(create)
+                .unwrap()
+                .listing_source_type
+        );
+
+        let mut missing = create_data();
+        missing.as_object_mut().unwrap().remove("listingSourceType");
+        assert!(serde_json::from_value::<CreateListingSourceData>(missing).is_err());
+
+        for invalid in ["dealer", "SELLER", ""] {
+            let mut body = create_data();
+            body["listingSourceType"] = serde_json::json!(invalid);
+            let create: CreateListingSourceData = serde_json::from_value(body).unwrap();
+            assert!(
+                matches!(CreateListingSourceCommand::try_from(create), Err(error) if error.code() == BAD_BODY_VALUE),
+                "{invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_map_listing_source_type_patch_and_reject_null_or_unknown_values() {
+        let data: UpdateListingSourceData =
+            serde_json::from_value(serde_json::json!({"listingSourceType": "AUCTION_PLATFORM"}))
+                .unwrap();
+        assert!(matches!(
+            data.into_parts().unwrap().listing_source_type,
+            RequiredPatch::Set(ListingSourceType::AuctionPlatform)
+        ));
+
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!("auction_platform"),
+        ] {
+            let data: UpdateListingSourceData =
+                serde_json::from_value(serde_json::json!({"listingSourceType": invalid})).unwrap();
+            assert!(
+                matches!(data.into_parts(), Err(error) if error.code() == BAD_BODY_VALUE),
+                "{invalid}"
+            );
+        }
     }
 
     #[test]

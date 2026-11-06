@@ -119,7 +119,7 @@ mod tests {
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert party: {error}"));
-        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1,$2,$3,$4)")
+        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1,$2,$3,$4, 'DEALER')")
             .bind(source_id.as_uuid()).bind(format!("source-{}", source_id.as_uuid())).bind("Auction source").bind(party_id)
             .execute(pool).await.unwrap_or_else(|error| panic!("insert source: {error}"));
         source_id

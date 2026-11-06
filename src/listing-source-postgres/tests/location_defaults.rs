@@ -97,7 +97,7 @@ async fn party(pool: &PgPool) -> PartyId {
 }
 async fn source(pool: &PgPool, owner: PartyId) -> ListingSourceId {
     let id = ListingSourceId::new();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES($1,$2,'Default source',$3)").bind(id.into_uuid()).bind(format!("source-{}",id.as_uuid().simple())).bind(owner.into_uuid()).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) VALUES($1,$2,'Default source',$3, 'DEALER')").bind(id.into_uuid()).bind(format!("source-{}",id.as_uuid().simple())).bind(owner.into_uuid()).execute(pool).await.unwrap();
     id
 }
 async fn location(pool: &PgPool, owner: PartyId) -> PartyLocationId {

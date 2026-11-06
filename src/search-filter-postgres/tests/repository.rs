@@ -391,7 +391,7 @@ async fn seed_product(pool: &sqlx::PgPool, source_listing_id: &str) -> ProductLi
         .begin()
         .await
         .unwrap_or_else(|error| panic!("seed tx failed: {error:?}"));
-    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, $3, party_id FROM operator")
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT $1, $2, $3, party_id, 'DEALER' FROM operator")
         .bind(listing_source_id).bind(format!("{slug}-source")).bind(format!("{slug} source")).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed source failed: {error:?}"));
     sqlx::query("INSERT INTO product_listing_events (event_id, product_listing_id, event_type, event_group, event_type_schema_version, payload, event_time) VALUES ($1, $2, 'PRODUCT_LISTING_DISCOVERED', 'DOMAIN', 1, $3, now())")
         .bind(event_id).bind(product_listing_id.into_uuid()).bind(discovery_payload).execute(&mut *tx).await.unwrap_or_else(|error| panic!("seed event failed: {error:?}"));

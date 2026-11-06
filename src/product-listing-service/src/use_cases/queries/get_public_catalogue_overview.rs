@@ -15,10 +15,21 @@ use time::OffsetDateTime;
 pub struct PublicCatalogueOverview {
     pub as_of: OffsetDateTime,
     pub sources_indexed: u64,
+    pub sources_indexed_by_type: SourcesIndexedByType,
     pub live_objects: u64,
     pub countries: u64,
     pub languages: u64,
     pub new_objects_last_7_days: u64,
+}
+
+/// `sources_indexed` split by ListingSourceType: every counted ListingSource has exactly one
+/// type, so the counts sum to `sources_indexed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourcesIndexedByType {
+    pub dealers: u64,
+    pub auction_houses: u64,
+    pub marketplaces: u64,
+    pub auction_platforms: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -233,6 +244,12 @@ mod tests {
         PublicCatalogueOverview {
             as_of: datetime!(2026-10-19 12:00 UTC),
             sources_indexed: 2,
+            sources_indexed_by_type: SourcesIndexedByType {
+                dealers: 1,
+                auction_houses: 1,
+                marketplaces: 0,
+                auction_platforms: 0,
+            },
             live_objects: 5,
             countries: 1,
             languages: 3,

@@ -867,6 +867,7 @@ mod tests {
                             .unwrap_or_else(|error| {
                                 panic!("invalid test listing source name: {error}")
                             }),
+                            listing_source_type: listing_source_core::ListingSourceType::Dealer,
                             presentation: ListingSourcePresentation {
                                 url: None,
                                 image: None,
@@ -1026,6 +1027,7 @@ mod tests {
                 id: listing_source_id,
                 name: ListingSourceName::try_from("Existing Source")
                     .unwrap_or_else(|error| panic!("valid test source name: {error}")),
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id: party_id,
                 ingestion_methods: std::collections::HashSet::from([
                     ListingIngestionMethod::PartnerApi,

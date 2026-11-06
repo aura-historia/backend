@@ -87,7 +87,7 @@ async fn real_api_profile_commands_defaults_errors_and_protected_reads() {
     let admin = UserId::new();
     sqlx::query("INSERT INTO users(user_id,email,tier,role) VALUES($1,'shipping-admin@example.test','FREE','ADMIN')").bind(admin.into_uuid()).execute(&p).await.unwrap();
     sqlx::query("INSERT INTO parties(party_id,party_slug_id,name) VALUES($1,'api-shipping-gallery','Gallery')").bind(owner.into_uuid()).execute(&p).await.unwrap();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES($1,'api-shipping-source','Gallery',$2)").bind(source.into_uuid()).bind(owner.into_uuid()).execute(&p).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) VALUES($1,'api-shipping-source','Gallery',$2, 'DEALER')").bind(source.into_uuid()).bind(owner.into_uuid()).execute(&p).await.unwrap();
     let router = app(AppState::new().with_shipping(ShippingState {
         create: Arc::new(CreateShippingProfileHandler::new(
             SqlxUnitOfWork::new(p.clone()),

@@ -24,6 +24,7 @@ pub enum RequiredPatch<T> {
 pub struct UpdateListingSourceCommand {
     pub listing_source_id: ListingSourceId,
     pub name: RequiredPatch<ListingSourceName>,
+    pub listing_source_type: RequiredPatch<ListingSourceType>,
 
     pub ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub url: PatchField<url::Url>,
@@ -189,6 +190,9 @@ fn apply_update(
     let mut outcome = ChangeOutcome::Unchanged;
     if let RequiredPatch::Set(name) = &command.name {
         outcome = outcome.combine(source.rename(name.clone()));
+    }
+    if let RequiredPatch::Set(listing_source_type) = command.listing_source_type {
+        outcome = outcome.combine(source.reclassify(listing_source_type));
     }
     if let RequiredPatch::Set(value) = &command.ingestion_configuration {
         let resolved = value
@@ -422,6 +426,7 @@ mod tests {
                 id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id: PartyId::new(),
                 ingestion_methods: std::collections::HashSet::from([
                     ListingIngestionMethod::WebCrawl,
@@ -450,6 +455,7 @@ mod tests {
         UpdateListingSourceCommand {
             listing_source_id: id,
             name: RequiredPatch::Unchanged,
+            listing_source_type: RequiredPatch::Unchanged,
 
             ingestion_configuration: RequiredPatch::Unchanged,
             url: PatchField::Unchanged,
@@ -569,6 +575,37 @@ mod tests {
             if !allowed {
                 assert!(matches!(result, Err(UpdateListingSourceError::Forbidden)));
             }
+        }
+    }
+
+    #[test]
+    fn should_reclassify_listing_source_type_only_when_it_differs() {
+        let stored = source();
+        let mut source = stored.source;
+        let mut configuration = stored.configuration;
+        let mut command = command(source.id());
+
+        for (patch, expected, changed) in [
+            (RequiredPatch::Unchanged, ListingSourceType::Dealer, false),
+            (
+                RequiredPatch::Set(ListingSourceType::AuctionHouse),
+                ListingSourceType::AuctionHouse,
+                true,
+            ),
+            (
+                RequiredPatch::Set(ListingSourceType::AuctionHouse),
+                ListingSourceType::AuctionHouse,
+                false,
+            ),
+        ] {
+            command.listing_source_type = patch;
+            assert_eq!(
+                changed,
+                apply_update(&mut source, &mut configuration, &command)
+                    .unwrap()
+                    .changed()
+            );
+            assert_eq!(expected, source.listing_source_type());
         }
     }
 

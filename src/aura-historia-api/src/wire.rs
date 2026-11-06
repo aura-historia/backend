@@ -172,6 +172,31 @@ pub(crate) mod ingestion_method {
     }
 }
 
+pub(crate) mod listing_source_type {
+    use super::*;
+    use listing_source_core::ListingSourceType;
+
+    const EXPECTED: &[&str] = &["DEALER", "AUCTION_HOUSE", "MARKETPLACE", "AUCTION_PLATFORM"];
+
+    pub(crate) fn serialize<S>(value: &ListingSourceType, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_code(value, serializer, ListingSourceType::as_str)
+    }
+
+    pub(crate) fn deserialize<'de, D>(deserializer: D) -> Result<ListingSourceType, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserialize_code(
+            deserializer,
+            |value| ListingSourceType::from_str(value).ok(),
+            Some(EXPECTED),
+        )
+    }
+}
+
 pub(crate) mod billing_plan {
     use super::*;
     use billing_service::use_cases::BillingPlan;
@@ -325,5 +350,21 @@ mod tests {
             problem(error).await?
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_round_trip_every_listing_source_type_and_reject_unknown_codes() {
+        use listing_source_core::ListingSourceType;
+        use strum::IntoEnumIterator;
+
+        #[derive(serde::Serialize, serde::Deserialize)]
+        struct Wrapper(#[serde(with = "listing_source_type")] ListingSourceType);
+
+        for value in ListingSourceType::iter() {
+            let encoded = serde_json::to_value(Wrapper(value)).unwrap();
+            assert_eq!(json!(value.as_str()), encoded);
+            assert_eq!(value, serde_json::from_value::<Wrapper>(encoded).unwrap().0);
+        }
+        assert!(serde_json::from_value::<Wrapper>(json!("dealer")).is_err());
     }
 }

@@ -282,7 +282,7 @@ mod tests {
             .execute(pool)
             .await
             .expect("seed party");
-        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')")
             .bind(id.as_uuid()).bind(format!("source-{}", id.as_uuid())).bind("Auction admin search test").bind(party_id)
             .execute(pool).await.expect("seed listing source");
         id

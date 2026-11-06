@@ -185,7 +185,7 @@ async fn seed_product(pool: &sqlx::PgPool) -> Result<ProductListingId, sqlx::Err
     let initial_event = EventId::new();
     let listing_source = ListingSourceId::new();
     let mut tx = pool.begin().await?;
-    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $3, $4, 'Watchlist lambda source', party_id FROM operator")
+    sqlx::query("WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT $3, $4, 'Watchlist lambda source', party_id, 'DEALER' FROM operator")
         .bind(uuid::Uuid::now_v7()).bind(format!("watchlist-operator-{}", listing_source.as_uuid()))
         .bind(listing_source.as_uuid()).bind(format!("watchlist-source-{}", listing_source.as_uuid()))
         .execute(&mut *tx).await?;

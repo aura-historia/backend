@@ -452,6 +452,7 @@ mod tests {
                 id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source")
                     .unwrap_or_else(|error| panic!("invalid test source: {error}")),
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id: PartyId::new(),
                 ingestion_methods: std::collections::HashSet::from([
                     ListingIngestionMethod::WebCrawl,

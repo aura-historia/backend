@@ -5,9 +5,10 @@ use party_core::party_id::PartyId;
 use url::Url;
 
 use crate::{
-    InvalidListingSourceSlug, ListingIngestionMethod, ListingSourceId, ListingSourceName,
-    ListingSourceNameError, ListingSourceSlugId, PlatformTechnology, PlatformTechnologyError,
-    ReferralConfiguration, ReferralUrlError, outbound_url,
+    InvalidListingSourceSlug, InvalidListingSourceType, ListingIngestionMethod, ListingSourceId,
+    ListingSourceName, ListingSourceNameError, ListingSourceSlugId, ListingSourceType,
+    PlatformTechnology, PlatformTechnologyError, ReferralConfiguration, ReferralUrlError,
+    outbound_url,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -20,6 +21,7 @@ pub struct ListingSourcePresentation {
 pub struct NewListingSource {
     pub id: ListingSourceId,
     pub name: ListingSourceName,
+    pub listing_source_type: ListingSourceType,
     pub operator_party_id: PartyId,
     pub ingestion_methods: HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
@@ -33,6 +35,7 @@ pub struct RehydratedListingSourceState {
     pub id: ListingSourceId,
     pub slug_id: String,
     pub name: String,
+    pub listing_source_type: String,
     pub operator_party_id: PartyId,
     pub ingestion_methods: HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
@@ -46,6 +49,8 @@ pub enum RehydrateListingSourceError {
     InvalidSlug(#[source] InvalidListingSourceSlug),
     #[error("invalid persisted listing source name")]
     InvalidName(#[source] ListingSourceNameError),
+    #[error("invalid persisted listing source type")]
+    InvalidListingSourceType(#[source] InvalidListingSourceType),
     #[error("invalid persisted platform technology")]
     InvalidPlatformTechnology(#[source] PlatformTechnologyError),
 }
@@ -55,6 +60,7 @@ pub struct ListingSource {
     id: ListingSourceId,
     slug_id: ListingSourceSlugId,
     name: ListingSourceName,
+    listing_source_type: ListingSourceType,
     operator_party_id: PartyId,
     ingestion_methods: HashSet<ListingIngestionMethod>,
     presentation: ListingSourcePresentation,
@@ -71,6 +77,7 @@ impl ListingSource {
             slug_id,
             id: input.id,
             name: input.name,
+            listing_source_type: input.listing_source_type,
             operator_party_id: input.operator_party_id,
             ingestion_methods: input.ingestion_methods,
             presentation: input.presentation,
@@ -89,6 +96,10 @@ impl ListingSource {
                 .map_err(RehydrateListingSourceError::InvalidSlug)?,
             name: ListingSourceName::try_from(state.name)
                 .map_err(RehydrateListingSourceError::InvalidName)?,
+            listing_source_type: state
+                .listing_source_type
+                .parse()
+                .map_err(RehydrateListingSourceError::InvalidListingSourceType)?,
             operator_party_id: state.operator_party_id,
             ingestion_methods: state.ingestion_methods,
             presentation: state.presentation,
@@ -103,6 +114,10 @@ impl ListingSource {
 
     pub fn rename(&mut self, name: ListingSourceName) -> ChangeOutcome {
         replace(&mut self.name, name)
+    }
+
+    pub fn reclassify(&mut self, listing_source_type: ListingSourceType) -> ChangeOutcome {
+        replace(&mut self.listing_source_type, listing_source_type)
     }
 
     pub fn replace_ingestion_methods(
@@ -147,6 +162,10 @@ impl ListingSource {
 
     pub fn name(&self) -> &ListingSourceName {
         &self.name
+    }
+
+    pub fn listing_source_type(&self) -> ListingSourceType {
+        self.listing_source_type
     }
 
     pub fn operator_party_id(&self) -> PartyId {
@@ -198,6 +217,7 @@ mod tests {
             NewListingSource {
                 id: ListingSourceId::new(),
                 name,
+                listing_source_type: ListingSourceType::Dealer,
                 operator_party_id: PartyId::new(),
                 ingestion_methods: HashSet::new(),
                 presentation: ListingSourcePresentation::default(),
@@ -223,6 +243,7 @@ mod tests {
             id: ListingSourceId::new(),
             slug_id: "historic--source".to_owned(),
             name: "\u{2003}".to_owned(),
+            listing_source_type: "DEALER".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
@@ -239,6 +260,7 @@ mod tests {
             id: ListingSourceId::new(),
             slug_id: "historic-source".to_owned(),
             name: "\u{2003}".to_owned(),
+            listing_source_type: "DEALER".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
@@ -253,11 +275,32 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_unknown_persisted_listing_source_type() {
+        let state = RehydratedListingSourceState {
+            id: ListingSourceId::new(),
+            slug_id: "historic-source".to_owned(),
+            name: "Historic Source".to_owned(),
+            listing_source_type: "SELLER".to_owned(),
+            operator_party_id: PartyId::new(),
+            ingestion_methods: HashSet::new(),
+            presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
+            referral_configuration: None,
+        };
+
+        assert!(matches!(
+            ListingSource::rehydrate(state),
+            Err(RehydrateListingSourceError::InvalidListingSourceType(_))
+        ));
+    }
+
+    #[test]
     fn should_reject_noncanonical_persisted_platform_technology() {
         let state = RehydratedListingSourceState {
             id: ListingSourceId::new(),
             slug_id: "historic-source".to_owned(),
             name: "Historic Source".to_owned(),
+            listing_source_type: "DEALER".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),

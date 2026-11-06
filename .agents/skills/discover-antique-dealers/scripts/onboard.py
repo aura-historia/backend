@@ -100,7 +100,7 @@ def create_source(api, ledger, row, ids, sources):
         for field in ("phone", "email"):
             if value(row, field):
                 operator[field] = value(row, field)
-    body = {"name": value(row, "name"), "operator": operator,
+    body = {"name": value(row, "name"), "listingSourceType": "DEALER", "operator": operator,
             "url": row["url"], "ingestionConfiguration": []}
     if value(row, "platformTechnology"):
         body["platformTechnology"] = value(row, "platformTechnology")
