@@ -328,6 +328,7 @@ fn should_preserve_all_destination_variants_and_strict_identity() {
             destination: data.destination.into_core().unwrap(),
         }));
         assert_eq!(json!(9), output["version"]);
+        assert_eq!(destination, output["destination"]);
         assert!(input_schema::<DestinationData>().is_valid(&output["destination"]));
     }
     for invalid in [

@@ -51,9 +51,9 @@ pub(super) enum PartnershipProposalData<ListingSourceIdentity = ListingSourceId>
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProposedPartyData {
     pub(super) name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) phone: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) email: Option<Email>,
 }
 
@@ -61,9 +61,9 @@ pub(super) struct ProposedPartyData {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProposedListingSourceData {
     pub(super) name: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) url: Option<Url>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) image: Option<Url>,
     #[serde(with = "crate::wire::ingestion_method::set")]
     pub(super) requested_ingestion_methods: std::collections::HashSet<ListingIngestionMethod>,
@@ -132,7 +132,9 @@ pub(super) struct AdminPartnershipApplicationData {
     #[serde(with = "crate::wire::partnership_application_state")]
     state: PartnershipApplicationState,
     proposal: PartnershipProposalData,
+    #[serde(skip_serializing_if = "Option::is_none")]
     approved_partnership_id: Option<PartnershipId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     approved_listing_source_id: Option<ListingSourceId>,
 }
 
@@ -144,7 +146,9 @@ pub(super) struct AdminPartnershipApplicationSummaryData {
     #[serde(with = "crate::wire::partnership_application_state")]
     state: PartnershipApplicationState,
     proposal: PartnershipProposalData,
+    #[serde(skip_serializing_if = "Option::is_none")]
     approved_partnership_id: Option<PartnershipId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     approved_listing_source_id: Option<ListingSourceId>,
     #[serde(with = "time::serde::rfc3339")]
     created: OffsetDateTime,

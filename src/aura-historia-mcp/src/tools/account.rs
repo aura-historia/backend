@@ -1,7 +1,9 @@
 //! Current-user profile, private addresses and browsing-destination operations.
 mod errors;
 
-use crate::{AccessClass, OperationDefinition, OperationError, OperationPolicy, RegistryError};
+use crate::{
+    AccessClass, Completed, OperationDefinition, OperationError, OperationPolicy, RegistryError,
+};
 use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use aura_historia_contracts::users::{
     account::{OwnUserData, PatchOwnUserData},
@@ -238,7 +240,7 @@ fn delete_address(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteUserAddress",
-        "Delete the selected owned address using its expectedVersion. If selected for browsing, deletion clears that destination. Returns result:null on success.",
+        "Delete the selected owned address using its expectedVersion. If selected for browsing, deletion clears that destination. Returns an empty object on success.",
         replacement_policy(),
         move |input: DeleteAddressArguments, invocation| {
             let delete = delete.clone();
@@ -250,6 +252,7 @@ fn delete_address(
                         input.data.expected_version,
                     ))
                     .await?
+                    .map(|()| Completed {})
                     .map_err(errors::address)
             }
         },
@@ -771,10 +774,7 @@ mod tests {
             let address = invoke(&registry, "getUserAddress", json!({"addressId":id}), &read).await;
             assert_eq!(input()["geography"], address["geography"]);
             assert_eq!(json!(1), address["version"]);
-            assert_eq!(
-                json!({"status":"PENDING","derived":null,"attribution":null}),
-                address["resolution"]
-            );
+            assert_eq!(json!({"status":"PENDING"}), address["resolution"]);
             let mut seen = BTreeSet::new();
             let mut after = Value::Null;
             loop {
@@ -876,7 +876,7 @@ mod tests {
                 invoke(&registry, "getUserAddress", json!({"addressId":id}), &ctx).await["preferred"]
             );
             assert_eq!(
-                json!({"result":null}),
+                json!({}),
                 invoke(
                     &registry,
                     "deleteUserAddress",

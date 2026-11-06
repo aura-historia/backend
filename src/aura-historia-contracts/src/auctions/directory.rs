@@ -115,65 +115,30 @@ pub struct DirectoryCursorData {
     pub created: OffsetDateTime,
     #[schemars(schema_with = "crate::wire::schema::auction_id")]
     pub auction_id: String,
-    // The outer Option distinguishes a missing field from a null schedule instant.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        serialize_with = "serialize_nullable_scheduled",
-        deserialize_with = "deserialize_nullable_scheduled"
+        with = "time::serde::rfc3339::option"
     )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
-    pub scheduled: Option<Option<OffsetDateTime>>,
+    pub scheduled: Option<OffsetDateTime>,
     pub scope: DirectoryCursorScopeData,
-}
-
-fn serialize_nullable_scheduled<S: serde::Serializer>(
-    value: &Option<Option<OffsetDateTime>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let scheduled = value.as_ref().copied().flatten();
-    time::serde::rfc3339::option::serialize(&scheduled, serializer)
-}
-
-fn deserialize_nullable_scheduled<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<Option<OffsetDateTime>>, D::Error> {
-    time::serde::rfc3339::option::deserialize(deserializer).map(Some)
-}
-
-/// A required cursor member whose value is an RFC3339 instant or an explicit JSON null.
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
-pub struct RequiredCursorInstant(
-    #[serde(with = "time::serde::rfc3339::option")] Option<OffsetDateTime>,
-);
-
-impl From<Option<OffsetDateTime>> for RequiredCursorInstant {
-    fn from(value: Option<OffsetDateTime>) -> Self {
-        Self(value)
-    }
-}
-
-fn deserialize_required_cursor_instant<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<RequiredCursorInstant, D::Error> {
-    time::serde::rfc3339::option::deserialize(deserializer).map(RequiredCursorInstant)
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DirectoryCursorScopeData {
     #[schemars(schema_with = "crate::wire::schema::optional_listing_source_id")]
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub listing_source_id: Option<String>,
     #[schemars(schema_with = "super::format_schema")]
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
     #[schemars(schema_with = "super::status_schema")]
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reported_status: Option<String>,
     #[schemars(schema_with = "schedule_role_schema")]
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "sort_schema")]
@@ -181,18 +146,27 @@ pub struct DirectoryCursorScopeData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "super::optional_order_schema")]
     pub order: Option<SortOrder>,
-    #[serde(deserialize_with = "deserialize_required_cursor_instant")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
-    pub from: RequiredCursorInstant,
-    #[serde(deserialize_with = "deserialize_required_cursor_instant")]
+    pub from: Option<OffsetDateTime>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
-    pub to: RequiredCursorInstant,
+    pub to: Option<OffsetDateTime>,
 }
 
 impl DirectoryCursorData {
     fn try_into_cursor(self) -> Result<AuctionDirectoryCursor, AuctionQueryError> {
         let scope = self.scope.try_into_scope()?;
-        if scope.sort.is_some() != self.scheduled.is_some() {
+        // A sorted cursor omits `scheduled` when its auction has no instant for the sort role.
+        if scope.sort.is_none() && self.scheduled.is_some() {
             return Err(query_error(
                 "searchAfter scheduled instant does not match its sort scope.",
             ));
@@ -204,7 +178,7 @@ impl DirectoryCursorData {
                 "searchAfter.auctionId",
                 "Auction",
             )?,
-            scheduled: self.scheduled.flatten(),
+            scheduled: self.scheduled,
             scope,
         })
     }
@@ -240,7 +214,7 @@ impl DirectoryCursorScopeData {
                 .transpose()?,
             format: parse_auction_format(self.format)?,
             reported_status: parse_auction_status(self.reported_status)?,
-            schedule: parse_schedule_filter(role, self.from.0, self.to.0, sort.is_some())?,
+            schedule: parse_schedule_filter(role, self.from, self.to, sort.is_some())?,
             sort,
             order,
         })
@@ -268,8 +242,8 @@ impl From<AuctionDirectoryScope> for DirectoryCursorScopeData {
             time_role,
             sort: value.sort.map(|_| "scheduled".to_owned()),
             order: value.order,
-            from: from.into(),
-            to: to.into(),
+            from,
+            to,
         }
     }
 }
@@ -342,11 +316,14 @@ pub struct PublicAuctionDirectoryItemData {
     #[schemars(schema_with = "crate::wire::schema::auction_id")]
     pub auction_id: AuctionId,
     pub listing_source: PublicSourceData,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<crate::values::LocalizedTextData>,
     #[schemars(schema_with = "super::format_schema")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<&'static str>,
     pub schedule: super::AuctionScheduleResponseData,
     #[schemars(schema_with = "super::status_schema")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reported_status: Option<&'static str>,
     #[serde(with = "time::serde::rfc3339")]
     #[schemars(schema_with = "crate::wire::schema::datetime")]
@@ -359,7 +336,7 @@ impl From<auction_service::ports::ListAuctionsDirectoryResult> for PublicAuction
             search_after: value.cursor.search_after.map(|cursor| DirectoryCursorData {
                 created: cursor.created,
                 auction_id: cursor.auction_id.to_string(),
-                scheduled: cursor.scope.sort.map(|_| cursor.scheduled),
+                scheduled: cursor.scope.sort.and(cursor.scheduled),
                 scope: cursor.scope.into(),
             }),
             items: value

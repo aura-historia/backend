@@ -152,8 +152,10 @@ pub struct DefaultData {
     pub listing_source_id: ListingSourceId,
     #[schemars(schema_with = "revision_schema")]
     pub revision: LocationDefaultRevision,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub assignment: Option<AssignmentData>,
     #[schemars(schema_with = "eligibility_schema")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub eligibility: Option<&'static str>,
 }
 impl From<LocationDefaultView> for DefaultData {

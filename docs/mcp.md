@@ -71,8 +71,10 @@ but must not duplicate business fields or business behavior.
 Input schemas use Schemars deserialization direction; output schemas use
 serialization direction. Unsigned integer schemas include the exact bounds of their wire
 types. Inputs must be objects, including tagged unions whose
-variants are all objects. Object results retain their shared DTO shape. Array,
-scalar, nullable or otherwise non-object root schemas use
+variants are all objects. Object results retain their shared DTO shape and, like REST
+responses, omit absent members instead of emitting `null`; only shipping terms, shipping
+profile content and listing delivery documents keep their required `null` members. Bodyless business outcomes return
+an empty object `{}`. Array, scalar or otherwise non-object root schemas use
 `{ "result": <shared response> }`, because legacy MCP output schemas
 require an object. The same value is emitted as structured content and JSON
 text for older generic clients. Neither representation drops fields. A result
@@ -128,7 +130,7 @@ idempotency and recovery contract.
 | --- | --- | --- |
 | `getWatchlistProductListings` | `watchlist:read` | Complete personalized listing page with returned item count and optional total/cursor |
 | `addWatchlistProduct` | `watchlist:write` | Created watchlist entry, including notification setting and state |
-| `deleteWatchlistProduct` | `watchlist:write` | Bodyless REST outcome represented as `{ "result": null }` |
+| `deleteWatchlistProduct` | `watchlist:write` | Bodyless REST outcome represented as `{}` |
 | `patchWatchlistProduct` | `watchlist:write` | Complete personalized listing after notification/state changes |
 
 Every request targets the validated delegated user's own watchlist; no user identifier argument
@@ -243,10 +245,10 @@ current ownership independently of transport admission. No argument selects anot
 | `getUserAccount` | Complete own-account response, including profile, language/currency/unit, content preference, consent, tier and role. |
 | `updateUserAccount` | First/last name, language, currency, measurement unit and sensitive-content display preference; returns the complete own account. |
 | `createUserAddress` | Label and complete geography; returns server-generated identity, input revision, version, preferred status and resolution. |
-| `listUserAddresses` | `after` and `limit` (default 25, 1–100); returns every item on the page and `next`, including explicit null on the last page. |
+| `listUserAddresses` | `after` and `limit` (default 25, 1–100); returns every item on the page and `next`, omitted on the last page. |
 | `getUserAddress` | `addressId`; returns the complete owned-address view. |
 | `updateUserAddress` | `addressId`, `expectedVersion`, label and complete geography; replaces editable content while retaining identity and owner. |
-| `deleteUserAddress` | `addressId` and `expectedVersion`; deletes only that address and returns `{ "result": null }`. |
+| `deleteUserAddress` | `addressId` and `expectedVersion`; deletes only that address and returns `{}`. |
 | `getBrowsingDestination` | Complete version and selected `NONE`, `ADDRESS` or `COUNTRY_POSTAL` choice. |
 | `setBrowsingDestination` | `expectedVersion` and the complete destination choice; returns the resulting version and destination. |
 
@@ -282,10 +284,10 @@ with REST and calls the same inbound services directly.
 
 | Tool / source operation ID | Scope and contract |
 | --- | --- |
-| `getUserSearchFilters` | `search-filters:read`; empty arguments return every own filter with `items`, `from`, `size`, `total`. No truncation or invented continuation. |
+| `getUserSearchFilters` | `search-filters:read`; empty arguments return every own filter with `items`, `from`, `size` and, when known, `total`. No truncation or invented continuation. |
 | `createUserSearchFilter` | `search-filters:write`; complete REST body, including `acceptShippingDestination`, nested `search` and optional `notifications` (default `true`). Returns the saved filter. Non-idempotent. |
 | `getUserSearchFilter` | `search-filters:read`; `userSearchFilterId` returns the complete own filter. |
-| `deleteUserSearchFilter` | `search-filters:write`; `userSearchFilterId` deletes the own filter and returns `{ "result": null }`. Missing filters remain `NOT_FOUND`. |
+| `deleteUserSearchFilter` | `search-filters:write`; `userSearchFilterId` deletes the own filter and returns `{}`. Missing filters remain `NOT_FOUND`. |
 | `updateUserSearchFilter` | `search-filters:write`; `userSearchFilterId` plus the complete shared REST patch. Returns the saved filter. |
 | `listSearchFilterMatches` | `search-filters:read`; `userSearchFilterId`, `language`, `currency`, `size` (default 21, clamped to 1–100) and JSON `searchAfter`. Returns the existing personalized listing details page in ascending match order. |
 | `updateSearchFilterMatchFeedback` | `search-filters:write`; `userSearchFilterId`, `productListingId` and optional `feedback`. Returns the stored match snapshot, including its existing shipping valuation. Missing or stale matches remain `NOT_FOUND`. |
@@ -331,7 +333,7 @@ returned items; an exhausted page omits `searchAfter`, and no total is supplied.
 unlisted pages. `deleteNotification` permanently deletes one `notificationId` and returns not
 found for missing/foreign items. `deleteNotifications` accepts only `{}` and permanently deletes
 the entire own inbox; it has no ID selection or request body. Successful mutations acknowledge
-with `{ "result": null }`, preserving REST's bodyless business outcome without counts or per-item
+with `{}`, preserving REST's bodyless business outcome without counts or per-item
 reports. Mutations are not automatically retried; after an ambiguous timeout the outcome is unknown.
 
 ## Partner workflows use REST

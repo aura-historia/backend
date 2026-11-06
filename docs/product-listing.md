@@ -98,7 +98,7 @@ read model; it never copies authoritative source addresses into the aggregate. P
 
 ## Application, API, and search contracts
 
-Title, description, availability, main price and estimates use tri-state update/upsert patches: omitted preserves, `null` clears, a value sets. Text values include their source language. Both text fields remain optional; omission or null on creation records absence. Absent response availability is explicit `null`.
+Title, description, availability, main price and estimates use tri-state update/upsert patches: omitted preserves, `null` clears, a value sets. Text values include their source language. Both text fields remain optional; omission or null on creation records absence. Responses omit absent availability.
 
 Title normalization is idempotent and runs wherever a title is constructed, including
 translated titles. Typography comes first: styled letters and digits (mathematical,
@@ -244,7 +244,7 @@ Receipts survive listing/source deletion and have no TTL. They deduplicate succe
 
 Images are URL-only source facts. Listing-level assessment is asynchronous enrichment; missing or stale assessment means unassessed, not an invented policy value.
 
-Without the stored `show_unassessed_or_sensitive_content` preference, image URLs are visible only under a current `ALLOWED` assessment. Opted-in users may see allowed, sensitive (`REQUIRES_CONSENT(NAZI_GERMANY)`) and unassessed images. Redaction preserves image order/cardinality and emits hidden URLs as `null`.
+Without the stored `show_unassessed_or_sensitive_content` preference, image URLs are visible only under a current `ALLOWED` assessment. Opted-in users may see allowed, sensitive (`REQUIRES_CONSENT(NAZI_GERMANY)`) and unassessed images. Redaction preserves image order/cardinality and omits hidden URLs, leaving an empty image object.
 
 The authorized [management inspection](#management-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
 

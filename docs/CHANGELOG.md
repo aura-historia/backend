@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-05 — Responses omit absent values instead of `null` (#2785)
+
+- **Breaking change:** REST responses and MCP tool results omit absent members instead of returning `null`. Treat a missing member like the former `null`. A hidden image is now an empty image object, and the Party location resolution routes return `{}` when a location has no geocoding work.
+- The public Auction directory `searchAfter` object omits absent `scope` members and `scheduled`. Cursors that still contain `null` members remain valid; an unsorted cursor carrying `scheduled` returns `400`.
+- MCP tools with a bodyless outcome (`deleteWatchlistProduct`, `deleteUserAddress`, `deleteUserSearchFilter` and the notification seen and delete tools) return `{}` instead of `{"result": null}`.
+- Unchanged: requests accept `null` where documented. Advertised shipping terms, shipping profile `content` and listing delivery configuration documents keep their required `null` members, because clients send them back unchanged.
+
 ## 2026-11-05 — Original and localized listing text in one object (#2784)
 
 - **Breaking change:** listing `title` and `description` are now `{ "original": LocalizedTextData, "localized": LocalizedTextData }` objects instead of a single `LocalizedTextData`, and the flat `productTitle` and `productDescription` fields are removed. This applies to `GET /v1/product-listings/{productListingId}`, `GET /v1/product-listings/by-slug/{productListingTitleSlugId}`, watchlist, saved-search match and auction catalogue items, search and similar-listing summaries, and watchlist and search-filter notification payloads, and to the matching MCP tool results.

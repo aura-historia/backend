@@ -21,7 +21,11 @@ pub enum DestinationData {
     },
     CountryPostal {
         country: String,
-        #[serde(rename = "postalCode", default)]
+        #[serde(
+            rename = "postalCode",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
         postal_code: Option<String>,
     },
 }

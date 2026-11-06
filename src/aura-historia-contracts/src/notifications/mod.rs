@@ -102,7 +102,9 @@ struct WatchlistNotificationPayloadData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<ListingTextData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<ProductListingImageData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
@@ -119,14 +121,22 @@ struct WatchlistNotificationPayloadData {
 )]
 enum WatchlistNotificationChangeData {
     PriceChange {
+        #[serde(skip_serializing_if = "Option::is_none")]
         old_price: Option<ProductListingPriceData>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         new_price: Option<ProductListingPriceData>,
     },
     AvailabilityChange {
-        #[serde(with = "crate::wire::listing::availability_option")]
+        #[serde(
+            with = "crate::wire::listing::availability_option",
+            skip_serializing_if = "Option::is_none"
+        )]
         #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         old_availability: Option<ListingAvailability>,
-        #[serde(with = "crate::wire::listing::availability_option")]
+        #[serde(
+            with = "crate::wire::listing::availability_option",
+            skip_serializing_if = "Option::is_none"
+        )]
         #[schemars(schema_with = "crate::wire::listing::availability_option_schema")]
         new_availability: Option<ListingAvailability>,
     },
@@ -146,7 +156,9 @@ struct SearchFilterNotificationPayloadData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<ListingTextData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<ProductListingImageData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
@@ -165,6 +177,7 @@ struct PartnershipApplicationNotificationPayloadData {
     party_name: String,
     listing_source_name: String,
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<Url>,
 }
 

@@ -97,7 +97,7 @@ fn success(response: &Value) -> Value {
     value
 }
 fn acknowledged(response: &Value) {
-    assert_eq!(json!({"result":null}), success(response));
+    assert_eq!(json!({}), success(response));
 }
 fn tool_error(response: &Value, code: &str) {
     assert_eq!(true, response["result"]["isError"]);
@@ -390,11 +390,11 @@ async fn assert_optional_payloads(
     for (id, change) in [
         (
             price,
-            json!({"type":"PRICE_CHANGE","oldPrice":{"type":"ON_REQUEST"},"newPrice":null}),
+            json!({"type":"PRICE_CHANGE","oldPrice":{"type":"ON_REQUEST"}}),
         ),
         (
             availability,
-            json!({"type":"AVAILABILITY_CHANGE","oldAvailability":"AVAILABLE","newAvailability":null}),
+            json!({"type":"AVAILABILITY_CHANGE","oldAvailability":"AVAILABLE"}),
         ),
     ] {
         let item = items
@@ -403,8 +403,8 @@ async fn assert_optional_payloads(
             .unwrap();
         let payload = &item["payload"];
         assert_eq!(change, payload["change"]);
-        assert_eq!(Some(&Value::Null), payload.get("title"));
-        assert_eq!(Some(&Value::Null), payload.get("image"));
+        assert!(payload.get("title").is_none());
+        assert!(payload.get("image").is_none());
     }
     let item = items
         .iter()
@@ -654,7 +654,7 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
             );
             assert_eq!("Test Party", payload["partyName"]);
             assert_eq!("Test Source", payload["listingSourceName"]);
-            assert_eq!(Some(&Value::Null), payload.get("image"));
+            assert!(payload.get("image").is_none());
         }
         kind => panic!("unexpected kind {kind}"),
     }
@@ -681,7 +681,7 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
             json!({"localized":{"text":"Geige","language":"de"}}),
             payload["title"]
         );
-        assert_eq!(json!({"url":null}), payload["image"]);
+        assert_eq!(json!({}), payload["image"]);
     }
 }
 

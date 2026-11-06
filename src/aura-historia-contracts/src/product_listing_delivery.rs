@@ -189,6 +189,7 @@ pub struct DeliveryData {
     #[schemars(range(min = 1, max = i64::MAX))]
     expected_version: u64,
     #[schemars(schema_with = "optional_delivery_schema")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     delivery: Option<Value>,
 }
 impl TryFrom<product_listing_service::use_cases::ProductListingDeliveryView> for DeliveryData {

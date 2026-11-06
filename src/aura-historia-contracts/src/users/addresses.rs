@@ -82,12 +82,15 @@ pub struct PageQuery {
 pub struct PageData {
     pub items: Vec<AddressData>,
     #[schemars(schema_with = "crate::wire::schema::optional_user_address_id")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<UserAddressId>,
 }
 
 #[derive(Serialize, JsonSchema)]
 pub struct DerivedData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub geography: Option<GeographyData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<PositionData>,
 }
 impl From<DerivedGeography> for DerivedData {
@@ -107,7 +110,9 @@ pub struct AddressAttributionData {
 #[derive(Serialize, JsonSchema)]
 pub struct AddressResolutionData {
     pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub derived: Option<DerivedData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub attribution: Option<AddressAttributionData>,
 }
 impl From<UserAddressResolution> for AddressResolutionData {

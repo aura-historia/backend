@@ -476,7 +476,27 @@ pub async fn json_response(
         .json::<serde_json::Value>()
         .await
         .unwrap_or_else(|error| panic!("failed to decode API response: {error}"));
+    assert_no_null_members(&body, "$");
     (status, body)
+}
+
+/// Responses omit absent values instead of sending JSON `null` members.
+fn assert_no_null_members(value: &serde_json::Value, path: &str) {
+    match value {
+        serde_json::Value::Object(members) => {
+            for (name, member) in members {
+                let path = format!("{path}.{name}");
+                assert!(!member.is_null(), "API response contains null at {path}");
+                assert_no_null_members(member, &path);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                assert_no_null_members(item, &format!("{path}[{index}]"));
+            }
+        }
+        _ => {}
+    }
 }
 
 pub fn assert_problem(

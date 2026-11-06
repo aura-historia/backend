@@ -139,7 +139,7 @@ fn should_validate_roles_coordinates_geographic_codes_and_opaque_evidence() {
     }
 }
 #[test]
-fn should_preserve_location_page_defaults_continuations_and_null_next() {
+fn should_preserve_location_page_defaults_continuations_and_omit_absent_next() {
     let party = PartyId::new();
     let id = PartyLocationId::new();
     for value in [json!({}), json!({"limit":null,"after":null})] {
@@ -164,39 +164,7 @@ fn should_preserve_location_page_defaults_continuations_and_null_next() {
             next: None,
         },
     ));
-    assert_eq!(json!({"items":[],"next":null}), v);
-}
-
-#[test]
-fn should_require_nullable_page_and_default_members_in_output_schemas() {
-    fn assert_required<T: JsonSchema>(value: Value, fields: &[&str]) {
-        let schema = serde_json::to_value(
-            SchemaSettings::default()
-                .for_serialize()
-                .into_generator()
-                .into_root_schema_for::<T>(),
-        )
-        .unwrap();
-        let validator = jsonschema::validator_for(&schema).unwrap();
-        assert!(validator.is_valid(&value));
-        for field in fields {
-            let mut missing = value.clone();
-            assert_eq!(
-                Some(Value::Null),
-                missing.as_object_mut().unwrap().remove(*field)
-            );
-            assert!(
-                !validator.is_valid(&missing),
-                "Output schema must require nullable member {field}: {schema}"
-            );
-        }
-    }
-
-    assert_required::<locations::PageData>(json!({"items":[],"next":null}), &["next"]);
-    assert_required::<defaults::DefaultData>(
-        json!({"listingSourceId":ListingSourceId::new(),"revision":1,"assignment":null,"eligibility":null}),
-        &["assignment", "eligibility"],
-    );
+    assert_eq!(json!({"items":[]}), v);
 }
 
 #[test]
@@ -237,7 +205,7 @@ fn should_preserve_default_assignment_applicability_and_explicit_clear_tombstone
         },
     ));
     assert_eq!(
-        json!({"listingSourceId":source,"revision":i64::MAX,"assignment":null,"eligibility":null}),
+        json!({"listingSourceId":source,"revision":i64::MAX}),
         cleared
     );
 }

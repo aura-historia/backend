@@ -194,8 +194,10 @@ pub struct DefaultData {
     #[schemars(schema_with = "revision")]
     pub revision: ShippingDefaultRevision,
     #[schemars(schema_with = "optional_profile_id")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shipping_profile_id: Option<ShippingProfileId>,
     #[schemars(schema_with = "eligibility")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub eligibility: Option<&'static str>,
 }
 impl From<DefaultView> for DefaultData {

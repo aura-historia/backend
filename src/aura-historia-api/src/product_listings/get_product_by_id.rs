@@ -342,8 +342,7 @@ mod tests {
         assert!(body["item"].get("priceEstimateMin").is_none());
         assert!(body["item"].get("priceEstimateMax").is_none());
         assert!(body["item"].get("currency").is_none());
-        assert!(body["item"].get("availability").is_some());
-        assert!(body["item"]["availability"].is_null());
+        assert!(body["item"].get("availability").is_none());
         assert!(body.get("userState").is_none());
         assert!(matches!(
             lock(&calls)[0].1,

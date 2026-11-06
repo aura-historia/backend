@@ -165,12 +165,18 @@ pub struct SummaryData {
     product_listing_title_slug_id: String,
     source: SourceData,
     source_listing_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     price: Option<ProductListingPriceData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     price_estimate_min: Option<PriceData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     price_estimate_max: Option<PriceData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     availability: Option<&'static str>,
     lifecycle: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
     auction_id: Option<String>,
     #[schemars(range(min = 1, max = i64::MAX as u64))]
     expected_version: u64,
@@ -217,33 +223,48 @@ impl From<AdminProductListingSummary> for SummaryData {
 pub struct DetailsData {
     #[serde(flatten)]
     summary: SummaryData,
+    #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<LocalizedTextData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
     #[schemars(schema_with = "crate::product_listing_fields::image_urls_schema")]
     images: Vec<Url>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     auction: Option<AuctionData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     sale_observation: Option<SaleObservationData>,
 }
 #[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct AuctionData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     auction_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     lot_number: Option<String>,
     #[schemars(range(max = u32::MAX))]
+    #[serde(skip_serializing_if = "Option::is_none")]
     catalogue_position: Option<u32>,
     timing: TimingData,
 }
 #[derive(Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct TimingData {
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     bidding_opens: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     scheduled_closes: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     reported_closed_at: Option<OffsetDateTime>,
 }

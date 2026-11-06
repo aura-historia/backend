@@ -107,6 +107,7 @@ pub struct PaginatedData<T> {
     #[schemars(range(max = u64::MAX))]
     pub size: u64,
     #[schemars(range(max = u64::MAX))]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
 }
 

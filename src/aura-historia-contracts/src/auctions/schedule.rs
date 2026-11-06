@@ -5,16 +5,28 @@ use time::OffsetDateTime;
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuctionScheduleResponseData {
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     bidding_opens: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     live_starts: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     lots_begin_closing: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     scheduled_end: Option<OffsetDateTime>,
 }

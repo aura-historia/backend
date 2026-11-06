@@ -1,8 +1,8 @@
 //! Own saved-search CRUD, materialized match reads and feedback.
 mod error;
 use crate::{
-    AccessClass, InvocationContext, OperationDefinition, OperationError, OperationPolicy,
-    RegistryError,
+    AccessClass, Completed, InvocationContext, OperationDefinition, OperationError,
+    OperationPolicy, RegistryError,
 };
 use application::{
     error::box_error,
@@ -174,7 +174,7 @@ fn delete(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteUserSearchFilter",
-        "Delete an own saved search. Returns null on success; a missing or other user's search remains not found.",
+        "Delete an own saved search. Returns an empty object on success; a missing or other user's search remains not found.",
         policy(CredentialCapability::SearchFiltersWrite, true, true),
         move |input: FilterArguments, invocation| {
             let service = Arc::clone(&service);
@@ -186,7 +186,7 @@ fn delete(
                 invocation
                     .execute(service.execute(&invocation.operation, command))
                     .await?
-                    .map(|_| ())
+                    .map(|_| Completed {})
                     .map_err(error::delete)
             }
         },
@@ -641,7 +641,7 @@ mod tests {
         ));
     }
     #[tokio::test]
-    async fn should_return_null_for_successful_delete_and_preserve_delegated_identity() {
+    async fn should_return_empty_object_for_successful_delete_and_preserve_delegated_identity() {
         let fixture = Fixture::default();
         let registry = fixture.registry();
         let result = registry
@@ -655,7 +655,7 @@ mod tests {
             .unwrap()
             .structured_content
             .unwrap();
-        assert_eq!(json!({"result":null}), result);
+        assert_eq!(json!({}), result);
         let calls = fixture.calls.lock().unwrap();
         let Call::Delete(context, command) = &calls[0] else {
             panic!("delete required")

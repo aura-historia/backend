@@ -160,11 +160,16 @@ pub(crate) struct AuctionAdminData {
     auction_id: AuctionId,
     listing_source_id: ListingSourceId,
     source_auction_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<LocalizedTextData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     catalogue_url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     format: Option<&'static str>,
     schedule: AuctionScheduleResponseData,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reported_status: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     reported_lot_count: Option<u32>,
     expected_version: u64,
 
