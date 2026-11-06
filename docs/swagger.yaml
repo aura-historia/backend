@@ -8749,7 +8749,7 @@ paths:
 
         connection, with every access token and refresh token it holds; for a registered client every access token issued
 
-        to it for this user. The client must sign the user in again afterwards. Repeating the request, or naming a client
+        to it for this user, and the client's approvals not yet exchanged. The client must sign the user in again afterwards. Repeating the request, or naming a client
 
         the user is not connected to, also returns `204 No Content`.
 
@@ -10988,9 +10988,11 @@ paths:
 
         replaced more than 10 seconds earlier revokes its sign-in's refresh tokens and all access tokens of the user's
 
-        connection to the client. Every rejected refresh returns `400 invalid_grant`; registered clients receive
+        connection to the client. An unusable refresh token returns `400 invalid_grant`, a scope beyond the sign-in's
 
-        `400 unauthorized_client`. See the OAuth contract for lifetimes.
+        `invalid_scope`, another resource `invalid_target`; registered clients receive `400 unauthorized_client`. See
+
+        the OAuth contract for lifetimes.
  Codes are issued only for approvals made with a Cognito access
 
         JWT, so the token is an independent credential of the approving user: expiring or revoking

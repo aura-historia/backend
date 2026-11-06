@@ -1,4 +1,6 @@
-use crate::ports::{CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError};
+use crate::ports::{
+    CleanupCounts, CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError,
+};
 
 const MIN_BATCH_SIZE: i32 = 1;
 const MAX_BATCH_SIZE: i32 = 1_000;
@@ -27,17 +29,6 @@ impl TryFrom<i32> for ExpiryCleanupBatchSize {
 pub enum ExpiryCleanupBatchSizeError {
     #[error("expiry cleanup batch size must be between 1 and 1000")]
     OutOfRange { value: i32 },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CleanupCounts {
-    pub access_tokens_deleted: i64,
-    pub authorization_codes_deleted: i64,
-    pub third_party_exchange_codes_deleted: i64,
-    pub provider_receipts_deleted: i64,
-    pub refresh_tokens_deleted: i64,
-    pub refresh_token_families_deleted: i64,
-    pub oauth_connections_deleted: i64,
 }
 
 #[async_trait::async_trait]

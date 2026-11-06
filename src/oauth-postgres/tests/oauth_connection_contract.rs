@@ -9,13 +9,13 @@ use oauth_core::refresh_token::{
 };
 use oauth_core::resource::AuraResource;
 use oauth_postgres::{
-    SqlxOAuthConnectionGrantReader, SqlxOAuthConnectionRepositoryFactory,
-    SqlxRefreshTokenFamilyRepositoryFactory,
+    SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthConnectionGrantReader,
+    SqlxOAuthConnectionRepositoryFactory, SqlxRefreshTokenFamilyRepositoryFactory,
 };
 use oauth_service::ports::{
-    OAuthConnectionGrantReader, OAuthConnectionRepository, OAuthConnectionRepositoryError,
-    OAuthConnectionRepositoryFactory, RefreshTokenFamilyRepository,
-    RefreshTokenFamilyRepositoryFactory,
+    AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, OAuthConnectionGrantReader,
+    OAuthConnectionRepository, OAuthConnectionRepositoryError, OAuthConnectionRepositoryFactory,
+    RefreshTokenFamilyRepository, RefreshTokenFamilyRepositoryFactory,
 };
 use platform_postgres::{SqlxTransaction, SqlxUnitOfWork};
 use sqlx::PgPool;
@@ -338,6 +338,82 @@ async fn should_end_every_credential_with_its_connection() {
         .await
         .unwrap();
     assert_eq!(0, access_tokens);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_end_the_least_recently_used_families_and_a_users_pending_codes() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let families = SqlxRefreshTokenFamilyRepositoryFactory::new();
+    let connection = seed_connection(&pool, &unit_of_work).await;
+    let lifetimes = MetadataDocumentClientTokenLifetimes::default();
+    let now = whole_microseconds(OffsetDateTime::now_utc());
+    let mut tx = begin(&unit_of_work).await;
+    let mut started = Vec::new();
+    for minutes in [3, 1, 2] {
+        let (family, _) = RefreshTokenFamily::start(
+            connection.id(),
+            HashSet::new(),
+            AuraResource::ProductionMcp,
+            &lifetimes,
+            now + Duration::minutes(minutes),
+        );
+        families
+            .in_transaction(&mut tx)
+            .insert(&family)
+            .await
+            .unwrap();
+        started.push(family);
+    }
+    let ended = families
+        .in_transaction(&mut tx)
+        .delete_least_recently_used(connection.id(), 1)
+        .await
+        .unwrap();
+    commit(tx).await;
+
+    assert_eq!(2, ended);
+    let remaining: Vec<Uuid> =
+        sqlx::query_scalar("SELECT family_id FROM oauth_refresh_token_families")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(vec![started[0].id().into_uuid()], remaining);
+
+    let code = |client: &str| {
+        sqlx::query(
+            "INSERT INTO oauth_authorization_codes (authorization_code, \
+                 metadata_document_client_id, user_id, redirect_uri, code_challenge, \
+                 code_challenge_method, expires_at) \
+             VALUES ($1, $2, $3, 'http://127.0.0.1/callback', 'challenge', 'S256', \
+                 now() + interval '5 minutes')",
+        )
+        .bind(Uuid::now_v7().to_string())
+        .bind(client.to_owned())
+        .bind(connection.user_id().into_uuid())
+    };
+    code(CLIENT_ID).execute(&pool).await.unwrap();
+    code("https://other.example/client.json")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = begin(&unit_of_work).await;
+    let deleted = SqlxAuthorizationCodeRepositoryFactory::new()
+        .in_transaction(&mut tx)
+        .delete_for_user_and_client(connection.user_id(), &client_id().into())
+        .await
+        .unwrap();
+    commit(tx).await;
+    assert_eq!(1, deleted);
+    let remaining_codes: Vec<String> =
+        sqlx::query_scalar("SELECT metadata_document_client_id FROM oauth_authorization_codes")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        vec!["https://other.example/client.json".to_owned()],
+        remaining_codes
+    );
 }
 
 fn client_id() -> MetadataDocumentClientId {

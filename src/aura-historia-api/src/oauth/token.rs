@@ -97,6 +97,7 @@ fn refresh_request(
     };
     let refresh_token = RawRefreshToken::try_from(required_form(form, "refresh_token")?.to_owned())
         .map_err(|_| OAuthError::InvalidGrant)?;
+    // `offline_access` alone, or an empty `scope`, narrows nothing: keep the sign-in's scopes.
     let scope = form
         .get("scope")
         .map(|scope| {
@@ -104,7 +105,8 @@ fn refresh_request(
                 .map(|requested| requested.scopes)
                 .map_err(|_| OAuthError::InvalidScope)
         })
-        .transpose()?;
+        .transpose()?
+        .filter(|scopes| !scopes.is_empty());
     Ok(TokenByRefreshTokenRequest {
         refresh_token,
         client_id,
@@ -324,6 +326,15 @@ mod tests {
                 refresh_request(&malformed),
                 Err(OAuthError::InvalidGrant)
             ));
+        }
+        for scope in ["offline_access", ""] {
+            let mut unnarrowed = public.clone();
+            unnarrowed.insert("scope".to_owned(), scope.to_owned());
+            assert_eq!(
+                None,
+                refresh_request(&unnarrowed).unwrap().scope,
+                "{scope:?}"
+            );
         }
         let mut unknown_scope = public;
         unknown_scope.insert("scope".to_owned(), "openid".to_owned());

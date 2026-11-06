@@ -19,7 +19,7 @@ pub use client_metadata_document_source::{
     ClientMetadataDocumentLoadError, ClientMetadataDocumentSource,
 };
 pub use expired_credential_cleanup::{
-    CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError,
+    CleanupCounts, CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError,
 };
 pub use oauth_client_authentication_reader::{
     OAuthClientAuthentication, OAuthClientAuthenticationReader,

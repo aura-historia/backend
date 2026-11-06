@@ -1768,6 +1768,7 @@ async fn app_state_from_config_and_runtime(
         )),
         disconnect_oauth_client: Arc::new(DisconnectOAuthClientHandler::new(
             unit_of_work.clone(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxOAuthConnectionRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
         )),

@@ -673,7 +673,12 @@ async fn should_let_a_public_client_revoke_only_its_own_tokens() {
 }
 
 fn disconnect_handler(ports: &FakePorts) -> impl DisconnectOAuthClientUseCase {
-    DisconnectOAuthClientHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
+    DisconnectOAuthClientHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        ports.clone(),
+    )
 }
 
 #[tokio::test]
@@ -726,15 +731,15 @@ async fn should_disconnect_a_metadata_document_client_with_all_its_credentials()
     assert!(state.connections.is_empty());
     assert!(state.families.is_empty());
     assert!(state.issued.is_none());
+    assert!(state.code.is_none(), "the pending approval is withdrawn");
     assert!(matches!(
         refresh(&ports, &token).await,
         Err(OAuthServiceError::RefreshTokenInvalid)
     ));
     assert!(matches!(
         exchange(&ports, &pending).await,
-        Err(OAuthServiceError::ConnectionNotFound)
+        Err(OAuthServiceError::AuthorizationCodeNotFound)
     ));
-    assert!(lock(&ports.0).code.is_none(), "the approved code is spent");
     assert!(
         disconnect_handler(&ports)
             .execute(
@@ -748,6 +753,70 @@ async fn should_disconnect_a_metadata_document_client_with_all_its_credentials()
             .is_ok(),
         "disconnecting again is a no-op"
     );
+}
+
+#[tokio::test]
+async fn should_spend_a_code_whose_connection_ended_after_approval() {
+    let ports = FakePorts::default();
+    let user = UserId::new();
+    sign_in(&ports, refreshing_document(), user, &[], false).await;
+    AuthorizeHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        ports.clone(),
+        ports.clone(),
+        ports.clone(),
+        MetadataDocumentClients::new(enabled(), refreshing_document()),
+        AuraResourcePolicy::production(),
+    )
+    .execute(
+        &context(Principal::User(user)),
+        AuthorizeRequest {
+            response_type: OAuthResponseType::Code,
+            client_id: client_id().into(),
+            redirect_uri: url("http://127.0.0.1:49152/callback"),
+            resource: None,
+            scope: HashSet::new(),
+            offline_access: false,
+            state: None,
+            code_challenge: OAuthCodeChallenge::from(CHALLENGE),
+            code_challenge_method: CodeChallengeMethod::S256,
+        },
+    )
+    .await
+    .unwrap();
+    let pending = lock(&ports.0).code.clone().unwrap();
+    lock(&ports.0).connections.clear();
+
+    let error = exchange(&ports, &pending).await.unwrap_err();
+
+    assert!(matches!(error, OAuthServiceError::ConnectionNotFound));
+    assert!(lock(&ports.0).code.is_none(), "the code is spent");
+    assert!(lock(&ports.0).families.len() == 1, "no family starts");
+}
+
+#[tokio::test]
+async fn should_keep_only_the_most_recently_used_refresh_token_families_of_a_connection() {
+    let ports = FakePorts::default();
+    let user = UserId::new();
+    let mut tokens = Vec::new();
+    for _ in 0..=oauth_core::refresh_token::MAX_REFRESH_TOKEN_FAMILIES_PER_CONNECTION {
+        tokens.push(
+            sign_in(&ports, refreshing_document(), user, &[], false)
+                .await
+                .refresh_token
+                .unwrap(),
+        );
+    }
+
+    assert_eq!(
+        oauth_core::refresh_token::MAX_REFRESH_TOKEN_FAMILIES_PER_CONNECTION,
+        lock(&ports.0).families.len()
+    );
+    assert!(matches!(
+        refresh(&ports, &tokens[0]).await,
+        Err(OAuthServiceError::RefreshTokenInvalid)
+    ));
+    assert!(refresh(&ports, tokens.last().unwrap()).await.is_ok());
 }
 
 #[tokio::test]

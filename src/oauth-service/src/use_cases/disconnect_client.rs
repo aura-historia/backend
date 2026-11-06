@@ -1,5 +1,8 @@
 use crate::error::OAuthServiceError;
-use crate::ports::{OAuthConnectionRepository, OAuthConnectionRepositoryFactory};
+use crate::ports::{
+    AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, OAuthConnectionRepository,
+    OAuthConnectionRepositoryFactory,
+};
 use application::operation_context::{OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
 use oauth_core::client_identifier::OAuthClientIdentifier;
@@ -23,16 +26,18 @@ pub trait DisconnectOAuthClientUseCase: Send + Sync {
     ) -> Result<(), OAuthServiceError>;
 }
 
-pub struct DisconnectOAuthClientHandler<U, N, R> {
+pub struct DisconnectOAuthClientHandler<U, A, N, R> {
     unit_of_work: U,
+    codes: A,
     connections: N,
     access_tokens: R,
 }
 
-impl<U, N, R> DisconnectOAuthClientHandler<U, N, R> {
-    pub fn new(unit_of_work: U, connections: N, access_tokens: R) -> Self {
+impl<U, A, N, R> DisconnectOAuthClientHandler<U, A, N, R> {
+    pub fn new(unit_of_work: U, codes: A, connections: N, access_tokens: R) -> Self {
         Self {
             unit_of_work,
+            codes,
             connections,
             access_tokens,
         }
@@ -40,9 +45,10 @@ impl<U, N, R> DisconnectOAuthClientHandler<U, N, R> {
 }
 
 #[async_trait::async_trait]
-impl<U, N, R> DisconnectOAuthClientUseCase for DisconnectOAuthClientHandler<U, N, R>
+impl<U, A, N, R> DisconnectOAuthClientUseCase for DisconnectOAuthClientHandler<U, A, N, R>
 where
     U: UnitOfWork,
+    A: AuthorizationCodeRepositoryFactory<U::Tx>,
     N: OAuthConnectionRepositoryFactory<U::Tx>,
     R: AccessTokenRepositoryFactory<U::Tx>,
 {
@@ -63,6 +69,11 @@ where
     ) -> Result<(), OAuthServiceError> {
         authorize_disconnect(context, command.user_id)?;
         let mut tx = self.unit_of_work.begin().await?;
+        // An approval the client has not exchanged yet must not outlive the disconnect.
+        self.codes
+            .in_transaction(&mut tx)
+            .delete_for_user_and_client(command.user_id, &command.client_id)
+            .await?;
         let revoked = match &command.client_id {
             OAuthClientIdentifier::Registered(client_id) => {
                 self.access_tokens

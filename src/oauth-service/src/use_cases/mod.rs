@@ -18,12 +18,13 @@ pub mod update_client;
 
 mod support;
 
+pub use crate::ports::CleanupCounts;
 pub use authorize::{
     AuthorizeHandler, AuthorizeRequest, AuthorizeResponse, AuthorizeUseCase, OAuthResponseType,
     OAuthState,
 };
 pub use cleanup_expired_credentials::{
-    CleanupCounts, CleanupExpiredCredentialsAndProviderReceiptsHandler,
+    CleanupExpiredCredentialsAndProviderReceiptsHandler,
     CleanupExpiredCredentialsAndProviderReceiptsUseCase, ExpiryCleanupBatchSize,
     ExpiryCleanupBatchSizeError,
 };

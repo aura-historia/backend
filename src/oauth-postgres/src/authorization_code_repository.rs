@@ -8,6 +8,7 @@ use oauth_service::ports::{
 };
 use platform_postgres::SqlxTransaction;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxAuthorizationCodeRepositoryFactory;
@@ -86,6 +87,31 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         row.map(TryInto::try_into)
             .transpose()
             .map_err(invalid_code_state)
+    }
+
+    async fn delete_for_user_and_client(
+        &mut self,
+        user_id: UserId,
+        client_id: &OAuthClientIdentifier,
+    ) -> Result<u64, OAuthCodeRepositoryError> {
+        let query = match client_id {
+            OAuthClientIdentifier::Registered(client_id) => sqlx::query(
+                "DELETE FROM oauth_authorization_codes WHERE user_id = $1 AND client_id = $2",
+            )
+            .bind(user_id.into_uuid())
+            .bind(client_id.into_uuid()),
+            OAuthClientIdentifier::MetadataDocument(client_id) => sqlx::query(
+                "DELETE FROM oauth_authorization_codes \
+                 WHERE user_id = $1 AND metadata_document_client_id = $2",
+            )
+            .bind(user_id.into_uuid())
+            .bind(client_id.as_str()),
+        };
+        query
+            .execute(&mut *self.connection)
+            .await
+            .map(|result| result.rows_affected())
+            .map_err(write_code_error)
     }
 }
 

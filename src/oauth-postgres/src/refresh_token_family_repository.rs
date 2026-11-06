@@ -165,6 +165,29 @@ impl RefreshTokenFamilyRepository for SqlxRefreshTokenFamilyRepository<'_> {
             .map_err(write_error)
     }
 
+    async fn delete_least_recently_used(
+        &mut self,
+        connection_id: OAuthConnectionId,
+        keep: usize,
+    ) -> Result<u64, OAuthConnectionRepositoryError> {
+        let keep = i64::try_from(keep).map_err(invalid_state_error)?;
+        // A family's idle limit restarts with every rotation, so it orders by last use.
+        sqlx::query(
+            "DELETE FROM oauth_refresh_token_families WHERE family_id IN ( \
+                 SELECT family_id FROM oauth_refresh_token_families \
+                 WHERE connection_id = $1 \
+                 ORDER BY expires_at DESC, family_id DESC \
+                 OFFSET $2 \
+             )",
+        )
+        .bind(connection_id.into_uuid())
+        .bind(keep)
+        .execute(&mut *self.connection)
+        .await
+        .map(|result| result.rows_affected())
+        .map_err(write_error)
+    }
+
     async fn delete(
         &mut self,
         family_id: RefreshTokenFamilyId,

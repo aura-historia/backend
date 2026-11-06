@@ -372,6 +372,19 @@ async fn should_remove_expired_refresh_token_families_in_bounded_steps_then_empt
         assert_eq!((0, 0, 0, 0, 2, 0, 1), cleanup(pool.clone()).await?);
         assert!(connection_exists(&pool, expired_connection).await?);
         assert!(!connection_exists(&pool, empty_connection).await?);
+        let remaining_expired: Vec<Option<OffsetDateTime>> = sqlx::query_scalar(
+            "SELECT tokens.replaced_at FROM oauth_refresh_tokens AS tokens \
+             JOIN oauth_refresh_token_families AS families USING (family_id) \
+             WHERE families.connection_id = $1",
+        )
+        .bind(expired_connection)
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            vec![None],
+            remaining_expired,
+            "replaced tokens are removed before the current one"
+        );
         // The last token, then its family, then the connection it emptied.
         assert_eq!((0, 0, 0, 0, 1, 1, 1), cleanup(pool.clone()).await?);
         assert!(!connection_exists(&pool, expired_connection).await?);

@@ -1741,6 +1741,7 @@ async fn test_state(
         )),
         Arc::new(DisconnectOAuthClientHandler::new(
             unit_of_work.clone(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxOAuthConnectionRepositoryFactory::new(),
             user_postgres::SqlxAccessTokenRepositoryFactory::new(),
         )),

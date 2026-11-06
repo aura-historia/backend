@@ -31,6 +31,11 @@ impl RefreshTokenFamilyId {
 /// request flag, not a credential scope: tokens never carry it.
 pub const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
 
+/// A connection keeps at most this many sign-ins refreshable; a new sign-in ends the least
+/// recently used family beyond it, so abandoned families of re-signed-in installations cannot
+/// pile up.
+pub const MAX_REFRESH_TOKEN_FAMILIES_PER_CONNECTION: usize = 5;
+
 /// A token replaced within this window is treated as the loser of concurrent refreshes with
 /// the same token, not as reuse: the request fails, the family stays intact.
 pub const REFRESH_TOKEN_REUSE_GRACE: Duration = Duration::seconds(10);

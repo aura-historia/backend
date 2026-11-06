@@ -217,8 +217,13 @@ token, by code exchange or refresh.
 
 Each completed sign-in starts its own refresh-token family. Several installations of the
 same client, such as Claude Code on two machines, therefore stay signed in side by side,
-and a refresh issues the scopes of its own sign-in. Ending the connection, by the user or
-by the client revoking a refresh token, ends every family and access token it holds.
+and a refresh issues the scopes of its own sign-in. A connection keeps at most five
+families: a further sign-in ends the least recently used one, which bounds the families a
+re-signed-in installation leaves behind. Ending the connection, by the user or by the client
+revoking a refresh token, ends every family and access token it holds, so one installation
+signing out signs out all of them. Reuse detection likewise revokes the access tokens of all
+installations, which then refresh with their own families. Disconnecting also withdraws
+approvals the client has not exchanged yet.
 
 Users see each connection as one entry of the account's
 [access-token listing](swagger.yaml), not its rotating access tokens, and end it with
@@ -239,7 +244,8 @@ tokens also ends all of the user's connections.
 `OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS`, `OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS`
 and `OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS` configure the metadata document client
 lifetimes per environment; the idle limit may not exceed the absolute limit. An expired
-access token receives `401 invalid_token` on REST and MCP, which makes the client refresh.
+access token receives `401` on REST and MCP, whose challenge reports `invalid_token`, which
+makes the client refresh.
 
 ### Refresh tokens
 
@@ -269,9 +275,11 @@ family intact. After that, presenting it is reuse.
 **Expiry.** A family ends when its current token was not used for the idle limit, and at the
 latest at its absolute limit, counted from the sign-in. Expiry is checked on every refresh.
 
-**Errors.** Every rejected refresh returns `400 invalid_grant`, whatever the reason:
-unknown, malformed, expired, replaced or reused token, a token of another client, or an
-ended connection. A refresh needs no outbound call and answers within the token endpoint's
+**Errors.** Every unusable refresh token returns `400 invalid_grant`, whatever the reason:
+unknown, malformed, expired, replaced or reused, issued to another client, or of an ended
+connection. A `scope` beyond the sign-in's returns `invalid_scope`, another resource
+`invalid_target`, and a disabled or denied client `401 invalid_client`; none of them consumes
+the token. A refresh needs no outbound call and answers within the token endpoint's
 ordinary database budget.
 
 **Revocation.** `POST /v1/oauth/revoke` accepts a metadata document client identified by its

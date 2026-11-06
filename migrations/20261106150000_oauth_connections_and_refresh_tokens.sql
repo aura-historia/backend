@@ -214,11 +214,14 @@ BEGIN
     SELECT count(*) INTO provider_receipts_deleted FROM deleted;
 
     -- Tokens first, so deleting a family never cascades to an unbounded number of rows.
+    -- Replaced tokens go before any current token, so a family keeps its current token
+    -- while replaced ones remain and a refresh with either still finds a whole family.
     WITH candidates AS (
         SELECT tokens.ctid
         FROM oauth_refresh_tokens AS tokens
         JOIN oauth_refresh_token_families AS families USING (family_id)
         WHERE families.expires_at < cleanup_now
+        ORDER BY tokens.replaced_at IS NULL, families.expires_at
         LIMIT batch_size
         -- A refresh holds its family's lock; skip that family rather than race its rotation.
         FOR UPDATE OF tokens, families SKIP LOCKED

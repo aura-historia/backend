@@ -1,8 +1,7 @@
 use application::error::box_error;
 use oauth_service::ports::{
-    CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError,
+    CleanupCounts, CleanupExpiredCredentialsAndProviderReceipts, ExpiredCredentialCleanupError,
 };
-use oauth_service::use_cases::CleanupCounts;
 use sqlx::PgPool;
 
 #[derive(Clone)]

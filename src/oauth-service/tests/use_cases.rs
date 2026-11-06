@@ -388,6 +388,26 @@ impl RefreshTokenFamilyRepository for TransactionalFakePorts<'_> {
         Ok(())
     }
 
+    async fn delete_least_recently_used(
+        &mut self,
+        connection_id: credential_core::oauth_connection_id::OAuthConnectionId,
+        keep: usize,
+    ) -> Result<u64, OAuthConnectionRepositoryError> {
+        let mut families = self
+            .state()
+            .families
+            .iter()
+            .filter(|family| family.connection_id() == connection_id)
+            .map(|family| (family.current().expires, family.id()))
+            .collect::<Vec<_>>();
+        families.sort_by(|left, right| right.cmp(left));
+        let ended = families.split_off(keep.min(families.len()));
+        for (_, family_id) in &ended {
+            RefreshTokenFamilyRepository::delete(self, *family_id).await?;
+        }
+        Ok(u64::try_from(ended.len()).unwrap_or(u64::MAX))
+    }
+
     async fn delete(
         &mut self,
         family_id: RefreshTokenFamilyId,
@@ -780,6 +800,22 @@ impl AuthorizationCodeRepository for TransactionalFakePorts<'_> {
         } else {
             Ok(None)
         }
+    }
+
+    async fn delete_for_user_and_client(
+        &mut self,
+        user_id: UserId,
+        client_id: &OAuthClientIdentifier,
+    ) -> Result<u64, OAuthCodeRepositoryError> {
+        let state = self.state();
+        let held = state
+            .code
+            .as_ref()
+            .is_some_and(|code| code.user_id() == user_id && code.client_id() == client_id);
+        if held {
+            state.code = None;
+        }
+        Ok(u64::from(held))
     }
 }
 

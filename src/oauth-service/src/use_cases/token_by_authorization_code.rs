@@ -16,7 +16,9 @@ use oauth_core::authorization_code::{
 };
 use oauth_core::client::OAuthClient;
 use oauth_core::client_identifier::OAuthClientIdentifier;
-use oauth_core::refresh_token::{RawRefreshToken, RefreshTokenFamily};
+use oauth_core::refresh_token::{
+    MAX_REFRESH_TOKEN_FAMILIES_PER_CONNECTION, RawRefreshToken, RefreshTokenFamily,
+};
 use oauth_core::resource::{AuraResource, AuraResourcePolicy};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
@@ -342,11 +344,14 @@ where
                 self.metadata_document_clients.lifetimes(),
                 now,
             );
-            self.stores
-                .refresh_token_families
-                .in_transaction(tx)
-                .insert(&family)
+            let mut families = self.stores.refresh_token_families.in_transaction(tx);
+            families
+                .delete_least_recently_used(
+                    connection.id(),
+                    MAX_REFRESH_TOKEN_FAMILIES_PER_CONNECTION - 1,
+                )
                 .await?;
+            families.insert(&family).await?;
             Some(raw_token)
         } else {
             None

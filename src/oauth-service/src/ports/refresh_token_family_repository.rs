@@ -33,6 +33,13 @@ pub trait RefreshTokenFamilyRepository: Send {
         replaced: &HashedRawRefreshToken,
     ) -> Result<(), OAuthConnectionRepositoryError>;
 
+    /// Ends every family of the connection except the `keep` most recently used ones.
+    async fn delete_least_recently_used(
+        &mut self,
+        connection_id: OAuthConnectionId,
+        keep: usize,
+    ) -> Result<u64, OAuthConnectionRepositoryError>;
+
     /// Ends the family and every token it issued.
     async fn delete(
         &mut self,

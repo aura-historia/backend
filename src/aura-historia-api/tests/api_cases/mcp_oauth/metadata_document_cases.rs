@@ -447,6 +447,23 @@ async fn should_refresh_an_expired_access_token_until_the_user_disconnects_the_c
         .call("getUserAccount", json!({}), Some(&access_token))
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, expired.status());
+    assert!(
+        expired.headers()["www-authenticate"]
+            .to_str()
+            .unwrap()
+            .contains("invalid_token")
+    );
+    let expired_rest = agent
+        .http
+        .get(format!(
+            "{}/v1/me/account",
+            METADATA_DOCUMENT_API.base_url()
+        ))
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::UNAUTHORIZED, expired_rest.status());
     let refreshed = agent.refresh(&refresh_token).await;
     assert_eq!(StatusCode::OK, refreshed.status());
     let refreshed: Value = refreshed.json().await.unwrap();
@@ -501,4 +518,44 @@ async fn should_refresh_an_expired_access_token_until_the_user_disconnects_the_c
     );
     let listing = account_access_tokens(&agent.http, reqwest::Method::GET, &cognito, &[]).await;
     assert_eq!(json!([]), listing.json::<Value>().await.unwrap());
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &METADATA_DOCUMENT_API], isolated = true)]
+#[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
+async fn should_revoke_the_sign_in_when_a_replaced_refresh_token_returns() {
+    let agent = PublicAgent::new(CLIENT_ID);
+    let user = api_support::seed_user("USER").await;
+    let signed_in = agent.sign_in(user, "users:read offline_access").await;
+    let stolen = signed_in["refresh_token"].as_str().unwrap().to_owned();
+    let refreshed: Value = agent.refresh(&stolen).await.json().await.unwrap();
+    let access_token = refreshed["access_token"].as_str().unwrap();
+    let current = refreshed["refresh_token"].as_str().unwrap();
+    let mcp = McpServer::start().await;
+    // Past the grace window for concurrent refreshes.
+    sqlx::query(
+        "UPDATE oauth_refresh_tokens \
+         SET issued = issued - interval '1 minute', replaced_at = replaced_at - interval '1 minute' \
+         WHERE replaced_at IS NOT NULL",
+    )
+    .execute(&mcp.pool)
+    .await
+    .unwrap();
+
+    let reused = agent.refresh(&stolen).await;
+
+    assert_eq!(StatusCode::BAD_REQUEST, reused.status());
+    assert_eq!(
+        json!({"error": "invalid_grant"}),
+        reused.json::<Value>().await.unwrap()
+    );
+    let revoked = mcp
+        .call("getUserAccount", json!({}), Some(access_token))
+        .await;
+    assert_eq!(StatusCode::UNAUTHORIZED, revoked.status());
+    let current = agent.refresh(current).await;
+    assert_eq!(StatusCode::BAD_REQUEST, current.status());
+    assert_eq!(
+        json!({"error": "invalid_grant"}),
+        current.json::<Value>().await.unwrap()
+    );
 }
