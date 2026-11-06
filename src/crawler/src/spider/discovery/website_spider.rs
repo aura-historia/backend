@@ -461,16 +461,31 @@ impl SpiderDiscoveryError {
 
     /// Where the crawl root redirected to, when the preflight refused to follow it.
     pub fn redirect_target(&self) -> Option<&str> {
-        match self {
-            Self::Preflight {
-                source: Some(source),
-                ..
-            } => source
-                .downcast_ref::<RootRedirect>()
-                .map(|redirect| redirect.target.as_str()),
-            _ => None,
-        }
+        let Self::Preflight {
+            source: Some(source),
+            ..
+        } = self
+        else {
+            return None;
+        };
+        source
+            .downcast_ref::<RootRedirect>()
+            .map(|redirect| redirect.target.as_str())
+            .or_else(|| {
+                source
+                    .downcast_ref::<RefusedRedirectTarget>()
+                    .map(|refused| refused.target.as_str())
+            })
     }
+}
+
+/// A crawl-root redirect target the public-target policy refused, with the rule that refused it.
+#[derive(Debug, Error)]
+#[error("the crawl root redirected to {target}, which is refused: {rule}")]
+pub struct RefusedRedirectTarget {
+    target: String,
+    #[source]
+    rule: PublicTargetError,
 }
 
 /// The target of a crawl-root redirect the preflight refused, in the spelling the crawler stores
@@ -781,7 +796,47 @@ struct PreflightAttemptError {
     retryable: bool,
 }
 
-fn preflight_transport_error(error: SpiderTransportError) -> PreflightAttemptError {
+/// How the preflight arrived at the root page it fetches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootArrival {
+    /// The crawl root as configured, or as moved to its twin host.
+    Configured,
+    /// The `Location` of the previous root answer.
+    Redirect,
+}
+
+/// Why the policy refused the target of a root redirect, naming both the redirect and the rule.
+fn refused_redirect_reason(rule: &PublicTargetError) -> &'static str {
+    match rule {
+        PublicTargetError::InvalidUrl => {
+            "crawl-root redirect target refused: not an HTTP(S) URL without userinfo and with a host"
+        }
+        PublicTargetError::IpLiteral => {
+            "crawl-root redirect target refused: an IP literal instead of a DNS hostname"
+        }
+        PublicTargetError::InvalidPort => {
+            "crawl-root redirect target refused: port is not permitted"
+        }
+        PublicTargetError::ResolutionTimeout => {
+            "crawl-root redirect target refused: its DNS resolution timed out"
+        }
+        PublicTargetError::Resolution => {
+            "crawl-root redirect target refused: its DNS resolution failed"
+        }
+        PublicTargetError::UnsafeResolution => {
+            "crawl-root redirect target refused: it does not resolve exclusively to public addresses"
+        }
+        PublicTargetError::InvalidRedirect => {
+            "crawl-root redirect target refused: invalid redirect"
+        }
+    }
+}
+
+fn preflight_transport_error(
+    error: SpiderTransportError,
+    root: &Url,
+    arrival: RootArrival,
+) -> PreflightAttemptError {
     match error {
         SpiderTransportError::Target(target_error) => {
             let network_kind = network_error_kind_for_public_target_error(target_error.clone());
@@ -789,12 +844,25 @@ fn preflight_transport_error(error: SpiderTransportError) -> PreflightAttemptErr
                 NetworkErrorKind::UnsafeTarget => CrawlFailureKind::InvalidUrl,
                 _ => CrawlFailureKind::ConnectError,
             };
+            let (reason, source): (&'static str, BoxError) = match arrival {
+                RootArrival::Configured => (
+                    "crawl-root target could not be resolved to a public address",
+                    Box::new(target_error),
+                ),
+                RootArrival::Redirect => (
+                    refused_redirect_reason(&target_error),
+                    Box::new(RefusedRedirectTarget {
+                        target: CrawledUrl::new(root.clone()).to_string(),
+                        rule: target_error,
+                    }),
+                ),
+            };
             PreflightAttemptError {
                 retryable: action_for(network_kind) == NetworkAction::Retry,
                 error: SpiderDiscoveryError::Preflight {
                     kind,
-                    reason: "crawl-root target could not be resolved to a public address",
-                    source: Some(Box::new(target_error)),
+                    reason,
+                    source: Some(source),
                     root_reroot: None,
                 },
             }
@@ -840,12 +908,13 @@ struct RootFetch {
 async fn fetch_crawl_root_once(
     transport: &dyn SpiderTransport,
     root: &Url,
+    arrival: RootArrival,
     timeout: Duration,
 ) -> Result<RootFetch, PreflightAttemptError> {
     let client = transport
         .client_for(root, timeout)
         .await
-        .map_err(preflight_transport_error)?;
+        .map_err(|error| preflight_transport_error(error, root, arrival))?;
     let response = client
         .get(root.clone())
         .send()
@@ -860,13 +929,14 @@ async fn fetch_crawl_root_once(
 async fn fetch_crawl_root(
     transport: &dyn SpiderTransport,
     root: &Url,
+    arrival: RootArrival,
     timeout: Duration,
     retry: RetryPolicy,
 ) -> Result<RootFetch, SpiderDiscoveryError> {
     let max_attempts = retry.max_attempts.max(1);
     let mut attempt = 1;
     loop {
-        match fetch_crawl_root_once(transport, root, timeout).await {
+        match fetch_crawl_root_once(transport, root, arrival, timeout).await {
             Ok(fetched) => return Ok(fetched),
             Err(failure) if failure.retryable && attempt < max_attempts => {
                 tokio::time::sleep(inline_retry_backoff_for(retry, attempt)).await;
@@ -924,6 +994,8 @@ async fn preflight_crawl_root(
 struct RootChain {
     configured: Url,
     current: Url,
+    /// How the chain arrived at `current`.
+    arrival: RootArrival,
     /// The hosts whose root the chain fetched, in order.
     visited_hosts: Vec<Option<String>>,
     /// The move to the twin host the root page's links asked for, once the chain made it.
@@ -934,6 +1006,7 @@ impl RootChain {
     fn new(configured_root: Url) -> Self {
         Self {
             current: configured_root.clone(),
+            arrival: RootArrival::Configured,
             configured: configured_root,
             visited_hosts: Vec::new(),
             reroot: None,
@@ -964,7 +1037,7 @@ async fn follow_crawl_root(
 ) -> Result<(u16, spider::reqwest::Client), SpiderDiscoveryError> {
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
         let RootFetch { response, client } =
-            fetch_crawl_root(transport, &chain.current, timeout, retry).await?;
+            fetch_crawl_root(transport, &chain.current, chain.arrival, timeout, retry).await?;
         chain
             .visited_hosts
             .push(chain.current.host_str().map(str::to_owned));
@@ -983,6 +1056,7 @@ async fn follow_crawl_root(
                     })
             {
                 chain.current = moved.to.clone();
+                chain.arrival = RootArrival::Configured;
                 chain.reroot = Some(moved);
                 continue;
             }
@@ -1010,6 +1084,7 @@ async fn follow_crawl_root(
                 )
             })?;
         chain.current = root_redirect_target(&chain.configured, &chain.current, location)?;
+        chain.arrival = RootArrival::Redirect;
     }
 
     Err(SpiderDiscoveryError::root_redirect(
@@ -4433,6 +4508,63 @@ mod tests {
         site.finish().await;
     }
 
+    /// Transport that refuses a port, as the public-target policy does, and pins the rest.
+    struct PortRefusingTransport {
+        refused_port: u16,
+        inner: Arc<dyn SpiderTransport>,
+    }
+
+    #[async_trait::async_trait]
+    impl SpiderTransport for PortRefusingTransport {
+        async fn client_for(
+            &self,
+            url: &Url,
+            timeout: Duration,
+        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+            if url.port() == Some(self.refused_port) {
+                return Err(SpiderTransportError::Target(PublicTargetError::InvalidPort));
+            }
+            self.inner.client_for(url, timeout).await
+        }
+    }
+
+    /// A root that redirects to a target the policy refuses fails as that: the reason names the
+    /// redirect and the rule, and the log carries the target.
+    #[tokio::test]
+    async fn should_name_the_redirect_and_the_rule_when_the_root_redirects_to_a_refused_port() {
+        let site = TestSite::spawn(Arc::new(|target: &str, previous: usize| {
+            if target == "/" {
+                SiteResponse::Redirect("http://example.com:40542/store/")
+            } else {
+                regression_site(target, previous)
+            }
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            Arc::new(PortRefusingTransport {
+                refused_port: 40542,
+                inner: site.transport(&["example.com"]),
+            }),
+        );
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::InvalidUrl,
+                reason: "crawl-root redirect target refused: port is not permitted",
+                ..
+            }
+        ));
+        assert_eq!(
+            error.redirect_target(),
+            Some("http://example.com:40542/store/")
+        );
+        site.finish().await;
+    }
+
     #[tokio::test]
     async fn should_bound_root_redirect_chain() {
         let site = TestSite::spawn(Arc::new(|target: &str, _: usize| {
@@ -5120,7 +5252,11 @@ mod tests {
                 false,
             ),
         ] {
-            let failure = preflight_transport_error(SpiderTransportError::Target(target_error));
+            let failure = preflight_transport_error(
+                SpiderTransportError::Target(target_error),
+                &Url::parse("https://example.com/").unwrap(),
+                RootArrival::Configured,
+            );
             assert_eq!(failure.retryable, expected_retry);
             assert!(matches!(
                 failure.error,
