@@ -14,7 +14,7 @@ import * as path from "node:path";
 import { Construct } from "constructs";
 import { ARTIFACT_BUCKET_NAME, type StageName } from "./config";
 import { CONTAINER_IMAGE_CATALOG } from "./container-image-catalog";
-import { createEnvironmentRoles } from "./delivery-iam";
+import { createEnvironmentRoles, runtimeCredentialSecretArns } from "./delivery-iam";
 
 export interface DeliveryStackProps extends cdk.StackProps {
   readonly enabledTargets?: readonly StageName[];
@@ -326,6 +326,10 @@ export class DeliveryStack extends cdk.Stack {
       this.formatArn({ service: "ssm", resource: "parameter", resourceName: `anthropic/${stage}/api-key`,
         arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME }),
     ] }));
+    // Binds credential version parameters; metadata only, never secret values.
+    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["secretsmanager:DescribeSecret"], resources: runtimeCredentialSecretArns(
+      (service, resource, resourceName) => this.formatArn({ service, resource, resourceName, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }),
+      stage) }));
     const maintenance = context.requester(`${stage}Maintenance`, `aws-${stage}-maintenance`);
     context.readRelease(maintenance);
     this.grantImageReads(maintenance);

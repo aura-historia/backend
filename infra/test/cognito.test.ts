@@ -2,6 +2,8 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig, type StageName } from "../src/config";
+import { credentialSecrets } from "../src/credentials";
+import { credentialReference } from "./credential-reference";
 
 type Resource = {
   readonly DependsOn?: string[] | string;
@@ -87,7 +89,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
     expect(pool.Properties.LambdaConfig["Fn::If"][1].PreSignUp).toBeDefined();
   });
 
-  test("creates Google with an SSM String client secret and the narrow mapped profile", () => {
+  test("creates Google with a version-pinned client secret and the narrow mapped profile", () => {
     const template = computeTemplate(stage);
     template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 2);
     const provider = resourceByType(template, "AWS::Cognito::UserPoolIdentityProvider")
@@ -100,7 +102,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       ProviderType: "Google",
       ProviderDetails: {
         client_id: `{{resolve:ssm:/cognito/${stage}/identity-providers/google/client-id}}`,
-        client_secret: `{{resolve:ssm:/cognito/${stage}/identity-providers/google/client-secret}}`,
+        client_secret: credentialReference(credentialSecrets(stage).cognitoIdentityProviders, "googleClientSecret"),
         authorize_scopes: "openid email profile",
       },
       AttributeMapping: {
@@ -127,7 +129,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       ProviderType: "Facebook",
       ProviderDetails: {
         client_id: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-id}}`,
-        client_secret: `{{resolve:ssm:/cognito/${stage}/identity-providers/facebook/client-secret}}`,
+        client_secret: credentialReference(credentialSecrets(stage).cognitoIdentityProviders, "facebookClientSecret"),
         api_version: "v21.0",
         authorize_scopes: "email,public_profile",
       },
@@ -179,14 +181,14 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
   test("uses a PostgreSQL-backed five-second pre-sign-up Lambda with narrow federation access", () => {
     const template = computeTemplate(stage);
     const preSignUp = resourceByFunctionName(template, `cognito-pre-sign-up-${stage}`);
-    const variables = preSignUp.Properties.Environment.Variables as Record<string, string>;
+    const variables = preSignUp.Properties.Environment.Variables as Record<string, unknown>;
 
     expect(preSignUp.Properties.Timeout).toBe(5);
     expect(preSignUp.Properties.VpcConfig).toBeDefined();
     expect(variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
-    expect(variables.POSTGRES_SECRET_ARN).toBeDefined();
+    expect(variables.POSTGRES_PASSWORD).toEqual(credentialReference(credentialSecrets(stage).postgresRuntime, "password"));
     expect(variables.POSTGRES_TLS_ROOT_CERT).toBeDefined();
-    const providerPolicies = JSON.parse(variables.COGNITO_PROVIDER_SIGNUP_POLICY) as Array<Record<string, string>>;
+    const providerPolicies = JSON.parse(variables.COGNITO_PROVIDER_SIGNUP_POLICY as string) as Array<Record<string, string>>;
     expect(providerPolicies).toEqual([
       {
         providerName: "Google",
@@ -195,7 +197,7 @@ describe.each(["dev", "prod"] as const)("%s Cognito federation", (stage) => {
       },
       { providerName: "Facebook", existingEmailAction: "REJECT" },
     ]);
-    expect(JSON.stringify(variables)).not.toContain("client-secret");
+    expect(JSON.stringify(variables)).not.toMatch(/ClientSecret|cognito-identity-providers/);
 
     const policies = Object.values(template.findResources("AWS::IAM::Policy")) as Resource[];
     const linkingPolicy = policies.find((policy) => JSON.stringify(policy).includes("cognito-idp:AdminLinkProviderForUser"));

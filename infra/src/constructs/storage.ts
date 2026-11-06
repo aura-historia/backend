@@ -19,7 +19,6 @@ export interface PostgresConnectionSettings {
   readonly database: string;
   readonly maxConnections: string;
   readonly tlsRootCert: string;
-  readonly secretArn?: string;
 }
 
 export interface PostgresMigrationConnectionSettings {
@@ -137,7 +136,6 @@ export class Storage extends Construct {
       port: this.database.dbInstanceEndpointPort,
       database: rdsConfig.databaseName,
       maxConnections: "1",
-      secretArn: this.runtimeCredentials.secretArn,
       tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
     };
     this.migrationPostgres = {

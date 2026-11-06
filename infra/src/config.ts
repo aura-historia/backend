@@ -34,7 +34,8 @@ export interface CognitoGoogleIdentityProviderConfig {
   readonly kind: "google";
   readonly providerName: "Google";
   readonly clientIdParameterName: string;
-  readonly clientSecretParameterName: string;
+  /** Field of the stage's Cognito identity-provider credential secret. */
+  readonly clientSecretField: "googleClientSecret";
   readonly scopes: readonly string[];
   readonly existingEmailAction: "LINK_VERIFIED";
   readonly linkSourceAttributeName: "Cognito_Subject";
@@ -45,7 +46,8 @@ export interface CognitoFacebookIdentityProviderConfig {
   readonly providerName: "Facebook";
   readonly apiVersion: "v21.0";
   readonly clientIdParameterName: string;
-  readonly clientSecretParameterName: string;
+  /** Field of the stage's Cognito identity-provider credential secret. */
+  readonly clientSecretField: "facebookClientSecret";
   readonly scopes: readonly string[];
   readonly existingEmailAction: "REJECT";
 }
@@ -215,7 +217,7 @@ export function stageConfig(stage: StageName): StageConfig {
         kind: "google",
         providerName: "Google",
         clientIdParameterName: `/cognito/${stage}/identity-providers/google/client-id`,
-        clientSecretParameterName: `/cognito/${stage}/identity-providers/google/client-secret`,
+        clientSecretField: "googleClientSecret",
         scopes: ["openid", "email", "profile"],
         existingEmailAction: "LINK_VERIFIED",
         linkSourceAttributeName: "Cognito_Subject",
@@ -225,7 +227,7 @@ export function stageConfig(stage: StageName): StageConfig {
         providerName: "Facebook",
         apiVersion: "v21.0",
         clientIdParameterName: `/cognito/${stage}/identity-providers/facebook/client-id`,
-        clientSecretParameterName: `/cognito/${stage}/identity-providers/facebook/client-secret`,
+        clientSecretField: "facebookClientSecret",
         scopes: ["email", "public_profile"],
         existingEmailAction: "REJECT",
       },

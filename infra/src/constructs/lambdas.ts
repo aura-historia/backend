@@ -9,6 +9,7 @@ import type * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
+import { credentialResolver, credentialSecrets } from "../credentials";
 import { releaseLambdaCode, lambdaArtifactParameters } from "../release-artifacts";
 import type { ApplicationParameters } from "../parameters";
 import {
@@ -124,7 +125,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 30,
     environment: (context) => ({
-      STRIPE_API_KEY: ssmValue(`/stripe/${context.config.stage}/api-key`),
+      STRIPE_API_KEY: context.credential(credentialSecrets(context.config.stage).stripe, "apiKey"),
       STRIPE_PRO_PRODUCT_ID: context.config.stripeProProductId,
       STRIPE_ULTIMATE_PRODUCT_ID: context.config.stripeUltimateProductId,
     }),
@@ -141,7 +142,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
       STAGE: context.config.stage,
       OPENSEARCH_ENDPOINT_URL: context.search.endpointUrl,
       OPENSEARCH_USERNAME: ssmValue(`/opensearch/${context.config.stage}/product-projector/username`),
-      OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${context.config.stage}/product-projector/password`),
+      OPENSEARCH_PASSWORD: context.credential(
+        credentialSecrets(context.config.stage).openSearch,
+        "productProjectorPassword",
+      ),
     }),
   },
   productListingIngestion: {
@@ -178,7 +182,10 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     environment: (context) => ({
       VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${context.config.stage}/project-id`),
       VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${context.config.stage}/location`),
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(`/secrets/${context.config.stage}/google-application-credentials`),
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.credential(
+        credentialSecrets(context.config.stage).google,
+        "applicationCredentials",
+      ),
     }),
   },
   productTranslation: {
@@ -189,7 +196,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     postgres: true,
     timeoutSeconds: 45,
     environment: (context) => ({
-      ANTHROPIC_API_KEY: ssmValue(`/anthropic/${context.config.stage}/api-key`),
+      ANTHROPIC_API_KEY: context.credential(credentialSecrets(context.config.stage).anthropic, "apiKey"),
     }),
   },
   notificationDelivery: {
@@ -368,6 +375,7 @@ export class Lambdas extends Construct {
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,
+      credential: credentialResolver(this),
     };
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
@@ -501,25 +509,22 @@ function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironm
     : { ...postgresEnvironment, POSTGRES_MAX_CONNECTIONS: String(definition.maxPostgresConnections) };
 }
 
+/** Runtime PostgreSQL connection settings with the runtime role credentials resolved at deployment. */
 export function withPostgresEnvironment(
-  context: Pick<LambdaEnvironmentContext, "postgres">,
+  context: Pick<LambdaEnvironmentContext, "config" | "postgres" | "credential">,
   env: Record<string, string>,
 ): Record<string, string> {
-  const connection = {
+  const runtime = credentialSecrets(context.config.stage).postgresRuntime;
+  return {
     ...env,
     POSTGRES_DATABASE: context.postgres.database,
     POSTGRES_HOST: context.postgres.host,
     POSTGRES_MAX_CONNECTIONS: context.postgres.maxConnections,
     POSTGRES_PORT: context.postgres.port,
     POSTGRES_TLS_ROOT_CERT: context.postgres.tlsRootCert,
+    POSTGRES_USERNAME: context.credential(runtime, "username"),
+    POSTGRES_PASSWORD: context.credential(runtime, "password"),
   };
-  if (context.postgres.secretArn) {
-    return {
-      ...connection,
-      POSTGRES_SECRET_ARN: context.postgres.secretArn,
-    };
-  }
-  throw new Error("PostgreSQL Lambda environment requires a runtime secret ARN.");
 }
 
 function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): void {
@@ -584,20 +589,6 @@ function grantRuntimeAccess(props: LambdasProps, functions: LambdaFunctions): vo
     actions: ["ses:SendEmail"],
     resources: sesSendResources,
   }));
-
-  if (props.postgres.secretArn) {
-    for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
-      if (!definition.postgres) {
-        continue;
-      }
-      functions[key]?.addToRolePolicy(
-        new iam.PolicyStatement({
-          actions: ["secretsmanager:GetSecretValue"],
-          resources: [props.postgres.secretArn],
-        }),
-      );
-    }
-  }
 }
 
 export function addUserPoolEnvironment(

@@ -1,13 +1,11 @@
-import * as cdk from "aws-cdk-lib";
-import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as iam from "aws-cdk-lib/aws-iam";
+import type * as cdk from "aws-cdk-lib";
+import type * as ecs from "aws-cdk-lib/aws-ecs";
 import * as logs from "aws-cdk-lib/aws-logs";
-import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type * as sqs from "aws-cdk-lib/aws-sqs";
-import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { ssmValue } from "../config";
+import { credentialResolver, credentialSecrets } from "../credentials";
 import { PERIODIC_MATCHER_CONTAINER, PERIODIC_MATCHER_IMAGE, PERIODIC_MATCHER_REPOSITORY, periodicMatcherNames } from "../periodic-matcher-config";
 import type { Network } from "./network";
 import { ScheduledEcsJob } from "./scheduled-ecs-job";
@@ -30,9 +28,11 @@ export interface PeriodicMatcherProps {
 export class PeriodicMatcher extends ScheduledEcsJob {
   constructor(scope: Construct, id: string, props: PeriodicMatcherProps) {
     const { config, network, postgres } = props;
-    const secretArn = postgres.secretArn;
-    if (!secretArn || !config.network) throw new Error("Matcher needs real-stage private PostgreSQL credentials and network.");
+    if (!config.network) throw new Error("Matcher needs a real-stage private network.");
     const names = periodicMatcherNames(config.stage);
+    // Credentials enter the task definition at deployment, like Lambda configuration.
+    const credential = credentialResolver(scope);
+    const secrets = credentialSecrets(config.stage);
     super(scope, id, {
       network,
       deliveryDlq: props.deliveryDlq,
@@ -45,7 +45,12 @@ export class PeriodicMatcher extends ScheduledEcsJob {
       environment: {
         STAGE: config.stage, LOG_LEVEL: "info", POSTGRES_HOST: postgres.host, POSTGRES_PORT: postgres.port,
         POSTGRES_DATABASE: postgres.database, POSTGRES_MAX_CONNECTIONS: "1", POSTGRES_TLS_ROOT_CERT: postgres.tlsRootCert,
+        POSTGRES_USERNAME: credential(secrets.postgresRuntime, "username"),
+        POSTGRES_PASSWORD: credential(secrets.postgresRuntime, "password"),
         OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
+        OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),
+        OPENSEARCH_PASSWORD: credential(secrets.openSearch, "readerPassword"),
+        CLOUDFLARE_API_TOKEN: credential(secrets.cloudflare, "workersAiApiToken"),
         CLASSIFIER_MODEL_PROVIDER: config.searchFilterClassifier.provider,
         CLASSIFIER_MODEL: props.classifierModel,
         PERIODIC_MATCH_BATCH_CANDIDATES: props.batchCandidates,
@@ -57,25 +62,6 @@ export class PeriodicMatcher extends ScheduledEcsJob {
         PERIODIC_MATCH_MAX_ATTEMPTS: "3", PERIODIC_MATCH_PROJECTION_LAG_SECONDS: "900",
         PERIODIC_MATCH_REPLAY_OVERLAP_SECONDS: "7200", PERIODIC_MATCH_MAX_RUN_SECONDS: "7200",
         AURA_HISTORIA_SOURCE_REVISION: props.commitSha,
-      },
-      secrets: (job) => {
-        const stack = cdk.Stack.of(job);
-        const runtimeSecret = secretsmanager.Secret.fromSecretCompleteArn(job, "RuntimeSecret", secretArn);
-        // Import by ARN without resolving the secret value as a CloudFormation parameter.
-        const importParameter = (name: string) => {
-          const arn = stack.formatArn({ service: "ssm", resource: "parameter", resourceName: name.slice(1), arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME });
-          return {
-            parameterArn: arn,
-            grantRead: (grantee: iam.IGrantable) => iam.Grant.addToPrincipal({ grantee, actions: ["ssm:GetParameters"], resourceArns: [arn] }),
-          } as ssm.IParameter;
-        };
-        return {
-          POSTGRES_USERNAME: ecs.Secret.fromSecretsManager(runtimeSecret, "username"),
-          POSTGRES_PASSWORD: ecs.Secret.fromSecretsManager(runtimeSecret, "password"),
-          OPENSEARCH_USERNAME: ecs.Secret.fromSsmParameter(importParameter(`/opensearch/${config.stage}/reader/username`)),
-          OPENSEARCH_PASSWORD: ecs.Secret.fromSsmParameter(importParameter(`/opensearch/${config.stage}/reader/password`)),
-          CLOUDFLARE_API_TOKEN: ecs.Secret.fromSsmParameter(importParameter(`/secrets/${config.stage}/cloudflare-workers-ai-api-token`)),
-        };
       },
       scheduleExpression: "cron(0 15 * * ? *)",
       enabled: props.enabled,

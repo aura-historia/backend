@@ -7,6 +7,8 @@ import { STAGES, stageConfig } from "../src/config";
 import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG } from "../src/constructs/mcp";
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
+import { credentialSecrets } from "../src/credentials";
+import { credentialReference } from "./credential-reference";
 
 describe.each(STAGES)("%s MCP hosting", (stage) => {
   const config = stageConfig(stage);
@@ -151,10 +153,12 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED: String(stage === "prod"),
       OPENSEARCH_ENDPOINT_URL: config.opensearchEndpointUrl,
       OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${stage}/reader/username}}`,
-      OPENSEARCH_PASSWORD: `{{resolve:ssm:/opensearch/${stage}/reader/password}}`,
+      OPENSEARCH_PASSWORD: credentialReference(credentialSecrets(stage).openSearch, "readerPassword"),
       VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
       VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
-      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: `{{resolve:ssm:/secrets/${stage}/google-application-credentials}}`,
+      AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: credentialReference(credentialSecrets(stage).google, "applicationCredentials"),
+      POSTGRES_USERNAME: credentialReference(credentialSecrets(stage).postgresRuntime, "username"),
+      POSTGRES_PASSWORD: credentialReference(credentialSecrets(stage).postgresRuntime, "password"),
       POSTGRES_DATABASE: "aura_historia", POSTGRES_MAX_CONNECTIONS: "1",
       POSTGRES_TLS_ROOT_CERT: "/opt/aura-historia/rds-ca/global-bundle.pem",
     });
@@ -163,7 +167,8 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
-      "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT",
+      "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT",
+      "POSTGRES_USERNAME", "POSTGRES_PASSWORD",
     ].sort());
     expect(environment.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     const budget = fn.Properties.ReservedConcurrentExecutions * Number(environment.POSTGRES_MAX_CONNECTIONS);
@@ -190,9 +195,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       .find((statement) => statement.Action === "sqs:SendMessage");
     expect(restSend).toBeDefined();
     expect(JSON.stringify(restSend.Resource)).not.toBe('"*"');
-    expect(statements).toEqual([
-      { Action: "secretsmanager:GetSecretValue", Effect: "Allow", Resource: environment.POSTGRES_SECRET_ARN },
-    ]);
+    expect(statements).toEqual([]);
     expect(JSON.stringify(statements)).not.toContain("sqs:");
     const [alias] = Object.values(compute.findResources("AWS::Lambda::Alias"))
       .filter((resource) => resource.Properties.FunctionName.Ref === functionId);

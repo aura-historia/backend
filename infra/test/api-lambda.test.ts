@@ -3,6 +3,8 @@ import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, type StageName } from "../src/config";
 import { consentEvidenceLogGroupNames } from "../src/constructs/lambdas";
+import { credentialSecrets } from "../src/credentials";
+import { credentialReference } from "./credential-reference";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
@@ -82,13 +84,13 @@ function expectedApiEnvironmentKeys(): string[] {
     "LOOPS_WEBHOOK_SIGNING_SECRET",
   ];
 
-  keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_SECRET_ARN");
+  keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_PASSWORD", "POSTGRES_USERNAME");
   return keys.sort();
 }
 
-function expectedVertexEnvironment(stage: StageName): Record<string, string> {
+function expectedVertexEnvironment(stage: StageName): Record<string, unknown> {
   return {
-    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: `{{resolve:ssm:/secrets/${stage}/google-application-credentials}}`,
+    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: credentialReference(credentialSecrets(stage).google, "applicationCredentials"),
     VERTEX_AI_LOCATION: `{{resolve:ssm:/vertex-ai/${stage}/location}}`,
     VERTEX_AI_PROJECT_ID: `{{resolve:ssm:/vertex-ai/${stage}/project-id}}`,
   };
@@ -127,17 +129,19 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
     expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
     expect(environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
-    expect(environment.Variables.POSTGRES_SECRET_ARN).toBeDefined();
-    expect(environment.Variables.POSTGRES_USERNAME).toBeUndefined();
-    expect(environment.Variables.POSTGRES_PASSWORD).toBeUndefined();
+    expect(environment.Variables.POSTGRES_SECRET_ARN).toBeUndefined();
+    expect(environment.Variables.POSTGRES_USERNAME)
+      .toEqual(credentialReference(credentialSecrets(stage).postgresRuntime, "username"));
+    expect(environment.Variables.POSTGRES_PASSWORD)
+      .toEqual(credentialReference(credentialSecrets(stage).postgresRuntime, "password"));
     expect(Object.keys(environment.Variables).sort()).toEqual(expectedApiEnvironmentKeys());
     expect(environment.Variables).toMatchObject(expectedVertexEnvironment(stage));
     expect(environment.Variables.LOOPS_API_BASE_URL).toBe("https://app.loops.so/api");
-    expect(environment.Variables.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
+    expect(environment.Variables.LOOPS_API_KEY).toEqual(credentialReference(credentialSecrets(stage).loops, "apiKey"));
     expect(environment.Variables.LOOPS_NEWSLETTER_LIST_ID).toBe(`{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`);
-    expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET).toBe(
-      `{{resolve:ssm:/loops/${stage}/webhook-signing-secret}}`,
-    );
+    expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET)
+      .toEqual(credentialReference(credentialSecrets(stage).loops, "webhookSigningSecret"));
+    expect(environment.Variables.STRIPE_API_KEY).toEqual(credentialReference(credentialSecrets(stage).stripe, "apiKey"));
     expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
   });
@@ -271,7 +275,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(projectorEnvironment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
     expect(projectorEnvironment.Variables.VERTEX_AI_LOCATION).toBeUndefined();
     expect(projectorEnvironment.Variables.VERTEX_AI_PROJECT_ID).toBeUndefined();
-    expect(JSON.stringify(projector.Properties)).not.toContain("google-application-credentials");
+    expect(JSON.stringify(projector.Properties)).not.toContain("applicationCredentials");
     expect(JSON.stringify(projector.Properties)).not.toContain("vertex-ai");
     const projectorPolicies = Object.entries(template.findResources("AWS::IAM::Policy"))
       .filter(([id]) => id.includes("ProductListingOpenSearchLambda"));
@@ -302,27 +306,25 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
 });
 
 describe.each(STAGES)("%s OpenSearch runtime credentials", (stage) => {
-  test("uses distinct role-scoped SSM parameters for each runtime", () => {
+  test("uses distinct role-scoped credentials for each runtime", () => {
     const template = computeTemplate(stage);
-    const paths: unknown[] = [];
+    const credentials: string[] = [];
 
-    for (const [binary, role] of [
-      ["aura-historia-api", "reader"],
-      ["product-listing-opensearch-lambda", "product-projector"],
+    for (const [binary, role, password] of [
+      ["aura-historia-api", "reader", "readerPassword"],
+      ["product-listing-opensearch-lambda", "product-projector", "productProjectorPassword"],
     ] as const) {
       const environment = lambdaFunction(template, `${binary}-${stage}`).Properties.Environment as {
         Variables: Record<string, unknown>;
       };
       expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
-
-      const username = `{{resolve:ssm:/opensearch/${stage}/${role}/username}}`;
-      const password = `{{resolve:ssm:/opensearch/${stage}/${role}/password}}`;
-      expect(environment.Variables.OPENSEARCH_USERNAME).toBe(username);
-      expect(environment.Variables.OPENSEARCH_PASSWORD).toBe(password);
-      paths.push(username, password);
+      expect(environment.Variables.OPENSEARCH_USERNAME).toBe(`{{resolve:ssm:/opensearch/${stage}/${role}/username}}`);
+      expect(environment.Variables.OPENSEARCH_PASSWORD)
+        .toEqual(credentialReference(credentialSecrets(stage).openSearch, password));
+      credentials.push(JSON.stringify(environment.Variables.OPENSEARCH_USERNAME), JSON.stringify(environment.Variables.OPENSEARCH_PASSWORD));
     }
 
-    expect(new Set(paths).size).toBe(4);
+    expect(new Set(credentials).size).toBe(4);
   });
 });
 

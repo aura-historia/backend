@@ -38,9 +38,9 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           "ec2:AssignPrivateIpAddresses", "ec2:UnassignPrivateIpAddresses", "cloudwatch:PutMetricData",
           ...(kind === "runtime" ? ["geo-places:Geocode"] : []),
         ], resources: ["*"] }),
-        new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"], resources: [
-          arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/${kind === "runtime" ? "runtime" : "migrator"}-??????`),
-        ] }),
+        // Runtime credentials arrive in function and task configuration at deployment; only the migrator reads its secret.
+        ...(kind === "migration" ? [new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"],
+          resources: [arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/migrator-??????`)] })] : []),
         new iam.PolicyStatement({ actions: ["s3:GetObject", "s3:GetObjectVersion"], resources: [bucket.arnForObjects("objects/sha256/*"), bucket.arnForObjects("mail/*")] }),
         ...(kind === "runtime" ? [
           new iam.PolicyStatement({ actions: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility",
@@ -61,7 +61,6 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
           new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [functionArn(`backend-cleanup-lambda-${stage}:*`), functionArn(`fxrate-lambda-${stage}`), functionArn(`CodeDeployHook_*_${stage}`)] }),
           new iam.PolicyStatement({ actions: ["cloudwatch:DescribeAlarms", "ecr:GetAuthorizationToken"], resources: ["*"] }),
           new iam.PolicyStatement({ actions: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], resources: CONTAINER_IMAGE_CATALOG.map((image) => arn("ecr", "repository", image.repository)) }),
-          new iam.PolicyStatement({ actions: ["ssm:GetParameters"], resources: [arn("ssm", "parameter", `opensearch/${stage}/*`), arn("ssm", "parameter", `secrets/${stage}/*`)] }),
           new iam.PolicyStatement({ actions: ["ecs:RunTask"], resources: [arn("ecs", "task-definition", `*-${stage}:*`)] }),
           new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [arn("iam", "role", `aura-historia/runtime/${stage}/*`, "")], conditions: { StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" } } }),
           new iam.PolicyStatement({ actions: ["s3:ListBucket"], resources: [`arn:${stack.partition}:s3:::aura-historia-cdc-router-failures-${stage}`] }),
@@ -78,7 +77,12 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
   execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY,
     actions: ["dms:*", "rds:*", "cognito-idp:Create*", "cognito-idp:Update*", "cognito-idp:Delete*", "kinesis:Create*",
       "kinesis:Delete*", "kinesis:Update*", "sqs:CreateQueue", "sqs:DeleteQueue", "sqs:SetQueueAttributes",
-      "ec2:CreateVpc", "ec2:DeleteVpc", "secretsmanager:GetSecretValue", "sts:AssumeRole"], resources: ["*"] }));
+      "ec2:CreateVpc", "ec2:DeleteVpc", "sts:AssumeRole"], resources: ["*"] }));
+  // CloudFormation resolves version-pinned runtime credential references with this role; no other secret is readable.
+  const runtimeCredentials = runtimeCredentialSecretArns(arn, stage);
+  execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ["secretsmanager:GetSecretValue"],
+    notResources: runtimeCredentials }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue"], resources: runtimeCredentials }));
   // Runtime resources are name/ownership checked by admission; service APIs without resource-level support use '*'.
   execution.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:*"], resources: functionArns }));
   execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ["lambda:InvokeFunction"], resources: [
@@ -154,4 +158,13 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
   planner.addToPolicy(new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [execution.roleArn, migrationExecution.roleArn],
     conditions: { StringEquals: { "iam:PassedToService": "cloudformation.amazonaws.com" } } }));
   return { execution, migrationExecution, action, planner };
+}
+
+/** Secrets that routine deployments may inject into runtime configuration (see credentials.ts). */
+export function runtimeCredentialSecretArns(
+  arn: (service: string, resource: string, resourceName: string) => string, stage: StageName): string[] {
+  return [
+    arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/runtime-??????`),
+    arn("secretsmanager", "secret", `/aura-historia/${stage}/app/*`),
+  ];
 }

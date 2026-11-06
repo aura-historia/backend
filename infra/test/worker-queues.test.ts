@@ -2,6 +2,8 @@ import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
+import { credentialSecrets } from "../src/credentials";
+import { credentialReference } from "./credential-reference";
 import { QUEUE_DEFINITIONS } from "../src/constructs/queues";
 import { importWorkerQueueCatalog, WorkerQueues } from "../src/constructs/worker-queues";
 import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerScope } from "../src/worker-queue-config";
@@ -325,17 +327,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       { id: consumer.policyId, action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"] },
     ]));
     expect(consumer.statements).toEqual([
-      {
-        Action: "secretsmanager:GetSecretValue", Effect: "Allow",
-        Resource: consumer.resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN,
-      },
       { Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"], Effect: "Allow", Resource: sourceArn },
       custodyGrant,
     ]);
     expect(stacks.compute.dependencies).toEqual(expect.arrayContaining([stacks.data, stacks.migration]));
     expect(consumer.resource.Properties.Environment.Variables.POSTGRES_MAX_CONNECTIONS).toBe("1");
     expect(Object.keys(consumer.resource.Properties.Environment.Variables).sort()).toEqual(
-      ["DEAD_LETTER_QUEUE_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["DEAD_LETTER_QUEUE_URL", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"],
     );
   });
 
@@ -368,7 +366,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     for (const name of [`aura-historia-api-${stage}`, `shopify-lambda-${stage}`]) {
       expect(ingressFunction(compute, name).resource.DependsOn).toContain(mappingId);
     }
-    expect(ingressFunction(compute, `aura-historia-mcp-${stage}`).resource.DependsOn ?? []).not.toContain(mappingId);
+    const mcp = Object.values(compute.findResources("AWS::Lambda::Function"))
+      .find((resource) => resource.Properties.FunctionName === `aura-historia-mcp-${stage}`);
+    expect(mcp).toBeDefined();
+    expect(mcp!.DependsOn ?? []).not.toContain(mappingId);
     const logGroups = Object.entries(compute.findResources("AWS::Logs::LogGroup"))
       .filter(([, resource]) => resource.Properties.LogGroupName === `/aws/lambda/product-listing-ingestion-lambda-${stage}`);
     expect(logGroups).toHaveLength(1);
@@ -406,7 +407,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       },
     });
     expect(Object.keys(lambda.Properties.Environment.Variables).sort()).toEqual(
-      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "PRODUCT_LISTING_INGESTION_QUEUE_URL"],
     );
     expect(lambda.Properties.Environment.Variables.PRODUCT_LISTING_INGESTION_QUEUE_URL).toEqual({ "Fn::Sub": [
       "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
@@ -414,9 +415,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     ] });
     const shopify = ingressFunction(compute, `shopify-lambda-${stage}`);
     expect(lambda.Properties.VpcConfig).toBeDefined();
-    expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
-      .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow",
-        Resource: lambda.Properties.Environment.Variables.POSTGRES_SECRET_ARN }]);
+    expect(shopify.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue")).toEqual([]);
     const mappings = Object.values(compute.findResources("AWS::Lambda::EventSourceMapping"));
     expect(mappings).toHaveLength(16);
     const shopifyMapping = mappings.find((mapping) =>
@@ -456,7 +455,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(projectionFunctions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "STAGE"],
+      ["OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "STAGE"],
     );
     // The REST and MCP stable HTTP integrations, CDC router and cleanup target,
     // and all thirteen queue workers plus command ingress use immutable versions. FX lives in initialization.
@@ -502,7 +501,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"],
     );
   });
 
@@ -529,7 +528,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
@@ -570,7 +569,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
+      ["AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID"],
     );
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX_AI_MODEL|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
@@ -612,10 +611,10 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["ANTHROPIC_API_KEY", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["ANTHROPIC_API_KEY", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"],
     );
     expect(functions[0].Properties.Environment.Variables.ANTHROPIC_API_KEY)
-      .toBe(`{{resolve:ssm:/anthropic/${stage}/api-key}}`);
+      .toEqual(credentialReference(credentialSecrets(stage).anthropic, "apiKey"));
     expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|GOOGLE|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
 
     const translationPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
@@ -656,7 +655,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Handler: "lib.handler",
     });
     expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-      ["COMMIT_SHA", "MAIL_TEMPLATE_PREFIX", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
+      ["COMMIT_SHA", "MAIL_TEMPLATE_PREFIX", "NOTIFICATION_EMAIL_CONFIGURATION_SET", "NOTIFICATION_EMAIL_FROM", "NOTIFICATION_EMAIL_FRONTEND_ORIGIN", "NOTIFICATION_EMAIL_REPLY_TO", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME", "S3_BUCKET_NAME_TEMPLATES", "STAGE"],
     );
     const deliveryPolicy = Object.values(compute.findResources("AWS::IAM::Policy"))
       .find((policy) => JSON.stringify(policy.Properties.Roles).includes("NotificationDeliveryLambdaServiceRole"));
@@ -713,7 +712,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
         Handler: "lib.handler",
       });
       expect(Object.keys(functions[0].Properties.Environment.Variables).sort()).toEqual(
-        ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+        ["POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"],
       );
       expect(JSON.stringify(functions[0].Properties.Environment.Variables)).not.toMatch(/OPENSEARCH|VERTEX|S3_BUCKET_NAME_TEMPLATES|NOTIFICATION_EMAIL/);
     }
@@ -737,7 +736,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Timeout: 45,
     });
     expect(Object.keys(environment).sort()).toEqual(
-      ["DEAD_LETTER_QUEUE_URL", "LOOPS_API_BASE_URL", "LOOPS_API_KEY", "LOOPS_NEWSLETTER_LIST_ID", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_SECRET_ARN", "POSTGRES_TLS_ROOT_CERT"],
+      ["DEAD_LETTER_QUEUE_URL", "LOOPS_API_BASE_URL", "LOOPS_API_KEY", "LOOPS_NEWSLETTER_LIST_ID", "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PASSWORD", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT", "POSTGRES_USERNAME"],
     );
     expect(environment.DEAD_LETTER_QUEUE_URL).toEqual({ "Fn::Sub": [
       "https://sqs.${AWS::Region}.${AWS::URLSuffix}/${AWS::AccountId}/${QueueName}",
@@ -747,7 +746,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(environment.LOOPS_API_BASE_URL).toBe("https://app.loops.so/api");
     expect(JSON.stringify(environment)).not.toMatch(/SES|OPENSEARCH|COGNITO|S3_BUCKET/);
     expect(consumer.resource.Properties.VpcConfig).toBeDefined();
-    expect(environment.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
+    expect(environment.LOOPS_API_KEY).toEqual(credentialReference(credentialSecrets(stage).loops, "apiKey"));
     expect(environment.LOOPS_NEWSLETTER_LIST_ID).toBe(`{{resolve:ssm:/loops/${stage}/newsletter-list-id}}`);
 
     const versions = Object.entries(compute.findResources("AWS::Lambda::Version"))
@@ -775,8 +774,7 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       Effect: "Allow",
       Resource: sourceArn,
     }, { Action: "sqs:SendMessage", Effect: "Allow", Resource: dlqArn }]);
-    expect(consumer.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue"))
-      .toEqual([{ Action: "secretsmanager:GetSecretValue", Effect: "Allow", Resource: environment.POSTGRES_SECRET_ARN }]);
+    expect(consumer.statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue")).toEqual([]);
     expect(JSON.stringify(consumer.statements)).not.toMatch(/sqs:PurgeQueue|ses:|s3:|es:|cognito-idp:/);
   });
 
