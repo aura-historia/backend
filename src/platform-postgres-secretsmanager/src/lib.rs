@@ -1,6 +1,6 @@
 //! Invocation-time reads of PostgreSQL role credentials for the database operations (bootstrap,
 //! migration and inspection). Runtime functions receive their credentials at deployment instead;
-//! see docs/infra.md#deployment-inputs-and-approvals.
+//! see docs/infra.md#runtime-credentials.
 use aws_config::BehaviorVersion;
 use aws_sdk_secretsmanager::{
     Client, error::SdkError, operation::get_secret_value::GetSecretValueError,

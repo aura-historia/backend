@@ -69,7 +69,7 @@ impl LambdaPostgresConfig {
 
 /// The runtime PostgreSQL target with the credentials CloudFormation resolved into the function
 /// configuration at deployment. Changing a credential takes a release; nothing reads a secret
-/// store per invocation. See docs/infra.md#deployment-inputs-and-approvals.
+/// store per invocation. See docs/infra.md#runtime-credentials.
 #[derive(Clone)]
 pub struct RuntimePostgresConfig {
     target: LambdaPostgresConfig,

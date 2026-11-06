@@ -30,7 +30,7 @@ embedding or identity-provider configuration.
 
 Native and Lambda entry points use `Runtime::from_env()` with the explicit PostgreSQL settings.
 Lambda functions receive those credentials at deployment
-([deployment inputs](../../docs/infra.md#deployment-inputs-and-approvals)), so one runtime and
+([runtime credentials](../../docs/infra.md#runtime-credentials)), so one runtime and
 its pool serve every invocation of a warm execution environment; changing a credential takes a
 release. Composition errors preserve their source chain and use safe messages.
 

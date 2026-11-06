@@ -1,7 +1,7 @@
 "use strict";
 // CloudFormation reports dynamic-reference values resolved in change-set property values. Plain
 // SSM references then appear in plaintext, so stored evidence and review input keep only values
-// that the reviewed templates already show. See docs/infra.md#deployment-inputs-and-approvals.
+// that the reviewed templates already show. See docs/infra.md#runtime-credentials.
 const REDACTED = "<redacted:dynamic-reference>";
 
 function unescapePointer(segment) {
