@@ -59,8 +59,8 @@ failures fail closed; opaque Aura tokens keep their existing persisted checks.
 Preserve request headers, cookies, query strings and exact signed bodies through the
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
-and Axum response CORS must retain required authorization/provider headers and
-`Idempotency-Key` admission/exposure. REST Gateway CORS allows any Origin (`*`)
+and Axum response CORS must retain required authorization/provider headers,
+`Idempotency-Key` admission/exposure and `WWW-Authenticate` exposure. REST Gateway CORS allows any Origin (`*`)
 in both stages, including preview hosts, for browser requests that do not use
 `credentials: "include"`. Clients supply bearer tokens explicitly in the
 `Authorization` header. CORS does not grant application authority; all existing
@@ -127,6 +127,7 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing ID/by-slug detail | 120 s |
 | Product-listing history and ready similar results | 300 s |
 | Public catalogue overview | 900 s |
+| [API catalog](agent-discovery.md#api-catalog), including `HEAD` | 300 s |
 
 Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
 responses containing advertised shipping cap this TTL at referenced geographic provider
@@ -137,8 +138,8 @@ The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin
 forwarded but not keyed: never add cookie-dependent data to a shared representation.
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-Only reviewed discovery path behaviors, including the exact `/v1/overview` path, use
-this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
+Only reviewed discovery path behaviors, including the exact `/v1/overview` and
+`/.well-known/api-catalog` paths, use this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
 expansion requires route/cache review and tests. Do not add token-derived keys, cookie
 partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
@@ -150,7 +151,10 @@ them. Configured CloudFront error TTLs are zero; application errors are also no-
 The exact public `GET /.well-known/oauth-authorization-server` route belongs to the closed
 REST route catalog and requires neither bearer nor client credentials. It uses the
 CloudFront default cache-disabled behavior and origin `no-store` headers. OAuth credential
-responses and protocol errors use `no-store` and `Pragma: no-cache`. The shared deployment `OAUTH_ISSUER_URL` configures both API and MCP
+responses and protocol errors use `no-store` and `Pragma: no-cache`. The exact public
+`GET /.well-known/oauth-protected-resource` route is handled the same way; the
+[agent discovery contract](agent-discovery.md#rest-protected-resource-metadata) owns it and
+the Bearer challenges that point to it. The shared deployment `OAUTH_ISSUER_URL` configures both API and MCP
 and selects the same closed resource policy. Discovery, protocol errors and fixed-client
 setup are owned by the [OAuth contract](oauth.md).
 
@@ -169,7 +173,9 @@ independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths onl
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
 The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-protected-resource/v1` serve the
-[protected-resource metadata](mcp.md#operation-families-and-admission). No proxy,
+[protected-resource metadata](mcp.md#operation-families-and-admission), and the exact
+`GET`/`HEAD /.well-known/mcp/server-card.json` serves the
+[server card](agent-discovery.md#mcp-server-card). No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront
@@ -177,12 +183,17 @@ forwards all viewer headers, query strings and cookies using AllViewer, includin
 `Host`, `Authorization`, `Origin`, `Accept`, `Content-Type`, `MCP-Protocol-Version`,
 `Mcp-Method`, `Mcp-Name`, `Mcp-Session-Id` and `X-Correlation-Id`. Preserve response
 status, `WWW-Authenticate`, `Allow`, content type and request/correlation IDs.
-Every MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
+Every other MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
 no-store` response policy, including Gateway-generated errors and preflight. No
-headers or status codes are rewritten to hide authentication/protocol errors.
+headers or status codes are rewritten to hide authentication/protocol errors. The
+server card's exact-path behavior is the only cached one: it honors the card's
+five-minute origin TTL, keys on the path alone and neither keys nor forwards credentials,
+so discovery traffic stays off the bounded MCP Lambda.
 
 Gateway owns browser preflight; its exact origin list is also passed to the native
-Origin validator. Prod permits `https://aura-historia.com`; dev permits
+Origin validator. The public server card is the exception: its behavior's CloudFront CORS
+policy replaces Gateway's CORS headers with `Access-Control-Allow-Origin: *`, and the native
+route skips the Origin check. Prod permits `https://aura-historia.com`; dev permits
 `https://stage.aura-historia.com` and `http://localhost:3000`. There are no wildcard
 or opaque `null` origins, cookies/credential-mode CORS is not enabled, and normal
 server clients may omit Origin. A browser uses bearer Authorization explicitly;
@@ -255,6 +266,9 @@ these checks before approving traffic:
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
+| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the release version and the supported protocol versions |
+| API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
+| API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.stage.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
 | An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
 | Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |

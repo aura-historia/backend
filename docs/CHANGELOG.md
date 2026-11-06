@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-06 — Agent discovery documents (#2804)
+
+- Added `GET /.well-known/oauth-protected-resource`: public RFC 9728 metadata for the shared Aura default resource (`https://api.aura-historia.com`, on stage `https://api.stage.aura-historia.com`) with the issuer, header bearer tokens and the ordinary-user scopes. Responses are `no-store`.
+- A `401 INVALID_CREDENTIALS` for a missing or invalid bearer on a route that accepts Aura access tokens now carries `WWW-Authenticate: Bearer resource_metadata="{issuer}/.well-known/oauth-protected-resource"`, and CORS exposes `WWW-Authenticate`. OAuth protocol, consent and OAuth client administration routes are unchanged.
+- Added `GET` and `HEAD /.well-known/api-catalog`: an RFC 9727 API catalog (`application/linkset+json`) that lists the REST API and the MCP server with their descriptions, documentation and status probes, and a `Link` header with the `api-catalog` relation. Anonymous responses are shared at the edge for 300 seconds.
+- The MCP host serves its Server Card at `GET`/`HEAD /.well-known/mcp/server-card.json`. MCP `initialize` and `server/discover` report the same identity: `serverInfo.name` is now `com.aura-historia/mcp` instead of `aura-historia-mcp`, and `serverInfo` adds `title`, `description`, `websiteUrl` and `icons`. See [agent discovery](agent-discovery.md).
+
 ## 2026-11-06 — MCP clients sign in with a Client ID Metadata Document (#2801)
 
 - Public OAuth clients can now sign in without registration: a `client_id` that is the HTTPS URL of a Client ID Metadata Document identifies the client, and Aura fetches and validates the document from that URL. Such clients authenticate at `POST /v1/oauth/token` with `client_id` alone (`none`, no `client_secret`), keep S256 PKCE, may use `http://127.0.0.1`, `http://[::1]` and `http://localhost` callbacks on any port, and may request the ordinary-user scopes listed in discovery. They receive tokens that expire after one hour (`expires_in`) and no `third_party_exchange_code`. A disabled or denied client, or an unavailable or invalid document, returns `invalid_client`. The feature is configured per environment and enabled on stage; production follows once refresh tokens are available. See [OAuth](oauth.md#metadata-document-clients).

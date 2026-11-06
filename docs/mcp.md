@@ -27,7 +27,9 @@ Each POST contains one UTF-8 JSON-RPC message, uses `Content-Type:
 application/json`, and accepts both `application/json` and
 `text/event-stream` as required by Streamable HTTP. Responses are bounded
 JSON; accepted notifications receive an empty `202`. The transport advertises
-tools without streaming, subscriptions, sampling, elicitation or tasks.
+tools without streaming, subscriptions, sampling, elicitation or tasks. Its `serverInfo`
+(`com.aura-historia/mcp` with title, description, version, website and icon) is the identity
+that the [server card](agent-discovery.md#mcp-server-card) publishes.
 HTTP GET and DELETE at `/v1` return `405` with `Allow: POST`. The old
 HTTP+SSE transport is excluded.
 
@@ -114,7 +116,8 @@ identify the exact canonical MCP resource and configured Aura issuer, advertise 
 bearer credentials and the baseline `users:read` scope. Operation challenges provide the
 required scope set for each protected call. Host/Origin checks and `Cache-Control: no-store`
 apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
-server discovery belongs to [the OAuth contract](oauth.md).
+server discovery belongs to [the OAuth contract](oauth.md); the server card and every other
+discovery document belong to [agent discovery](agent-discovery.md).
 
 Family adapters classify expected input, missing-resource, conflict, forbidden
 and temporary failures into distinct static tool-error codes. Invalid arguments
@@ -447,7 +450,8 @@ Requests get a new request ID (the invocation ID on Lambda) and a correlation ID
 An optional `X-Correlation-Id` is accepted only as a nonempty ASCII identifier
 of at most 128 letters, digits, dashes, underscores or periods. These values
 reach the shared `OperationContext` and successful responses carry both headers.
-All HTTP responses and authentication challenges use `Cache-Control: no-store`.
+All HTTP responses and authentication challenges use `Cache-Control: no-store`, except a
+successful [server card](agent-discovery.md#mcp-server-card).
 MCP catalogue/discovery cache hints remain private with zero lifetime.
 
 | Environment variable | Meaning |
@@ -458,7 +462,8 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
 
 Configure the public hostname explicitly for Lambda. Missing Origin is accepted;
-present Origin must be a valid allowed scheme/host/port tuple. No wildcard or
+present Origin must be a valid allowed scheme/host/port tuple, except on the public server
+card, which accepts any Origin. No wildcard or
 opaque `null` origin is supported. Default ports compare by their effective
 value, so `https://app.example` and `https://app.example:443` agree; another port
 does not. Invalid environment configuration prevents startup.
