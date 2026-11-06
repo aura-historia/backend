@@ -21,10 +21,10 @@ WorkingDirectory=/var/lib/crawler
 ExecStart=/opt/crawler/bin/server
 Restart=on-failure
 RestartSec=10s
-# `server` shuts down gracefully on SIGTERM within a 30 s grace period;
+# `server` shuts down gracefully on SIGTERM within a 60 s grace period;
 # systemd sends SIGKILL after the margin below.
 KillSignal=SIGTERM
-TimeoutStopSec=45s
+TimeoutStopSec=90s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

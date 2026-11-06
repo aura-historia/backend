@@ -113,6 +113,14 @@ pub trait SpiderCandidateService: Send + Sync {
         crawl_truncation_count: i32,
         next_crawl_at: time::OffsetDateTime,
     ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
+    /// Records a crawl the crawler's shutdown ended ([`CrawlCompletion::Stopped`]) without
+    /// touching failure, truncation or rate-limit state; the next crawl is due at `next_crawl_at`
+    /// and resumes from the frontier the crawl kept.
+    async fn mark_crawl_stopped(
+        &self,
+        root: &CrawledRoot,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
     /// Records a crawl a shop's rate-limit answer ended, without touching
     /// failure or truncation state; the next crawl is due at `not_before`.
     async fn mark_crawl_rate_limited(
@@ -322,6 +330,28 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         .bind(crawl_truncation_count)
         .bind(next_crawl_at)
         .bind(CrawlCompletion::HardTimeoutTruncated.as_str())
+        .bind(&root.crawl_root_url)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(CrawlOutcomeWrite::of_guarded_update(result.rows_affected()))
+    }
+
+    async fn mark_crawl_stopped(
+        &self,
+        root: &CrawledRoot,
+        next_crawl_at: time::OffsetDateTime,
+    ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE listing_sources
+             SET next_crawl_at = $2,
+                 last_crawl_outcome = $3,
+                 last_crawl_run_at = NOW()
+             WHERE listing_source_id = $1 AND crawl_root_url = $4",
+        )
+        .bind(root.listing_source_id.as_uuid())
+        .bind(next_crawl_at)
+        .bind(CrawlCompletion::Stopped.as_str())
         .bind(&root.crawl_root_url)
         .execute(&self.pool)
         .await?;

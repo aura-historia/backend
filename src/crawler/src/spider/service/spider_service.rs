@@ -210,6 +210,20 @@ impl SpiderServiceError {
         }
     }
 
+    /// The crawl of a failed run was ended by the crawler's shutdown, so its pages were too few
+    /// to judge: the run is neither a failure of the shop nor a reason to count one.
+    pub fn crawl_was_stopped(&self) -> bool {
+        let completion = match self.cause() {
+            SpiderServiceError::InsufficientInferenceSample { diagnostics, .. } => {
+                diagnostics.completion
+            }
+            SpiderServiceError::NoProductUrls { completion, .. }
+            | SpiderServiceError::NoUrlPattern { completion, .. } => *completion,
+            _ => return false,
+        };
+        completion == CrawlCompletion::Stopped
+    }
+
     /// The run delivered pages, but none of them can become a product URL: the inference sample was
     /// too small, the ListingSource's pattern matched none of them, or its classification is
     /// complete without a pattern. Only a site or configuration change resolves it, so the
@@ -1144,12 +1158,15 @@ fn crawl_outcome_message(
         (CrawlCompletion::RateLimited(_), false) => {
             "Crawl rate-limited: stopped early on a rate-limit answer, keeping discovered URLs"
         }
+        (CrawlCompletion::Stopped, false) => {
+            "Crawl stopped by the crawler's shutdown, keeping discovered URLs and its frontier"
+        }
         (CrawlCompletion::HardTimeoutTruncated, false) => match stopped_early {
             Some(CrawlStopReason::RunEnded) => {
                 "Crawl truncated: stopped early because the run ended, keeping discovered URLs"
             }
             // A rate-limit stop ends the crawl as rate-limited instead.
-            Some(CrawlStopReason::RateLimited) | None => {
+            Some(CrawlStopReason::RateLimited | CrawlStopReason::Shutdown) | None => {
                 "Crawl truncated by hard timeout, keeping discovered URLs"
             }
         },

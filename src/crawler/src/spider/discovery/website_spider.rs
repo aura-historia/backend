@@ -184,6 +184,10 @@ pub enum CrawlCompletion {
     /// budget ran out, or discovery stopped the crawl because its run ended.
     /// The pages delivered before it are valid but the crawl is incomplete.
     HardTimeoutTruncated,
+    /// The crawler's shutdown ended the crawl before its bounds. The pages delivered before it
+    /// and the frontier it left are valid; unlike a truncation it says nothing about the
+    /// shop's size, so the next crawl resumes from the frontier soon.
+    Stopped,
     /// The shop answered a page with a rate limit and the spider stopped the
     /// crawl, carrying the answer and its `Retry-After`. The pages delivered
     /// before it are valid but the crawl is incomplete.
@@ -196,6 +200,7 @@ impl CrawlCompletion {
             CrawlCompletion::Completed => "COMPLETED",
             CrawlCompletion::PageBudgetReached => "PAGE_BUDGET_REACHED",
             CrawlCompletion::HardTimeoutTruncated => "HARD_TIMEOUT_TRUNCATED",
+            CrawlCompletion::Stopped => "STOPPED",
             CrawlCompletion::RateLimited(_) => "RATE_LIMITED",
         }
     }
@@ -260,6 +265,8 @@ pub enum CrawlStopReason {
     /// The consumer stopped taking pages: the spider run ended, typically by
     /// failing, before discovery finished.
     RunEnded,
+    /// The crawler is shutting down (`SpiderImpl::with_shutdown`).
+    Shutdown,
 }
 
 impl CrawlStopReason {
@@ -268,6 +275,7 @@ impl CrawlStopReason {
         match self {
             CrawlStopReason::RateLimited => "rate_limited",
             CrawlStopReason::RunEnded => "run_ended",
+            CrawlStopReason::Shutdown => "shutdown",
         }
     }
 }
@@ -676,6 +684,7 @@ fn spider_client_builder(timeout: Duration) -> spider::reqwest::ClientBuilder {
 pub struct SpiderImpl {
     config: CrawlerConfig,
     transport: Arc<dyn SpiderTransport>,
+    shutdown: Option<watch::Receiver<bool>>,
 }
 
 impl SpiderImpl {
@@ -684,7 +693,18 @@ impl SpiderImpl {
     }
 
     pub fn with_transport(config: CrawlerConfig, transport: Arc<dyn SpiderTransport>) -> Self {
-        Self { config, transport }
+        Self {
+            config,
+            transport,
+            shutdown: None,
+        }
+    }
+
+    /// Ends every crawl cooperatively once `shutdown` turns true: the crawl stops like its hard
+    /// timeout does and reports [`CrawlCompletion::Stopped`] with the frontier it left.
+    pub fn with_shutdown(mut self, shutdown: watch::Receiver<bool>) -> Self {
+        self.shutdown = Some(shutdown);
+        self
     }
 }
 
@@ -1587,6 +1607,7 @@ impl SpiderImpl {
             link_discovery_duration,
             known_links: known_link_count,
         };
+        let shutdown = self.shutdown.clone();
         let stop_crawl = Arc::new(Notify::new());
         let crawl_stop = Arc::clone(&stop_crawl);
         let (root_verdict, root_judgement) = watch::channel(None);
@@ -1639,7 +1660,10 @@ impl SpiderImpl {
                 filter,
                 &mut diagnostics,
                 &crawl_root_url,
-                &stop_crawl,
+                CrawlStopTriggers {
+                    crawl: &stop_crawl,
+                    shutdown,
+                },
                 &root_verdict,
             )
             .await;
@@ -1657,6 +1681,7 @@ impl SpiderImpl {
                     diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
                     diagnostics.known_fetches_saved = known_pages.answered_links();
                     apply_library_outcome(&mut diagnostics, outcome);
+                    diagnostics.completion = stopped_or(&diagnostics);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,
                         !discovery.frontier.is_empty(),
@@ -1752,21 +1777,21 @@ async fn mark_known_links_visited(website: &mut Website, known: &KnownPages) -> 
 /// Relays the pages Spider broadcasts through the local filter to the
 /// consumer until the broadcast closes and every accepted page is delivered,
 /// or the consumer is gone. A rate-limit answer, or the consumer going away
-/// while Spider still crawls, asks the crawl task to stop; the first reason
-/// asked for is returned.
+/// while Spider still crawls, or the crawler's shutdown, asks the crawl task to stop; the first
+/// reason asked for is returned.
 async fn relay_library_pages(
     mut spider_rx: broadcast::Receiver<Page>,
     tx: &mpsc::Sender<CrawledPage>,
     mut filter: LocalFilter,
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
-    stop_crawl: &Notify,
+    mut triggers: CrawlStopTriggers<'_>,
     root_verdict: &watch::Sender<Option<RootVerdict>>,
 ) -> Option<CrawlStopReason> {
     let mut stop_requested = None;
     let mut request_stop = |reason| {
         stop_requested.get_or_insert(reason);
-        stop_crawl.notify_one();
+        triggers.crawl.notify_one();
     };
     let mut first_page_seen = false;
     // Accepted URLs wait here instead of blocking the broadcast
@@ -1786,6 +1811,11 @@ async fn relay_library_pages(
                     request_stop(CrawlStopReason::RunEnded);
                 }
                 break;
+            }
+            () = shutdown_requested(&mut triggers.shutdown) => {
+                triggers.shutdown = None;
+                request_stop(CrawlStopReason::Shutdown);
+                continue;
             }
             received = spider_rx.recv(), if broadcast_open => match received {
                 Ok(page) => page,
@@ -2068,6 +2098,34 @@ const RATE_LIMIT_ANSWER_STOPPED_CRAWL: &str = "rate_limit_answer_stopped_crawl";
 
 /// A rate-limit answer ends the crawl as rate-limited however Spider stopped
 /// afterwards: the answered page and the links behind it were not crawled.
+/// What the relay stops the crawl task with, and what asks it to.
+struct CrawlStopTriggers<'a> {
+    /// Wakes the crawl task, which drops its crawl.
+    crawl: &'a Notify,
+    /// The crawler's shutdown; unset once it has asked.
+    shutdown: Option<watch::Receiver<bool>>,
+}
+
+/// The completion of a crawl the crawler's shutdown ended, unless a rate-limit answer ended it
+/// first.
+fn stopped_or(diagnostics: &CrawlDiagnostics) -> CrawlCompletion {
+    match diagnostics.stopped_early {
+        Some(CrawlStopReason::Shutdown) => CrawlCompletion::Stopped,
+        _ => diagnostics.completion,
+    }
+}
+
+/// Resolves when the crawler's shutdown is requested; never without one.
+async fn shutdown_requested(shutdown: &mut Option<watch::Receiver<bool>>) {
+    if let Some(shutdown) = shutdown
+        && shutdown.wait_for(|requested| *requested).await.is_ok()
+    {
+        return;
+    }
+    // Without a shutdown, or once its sender is gone, no stop can come.
+    std::future::pending::<()>().await;
+}
+
 fn rate_limited_or(diagnostics: &CrawlDiagnostics, completion: CrawlCompletion) -> CrawlCompletion {
     diagnostics
         .rate_limit
@@ -4212,6 +4270,55 @@ mod tests {
             );
             site.finish().await;
         }
+    }
+
+    #[tokio::test]
+    async fn should_stop_the_crawl_and_keep_its_frontier_when_the_crawler_shuts_down() {
+        let site = TestSite::spawn(Arc::new(endless_chain_site)).await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 1_000,
+            max_crawl_duration: Duration::from_secs(60),
+            ..test_config()
+        };
+        let (shutdown, shutdown_requested) = watch::channel(false);
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]))
+            .with_shutdown(shutdown_requested);
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+            discovery,
+        } = spider
+            .crawl_with_body_limit(
+                CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                Some("8388608"),
+            )
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            pages.recv().await.expect("the chain delivers pages");
+        }
+
+        shutdown.send_replace(true);
+        // The run keeps taking the pages already delivered, as it does while it stops.
+        let drain = tokio::spawn(async move { while pages.recv().await.is_some() {} });
+        let diagnostics = tokio::time::timeout(Duration::from_secs(5), diagnostics)
+            .await
+            .expect("the crawl stops promptly, not at its wall-clock budget")
+            .unwrap();
+        drain.await.unwrap();
+        let discovery = discovery.await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            diagnostics.stopped_early,
+            Some(CrawlStopReason::Shutdown),
+            "{diagnostics:?}"
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Stopped);
+        assert!(
+            !discovery.frontier.is_empty(),
+            "the chain's next page is the frontier the next crawl resumes from"
+        );
     }
 
     #[tokio::test]

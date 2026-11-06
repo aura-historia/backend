@@ -414,7 +414,7 @@ impl Pass<'_> {
                 let output = run_agent(
                     &command,
                     self.settings.process_timeout,
-                    self.runner_stop.requested(),
+                    self.runner_stop.agent_drain_ended(),
                 )
                 .await;
                 self.read_output(&mut record, role, review, output)
@@ -459,7 +459,7 @@ impl Pass<'_> {
                     self.settings.process_timeout.as_secs() / 60
                 )),
                 ChildStop::RunnerStop => {
-                    record.failed("stopped when the runner stopped".to_owned());
+                    record.failed("stopped when the runner's stop deadline passed".to_owned());
                     Step::RunnerStop
                 }
             };

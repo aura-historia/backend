@@ -233,9 +233,9 @@ impl ProcessLedger {
 
     /// The `total_cost_usd` of the processes that finished within `window` before `now`.
     pub fn cost_within(&self, window: Duration, now: OffsetDateTime) -> f64 {
+        // Folded from positive zero: the `Sum` of no `f64` is -0.0, which the log prints as such.
         self.since(now - window)
-            .map(|record| record.total_cost_usd)
-            .sum()
+            .fold(0.0, |total, record| total + record.total_cost_usd)
     }
 
     /// The highest cost a process in the ledger reported, the runner's own charges left out; zero
@@ -361,6 +361,13 @@ pub(super) mod tests {
         let reopened = ProcessLedger::open(directory.path()).unwrap_or_else(|e| panic!("{e}"));
 
         assert_eq!(reopened.cost_within(FIVE_HOURS, NOW), 3.5);
+        assert_eq!(
+            reopened
+                .cost_within(Duration::ZERO, NOW + Duration::days(365))
+                .to_string(),
+            "0",
+            "an empty window prints 0, not -0"
+        );
         assert_eq!(reopened.cost_within(ONE_WEEK, NOW), 15.5);
     }
 
