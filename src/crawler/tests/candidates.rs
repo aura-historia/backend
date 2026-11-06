@@ -4555,3 +4555,107 @@ async fn scraper_should_never_select_a_url_retired_as_duplicate() {
         "no scraper write revives a retired duplicate"
     );
 }
+
+// ---------------------------------------------------------------------------
+// get_candidates — a schema review wait holds its ListingSource back
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_not_select_a_source_while_a_page_waits_on_a_schema_review_cooldown() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "review-hold.example.com").await;
+    let waiting_url = "https://review-hold.example.com/p/waiting";
+    insert_product_url(&pool, listing_source_id, waiting_url).await;
+    insert_product_url(
+        &pool,
+        listing_source_id,
+        "https://review-hold.example.com/p/other",
+    )
+    .await;
+    let review_id = insert_schemas_and_pending_review(&pool, listing_source_id).await;
+    service
+        .mark_waiting_on_schema_review(SchemaReviewWaitRequest {
+            url_failure: fetch_failure_request(
+                listing_source_id,
+                url::Url::parse(waiting_url).unwrap(),
+                "PendingSchemaReview",
+                "blocked pending product schema review",
+                None,
+                time::OffsetDateTime::now_utc() + time::Duration::minutes(30),
+                None,
+            ),
+            wait: SchemaReviewWait {
+                review_id,
+                streak: 1,
+            },
+        })
+        .await
+        .unwrap();
+
+    assert!(service.get_candidates(5, 5, &[]).await.unwrap().is_empty());
+
+    sqlx::query(
+        "UPDATE listing_source_urls SET next_retry_at = NOW() - INTERVAL '1 minute' WHERE url = $1",
+    )
+    .bind(waiting_url)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(service.get_candidates(5, 5, &[]).await.unwrap().len(), 2);
+}
+
+// ---------------------------------------------------------------------------
+// url_carrying_source_listing_id
+// ---------------------------------------------------------------------------
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_find_the_earliest_live_url_of_the_source_carrying_an_identity() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "identity.example.com").await;
+    let other_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, other_source_id, "other-identity.example.com").await;
+    let retired = url::Url::parse("https://identity.example.com/view?p_idx=7&sorting=a").unwrap();
+    let first = url::Url::parse("https://identity.example.com/view?p_idx=7").unwrap();
+    let second = url::Url::parse("https://identity.example.com/view?p_idx=7&page=2").unwrap();
+    let foreign = url::Url::parse("https://other-identity.example.com/view?p_idx=7").unwrap();
+    for (source, url, disposition) in [
+        (listing_source_id, &retired, CrawlerDisposition::Duplicate),
+        (listing_source_id, &first, CrawlerDisposition::Active),
+        (listing_source_id, &second, CrawlerDisposition::Active),
+        (other_source_id, &foreign, CrawlerDisposition::Active),
+    ] {
+        insert_product_url(&pool, source, url.as_str()).await;
+        sqlx::query(
+            "UPDATE listing_source_urls SET last_source_listing_id = '7', crawler_disposition = $2 WHERE url = $1",
+        )
+        .bind(url.as_str())
+        .bind(disposition.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("UPDATE listing_source_urls SET created = NOW() - INTERVAL '1 day' WHERE url = $1")
+        .bind(first.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let carrier = |identity: &'static str, excluding: &url::Url| {
+        let service = &service;
+        let excluding = excluding.clone();
+        async move {
+            service
+                .url_carrying_source_listing_id(&listing_source_id, identity, &excluding)
+                .await
+                .unwrap()
+        }
+    };
+
+    assert_eq!(carrier("7", &second).await, Some(first.clone()));
+    assert_eq!(carrier("7", &first).await, Some(second.clone()));
+    assert_eq!(carrier("8", &second).await, None);
+}

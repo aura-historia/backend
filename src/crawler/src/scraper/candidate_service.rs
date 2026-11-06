@@ -258,6 +258,14 @@ pub trait ScraperCandidateService: Send + Sync {
         &self,
         completion: ScrapeCompletion,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+    /// The product URL of the ListingSource other than `excluding_url` that is not retired and
+    /// already carries `source_listing_id`; the earliest stored row when several do.
+    async fn url_carrying_source_listing_id(
+        &self,
+        listing_source_id: &ListingSourceId,
+        source_listing_id: &str,
+        excluding_url: &Url,
+    ) -> Result<Option<Url>, sqlx::Error>;
     /// What the crawler stores at the page a scrape of a URL of `listing_source_id` was
     /// redirected to, read before any raw observation is queued.
     async fn redirect_destination(
@@ -639,6 +647,22 @@ macro_rules! awaits_first_product_schema {
     };
 }
 
+/// Whether a page of the ListingSource `listing_sources s` waits on a pending schema review and
+/// its retry delay has not passed. Every page of the source fails the same cached schemas, so the
+/// source is held back as a whole until the first waiting page returns; the reviewer's decision
+/// clears the waiting pages' delays and so releases it at once.
+macro_rules! holds_on_schema_review_wait {
+    () => {
+        r#"EXISTS (
+                  SELECT 1
+                  FROM listing_source_urls w
+                  WHERE w.listing_source_id = s.listing_source_id
+                    AND w.last_error_kind = 'PendingSchemaReview'
+                    AND w.next_retry_at > NOW()
+              )"#
+    };
+}
+
 /// The URLs due for scraping, shared by every query that selects or counts them so their
 /// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
 /// ListingSource IDs to leave out.
@@ -679,6 +703,9 @@ macro_rules! eligible_scraper_urls_cte {
           AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
           AND NOT "#,
             awaits_first_product_schema!(),
+            r#"
+          AND NOT "#,
+            holds_on_schema_review_wait!(),
             r#"
           AND NOT (s.listing_source_id = ANY($2))
     )"#
@@ -947,6 +974,33 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         } else {
             CrawlerUrlWriteOutcome::NoopStale
         })
+    }
+
+    async fn url_carrying_source_listing_id(
+        &self,
+        listing_source_id: &ListingSourceId,
+        source_listing_id: &str,
+        excluding_url: &Url,
+    ) -> Result<Option<Url>, sqlx::Error> {
+        let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
+        let url: Option<String> = sqlx::query_scalar(
+            "SELECT url
+             FROM listing_source_urls
+             WHERE listing_source_id = $1
+               AND last_source_listing_id = $2
+               AND url <> $3
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+             ORDER BY created, url
+             LIMIT 1",
+        )
+        .bind(listing_source_id_uuid)
+        .bind(source_listing_id)
+        .bind(excluding_url.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        url.map(|url| Url::parse(&url).map_err(|error| sqlx::Error::Decode(Box::new(error))))
+            .transpose()
     }
 
     async fn redirect_destination(
