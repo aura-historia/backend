@@ -141,11 +141,11 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(JSON.stringify(front)).not.toContain("aura-historia-api");
   });
 
-  test("routes the server card at the path the MCP transport and the API catalog serve", () => {
+  test("routes the server card at the path the MCP transport serves and the discovery documents link", () => {
     const declaration = (file: string, name: string) => readFileSync(resolve(__dirname, "../..", file), "utf8")
       .match(new RegExp(`const ${name}: &str = "([^"]+)";`))?.[1];
     expect(declaration("src/aura-historia-mcp/src/server_card.rs", "SERVER_CARD_PATH")).toBe(MCP_SERVER_CARD_PATH);
-    expect(declaration("src/aura-historia-api/src/agent_discovery/api_catalog.rs", "MCP_SERVER_CARD_PATH"))
+    expect(declaration("src/agent-discovery/src/environment.rs", "MCP_SERVER_CARD_PATH"))
       .toBe(MCP_SERVER_CARD_PATH);
   });
 
