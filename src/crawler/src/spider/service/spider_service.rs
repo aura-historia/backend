@@ -61,14 +61,11 @@ struct EndedCrawl {
 
 impl EndedCrawl {
     /// Product pages the ListingSource stores that the crawl found linked and, being incremental,
-    /// did not fetch again. They are product pages the shop still links, so the crawl is not judged
-    /// as if it had found no product page
-    /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+    /// did not fetch again, as an incremental crawl or the full crawl following a truncated one
+    /// does. They are product pages the shop still links, so the crawl is not judged as if it had
+    /// found no product page (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     fn skipped_known_products(&self) -> usize {
-        match self.kind {
-            CrawlKind::Incremental => self.diagnostics.known_skipped,
-            CrawlKind::Full => 0,
-        }
+        self.diagnostics.known_skipped
     }
 }
 
@@ -280,7 +277,10 @@ impl SpiderServiceImpl {
     }
 
     /// What the crawl starts from besides its root: the frontier the previous crawl left, and
-    /// the known product URLs an incremental crawl skips.
+    /// the known product URLs a crawl skips. An incremental crawl skips them always. A full crawl
+    /// skips them only while it follows a truncated crawl, which left a frontier (a crawl that
+    /// reached everything leaves none): its budget goes to that frontier and to new links, and a
+    /// full crawl of a complete shop still fetches product pages to notice their removal.
     async fn crawl_seeds(
         &self,
         listing_source_id: &ListingSourceId,
@@ -290,13 +290,16 @@ impl SpiderServiceImpl {
             .frontier_repository
             .load_frontier(listing_source_id)
             .await?;
-        let known = match kind {
-            CrawlKind::Full => KnownUrls::default(),
-            CrawlKind::Incremental => {
-                self.frontier_repository
-                    .known_urls(listing_source_id)
-                    .await?
-            }
+        let skips_known_pages = match kind {
+            CrawlKind::Full => !frontier.is_empty(),
+            CrawlKind::Incremental => true,
+        };
+        let known = if skips_known_pages {
+            self.frontier_repository
+                .known_urls(listing_source_id)
+                .await?
+        } else {
+            KnownUrls::default()
         };
         Ok(CrawlSeeds {
             frontier,
@@ -1481,6 +1484,71 @@ mod service_tests {
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
         assert_eq!(result.product_urls_count, 1);
+    }
+
+    /// Runs a full crawl of a ListingSource that stores `frontier` and `known`, and checks the
+    /// spider is asked to crawl with `expected_seeds`.
+    async fn run_full_crawl_expecting_seeds(
+        frontier: Vec<Url>,
+        known: KnownUrls,
+        expected_seeds: CrawlSeeds,
+    ) {
+        let listing_source_id = ListingSourceId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
+        setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
+        setup_mock_seeded_crawl(
+            &mut mock_spider,
+            CrawlRequest {
+                seeds: expected_seeds,
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            one_product_and_listing_pages(),
+            CrawlDiscovery::default(),
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(frontier, known, Some(Vec::new())),
+        );
+
+        service
+            .run(
+                &listing_source_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                CrawlKind::Full,
+            )
+            .await
+            .unwrap();
+    }
+
+    /// A full crawl that follows a truncated one, which left a frontier, skips the pages the
+    /// ListingSource stores and spends its budget on the frontier.
+    #[tokio::test]
+    async fn should_load_known_urls_for_a_full_crawl_that_follows_a_truncated_crawl() {
+        run_full_crawl_expecting_seeds(
+            vec![example("/deep/1")],
+            known_products(),
+            CrawlSeeds {
+                frontier: vec![example("/deep/1")],
+                known: vec![example("/product/9")],
+                retired: Vec::new(),
+            },
+        )
+        .await;
+    }
+
+    /// A full crawl with no truncation pending fetches the stored product pages again, to notice
+    /// that they were removed.
+    #[tokio::test]
+    async fn should_not_load_known_urls_for_a_full_crawl_without_a_frontier() {
+        run_full_crawl_expecting_seeds(Vec::new(), known_products(), CrawlSeeds::default()).await;
     }
 
     /// An incremental crawl of `paths` whose pages link `known_skipped` stored product pages it
