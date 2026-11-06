@@ -1,7 +1,8 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, ClientMetadataDocumentSource,
-    OAuthClientRepository, OAuthClientRepositoryFactory,
+    OAuthClientRepository, OAuthClientRepositoryFactory, OAuthConnectionRepository,
+    OAuthConnectionRepositoryFactory,
 };
 use crate::use_cases::metadata_document_clients::MetadataDocumentClients;
 use crate::use_cases::support::{AUTHORIZATION_CODE_TTL, append_query_params};
@@ -15,7 +16,10 @@ use oauth_core::authorization_code::{
     RehydratedAuthorizationCodeState,
 };
 use oauth_core::client_identifier::OAuthClientIdentifier;
-use oauth_core::metadata_document_client::metadata_document_client_scopes;
+use oauth_core::connection::{OAuthConnection, OAuthConnectionApproval};
+use oauth_core::metadata_document_client::{
+    ClientMetadataDocument, metadata_document_client_scopes,
+};
 use oauth_core::resource::{AuraResource, AuraResourcePolicy};
 use std::collections::HashSet;
 use time::OffsetDateTime;
@@ -36,6 +40,8 @@ pub struct AuthorizeRequest {
     pub redirect_uri: url::Url,
     pub resource: Option<String>,
     pub scope: HashSet<Scope>,
+    /// Whether `scope` also listed `offline_access`, which asks for a refresh token.
+    pub offline_access: bool,
     pub state: Option<OAuthState>,
     pub code_challenge: OAuthCodeChallenge,
     pub code_challenge_method: CodeChallengeMethod,
@@ -55,18 +61,20 @@ pub trait AuthorizeUseCase: Send + Sync {
     ) -> Result<AuthorizeResponse, OAuthServiceError>;
 }
 
-pub struct AuthorizeHandler<U, C, A, S> {
+pub struct AuthorizeHandler<U, C, A, N, S> {
     unit_of_work: U,
     clients: C,
     codes: A,
+    connections: N,
     metadata_document_clients: MetadataDocumentClients<S>,
     resource_policy: AuraResourcePolicy,
 }
-impl<U, C, A, S> AuthorizeHandler<U, C, A, S> {
+impl<U, C, A, N, S> AuthorizeHandler<U, C, A, N, S> {
     pub fn new(
         unit_of_work: U,
         clients: C,
         codes: A,
+        connections: N,
         metadata_document_clients: MetadataDocumentClients<S>,
         resource_policy: AuraResourcePolicy,
     ) -> Self {
@@ -74,17 +82,19 @@ impl<U, C, A, S> AuthorizeHandler<U, C, A, S> {
             unit_of_work,
             clients,
             codes,
+            connections,
             metadata_document_clients,
             resource_policy,
         }
     }
 }
 #[async_trait::async_trait]
-impl<U, C, A, S> AuthorizeUseCase for AuthorizeHandler<U, C, A, S>
+impl<U, C, A, N, S> AuthorizeUseCase for AuthorizeHandler<U, C, A, N, S>
 where
     U: UnitOfWork,
     C: OAuthClientRepositoryFactory<U::Tx>,
     A: AuthorizationCodeRepositoryFactory<U::Tx>,
+    N: OAuthConnectionRepositoryFactory<U::Tx>,
     S: ClientMetadataDocumentSource,
 {
     #[tracing::instrument(
@@ -111,29 +121,37 @@ where
             .resource_policy
             .resolve(request.resource.as_deref())
             .map_err(|_| OAuthServiceError::InvalidResource)?;
-        let tx = match &request.client_id {
+        let (tx, issues_refresh_token) = match &request.client_id {
             OAuthClientIdentifier::Registered(client_id) => {
                 let mut tx = self.unit_of_work.begin().await?;
                 self.ensure_registered_client_allows(&mut tx, *client_id, &request)
                     .await?;
-                tx
+                (tx, false)
             }
             OAuthClientIdentifier::MetadataDocument(client_id) => {
                 // Fetch before the transaction so outbound I/O never holds a connection.
-                self.ensure_metadata_document_client_allows(client_id, &request)
+                let document = self
+                    .ensure_metadata_document_client_allows(client_id, &request)
                     .await?;
-                self.unit_of_work.begin().await?
+                let mut tx = self.unit_of_work.begin().await?;
+                self.record_approval(&mut tx, user_id, &document, &request.scope)
+                    .await?;
+                let issues_refresh_token =
+                    request.offline_access || document.declares_refresh_token_grant();
+                (tx, issues_refresh_token)
             }
         };
-        self.issue_code(tx, user_id, resource, request).await
+        self.issue_code(tx, user_id, resource, issues_refresh_token, request)
+            .await
     }
 }
 
-impl<U, C, A, S> AuthorizeHandler<U, C, A, S>
+impl<U, C, A, N, S> AuthorizeHandler<U, C, A, N, S>
 where
     U: UnitOfWork,
     C: OAuthClientRepositoryFactory<U::Tx>,
     A: AuthorizationCodeRepositoryFactory<U::Tx>,
+    N: OAuthConnectionRepositoryFactory<U::Tx>,
     S: ClientMetadataDocumentSource,
 {
     async fn ensure_registered_client_allows(
@@ -156,7 +174,8 @@ where
         {
             return Err(OAuthServiceError::InvalidRedirectUri);
         }
-        if !request.scope.is_subset(client.scopes()) {
+        // Registered clients never receive refresh tokens.
+        if request.offline_access || !request.scope.is_subset(client.scopes()) {
             return Err(OAuthServiceError::InvalidScope);
         }
         Ok(())
@@ -166,13 +185,46 @@ where
         &self,
         client_id: &MetadataDocumentClientId,
         request: &AuthorizeRequest,
-    ) -> Result<(), OAuthServiceError> {
+    ) -> Result<ClientMetadataDocument, OAuthServiceError> {
         let document = self.metadata_document_clients.resolve(client_id).await?;
         if !document.admits_redirect_uri(&request.redirect_uri) {
             return Err(OAuthServiceError::InvalidRedirectUri);
         }
         if !request.scope.is_subset(&metadata_document_client_scopes()) {
             return Err(OAuthServiceError::InvalidScope);
+        }
+        Ok(document)
+    }
+
+    /// Starts the user's connection to the client, or adds the approved scopes to it.
+    async fn record_approval(
+        &self,
+        tx: &mut U::Tx,
+        user_id: UserId,
+        document: &ClientMetadataDocument,
+        scopes: &HashSet<Scope>,
+    ) -> Result<(), OAuthServiceError> {
+        let approval = OAuthConnectionApproval {
+            user_id,
+            client_id: document.client_id(),
+            client_name: document.name(),
+            scopes,
+            approved_at: OffsetDateTime::now_utc(),
+        };
+        let mut connections = self.connections.in_transaction(tx);
+        match connections
+            .find_by_user_and_client_for_update(user_id, document.client_id())
+            .await?
+        {
+            Some(mut connection) => {
+                connection.approve_again(approval);
+                connections.update(&connection).await?;
+            }
+            None => {
+                connections
+                    .insert(&OAuthConnection::start(approval))
+                    .await?
+            }
         }
         Ok(())
     }
@@ -184,6 +236,7 @@ where
         mut tx: U::Tx,
         user_id: UserId,
         resource: AuraResource,
+        issues_refresh_token: bool,
         request: AuthorizeRequest,
     ) -> Result<AuthorizeResponse, OAuthServiceError> {
         let now = OffsetDateTime::now_utc();
@@ -196,6 +249,7 @@ where
             scopes: request.scope,
             code_challenge: request.code_challenge,
             code_challenge_method: request.code_challenge_method,
+            issues_refresh_token,
             expires: now + AUTHORIZATION_CODE_TTL,
         });
         self.codes

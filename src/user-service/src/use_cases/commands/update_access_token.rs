@@ -413,6 +413,14 @@ mod tests {
         ) -> Result<u64, AccessTokenRepositoryError> {
             Ok(0)
         }
+
+        async fn delete_by_oauth_holder(
+            &mut self,
+            _user_id: UserId,
+            _holder: crate::ports::OAuthTokenHolder,
+        ) -> Result<u64, AccessTokenRepositoryError> {
+            unimplemented!("access-token use cases never revoke by OAuth holder")
+        }
     }
 
     impl AccessTokenRepositoryFactory<FakeTx> for Fakes {
@@ -701,6 +709,7 @@ mod tests {
             scopes: HashSet::from([Scope::UsersRead, Scope::WatchlistRead]),
             origin: AccessTokenOrigin::OAuthMetadataDocument {
                 client_id: "https://agent.example/client.json".parse().unwrap(),
+                connection_id: user_core::access_token::OAuthConnectionId::new(),
             },
             expires: Some(expires),
         });

@@ -5,6 +5,9 @@ mod oauth_client_authentication_reader;
 mod oauth_client_details_reader;
 mod oauth_client_list_reader;
 mod oauth_client_repository;
+mod oauth_connection_grant_reader;
+mod oauth_connection_repository;
+mod refresh_token_family_repository;
 mod rows;
 mod third_party_exchange_code_repository;
 
@@ -14,4 +17,7 @@ pub use oauth_client_authentication_reader::SqlxOAuthClientAuthenticationReader;
 pub use oauth_client_details_reader::SqlxOAuthClientDetailsReader;
 pub use oauth_client_list_reader::SqlxOAuthClientListReader;
 pub use oauth_client_repository::SqlxOAuthClientRepositoryFactory;
+pub use oauth_connection_grant_reader::SqlxOAuthConnectionGrantReader;
+pub use oauth_connection_repository::SqlxOAuthConnectionRepositoryFactory;
+pub use refresh_token_family_repository::SqlxRefreshTokenFamilyRepositoryFactory;
 pub use third_party_exchange_code_repository::SqlxThirdPartyExchangeCodeRepositoryFactory;

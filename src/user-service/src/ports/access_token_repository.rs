@@ -1,6 +1,8 @@
 use application::error::BoxError;
 use domain_primitives::versioned::Versioned;
-use user_core::access_token::{AccessToken, AccessTokenId, HashedRawAccessToken};
+use user_core::access_token::{
+    AccessToken, AccessTokenId, HashedRawAccessToken, OAuthClientId, OAuthConnectionId,
+};
 use user_core::user_id::UserId;
 
 domain_primitives::version_newtype!(AccessTokenStorageVersion);
@@ -31,6 +33,15 @@ pub enum AccessTokenRepositoryError {
         #[source]
         source: BoxError,
     },
+}
+
+/// The OAuth client whose access tokens a revocation targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthTokenHolder {
+    /// An administrator-registered client, which holds its tokens individually.
+    RegisteredClient(OAuthClientId),
+    /// A metadata document client, which holds its tokens within one connection.
+    Connection(OAuthConnectionId),
 }
 
 #[async_trait::async_trait]
@@ -66,6 +77,13 @@ pub trait AccessTokenRepository: Send {
     async fn delete_by_user_id(
         &mut self,
         user_id: UserId,
+    ) -> Result<u64, AccessTokenRepositoryError>;
+
+    /// Revokes every access token of the user that `holder` holds.
+    async fn delete_by_oauth_holder(
+        &mut self,
+        user_id: UserId,
+        holder: OAuthTokenHolder,
     ) -> Result<u64, AccessTokenRepositoryError>;
 }
 

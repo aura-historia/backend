@@ -255,6 +255,9 @@ pub async fn run_cleanup(
                 authorization_codes_deleted = counts.authorization_codes_deleted,
                 third_party_exchange_codes_deleted = counts.third_party_exchange_codes_deleted,
                 provider_receipts_deleted = counts.provider_receipts_deleted,
+                refresh_tokens_deleted = counts.refresh_tokens_deleted,
+                refresh_token_families_deleted = counts.refresh_token_families_deleted,
+                oauth_connections_deleted = counts.oauth_connections_deleted,
                 duration_ms = started_at.elapsed().as_millis(),
             );
         }
@@ -685,6 +688,9 @@ mod tests {
                 authorization_codes_deleted: 2,
                 third_party_exchange_codes_deleted: 3,
                 provider_receipts_deleted: 4,
+                refresh_tokens_deleted: 5,
+                refresh_token_families_deleted: 6,
+                oauth_connections_deleted: 7,
             })
         }
     }

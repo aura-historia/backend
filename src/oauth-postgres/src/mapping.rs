@@ -1,10 +1,12 @@
 use crate::rows::{
-    AuthorizationCodeRow, OAuthClientRow, OAuthClientViewRow, ThirdPartyExchangeCodeRow,
+    AuthorizationCodeRow, OAuthClientRow, OAuthClientViewRow, OAuthConnectionRow,
+    RefreshTokenFamilyRow, ThirdPartyExchangeCodeRow,
 };
 use credential_core::metadata_document_client_id::{
     InvalidMetadataDocumentClientId, MetadataDocumentClientId,
 };
 use credential_core::oauth_client_id::OAuthClientId;
+use credential_core::oauth_connection_id::OAuthConnectionId;
 use credential_core::scope::Scope;
 use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
@@ -15,6 +17,11 @@ use oauth_core::client::{
     RehydratedOAuthClientState,
 };
 use oauth_core::client_identifier::OAuthClientIdentifier;
+use oauth_core::connection::{OAuthConnection, RehydratedOAuthConnectionState};
+use oauth_core::refresh_token::{
+    HashedRawRefreshToken, IssuedRefreshToken, PresentedRefreshToken, RefreshTokenFamily,
+    RefreshTokenFamilyId, RehydratedRefreshTokenFamilyState,
+};
 use oauth_core::resource::{AuraResource, InvalidResource};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
@@ -33,7 +40,10 @@ pub(crate) const OAUTH_CLIENT_VIEW_COLUMNS: &str = "\
     updated";
 pub(crate) const AUTHORIZATION_CODE_COLUMNS: &str = "\
     authorization_code AS code, client_id, metadata_document_client_id, user_id, redirect_uri, \
-    scopes, code_challenge, code_challenge_method, resource, expires_at AS expires";
+    scopes, code_challenge, code_challenge_method, resource, issues_refresh_token, \
+    expires_at AS expires";
+pub(crate) const OAUTH_CONNECTION_COLUMNS: &str = "\
+    connection_id, user_id, client_id, client_name, scopes, created, last_used";
 pub(crate) const THIRD_PARTY_EXCHANGE_CODE_COLUMNS: &str = "\
     third_party_exchange_code AS code, access_token_id, access_token, \
     access_token_expires_at AS access_token_expires, scopes, expires_at AS expires";
@@ -67,6 +77,10 @@ pub(crate) enum OAuthRowMappingError {
     InvalidAuthorizationCode(#[source] uuid::Error),
     #[error("persisted third-party exchange code is invalid")]
     InvalidThirdPartyExchangeCode(#[source] uuid::Error),
+    #[error("persisted OAuth connection identifier is invalid")]
+    InvalidOAuthConnectionId(#[source] domain_primitives::object_id::ObjectIdError),
+    #[error("a persisted refresh token may only belong to a metadata document client's code")]
+    RegisteredClientRefreshToken,
     #[error("persisted OAuth client version is invalid")]
     InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
 }
@@ -166,9 +180,67 @@ impl TryFrom<AuthorizationCodeRow> for AuthorizationCode {
                     .map_err(OAuthRowMappingError::InvalidResource)?,
                 code_challenge: OAuthCodeChallenge::from(row.code_challenge),
                 code_challenge_method: parse_code_challenge_method(&row.code_challenge_method)?,
+                issues_refresh_token: row.issues_refresh_token,
                 expires: row.expires,
             },
         ))
+        .and_then(|code| {
+            if code.issues_refresh_token()
+                && matches!(code.client_id(), OAuthClientIdentifier::Registered(_))
+            {
+                Err(OAuthRowMappingError::RegisteredClientRefreshToken)
+            } else {
+                Ok(code)
+            }
+        })
+    }
+}
+
+impl TryFrom<OAuthConnectionRow> for OAuthConnection {
+    type Error = OAuthRowMappingError;
+
+    fn try_from(row: OAuthConnectionRow) -> Result<Self, Self::Error> {
+        Ok(OAuthConnection::rehydrate(RehydratedOAuthConnectionState {
+            id: OAuthConnectionId::try_from(row.connection_id)
+                .map_err(OAuthRowMappingError::InvalidOAuthConnectionId)?,
+            user_id: UserId::try_from(row.user_id).map_err(OAuthRowMappingError::InvalidUserId)?,
+            client_id: MetadataDocumentClientId::try_from(row.client_id)
+                .map_err(OAuthRowMappingError::InvalidMetadataDocumentClientId)?,
+            client_name: OAuthClientName::from(row.client_name),
+            scopes: parse_scopes(row.scopes)?,
+            created: row.created,
+            last_used: row.last_used,
+        }))
+    }
+}
+
+impl TryFrom<RefreshTokenFamilyRow> for (RefreshTokenFamily, PresentedRefreshToken) {
+    type Error = OAuthRowMappingError;
+
+    fn try_from(row: RefreshTokenFamilyRow) -> Result<Self, Self::Error> {
+        let family = RefreshTokenFamily::rehydrate(RehydratedRefreshTokenFamilyState {
+            id: RefreshTokenFamilyId::from(row.family_id),
+            connection_id: OAuthConnectionId::try_from(row.connection_id)
+                .map_err(OAuthRowMappingError::InvalidOAuthConnectionId)?,
+            scopes: parse_scopes(row.scopes)?,
+            resource: AuraResource::try_from(row.resource.as_str())
+                .map_err(OAuthRowMappingError::InvalidResource)?,
+            created: row.created,
+            absolute_expires: row.absolute_expires_at,
+            current: IssuedRefreshToken {
+                hashed_token: HashedRawRefreshToken::new(
+                    row.current_token_short,
+                    row.current_token_hash,
+                ),
+                issued: row.current_issued,
+                expires: row.expires_at,
+            },
+        });
+        let presented = match row.presented_replaced_at {
+            Some(at) => PresentedRefreshToken::Replaced { at },
+            None => PresentedRefreshToken::Current,
+        };
+        Ok((family, presented))
     }
 }
 
@@ -208,7 +280,7 @@ fn parse_redirect_uris(values: Vec<String>) -> Result<OAuthRedirectUris, OAuthRo
         .map_err(OAuthRowMappingError::InvalidRedirectUris)
 }
 
-fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, OAuthRowMappingError> {
+pub(crate) fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, OAuthRowMappingError> {
     values
         .into_iter()
         .map(|value| scope_from_db(&value))
@@ -345,6 +417,7 @@ mod tests {
             resource: None,
             code_challenge: "challenge".to_owned(),
             code_challenge_method: "S256".to_owned(),
+            issues_refresh_token: false,
             expires: time::OffsetDateTime::UNIX_EPOCH,
         }
     }
@@ -379,6 +452,26 @@ mod tests {
             AuthorizationCode::try_from(row),
             Err(OAuthRowMappingError::InvalidMetadataDocumentClientId(_))
         ));
+    }
+
+    #[test]
+    fn should_reject_a_registered_client_code_that_issues_refresh_tokens() {
+        let mut row = authorization_code_row(uuid_v7_fixture(), uuid_v7_fixture());
+        row.issues_refresh_token = true;
+        assert!(matches!(
+            AuthorizationCode::try_from(row),
+            Err(OAuthRowMappingError::RegisteredClientRefreshToken)
+        ));
+
+        let mut row = authorization_code_row(uuid_v7_fixture(), uuid_v7_fixture());
+        row.client_id = None;
+        row.metadata_document_client_id = Some("https://agent.example/client.json".to_owned());
+        row.issues_refresh_token = true;
+        assert!(
+            AuthorizationCode::try_from(row)
+                .unwrap()
+                .issues_refresh_token()
+        );
     }
 
     #[test]

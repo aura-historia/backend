@@ -26,7 +26,7 @@ impl AccessTokenDetailsReader for SqlxAccessTokenDetailsReader {
         access_token_id: AccessTokenId,
     ) -> Result<Option<AccessTokenDetails>, AccessTokenDetailsReadError> {
         let row = sqlx::query_as::<_, AccessTokenDetailsRow>(
-            "SELECT access_token_id, user_id, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, expires_at FROM access_tokens WHERE user_id = $1 AND access_token_id = $2",
+            "SELECT access_token_id, user_id, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, oauth_connection_id, expires_at FROM access_tokens WHERE user_id = $1 AND access_token_id = $2",
         )
         .bind(user_id.into_uuid())
         .bind(access_token_id.into_uuid())

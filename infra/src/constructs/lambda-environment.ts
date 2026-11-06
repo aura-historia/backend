@@ -79,6 +79,9 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     COMMIT_SHA: context.commitSha,
     OAUTH_ISSUER_URL: config.oauthIssuerUrl,
     OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED: String(config.oauthMetadataDocumentClients.enabled),
+    OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS: String(config.oauthMetadataDocumentClients.accessTokenTtlSeconds),
+    OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS: String(config.oauthMetadataDocumentClients.refreshTokenIdleTtlSeconds),
+    OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS: String(config.oauthMetadataDocumentClients.refreshTokenAbsoluteTtlSeconds),
     ...(config.oauthMetadataDocumentClients.deniedHosts.length > 0
       ? { OAUTH_METADATA_DOCUMENT_DENIED_HOSTS: config.oauthMetadataDocumentClients.deniedHosts.join(",") }
       : {}),

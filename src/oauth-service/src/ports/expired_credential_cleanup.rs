@@ -1,3 +1,4 @@
+use crate::use_cases::CleanupCounts;
 use application::error::BoxError;
 
 #[derive(Debug, thiserror::Error)]
@@ -14,5 +15,5 @@ pub trait CleanupExpiredCredentialsAndProviderReceipts: Send + Sync {
     async fn cleanup_expired_credentials_and_provider_receipts(
         &self,
         batch_size: i32,
-    ) -> Result<(i64, i64, i64, i64), ExpiredCredentialCleanupError>;
+    ) -> Result<CleanupCounts, ExpiredCredentialCleanupError>;
 }

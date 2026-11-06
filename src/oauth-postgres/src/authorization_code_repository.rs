@@ -46,8 +46,9 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         sqlx::query(
             "INSERT INTO oauth_authorization_codes (\
                 authorization_code, client_id, metadata_document_client_id, user_id, redirect_uri, \
-                scopes, code_challenge, code_challenge_method, expires_at, resource\
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                scopes, code_challenge, code_challenge_method, expires_at, resource, \
+                issues_refresh_token\
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(code_value)
         .bind(client_id)
@@ -59,6 +60,7 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         .bind("S256")
         .bind(code.expires())
         .bind(code.resource().map(|resource| resource.as_str()))
+        .bind(code.issues_refresh_token())
         .execute(&mut *self.connection)
         .await
         .map(|_| ())

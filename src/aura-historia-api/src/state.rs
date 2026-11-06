@@ -28,9 +28,10 @@ use notification_service::use_cases::queries::list_notifications::ListNotificati
 use oauth_core::metadata_document_client::MetadataDocumentClientPolicy;
 use oauth_service::use_cases::{
     AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase,
-    GetMetadataDocumentConsentClientUseCase, GetOAuthClientUseCase, GetOAuthConsentClientUseCase,
-    IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
-    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
+    DisconnectOAuthClientUseCase, GetMetadataDocumentConsentClientUseCase, GetOAuthClientUseCase,
+    GetOAuthConsentClientUseCase, IntrospectTokenUseCase, ListOAuthClientsUseCase,
+    RevokeTokenUseCase, TokenByAuthorizationCodeUseCase, TokenByRefreshTokenUseCase,
+    TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
 use partnership_service::use_cases::commands::put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationUseCase;
 use partnership_service::use_cases::queries::get_admin_partnership::GetAdminPartnershipUseCase;
@@ -628,6 +629,7 @@ pub struct OAuthState {
     pub(crate) delete_client: Arc<dyn DeleteOAuthClientUseCase>,
     pub(crate) authorize: Arc<dyn AuthorizeUseCase>,
     pub(crate) token_by_authorization_code: Arc<dyn TokenByAuthorizationCodeUseCase>,
+    pub(crate) token_by_refresh_token: Arc<dyn TokenByRefreshTokenUseCase>,
     pub(crate) token_by_third_party_code: Arc<dyn TokenByThirdPartyCodeUseCase>,
     pub(crate) revoke: Arc<dyn RevokeTokenUseCase>,
     pub(crate) introspect: Arc<dyn IntrospectTokenUseCase>,
@@ -647,6 +649,7 @@ impl OAuthState {
         delete_client: Arc<dyn DeleteOAuthClientUseCase>,
         authorize: Arc<dyn AuthorizeUseCase>,
         token_by_authorization_code: Arc<dyn TokenByAuthorizationCodeUseCase>,
+        token_by_refresh_token: Arc<dyn TokenByRefreshTokenUseCase>,
         token_by_third_party_code: Arc<dyn TokenByThirdPartyCodeUseCase>,
         revoke: Arc<dyn RevokeTokenUseCase>,
         introspect: Arc<dyn IntrospectTokenUseCase>,
@@ -665,6 +668,7 @@ impl OAuthState {
             delete_client,
             authorize,
             token_by_authorization_code,
+            token_by_refresh_token,
             token_by_third_party_code,
             revoke,
             introspect,
@@ -901,6 +905,7 @@ pub struct UsersState {
     pub(crate) delete_access_token: Arc<dyn DeleteAccessTokenUseCase>,
     pub(crate) admin_delete_access_token: Arc<dyn DeleteAccessTokenUseCase>,
     pub(crate) admin_delete_access_tokens: Arc<dyn DeleteAccessTokensUseCase>,
+    pub(crate) disconnect_oauth_client: Arc<dyn DisconnectOAuthClientUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -927,6 +932,7 @@ impl UsersState {
         delete_access_token: Arc<dyn DeleteAccessTokenUseCase>,
         admin_delete_access_token: Arc<dyn DeleteAccessTokenUseCase>,
         admin_delete_access_tokens: Arc<dyn DeleteAccessTokensUseCase>,
+        disconnect_oauth_client: Arc<dyn DisconnectOAuthClientUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -950,6 +956,7 @@ impl UsersState {
             delete_access_token,
             admin_delete_access_token,
             admin_delete_access_tokens,
+            disconnect_oauth_client,
             authenticator,
         }
     }

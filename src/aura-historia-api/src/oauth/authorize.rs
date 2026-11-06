@@ -1,5 +1,5 @@
 use super::error::OAuthError;
-use super::{OAuthQuery, no_store, parse_scope_string};
+use super::{OAuthQuery, no_store, parse_requested_scope};
 use crate::auth::protected_context;
 use crate::error::ApiError;
 use crate::state::OAuthState;
@@ -77,12 +77,14 @@ fn request(query: HashMap<String, String>) -> Result<AuthorizeRequest, OAuthErro
     {
         return Err(OAuthError::InvalidRequest);
     }
+    let scope = parse_requested_scope(query.get("scope").map(String::as_str))
+        .map_err(|_| OAuthError::InvalidScope)?;
     Ok(AuthorizeRequest {
         response_type,
         client_id,
         redirect_uri,
-        scope: parse_scope_string(query.get("scope").map(String::as_str), "scope")
-            .map_err(|_| OAuthError::InvalidScope)?,
+        scope: scope.scopes,
+        offline_access: scope.offline_access,
         state: query
             .get("state")
             .map(|value| OAuthRequestState::from(value.as_str())),

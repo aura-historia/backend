@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::{Duration, OffsetDateTime};
 use user_core::access_token::{
-    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, RawAccessToken,
-    Scope,
+    AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, NewAccessToken, OAuthClientId,
+    OAuthConnectionId, RawAccessToken, Scope,
 };
 use user_core::first_name::FirstName;
 use user_core::last_name::LastName;
@@ -22,9 +22,10 @@ use user_postgres::{
     SqlxAccessTokenRepositoryFactory, SqlxUserRepositoryFactory,
 };
 use user_service::ports::{
-    AccessTokenAuthenticationReader, AccessTokenDetailsReader, AccessTokenListReader,
-    AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
-    UserRepository, UserRepositoryFactory,
+    AccessTokenAuthenticationReader, AccessTokenDetailsReader, AccessTokenListEntry,
+    AccessTokenListReader, AccessTokenRepository, AccessTokenRepositoryError,
+    AccessTokenRepositoryFactory, ListedOAuthConnection, OAuthTokenHolder,
+    RegisteredOAuthClientDisplay, UserRepository, UserRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -372,7 +373,10 @@ async fn should_read_access_token_details_list_and_authentication_deterministica
         expected_ids,
         first_list
             .iter()
-            .map(|token| token.access_token_id)
+            .map(|entry| match entry {
+                AccessTokenListEntry::AccessToken(listed) => listed.token.access_token_id,
+                AccessTokenListEntry::Connection(_) => panic!("unexpected connection entry"),
+            })
             .collect::<Vec<_>>()
     );
     assert_eq!(first_list, second_list);
@@ -385,22 +389,24 @@ async fn should_read_access_token_details_list_and_authentication_deterministica
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_round_trip_a_metadata_document_client_origin_through_every_reader() {
+async fn should_round_trip_a_metadata_document_client_origin_and_list_it_as_its_connection() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let users = SqlxUserRepositoryFactory::new();
     let tokens = SqlxAccessTokenRepositoryFactory::new();
     let user = sample_user("metadata-document-origin");
-    let raw = RawAccessToken::new();
+    let client_id = "https://agent.example/oauth/client.json";
+    let connection_id = OAuthConnectionId::new();
     let origin = AccessTokenOrigin::OAuthMetadataDocument {
-        client_id: "https://agent.example/oauth/client.json".parse().unwrap(),
+        client_id: client_id.parse().unwrap(),
+        connection_id,
     };
     let token = AccessToken::create(NewAccessToken {
         origin: origin.clone(),
         // PostgreSQL keeps microseconds.
         ..sample_new_access_token(
             user.id(),
-            raw,
+            RawAccessToken::new(),
             Some(
                 OffsetDateTime::from_unix_timestamp(
                     OffsetDateTime::now_utc().unix_timestamp() + 3_600,
@@ -412,6 +418,22 @@ async fn should_round_trip_a_metadata_document_client_origin_through_every_reade
 
     let mut tx = begin(&unit_of_work).await;
     insert_user(&users, &mut tx, &user).await;
+    commit(tx).await;
+    let connected = OffsetDateTime::from_unix_timestamp(1_790_000_000).unwrap();
+    sqlx::query(
+        "INSERT INTO oauth_connections \
+            (connection_id, user_id, client_id, client_name, scopes, created, last_used) \
+         VALUES ($1, $2, $3, 'Agent', ARRAY['users:read', 'watchlist:read'], $4, $5)",
+    )
+    .bind(connection_id.into_uuid())
+    .bind(user.id().into_uuid())
+    .bind(client_id)
+    .bind(connected)
+    .bind(connected + Duration::hours(2))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = begin(&unit_of_work).await;
     insert_token(&tokens, &mut tx, &token).await;
     commit(tx).await;
 
@@ -425,39 +447,148 @@ async fn should_round_trip_a_metadata_document_client_origin_through_every_reade
         .unwrap()
         .unwrap();
     assert_eq!(origin, detail.origin);
-    let listed = SqlxAccessTokenListReader::new(pool.clone())
-        .list_for_user(user.id())
-        .await
-        .unwrap();
-    assert_eq!(
-        vec![origin.clone()],
-        listed
-            .into_iter()
-            .map(|token| token.origin)
-            .collect::<Vec<_>>()
-    );
     let authenticated = SqlxAccessTokenAuthenticationReader::new(pool.clone())
         .find_authentication_by_hashed_token(token.hashed_token())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(origin, authenticated.origin);
+    // The listing shows the connection, not its rotating tokens.
+    let listed = SqlxAccessTokenListReader::new(pool.clone())
+        .list_for_user(user.id())
+        .await
+        .unwrap();
+    assert_eq!(
+        vec![AccessTokenListEntry::Connection(ListedOAuthConnection {
+            connection_id,
+            user_id: user.id(),
+            client_id: client_id.parse().unwrap(),
+            client_name: "Agent".to_owned(),
+            scopes: HashSet::from([Scope::UsersRead, Scope::WatchlistRead]),
+            created: connected,
+            last_used: connected + Duration::hours(2),
+        })],
+        listed
+    );
 
-    let invalid = sqlx::query(
+    for statement in [
         "UPDATE access_tokens SET oauth_metadata_document_client_id = NULL \
          WHERE access_token_id = $1",
+        "UPDATE access_tokens SET oauth_connection_id = NULL WHERE access_token_id = $1",
+        "UPDATE access_tokens SET oauth_metadata_document_client_id = \
+         'https://other.example/client.json' WHERE access_token_id = $1",
+    ] {
+        let invalid = sqlx::query(statement)
+            .bind(token.id().into_uuid())
+            .execute(&pool)
+            .await
+            .expect_err("a metadata document origin must record its client and connection");
+        assert!(
+            matches!(
+                invalid
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .as_deref(),
+                Some("23514" | "23503")
+            ),
+            "{statement}: {invalid}"
+        );
+    }
+
+    sqlx::query("DELETE FROM oauth_connections WHERE connection_id = $1")
+        .bind(connection_id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = begin(&unit_of_work).await;
+    let revoked = tokens
+        .in_transaction(&mut tx)
+        .find_by_id(user.id(), token.id())
+        .await
+        .unwrap();
+    commit(tx).await;
+    assert!(revoked.is_none(), "ending a connection revokes its tokens");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_list_registered_client_tokens_with_their_client_and_revoke_them_by_holder() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let users = SqlxUserRepositoryFactory::new();
+    let tokens = SqlxAccessTokenRepositoryFactory::new();
+    let user = sample_user("registered-client-holder");
+    let client_id = OAuthClientId::new();
+    sqlx::query(
+        "INSERT INTO oauth_clients (client_id, client_secret_short_token, \
+            client_secret_long_token_hash, name, redirect_uris, tos_uri, policy_uri, client_uri, \
+            logo_uri, scopes) \
+         VALUES ($1, 'short', 'hash', 'Shop Connector', ARRAY['https://shop.example/callback'], \
+            'https://shop.example/tos', 'https://shop.example/privacy', \
+            'https://user@Shop.example:8443/home', 'https://shop.example/logo.png', \
+            ARRAY['users:read'])",
     )
-    .bind(token.id().into_uuid())
+    .bind(client_id.into_uuid())
     .execute(&pool)
     .await
-    .expect_err("a metadata document origin must record its client");
-    assert_eq!(
-        Some("23514"),
-        invalid
-            .as_database_error()
-            .and_then(|error| error.code())
-            .as_deref()
+    .unwrap();
+    let oauth = |name: &str| {
+        AccessToken::create(NewAccessToken {
+            name: AccessTokenName::from(name),
+            origin: AccessTokenOrigin::OAuth { client_id },
+            ..sample_new_access_token(user.id(), RawAccessToken::new(), None)
+        })
+    };
+    let first = oauth("first sign-in");
+    let second = oauth("second sign-in");
+    let personal = sample_access_token(
+        user.id(),
+        RawAccessToken::new(),
+        "personal token",
+        HashSet::from([Scope::UsersRead]),
+        None,
     );
+    let mut tx = begin(&unit_of_work).await;
+    insert_user(&users, &mut tx, &user).await;
+    for token in [&first, &second, &personal] {
+        insert_token(&tokens, &mut tx, token).await;
+    }
+    commit(tx).await;
+
+    let listed = SqlxAccessTokenListReader::new(pool.clone())
+        .list_for_user(user.id())
+        .await
+        .unwrap();
+    let clients = listed
+        .into_iter()
+        .map(|entry| match entry {
+            AccessTokenListEntry::AccessToken(listed) => (listed.token.name, listed.client),
+            AccessTokenListEntry::Connection(_) => panic!("unexpected connection entry"),
+        })
+        .collect::<Vec<_>>();
+    let shop = Some(RegisteredOAuthClientDisplay {
+        name: "Shop Connector".to_owned(),
+        // The client URI is stored as entered, but only its host is shown.
+        host: "Shop.example".to_owned(),
+    });
+    assert_eq!(3, clients.len());
+    assert!(clients.contains(&(AccessTokenName::from("first sign-in"), shop.clone())));
+    assert!(clients.contains(&(AccessTokenName::from("second sign-in"), shop)));
+    assert!(clients.contains(&(AccessTokenName::from("personal token"), None)));
+
+    let mut tx = begin(&unit_of_work).await;
+    let revoked = tokens
+        .in_transaction(&mut tx)
+        .delete_by_oauth_holder(user.id(), OAuthTokenHolder::RegisteredClient(client_id))
+        .await
+        .unwrap();
+    let kept = tokens
+        .in_transaction(&mut tx)
+        .find_by_id(user.id(), personal.id())
+        .await
+        .unwrap();
+    commit(tx).await;
+    assert_eq!(2, revoked);
+    assert!(kept.is_some());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

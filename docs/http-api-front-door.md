@@ -157,7 +157,9 @@ setup are owned by the [OAuth contract](oauth.md).
 Metadata requires no URI-bearing request input and receives no WAF exemption. OAuth
 `resource`, callback URIs and URL-valued client IDs continue through the exact
 authorization, token and metadata-document consent path exceptions; unrelated paths retain
-the counted URL-target blocks.
+the counted URL-target blocks. Revocation and the account disconnect
+(`DELETE /v1/me/access-tokens?clientId=…`) carry only a client ID, which names a domain and
+never an IP literal or callback, so they need no exception and keep those blocks.
 
 ## MCP front door
 

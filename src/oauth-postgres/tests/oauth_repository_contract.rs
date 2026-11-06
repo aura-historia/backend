@@ -162,6 +162,7 @@ async fn should_persist_a_metadata_document_client_code_with_exactly_one_client(
             code_challenge: code.code_challenge().clone(),
             code_challenge_method: CodeChallengeMethod::S256,
             resource: code.resource(),
+            issues_refresh_token: true,
             expires: code.expires(),
         });
         let code_value = code.code();
@@ -199,6 +200,25 @@ async fn should_persist_a_metadata_document_client_code_with_exactly_one_client(
             .expect("persisted code");
         assert_eq!(&client_id, consumed.client_id());
         assert_eq!(code.redirect_uri(), consumed.redirect_uri());
+        assert!(consumed.issues_refresh_token());
+
+        let registered_code = authorization_code(registered, user_id)?;
+        insert_authorization_code(pool.clone(), registered_code.clone()).await?;
+        let refreshing_registered_code = sqlx::query(
+            "UPDATE oauth_authorization_codes SET issues_refresh_token = true \
+             WHERE authorization_code = $1",
+        )
+        .bind(registered_code.code().to_string())
+        .execute(&pool)
+        .await
+        .expect_err("registered clients never receive refresh tokens");
+        assert_eq!(
+            Some("23514"),
+            refreshing_registered_code
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref()
+        );
         Ok(())
     }
     .await;
@@ -581,6 +601,7 @@ fn authorization_code(
             code_challenge: OAuthCodeChallenge::from("dummy-pkce-code-challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
             resource: Some(oauth_core::resource::AuraResource::ProductionMcp),
+            issues_refresh_token: false,
             expires: now + Duration::minutes(5),
         },
     ))

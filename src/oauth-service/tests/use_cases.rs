@@ -14,8 +14,13 @@ use oauth_core::client::{
     OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState,
 };
 use oauth_core::client_identifier::OAuthClientIdentifier;
+use oauth_core::connection::OAuthConnection;
 use oauth_core::metadata_document_client::{
     ClientMetadataDocumentClaims, MetadataDocumentClientPolicy,
+};
+use oauth_core::refresh_token::{
+    HashedRawRefreshToken, MetadataDocumentClientTokenLifetimes, PresentedRefreshToken,
+    RefreshTokenFamily, RefreshTokenFamilyId,
 };
 use oauth_core::resource::AuraResourcePolicy;
 use oauth_core::third_party_exchange_code::{
@@ -30,11 +35,12 @@ use oauth_service::use_cases::{
     GetOAuthClientUseCase, GetOAuthConsentClientHandler, GetOAuthConsentClientUseCase,
     IntrospectTokenHandler, IntrospectTokenRequest, IntrospectTokenUseCase,
     ListOAuthClientsHandler, ListOAuthClientsRequest, ListOAuthClientsResult,
-    ListOAuthClientsUseCase, MetadataDocumentClients, OAuthGrantType, OAuthResponseType,
-    OAuthState, OAuthTokenClientAuthentication, OAuthTokenType, RevokeTokenHandler,
-    RevokeTokenRequest, RevokeTokenUseCase, TokenByAuthorizationCodeHandler,
-    TokenByAuthorizationCodeRequest, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler,
-    TokenByThirdPartyCodeUseCase, UpdateOAuthClientCommand, UpdateOAuthClientHandler,
+    ListOAuthClientsUseCase, MetadataDocumentClientCredentials, MetadataDocumentClients,
+    OAuthGrantType, OAuthResponseType, OAuthState, OAuthTokenClientAuthentication, OAuthTokenType,
+    RevocableToken, RevocationStores, RevokeTokenHandler, RevokeTokenRequest, RevokeTokenUseCase,
+    TokenByAuthorizationCodeHandler, TokenByAuthorizationCodeRequest,
+    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler, TokenByThirdPartyCodeUseCase,
+    TokenExchangeStores, UpdateOAuthClientCommand, UpdateOAuthClientHandler,
     UpdateOAuthClientUseCase,
 };
 use std::collections::{BTreeSet, HashSet};
@@ -48,7 +54,7 @@ use user_core::user_id::UserId;
 use user_service::ports::{
     AccessTokenAuthentication, AccessTokenAuthenticationReadError, AccessTokenAuthenticationReader,
     AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
-    AccessTokenStorageVersion, VersionedAccessToken,
+    AccessTokenStorageVersion, OAuthTokenHolder, VersionedAccessToken,
 };
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminResult, CheckUserAdminUseCase,
@@ -69,6 +75,15 @@ struct State {
     transaction_commits: usize,
     fail_access_token_insert: bool,
     fail_exchange_insert: bool,
+    connections: Vec<OAuthConnection>,
+    families: Vec<RefreshTokenFamily>,
+    /// Every refresh token issued, with its family and when it was replaced.
+    refresh_tokens: Vec<(
+        HashedRawRefreshToken,
+        RefreshTokenFamilyId,
+        Option<OffsetDateTime>,
+    )>,
+    revoked_holders: Vec<(UserId, OAuthTokenHolder)>,
 }
 
 #[derive(Clone, Default)]
@@ -165,6 +180,227 @@ impl AccessTokenRepositoryFactory<FakeTransaction> for FakePorts {
     }
 }
 
+impl OAuthConnectionRepositoryFactory<FakeTransaction> for FakePorts {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut FakeTransaction,
+    ) -> impl OAuthConnectionRepository + 'tx {
+        TransactionalFakePorts { transaction: tx }
+    }
+}
+
+impl RefreshTokenFamilyRepositoryFactory<FakeTransaction> for FakePorts {
+    fn in_transaction<'tx>(
+        &'tx self,
+        tx: &'tx mut FakeTransaction,
+    ) -> impl RefreshTokenFamilyRepository + 'tx {
+        TransactionalFakePorts { transaction: tx }
+    }
+}
+
+#[async_trait::async_trait]
+impl OAuthConnectionGrantReader for FakePorts {
+    async fn granted_scopes(
+        &self,
+        user_id: UserId,
+        client_id: &MetadataDocumentClientId,
+    ) -> Result<HashSet<Scope>, OAuthClientReadError> {
+        Ok(lock(&self.0)
+            .connections
+            .iter()
+            .find(|connection| {
+                connection.user_id() == user_id && connection.client_id() == client_id
+            })
+            .map(|connection| connection.scopes().clone())
+            .unwrap_or_default())
+    }
+}
+
+#[async_trait::async_trait]
+impl OAuthConnectionRepository for TransactionalFakePorts<'_> {
+    async fn find_by_user_and_client_for_update(
+        &mut self,
+        user_id: UserId,
+        client_id: &MetadataDocumentClientId,
+    ) -> Result<Option<OAuthConnection>, OAuthConnectionRepositoryError> {
+        Ok(self
+            .state()
+            .connections
+            .iter()
+            .find(|connection| {
+                connection.user_id() == user_id && connection.client_id() == client_id
+            })
+            .cloned())
+    }
+
+    async fn find_by_id_for_update(
+        &mut self,
+        connection_id: credential_core::oauth_connection_id::OAuthConnectionId,
+    ) -> Result<Option<OAuthConnection>, OAuthConnectionRepositoryError> {
+        Ok(self
+            .state()
+            .connections
+            .iter()
+            .find(|connection| connection.id() == connection_id)
+            .cloned())
+    }
+
+    async fn insert(
+        &mut self,
+        connection: &OAuthConnection,
+    ) -> Result<(), OAuthConnectionRepositoryError> {
+        let state = self.state();
+        if state.connections.iter().any(|existing| {
+            existing.user_id() == connection.user_id()
+                && existing.client_id() == connection.client_id()
+        }) {
+            return Err(OAuthConnectionRepositoryError::Conflict {
+                source: application::error::static_error("duplicate connection"),
+            });
+        }
+        state.connections.push(connection.clone());
+        Ok(())
+    }
+
+    async fn update(
+        &mut self,
+        connection: &OAuthConnection,
+    ) -> Result<(), OAuthConnectionRepositoryError> {
+        let stored = self
+            .state()
+            .connections
+            .iter_mut()
+            .find(|existing| existing.id() == connection.id())
+            .expect("updated connections exist");
+        *stored = connection.clone();
+        Ok(())
+    }
+
+    async fn delete(
+        &mut self,
+        user_id: UserId,
+        connection_id: credential_core::oauth_connection_id::OAuthConnectionId,
+    ) -> Result<bool, OAuthConnectionRepositoryError> {
+        let state = self.state();
+        let before = state.connections.len();
+        state.connections.retain(|connection| {
+            !(connection.id() == connection_id && connection.user_id() == user_id)
+        });
+        if state.connections.len() == before {
+            return Ok(false);
+        }
+        // The schema cascades to the connection's families, their tokens and access tokens.
+        let ended = state
+            .families
+            .iter()
+            .filter(|family| family.connection_id() == connection_id)
+            .map(RefreshTokenFamily::id)
+            .collect::<Vec<_>>();
+        state
+            .families
+            .retain(|family| !ended.contains(&family.id()));
+        state
+            .refresh_tokens
+            .retain(|(_, family_id, _)| !ended.contains(family_id));
+        if state.issued.as_ref().is_some_and(|token| {
+            matches!(token.origin(), AccessTokenOrigin::OAuthMetadataDocument { connection_id: issued, .. } if *issued == connection_id)
+        }) {
+            state.issued = None;
+        }
+        Ok(true)
+    }
+}
+
+#[async_trait::async_trait]
+impl RefreshTokenFamilyRepository for TransactionalFakePorts<'_> {
+    async fn insert(
+        &mut self,
+        family: &RefreshTokenFamily,
+    ) -> Result<(), OAuthConnectionRepositoryError> {
+        let state = self.state();
+        state.families.push(family.clone());
+        state
+            .refresh_tokens
+            .push((family.current().hashed_token.clone(), family.id(), None));
+        Ok(())
+    }
+
+    async fn find_connection_id(
+        &mut self,
+        token: &HashedRawRefreshToken,
+    ) -> Result<
+        Option<credential_core::oauth_connection_id::OAuthConnectionId>,
+        OAuthConnectionRepositoryError,
+    > {
+        Ok(self
+            .find_by_token_for_update(token)
+            .await?
+            .map(|(family, _)| family.connection_id()))
+    }
+
+    async fn find_by_token_for_update(
+        &mut self,
+        token: &HashedRawRefreshToken,
+    ) -> Result<Option<(RefreshTokenFamily, PresentedRefreshToken)>, OAuthConnectionRepositoryError>
+    {
+        let state = self.state();
+        let Some((_, family_id, replaced_at)) = state
+            .refresh_tokens
+            .iter()
+            .find(|(stored, _, _)| stored == token)
+        else {
+            return Ok(None);
+        };
+        let presented = match replaced_at {
+            Some(at) => PresentedRefreshToken::Replaced { at: *at },
+            None => PresentedRefreshToken::Current,
+        };
+        Ok(state
+            .families
+            .iter()
+            .find(|family| family.id() == *family_id)
+            .map(|family| (family.clone(), presented)))
+    }
+
+    async fn record_rotation(
+        &mut self,
+        family: &RefreshTokenFamily,
+        replaced: &HashedRawRefreshToken,
+    ) -> Result<(), OAuthConnectionRepositoryError> {
+        let state = self.state();
+        let replaced = state
+            .refresh_tokens
+            .iter_mut()
+            .find(|(stored, family_id, at)| {
+                stored == replaced && *family_id == family.id() && at.is_none()
+            })
+            .expect("the replaced token was current");
+        replaced.2 = Some(family.current().issued);
+        state
+            .refresh_tokens
+            .push((family.current().hashed_token.clone(), family.id(), None));
+        let stored = state
+            .families
+            .iter_mut()
+            .find(|stored| stored.id() == family.id())
+            .expect("rotated families exist");
+        *stored = family.clone();
+        Ok(())
+    }
+
+    async fn delete(
+        &mut self,
+        family_id: RefreshTokenFamilyId,
+    ) -> Result<(), OAuthConnectionRepositoryError> {
+        let state = self.state();
+        state.families.retain(|family| family.id() != family_id);
+        state
+            .refresh_tokens
+            .retain(|(_, stored, _)| *stored != family_id);
+        Ok(())
+    }
+}
+
 /// Registered-client flows must never load a metadata document.
 #[derive(Clone, Copy)]
 struct NoMetadataDocuments;
@@ -252,8 +488,38 @@ fn authorization_code(client_id: OAuthClientId, expires: OffsetDateTime) -> Auth
         code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
         code_challenge_method: CodeChallengeMethod::S256,
         resource: None,
+        issues_refresh_token: false,
         expires,
     })
+}
+
+/// Token-endpoint credentials of metadata document clients with the default lifetimes.
+fn credentials(policy: MetadataDocumentClientPolicy) -> MetadataDocumentClientCredentials {
+    MetadataDocumentClientCredentials::new(policy, MetadataDocumentClientTokenLifetimes::default())
+}
+
+fn token_exchange_stores(
+    ports: &FakePorts,
+) -> TokenExchangeStores<FakePorts, FakePorts, FakePorts, FakePorts, FakePorts, FakePorts> {
+    TokenExchangeStores {
+        clients: ports.clone(),
+        codes: ports.clone(),
+        exchange_codes: ports.clone(),
+        access_tokens: ports.clone(),
+        connections: ports.clone(),
+        refresh_token_families: ports.clone(),
+    }
+}
+
+fn revocation_stores(
+    ports: &FakePorts,
+) -> RevocationStores<FakePorts, FakePorts, FakePorts, FakePorts> {
+    RevocationStores {
+        clients: ports.clone(),
+        access_tokens: ports.clone(),
+        connections: ports.clone(),
+        refresh_token_families: ports.clone(),
+    }
 }
 
 fn client_with_secret(raw: &RawOAuthClientSecret) -> OAuthClient {
@@ -279,6 +545,7 @@ fn authorize_request(client_id: OAuthClientId, scope: HashSet<Scope>) -> Authori
         client_id: client_id.into(),
         redirect_uri: url("https://client.example/callback"),
         scope,
+        offline_access: false,
         state: None,
         code_challenge: OAuthCodeChallenge::from("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"),
         code_challenge_method: CodeChallengeMethod::S256,
@@ -297,11 +564,8 @@ async fn redeem_authorization_code(
     let code_value = code.code();
     let error = TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        MetadataDocumentClientPolicy::Disabled,
+        token_exchange_stores(&ports),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -661,6 +925,34 @@ impl AccessTokenRepository for TransactionalFakePorts<'_> {
         } else {
             Ok(0)
         }
+    }
+
+    async fn delete_by_oauth_holder(
+        &mut self,
+        user_id: UserId,
+        holder: OAuthTokenHolder,
+    ) -> Result<u64, AccessTokenRepositoryError> {
+        let state = self.state();
+        state.revoked_holders.push((user_id, holder));
+        let held = state.issued.as_ref().is_some_and(|token| {
+            token.user_id() == user_id
+                && match (token.origin(), holder) {
+                    (
+                        AccessTokenOrigin::OAuth { client_id },
+                        OAuthTokenHolder::RegisteredClient(holder),
+                    ) => *client_id == holder,
+                    (
+                        AccessTokenOrigin::OAuthMetadataDocument { connection_id, .. },
+                        OAuthTokenHolder::Connection(holder),
+                    ) => *connection_id == holder,
+                    _ => false,
+                }
+        });
+        if held {
+            state.issued = None;
+            state.deleted_raw += 1;
+        }
+        Ok(u64::from(held))
     }
 }
 
@@ -1203,6 +1495,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        ports.clone(),
         no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     );
@@ -1214,6 +1507,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
                 client_id: client.client_id().into(),
                 redirect_uri: url("https://client.example/callback"),
                 scope: HashSet::from([Scope::ProductListingsWrite]),
+                offline_access: false,
                 state: Some(OAuthState::from("state-1")),
                 code_challenge: OAuthCodeChallenge::from(
                     "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
@@ -1233,11 +1527,8 @@ async fn should_commit_authorization_code_exchange_when_valid() {
     let code = lock(&ports.0).code.clone().unwrap().code();
     let token = TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        MetadataDocumentClientPolicy::Disabled,
+        token_exchange_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1280,11 +1571,8 @@ async fn should_commit_consumed_authorization_code_when_expired() {
 
     let error = TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        MetadataDocumentClientPolicy::Disabled,
+        token_exchange_stores(&ports),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1421,11 +1709,8 @@ async fn should_roll_back_authorization_code_consumption_when_access_token_inser
 
     let error = TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        MetadataDocumentClientPolicy::Disabled,
+        token_exchange_stores(&ports),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1468,11 +1753,8 @@ async fn should_roll_back_authorization_code_consumption_when_exchange_code_inse
 
     let error = TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        MetadataDocumentClientPolicy::Disabled,
+        token_exchange_stores(&ports),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1508,6 +1790,7 @@ async fn should_reject_authorize_with_invalid_scope() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        ports.clone(),
         no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
@@ -1518,6 +1801,7 @@ async fn should_reject_authorize_with_invalid_scope() {
             client_id: client.client_id().into(),
             redirect_uri: url("https://client.example/callback"),
             scope: HashSet::from([Scope::UsersRead]),
+            offline_access: false,
             state: None,
             code_challenge: OAuthCodeChallenge::from("challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
@@ -1543,6 +1827,7 @@ async fn should_allow_authorize_for_a_direct_user_principal() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        ports.clone(),
         no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
@@ -1563,6 +1848,7 @@ async fn should_reject_authorize_for_anonymous_principal_before_transaction() {
     let ports = FakePorts::default();
     let result = AuthorizeHandler::new(
         FakeUnitOfWork(ports.clone()),
+        ports.clone(),
         ports.clone(),
         ports.clone(),
         no_metadata_document_clients(),
@@ -1586,6 +1872,7 @@ async fn should_reject_authorize_for_delegated_principal_without_write_capabilit
     let ports = FakePorts::default();
     let result = AuthorizeHandler::new(
         FakeUnitOfWork(ports.clone()),
+        ports.clone(),
         ports.clone(),
         ports.clone(),
         no_metadata_document_clients(),
@@ -1613,6 +1900,7 @@ async fn should_reject_delegated_authorize_scope_outside_caller_capabilities() {
 
     let result = AuthorizeHandler::new(
         FakeUnitOfWork(ports.clone()),
+        ports.clone(),
         ports.clone(),
         ports.clone(),
         no_metadata_document_clients(),
@@ -1643,6 +1931,7 @@ async fn should_reject_delegated_authorize_without_creating_a_code() {
 
         let result = AuthorizeHandler::new(
             FakeUnitOfWork(ports.clone()),
+            ports.clone(),
             ports.clone(),
             ports.clone(),
             no_metadata_document_clients(),
@@ -1697,6 +1986,7 @@ async fn should_stop_a_delegated_admin_from_registering_and_approving_its_own_cl
     lock(&ports.0).client = Some(client.clone());
     let approval = AuthorizeHandler::new(
         FakeUnitOfWork(ports.clone()),
+        ports.clone(),
         ports.clone(),
         ports.clone(),
         no_metadata_document_clients(),
@@ -1806,17 +2096,23 @@ async fn should_revoke_and_introspect_tokens() {
     assert!(active.active);
     assert_eq!(Some(client.client_id().into()), active.client_id);
     assert_eq!(0, lock(&ports.0).transaction_begins);
-    RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &delegated_admin_context(),
-            RevokeTokenRequest {
-                token: raw_access_token.clone(),
+    RevokeTokenHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        revocation_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
+    )
+    .execute(
+        &delegated_admin_context(),
+        RevokeTokenRequest {
+            token: RevocableToken::AccessToken(raw_access_token.clone()),
+            client: OAuthTokenClientAuthentication::ClientSecretPost {
                 client_id: client.client_id(),
                 client_secret: raw_secret.clone(),
             },
-        )
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(1, lock(&ports.0).deleted_raw);
     let inactive = IntrospectTokenHandler::new(ports.clone(), ports.clone())
         .execute(IntrospectTokenRequest {
@@ -1855,17 +2151,22 @@ async fn should_reject_revocation_of_another_clients_or_personal_token() {
             state.client = Some(client.clone());
             state.issued = Some(token.clone());
         }
-        let result =
-            RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-                .execute(
-                    &delegated_admin_context(),
-                    RevokeTokenRequest {
-                        token: raw_token,
-                        client_id: client.client_id(),
-                        client_secret: raw_secret,
-                    },
-                )
-                .await;
+        let result = RevokeTokenHandler::new(
+            FakeUnitOfWork(ports.clone()),
+            revocation_stores(&ports.clone()),
+            credentials(MetadataDocumentClientPolicy::Disabled),
+        )
+        .execute(
+            &delegated_admin_context(),
+            RevokeTokenRequest {
+                token: RevocableToken::AccessToken(raw_token),
+                client: OAuthTokenClientAuthentication::ClientSecretPost {
+                    client_id: client.client_id(),
+                    client_secret: raw_secret,
+                },
+            },
+        )
+        .await;
 
         assert!(matches!(result, Err(OAuthServiceError::Forbidden)));
         let state = lock(&ports.0);
@@ -1882,23 +2183,31 @@ async fn should_succeed_when_revoking_an_unknown_token() {
     let client = client_with_secret(&secret);
     lock(&ports.0).client = Some(client.clone());
 
-    RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &delegated_admin_context(),
-            RevokeTokenRequest {
-                token: RawAccessToken::new(),
+    RevokeTokenHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        revocation_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
+    )
+    .execute(
+        &delegated_admin_context(),
+        RevokeTokenRequest {
+            token: RevocableToken::AccessToken(RawAccessToken::new()),
+            client: OAuthTokenClientAuthentication::ClientSecretPost {
                 client_id: client.client_id(),
                 client_secret: secret,
             },
-        )
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
 
     let state = lock(&ports.0);
     assert_eq!(0, state.deleted_raw);
     assert_eq!(1, state.transaction_commits);
 }
 
+#[path = "use_cases/connections.rs"]
+mod connections;
 #[path = "use_cases/metadata_document_client.rs"]
 mod metadata_document_client;
 #[path = "use_cases/resource.rs"]

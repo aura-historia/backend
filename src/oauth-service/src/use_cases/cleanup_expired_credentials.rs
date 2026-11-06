@@ -35,6 +35,9 @@ pub struct CleanupCounts {
     pub authorization_codes_deleted: i64,
     pub third_party_exchange_codes_deleted: i64,
     pub provider_receipts_deleted: i64,
+    pub refresh_tokens_deleted: i64,
+    pub refresh_token_families_deleted: i64,
+    pub oauth_connections_deleted: i64,
 }
 
 #[async_trait::async_trait]
@@ -65,22 +68,9 @@ where
         &self,
         batch_size: ExpiryCleanupBatchSize,
     ) -> Result<CleanupCounts, ExpiredCredentialCleanupError> {
-        let (
-            access_tokens_deleted,
-            authorization_codes_deleted,
-            third_party_exchange_codes_deleted,
-            provider_receipts_deleted,
-        ) = self
-            .cleanup
+        self.cleanup
             .cleanup_expired_credentials_and_provider_receipts(batch_size.get())
-            .await?;
-
-        Ok(CleanupCounts {
-            access_tokens_deleted,
-            authorization_codes_deleted,
-            third_party_exchange_codes_deleted,
-            provider_receipts_deleted,
-        })
+            .await
     }
 }
 

@@ -81,13 +81,16 @@ use oauth_core::metadata_document_client::{
 use oauth_postgres::{
     SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
     SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
-    SqlxThirdPartyExchangeCodeRepositoryFactory,
+    SqlxOAuthConnectionGrantReader, SqlxOAuthConnectionRepositoryFactory,
+    SqlxRefreshTokenFamilyRepositoryFactory, SqlxThirdPartyExchangeCodeRepositoryFactory,
 };
 use oauth_service::use_cases::{
     AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler,
-    GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler, GetOAuthConsentClientHandler,
-    IntrospectTokenHandler, ListOAuthClientsHandler, MetadataDocumentClients, RevokeTokenHandler,
-    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
+    DisconnectOAuthClientHandler, GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler,
+    GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
+    MetadataDocumentClientCredentials, MetadataDocumentClients, RevocationStores,
+    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByRefreshTokenHandler,
+    TokenByThirdPartyCodeHandler, TokenExchangeStores, UpdateOAuthClientHandler,
 };
 use partnership_core::{
     partnership_application_id::PartnershipApplicationId, partnership_id::PartnershipId,
@@ -1736,6 +1739,11 @@ async fn test_state(
             user_postgres::SqlxUserAdminReaderFactory::new(),
             user_postgres::SqlxUserAccountReaderFactory::new(),
         )),
+        Arc::new(DisconnectOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+        )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
@@ -1986,6 +1994,10 @@ fn oauth_state(
     authenticator: Arc<dyn TokenAuthenticator>,
     metadata_document_clients: MetadataDocumentClients<HttpClientMetadataDocumentSource>,
 ) -> OAuthState {
+    let credentials = MetadataDocumentClientCredentials::new(
+        metadata_document_clients.policy().clone(),
+        Default::default(),
+    );
     OAuthState::new(
         Arc::new(CreateOAuthClientHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
@@ -2014,6 +2026,7 @@ fn oauth_state(
         )),
         Arc::new(GetMetadataDocumentConsentClientHandler::new(
             metadata_document_clients.clone(),
+            SqlxOAuthConnectionGrantReader::new(pool.clone()),
         )),
         Arc::new(UpdateOAuthClientHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
@@ -2035,16 +2048,29 @@ fn oauth_state(
             SqlxUnitOfWork::new(pool.clone()),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
             metadata_document_clients.clone(),
             oauth_core::resource::AuraResourcePolicy::production(),
         )),
         Arc::new(TokenByAuthorizationCodeHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAuthorizationCodeRepositoryFactory::new(),
-            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+            TokenExchangeStores {
+                clients: SqlxOAuthClientRepositoryFactory::new(),
+                codes: SqlxAuthorizationCodeRepositoryFactory::new(),
+                exchange_codes: SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+                access_tokens: user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+                connections: SqlxOAuthConnectionRepositoryFactory::new(),
+                refresh_token_families: SqlxRefreshTokenFamilyRepositoryFactory::new(),
+            },
+            credentials.clone(),
+            oauth_core::resource::AuraResourcePolicy::production(),
+        )),
+        Arc::new(TokenByRefreshTokenHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            SqlxRefreshTokenFamilyRepositoryFactory::new(),
             user_postgres::SqlxAccessTokenRepositoryFactory::new(),
-            metadata_document_clients.policy().clone(),
+            credentials.clone(),
             oauth_core::resource::AuraResourcePolicy::production(),
         )),
         Arc::new(TokenByThirdPartyCodeHandler::new(
@@ -2053,8 +2079,13 @@ fn oauth_state(
         )),
         Arc::new(RevokeTokenHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
-            SqlxOAuthClientRepositoryFactory::new(),
-            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+            RevocationStores {
+                clients: SqlxOAuthClientRepositoryFactory::new(),
+                access_tokens: user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+                connections: SqlxOAuthConnectionRepositoryFactory::new(),
+                refresh_token_families: SqlxRefreshTokenFamilyRepositoryFactory::new(),
+            },
+            credentials,
         )),
         Arc::new(IntrospectTokenHandler::new(
             SqlxOAuthClientAuthenticationReader::new(pool.clone()),

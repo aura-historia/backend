@@ -24,8 +24,9 @@ use user_postgres::{
     SqlxUserRepositoryFactory,
 };
 use user_service::ports::{
-    AccessTokenRepository, AccessTokenRepositoryFactory, AdminAccessTokenListReader,
-    AdminAccessTokenListReaderFactory, UserRepository, UserRepositoryFactory,
+    AccessTokenListEntry, AccessTokenRepository, AccessTokenRepositoryFactory,
+    AdminAccessTokenListReader, AdminAccessTokenListReaderFactory, UserRepository,
+    UserRepositoryFactory,
 };
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -110,6 +111,13 @@ async fn should_read_bounded_target_tokens_with_expired_and_current_metadata() {
         .chain(second_page.items)
         .collect::<Vec<_>>();
     assert_eq!(2, listed.len());
+    let listed = listed
+        .into_iter()
+        .map(|entry| match entry {
+            AccessTokenListEntry::AccessToken(listed) => listed.token,
+            AccessTokenListEntry::Connection(_) => panic!("unexpected connection entry"),
+        })
+        .collect::<Vec<_>>();
     assert!(listed.iter().any(|token| {
         token.name == AccessTokenName::from("expired admin token")
             && token.expires == Some(OffsetDateTime::UNIX_EPOCH)

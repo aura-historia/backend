@@ -1,5 +1,4 @@
-use crate::ports::{AccessTokenListReadError, AccessTokenListReader};
-use crate::use_cases::queries::get_access_token::AccessTokenView;
+use crate::ports::{AccessTokenListEntry, AccessTokenListReadError, AccessTokenListReader};
 use application::error::BoxError;
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
@@ -13,7 +12,8 @@ pub struct ListAccessTokensRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListAccessTokensResult {
-    pub items: Vec<AccessTokenView>,
+    /// The user's individually managed tokens and metadata document client connections.
+    pub items: Vec<AccessTokenListEntry>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -84,13 +84,7 @@ where
         request: ListAccessTokensRequest,
     ) -> Result<ListAccessTokensResult, ListAccessTokensError> {
         authorize_access_token_read(context, request.user_id)?;
-        let items = self
-            .reader
-            .list_for_user(request.user_id)
-            .await?
-            .into_iter()
-            .map(AccessTokenView::from)
-            .collect();
+        let items = self.reader.list_for_user(request.user_id).await?;
 
         Ok(ListAccessTokensResult { items })
     }
@@ -140,7 +134,10 @@ mod tests {
         ListAccessTokensError, ListAccessTokensHandler, ListAccessTokensRequest,
         ListAccessTokensUseCase,
     };
-    use crate::ports::{AccessTokenDetails, AccessTokenListReadError, AccessTokenListReader};
+    use crate::ports::{
+        AccessTokenDetails, AccessTokenListEntry, AccessTokenListReadError, AccessTokenListReader,
+        ListedAccessToken,
+    };
     use application::error::box_error;
     use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
     use std::collections::HashSet;
@@ -150,7 +147,7 @@ mod tests {
 
     #[derive(Default)]
     struct State {
-        items: Vec<AccessTokenDetails>,
+        items: Vec<AccessTokenListEntry>,
         unavailable: bool,
         calls: usize,
     }
@@ -178,7 +175,7 @@ mod tests {
         async fn list_for_user(
             &self,
             _user_id: UserId,
-        ) -> Result<Vec<AccessTokenDetails>, AccessTokenListReadError> {
+        ) -> Result<Vec<AccessTokenListEntry>, AccessTokenListReadError> {
             let mut state = lock(&self.0);
             state.calls += 1;
             if state.unavailable {
@@ -195,14 +192,22 @@ mod tests {
     async fn should_list_access_tokens_for_owner() {
         let user_id = UserId::new();
         let reader = FakeListReader::default();
-        lock(&reader.0).items.push(AccessTokenDetails {
-            user_id,
-            access_token_id: AccessTokenId::new(),
-            name: AccessTokenName::from("test token"),
-            scopes: HashSet::new(),
-            origin: AccessTokenOrigin::User,
-            expires: None,
-        });
+        lock(&reader.0)
+            .items
+            .push(AccessTokenListEntry::AccessToken(
+                ListedAccessToken::new(
+                    AccessTokenDetails {
+                        user_id,
+                        access_token_id: AccessTokenId::new(),
+                        name: AccessTokenName::from("test token"),
+                        scopes: HashSet::new(),
+                        origin: AccessTokenOrigin::User,
+                        expires: None,
+                    },
+                    None,
+                )
+                .unwrap_or_else(|error| panic!("valid listed token: {error}")),
+            ));
 
         let result = ListAccessTokensHandler::new(reader.clone())
             .execute(
