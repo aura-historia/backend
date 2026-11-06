@@ -31,10 +31,19 @@ const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
   "GET /v1/product-listings/{}/history",
   "GET /v1/product-listings/{}/similar",
   "GET /v1/overview",
+  "GET /.well-known/api-catalog",
+  "HEAD /.well-known/api-catalog",
+];
+const WELL_KNOWN_ROUTE_KEYS = [
+  "GET /.well-known/oauth-authorization-server",
+  "GET /.well-known/oauth-protected-resource",
+  "GET /.well-known/api-catalog",
+  "HEAD /.well-known/api-catalog",
 ];
 
 function matchesSelectiveCacheBehavior(path: string): boolean {
   return (
+    path === "/.well-known/api-catalog" ||
     path === "/v1/listing-sources" ||
     path.startsWith("/v1/listing-sources/by-slug/") ||
     path === "/v1/auctions" ||
@@ -118,9 +127,9 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(159);
+      expect(routes).toHaveLength(162);
       expect(new Set(routes).size).toBe(routes.length);
-      expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || key === "GET /.well-known/oauth-authorization-server")).toBe(true);
+      expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || WELL_KNOWN_ROUTE_KEYS.includes(key))).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
       expect(routes.filter((key) => key.includes(" /api/"))).toEqual([]);
     }
@@ -137,6 +146,25 @@ describe("HTTP API route policy matrix", () => {
       oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None,
     } });
     expect(matchesSelectiveCacheBehavior(metadata[0].path)).toBe(false);
+  });
+
+  test("serves exact agent discovery anonymously, sharing only the API catalog at the edge", () => {
+    const discovery = API_ROUTE_CATALOG.filter((route) =>
+      route.path === "/.well-known/oauth-protected-resource" || route.path === "/.well-known/api-catalog");
+    expect(discovery.map((route) => routeKey(route.method, route.path))).toEqual([
+      "GET /.well-known/oauth-protected-resource",
+      "GET /.well-known/api-catalog",
+      "HEAD /.well-known/api-catalog",
+    ]);
+    for (const route of discovery) {
+      expect(route).toMatchObject({ auth: RouteAuthPolicy.Anonymous, policy: {
+        bearer: "NONE", authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None,
+      } });
+    }
+    // OAuth metadata keeps no-store; the catalog is an approved anonymous representation.
+    expect(matchesSelectiveCacheBehavior("/.well-known/oauth-protected-resource")).toBe(false);
+    expect(matchesSelectiveCacheBehavior("/.well-known/api-catalog")).toBe(true);
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
@@ -463,13 +491,15 @@ describe("HTTP API route policy matrix", () => {
       .map((route) => routeKey(route.method, route.path))
       .sort();
 
-    expect(selectivePathRoutes.every((route) => route.method === "GET")).toBe(true);
+    // RFC 9727 requires HEAD on the catalog; every other selective route is GET only.
+    expect(selectivePathRoutes.every((route) =>
+      route.method === "GET" || (route.method === "HEAD" && route.path === "/.well-known/api-catalog"))).toBe(true);
     expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS].sort());
-    expect(selectivePathRoutes).toHaveLength(11);
+    expect(selectivePathRoutes).toHaveLength(13);
     const selectiveReadRoutes = selectivePathRoutes;
     for (const route of selectiveReadRoutes) {
-      // The overview evaluates no credentials; discovery routes accept optional bearers.
-      const anonymous = route.path === "/v1/overview";
+      // The overview and API catalog evaluate no credentials; discovery routes accept optional bearers.
+      const anonymous = route.path === "/v1/overview" || route.path === "/.well-known/api-catalog";
       expect(route.auth).toBe(anonymous ? RouteAuthPolicy.Anonymous : RouteAuthPolicy.OptionalBearer);
       expect(route.policy).toEqual({
         bearer: anonymous ? "NONE" : "OPTIONAL",
@@ -518,11 +548,11 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(159);
+    expect(routes).toHaveLength(162);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; adding exact discovery creates one route.
     expect(routes.length).toBeLessThanOrEqual(300);
-    expect(routes.every((route) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(String(route.Properties.RouteKey)) || route.Properties.RouteKey === "GET /.well-known/oauth-authorization-server")).toBe(true);
+    expect(routes.every((route) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(String(route.Properties.RouteKey)) || WELL_KNOWN_ROUTE_KEYS.includes(String(route.Properties.RouteKey)))).toBe(true);
     expect(routes.filter((route) => String(route.Properties.RouteKey).includes(" /api/"))).toEqual([]);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
@@ -575,7 +605,7 @@ describe("HTTP API route policy matrix", () => {
     expect(stageConfig(stage).apiCorsAllowOrigins).toEqual(["*"]);
     expect(cors.AllowOrigins).toEqual(["*"]);
     expect(cors).not.toHaveProperty("AllowCredentials");
-    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"]);
+    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate"]);
   });
 
   test("partitions identical discovery requests across different browser origins", () => {
@@ -705,6 +735,7 @@ describe("HTTP API route policy matrix", () => {
       "/v1/product-listings",
       "/v1/product-listings/*",
       "/v1/overview",
+      "/.well-known/api-catalog",
     ];
     const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
     const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];

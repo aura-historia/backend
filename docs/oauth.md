@@ -60,7 +60,9 @@ expiry policy or revocation. It introduces no refresh tokens or dynamic client r
 ## Authorization-server discovery
 
 Both environments publish public [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html)
-metadata at `/.well-known/oauth-authorization-server` on the issuer origin. No bearer or
+metadata at `/.well-known/oauth-authorization-server` on the issuer origin. The REST
+protected-resource metadata, the Bearer challenges that point to it and the other discovery
+documents belong to [agent discovery](agent-discovery.md). No bearer or
 client credential is required or evaluated there. The response uses `Cache-Control: no-store` and `Pragma: no-cache`; the front door
 keeps this exact route out of shared edge caching.
 

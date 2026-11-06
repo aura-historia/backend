@@ -5,19 +5,20 @@ mod response;
 use headers::*;
 use message::{DecodedMessage, decode_message};
 pub(crate) use response::deadline_response;
-use response::{finalize_response, protocol_error};
+use response::{finalize_response, protocol_error, public_document};
 
 use crate::{
     AdmissionGate, AdmissionRequest, ConfigError, InvocationContext, Registry, TransportConfig,
     config::normalized_origin,
     metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
+    server_card::{SERVER_CARD_MEDIA_TYPE, SERVER_CARD_PATH, server_card},
     server_info::server_info,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     Router,
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     extract::{Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
@@ -41,6 +42,7 @@ struct HttpState {
     gate: Arc<dyn AdmissionGate>,
     sdk: SdkService,
     admission: Arc<Semaphore>,
+    server_card: Bytes,
 }
 
 pub fn router(
@@ -63,15 +65,13 @@ pub fn router(
         .filter_map(|value| normalized_origin(value))
         .collect();
     sdk_config = sdk_config.enforce_origin_validation();
-    let operations = registry.clone();
-    let info = server_info(&config);
+    let handler = ProtocolHandler {
+        registry: registry.clone(),
+        info: server_info(&config),
+    };
+    let server_card = server_card(&handler, config.resource_policy)?;
     let sdk = StreamableHttpService::new(
-        move || {
-            Ok(ProtocolHandler {
-                registry: operations.clone(),
-                info: info.clone(),
-            })
-        },
+        move || Ok(handler.clone()),
         Arc::new(NeverSessionManager::default()),
         sdk_config,
     );
@@ -81,6 +81,7 @@ pub fn router(
         registry,
         gate,
         sdk,
+        server_card,
     };
     let response_limit = state.config.max_response_bytes;
     Ok(Router::new()
@@ -93,6 +94,7 @@ pub fn router(
             "/.well-known/oauth-protected-resource/v1",
             get(protected_resource),
         )
+        .route(SERVER_CARD_PATH, get(server_card_document))
         .route(
             "/.well-known/openai-apps-challenge",
             get(openai_apps_challenge),
@@ -121,6 +123,14 @@ async fn protected_resource(State(state): State<HttpState>, headers: HeaderMap) 
         "scopes_supported": ["users:read"],
     }))
     .into_response()
+}
+
+/// Public discovery admits any Origin; the Host allowlist still applies.
+async fn server_card_document(State(state): State<HttpState>, headers: HeaderMap) -> Response {
+    if let Err(status) = validate_host(&headers, &state.config) {
+        return status.into_response();
+    }
+    public_document(SERVER_CARD_MEDIA_TYPE, state.server_card.clone())
 }
 
 /// OpenAI verifies the MCP host by fetching exactly the token issued in its portal.

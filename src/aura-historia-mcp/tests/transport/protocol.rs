@@ -25,6 +25,89 @@ async fn should_discover_current_protocol_and_keep_business_catalogue_empty_by_d
 }
 
 #[tokio::test]
+async fn should_publish_a_server_card_that_matches_live_initialize_and_discovery() {
+    let app = router(config(), Registry::default(), Arc::new(AnonymousGate)).unwrap();
+    let card_request = |method: &str, origin: Option<&str>| {
+        let mut request = Request::builder()
+            .method(method)
+            .uri("/.well-known/mcp/server-card.json")
+            .header("host", "mcp.example.test")
+            .body(Body::empty())
+            .unwrap();
+        if let Some(origin) = origin {
+            request
+                .headers_mut()
+                .insert("origin", origin.parse().unwrap());
+        }
+        request
+    };
+    let response = app
+        .clone()
+        .oneshot(card_request("GET", Some("https://any-agent.example")))
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::OK, response.status());
+    for (header, value) in [
+        ("content-type", "application/mcp-server-card+json"),
+        ("cache-control", "public, max-age=300"),
+        ("access-control-allow-origin", "*"),
+    ] {
+        assert_eq!(value, response.headers()[header], "{header}");
+    }
+    let card = json_response(response).await;
+
+    let head = app
+        .clone()
+        .oneshot(card_request("HEAD", None))
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::OK, head.status());
+    assert_eq!("public, max-age=300", head.headers()["cache-control"]);
+    assert!(to_bytes(head.into_body(), 1024).await.unwrap().is_empty());
+
+    let mut foreign_host = card_request("GET", None);
+    foreign_host
+        .headers_mut()
+        .insert("host", HeaderValue::from_static("attacker.test"));
+    let response = app.clone().oneshot(foreign_host).await.unwrap();
+    assert_eq!(StatusCode::FORBIDDEN, response.status());
+    assert_eq!("no-store", response.headers()["cache-control"]);
+    assert!(
+        !response
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
+
+    let metadata = card["_meta"]["com.aura-historia/oauth-protected-resource"]
+        .as_str()
+        .unwrap();
+    let metadata_path = url::Url::parse(metadata).unwrap().path().to_owned();
+    let mut metadata_request = card_request("GET", None);
+    *metadata_request.uri_mut() = metadata_path.parse().unwrap();
+    let response = app.clone().oneshot(metadata_request).await.unwrap();
+    assert_eq!(StatusCode::OK, response.status());
+
+    let initialize = json!({"jsonrpc":"2.0", "id":0, "method":"initialize", "params":{"protocolVersion":"2025-11-25", "capabilities":{}, "clientInfo":{"name":"card", "version":"1"}}});
+    let server_info = json_response(app.clone().oneshot(request(&initialize)).await.unwrap()).await
+        ["result"]["serverInfo"]
+        .clone();
+    // The card's reverse-DNS name and short description are format-specific.
+    for field in ["title", "version", "websiteUrl", "icons"] {
+        assert_eq!(server_info[field], card[field], "{field}");
+    }
+    let discovery = json_response(
+        app.oneshot(request(&modern("server/discover", json!({}))))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        discovery["result"]["supportedVersions"],
+        card["remotes"][0]["supportedProtocolVersions"]
+    );
+}
+
+#[tokio::test]
 async fn should_call_injected_operation_with_request_and_correlation_metadata() {
     let calls = Arc::new(AtomicUsize::new(0));
     let mut request = request(&modern(

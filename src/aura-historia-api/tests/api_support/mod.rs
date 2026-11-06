@@ -1960,6 +1960,11 @@ async fn test_state(
         ))
         .with_webhooks(webhooks_state)
         .with_oauth(oauth_state)
+        .with_agent_discovery(
+            aura_historia_api::agent_discovery::AgentDiscoveryState::new(
+                oauth_core::resource::AuraResourcePolicy::production(),
+            ),
+        )
         .with_search_filters(search_filters_state)
         .with_notifications(notifications_state)
         .with_billing(billing_state)

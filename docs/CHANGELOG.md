@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-06 — Agent discovery documents (#2804)
+
+- Added `GET /.well-known/oauth-protected-resource`: public RFC 9728 metadata for the shared Aura default resource (`https://api.aura-historia.com`, on stage `https://api.stage.aura-historia.com`) with the issuer, header bearer tokens and the ordinary-user scopes. Responses are `no-store`.
+- A `401 INVALID_CREDENTIALS` for a missing or invalid bearer on a route that accepts Aura access tokens now carries `WWW-Authenticate: Bearer resource_metadata="{issuer}/.well-known/oauth-protected-resource"`, and CORS exposes `WWW-Authenticate`. OAuth protocol, consent and OAuth client administration routes are unchanged.
+- Added `GET` and `HEAD /.well-known/api-catalog`: an RFC 9727 API catalog (`application/linkset+json`) that lists the REST API and the MCP server with their descriptions, documentation and status probes, and a `Link` header with the `api-catalog` relation. Anonymous responses are shared at the edge for 300 seconds.
+- The MCP host serves its Server Card at `GET`/`HEAD /.well-known/mcp/server-card.json` (`application/mcp-server-card+json`). Its title, version, website and icons are the `serverInfo` that `initialize` and `server/discover` report; its name is the reverse-DNS `com.aura-historia/mcp` the card format requires, while `serverInfo.name` stays `aura-historia-mcp`. See [agent discovery](agent-discovery.md).
+
 ## 2026-11-06 — MCP tool titles and server metadata (#2803)
 
 - Every MCP tool in `tools/list` has a `title`, a short display name such as `Search listings`; tool names are unchanged. Tool descriptions now say what each tool does, when it applies and its side effects in plain language.

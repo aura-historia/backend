@@ -88,6 +88,14 @@ pub(super) fn validate_origin_and_host(
     headers: &HeaderMap,
     config: &TransportConfig,
 ) -> Result<(), StatusCode> {
+    validate_host(headers, config)?;
+    validate_origin(headers, config)
+}
+
+pub(super) fn validate_host(
+    headers: &HeaderMap,
+    config: &TransportConfig,
+) -> Result<(), StatusCode> {
     let host = optional_header(headers, "host")
         .map_err(|_| StatusCode::FORBIDDEN)?
         .ok_or(StatusCode::FORBIDDEN)?;
@@ -98,6 +106,10 @@ pub(super) fn validate_origin_and_host(
     {
         return Err(StatusCode::FORBIDDEN);
     }
+    Ok(())
+}
+
+fn validate_origin(headers: &HeaderMap, config: &TransportConfig) -> Result<(), StatusCode> {
     if let Some(origin) = optional_header(headers, "origin").map_err(|_| StatusCode::FORBIDDEN)? {
         let origin = normalized_origin(origin).ok_or(StatusCode::FORBIDDEN)?;
         if !config
