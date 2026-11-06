@@ -1,6 +1,5 @@
 //! The server identity that `initialize` and `server/discover` report and directories display.
 use crate::TransportConfig;
-use oauth_core::resource::AuraResourcePolicy;
 use rmcp::model::{Icon, Implementation};
 
 /// Programmatic identifier; clients may persist it, so it stays stable.
@@ -29,6 +28,7 @@ fn png_icon(website: &str, file: &str, size: &str) -> Icon {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oauth_core::resource::AuraResourcePolicy;
     use serde_json::json;
 
     #[test]
