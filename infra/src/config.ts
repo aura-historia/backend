@@ -105,6 +105,11 @@ export interface McpConfig {
   readonly cloudFrontCertificateArn: string;
   readonly allowedOrigins: string[];
   readonly reservedConcurrency: number;
+  /**
+   * Domain verification token that OpenAI's app submission portal issues for the MCP host. It is
+   * public by design: the host serves it at /.well-known/openai-apps-challenge. Undefined serves 404.
+   */
+  readonly openAiAppsChallenge: string | undefined;
 }
 
 export interface StageConfig {
@@ -232,6 +237,7 @@ export function stageConfig(stage: StageName): StageConfig {
         ? ["https://aura-historia.com"]
         : ["https://stage.aura-historia.com", LOCALHOST_CALLBACK_URL],
       reservedConcurrency: isProd ? 5 : 2,
+      openAiAppsChallenge: undefined,
     },
     cognitoCustomDomain: isProd ? {
       domainName: "auth.aura-historia.com",

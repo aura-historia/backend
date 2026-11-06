@@ -23,12 +23,17 @@ async fn should_return_safe_distinct_operation_errors_without_private_failure_ca
         ),
     ] {
         let error = Arc::new(std::sync::Mutex::new(Some(error)));
-        let op =
-            OperationDefinition::new("testOperation", "Test", policy(), move |_: Arguments, _| {
+        let op = OperationDefinition::new(
+            "testOperation",
+            "testOperation",
+            "Test",
+            policy(),
+            move |_: Arguments, _| {
                 let error = error.lock().unwrap().take().unwrap();
                 async { Err::<Value, _>(error) }
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         let app = router(
             config(),
             Registry::new([op]).unwrap(),
@@ -58,9 +63,13 @@ async fn should_return_safe_distinct_operation_errors_without_private_failure_ca
 
 #[tokio::test]
 async fn should_reject_oversized_result_without_silently_truncating_it() {
-    let op = OperationDefinition::new("testOperation", "Test", policy(), |_: Arguments, _| async {
-        Ok("x".repeat(3 * 1024 * 1024))
-    })
+    let op = OperationDefinition::new(
+        "testOperation",
+        "testOperation",
+        "Test",
+        policy(),
+        |_: Arguments, _| async { Ok("x".repeat(3 * 1024 * 1024)) },
+    )
     .unwrap();
     let app = router(
         config(),
@@ -90,7 +99,7 @@ async fn should_reject_oversized_result_without_silently_truncating_it() {
 async fn should_page_tools_in_stable_operation_id_order_and_reject_invalid_cursors() {
     let operations = (0..53).rev().map(|index| {
         let name: &'static str = Box::leak(format!("testOperation{index:02}").into_boxed_str());
-        OperationDefinition::new(name, "Test", policy(), |_: Arguments, _| async {
+        OperationDefinition::new(name, name, "Test", policy(), |_: Arguments, _| async {
             Ok(Output {
                 value: "ok".into(),
                 principal: "anonymous".into(),
@@ -139,12 +148,14 @@ async fn should_preserve_legacy_json_schema_object_requirement_only_where_needed
     let ops = [
         OperationDefinition::new(
             "arrayOperation",
+            "arrayOperation",
             "Array",
             policy(),
             |_: Arguments, _| async { Ok(vec!["one", "two"]) },
         )
         .unwrap(),
         OperationDefinition::new(
+            "nullableOperation",
             "nullableOperation",
             "Nullable",
             policy(),
@@ -197,13 +208,18 @@ async fn should_wrap_mixed_root_results_and_reject_mixed_or_nullable_inputs() {
     }
 
     assert!(
-        OperationDefinition::new("mixedInput", "Test", policy(), |_: Mixed, _| async {
-            Ok(())
-        })
+        OperationDefinition::new(
+            "mixedInput",
+            "mixedInput",
+            "Test",
+            policy(),
+            |_: Mixed, _| async { Ok(()) }
+        )
         .is_err()
     );
     assert!(
         OperationDefinition::new(
+            "nullableInput",
             "nullableInput",
             "Test",
             policy(),
@@ -212,6 +228,7 @@ async fn should_wrap_mixed_root_results_and_reject_mixed_or_nullable_inputs() {
         .is_err()
     );
     let operation = OperationDefinition::new(
+        "mixedOutput",
         "mixedOutput",
         "Test",
         policy(),
@@ -251,9 +268,13 @@ async fn should_wrap_mixed_root_results_and_reject_mixed_or_nullable_inputs() {
 
 #[tokio::test]
 async fn should_preserve_genuine_serialization_failure_as_safe_internal_error() {
-    let op = OperationDefinition::new("testOperation", "Test", policy(), |_: Arguments, _| async {
-        Ok(BrokenOutput)
-    })
+    let op = OperationDefinition::new(
+        "testOperation",
+        "testOperation",
+        "Test",
+        policy(),
+        |_: Arguments, _| async { Ok(BrokenOutput) },
+    )
     .unwrap();
     let app = router(
         config(),
@@ -274,25 +295,79 @@ async fn should_preserve_genuine_serialization_failure_as_safe_internal_error() 
 }
 
 #[test]
-fn should_reject_invalid_registry_and_transport_configuration() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    assert!(Registry::new([operation(calls.clone()), operation(calls)]).is_err());
-    assert!(
-        OperationDefinition::new("invalid name", "Test", policy(), |_: Arguments, _| async {
+fn should_require_unique_display_titles_and_publish_them_with_all_four_hints() {
+    let define = |name: &'static str, title: &'static str| {
+        OperationDefinition::new(name, title, "Test", policy(), |_: Arguments, _| async {
             Ok(())
         })
+    };
+    let too_long: &'static str = Box::leak("x".repeat(65).into_boxed_str());
+    for title in [
+        "",
+        " Leading space",
+        "Trailing space ",
+        "Line\nbreak",
+        too_long,
+    ] {
+        assert!(
+            matches!(define("testOperation", title), Err(RegistryError::Title)),
+            "{title:?}"
+        );
+    }
+    assert!(define("testOperation", &too_long[1..]).is_ok());
+    assert!(matches!(
+        Registry::new([
+            define("firstOperation", "Same title").unwrap(),
+            define("secondOperation", "same Title").unwrap(),
+        ]),
+        Err(RegistryError::DuplicateTitle)
+    ));
+    let tool =
+        serde_json::to_value(define("testOperation", "Test operation").unwrap().tool()).unwrap();
+    assert_eq!("testOperation", tool["name"]);
+    assert_eq!("Test operation", tool["title"]);
+    for hint in [
+        "readOnlyHint",
+        "destructiveHint",
+        "idempotentHint",
+        "openWorldHint",
+    ] {
+        assert!(tool["annotations"][hint].is_boolean(), "{hint}");
+    }
+}
+
+#[test]
+fn should_reject_invalid_registry_and_transport_configuration() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    assert!(matches!(
+        Registry::new([operation(calls.clone()), operation(calls)]),
+        Err(RegistryError::Duplicate)
+    ));
+    assert!(
+        OperationDefinition::new(
+            "invalid name",
+            "invalid name",
+            "Test",
+            policy(),
+            |_: Arguments, _| async { Ok(()) }
+        )
         .is_err()
     );
     assert!(
-        OperationDefinition::new("testOperation", "Test", policy(), |_: String, _| async {
-            Ok(())
-        })
+        OperationDefinition::new(
+            "testOperation",
+            "testOperation",
+            "Test",
+            policy(),
+            |_: String, _| async { Ok(()) }
+        )
         .is_err()
     );
     let mut invalid_policy = policy();
     invalid_policy.destructive = true;
     assert!(
         OperationDefinition::new(
+            "testOperation",
             "testOperation",
             "Test",
             invalid_policy,

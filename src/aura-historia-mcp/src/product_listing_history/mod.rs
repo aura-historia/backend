@@ -27,7 +27,8 @@ pub fn operations(
 ) -> Result<Vec<OperationDefinition>, RegistryError> {
     Ok(vec![OperationDefinition::new(
         "getProductListingHistory",
-        "Get the complete public listing history in original event order, with optional per-event historical display currency. Returns every event in one call; oversized results fail explicitly.",
+        "Get listing history",
+        "Get the complete history of one listing by its productListingId: when it was first seen and every recorded change, in event order. Use it for questions about price development or past changes. With currency, each price is also converted at the exchange rate of its event. Returns every event in one result; a history too large for one response fails instead of being truncated.",
         OperationPolicy {
             access: AccessClass::Public,
             required_scopes: vec![],

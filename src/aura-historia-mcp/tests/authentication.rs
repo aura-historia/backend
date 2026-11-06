@@ -153,6 +153,7 @@ fn registry(calls: &Arc<AtomicUsize>, observed: &Arc<Mutex<Vec<OperationContext>
             let observed = observed.clone();
             OperationDefinition::new(
                 name,
+                name,
                 "Authentication fixture",
                 policy(access, scopes),
                 move |_: Arguments, context| {

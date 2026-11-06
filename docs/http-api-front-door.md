@@ -169,9 +169,11 @@ Its canonical endpoint is `https://mcp.aura-historia.com/v1`; AWS **`dev`** serv
 independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths only:
 `/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
-The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
-`/.well-known/oauth-protected-resource/v1` serve the
-[protected-resource metadata](mcp.md#operation-families-and-admission). No proxy,
+Three further exact `GET`/`HEAD` paths serve discovery documents:
+`/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/v1` the
+[protected-resource metadata](mcp.md#operation-families-and-admission), and
+`/.well-known/openai-apps-challenge` the
+[OpenAI domain verification token](mcp.md#directory-metadata). No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront
@@ -257,6 +259,7 @@ these checks before approving traffic:
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
+| `GET`/`HEAD /.well-known/openai-apps-challenge` | `200` `text/plain` with exactly the configured token, or `404` while none is configured; no-store |
 | An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
 | Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |

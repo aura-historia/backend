@@ -11,7 +11,10 @@ import { createMcpWebAcl } from "./mcp-web-acl";
 /** Exact paths only. ANY /v1 lets the transport return its deliberate 405/Allow response. */
 export const MCP_ROUTE_CATALOG = [
   { method: apigwv2.HttpMethod.ANY, path: "/v1" },
-  ...["/health", "/ready", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1"]
+  ...[
+    "/health", "/ready", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1",
+    "/.well-known/openai-apps-challenge",
+  ]
     .flatMap((path) => [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.HEAD].map((method) => ({ method, path }))),
 ] as const;
 

@@ -56,7 +56,8 @@ fn location_operation(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "discoverPartyLocations",
-        "Discover public party locations with complete geographic predicates and cursor pagination.",
+        "Find seller locations",
+        "Find the public locations, such as shops and showrooms, of the dealers and auction houses that Aura Historia indexes, within countries or subdivisions or within a radius around a point. Returns each location's business, label, country, coordinates and precision, and with distanceOrder its distance from the point. Returns 1 to 100 locations per page (default 21); pass the returned searchAfter object unchanged to get the next page.",
         read_policy(),
         move |input: DiscoverPartyLocationsData, invocation| {
             let discover = services.discover.clone();
@@ -81,7 +82,8 @@ struct OverviewArguments {}
 fn overview_operation(services: PublicOverview) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getPublicOverview",
-        "Read the stored public catalogue aggregates and their calculation time.",
+        "Get catalogue overview",
+        "Get the latest calculated statistics of the Aura Historia catalogue: live listings, listings added in the last seven days, countries, languages and indexed providers by type, with the time they were calculated. Takes no arguments.",
         read_policy(),
         move |_: OverviewArguments, invocation| {
             let get = services.get.clone();

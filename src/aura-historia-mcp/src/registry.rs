@@ -4,7 +4,12 @@ use rmcp::model::{CallToolResult, JsonObject, MetaObject, Tool, ToolAnnotations}
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json, value::RawValue};
-use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessClass {
@@ -48,9 +53,11 @@ struct ToolOutput<T> {
 
 impl OperationDefinition {
     /// `I` is an object made from shared request types; `O` is the shared response type.
-    /// The closure captures only the service handles this operation needs.
+    /// The closure captures only the service handles this operation needs. The name stays the
+    /// source operation ID; `title` is the short display name clients show instead.
     pub fn new<I, O, F, Fut>(
         operation_id: &'static str,
+        title: &'static str,
         description: &'static str,
         policy: OperationPolicy,
         handler: F,
@@ -61,13 +68,11 @@ impl OperationDefinition {
         F: Fn(I, InvocationContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<O, OperationError>> + Send + 'static,
     {
-        if operation_id.is_empty()
-            || operation_id.len() > 128
-            || !operation_id
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
-        {
+        if !valid_operation_id(operation_id) {
             return Err(RegistryError::Name);
+        }
+        if !valid_title(title) {
+            return Err(RegistryError::Title);
         }
         if policy.read_only && policy.destructive {
             return Err(RegistryError::Annotations);
@@ -83,7 +88,7 @@ impl OperationDefinition {
         } else {
             schema::<ToolOutput<O>>(SchemaSettings::default().for_serialize())?
         };
-        let mut tool = Tool::new(operation_id, description, input);
+        let mut tool = Tool::new(operation_id, description, input).with_title(title);
         tool.output_schema = Some(Arc::new(output));
         tool.annotations = Some(
             ToolAnnotations::new()
@@ -114,6 +119,9 @@ impl OperationDefinition {
     pub fn name(&self) -> &str {
         &self.tool.name
     }
+    pub fn title(&self) -> &str {
+        self.tool.title.as_deref().unwrap_or_default()
+    }
     pub fn policy(&self) -> &OperationPolicy {
         &self.policy
     }
@@ -141,12 +149,17 @@ impl Registry {
         operations: impl IntoIterator<Item = OperationDefinition>,
     ) -> Result<Self, RegistryError> {
         let mut registered = BTreeMap::new();
+        let mut titles = BTreeSet::new();
         for operation in operations {
+            let title = operation.title().to_lowercase();
             if registered
                 .insert(operation.name().to_owned(), operation)
                 .is_some()
             {
                 return Err(RegistryError::Duplicate);
+            }
+            if !titles.insert(title) {
+                return Err(RegistryError::DuplicateTitle);
             }
         }
         Ok(Self {
@@ -181,6 +194,24 @@ impl Registry {
         Ok((tools, next))
     }
 }
+
+fn valid_operation_id(operation_id: &str) -> bool {
+    !operation_id.is_empty()
+        && operation_id.len() <= 128
+        && operation_id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
+}
+
+/// Directory reviews flag tools without a display title; a long one is a misplaced description.
+fn valid_title(title: &str) -> bool {
+    !title.is_empty()
+        && title.chars().count() <= MAX_TITLE_CHARS
+        && title.trim() == title
+        && !title.chars().any(char::is_control)
+}
+
+const MAX_TITLE_CHARS: usize = 64;
 
 fn schema<T: JsonSchema>(settings: SchemaSettings) -> Result<JsonObject, RegistryError> {
     serde_json::to_value(settings.into_generator().into_root_schema_for::<T>())
@@ -221,6 +252,10 @@ pub enum RegistryError {
     Name,
     #[error("duplicate tool operation ID")]
     Duplicate,
+    #[error("tool title must be a nonempty, trimmed display name of at most 64 characters")]
+    Title,
+    #[error("duplicate tool title")]
+    DuplicateTitle,
     #[error("read-only tool cannot be destructive")]
     Annotations,
     #[error("tool arguments must have an object schema")]

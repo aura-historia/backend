@@ -14,6 +14,12 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - `DELETE /v1/admin/users/{userId}/access-tokens` also ends the user's connections, so their refresh tokens cannot mint new access tokens.
 - Added `DELETE /v1/me/access-tokens?clientId=…`: revokes all of the user's credentials for one OAuth client, its connection for a metadata document client or all of its access tokens for a registered client, withdraws the client's approvals not yet exchanged, and returns `204` also when nothing was connected. It requires a Cognito access JWT; Aura Historia access tokens receive `403 FORBIDDEN`.
 
+## 2026-11-06 — MCP tool titles and server metadata (#2803)
+
+- Every MCP tool in `tools/list` has a `title`, a short display name such as `Search listings`; tool names are unchanged. Tool descriptions now say what each tool does, when it applies and its side effects in plain language.
+- `initialize` and `server/discover` report `serverInfo` with the `title` `Aura Historia`, a `description`, `websiteUrl` and `icons`. Its `version` is the deployed release's source commit instead of `0.1.0`.
+- The MCP host serves `GET /.well-known/openai-apps-challenge` for OpenAI's domain verification: the configured token as plain text, or `404` while none is configured.
+
 ## 2026-11-06 — MCP clients sign in with a Client ID Metadata Document (#2801)
 
 - Public OAuth clients can now sign in without registration: a `client_id` that is the HTTPS URL of a Client ID Metadata Document identifies the client, and Aura fetches and validates the document from that URL. Such clients authenticate at `POST /v1/oauth/token` with `client_id` alone (`none`, no `client_secret`), keep S256 PKCE, may use `http://127.0.0.1`, `http://[::1]` and `http://localhost` callbacks on any port, and may request the ordinary-user scopes listed in discovery. They receive tokens that expire after one hour (`expires_in`) and no `third_party_exchange_code`. A disabled or denied client, or an unavailable or invalid document, returns `invalid_client`. The feature is configured per environment and enabled on stage; production follows once refresh tokens are available. See [OAuth](oauth.md#metadata-document-clients).

@@ -89,7 +89,8 @@ fn search(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "simpleSearchProductListings",
-        "Search public listings with the complete catalogue filters, presentation, sorting and FX-bound continuation. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
+        "Search listings",
+        "Search Aura Historia's index of art, antiques and design objects listed by dealers, auction houses, marketplaces and auction platforms. Use it to find listings by text and by filters such as price, dates, availability, provider, auction, location and shipping. Returns listing summaries in the requested language and currency, with the total when known; pass the returned searchAfter object unchanged to get the next page. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
         move |input: SearchInput, context| {
             let service = service.clone();
@@ -112,7 +113,8 @@ fn get(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getProductListing",
-        "Get the complete public listing details by internal ProductListing ID. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
+        "Get listing",
+        "Get the full details of one listing by its productListingId: text, prices, images, provider, availability, auction and shipping, in the requested language and currency. Use it when the user wants more than a search result shows. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
         move |input: ListingInput, context| {
             let service = service.clone();
@@ -133,7 +135,8 @@ fn get_by_slug(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getProductListingByTitleSlug",
-        "Get the complete public listing details by its immutable title slug. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
+        "Get listing by slug",
+        "Get the full details of one listing by its productListingTitleSlugId, the last segment of an Aura Historia listing page URL (/products/{slug}). Returns the same details as the lookup by productListingId. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
         move |input: SlugInput, context| {
             let service = service.clone();
@@ -175,7 +178,8 @@ fn similar(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getSimilarProductListings",
-        "Find similar public listings using the fixed service neighbor limit. EMBEDDING_PENDING means retry this operation later; READY may contain an empty list. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
+        "Find similar listings",
+        "Find listings similar to one listing, identified by its productListingId. Returns up to a fixed number of neighbours in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
         move |input: ListingInput, context| {
             let service = service.clone();
