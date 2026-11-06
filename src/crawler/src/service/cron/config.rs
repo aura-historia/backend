@@ -1,17 +1,10 @@
-use crate::network::policy::canonical_crawl_host;
 use crate::scraper::scraper_service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, DEFAULT_SCHEMA_SEED_PAGES, ScraperAutoThrottleConfig,
 };
 use crate::spider::discovery::website_spider::CrawlerConfig as SpiderCrawlerConfig;
-use listing_source_core::{Domain, InvalidDomain};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use std::collections::HashSet;
 use std::time::Duration;
-
-/// Lists, comma-separated, the ListingSource crawl hosts whose mass removal an operator confirmed
-/// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`).
-pub const MASS_REMOVAL_CONFIRMED_DOMAINS_ENV: &str = "CRAWLER_MASS_REMOVAL_CONFIRMED_DOMAINS";
 
 #[derive(Clone)]
 pub struct CrawlerCronConfig {
@@ -58,10 +51,6 @@ pub struct CrawlerCronConfig {
     pub scraper_max_llm_calls_per_listing_source: i64,
     /// Maximum Postgres connections for crawler queries.
     pub db_max_connections: Option<u32>,
-    /// ListingSource crawl hosts, in canonical spelling, whose mass removal an operator confirmed
-    /// as a real bulk clearance: the scraper's mass-removal guard does not hold back their
-    /// removals.
-    pub mass_removal_confirmed_domains: HashSet<String>,
 }
 
 impl Default for CrawlerCronConfig {
@@ -88,25 +77,8 @@ impl Default for CrawlerCronConfig {
             scraper_auto_throttle_alpha: 0.15,
             scraper_max_llm_calls_per_listing_source: DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE,
             db_max_connections: None,
-            mass_removal_confirmed_domains: HashSet::new(),
         }
     }
-}
-
-/// The host names a [`MASS_REMOVAL_CONFIRMED_DOMAINS_ENV`] value lists, each read as a [`Domain`]
-/// in the [canonical spelling](canonical_crawl_host) ListingSource crawl hosts are compared in, so
-/// `www.shop.example` names `shop.example`; empty entries are ignored. An entry that is no domain
-/// fails, so a confirmation an operator mistyped is not silently ignored.
-pub fn mass_removal_confirmed_domains(
-    value: Option<&str>,
-) -> Result<HashSet<String>, InvalidDomain> {
-    value
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| Domain::try_from(entry).map(|domain| canonical_crawl_host(domain.as_str())))
-        .collect()
 }
 
 impl CrawlerCronConfig {
@@ -166,32 +138,6 @@ impl CrawlerCronConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn should_read_confirmed_mass_removal_domains_as_canonical_crawl_hosts() {
-        assert_eq!(
-            mass_removal_confirmed_domains(Some(" www.Butchoff.com, ,shop.example.,")),
-            Ok(HashSet::from([
-                "butchoff.com".to_owned(),
-                "shop.example".to_owned()
-            ]))
-        );
-        assert_eq!(mass_removal_confirmed_domains(None), Ok(HashSet::new()));
-    }
-
-    #[test]
-    fn should_reject_a_confirmed_mass_removal_entry_that_is_no_domain() {
-        for value in [
-            "butchoff.com,https://shop.example/",
-            "localhost",
-            "shop.example:8080",
-        ] {
-            assert!(
-                mass_removal_confirmed_domains(Some(value)).is_err(),
-                "{value}"
-            );
-        }
-    }
 
     #[test]
     fn should_clamp_push_limits_to_non_zero_values() {

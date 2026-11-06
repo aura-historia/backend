@@ -107,7 +107,7 @@ async fn insert_source(
     url: Option<&str>,
     image: Option<&str>,
 ) {
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, image) VALUES ($1, $2, $3, $4, $5, $6)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, listing_source_type) VALUES ($1, $2, $3, $4, $5, $6, 'DEALER')")
             .bind(id)
             .bind(slug)
             .bind(name)

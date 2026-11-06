@@ -382,7 +382,11 @@ function renderSourceHealth() {
     }
     const sources = latestListingSources.slice().sort(compareSourceHealth);
     const needing = sources.filter(needsAttention);
-    const meta = `${sources.length} source${sources.length === 1 ? '' : 's'} · ${needing.length ? `${needing.length} need${needing.length === 1 ? 's' : ''} you` : 'nothing needs you'}`;
+    const crawling = sources.filter(source => source.crawling_since).length;
+    const scraping = sources.filter(source => source.scraping_since).length;
+    const meta = [`${sources.length} source${sources.length === 1 ? '' : 's'}`,
+        needing.length ? `${needing.length} need${needing.length === 1 ? 's' : ''} you` : 'nothing needs you',
+        crawling ? `${crawling} crawling now` : '', scraping ? `${scraping} scraping now` : ''].filter(Boolean).join(' · ');
     const groups = [
         ['Needs attention', needing, false],
         ['Healthy', sources.filter(source => source.crawl_enabled && !needsAttention(source)), false],
@@ -444,7 +448,7 @@ function renderSourceRow(source, disabled) {
       <td>${renderRecentErrors(source)}</td>
       <td>${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
       <td>${renderNextCrawl(source)}</td>
-    </tr>${pages ? `<tr class="subrow"><td></td><td colspan="5">${renderMissingValuePages(id, pages)}</td></tr>` : ''}`;
+    </tr>${pages ? `<tr class="subrow"><td></td><td colspan="5">${renderMissingValuePages(id, pages)}</td></tr>` : ''}${openMassRemovalConfirmations.has(id) ? `<tr class="subrow"><td></td><td colspan="5">${renderMassRemovalConfirmation(id)}</td></tr>` : ''}`;
 }
 
 function issueLine(tone, headline, detail) {
@@ -454,6 +458,7 @@ function issueLine(tone, headline, detail) {
 // The worded status of a source, one line per issue, in the order of severity.
 function renderSourceStatus(source) {
     const lines = [];
+    const id = escapeHtmlAttr(source.listing_source_id);
     if (source.crawl_enabled) {
         if (crawlNeedsOperator(source)) {
             lines.push(issueLine('bad', 'Crawl needs an operator',
@@ -476,20 +481,29 @@ function renderSourceStatus(source) {
                 `${scrapeFailureStreak(source)} in a row · ${escapeHtml(errorKindLabel(source.last_scrape_error_kind))}${source.scrape_failing_since ? ` · since ${timeBadge(source.scrape_failing_since, 'Failing since', true)}` : ''}${paused}`));
         }
         const held = Number(source.held_removal_urls) || 0;
+        const confirmed = Boolean(source.mass_removal_confirmed_until);
         if (held > 0) {
+            const offer = confirmed ? '' : ` · <button class="toggle-link" aria-expanded="${openMassRemovalConfirmations.has(source.listing_source_id)}" onclick="toggleMassRemovalConfirmation('${id}')" type="button">Confirm bulk removal</button>`;
             lines.push(issueLine('warn', `${held} removal${held === 1 ? '' : 's'} held`,
-                `Kept by the mass-removal guard${source.held_since ? ` · held ${timeBadge(source.held_since, 'Last held')}` : ''}`));
+                `Kept by the mass-removal guard${source.held_since ? ` · held ${timeBadge(source.held_since, 'Last held')}` : ''}${offer}`));
+        }
+        if (confirmed) {
+            lines.push(issueLine('ok', 'Bulk removal confirmed',
+                `Removals are captured until ${escapeHtml(formatDate(source.mass_removal_confirmed_until))} (${escapeHtml(untilText(source.mass_removal_confirmed_until))}) · by ${escapeHtml(actorWord(source.mass_removal_confirmed_by))} · <button class="toggle-link" onclick="revokeMassRemovalConfirmation('${id}')" type="button">Revoke</button>`));
         }
     }
     const missing = Number(source.missing_value_urls) || 0;
     if (source.crawl_enabled && missing > 0) {
-        const id = escapeHtmlAttr(source.listing_source_id);
         lines.push(issueLine('', `<button class="toggle-link" aria-expanded="${expandedMissingValueSources.has(source.listing_source_id)}" onclick="toggleMissingValuePages('${id}')" type="button">${missing} page${missing === 1 ? '' : 's'} missing a required value</button>`, ''));
     }
-    if (!lines.length) {
+    const running = [];
+    if (source.crawling_since) running.push(issueLine('ok', 'Crawling now', `started ${timeBadge(source.crawling_since, 'Crawling since')}`));
+    if (source.scraping_since) running.push(issueLine('ok', 'Scraping now', `started ${timeBadge(source.scraping_since, 'Scraping since')}`));
+    if (!lines.length && !running.length) {
         lines.push(!source.crawl_enabled ? issueLine('', 'Crawling disabled', '')
             : source.last_successful_scrape ? issueLine('ok', 'Scraping', '') : issueLine('', 'Not scraped yet', ''));
     }
+    lines.push(...running);
     return `<div class="issues">${lines.join('')}</div>`;
 }
 
@@ -698,6 +712,51 @@ async function reviewMissingValuePage(listingSourceId, index) {
             alert(apiErrorMessage(error));
         }
     });
+}
+
+// A source whose removals the mass-removal guard holds is confirmed as a real bulk clearance for
+// a bounded time, which captures its removals, the held ones at once. The sources whose
+// confirmation form is open; they stay open across the console's polls.
+const openMassRemovalConfirmations = new Set();
+const MASS_REMOVAL_CONFIRMATION_HOURS = [[6, '6 hours'], [24, '24 hours'], [72, '3 days'], [168, '7 days']];
+
+// The handler names the source by id, read from the row's own select, never from the page's HTML.
+function renderMassRemovalConfirmation(listingSourceId) {
+    const id = escapeHtmlAttr(listingSourceId);
+    return `<div class="subpages"><div class="subpage">
+      <span>Capture every removal of this source, the held ones at once, for</span>
+      <select aria-label="Confirmation duration" id="massRemovalHours-${id}">${MASS_REMOVAL_CONFIRMATION_HOURS.map(([hours, label]) =>
+          `<option value="${hours}"${hours === 24 ? ' selected' : ''}>${label}</option>`).join('')}</select>
+      <button class="primary" onclick="confirmMassRemoval('${id}')" type="button">Confirm</button>
+      <button class="quiet" onclick="toggleMassRemovalConfirmation('${id}')" type="button">Cancel</button>
+    </div></div>`;
+}
+
+function toggleMassRemovalConfirmation(listingSourceId) {
+    if (!openMassRemovalConfirmations.delete(listingSourceId)) openMassRemovalConfirmations.add(listingSourceId);
+    showSourceHealth();
+}
+
+async function confirmMassRemoval(listingSourceId) {
+    const hours = Number(document.getElementById(`massRemovalHours-${listingSourceId}`)?.value);
+    if (!hours) return;
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/mass-removal-confirmation`,
+            {method: 'POST', body: JSON.stringify({hours})});
+        openMassRemovalConfirmations.delete(listingSourceId);
+        await loadReviews();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+async function revokeMassRemovalConfirmation(listingSourceId) {
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/mass-removal-confirmation`, {method: 'DELETE'});
+        await loadReviews();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
 }
 
 function reviewMatchesSearch(review, query) {

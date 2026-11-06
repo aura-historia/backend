@@ -92,7 +92,7 @@ From the repository root:
 python3 opensearch/prod/bootstrap.py
 docker compose -f opensearch/prod/compose.yaml --profile public up -d
 # Wait for public TLS issuance, then verify and publish only runtime credentials:
-python3 opensearch/prod/bootstrap.py --verify-public --publish-ssm
+python3 opensearch/prod/bootstrap.py --verify-public --publish-runtime-configuration
 ```
 
 Bootstrap creates only its own labelled volumes, initializes security once, installs
@@ -210,9 +210,10 @@ permissions separately with safe fixtures. Host-local checks do not prove AWS ac
 
 AWS uses **`dev`**, not `stage`: `/opensearch/dev/endpoint-url` selects this service,
 with distinct `reader` and `product-projector` credential pairs. Do not recreate shared
-dev credentials or change unrelated stage parameters. Current CDK references require SSM `String` values, including passwords;
-restrict SSM/function-configuration reads and never expose values in transcripts.
-Rotate host credentials and affected deployed consumers together before revoking old ones.
+dev credentials or change unrelated stage parameters. Endpoint and usernames are SSM `String`
+configuration; passwords are the stage's OpenSearch [runtime credential](infra.md#runtime-credentials)
+secret. Never expose values in transcripts. Rotate host credentials, then release the new secret
+version to affected consumers before revoking old ones.
 
 [`config.ts`](../infra/src/config.ts) declares destination CIDRs and
 [`network.ts`](../infra/src/constructs/network.ts) permits dev application TCP 9443

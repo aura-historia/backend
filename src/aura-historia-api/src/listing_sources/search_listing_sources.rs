@@ -35,6 +35,8 @@ struct SearchListingSourcesQuery {
     #[serde(default)]
     operator_party_id: Option<String>,
     #[serde(default)]
+    listing_source_type: Option<String>,
+    #[serde(default)]
     ingestion_method: Option<String>,
     #[serde(default)]
     platform_technology: Option<String>,
@@ -87,6 +89,14 @@ fn parse_search_listing_sources_query(
             "listingSourceSlugId",
         )?,
         operator_party_id: parse_party_id(query.operator_party_id, "operatorPartyId")?,
+        listing_source_type: query
+            .listing_source_type
+            .map(|value| {
+                value
+                    .parse()
+                    .map_err(|error| bad_query("listingSourceType", error))
+            })
+            .transpose()?,
         ingestion_method: parse_ingestion_method(query.ingestion_method)?,
         platform_technology: query
             .platform_technology
@@ -259,6 +269,7 @@ fn no_store(mut response: Response) -> Response {
 mod tests {
     use super::*;
     use domain_primitives::sort::SortOrder;
+    use listing_source_core::ListingSourceType;
 
     fn cursor(sort_key: ListingSourceSortKey) -> ListingSourceSearchCursor {
         ListingSourceSearchCursor {
@@ -274,7 +285,7 @@ mod tests {
         let operator_party_id = PartyId::new();
         let cursor = cursor(ListingSourceSortKey::Created(OffsetDateTime::UNIX_EPOCH));
         let request = parse_search_listing_sources_query(Some(&format!(
-            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={}",
+            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&listingSourceType=AUCTION_HOUSE&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={}",
             encode_search_after(cursor.clone())
         )))?;
 
@@ -289,6 +300,10 @@ mod tests {
             request.search.listing_source_slug_id
         );
         assert_eq!(Some(operator_party_id), request.search.operator_party_id);
+        assert_eq!(
+            Some(ListingSourceType::AuctionHouse),
+            request.search.listing_source_type
+        );
         assert_eq!(
             Some("CUSTOM_PLATFORM_2"),
             request
@@ -358,6 +373,8 @@ mod tests {
             "listingSourceSlugId=Not-A-Slug",
             "operatorPartyId=not-an-object-id",
             "ingestionMethod=UNKNOWN",
+            "listingSourceType=dealer",
+            "listingSourceType=",
             "platformTechnology=shopify",
             "platformTechnology=",
         ] {

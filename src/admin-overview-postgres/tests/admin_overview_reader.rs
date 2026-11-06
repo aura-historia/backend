@@ -64,7 +64,7 @@ async fn seed_party(pool: &sqlx::PgPool) -> Uuid {
 async fn seed_listing_source(pool: &sqlx::PgPool, party_id: Uuid) -> Uuid {
     let listing_source_id = Uuid::now_v7();
     let result = sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(listing_source_id)
         .bind(format!("source-{}", Uuid::new_v4().simple()))

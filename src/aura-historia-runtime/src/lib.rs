@@ -22,7 +22,6 @@ mod public_overview;
 mod public_party_locations;
 mod public_product_listing_history;
 mod public_product_listings;
-mod rotation;
 mod saved_searches;
 mod shipping_management;
 mod source_location_defaults;
@@ -50,7 +49,6 @@ pub use public_overview::PublicOverview;
 pub use public_party_locations::PublicPartyLocations;
 pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
-pub use rotation::{RotatingRuntime, RuntimeLease};
 pub use saved_searches::SavedSearches;
 pub use shipping_management::ShippingManagement;
 pub use source_location_defaults::SourceLocationDefaults;
@@ -113,7 +111,8 @@ impl Runtime {
         }
     }
 
-    /// Native startup with the existing explicit PostgreSQL environment configuration.
+    /// Startup with the explicit PostgreSQL environment configuration. Lambda functions receive
+    /// these credentials at deployment, so one warm composition serves every invocation.
     pub async fn from_env() -> Result<Self, RuntimeError> {
         let config = postgres::pool_config_from_env()?;
         let pool = config.connect().await.map_err(RuntimeError::Pool)?;
@@ -247,14 +246,6 @@ impl Runtime {
 pub enum RuntimeError {
     #[error("invalid PostgreSQL runtime configuration")]
     PostgresConfig(#[from] PostgresConfigError),
-    #[error("invalid Lambda PostgreSQL runtime configuration")]
-    LambdaConfig(#[from] platform_lambda_bootstrap::LambdaBootstrapConfigError),
-    #[error("PostgreSQL credential provider unavailable")]
-    CredentialsProvider(
-        #[source] platform_postgres_secretsmanager::PostgresCredentialsProviderConfigError,
-    ),
-    #[error("PostgreSQL credential refresh unavailable")]
-    CredentialsRefresh(#[from] platform_postgres::PostgresCredentialRefreshError),
     #[error("failed to create PostgreSQL runtime pool")]
     Pool(#[source] sqlx::Error),
 }
@@ -273,14 +264,7 @@ mod tests {
             SearchPublicListingSourcesRequest,
         },
     };
-    use platform_postgres::{
-        PostgresCredentialRefreshError, PostgresCredentialsProvider, VersionedPostgresCredentials,
-    };
-    use std::{
-        error::Error,
-        process::Command,
-        sync::{Arc, Mutex},
-    };
+    use std::{error::Error, process::Command, sync::Arc};
 
     type TestError = Box<dyn Error + Send + Sync>;
 
@@ -337,138 +321,50 @@ mod tests {
     #[tokio::test]
     #[ignore = "invoked by the anonymous startup test in a clean subprocess"]
     async fn anonymous_bootstrap_probe() -> Result<(), TestError> {
-        let native = Runtime::from_env().await?;
-        let lambda = RotatingRuntime::from_env("aura-historia-runtime-test").await?;
-        let lease = lambda.current().await?;
-        for runtime in [&native, lease.value()] {
-            let profile = runtime.user_profile();
-            assert!(Arc::ptr_eq(&profile.get, &runtime.user_profile().get));
-            assert!(Arc::ptr_eq(&profile.update, &runtime.user_profile().update));
-            let addresses = runtime.private_addresses();
-            assert!(Arc::ptr_eq(
-                &addresses.commands,
-                &runtime.private_addresses().commands
-            ));
-            assert!(Arc::ptr_eq(
-                &addresses.queries,
-                &runtime.private_addresses().queries
-            ));
-            let family = runtime.public_listing_sources();
-            let same = runtime.public_listing_sources();
-            assert!(Arc::ptr_eq(&family.search, &same.search));
-            assert!(Arc::ptr_eq(&family.get_by_slug, &same.get_by_slug));
-            assert!(Arc::ptr_eq(
-                &runtime.public_party_locations().discover,
-                &runtime.public_party_locations().discover,
-            ));
-            assert!(Arc::ptr_eq(
-                &runtime.public_overview().get,
-                &runtime.public_overview().get,
-            ));
-            let auctions = runtime.public_auctions();
-            let same_auctions = runtime.public_auctions();
-            assert!(Arc::ptr_eq(&auctions.get, &same_auctions.get));
-            assert!(Arc::ptr_eq(&auctions.list, &same_auctions.list));
-            assert!(Arc::ptr_eq(&auctions.catalogue, &same_auctions.catalogue));
-            let result = family
-                .search
-                .execute(&context(), search(Some("a"))?)
-                .await?;
-            assert!(result.items.is_empty());
-            assert!(result.continuation.is_none());
-            let history = runtime.public_product_listing_history();
-            assert!(Arc::ptr_eq(
-                &history.get,
-                &runtime.public_product_listing_history().get
-            ));
-            assert_eq!(0, runtime.postgres_pool().size());
-            runtime.postgres_pool().close().await;
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn should_share_warm_handlers_refresh_versions_and_fail_closed_on_refresh_failure()
-    -> Result<(), TestError> {
-        run_probe("tests::rotation_probe")
-    }
-
-    #[tokio::test]
-    #[ignore = "invoked by the rotation test in a clean subprocess"]
-    async fn rotation_probe() -> Result<(), TestError> {
-        let credentials = Arc::new(FixtureCredentials(Mutex::new(Some(version("version-1")?))));
-        let runtime = RotatingRuntime::new(
-            "aura-historia-runtime-test",
-            platform_lambda_bootstrap::LambdaPostgresConfig::from_env()?,
-            credentials.clone(),
-        );
-        let old = runtime.current().await?;
-        let same = runtime.current().await?;
-        assert!(std::ptr::eq(old.value(), same.value()));
-        let old_family = old.value().public_listing_sources();
+        let runtime = Runtime::from_env().await?;
+        let profile = runtime.user_profile();
+        assert!(Arc::ptr_eq(&profile.get, &runtime.user_profile().get));
+        assert!(Arc::ptr_eq(&profile.update, &runtime.user_profile().update));
+        let addresses = runtime.private_addresses();
         assert!(Arc::ptr_eq(
-            &old_family.search,
-            &same.value().public_listing_sources().search
+            &addresses.commands,
+            &runtime.private_addresses().commands
         ));
-
-        *credentials.0.lock().unwrap() = Some(version("version-2")?);
-        let (left, right) = tokio::join!(runtime.current(), runtime.current());
-        let new = left?;
-        let right = right?;
-        assert_eq!("version-2", new.version_id());
-        assert!(std::ptr::eq(new.value(), right.value()));
-        assert!(!Arc::ptr_eq(
-            &old_family.search,
-            &new.value().public_listing_sources().search
+        assert!(Arc::ptr_eq(
+            &addresses.queries,
+            &runtime.private_addresses().queries
         ));
-        assert!(!old.value().postgres_pool().is_closed());
-        assert!(!new.value().postgres_pool().is_closed());
-
-        *credentials.0.lock().unwrap() = None;
-        let (logs, guard) = test_api::CapturedLogs::start();
-        let error = match runtime.current().await {
-            Err(error) => error,
-            Ok(_) => panic!("failed credential refresh must not return a stale composition"),
-        };
-        drop(guard);
-        assert!(matches!(error, RuntimeError::CredentialsRefresh(_)));
-        assert!(error.source().is_some());
-        let setup = logs.events_where("event", "lambda.setup.failed");
-        assert_eq!(1, setup.len());
-        assert_eq!(
-            Some("aura-historia-runtime-test"),
-            setup[0]["component"].as_str()
-        );
-        assert_eq!(Some("credential_refresh"), setup[0]["stage"].as_str());
-        assert_eq!(Some("unavailable"), setup[0]["error_category"].as_str());
-        *credentials.0.lock().unwrap() = Some(version("version-2")?);
-        assert!(std::ptr::eq(new.value(), runtime.current().await?.value()));
-        old.value().postgres_pool().close().await;
-        new.value().postgres_pool().close().await;
+        let family = runtime.public_listing_sources();
+        let same = runtime.public_listing_sources();
+        assert!(Arc::ptr_eq(&family.search, &same.search));
+        assert!(Arc::ptr_eq(&family.get_by_slug, &same.get_by_slug));
+        assert!(Arc::ptr_eq(
+            &runtime.public_party_locations().discover,
+            &runtime.public_party_locations().discover,
+        ));
+        assert!(Arc::ptr_eq(
+            &runtime.public_overview().get,
+            &runtime.public_overview().get,
+        ));
+        let auctions = runtime.public_auctions();
+        let same_auctions = runtime.public_auctions();
+        assert!(Arc::ptr_eq(&auctions.get, &same_auctions.get));
+        assert!(Arc::ptr_eq(&auctions.list, &same_auctions.list));
+        assert!(Arc::ptr_eq(&auctions.catalogue, &same_auctions.catalogue));
+        let result = family
+            .search
+            .execute(&context(), search(Some("a"))?)
+            .await?;
+        assert!(result.items.is_empty());
+        assert!(result.continuation.is_none());
+        let history = runtime.public_product_listing_history();
+        assert!(Arc::ptr_eq(
+            &history.get,
+            &runtime.public_product_listing_history().get
+        ));
+        assert_eq!(0, runtime.postgres_pool().size());
+        runtime.postgres_pool().close().await;
         Ok(())
-    }
-
-    fn version(version: &str) -> Result<VersionedPostgresCredentials, TestError> {
-        Ok(VersionedPostgresCredentials::new(
-            version.to_owned(),
-            "fixture".to_owned(),
-            "fixture-password".to_owned(),
-        )?)
-    }
-
-    struct FixtureCredentials(Mutex<Option<VersionedPostgresCredentials>>);
-
-    #[async_trait::async_trait]
-    impl PostgresCredentialsProvider for FixtureCredentials {
-        async fn current(
-            &self,
-        ) -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError> {
-            self.0
-                .lock()
-                .unwrap()
-                .clone()
-                .ok_or(PostgresCredentialRefreshError::Unavailable)
-        }
     }
 
     #[tokio::test]

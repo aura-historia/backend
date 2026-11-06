@@ -1,5 +1,5 @@
 use super::ReferralConfigurationData;
-use listing_source_core::{ListingIngestionMethod, ListingSourceId};
+use listing_source_core::{ListingIngestionMethod, ListingSourceId, ListingSourceType};
 use listing_source_service::ports::ListingSourceDetails;
 use listing_source_service::use_cases::queries::search_listing_sources::{
     ListingSourceSearchSummary, SearchListingSourcesResult,
@@ -15,6 +15,8 @@ pub(crate) struct ListingSourceData {
     listing_source_id: ListingSourceId,
     listing_source_slug_id: String,
     name: String,
+    #[serde(with = "crate::wire::listing_source_type")]
+    listing_source_type: ListingSourceType,
     operator: OperatorPartyData,
     #[serde(skip_serializing_if = "Option::is_none")]
     platform_technology: Option<String>,
@@ -35,6 +37,7 @@ impl From<ListingSourceDetails> for ListingSourceData {
             listing_source_id: value.listing_source_id,
             listing_source_slug_id: value.slug_id.to_string(),
             name: value.name.to_string(),
+            listing_source_type: value.listing_source_type,
             operator: OperatorPartyData {
                 party_id: value.operator_party_id,
                 party_slug_id: value.operator_slug_id.to_string(),
@@ -88,6 +91,8 @@ pub(crate) struct ListingSourceSearchSummaryData {
     pub(crate) listing_source_id: ListingSourceId,
     pub(crate) listing_source_slug_id: String,
     pub(crate) name: String,
+    #[serde(with = "crate::wire::listing_source_type")]
+    pub(crate) listing_source_type: ListingSourceType,
     operator: OperatorPartyData,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) platform_technology: Option<String>,
@@ -107,6 +112,7 @@ impl From<ListingSourceSearchSummary> for ListingSourceSearchSummaryData {
             listing_source_id: value.listing_source_id,
             listing_source_slug_id: value.listing_source_slug_id.to_string(),
             name: value.name.to_string(),
+            listing_source_type: value.listing_source_type,
             operator: OperatorPartyData {
                 party_id: value.operator.party_id,
                 party_slug_id: value.operator.party_slug_id.to_string(),

@@ -19,6 +19,7 @@ export interface PostgresConnectionSettings {
   readonly database: string;
   readonly maxConnections: string;
   readonly tlsRootCert: string;
+  /** Transitional (#2798): only for runtime grants that outlive the deploy-time credential cutover. */
   readonly secretArn?: string;
 }
 

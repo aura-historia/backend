@@ -33,6 +33,7 @@ use crawler::scraper::css_selector::removed_page_schema_repository::{
     RemovedPageSchemaRepository, RemovedPageSchemaRepositoryImpl,
 };
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::scraper::removal_guard::MassRemovalConfirmationHours;
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
     SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
@@ -45,10 +46,12 @@ use crawler::spider::classification::url_metadata_repository::{
     DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryImpl,
 };
 use crawler::spider::crawled_root::CrawledRoot;
+use crawler::spider::local_lock::{LocalLockManager, WorkLock, WorkLockScope};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
 use serde_json::json;
 use sqlx::{AssertSqlSafe, PgPool};
+use std::sync::Arc;
 use test_api::*;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -5160,5 +5163,181 @@ async fn should_keep_the_review_pending_when_the_stored_removed_page_templates_d
             .await
             .unwrap()
             .is_none()
+    );
+}
+
+/// The listing of `listing_source_id` among `ListingSourceOverviewReader::list_listing_sources`.
+async fn overview_of(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+) -> crawler::review::model::ListingSourceOverview {
+    ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(10)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|source| source.listing_source_id == listing_source_id)
+        .expect("the source is listed")
+}
+
+/// Confirming makes the held removals of the source due at once, in the confirmation's
+/// transaction, and leaves every other URL as it is; revoking clears the confirmation.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_confirm_a_mass_removal_and_rearm_its_held_urls() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    set_crawl_root(&pool, listing_source_id, "clearance.example.com").await;
+    for url in [
+        "https://clearance.example.com/item/1",
+        "https://clearance.example.com/item/2",
+        "https://clearance.example.com/item/3",
+    ] {
+        insert_scraped_url(
+            &pool,
+            listing_source_id,
+            url,
+            "product",
+            "ACTIVE",
+            Some("2026-10-31T08:00:00Z"),
+        )
+        .await;
+    }
+    for held in [
+        "https://clearance.example.com/item/1",
+        "https://clearance.example.com/item/2",
+    ] {
+        set_url_error_kind(&pool, held, "MassRemovalHeld", None).await;
+    }
+
+    let confirmation = repository
+        .confirm_mass_removal(
+            &listing_source_id,
+            ReviewActor::Human,
+            MassRemovalConfirmationHours::try_from_hours(24).unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(confirmation.rearmed_held_urls, 2);
+    let never_scraped: Vec<String> = sqlx::query_scalar(
+        "SELECT url FROM listing_source_urls \
+         WHERE listing_source_id = $1 AND last_scraped IS NULL ORDER BY url",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        never_scraped,
+        vec![
+            "https://clearance.example.com/item/1",
+            "https://clearance.example.com/item/2"
+        ]
+    );
+    let source = overview_of(&pool, listing_source_id).await;
+    assert_eq!(source.mass_removal_confirmed_by, Some(ReviewActor::Human));
+    let until = source.mass_removal_confirmed_until.unwrap();
+    assert_eq!(until, confirmation.mass_removal_confirmed_until);
+    let remaining = until - OffsetDateTime::now_utc();
+    assert!(
+        remaining > time::Duration::hours(23) && remaining <= time::Duration::hours(24),
+        "{remaining}"
+    );
+
+    repository
+        .revoke_mass_removal_confirmation(&listing_source_id, ReviewActor::Human)
+        .await
+        .unwrap();
+
+    let source = overview_of(&pool, listing_source_id).await;
+    assert_eq!(source.mass_removal_confirmed_until, None);
+    assert_eq!(source.mass_removal_confirmed_by, None);
+    let unknown = ListingSourceId::new();
+    assert!(matches!(
+        repository
+            .confirm_mass_removal(
+                &unknown,
+                ReviewActor::Human,
+                MassRemovalConfirmationHours::try_from_hours(1).unwrap()
+            )
+            .await,
+        Err(ReviewRepositoryError::ListingSourceNotFound(id)) if id == unknown
+    ));
+    assert!(matches!(
+        repository
+            .revoke_mass_removal_confirmation(&unknown, ReviewActor::Human)
+            .await,
+        Err(ReviewRepositoryError::ListingSourceNotFound(id)) if id == unknown
+    ));
+}
+
+/// The overview reports what the guard applies: a confirmation that ran out reads as none.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_list_an_expired_mass_removal_confirmation() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET mass_removal_confirmed_until = NOW() - INTERVAL '1 second', \
+             mass_removal_confirmed_by = 'HUMAN' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let source = overview_of(&pool, listing_source_id).await;
+
+    assert_eq!(source.mass_removal_confirmed_until, None);
+    assert_eq!(source.mass_removal_confirmed_by, None);
+}
+
+/// A source the crawler is working on right now is listed beyond the row limit, with the
+/// component and since when; a source nothing works on carries neither.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_a_running_source_beyond_the_row_limit() {
+    let pool = get_postgres_client().await;
+    let sources = [
+        ListingSourceId::new(),
+        ListingSourceId::new(),
+        ListingSourceId::new(),
+    ];
+    for listing_source_id in sources {
+        insert_listing_source(&pool, listing_source_id).await;
+    }
+    let work_locks = Arc::new(LocalLockManager::new());
+    let reader =
+        ListingSourceOverviewReader::new(pool.clone()).with_work_locks(Arc::clone(&work_locks));
+
+    let unlocked = reader.list_listing_sources(1).await.unwrap();
+    assert_eq!(unlocked.len(), 1);
+    let running_id = sources
+        .into_iter()
+        .find(|id| *id != unlocked[0].listing_source_id)
+        .unwrap();
+    let _lock = WorkLock::try_acquire(&work_locks, WorkLockScope::Scraper, running_id).unwrap();
+
+    let listed = reader.list_listing_sources(1).await.unwrap();
+
+    assert_eq!(listed.len(), 2);
+    let running = listed
+        .iter()
+        .find(|source| source.listing_source_id == running_id)
+        .expect("the running source is listed");
+    let since = running.scraping_since.expect("scraping since");
+    assert!(
+        (OffsetDateTime::now_utc() - since).abs() < time::Duration::seconds(10),
+        "{since}"
+    );
+    assert_eq!(running.crawling_since, None);
+    assert!(
+        listed
+            .iter()
+            .filter(|source| source.listing_source_id != running_id)
+            .all(|source| source.scraping_since.is_none() && source.crawling_since.is_none())
     );
 }

@@ -620,6 +620,13 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
         .await
         .unwrap_or_else(|error| panic!("set platform search fixture: {error}"));
     }
+    sqlx::query(
+        "UPDATE listing_sources SET listing_source_type = 'MARKETPLACE' WHERE listing_source_id = $1",
+    )
+    .bind(matching_id.into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("set type search fixture: {error}"));
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(listing_sources_token(admin_id).await);
     let client = reqwest::Client::new();
@@ -631,6 +638,7 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
         ("operatorPartyId", matching_operator_id.to_string()),
         ("ingestionMethod", "SHOPIFY".to_owned()),
         ("platformTechnology", "BIGCOMMERCE".to_owned()),
+        ("listingSourceType", "MARKETPLACE".to_owned()),
         ("listingSourceId", matching_id.to_string()),
         ("listingSourceSlugId", matching_slug.clone()),
     ] {
@@ -662,6 +670,7 @@ async fn should_filter_listing_sources_by_text_name_operator_method_and_exact_id
             .bearer_auth(token.clone())
             .query(&[
                 ("platformTechnology", "BIGCOMMERCE"),
+                ("listingSourceType", "MARKETPLACE"),
                 ("ingestionMethod", method),
             ])
             .send()
@@ -1036,6 +1045,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
         .json(&json!({
             "name": "Created Listing Source",
             "platformTechnology": "BIGCOMMERCE",
+            "listingSourceType": "AUCTION_HOUSE",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{"type": "PARTNER_API"}],
             "url": "https://created-listing-source.example/",
@@ -1085,6 +1095,10 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
     assert_eq!(json!(["PARTNER_API"]), body["items"][0]["ingestionMethods"]);
     assert_eq!(json!("BIGCOMMERCE"), body["items"][0]["platformTechnology"]);
     assert_eq!(
+        json!("AUCTION_HOUSE"),
+        body["items"][0]["listingSourceType"]
+    );
+    assert_eq!(
         json!({"type": "PARTNERIZE", "camref": "campaign123"}),
         body["items"][0]["referralConfiguration"]
     );
@@ -1104,6 +1118,7 @@ async fn should_create_listing_source_without_ingestion_configuration() {
         .json(&json!({
             "name": "Unconfigured Listing Source",
             "platformTechnology": "CUSTOM_PLATFORM_2",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": []
         }))
@@ -1153,6 +1168,7 @@ async fn should_reject_noncanonical_party_ids_in_listing_source_body() {
             .bearer_auth(String::from(token.clone()))
             .json(&json!({
                 "name": "Invalid Existing Operator",
+                "listingSourceType": "DEALER",
                 "operator": {"type": "EXISTING", "partyId": invalid_id},
                 "ingestionConfiguration": [{"type": "PARTNER_API"}]
             }))
@@ -1186,6 +1202,7 @@ async fn should_create_listing_source_with_new_party_without_echoing_webhook_sec
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "  WooCommerce Listing Source  ",
+            "listingSourceType": "DEALER",
             "operator": {
                 "type": "NEW",
                 "name": "  New Listing Source Operator  ",
@@ -1250,6 +1267,7 @@ async fn should_require_nested_woocommerce_secret_on_admin_create() {
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "Missing WooCommerce Secret",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{"type": "WOOCOMMERCE", "currency": "EUR"}]
         }))
@@ -1277,6 +1295,7 @@ async fn should_reject_listing_source_create_for_non_admin() {
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "Unauthorized Listing Source",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{"type": "PARTNER_API"}]
         }))
@@ -1301,6 +1320,7 @@ async fn should_reject_listing_source_create_with_secret_for_non_woocommerce_sou
         .bearer_auth(String::from(token))
         .json(&json!({
             "name": "Invalid Secret Listing Source",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{"type": "PARTNER_API"}],
             "woocommerceWebhookSecret": "must-not-be-stored"
@@ -1332,6 +1352,7 @@ async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "First Shopify Listing Source",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{
                 "type": "SHOPIFY",
@@ -1350,6 +1371,7 @@ async fn should_map_duplicate_shopify_domain_to_conflict_on_admin_create() {
         .bearer_auth(token)
         .json(&json!({
             "name": "Second Shopify Listing Source",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{
                 "type": "SHOPIFY",
@@ -1383,6 +1405,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "  Renamed Listing Source  ",
+            "listingSourceType": "AUCTION_PLATFORM",
             "platformTechnology": "BIGCOMMERCE",
             "ingestionConfiguration": [{
                 "type": "WOOCOMMERCE",
@@ -1419,6 +1442,7 @@ async fn should_update_listing_source_at_admin_route_with_tri_state_patch() {
     assert_eq!(json!(original_slug), detail_body["listingSourceSlugId"]);
     assert_eq!(json!(["WOOCOMMERCE"]), detail_body["ingestionMethods"]);
     assert_eq!(json!("BIGCOMMERCE"), detail_body["platformTechnology"]);
+    assert_eq!(json!("AUCTION_PLATFORM"), detail_body["listingSourceType"]);
     assert_eq!(
         json!("https://updated-listing-source.example/"),
         detail_body["url"]
@@ -2146,6 +2170,7 @@ async fn should_map_listing_source_update_provider_conflict_to_conflict() {
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "First Update Conflict ListingSource",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{
                 "type": "SHOPIFY",
@@ -2162,6 +2187,7 @@ async fn should_map_listing_source_update_provider_conflict_to_conflict() {
         .bearer_auth(token.clone())
         .json(&json!({
             "name": "Second Update Conflict ListingSource",
+            "listingSourceType": "DEALER",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{
                 "type": "SHOPIFY",

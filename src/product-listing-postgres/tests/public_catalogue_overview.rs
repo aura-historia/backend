@@ -11,6 +11,7 @@ use product_listing_service::{
     use_cases::{
         PublicCatalogueOverview, PublicCatalogueOverviewRefresh,
         RefreshPublicCatalogueOverviewHandler, RefreshPublicCatalogueOverviewUseCase,
+        SourcesIndexedByType,
     },
 };
 use serde_json::json;
@@ -104,14 +105,15 @@ async fn seed_party(pool: &sqlx::PgPool) -> Uuid {
     party_id
 }
 
-async fn seed_source(pool: &sqlx::PgPool, party_id: Uuid) -> Uuid {
+async fn seed_source(pool: &sqlx::PgPool, party_id: Uuid, listing_source_type: &str) -> Uuid {
     let listing_source_id = Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(listing_source_id)
     .bind(format!("source-{}", listing_source_id.simple()))
     .bind("Public overview source")
+    .bind(listing_source_type)
     .bind(party_id)
     .execute(pool)
     .await
@@ -295,6 +297,12 @@ async fn should_return_zero_counts_at_calculation_time_for_empty_catalogue() {
         PublicCatalogueOverview {
             as_of: overview.as_of,
             sources_indexed: 0,
+            sources_indexed_by_type: SourcesIndexedByType {
+                dealers: 0,
+                auction_houses: 0,
+                marketplaces: 0,
+                auction_platforms: 0,
+            },
             live_objects: 0,
             countries: 0,
             languages: 0,
@@ -308,9 +316,9 @@ async fn should_return_zero_counts_at_calculation_time_for_empty_catalogue() {
 async fn should_count_only_active_listings_and_sources_with_live_listings() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
-    let live_source = seed_source(&pool, party_id).await;
-    let withdrawn_only_source = seed_source(&pool, party_id).await;
-    let _empty_source = seed_source(&pool, party_id).await;
+    let live_source = seed_source(&pool, party_id, "DEALER").await;
+    let withdrawn_only_source = seed_source(&pool, party_id, "DEALER").await;
+    let _empty_source = seed_source(&pool, party_id, "DEALER").await;
     for availability in [Some("AVAILABLE"), Some("SOLD_OUT"), None] {
         seed_listing(
             &pool,
@@ -332,10 +340,75 @@ async fn should_count_only_active_listings_and_sources_with_live_listings() {
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_split_sources_with_live_listings_by_listing_source_type() {
+    let pool = get_postgres_client().await;
+    let party_id = seed_party(&pool).await;
+    for (listing_source_type, listings) in [
+        ("DEALER", vec![Listing::active(), Listing::active()]),
+        ("DEALER", vec![Listing::active()]),
+        ("AUCTION_HOUSE", vec![Listing::active()]),
+        ("MARKETPLACE", vec![Listing::withdrawn()]),
+        (
+            "AUCTION_PLATFORM",
+            vec![Listing::active(), Listing::withdrawn()],
+        ),
+    ] {
+        let source = seed_source(&pool, party_id, listing_source_type).await;
+        for (index, listing) in listings.into_iter().enumerate() {
+            let title_language = if index == 0 { Some("de") } else { Some("en") };
+            let listing = seed_listing(
+                &pool,
+                source,
+                Listing {
+                    title_language,
+                    ..listing
+                },
+            )
+            .await;
+            seed_geography(&pool, listing, None, Some(Some(["DE", "FR"][index % 2]))).await;
+        }
+    }
+
+    let overview = read_overview().await;
+
+    assert_eq!(4, overview.sources_indexed);
+    assert_eq!(
+        SourcesIndexedByType {
+            dealers: 2,
+            auction_houses: 1,
+            marketplaces: 0,
+            auction_platforms: 1,
+        },
+        overview.sources_indexed_by_type
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reject_stored_sources_indexed_by_type_that_do_not_sum_to_sources_indexed() {
+    let pool = get_postgres_client().await;
+    read_overview().await;
+
+    let error = sqlx::query(
+        "UPDATE public_catalogue_overview SET marketplace_sources_indexed = marketplace_sources_indexed + 1",
+    )
+    .execute(&pool)
+    .await
+    .err()
+    .unwrap_or_else(|| panic!("an inconsistent split must be rejected"));
+
+    assert_eq!(
+        Some("public_catalogue_overview_sources_indexed_by_type_check"),
+        error
+            .as_database_error()
+            .and_then(|error| error.constraint())
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_union_original_title_and_description_languages_without_multiplying_counts() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
-    let source = seed_source(&pool, party_id).await;
+    let source = seed_source(&pool, party_id, "DEALER").await;
     let mut listings = Vec::new();
     for (title_language, description_language) in [
         (Some("de"), Some("en")),
@@ -385,7 +458,7 @@ async fn should_union_original_title_and_description_languages_without_multiplyi
 async fn should_count_distinct_advertised_inventory_countries_of_live_listings() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
-    let source = seed_source(&pool, party_id).await;
+    let source = seed_source(&pool, party_id, "DEALER").await;
     for (business, inventory) in [
         (None, Some(Some("DE"))),
         (Some("AT"), Some(Some("DE"))),
@@ -410,7 +483,7 @@ async fn should_count_distinct_advertised_inventory_countries_of_live_listings()
 async fn should_count_live_listings_created_in_the_seven_days_ending_at_as_of() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
-    let source = seed_source(&pool, party_id).await;
+    let source = seed_source(&pool, party_id, "DEALER").await;
     for created_hours_ago in [0, 24 * 6, 24 * 7 - 1, 24 * 7 + 1, 24 * 30, -1] {
         seed_listing(
             &pool,
@@ -442,8 +515,8 @@ async fn should_count_live_listings_created_in_the_seven_days_ending_at_as_of() 
 async fn should_read_inventory_country_from_the_effective_geography_projection() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
-    let inventory_source = seed_source(&pool, party_id).await;
-    let business_source = seed_source(&pool, party_id).await;
+    let inventory_source = seed_source(&pool, party_id, "DEALER").await;
+    let business_source = seed_source(&pool, party_id, "DEALER").await;
     for (source, country, scope) in [
         (inventory_source, "DE", "ADVERTISED_INVENTORY"),
         (business_source, "FR", "ASSOCIATED_BUSINESS"),

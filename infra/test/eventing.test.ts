@@ -110,8 +110,8 @@ describe.each(STAGES)("%s native eventing", (stage) => {
     ]));
     expect(JSON.stringify(schedulerPolicy?.Properties.PolicyDocument.Statement)).toContain(`:function:fxrate-lambda-${stage}`);
     expect(JSON.stringify(compute.toJSON())).not.toContain("FxRateSyncVersion");
-    expect(JSON.stringify(compute.toJSON())).not.toContain(`/fxratesapi/${stage}/api-token`);
-    expect(JSON.stringify(initialize!.toJSON())).toContain(`/fxratesapi/${stage}/api-token`);
+    expect(JSON.stringify(compute.toJSON())).not.toContain(`/aura-historia/${stage}/app/fxratesapi`);
+    expect(JSON.stringify(initialize!.toJSON())).toContain(`/aura-historia/${stage}/app/fxratesapi`);
   });
 });
 

@@ -5,14 +5,12 @@ use opensearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
 };
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
-    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
-    required_config_from_env,
+    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
+    logging_config_from_env, required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
 
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_opensearch_lambda::{
     compose_projection_use_case, handler_with_invocation_budget, invocation_budget,
 };
@@ -32,30 +30,22 @@ async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
-    let postgres = LambdaPostgresConfig::from_env()?;
-    let credentials = postgres_credentials_provider_from_env()
-        .await
-        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+    let postgres = RuntimePostgresConfig::from_env()?;
     let open_search = open_search_client(OpenSearchConfig::from_env()?)?;
-    let use_cases = Arc::new(VersionedCompositionCache::new());
+    let use_cases = Arc::new(LazyComposition::new());
 
     log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(
         move |event: LambdaEvent<aws_lambda_events::sqs::SqsEvent>| {
             let postgres = postgres.clone();
-            let credentials = Arc::clone(&credentials);
             let open_search = open_search.clone();
             let use_cases = Arc::clone(&use_cases);
             async move {
                 log_invocation_start(COMPONENT, &event.context);
                 handle_invocation(event, move || async move {
-                    let credentials =
-                        current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                     use_cases
-                        .get_or_try_build(credentials.version_id(), || async {
-                            let pool = postgres
-                                .connect(COMPONENT, credentials.credentials())
-                                .await?;
+                        .get_or_try_build(|| async {
+                            let pool = postgres.connect(COMPONENT).await?;
                             Ok::<_, Error>(compose_projection_use_case(
                                 pool,
                                 open_search,
@@ -72,7 +62,6 @@ async fn main() -> Result<(), Error> {
 }
 
 type ProjectionUseCase = Arc<dyn ProjectProductListingUseCase>;
-type ProjectionUseCaseLease = VersionedCompositionLease<ProjectionUseCase>;
 
 /// Keeps setup and record work inside the one Lambda invocation budget.
 async fn handle_invocation<F, Fut>(
@@ -81,7 +70,7 @@ async fn handle_invocation<F, Fut>(
 ) -> Result<aws_lambda_events::sqs::SqsBatchResponse, Error>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<ProjectionUseCaseLease, Error>>,
+    Fut: Future<Output = Result<ProjectionUseCase, Error>>,
 {
     handle_sqs_invocation(
         event,
@@ -89,7 +78,7 @@ where
         invocation_budget,
         setup,
         |event, use_case, budget| async move {
-            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+            handler_with_invocation_budget(event, use_case.as_ref(), &budget).await
         },
     )
     .await
@@ -171,7 +160,7 @@ mod tests {
         let setup_polls = Arc::clone(&polls);
         let response = handle_invocation(event_with_records(Duration::ZERO), move || async move {
             setup_polls.fetch_add(1, Ordering::AcqRel);
-            std::future::pending::<Result<ProjectionUseCaseLease, Error>>().await
+            std::future::pending::<Result<ProjectionUseCase, Error>>().await
         })
         .await;
 
@@ -185,13 +174,13 @@ mod tests {
 
     #[tokio::test]
     async fn should_retain_every_record_when_the_actual_invocation_waits_on_a_composition_build() {
-        let cache = Arc::new(VersionedCompositionCache::<ProjectionUseCase>::new());
+        let cache = Arc::new(LazyComposition::<ProjectionUseCase>::new());
         let started = Arc::new(Notify::new());
         let held_cache = Arc::clone(&cache);
         let held_started = Arc::clone(&started);
         let holder = tokio::spawn(async move {
             held_cache
-                .get_or_try_build("version-1", move || async move {
+                .get_or_try_build(move || async move {
                     held_started.notify_one();
                     std::future::pending::<Result<ProjectionUseCase, Error>>().await
                 })
@@ -204,7 +193,7 @@ mod tests {
             event_with_records(Duration::from_millis(100)),
             move || async move {
                 waiting_cache
-                    .get_or_try_build("version-1", || async {
+                    .get_or_try_build(|| async {
                         std::future::pending::<Result<ProjectionUseCase, Error>>().await
                     })
                     .await
@@ -223,19 +212,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_stop_a_blocked_credential_refresh_at_the_usable_budget() {
+    async fn should_stop_a_blocked_setup_at_the_usable_budget() {
         let budget = budget_with_usable_time(Duration::from_millis(100));
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
         let operation_started = Arc::clone(&started);
         let operation_release = Arc::clone(&release);
 
-        let refresh = async move {
+        let setup = async move {
             operation_started.notify_one();
             operation_release.notified().await;
             Ok::<_, ()>(())
         };
-        let (result, ()) = tokio::join!(run_setup_with_budget(&budget, || refresh), async {
+        let (result, ()) = tokio::join!(run_setup_with_budget(&budget, || setup), async {
             started.notified().await
         });
 
@@ -244,8 +233,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_stop_when_a_versioned_composition_waits_on_an_active_build() {
-        let cache = Arc::new(VersionedCompositionCache::<usize>::new());
+    async fn should_stop_when_a_lazy_composition_waits_on_an_active_build() {
+        let cache = Arc::new(LazyComposition::<usize>::new());
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
         let held_cache = Arc::clone(&cache);
@@ -253,7 +242,7 @@ mod tests {
         let held_release = Arc::clone(&release);
         let holder = tokio::spawn(async move {
             held_cache
-                .get_or_try_build("version-1", move || async move {
+                .get_or_try_build(move || async move {
                     held_started.notify_one();
                     held_release.notified().await;
                     Ok::<_, ()>(1)
@@ -264,7 +253,7 @@ mod tests {
 
         let budget = budget_with_usable_time(Duration::from_millis(100));
         let result = run_setup_with_budget(&budget, || {
-            cache.get_or_try_build("version-1", || async { Ok::<_, ()>(2) })
+            cache.get_or_try_build(|| async { Ok::<_, ()>(2) })
         })
         .await;
 

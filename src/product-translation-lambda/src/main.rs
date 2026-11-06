@@ -4,13 +4,11 @@ use large_language_model::{
     ClaudeReducedThinkingEffort,
 };
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, VersionedCompositionLease,
-    current_postgres_credentials, log_cold_start, log_invocation_start, logging_config_from_env,
-    required_config_from_env,
+    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
+    logging_config_from_env, required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
 use platform_observability::init;
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_service::use_cases::TranslateProductListingEventUseCase;
 use product_translation_lambda::{
     compose_product_translation_use_case, handler_with_invocation_budget, invocation_budget,
@@ -36,30 +34,22 @@ fn main() -> Result<(), Error> {
 }
 
 async fn async_main(initialization_started_at: Instant) -> Result<(), Error> {
-    let postgres = LambdaPostgresConfig::from_env()?;
-    let credentials = postgres_credentials_provider_from_env()
-        .await
-        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
+    let postgres = RuntimePostgresConfig::from_env()?;
     let anthropic = AnthropicCredentials::from_env()?;
-    let use_cases = Arc::new(VersionedCompositionCache::new());
+    let use_cases = Arc::new(LazyComposition::new());
 
     log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(
         move |event: LambdaEvent<aws_lambda_events::sqs::SqsEvent>| {
             let postgres = postgres.clone();
-            let credentials = Arc::clone(&credentials);
             let anthropic = anthropic.clone();
             let use_cases = Arc::clone(&use_cases);
             async move {
                 log_invocation_start(COMPONENT, &event.context);
                 handle_invocation(event, move || async move {
-                    let credentials =
-                        current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                     use_cases
-                        .get_or_try_build(credentials.version_id(), || async {
-                            let pool = postgres
-                                .connect(COMPONENT, credentials.credentials())
-                                .await?;
+                        .get_or_try_build(|| async {
+                            let pool = postgres.connect(COMPONENT).await?;
                             let model = anthropic.large_language_model()?;
                             Ok::<_, Error>(compose_product_translation_use_case(pool, model))
                         })
@@ -73,7 +63,6 @@ async fn async_main(initialization_started_at: Instant) -> Result<(), Error> {
 }
 
 type ProductTranslationUseCase = Arc<dyn TranslateProductListingEventUseCase>;
-type ProductTranslationUseCaseLease = VersionedCompositionLease<ProductTranslationUseCase>;
 
 async fn handle_invocation<F, Fut>(
     event: LambdaEvent<aws_lambda_events::sqs::SqsEvent>,
@@ -81,7 +70,7 @@ async fn handle_invocation<F, Fut>(
 ) -> Result<aws_lambda_events::sqs::SqsBatchResponse, Error>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<ProductTranslationUseCaseLease, Error>>,
+    Fut: Future<Output = Result<ProductTranslationUseCase, Error>>,
 {
     handle_sqs_invocation(
         event,
@@ -89,7 +78,7 @@ where
         invocation_budget,
         setup,
         |event, use_case, budget| async move {
-            handler_with_invocation_budget(event, use_case.value().as_ref(), &budget).await
+            handler_with_invocation_budget(event, use_case.as_ref(), &budget).await
         },
     )
     .await

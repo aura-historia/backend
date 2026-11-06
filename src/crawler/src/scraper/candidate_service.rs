@@ -239,6 +239,14 @@ pub trait ScraperCandidateService: Send + Sync {
     /// product URL pattern and their URL-pattern review is pending, so the spider classified none
     /// of their URLs as products.
     async fn sources_awaiting_review(&self) -> Result<Vec<SourceAwaitingReview>, sqlx::Error>;
+    /// The end of the operator's confirmation of the ListingSource's mass removal while it is still
+    /// in the future, else `None`: the mass-removal guard captures the source's removals until then
+    /// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`). Read when a batch's removals
+    /// are a mass removal, so a confirmation or its revocation applies to the next batch.
+    async fn mass_removal_confirmed_until(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Option<OffsetDateTime>, sqlx::Error>;
     /// Returns a random sample of product URLs for a ListingSource, other than the stored URLs
     /// `excluded_urls` names, to seed first-time schema generation with additional page layouts.
     /// A URL is drawn only while its retry is due and it recorded no fetch failure or
@@ -1637,6 +1645,21 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .unwrap_or(false);
 
         Ok(exhausted)
+    }
+
+    async fn mass_removal_confirmed_until(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Option<OffsetDateTime>, sqlx::Error> {
+        sqlx::query_scalar::<_, OffsetDateTime>(
+            "SELECT mass_removal_confirmed_until
+             FROM listing_sources
+             WHERE listing_source_id = $1
+               AND mass_removal_confirmed_until > NOW()",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_optional(&self.pool)
+        .await
     }
 
     async fn get_listing_source_llm_usage(

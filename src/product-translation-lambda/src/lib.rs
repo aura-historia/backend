@@ -23,7 +23,7 @@ use std::{sync::Arc, time::Duration};
 use tracing::{info, warn};
 
 // The translator has a bounded 30-second provider request. The remaining envelope covers source
-// reads, guarded persistence, credential refresh, and returning the partial SQS failure response.
+// reads, guarded persistence, composition, and returning the partial SQS failure response.
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
 const MAX_RECORD_PROCESSING_BUDGET: Duration = Duration::from_secs(40);

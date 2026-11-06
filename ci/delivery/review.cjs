@@ -73,7 +73,7 @@ async function invoke(ctx, evidence, config, options = {}) {
     config.modelId === "UNCONFIGURED" ||
     config.effort !== "high" ||
     !["prod", "dev"].includes(ctx.target) ||
-    config.apiKeyParameterName !== `/anthropic/${ctx.target}/api-key` ||
+    config.apiKeySecretName !== `/aura-historia/${ctx.target}/app/anthropic` ||
     !Number.isInteger(config.maxTokens) ||
     config.maxTokens < 1024 ||
     config.maxTokens > 16000

@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import type { StageName } from "../src/config";
+import { credentialSecrets } from "../src/credentials";
+import { credentialReference, transitionalRuntimeSecretGrant } from "./credential-reference";
 
 const REAL_STAGES = ["dev", "prod"] as const;
 const PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE = "/opt/aura-historia/rds-ca/global-bundle.pem";
@@ -125,7 +127,7 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       resource.Properties.FunctionName === `database-migration-lambda-${stage}`,
     );
     const runtimeFunctions = functions.filter((resource) =>
-      resource.Properties.Environment.Variables.POSTGRES_SECRET_ARN !== undefined,
+      resource.Properties.Environment.Variables.POSTGRES_PASSWORD !== undefined,
     );
 
     expect(functions).toHaveLength(25);
@@ -166,28 +168,19 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     );
     expect(fx?.Properties).toMatchObject({ Runtime: "provided.al2023", Timeout: 10, MemorySize: 128 });
     expect(fx?.Properties.Environment.Variables).toMatchObject({
-      FXRATES_API_TOKEN: `{{resolve:ssm:/fxratesapi/${stage}/api-token}}`,
+      FXRATES_API_TOKEN: credentialReference(credentialSecrets(stage).fxRatesApi, "apiToken"),
       POSTGRES_TLS_ROOT_CERT: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
     });
     expect(fx?.Properties.Environment.Variables.POSTGRES_ADMIN_SECRET_ARN).toBeUndefined();
     expect(fx?.Properties.Environment.Variables.POSTGRES_MIGRATION_SECRET_ARN).toBeUndefined();
     expect(JSON.stringify(compute.toJSON())).toContain(`backend-cleanup-lambda-${stage}`);
-    const runtimeSecretArn = runtimeFunctions[0].Properties.Environment.Variables.POSTGRES_SECRET_ARN;
-    expect(runtimeSecretArn).toBeDefined();
+    const runtime = credentialSecrets(stage).postgresRuntime;
     for (const functionResource of runtimeFunctions) {
       const environment = functionResource.Properties.Environment.Variables;
       expect(JSON.stringify(environment.POSTGRES_HOST)).not.toContain(`/postgres/${stage}/host`);
-      expect(environment.POSTGRES_SECRET_ARN).toEqual(runtimeSecretArn);
-      expect(environment.POSTGRES_USERNAME).toBeUndefined();
-      expect(environment.POSTGRES_PASSWORD).toBeUndefined();
-      const secretsManagerEnvironmentKeys = Object.entries(environment)
-        .filter(([, value]) => typeof value === "string" && value.includes("resolve:secretsmanager:"))
-        .map(([name]) => name);
-      const isApiFunction = functionResource.Properties.FunctionName === `aura-historia-api-${stage}`;
-      expect(secretsManagerEnvironmentKeys).toEqual([]);
-      if (isApiFunction) {
-        expect(environment.LOOPS_API_KEY).toBe(`{{resolve:ssm:/loops/${stage}/api-key}}`);
-      }
+      expect(environment.POSTGRES_SECRET_ARN).toBeUndefined();
+      expect(environment.POSTGRES_USERNAME).toEqual(credentialReference(runtime, "username"));
+      expect(environment.POSTGRES_PASSWORD).toEqual(credentialReference(runtime, "password"));
       expect(environment.POSTGRES_MAX_CONNECTIONS).toBe("1");
       expect(environment.POSTGRES_TLS_ROOT_CERT).toBe(PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE);
       expect(functionResource.Properties.Layers).toHaveLength(1);
@@ -217,9 +210,6 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
     ]
       .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
-    const runtimeSecretReadStatements = secretReadStatements.filter((statement) =>
-      JSON.stringify(statement.Resource) === JSON.stringify(runtimeSecretArn),
-    );
     const migrationSecretReadStatement = secretReadStatements.find((statement) =>
       Array.isArray(statement.Resource) && statement.Resource.length === 5,
     );
@@ -227,9 +217,22 @@ describe.each(REAL_STAGES)("%s RDS PostgreSQL foundation", (stage) => {
       .filter(([id]) => id.includes("PeriodicMatcherExecutionRole"))
       .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement)
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:GetSecretValue"));
-    expect(runtimeSecretReadStatements).toHaveLength(runtimeFunctions.length + 1);
-    expect(matcherExecutionSecretReads).toHaveLength(1);
-    expect(matcherExecutionSecretReads[0].Resource).toEqual(runtimeSecretArn);
+    // Runtime functions and the matcher task receive credentials at deployment; only the compute
+    // Lambdas keep a transitional grant. Bootstrap (five role secrets), inspection and migration
+    // read theirs when invoked.
+    const transitional = JSON.stringify(transitionalRuntimeSecretGrant(stage));
+    const computeRuntimeFunctions = runtimeFunctions.filter((resource) => resource.Properties.FunctionName !== `fxrate-lambda-${stage}`);
+    expect(secretReadStatements.filter((statement) => JSON.stringify(statement) === transitional))
+      .toHaveLength(computeRuntimeFunctions.length);
+    expect(secretReadStatements.filter((statement) => JSON.stringify(statement) !== transitional)
+      .map((statement) => JSON.stringify(statement.Resource).match(/Postgres(\w+?)Credentials/g)))
+      .toEqual([
+        ["PostgresAdminCredentials", "PostgresRuntimeCredentials", "PostgresMigrationCredentials",
+          "PostgresReplicationCredentials", "PostgresInspectionCredentials"],
+        ["PostgresInspectionCredentials"],
+        ["PostgresMigrationCredentials"],
+      ]);
+    expect(matcherExecutionSecretReads).toHaveLength(0);
     expect(migrationSecretReadStatement).toMatchObject({
       Action: "secretsmanager:GetSecretValue",
       Effect: "Allow",

@@ -434,7 +434,7 @@ async fn should_install_and_maintain_normalized_party_and_listing_source_names()
 
     let source_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
     )
     .bind(source_id)
     .bind(format!("normalized-source-{source_id}"))
@@ -565,7 +565,7 @@ async fn should_report_listing_source_and_active_or_dissolved_partnership_blocke
 
     let source_id = uuid::Uuid::now_v7();
     for (sql, party_id) in [(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         source_party.id(),
     )] {
         if let Err(error) = sqlx::query(sql)

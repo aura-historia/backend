@@ -40,7 +40,7 @@ async fn should_require_the_operator_partnership_exact_source_grant_for_provider
             .unwrap_or_else(|error| panic!("insert test party: {error}"));
     }
     sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
         )
         .bind(source_id.into_uuid())
         .bind(format!(

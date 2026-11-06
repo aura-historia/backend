@@ -1,7 +1,8 @@
 use application::error::box_error;
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::{
-    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    InvalidListingSourceType, ListingIngestionMethod, ListingSourceId, ListingSourceName,
+    ListingSourcePresentation, ListingSourceType,
 };
 use partnership_core::{
     partnership_application::{
@@ -58,6 +59,8 @@ pub(crate) enum MappingError {
     Proposal(#[source] serde_json::Error),
     #[error("invalid proposal value")]
     Value,
+    #[error("invalid proposed listing source type")]
+    ListingSourceType(#[source] InvalidListingSourceType),
     #[error("invalid application approval result")]
     ApprovalResult,
     #[error("inconsistent application approval result")]
@@ -90,6 +93,7 @@ struct ProposedPartyV1 {
 #[serde(deny_unknown_fields)]
 struct ProposedListingSourceV1 {
     name: String,
+    listing_source_type: String,
     url: Option<String>,
     image: Option<String>,
     requested_ingestion_methods: Vec<String>,
@@ -139,6 +143,7 @@ impl From<&PartnershipProposal> for ProposalV1 {
                 },
                 listing_source: ProposedListingSourceV1 {
                     name: listing_source.name.to_string(),
+                    listing_source_type: listing_source.listing_source_type.as_str().to_owned(),
                     url: listing_source
                         .presentation
                         .url
@@ -197,6 +202,10 @@ impl TryFrom<ProposalV1> for PartnershipProposal {
                     listing_source: ProposedListingSource {
                         name: ListingSourceName::try_from(listing_source.name)
                             .map_err(|_| MappingError::Value)?,
+                        listing_source_type: listing_source
+                            .listing_source_type
+                            .parse::<ListingSourceType>()
+                            .map_err(MappingError::ListingSourceType)?,
                         presentation: ListingSourcePresentation {
                             url: listing_source
                                 .url
@@ -351,6 +360,59 @@ mod tests {
             "type": "EXISTING_LISTING_SOURCE",
             "listing_source_id": uuid::Uuid::now_v7(),
         })
+    }
+
+    fn proposed_listing_source_proposal(listing_source_type: Option<&str>) -> serde_json::Value {
+        let mut proposal = json!({
+            "type": "PROPOSED_LISTING_SOURCE",
+            "party": { "name": "Ada Antiques", "phone": null, "email": null },
+            "listing_source": {
+                "name": "Ada Auctions",
+                "url": null,
+                "image": null,
+                "requested_ingestion_methods": ["PARTNER_API"]
+            }
+        });
+        if let Some(listing_source_type) = listing_source_type {
+            proposal["listing_source"]["listing_source_type"] = json!(listing_source_type);
+        }
+        proposal
+    }
+
+    #[test]
+    fn should_round_trip_proposed_listing_source_type() {
+        let persisted = proposed_listing_source_proposal(Some("AUCTION_HOUSE"));
+
+        let application = application(row("SUBMITTED", persisted.clone()))
+            .unwrap_or_else(|error| panic!("decode proposed listing source: {error}"));
+
+        let PartnershipProposal::ProposedListingSource { listing_source, .. } =
+            application.value.proposal()
+        else {
+            panic!("proposed listing source expected");
+        };
+        assert_eq!(
+            ListingSourceType::AuctionHouse,
+            listing_source.listing_source_type
+        );
+        assert_eq!(
+            Some(&persisted["listing_source"]["listing_source_type"]),
+            proposal_json(application.value.proposal())
+                .unwrap_or_else(|error| panic!("serialize storage proposal: {error}"))
+                .pointer("/listing_source/listing_source_type")
+        );
+    }
+
+    #[test]
+    fn should_reject_missing_or_unknown_persisted_proposed_listing_source_type() {
+        for listing_source_type in [None, Some("dealer"), Some("SELLER")] {
+            let persisted = row(
+                "SUBMITTED",
+                proposed_listing_source_proposal(listing_source_type),
+            );
+
+            assert!(application(persisted).is_err(), "{listing_source_type:?}");
+        }
     }
 
     #[test]

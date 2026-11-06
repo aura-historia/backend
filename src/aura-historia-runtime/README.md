@@ -28,19 +28,11 @@ Its catalogue reuses the runtime's listing shipping enrichment from the same poo
 existing transactional catalogue/FX use case; selecting auctions needs no search,
 embedding or identity-provider configuration.
 
-Native entry points use `Runtime::from_env()` with the existing explicit PostgreSQL settings.
-Lambda entry points use `RotatingRuntime::from_env()` and call `current()` before each invocation.
-It reuses `platform-lambda-bootstrap` configuration and versioned composition leases, plus the
-existing PostgreSQL credential provider. One credential version shares its pool and selected
-handles; a version change composes a replacement without closing pools held by earlier leases.
-Credential refresh failure rejects the invocation without falling back to cached credentials.
-Composition errors preserve their source chain and use safe messages.
-
-```rust,ignore
-let lease = runtime.current().await?;
-let services = lease.value().public_listing_sources();
-let result = services.search.execute(&context, request).await?;
-```
+Native and Lambda entry points use `Runtime::from_env()` with the explicit PostgreSQL settings.
+Lambda functions receive those credentials at deployment
+([runtime credentials](../../docs/infra.md#runtime-credentials)), so one runtime and
+its pool serve every invocation of a warm execution environment; changing a credential takes a
+release. Composition errors preserve their source chain and use safe messages.
 
 `Runtime::watchlist()` composes the four existing watchlist use cases once for the warm pool.
 REST and MCP reuse these typed handles, including transactional tier/quota enforcement,
@@ -63,8 +55,8 @@ bounds and authentication within the same read budget. The existing REST authent
 optional-auth rejection and response mapping stay in the REST adapter. Native and Lambda entry
 points inject the same family handles.
 
-The runtime unit suite checks clean-environment anonymous startup, warm reuse, credential-version
-replacement, refresh failure and use-case error causes. Its subprocess probes isolate environment
+The runtime unit suite checks clean-environment anonymous startup, warm reuse and use-case error
+causes. Its subprocess probes isolate environment
 configuration without mutating a multithreaded test process.
 
 `Runtime::saved_searches(embeddings)` supplies the seven saved-search and match-feedback inbound

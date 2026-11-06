@@ -8,7 +8,9 @@ need `parties:read/write` and `listing-sources:read/write`. Never send them to d
 index and use filtered admin queries for fresh identity checks at larger volumes. Source
 summaries put URLs under `presentation`; names/contacts are substring searches, not unique.
 
-- `POST /v1/admin/listing-sources`: required `name`, `operator`, `ingestionConfiguration`.
+- `POST /v1/admin/listing-sources`: required `name`, `listingSourceType`, `operator`,
+  `ingestionConfiguration`. Discovered dealers, including a dealer's own storefront on a
+  marketplace, are `DEALER`.
   `operator={"type":"NEW","name":"operator","email":"…","phone":"…"}` creates a Party
   atomically; alternatively `{"type":"EXISTING","partyId":"pty_…"}`. `url` is the
   actual dealer catalogue; `image` is an inspected logo. Optional `platformTechnology`

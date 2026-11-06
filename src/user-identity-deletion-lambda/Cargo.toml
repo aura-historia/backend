@@ -13,7 +13,6 @@ platform-lambda-bootstrap = { workspace = true }
 platform-lambda-sqs = { workspace = true }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-platform-postgres-secretsmanager = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tracing = { workspace = true }
 user-cognito = { workspace = true }

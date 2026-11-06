@@ -71,7 +71,7 @@ async fn seed_listing_source(pool: &PgPool) -> ListingSourceId {
         .await
         .unwrap_or_else(|error| panic!("seed application repository source Party: {error}"));
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
     )
     .bind(listing_source_id.into_uuid())
     .bind(format!(
@@ -100,7 +100,7 @@ async fn seed_approval_targets(pool: &PgPool) -> (PartnershipId, ListingSourceId
         .await
         .unwrap_or_else(|error| panic!("seed application repository party: {error}"));
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
     )
     .bind(listing_source_id.into_uuid())
     .bind(format!(

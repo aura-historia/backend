@@ -349,7 +349,7 @@ async fn seed_listing_source(pool: &sqlx::PgPool) -> Result<ListingSourceId, sql
     let slug = format!("raw-lambda-{}", source.as_uuid());
     sqlx::query("INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Normalization Lambda test')")
         .bind(party_id).bind(format!("{slug}-party")).execute(pool).await?;
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Normalization Lambda source', $3)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Normalization Lambda source', $3, 'DEALER')")
         .bind(source.as_uuid()).bind(slug).bind(party_id).execute(pool).await?;
     Ok(source)
 }

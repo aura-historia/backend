@@ -18,12 +18,11 @@ use notification_service::{
 use oauth_postgres::SqlxExpiredCredentialCleanup;
 use oauth_service::use_cases::CleanupExpiredCredentialsAndProviderReceiptsHandler;
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
+    logging_config_from_env,
 };
 use platform_observability::init;
 use platform_postgres::SqlxUnitOfWork;
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentSnapshotReaderFactory,
@@ -54,26 +53,19 @@ async fn main() -> Result<(), Error> {
     init(logging_config_from_env());
 
     let batch_size = cleanup_batch_size_from_env()?;
-    let postgres = LambdaPostgresConfig::from_env()?;
-    let credentials = postgres_credentials_provider_from_env()
-        .await
-        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
-    let cleanup = Arc::new(VersionedCompositionCache::new());
+    let postgres = RuntimePostgresConfig::from_env()?;
+    let cleanup = Arc::new(LazyComposition::new());
 
     log_cold_start(COMPONENT, initialization_started_at);
     run(service_fn(move |event: LambdaEvent<Value>| {
         let postgres = postgres.clone();
-        let credentials = Arc::clone(&credentials);
         let cleanup = Arc::clone(&cleanup);
         async move {
             log_invocation_start(COMPONENT, &event.context);
-            let credentials = current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
             let cleanup = cleanup
-                .get_or_try_build(credentials.version_id(), || async {
-                    let pool = postgres
-                        .connect(COMPONENT, credentials.credentials())
-                        .await?;
-                    Ok::<_, Error>((
+                .get_or_try_build(|| async {
+                    let pool = postgres.connect(COMPONENT).await?;
+                    Ok::<_, Error>(Arc::new((
                         CleanupExpiredCredentialsAndProviderReceiptsHandler::new(
                             SqlxExpiredCredentialCleanup::new(pool.clone()),
                         ),
@@ -117,28 +109,18 @@ async fn main() -> Result<(), Error> {
                             SqlxUnitOfWork::new(pool),
                             SqlxPublicCatalogueOverviewRefresherFactory::new(),
                         ),
-                    ))
+                    )))
                 })
                 .await?;
 
-            let cleanup_result = run_cleanup(
-                &cleanup.value().0,
-                &cleanup.value().1,
-                &cleanup.value().2,
-                batch_size,
-            )
-            .await;
-            let recovery_result = run_listing_geography_recovery(&cleanup.value().3).await;
-            let notification_recovery = run_saved_search_notification_recovery(
-                &cleanup.value().4,
-                batch_size.get() as usize,
-            )
-            .await;
+            let cleanup_result = run_cleanup(&cleanup.0, &cleanup.1, &cleanup.2, batch_size).await;
+            let recovery_result = run_listing_geography_recovery(&cleanup.3).await;
+            let notification_recovery =
+                run_saved_search_notification_recovery(&cleanup.4, batch_size.get() as usize).await;
             let digest_recovery =
-                run_saved_search_digest_maintenance(&cleanup.value().5, batch_size.get() as usize)
-                    .await;
+                run_saved_search_digest_maintenance(&cleanup.5, batch_size.get() as usize).await;
             // Last: when due, the full aggregate must not delay bounded maintenance work.
-            let overview_refresh = run_public_catalogue_overview_refresh(&cleanup.value().6).await;
+            let overview_refresh = run_public_catalogue_overview_refresh(&cleanup.6).await;
             cleanup_result?;
             notification_recovery?;
             digest_recovery?;

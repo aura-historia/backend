@@ -1,5 +1,6 @@
 import type * as ses from "aws-cdk-lib/aws-ses";
 import { ARTIFACT_BUCKET_NAME, ssmValue, type StageConfig } from "../config";
+import { credentialSecrets, type CredentialResolver } from "../credentials";
 import type { Search } from "./opensearch";
 import type { QueueCatalog } from "./queues";
 import type { PostgresConnectionSettings } from "./storage";
@@ -12,6 +13,7 @@ export interface LambdaEnvironmentContext {
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
   readonly queues: QueueCatalog;
+  readonly credential: CredentialResolver;
 }
 
 export function providerSignupEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
@@ -47,13 +49,14 @@ export function notificationDeliveryEnvironment(context: LambdaEnvironmentContex
 }
 
 export function marketingConsentSyncEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
-  return loopsNewsletterEnvironment(context.config);
+  return loopsNewsletterEnvironment(context);
 }
 
-function loopsNewsletterEnvironment(config: StageConfig): Record<string, string> {
+function loopsNewsletterEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  const { config } = context;
   return {
     LOOPS_API_BASE_URL: "https://app.loops.so/api",
-    LOOPS_API_KEY: ssmValue(`/loops/${config.stage}/api-key`),
+    LOOPS_API_KEY: context.credential(credentialSecrets(config.stage).loops, "apiKey"),
     LOOPS_NEWSLETTER_LIST_ID: ssmValue(`/loops/${config.stage}/newsletter-list-id`),
   };
 }
@@ -92,26 +95,26 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
   };
 
 
+  const secrets = credentialSecrets(config.stage);
   return {
     ...environment,
     ...listingProviderEnvironment(context),
-    STRIPE_API_KEY: ssmValue(`/stripe/${config.stage}/api-key`),
-    ...loopsNewsletterEnvironment(config),
-    LOOPS_WEBHOOK_SIGNING_SECRET: ssmValue(`/loops/${config.stage}/webhook-signing-secret`),
+    STRIPE_API_KEY: context.credential(secrets.stripe, "apiKey"),
+    ...loopsNewsletterEnvironment(context),
+    LOOPS_WEBHOOK_SIGNING_SECRET: context.credential(secrets.loops, "webhookSigningSecret"),
   };
 }
 
 function listingProviderEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   const { config, search } = context;
+  const secrets = credentialSecrets(config.stage);
   return {
     STAGE: config.stage,
     PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED: String(config.isProd),
     OPENSEARCH_ENDPOINT_URL: search.endpointUrl,
-    OPENSEARCH_PASSWORD: ssmValue(`/opensearch/${config.stage}/reader/password`),
+    OPENSEARCH_PASSWORD: context.credential(secrets.openSearch, "readerPassword"),
     OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),
-    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: ssmValue(
-      `/secrets/${config.stage}/google-application-credentials`,
-    ),
+    AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON: context.credential(secrets.google, "applicationCredentials"),
     VERTEX_AI_LOCATION: ssmValue(`/vertex-ai/${config.stage}/location`),
     VERTEX_AI_PROJECT_ID: ssmValue(`/vertex-ai/${config.stage}/project-id`),
   };

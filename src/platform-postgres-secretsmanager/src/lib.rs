@@ -1,39 +1,16 @@
-use async_trait::async_trait;
+//! Invocation-time reads of PostgreSQL role credentials for the database operations (bootstrap,
+//! migration and inspection). Runtime functions receive their credentials at deployment instead;
+//! see docs/infra.md#runtime-credentials.
 use aws_config::BehaviorVersion;
 use aws_sdk_secretsmanager::{
     Client, error::SdkError, operation::get_secret_value::GetSecretValueError,
 };
 use platform_aws::{AwsSdkFailure, AwsSdkFailureKind};
-use platform_postgres::{
-    PostgresCredentialRefreshError, PostgresCredentialsProvider, VersionedPostgresCredentials,
-};
+use platform_postgres::{PostgresCredentialRefreshError, VersionedPostgresCredentials};
 use serde::Deserialize;
-use std::{env, future::Future, sync::Arc, time::Duration};
+use std::{future::Future, time::Duration};
 
-pub const POSTGRES_SECRET_ARN_ENV: &str = "POSTGRES_SECRET_ARN";
 const SECRETS_MANAGER_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// Reads the exact runtime PostgreSQL secret. It never mutates or rotates that secret.
-struct AwsSecretsManagerPostgresCredentialsProvider {
-    client: Client,
-    secret_arn: PostgresSecretArn,
-}
-
-/// Selects runtime Secrets Manager credentials when an ARN is configured; fixture stages use
-/// the existing explicit username/password environment variables instead.
-pub async fn postgres_credentials_provider_from_env()
--> Result<Arc<dyn PostgresCredentialsProvider>, PostgresCredentialsProviderConfigError> {
-    if env::var_os(POSTGRES_SECRET_ARN_ENV).is_some() {
-        let provider = AwsSecretsManagerPostgresCredentialsProvider::from_env()
-            .await
-            .map_err(PostgresCredentialsProviderConfigError::SecretsManager)?;
-        Ok(Arc::new(provider))
-    } else {
-        let provider = StaticPostgresCredentialsProvider::from_env()
-            .map_err(PostgresCredentialsProviderConfigError::Static)?;
-        Ok(Arc::new(provider))
-    }
-}
 
 /// Loads AWSCURRENT PostgreSQL credentials from an explicit exact Secrets Manager ARN.
 pub async fn load_versioned_postgres_credentials_from_secret_arn(
@@ -41,96 +18,31 @@ pub async fn load_versioned_postgres_credentials_from_secret_arn(
 ) -> Result<VersionedPostgresCredentials, VersionedPostgresCredentialsLoadError> {
     let secret_arn = PostgresSecretArn::parse(secret_arn.to_owned())
         .map_err(|_| VersionedPostgresCredentialsLoadError::InvalidSecretArn)?;
-    let provider = AwsSecretsManagerPostgresCredentialsProvider::from_secret_arn(secret_arn).await;
+    let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
 
-    provider
-        .current()
+    current_credentials(&Client::new(&config), &secret_arn)
         .await
         .map_err(|_| VersionedPostgresCredentialsLoadError::RefreshUnavailable)
 }
 
-/// Fixture-only provider. Real Lambda stages always use the AWS adapter above.
-struct StaticPostgresCredentialsProvider {
-    credentials: VersionedPostgresCredentials,
-}
+/// Reads the exact secret. It never mutates or rotates that secret.
+async fn current_credentials(
+    client: &Client,
+    secret_arn: &PostgresSecretArn,
+) -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError> {
+    let result = bounded_secret_request(
+        SECRETS_MANAGER_REQUEST_TIMEOUT,
+        client
+            .get_secret_value()
+            .secret_id(secret_arn.as_str())
+            .version_stage("AWSCURRENT")
+            .send(),
+    )
+    .await?
+    .map_err(|error| refresh_failure(&error))?;
 
-impl StaticPostgresCredentialsProvider {
-    fn from_env() -> Result<Self, StaticPostgresCredentialsProviderConfigError> {
-        let username = required_fixture_env("POSTGRES_USERNAME")?;
-        let password = required_fixture_env("POSTGRES_PASSWORD")?;
-        let credentials =
-            VersionedPostgresCredentials::new("static".to_owned(), username, password)
-                .map_err(|_| StaticPostgresCredentialsProviderConfigError::InvalidCredentials)?;
-        Ok(Self { credentials })
-    }
-}
-
-#[async_trait]
-impl PostgresCredentialsProvider for StaticPostgresCredentialsProvider {
-    async fn current(
-        &self,
-    ) -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError> {
-        Ok(self.credentials.clone())
-    }
-}
-
-fn required_fixture_env(
-    name: &'static str,
-) -> Result<String, StaticPostgresCredentialsProviderConfigError> {
-    match env::var(name) {
-        Ok(value) if !value.trim().is_empty() => Ok(value),
-        Ok(_) | Err(env::VarError::NotPresent) => {
-            Err(StaticPostgresCredentialsProviderConfigError::Missing)
-        }
-        Err(env::VarError::NotUnicode(_)) => {
-            Err(StaticPostgresCredentialsProviderConfigError::InvalidCredentials)
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum StaticPostgresCredentialsProviderConfigError {
-    #[error("missing fixture PostgreSQL credential configuration")]
-    Missing,
-    #[error("invalid fixture PostgreSQL credential configuration")]
-    InvalidCredentials,
-}
-
-impl AwsSecretsManagerPostgresCredentialsProvider {
-    async fn from_env() -> Result<Self, SecretsManagerPostgresProviderInitError> {
-        let secret_arn = PostgresSecretArn::from_env()?;
-        Ok(Self::from_secret_arn(secret_arn).await)
-    }
-
-    async fn from_secret_arn(secret_arn: PostgresSecretArn) -> Self {
-        let config = aws_config::defaults(BehaviorVersion::latest()).load().await;
-
-        Self {
-            client: Client::new(&config),
-            secret_arn,
-        }
-    }
-}
-
-#[async_trait]
-impl PostgresCredentialsProvider for AwsSecretsManagerPostgresCredentialsProvider {
-    async fn current(
-        &self,
-    ) -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError> {
-        let result = bounded_secret_request(
-            SECRETS_MANAGER_REQUEST_TIMEOUT,
-            self.client
-                .get_secret_value()
-                .secret_id(self.secret_arn.as_str())
-                .version_stage("AWSCURRENT")
-                .send(),
-        )
-        .await?
-        .map_err(|error| refresh_failure(&error))?;
-
-        parse_current_secret(result.version_id(), result.secret_string())
-            .map_err(|_| PostgresCredentialRefreshError::InvalidSecret)
-    }
+    parse_current_secret(result.version_id(), result.secret_string())
+        .map_err(|_| PostgresCredentialRefreshError::InvalidSecret)
 }
 
 /// Bounds the whole request, including credential resolution and SDK retries.
@@ -167,18 +79,6 @@ fn refresh_failure(error: &SdkError<GetSecretValueError>) -> PostgresCredentialR
 struct PostgresSecretArn(String);
 
 impl PostgresSecretArn {
-    fn from_env() -> Result<Self, SecretsManagerPostgresProviderInitError> {
-        match env::var(POSTGRES_SECRET_ARN_ENV) {
-            Ok(value) => Self::parse(value),
-            Err(env::VarError::NotPresent) => {
-                Err(SecretsManagerPostgresProviderInitError::MissingSecretArn)
-            }
-            Err(env::VarError::NotUnicode(_)) => {
-                Err(SecretsManagerPostgresProviderInitError::InvalidSecretArn)
-            }
-        }
-    }
-
     fn parse(value: String) -> Result<Self, SecretsManagerPostgresProviderInitError> {
         let mut parts = value.splitn(6, ':');
         let is_secret_arn = matches!(
@@ -223,19 +123,9 @@ impl std::fmt::Debug for PostgresSecretArn {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SecretsManagerPostgresProviderInitError {
-    #[error("missing PostgreSQL Secrets Manager ARN configuration")]
-    MissingSecretArn,
+enum SecretsManagerPostgresProviderInitError {
     #[error("invalid PostgreSQL Secrets Manager ARN configuration")]
     InvalidSecretArn,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PostgresCredentialsProviderConfigError {
-    #[error("invalid PostgreSQL Secrets Manager credential provider configuration")]
-    SecretsManager(#[source] SecretsManagerPostgresProviderInitError),
-    #[error("invalid fixture PostgreSQL credential provider configuration")]
-    Static(#[source] StaticPostgresCredentialsProviderConfigError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

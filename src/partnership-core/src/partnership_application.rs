@@ -4,6 +4,7 @@ use crate::{
 };
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    ListingSourceType,
 };
 use party_core::{party::PartyContact, party_name::PartyName};
 use std::collections::HashSet;
@@ -61,6 +62,8 @@ pub struct ProposedParty {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProposedListingSource {
     pub name: ListingSourceName,
+    /// The applicant's classification; administrators may correct it after approval.
+    pub listing_source_type: ListingSourceType,
     pub presentation: ListingSourcePresentation,
     pub requested_ingestion_methods: HashSet<ListingIngestionMethod>,
 }

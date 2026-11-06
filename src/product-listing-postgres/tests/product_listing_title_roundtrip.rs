@@ -209,7 +209,7 @@ async fn persist_product(
         .execute(pool)
         .await
         .expect("seed party");
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')")
         .bind(listing_source_id.into_uuid())
         .bind(format!("{slug}-source"))
         .bind(slug)

@@ -522,6 +522,7 @@ async fn should_reject_an_in_review_partnership_application_on_the_admin_decisio
                 "name": listing_source_name,
                 "url": "https://rejected.example/",
                 "image": null,
+                "listing_source_type": "DEALER",
                 "requested_ingestion_methods": ["PARTNER_API"]
             }
         }),
@@ -738,6 +739,7 @@ async fn should_reject_non_admin_partnership_application_decision() {
             "party": {"name": "Non-admin Decision Party"},
             "listing_source": {
                 "name": "Non-admin Decision Listing Source",
+                "listing_source_type": "DEALER",
                 "requested_ingestion_methods": ["PARTNER_API"]
             }
         }),

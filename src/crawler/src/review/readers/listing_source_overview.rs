@@ -1,31 +1,55 @@
 //! `GET /api/listing_sources`: the operator's ListingSource overview. The contract is in
 //! `docs/crawler/operations.md` (review service).
 
-use crate::review::model::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
+use crate::review::model::{
+    CrawlStateOverview, ListingSourceOverview, ReviewActor, UrlErrorKindCount,
+};
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
+use crate::spider::local_lock::{LocalLockManager, RunningWork, WorkLockScope};
+use listing_source_core::ListingSourceId;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
+use std::sync::Arc;
+use time::OffsetDateTime;
 
 /// Reads the ListingSource overview of the console.
 #[derive(Clone)]
 pub struct ListingSourceOverviewReader {
     pool: PgPool,
+    work_locks: Arc<LocalLockManager>,
 }
 
 impl ListingSourceOverviewReader {
+    /// A reader that reports no running work, as a console without a crawler in its process has.
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            work_locks: Arc::new(LocalLockManager::new()),
+        }
+    }
+
+    /// This reader reporting the crawler's running work from `work_locks`, the lock manager the
+    /// spider and scraper of this process hold their work locks in.
+    pub fn with_work_locks(self, work_locks: Arc<LocalLockManager>) -> Self {
+        Self { work_locks, ..self }
     }
 
     /// Lists ListingSources, those that need an operator first: a crawl-enabled ListingSource
     /// whose crawl waits for an operator, with URLs blocked on a pending review, a scrape failure
-    /// streak or held removals is never cut off by `limit`, which only bounds the others.
+    /// streak or held removals is never cut off by `limit`, which only bounds the others, and
+    /// neither is a ListingSource the crawler is crawling or scraping right now.
     pub async fn list_listing_sources(
         &self,
         limit: i64,
     ) -> Result<Vec<ListingSourceOverview>, sqlx::Error> {
+        let running = self.work_locks.running_work();
+        let running_ids = running
+            .iter()
+            .map(|work| uuid::Uuid::from(work.listing_source_id))
+            .collect::<Vec<_>>();
+        let now = OffsetDateTime::now_utc();
         let rows = sqlx::query(
             "WITH blocking AS (
                 -- The oldest pending review a ListingSource's blocked URLs wait on: a review a
@@ -79,6 +103,10 @@ impl ListingSourceOverviewReader {
                     CASE WHEN b.blocked_urls IS NOT NULL THEN bl.review_id END AS blocking_review_id,
                     COALESCE(u.held_removal_urls, 0) AS held_removal_urls,
                     u.held_since,
+                    CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_until END
+                        AS mass_removal_confirmed_until,
+                    CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_by END
+                        AS mass_removal_confirmed_by,
                     COALESCE(u.missing_value_urls, 0) AS missing_value_urls,
                     s.last_crawl_outcome IS NOT DISTINCT FROM $2 AS needs_operator
                 FROM listing_sources s
@@ -148,21 +176,22 @@ impl ListingSourceOverviewReader {
                 FROM overview
              )
              SELECT * FROM ranked
-             WHERE needs_attention OR position <= $1
+             WHERE needs_attention OR position <= $1 OR listing_source_id = ANY($4)
              ORDER BY position",
         )
             .bind(limit)
             .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
             .bind(MASS_REMOVAL_HELD_ERROR_KIND)
+            .bind(&running_ids)
             .fetch_all(&self.pool)
             .await?;
 
         let mut listing_sources = Vec::with_capacity(rows.len());
         for row in rows {
+            let listing_source_id =
+                listing_source_id_from_uuid(row.try_get::<uuid::Uuid, _>("listing_source_id")?)?;
             listing_sources.push(ListingSourceOverview {
-                listing_source_id: listing_source_id_from_uuid(
-                    row.try_get::<uuid::Uuid, _>("listing_source_id")?,
-                )?,
+                listing_source_id,
                 listing_source_name: row.try_get("listing_source_name")?,
                 crawl_enabled: row.try_get("crawl_enabled")?,
                 llm_calls_count: row.try_get("llm_calls_count")?,
@@ -179,8 +208,24 @@ impl ListingSourceOverviewReader {
                     .transpose()?,
                 held_removal_urls: row.try_get("held_removal_urls")?,
                 held_since: row.try_get("held_since")?,
+                mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
+                mass_removal_confirmed_by: confirming_actor(
+                    row.try_get("mass_removal_confirmed_by")?,
+                )?,
                 url_error_kinds: Vec::new(),
                 missing_value_urls: row.try_get("missing_value_urls")?,
+                crawling_since: running_since(
+                    &running,
+                    WorkLockScope::Spider,
+                    listing_source_id,
+                    now,
+                ),
+                scraping_since: running_since(
+                    &running,
+                    WorkLockScope::Scraper,
+                    listing_source_id,
+                    now,
+                ),
                 crawl_state: CrawlStateOverview {
                     last_crawl_outcome: row.try_get("last_crawl_outcome")?,
                     last_crawl_error_kind: row.try_get("last_crawl_error_kind")?,
@@ -237,4 +282,31 @@ impl ListingSourceOverviewReader {
         }
         Ok(by_listing_source)
     }
+}
+
+/// When the `scope` component acquired its work lock on the source, as wall-clock time, or `None`
+/// while it holds none.
+fn running_since(
+    running: &[RunningWork],
+    scope: WorkLockScope,
+    listing_source_id: ListingSourceId,
+    now: OffsetDateTime,
+) -> Option<OffsetDateTime> {
+    running
+        .iter()
+        .find(|work| work.scope == scope && work.listing_source_id == listing_source_id)
+        .map(|work| now - work.since.elapsed())
+}
+
+/// The actor a persisted confirmation names; an unknown name fails, so the console never shows a
+/// confirmation it cannot attribute.
+fn confirming_actor(name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
+    name.map(|name| {
+        ReviewActor::from_persisted(&name).ok_or_else(|| {
+            sqlx::Error::Decode(
+                format!("invalid persisted mass_removal_confirmed_by `{name}`").into(),
+            )
+        })
+    })
+    .transpose()
 }

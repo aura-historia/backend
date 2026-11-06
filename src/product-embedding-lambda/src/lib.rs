@@ -51,7 +51,7 @@ where
     ))
 }
 
-/// Computes the usable Lambda deadline, including credential refresh and SQS response headroom.
+/// Computes the usable Lambda deadline, including composition and SQS response headroom.
 pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationBudget {
     LambdaInvocationBudget::from_context(context, LAMBDA_INVOCATION_CAP, RESPONSE_HEADROOM)
 }

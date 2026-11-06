@@ -242,6 +242,7 @@ where
                         NewListingSource {
                             id: ListingSourceId::new(),
                             name: listing_source.name,
+                            listing_source_type: listing_source.listing_source_type,
                             operator_party_id: party.id(),
                             ingestion_methods: config.methods().map_err(|source| {
                                 ApprovePartnershipApplicationError::InvalidPersistedState {
@@ -1174,6 +1175,8 @@ mod tests {
                             name: ListingSourceName::try_from("Northwind Source").unwrap_or_else(
                                 |error| panic!("invalid test listing source name: {error}"),
                             ),
+                            listing_source_type:
+                                listing_source_core::ListingSourceType::AuctionHouse,
                             presentation: ListingSourcePresentation {
                                 url: None,
                                 image: None,
@@ -1289,6 +1292,7 @@ mod tests {
                 id: listing_source_id,
                 name: ListingSourceName::try_from("Existing Source")
                     .unwrap_or_else(|error| panic!("valid test source name: {error}")),
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id: party_id,
                 ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
                 presentation: ListingSourcePresentation {
@@ -1351,6 +1355,13 @@ mod tests {
         assert_eq!(2, state.committed);
         assert_eq!(1, state.party_inserts);
         assert_eq!(1, state.source_inserts);
+        assert_eq!(
+            Some(listing_source_core::ListingSourceType::AuctionHouse),
+            state
+                .existing_source
+                .as_ref()
+                .map(|stored| stored.source.listing_source_type())
+        );
         assert_eq!(1, state.partnership_inserts);
         assert_eq!(1, state.application_updates);
         assert_eq!(1, state.notification_calls);
@@ -1415,6 +1426,7 @@ mod tests {
                 id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Existing Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
+                listing_source_type: listing_source_core::ListingSourceType::Dealer,
                 operator_party_id: party_id,
                 ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
                 presentation: ListingSourcePresentation {

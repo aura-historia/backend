@@ -1,13 +1,10 @@
-use aura_historia_mcp::{McpDependencies, RotatingMcpRouter, TransportConfig, mcp_router};
-use aura_historia_runtime::{ProductListingConfig, RotatingRuntime, Runtime};
+use aura_historia_mcp::{LambdaMcpRouter, McpDependencies, TransportConfig, mcp_router};
+use aura_historia_runtime::{ProductListingConfig, Runtime};
 use platform_lambda_bootstrap::materialize_google_application_credentials_from_env;
 use platform_observability::{LoggingConfig, init_with_directives};
 use std::sync::Arc;
 
 type MainError = application::error::BoxError;
-
-/// The Lambda component named in setup diagnostics.
-const LAMBDA_COMPONENT: &str = "aura-historia-mcp";
 
 fn main() -> Result<(), MainError> {
     let is_lambda = std::env::var_os("AWS_LAMBDA_RUNTIME_API").is_some();
@@ -24,8 +21,8 @@ fn main() -> Result<(), MainError> {
         .build()?
         .block_on(async move {
             if is_lambda {
-                let app = Arc::new(RotatingMcpRouter::new(
-                    RotatingRuntime::from_env(LAMBDA_COMPONENT).await?,
+                let app = Arc::new(LambdaMcpRouter::new(
+                    Runtime::from_env().await?,
                     transport,
                     listing_config,
                 ));

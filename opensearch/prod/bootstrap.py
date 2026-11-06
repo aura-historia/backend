@@ -192,29 +192,48 @@ def verify(credentials, public=False):
     print(("Public" if public else "Local") + " TLS, scoped reader/projector and administration-denial checks passed", flush=True)
 
 
-def publish_ssm(credentials):
+RUNTIME_SECRET = "/aura-historia/prod/app/opensearch"
+
+
+def aws_with_input(service, operation, request):
+    """Pass values through a private request file, never through process arguments."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as file:
+        json.dump(request, file)
+        file.flush()
+        return run(["aws", service, operation, "--region", "eu-central-1", "--cli-input-json", "file://" + file.name])
+
+
+def publish_runtime_configuration(credentials):
+    """Endpoint and usernames are plain SSM configuration; passwords are the runtime credential secret
+    that releases inject at deployment (infra/src/credentials.ts). A changed secret takes effect with
+    the next release."""
     account = json.loads(run(["aws", "sts", "get-caller-identity", "--output", "json"]))["Account"]
     if account != "550663032924":
         raise RuntimeError("Refusing to publish production configuration to an unexpected AWS account")
     values = {"endpoint-url": PUBLIC}
-    for role, credential in credentials.items():
-        values.update({role + "/" + key: value for key, value in credential.items()})
+    values.update({role + "/username": credential["username"] for role, credential in credentials.items()})
     for suffix, value in values.items():
         name = "/opensearch/prod/" + suffix
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as file:
-            json.dump({"Name": name, "Type": "String", "Value": value, "Overwrite": True}, file)
-            file.flush()
-            run(["aws", "ssm", "put-parameter", "--region", "eu-central-1", "--cli-input-json", "file://" + file.name])
+        aws_with_input("ssm", "put-parameter", {"Name": name, "Type": "String", "Value": value, "Overwrite": True})
         print("Configured " + name, flush=True)
+    passwords = json.dumps({"readerPassword": credentials["reader"]["password"],
+                            "productProjectorPassword": credentials["product-projector"]["password"]})
+    listed = json.loads(run(["aws", "secretsmanager", "list-secrets", "--region", "eu-central-1", "--output", "json",
+                             "--filters", "Key=name,Values=" + RUNTIME_SECRET]))
+    if any(secret["Name"] == RUNTIME_SECRET for secret in listed.get("SecretList", [])):
+        aws_with_input("secretsmanager", "put-secret-value", {"SecretId": RUNTIME_SECRET, "SecretString": passwords})
+    else:
+        aws_with_input("secretsmanager", "create-secret", {"Name": RUNTIME_SECRET, "SecretString": passwords})
+    print("Configured " + RUNTIME_SECRET + "; release to deploy it", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-public", action="store_true")
-    parser.add_argument("--publish-ssm", action="store_true")
+    parser.add_argument("--publish-runtime-configuration", action="store_true")
     args = parser.parse_args()
-    if args.publish_ssm and not args.verify_public:
-        parser.error("--publish-ssm requires successful --verify-public checks")
+    if args.publish_runtime_configuration and not args.verify_public:
+        parser.error("--publish-runtime-configuration requires successful --verify-public checks")
     os.umask(0o077)
     for directory in [PRIVATE, OPERATOR, NODE]:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -259,8 +278,8 @@ def main():
                        "mapping": require(request("/product-listings/_mapping")), "aliases": require(request("/product-listings/_alias")),
                        "observedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         private_json(PRIVATE / "observation.json", observation)
-    if args.publish_ssm:
-        publish_ssm(credentials)
+    if args.publish_runtime_configuration:
+        publish_runtime_configuration(credentials)
 
 
 if __name__ == "__main__":

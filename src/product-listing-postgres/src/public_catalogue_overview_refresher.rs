@@ -53,6 +53,8 @@ impl PublicCatalogueOverviewRefresherFactory<SqlxTransaction>
 // One statement fixes the snapshot and `as_of`. Grouping first keeps the distinct
 // counts over a few source/language/country combinations instead of sorting every
 // live listing per metric; language sets are combined only after that aggregation.
+// A ListingSource has exactly one type, so the per-type source counts partition
+// `sources_indexed`.
 // The window is a fixed 168 hours so the session time zone cannot change its length.
 // The row lock is taken only when the aggregate finishes, and an older calculation
 // never replaces a newer one from a concurrent refresh.
@@ -60,6 +62,7 @@ const REFRESH_PUBLIC_CATALOGUE_OVERVIEW_SQL: &str = r#"
 WITH live_groups AS (
     SELECT
         listing.listing_source_id,
+        source.listing_source_type,
         listing.title_language,
         listing.description_language,
         geography.geography #>> '{inventory,country}' AS inventory_country,
@@ -69,10 +72,12 @@ WITH live_groups AS (
               AND listing.created <= statement_timestamp()
         ) AS new_objects
     FROM product_listings listing
+    JOIN listing_sources source
+      ON source.listing_source_id = listing.listing_source_id
     LEFT JOIN product_listing_geographies geography
       ON geography.product_listing_id = listing.product_listing_id
     WHERE listing.lifecycle = 'ACTIVE'
-    GROUP BY 1, 2, 3, 4
+    GROUP BY 1, 2, 3, 4, 5
 ),
 languages AS (
     SELECT title_language AS language FROM live_groups WHERE title_language IS NOT NULL
@@ -83,6 +88,18 @@ calculated AS (
     SELECT
         statement_timestamp() AS as_of,
         COUNT(DISTINCT listing_source_id)::bigint AS sources_indexed,
+        COUNT(DISTINCT listing_source_id) FILTER (
+            WHERE listing_source_type = 'DEALER'
+        )::bigint AS dealer_sources_indexed,
+        COUNT(DISTINCT listing_source_id) FILTER (
+            WHERE listing_source_type = 'AUCTION_HOUSE'
+        )::bigint AS auction_house_sources_indexed,
+        COUNT(DISTINCT listing_source_id) FILTER (
+            WHERE listing_source_type = 'MARKETPLACE'
+        )::bigint AS marketplace_sources_indexed,
+        COUNT(DISTINCT listing_source_id) FILTER (
+            WHERE listing_source_type = 'AUCTION_PLATFORM'
+        )::bigint AS auction_platform_sources_indexed,
         COALESCE(SUM(live_objects), 0)::bigint AS live_objects,
         COUNT(DISTINCT inventory_country)::bigint AS countries,
         (SELECT COUNT(*) FROM languages)::bigint AS languages,
@@ -91,13 +108,22 @@ calculated AS (
 ),
 stored AS (
     INSERT INTO public_catalogue_overview (
-        as_of, sources_indexed, live_objects, countries, languages, new_objects_last_7_days
+        as_of, sources_indexed, dealer_sources_indexed, auction_house_sources_indexed,
+        marketplace_sources_indexed, auction_platform_sources_indexed, live_objects, countries,
+        languages, new_objects_last_7_days
     )
-    SELECT as_of, sources_indexed, live_objects, countries, languages, new_objects_last_7_days
+    SELECT
+        as_of, sources_indexed, dealer_sources_indexed, auction_house_sources_indexed,
+        marketplace_sources_indexed, auction_platform_sources_indexed, live_objects, countries,
+        languages, new_objects_last_7_days
     FROM calculated
     ON CONFLICT (singleton) DO UPDATE SET
         as_of = EXCLUDED.as_of,
         sources_indexed = EXCLUDED.sources_indexed,
+        dealer_sources_indexed = EXCLUDED.dealer_sources_indexed,
+        auction_house_sources_indexed = EXCLUDED.auction_house_sources_indexed,
+        marketplace_sources_indexed = EXCLUDED.marketplace_sources_indexed,
+        auction_platform_sources_indexed = EXCLUDED.auction_platform_sources_indexed,
         live_objects = EXCLUDED.live_objects,
         countries = EXCLUDED.countries,
         languages = EXCLUDED.languages,
@@ -106,7 +132,9 @@ stored AS (
     RETURNING 1
 )
 SELECT
-    as_of, sources_indexed, live_objects, countries, languages, new_objects_last_7_days,
+    as_of, sources_indexed, dealer_sources_indexed, auction_house_sources_indexed,
+    marketplace_sources_indexed, auction_platform_sources_indexed, live_objects, countries,
+    languages, new_objects_last_7_days,
     EXISTS (SELECT 1 FROM stored) AS stored
 FROM calculated
 "#;

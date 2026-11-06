@@ -16,7 +16,5 @@ tracing = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
 [dev-dependencies]
-async-trait = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true, features = ["postgres"] }
 url = { workspace = true }

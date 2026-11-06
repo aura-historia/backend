@@ -425,8 +425,8 @@ With the pinned SDK, the local public fixtures preserve these complete responses
 | Detail with 175 long image URLs | 201,666 bytes | 204,409 bytes |
 | Unpaginated history with 128 events | 114,848 bytes | 135,921 bytes |
 
-The request deadline is 25 seconds at most, including credential refresh/router composition on
-Lambda, body admission and the authentication gate. Lambda caps this by its remaining invocation
+The request deadline is 25 seconds at most, including router composition on the first Lambda
+invocation, body admission and the authentication gate. Lambda caps this by its remaining invocation
 time with one second reserved for response handling. Exhausted budgets receive HTTP
 `408`; work gets a cancellation token and an absolute deadline through
 `InvocationContext`. Native HTTP disconnects cancel active work; Lambda cannot
@@ -461,12 +461,11 @@ equivalent filter even when enabling debug/trace logs elsewhere. Never log
 Authorization values, protocol bodies, private arguments/results or technical
 error causes containing provider data.
 
-Native startup uses the shared explicit PostgreSQL configuration; Lambda refreshes PostgreSQL
-credentials before every invocation and caches service composition by credential version.
-Token authentication still reads authoritative state on every request. Infrastructure injects
-the same explicit `OAUTH_ISSUER_URL` into REST and MCP; native startup must supply it too.
-Refresh failures reject the invocation instead of reusing stale credentials; in-flight routers
-retain their handles across replacement. Listing startup additionally requires
+Native and Lambda startup use the shared explicit PostgreSQL configuration; Lambda receives its
+credentials at [deployment](infra.md#runtime-credentials) and composes the router once per warm
+execution environment, retrying a failed composition on the next invocation. Token
+authentication still reads authoritative state on every request. Infrastructure injects the
+same explicit `OAUTH_ISSUER_URL` into REST and MCP; native startup must supply it too. Listing startup additionally requires
 `OPENSEARCH_ENDPOINT_URL`, and `OPENSEARCH_USERNAME`/`OPENSEARCH_PASSWORD` outside `STAGE=ephemeral`.
 `VERTEX_AI_PROJECT_ID`/`VERTEX_AI_LOCATION` and the existing `PRODUCT_LISTING_SEARCH_*` cache/read
 settings use the [shared runtime configuration](../src/aura-historia-runtime/src/product_listing_config.rs).
@@ -476,5 +475,5 @@ uses the configured Google ADC environment. No unrelated billing, newsletter or 
 configuration is needed. Infrastructure supplies the same listing-reader/provider settings as
 REST. `McpDependencies::from_env` constructs listing providers; library callers
 may inject typed dependencies. Native startup constructs these once; Lambda retains them
-with the router for each credential version. MCP requires no queue configuration or queue
+with its router. MCP requires no queue configuration or queue
 permission.
