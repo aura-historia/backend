@@ -3,7 +3,7 @@ import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
 import { stageConfig, STAGES, type StageName } from "../src/config";
 import { credentialSecrets } from "../src/credentials";
-import { credentialReference } from "./credential-reference";
+import { credentialReference, releaseVersionDescription } from "./credential-reference";
 import { QUEUE_DEFINITIONS } from "../src/constructs/queues";
 import { importWorkerQueueCatalog, WorkerQueues } from "../src/constructs/worker-queues";
 import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerScope } from "../src/worker-queue-config";
@@ -345,7 +345,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const [versionId, version] = versions[0];
     expect(version.Properties).toMatchObject({
       FunctionName: { Ref: consumer.id },
-      Description: { Ref: "ProductListingIngestionLambdaArtifactSha256" },
+      Description: releaseVersionDescription("ProductListingIngestionLambdaArtifactSha256",
+        [credentialSecrets(stage).postgresRuntime]),
     });
     expect(consumer.resource.Properties).toMatchObject({
       Runtime: "provided.al2023", Handler: "lib.handler", MemorySize: 512, Timeout: 45,
@@ -753,7 +754,8 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       .filter(([, resource]) => JSON.stringify(resource.Properties.FunctionName) === JSON.stringify({ Ref: consumer.id }));
     expect(versions).toHaveLength(1);
     const [versionId, version] = versions[0];
-    expect(version.Properties.Description).toEqual({ Ref: "MarketingConsentSyncLambdaArtifactSha256" });
+    expect(version.Properties.Description).toEqual(releaseVersionDescription("MarketingConsentSyncLambdaArtifactSha256",
+      [credentialSecrets(stage).loops, credentialSecrets(stage).postgresRuntime]));
     const mappings = Object.entries(compute.findResources("AWS::Lambda::EventSourceMapping"))
       .filter(([, mapping]) => mapping.Properties.FunctionName?.Ref === versionId);
     expect(mappings).toHaveLength(1);

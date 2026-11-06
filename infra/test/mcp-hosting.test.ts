@@ -8,7 +8,7 @@ import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG } fr
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
 import { credentialSecrets } from "../src/credentials";
-import { credentialReference } from "./credential-reference";
+import { credentialReference, releaseVersionDescription } from "./credential-reference";
 
 describe.each(STAGES)("%s MCP hosting", (stage) => {
   const config = stageConfig(stage);
@@ -203,7 +203,9 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     const versionId = alias.Properties.FunctionVersion["Fn::GetAtt"][0];
     const version = compute.findResources("AWS::Lambda::Version")[versionId];
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
-    expect(version.Properties.Description).toEqual({ Ref: "AuraHistoriaMcpArtifactSha256" });
+    const secrets = credentialSecrets(stage);
+    expect(version.Properties.Description).toEqual(releaseVersionDescription("AuraHistoriaMcpArtifactSha256",
+      [secrets.google, secrets.openSearch, secrets.postgresRuntime]));
     expect(fn.Properties.Code.S3Key).toEqual({ Ref: "AuraHistoriaMcpArtifactKey" });
     expect(compute.findResources("AWS::Lambda::Url")).toEqual({});
   });

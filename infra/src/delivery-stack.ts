@@ -322,9 +322,9 @@ export class DeliveryStack extends cdk.Stack {
     planRole.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:InvokeFunction"], resources: [this.formatArn({ service: "lambda", resource: "function", resourceName: `database-inspection-lambda-${stage}:*`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME })] }));
     this.releases.grantPut(planRole, "reports/*");
     this.releases.grantPut(planRole, "evidence/*");
-    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["ssm:GetParameter"], resources: [
-      this.formatArn({ service: "ssm", resource: "parameter", resourceName: `anthropic/${stage}/api-key`,
-        arnFormat: cdk.ArnFormat.SLASH_RESOURCE_NAME }),
+    planRole.addToPolicy(new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue"], resources: [
+      this.formatArn({ service: "secretsmanager", resource: "secret", resourceName: `/aura-historia/${stage}/app/anthropic-??????`,
+        arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME }),
     ] }));
     // Binds credential version parameters; metadata only, never secret values.
     planRole.addToPolicy(new iam.PolicyStatement({ actions: ["secretsmanager:DescribeSecret"], resources: runtimeCredentialSecretArns(

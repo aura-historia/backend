@@ -291,12 +291,20 @@ must preserve that schema evidence and the previous verified application baselin
 Runtime credentials are deployment inputs. Templates reference fields of Secrets Manager
 secrets, each pinned to a `<Name>CredentialVersion` stack parameter that the template's
 `AuraHistoria::CredentialVersions` metadata maps to its secret. CloudFormation resolves the
-values into Lambda and ECS task configuration when it updates those resources; runtime code
-never reads a secret store per request, so a changed credential takes effect with a release.
-Routine delivery binds each parameter to the secret's `AWSCURRENT` version, reading metadata
-only, and holds when a secret is missing. [`credentials.ts`](../infra/src/credentials.ts) owns
-the secret names and JSON fields; provision app secrets before the first release that
-references them. Only the routine CloudFormation role can read them.
+values into Lambda and ECS task configuration when it updates those resources, and each
+published Lambda version's description carries the pinned versions it uses, so a
+credential-only release also moves aliases and versioned consumers. Runtime code never reads a
+secret store per request; a changed credential takes effect with a release. The release reviewer
+reads the Anthropic secret's key when it runs.
+
+[`credentials.ts`](../infra/src/credentials.ts) owns the secret names and JSON fields; provision
+app secrets before the first release that references them, and keep only runtime credentials
+under the `app/` prefix: the routine CloudFormation role may read exactly the runtime PostgreSQL
+secret and that prefix. Routine delivery binds each parameter to the secret's `AWSCURRENT`
+version, reading metadata only, and holds when a secret is missing. Templates accept only the
+UUID version IDs Secrets Manager generates; never supply a client request token. Protected
+identity and initialization stacks take the same parameters in the platform procedure: bind them
+with `node ci/delivery/credential-versions.cjs <target> <template.json>`.
 
 Plain SSM `String` parameters hold non-secret configuration only: change sets report their
 resolved values, which would otherwise reach release evidence. Planning still redacts every
@@ -305,12 +313,13 @@ and replication secrets remain invocation-time reads of the database operations 
 Deployed function and task configuration holds plaintext: restrict its read access. Never put
 credentials in source, CLI arguments, logs or release evidence.
 
-To change a credential, write a new secret version from a request file. For the runtime
-PostgreSQL role, also run the approved bootstrap operation, which applies role passwords from
-their secrets; new connections from deployed versions fail until the release completes. Then
-release: the report shows the changed version parameter, and protected identity and
-initialization stacks take the same parameters through the platform procedure. Verify the new
-credential in use before revoking the old one.
+To change a credential, write a new secret version from a request file, release, verify the new
+credential in use and only then revoke the old one. Third-party keys overlap, so this is
+interruption-free. The runtime PostgreSQL role has one password: run the approved bootstrap
+operation, which applies role passwords from their secrets, immediately before the release;
+until the release completes, new connections from deployed versions fail with SQLSTATE `28P01`.
+If that release fails and rolls back, restore the previous secret version to `AWSCURRENT` and run
+bootstrap again before retrying.
 
 ### Operator setup and cutover
 
@@ -352,7 +361,7 @@ Before enabling normal requests:
    target inventory under `ci/delivery/targets/`. Missing private facts require
    sanitized operator evidence and hold deployment until reviewed.
    The reviewer calls the Anthropic Messages API directly with Opus 5.5 at high
-   effort. Its planner role reads only the target's Anthropic API key parameter
+   effort. Its planner role reads only the target's Anthropic API key secret
    at runtime; never copy that key into GitHub secrets, logs or release evidence.
    The verdict uses schema-constrained JSON. Thinking and response text share
    the bounded output budget. Thinking blocks

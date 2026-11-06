@@ -51,7 +51,7 @@ describe.each(STAGES)("%s deploy-time credentials", (stage) => {
     for (const [stackName, template] of Object.entries(templates)) {
       const declared: Record<string, string> = template.Metadata?.[CREDENTIAL_VERSIONS_METADATA] ?? {};
       for (const [parameter, secretName] of Object.entries(declared)) {
-        expect(template.Parameters[parameter]).toMatchObject({ Type: "String", AllowedPattern: "^[A-Za-z0-9-]{32,64}$" });
+        expect(template.Parameters[parameter]).toMatchObject({ Type: "String", AllowedPattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" });
         expect(secretName).toMatch(new RegExp(`^/aura-historia/${stage}/(postgres/runtime|app/[a-z0-9-]+)$`));
         pinned.add(`${stackName}:${secretName}`);
       }
@@ -70,6 +70,21 @@ describe.each(STAGES)("%s deploy-time credentials", (stage) => {
         .map(({ secretName }) => secretName)
         .filter((name) => !name.endsWith("/fxratesapi") && !name.endsWith("/cognito-identity-providers"))
         .sort());
+  });
+
+  test("a credential-only release publishes new versions of every function that uses the credential", () => {
+    const compute = templates[`application-${stage}-compute`];
+    const versions = Object.values(compute.Resources).filter((resource: any) => resource.Type === "AWS::Lambda::Version");
+    let pinnedVersions = 0;
+    for (const version of versions as any[]) {
+      const functionId = version.Properties.FunctionName.Ref as string;
+      const pinned = [...JSON.stringify(compute.Resources[functionId].Properties.Environment ?? {})
+        .matchAll(/"Ref":"([A-Za-z]+CredentialVersion)"/g)].map(([, parameter]) => parameter);
+      const description = JSON.stringify(version.Properties.Description);
+      for (const parameter of new Set(pinned)) expect(description).toContain(`{"Ref":"${parameter}"}`);
+      pinnedVersions += pinned.length ? 1 : 0;
+    }
+    expect(pinnedVersions).toBeGreaterThan(10);
   });
 });
 
@@ -102,12 +117,14 @@ describe("delivery permissions for deploy-time credentials", () => {
     }
   });
 
-  test("the planner reads secret metadata only and runtime roles cannot read secrets", () => {
+  test("the planner reads secret metadata and only the reviewer key, and runtime roles cannot read secrets", () => {
     const plannerSecretStatements = statementsFor("prodGitHubPlanner")
       .filter((statement) => JSON.stringify(statement.Action).includes("secretsmanager:"));
-    expect(plannerSecretStatements).toHaveLength(1);
-    expect(plannerSecretStatements[0].Action).toBe("secretsmanager:DescribeSecret");
-    for (const secret of runtimeSecrets) expect(JSON.stringify(plannerSecretStatements[0].Resource)).toContain(secret);
+    expect(plannerSecretStatements.map((statement) => statement.Action)).toEqual([
+      "secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret",
+    ]);
+    expect(JSON.stringify(plannerSecretStatements[0].Resource)).toContain("secret:/aura-historia/prod/app/anthropic-??????");
+    for (const secret of runtimeSecrets) expect(JSON.stringify(plannerSecretStatements[1].Resource)).toContain(secret);
     const boundaries = Object.values(template.findResources("AWS::IAM::ManagedPolicy"));
     const boundary = (name: string) => JSON.stringify(boundaries
       .find((policy) => policy.Properties.ManagedPolicyName === name)!.Properties.PolicyDocument);

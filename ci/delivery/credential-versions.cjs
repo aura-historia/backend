@@ -4,7 +4,8 @@
 // current version, so a changed credential becomes an explicit, reviewable parameter change.
 const CREDENTIAL_VERSIONS_METADATA = "AuraHistoria::CredentialVersions";
 const PARAMETER = /^[A-Z][A-Za-z0-9]*CredentialVersion$/;
-const VERSION_ID = /^[A-Za-z0-9-]{32,64}$/;
+// Secrets Manager generates UUID version IDs; templates accept nothing else (infra/src/credentials.ts).
+const VERSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function declaredCredentialVersions(target, stackName, template) {
   const declared = template?.Metadata?.[CREDENTIAL_VERSIONS_METADATA];
@@ -29,10 +30,12 @@ function declaredCredentialVersions(target, stackName, template) {
 }
 
 function currentVersion(ctx, secret, api) {
-  const described = api(ctx, "secretsmanager", "describe-secret", [
-    "--secret-id",
-    secret,
-  ]);
+  let described;
+  try {
+    described = api(ctx, "secretsmanager", "describe-secret", ["--secret-id", secret]);
+  } catch (cause) {
+    throw new Error(`Secret ${secret} is not describable; provision it before delivery`, { cause });
+  }
   const current = Object.entries(described.VersionIdsToStages || {}).filter(
     ([, stages]) => Array.isArray(stages) && stages.includes("AWSCURRENT"),
   );
@@ -81,3 +84,34 @@ module.exports = {
   credentialVersionParameterNames,
   credentialVersionParameters,
 };
+
+// Platform procedure for stacks routine delivery does not plan (identity, initialize):
+//   node ci/delivery/credential-versions.cjs <dev|prod> <template.json>...
+// prints the change-set parameters that bind each declared credential version, metadata only.
+if (require.main === module) {
+  const [target, ...files] = process.argv.slice(2);
+  if (!["dev", "prod"].includes(target) || !files.length) {
+    console.error("usage: credential-versions.cjs <dev|prod> <template.json>...");
+    process.exit(2);
+  }
+  const fs = require("node:fs");
+  const { aws } = require("./admission.cjs");
+  const templates = Object.fromEntries(
+    files.map((file) => [file, JSON.parse(fs.readFileSync(file, "utf8"))]),
+  );
+  const values = credentialVersionParameters(
+    { target, region: "eu-central-1" },
+    templates,
+    aws,
+  );
+  console.log(
+    JSON.stringify(
+      Object.entries(values).map(([ParameterKey, ParameterValue]) => ({
+        ParameterKey,
+        ParameterValue,
+      })),
+      null,
+      2,
+    ),
+  );
+}

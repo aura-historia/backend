@@ -9,12 +9,18 @@ function unescapePointer(segment) {
 }
 
 // The deepest template node on the path decides: a value derived from a dynamic reference can
-// only originate below a node that contains one. A resource absent from the template fails closed.
+// only originate below a node that contains one. Change-set list order need not match the
+// template, so a list decides as a whole. A resource absent from the template fails closed.
 function mayHoldResolvedReference(template, logicalId, pointer) {
   let node = template?.Resources?.[logicalId];
   if (node === undefined) return true;
   for (const segment of pointer.split("/").slice(1).map(unescapePointer)) {
-    if (node === null || typeof node !== "object" || !Object.hasOwn(node, segment))
+    if (
+      node === null ||
+      typeof node !== "object" ||
+      Array.isArray(node) ||
+      !Object.hasOwn(node, segment)
+    )
       break;
     node = node[segment];
   }
@@ -56,17 +62,19 @@ function redactContext(context, template, logicalId) {
   );
 }
 
+// A value without a property path cannot be attributed to the template, so it is removed.
 function redactTarget(target, logicalId, before, after) {
-  if (!target || typeof target.Path !== "string") return target;
+  if (!target || typeof target !== "object") return target;
+  const unattributed = typeof target.Path !== "string";
   const redacted = { ...target };
   if (
     Object.hasOwn(target, "BeforeValue") &&
-    mayHoldResolvedReference(before, logicalId, target.Path)
+    (unattributed || mayHoldResolvedReference(before, logicalId, target.Path))
   )
     redacted.BeforeValue = REDACTED;
   if (
     Object.hasOwn(target, "AfterValue") &&
-    mayHoldResolvedReference(after, logicalId, target.Path)
+    (unattributed || mayHoldResolvedReference(after, logicalId, target.Path))
   )
     redacted.AfterValue = REDACTED;
   return redacted;

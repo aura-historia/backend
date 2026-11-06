@@ -8,7 +8,11 @@ import type { StageName } from "./config";
  * version, so changing a credential is an explicit parameter change on the next release.
  */
 export const CREDENTIAL_VERSIONS_METADATA = "AuraHistoria::CredentialVersions";
-const SECRET_VERSION_ID_PATTERN = "^[A-Za-z0-9-]{32,64}$";
+// Secrets Manager generates UUID version IDs; a custom client request token would not fit.
+const SECRET_VERSION_ID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
+// The random final UUID segment (48 bits) identifies a version in a Lambda version description.
+const VERSION_DESCRIPTION_SEGMENT_LENGTH = 12;
+const LAMBDA_VERSION_DESCRIPTION_LIMIT = 256;
 
 /** A Secrets Manager secret whose JSON fields are injected into configuration at deployment. */
 export interface CredentialSecret<Field extends string = string> {
@@ -53,6 +57,45 @@ export type CredentialResolver = <Field extends string>(credential: CredentialSe
 
 export function credentialResolver(scope: Construct): CredentialResolver {
   return (credential, field) => credentialValue(scope, credential, field).unsafeUnwrap();
+}
+
+/** A resolver that also records which secrets one function's configuration uses. */
+export function recordingCredentialResolver(scope: Construct): {
+  readonly resolve: CredentialResolver;
+  readonly used: () => readonly CredentialSecret[];
+} {
+  const resolve = credentialResolver(scope);
+  const used: CredentialSecret[] = [];
+  return {
+    resolve: (credential, field) => {
+      used.push(credential);
+      return resolve(credential, field);
+    },
+    used: () => used,
+  };
+}
+
+/**
+ * A published Lambda version snapshots its configuration, so its identity must change with the
+ * pinned versions of the credentials it uses as well as with its code; otherwise a release that
+ * changes only a credential would leave aliases and versioned consumers on the old value.
+ */
+export function releaseVersionDescription(
+  scope: Construct,
+  artifactSha256: string,
+  credentials: readonly CredentialSecret[],
+): string {
+  const pinned = [...new Map(credentials.map((credential) => [credential.parameterStem, credential])).values()]
+    .sort((left, right) => left.parameterStem.localeCompare(right.parameterStem));
+  if (pinned.length === 0) {
+    return artifactSha256;
+  }
+  if (64 + pinned.length * (VERSION_DESCRIPTION_SEGMENT_LENGTH + 1) > LAMBDA_VERSION_DESCRIPTION_LIMIT) {
+    throw new Error(`A Lambda version cannot pin ${pinned.length} credential secrets in its description.`);
+  }
+  const stack = cdk.Stack.of(scope);
+  return cdk.Fn.join(" ", [artifactSha256, ...pinned.map((credential) =>
+    cdk.Fn.select(4, cdk.Fn.split("-", versionParameter(stack, credential).valueAsString)))]);
 }
 
 /**

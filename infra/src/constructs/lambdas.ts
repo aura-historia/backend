@@ -9,7 +9,7 @@ import type * as ses from "aws-cdk-lib/aws-ses";
 import { Construct } from "constructs";
 import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
-import { credentialResolver, credentialSecrets } from "../credentials";
+import { credentialSecrets, recordingCredentialResolver, releaseVersionDescription } from "../credentials";
 import { releaseLambdaCode, lambdaArtifactParameters } from "../release-artifacts";
 import type { ApplicationParameters } from "../parameters";
 import {
@@ -367,7 +367,7 @@ export class Lambdas extends Construct {
       auraHistoriaMcp: mcpLogGroup,
       postConfirmation: postConfirmationEvidenceLogGroup,
     };
-    const environmentContext: LambdaEnvironmentContext = {
+    const environmentContext: Omit<LambdaEnvironmentContext, "credential"> = {
       config: props.config,
       emailConfigurationSet: props.emailConfigurationSet,
       commitSha: props.parameters.commitSha,
@@ -375,8 +375,9 @@ export class Lambdas extends Construct {
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,
-      credential: credentialResolver(this),
     };
+    // Filled for every definition below; explicit versions use the same identity as currentVersion.
+    const versionDescriptions = {} as Record<LambdaKey, string>;
 
     for (const [key, definition] of Object.entries(LAMBDA_DEFINITIONS) as [LambdaKey, LambdaDefinition][]) {
       const networkProps = definition.postgres && props.network
@@ -387,6 +388,11 @@ export class Lambdas extends Construct {
           }
         : {};
 
+      const credentials = recordingCredentialResolver(this);
+      const environment = lambdaEnvironment(definition, { ...environmentContext, credential: credentials.resolve });
+      const versionDescription = releaseVersionDescription(this,
+        lambdaArtifactParameters(cdk.Stack.of(this), definition.binaryName).sha256, credentials.used());
+      versionDescriptions[key] = versionDescription;
       functions[key] = new lambda.Function(this, definition.id, {
         ...networkProps,
         functionName: `${definition.binaryName}-${props.config.stage}`,
@@ -394,13 +400,13 @@ export class Lambdas extends Construct {
         architecture: lambda.Architecture.X86_64,
         handler: "lib.handler",
         code: releaseLambdaCode(cdk.Stack.of(this), props.artifactBucket, definition.binaryName),
-        currentVersionOptions: { description: lambdaArtifactParameters(cdk.Stack.of(this), definition.binaryName).sha256 },
+        currentVersionOptions: { description: versionDescription },
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         reservedConcurrentExecutions: lambdaReservedConcurrency(key, props.config),
         logGroup: logGroups[key],
         ephemeralStorageSize: cdk.Size.mebibytes(512),
-        environment: lambdaEnvironment(definition, environmentContext),
+        environment,
         layers: definition.postgres && postgresTlsRootCertificateLayer
           ? [postgresTlsRootCertificateLayer]
           : undefined,
@@ -428,71 +434,71 @@ export class Lambdas extends Construct {
     });
     this.productListingOpenSearchVersion = new lambda.Version(this, "ProductListingOpenSearchVersion", {
       lambda: this.functions.productListingOpenSearch,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-listing-opensearch-lambda").sha256,
+      description: versionDescriptions.productListingOpenSearch,
     });
     this.productListingNormalizationVersion = new lambda.Version(this, "ProductListingNormalizationVersion", {
       lambda: this.functions.productListingNormalization,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-listing-normalization-lambda").sha256,
+      description: versionDescriptions.productListingNormalization,
     });
     this.productListingIngestionVersion = new lambda.Version(this, "ProductListingIngestionVersion", {
       lambda: this.functions.productListingIngestion,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-listing-ingestion-lambda").sha256,
+      description: versionDescriptions.productListingIngestion,
     });
     this.productContentAssessmentVersion = new lambda.Version(this, "ProductContentAssessmentVersion", {
       lambda: this.functions.productContentAssessment,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-content-assessment-lambda").sha256,
+      description: versionDescriptions.productContentAssessment,
     });
     this.productEmbeddingVersion = new lambda.Version(this, "ProductEmbeddingVersion", {
       lambda: this.functions.productEmbedding,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-embedding-lambda").sha256,
+      description: versionDescriptions.productEmbedding,
     });
     this.productTranslationVersion = new lambda.Version(this, "ProductTranslationVersion", {
       lambda: this.functions.productTranslation,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "product-translation-lambda").sha256,
+      description: versionDescriptions.productTranslation,
     });
     this.searchFilterMatchNotificationVersion = new lambda.Version(this, "SearchFilterMatchNotificationVersion", {
       lambda: this.functions.searchFilterMatchNotification,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "search-filter-match-notification-lambda").sha256,
+      description: versionDescriptions.searchFilterMatchNotification,
     });
     this.watchlistNotificationVersion = new lambda.Version(this, "WatchlistNotificationVersion", {
       lambda: this.functions.watchlistNotification,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "watchlist-notification-lambda").sha256,
+      description: versionDescriptions.watchlistNotification,
     });
     this.notificationDeliveryVersion = new lambda.Version(this, "NotificationDeliveryVersion", {
       lambda: this.functions.notificationDelivery,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "notification-delivery-lambda").sha256,
+      description: versionDescriptions.notificationDelivery,
     });
     this.userIdentityDeletionVersion = new lambda.Version(
       this,
       "UserIdentityDeletionVersion",
       {
         lambda: this.functions.userIdentityDeletion,
-        description: lambdaArtifactParameters(cdk.Stack.of(this), "user-identity-deletion-lambda").sha256,
+        description: versionDescriptions.userIdentityDeletion,
       },
     );
     this.marketingConsentSyncVersion = new lambda.Version(this, "MarketingConsentSyncVersion", {
       lambda: this.functions.marketingConsentSync,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "marketing-consent-sync-lambda").sha256,
+      description: versionDescriptions.marketingConsentSync,
     });
     this.listingGeographyVersion = new lambda.Version(this, "ListingGeographyVersion", {
       lambda: this.functions.listingGeography,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "listing-geography-lambda").sha256,
+      description: versionDescriptions.listingGeography,
     });
     this.listingShippingVersion = new lambda.Version(this, "ListingShippingVersion", {
       lambda: this.functions.listingShipping,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "listing-shipping-lambda").sha256,
+      description: versionDescriptions.listingShipping,
     });
     this.geoResolutionVersion = new lambda.Version(this, "GeoResolutionVersion", {
       lambda: this.functions.geoResolution,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "geo-resolution-lambda").sha256,
+      description: versionDescriptions.geoResolution,
     });
     this.backendCleanupVersion = new lambda.Version(this, "BackendCleanupVersion", {
       lambda: this.functions.backendCleanup,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "backend-cleanup-lambda").sha256,
+      description: versionDescriptions.backendCleanup,
     });
     this.cdcRouterVersion = new lambda.Version(this, "CdcRouterVersion", {
       lambda: this.functions.cdcRouter,
-      description: lambdaArtifactParameters(cdk.Stack.of(this), "cdc-router-lambda").sha256,
+      description: versionDescriptions.cdcRouter,
     });
     grantRuntimeAccess(props, this.functions);
   }

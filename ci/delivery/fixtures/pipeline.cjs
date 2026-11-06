@@ -678,8 +678,11 @@ function pipelineFixture(directory) {
         VersionIdsToStages: { [CREDENTIAL_VERSION]: ["AWSCURRENT"] },
       };
     }
-    if (service === "ssm" && operation === "get-parameter")
-      return { Parameter: { Name: "/anthropic/prod/api-key", Value: "test-key" } };
+    if (service === "secretsmanager" && operation === "get-secret-value")
+      return {
+        Name: "/aura-historia/prod/app/anthropic",
+        SecretString: JSON.stringify({ apiKey: "test-key" }),
+      };
     throw new Error(`Unexpected API ${service}/${operation}`);
   };
   const env = {

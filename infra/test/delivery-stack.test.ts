@@ -39,10 +39,11 @@ test("only the shared release builder uses the disposable S3 dependency cache", 
 test("the reviewer reads only its target Anthropic key without model-service permissions", () => {
   const statements = Object.values(template.findResources("AWS::IAM::Policy"))
     .filter((policy) => JSON.stringify(policy.Properties.Roles).includes("prodGitHubPlanner"))
-    .flatMap((policy) => policy.Properties.PolicyDocument.Statement)
-    .filter((statement) => statement.Action === "ssm:GetParameter");
-  expect(statements).toHaveLength(2);
-  expect(JSON.stringify(statements[1].Resource)).toContain(":parameter/anthropic/prod/api-key");
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement);
+  const reads = statements.filter((statement) => statement.Action === "secretsmanager:GetSecretValue");
+  expect(reads).toHaveLength(1);
+  expect(JSON.stringify(reads[0].Resource)).toContain(":secret:/aura-historia/prod/app/anthropic-??????");
+  expect(JSON.stringify(statements)).not.toContain(":parameter/anthropic/");
   expect(JSON.stringify(template.toJSON())).not.toContain("bedrock:");
   expect(template.toJSON().Parameters).not.toHaveProperty("prodReviewerModelArn");
   expect(template.toJSON().Parameters).not.toHaveProperty("prodReviewerFoundationModelArns");

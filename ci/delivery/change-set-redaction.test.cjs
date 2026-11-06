@@ -97,3 +97,62 @@ test("redaction is deterministic so approval and execution compare the same evid
     redactResolvedValues(structuredClone(changes), before, after),
   );
 });
+
+test("values without a property path and reordered list entries fail closed", () => {
+  const task = (environment) => ({
+    Resources: {
+      Task: {
+        Type: "AWS::ECS::TaskDefinition",
+        Properties: { ContainerDefinitions: [{ Image: "image", Environment: environment }] },
+      },
+    },
+  });
+  const template = task([
+    { Name: "STAGE", Value: "prod" },
+    { Name: "OPENSEARCH_PASSWORD", Value: "{{resolve:ssm:/opensearch/prod/reader/password}}" },
+  ]);
+  const [redacted] = redactResolvedValues(
+    [
+      {
+        ResourceChange: {
+          LogicalResourceId: "Task",
+          // The change set lists the password first although the template lists it second.
+          BeforeContext: JSON.stringify({
+            Properties: {
+              ContainerDefinitions: [
+                {
+                  Image: "image",
+                  Environment: [
+                    { Name: "OPENSEARCH_PASSWORD", Value: "resolved-password" },
+                    { Name: "STAGE", Value: "prod" },
+                  ],
+                },
+              ],
+            },
+          }),
+          Details: [
+            { Target: { Attribute: "Properties", BeforeValue: "resolved-password", AfterValue: "next" } },
+            {
+              Target: {
+                Path: "/Properties/ContainerDefinitions/0/Environment/0/Value",
+                BeforeValue: "resolved-password",
+                AfterValue: "next",
+              },
+            },
+          ],
+        },
+      },
+    ],
+    template,
+    template,
+  );
+  assert.ok(!JSON.stringify(redacted).includes("resolved-password"));
+  // A list holding a reference is redacted as a whole; its changed paths stay reviewable.
+  const context = JSON.parse(redacted.ResourceChange.BeforeContext).Properties.ContainerDefinitions[0];
+  assert.deepEqual([context.Image, context.Environment[1].Value], [REDACTED, REDACTED]);
+  assert.equal(redacted.ResourceChange.Details[0].Target.AfterValue, REDACTED);
+  assert.equal(
+    redacted.ResourceChange.Details[1].Target.Path,
+    "/Properties/ContainerDefinitions/0/Environment/0/Value",
+  );
+});

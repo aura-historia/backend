@@ -10,3 +10,14 @@ export function credentialReference<Field extends string>(secret: CredentialSecr
     ]],
   };
 }
+
+/** The synthesized description that ties a Lambda version to its code and pinned credentials. */
+export function releaseVersionDescription(artifactSha256Parameter: string, secrets: readonly CredentialSecret[]): unknown {
+  const pinned = [...secrets].sort((left, right) => left.parameterStem.localeCompare(right.parameterStem));
+  return {
+    "Fn::Join": [" ", [
+      { Ref: artifactSha256Parameter },
+      ...pinned.map((secret) => ({ "Fn::Select": [4, { "Fn::Split": ["-", { Ref: `${secret.parameterStem}CredentialVersion` }] }] })),
+    ]],
+  };
+}

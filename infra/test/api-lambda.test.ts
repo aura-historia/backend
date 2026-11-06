@@ -4,7 +4,7 @@ import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, type StageName } from "../src/config";
 import { consentEvidenceLogGroupNames } from "../src/constructs/lambdas";
 import { credentialSecrets } from "../src/credentials";
-import { credentialReference } from "./credential-reference";
+import { credentialReference, releaseVersionDescription } from "./credential-reference";
 
 type CloudFormationResource = {
   readonly Properties: Record<string, unknown>;
@@ -202,7 +202,8 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
 
     expect(alias.Properties).toMatchObject({ Name: "live", FunctionName: { Ref: functionId } });
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
-    expect(version.Properties.Description).toEqual({ Ref: "AuraHistoriaApiArtifactSha256" });
+    expect(version.Properties.Description)
+      .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
     expect(code.S3Key).toEqual({ Ref: "AuraHistoriaApiArtifactKey" });
     expect((apiFunction(template, stage).Properties.Code as Record<string, unknown>).S3ObjectVersion)
       .toEqual({ Ref: "AuraHistoriaApiArtifactVersion" });
@@ -338,7 +339,9 @@ test("configuration-only API updates still change the currentVersion target", ()
 
   expect(after).not.toBe(apiAliasVersion(before).versionId);
   expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [after, "Version"] });
-  expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description).toEqual({ Ref: "AuraHistoriaApiArtifactSha256" });
+  const stage = "dev";
+  expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description)
+    .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
 });
 
 test("grants only API session-revocation actions against the Cognito user pool", () => {
