@@ -4,8 +4,7 @@ use super::stop::CronStop;
 use crate::CrawlerReviewId;
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
-    DomainFailureKind, NetworkErrorKind, canonical_crawl_host, domain_cooldown,
-    durable_retry_cooldown_for,
+    DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
 };
 use crate::scraper::candidate_service::{
     FetchFailureRequest, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
@@ -71,9 +70,6 @@ struct ScrapeBatchContext {
     crawl_host: String,
     batch_time_budget: Duration,
     stop: CronStop,
-    /// The crawl hosts whose mass removal an operator confirmed, which the mass-removal guard does
-    /// not hold back.
-    mass_removal_confirmed_domains: Arc<HashSet<String>>,
 }
 
 /// Metadata applied only after durable raw capture succeeds.
@@ -1860,8 +1856,9 @@ async fn scrape_batch_candidates(
 }
 
 /// Captures a scraper batch's new removals, or holds every one back when they are a mass removal
-/// of the URLs the batch scraped and no operator confirmed one for the ListingSource's crawl host
-/// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`).
+/// of the URLs the batch scraped and no operator confirmation of the ListingSource's mass removal
+/// is live (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`). The confirmation is read
+/// when the batch's removals are a mass removal; a read that fails holds the batch.
 async fn settle_new_removals(
     removals: Vec<NewRemoval>,
     scraped_urls: usize,
@@ -1869,20 +1866,35 @@ async fn settle_new_removals(
     outcome: &mut ScrapeBatchOutcome,
 ) {
     if let Some(mass_removal) = MassRemoval::of(removals.len(), scraped_urls) {
-        if !ctx
-            .mass_removal_confirmed_domains
-            .contains(&canonical_crawl_host(&ctx.crawl_host))
+        let confirmed_until = match ctx
+            .scraper_candidates
+            .mass_removal_confirmed_until(&ctx.listing_source_id)
+            .await
         {
+            Ok(confirmed_until) => confirmed_until,
+            Err(error) => {
+                warn!(
+                    event = "crawler.scraper.mass_removal_confirmation_unreadable",
+                    listing_source_id = %ctx.listing_source_id,
+                    error = %error,
+                    "Failed to read the mass-removal confirmation; holding the batch's removals"
+                );
+                None
+            }
+        };
+        let Some(confirmed_until) = confirmed_until else {
             hold_mass_removal(removals, mass_removal, ctx, outcome).await;
             return;
-        }
+        };
         info!(
             event = "crawler.scraper.mass_removal_confirmed",
+            listing_source_id = %ctx.listing_source_id,
             crawl_host = %ctx.crawl_host,
+            confirmed_until = %confirmed_until,
             removals = mass_removal.removals(),
             scraped_urls = mass_removal.scraped_urls(),
             share = mass_removal.share(),
-            "Capturing a mass removal an operator confirmed for the crawl host"
+            "Capturing a mass removal an operator confirmed for the ListingSource"
         );
     }
     for removal in removals {
@@ -2077,8 +2089,6 @@ impl CrawlerCronJob {
             mpsc::channel::<QueuedRawCapture>(self.config.effective_push_queue_capacity());
 
         let budget_exhausted_listing_sources = Arc::new(Mutex::new(HashSet::new()));
-        let mass_removal_confirmed_domains =
-            Arc::new(self.config.mass_removal_confirmed_domains.clone());
 
         let mut unique_listing_source_ids = HashSet::new();
         let mut total = 0usize;
@@ -2120,8 +2130,6 @@ impl CrawlerCronJob {
                         Arc::clone(&budget_exhausted_listing_sources);
                     let batch_time_budget = self.config.scraper_batch_time_budget;
                     let stop = self.stop.clone();
-                    let mass_removal_confirmed_domains =
-                        Arc::clone(&mass_removal_confirmed_domains);
                     let span =
                         tracing::info_span!("scrape_batch", listing_source_id = %listing_source_id);
                     active_sources.insert(listing_source_id);
@@ -2139,7 +2147,6 @@ impl CrawlerCronJob {
                                 crawl_host,
                                 batch_time_budget,
                                 stop,
-                                mass_removal_confirmed_domains,
                             };
 
                             ScheduledScrapeBatchOutcome {
@@ -2891,7 +2898,6 @@ mod tests {
             crawl_host: "example.com".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
-            mass_removal_confirmed_domains: Arc::default(),
         }
     }
 
@@ -2919,7 +2925,6 @@ mod tests {
             crawl_host: "example.com".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
-            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let deferred = scrape_batch_candidates(vec![candidate], first_context).await;
@@ -2947,7 +2952,6 @@ mod tests {
             crawl_host: "example.com".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
-            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let mut retry_candidate = scraper_candidate(
@@ -3002,7 +3006,6 @@ mod tests {
             crawl_host: "example.com".to_owned(),
             batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
             stop: CronStop::default(),
-            mass_removal_confirmed_domains: Arc::default(),
         };
 
         let outcome = scrape_batch_candidates(vec![candidate], context).await;
@@ -4146,7 +4149,6 @@ mod tests {
                 crawl_host: "example.com".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
-                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4490,7 +4492,6 @@ mod tests {
                 crawl_host: "example.com".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
-                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4555,7 +4556,6 @@ mod tests {
                 crawl_host: "example.com".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
-                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4633,7 +4633,6 @@ mod tests {
                 crawl_host: "example.com".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
-                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4688,7 +4687,6 @@ mod tests {
                 crawl_host: "example.com".to_owned(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
-                mass_removal_confirmed_domains: Arc::default(),
             },
         )
         .await;
@@ -4727,7 +4725,6 @@ mod tests {
             crawl_host: "example.com".to_owned(),
             batch_time_budget,
             stop: CronStop::default(),
-            mass_removal_confirmed_domains: Arc::default(),
         }
     }
 
@@ -5041,22 +5038,15 @@ mod tests {
             scraper_service
         }
 
-        /// A batch context whose operator confirmed the mass removals of `confirmed_domains`, as
-        /// `CRAWLER_MASS_REMOVAL_CONFIRMED_DOMAINS` lists them.
         fn batch_context(
             scraper_candidates: MockScraperCandidateService,
             scraper_service: MockScraperService,
             listing_source_id: ListingSourceId,
-            confirmed_domains: &str,
         ) -> (ScrapeBatchContext, mpsc::Receiver<QueuedRawCapture>) {
             let (command_tx, command_rx) = mpsc::channel(64);
             let ctx = ScrapeBatchContext {
                 command_tx,
                 crawl_host: HOST.to_owned(),
-                mass_removal_confirmed_domains: Arc::new(
-                    crate::service::cron::mass_removal_confirmed_domains(Some(confirmed_domains))
-                        .unwrap_or_else(|error| panic!("confirmed domains: {error}")),
-                ),
                 ..batch_context_of(
                     scraper_candidates,
                     scraper_service,
@@ -5065,6 +5055,18 @@ mod tests {
                 )
             };
             (ctx, command_rx)
+        }
+
+        /// A candidate service whose ListingSource carries the given confirmation end.
+        fn confirmed_until(
+            mut scraper_candidates: MockScraperCandidateService,
+            confirmed_until: Option<time::OffsetDateTime>,
+        ) -> MockScraperCandidateService {
+            scraper_candidates
+                .expect_mass_removal_confirmed_until()
+                .times(1)
+                .returning(move |_| Box::pin(async move { Ok(confirmed_until) }));
+            scraper_candidates
         }
 
         fn forgetting(times: usize) -> MockScraperCandidateService {
@@ -5107,10 +5109,9 @@ mod tests {
                 })
                 .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let (ctx, mut command_rx) = batch_context(
-                scraper_candidates,
+                confirmed_until(scraper_candidates, None),
                 shop_removing_the_first(12),
                 listing_source_id,
-                "",
             );
 
             let outcome = scrape_batch_candidates(candidates, ctx).await;
@@ -5123,11 +5124,14 @@ mod tests {
         #[tokio::test]
         async fn should_capture_the_removals_of_a_batch_that_keeps_half_of_its_urls() {
             let (candidates, listing_source_id) = source_batch(HOST, 20);
+            let mut scraper_candidates = forgetting(10);
+            scraper_candidates
+                .expect_mass_removal_confirmed_until()
+                .never();
             let (ctx, mut command_rx) = batch_context(
-                forgetting(10),
+                scraper_candidates,
                 shop_removing_the_first(10),
                 listing_source_id,
-                "",
             );
 
             let outcome = scrape_batch_candidates(candidates, ctx).await;
@@ -5137,19 +5141,47 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_capture_a_mass_removal_an_operator_confirmed_for_the_crawl_host() {
+        async fn should_capture_a_mass_removal_an_operator_confirmed_for_the_listing_source() {
             let (candidates, listing_source_id) = source_batch(HOST, 12);
+            let confirmation_end = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
             let (ctx, mut command_rx) = batch_context(
-                forgetting(12),
+                confirmed_until(forgetting(12), Some(confirmation_end)),
                 shop_removing_the_first(12),
                 listing_source_id,
-                &format!("WWW.{HOST}"),
             );
 
             let outcome = scrape_batch_candidates(candidates, ctx).await;
 
             assert_eq!(queued_removals(&mut command_rx), 12);
             assert_eq!(outcome.succeeded, 12);
+        }
+
+        /// The guard fails closed: a confirmation it cannot read is no confirmation.
+        #[tokio::test]
+        async fn should_hold_a_mass_removal_when_the_confirmation_cannot_be_read() {
+            let (candidates, listing_source_id) = source_batch(HOST, 12);
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .never();
+            scraper_candidates
+                .expect_mass_removal_confirmed_until()
+                .times(1)
+                .returning(|_| Box::pin(async { Err(sqlx::Error::PoolClosed) }));
+            scraper_candidates
+                .expect_mark_scraped_without_capture()
+                .times(12)
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let (ctx, mut command_rx) = batch_context(
+                scraper_candidates,
+                shop_removing_the_first(12),
+                listing_source_id,
+            );
+
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 0);
+            assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
         }
 
         /// A shop accumulates pages whose removal is already captured; their rechecks are no live
@@ -5173,10 +5205,9 @@ mod tests {
                 .times(10)
                 .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let (ctx, mut command_rx) = batch_context(
-                scraper_candidates,
+                confirmed_until(scraper_candidates, None),
                 shop_removing_the_first(30),
                 listing_source_id,
-                "",
             );
 
             let outcome = scrape_batch_candidates(candidates, ctx).await;
@@ -5984,7 +6015,6 @@ mod tests {
                 crawl_host: candidate.crawl_host.clone(),
                 batch_time_budget: CrawlerCronConfig::default().scraper_batch_time_budget,
                 stop: CronStop::default(),
-                mass_removal_confirmed_domains: Arc::default(),
             }
         }
 

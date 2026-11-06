@@ -76,9 +76,7 @@ use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
-use crawler::service::cron::{
-    CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
-};
+use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
@@ -199,12 +197,6 @@ async fn main() {
             scraper_concurrency: 10,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-            mass_removal_confirmed_domains: mass_removal_confirmed_domains(
-                env::var(MASS_REMOVAL_CONFIRMED_DOMAINS_ENV).ok().as_deref(),
-            )
-            .unwrap_or_else(|error| {
-                panic!("invalid {MASS_REMOVAL_CONFIRMED_DOMAINS_ENV}: {error}")
-            }),
             ..Default::default()
         };
 

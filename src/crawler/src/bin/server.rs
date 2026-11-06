@@ -70,9 +70,7 @@ use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
 use crawler::runtime::{CrawlerRuntimeConfig, CrawlerRuntimeProfile, apply_local_migrations};
 use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
-use crawler::service::cron::{
-    CrawlerCronConfig, MASS_REMOVAL_CONFIRMED_DOMAINS_ENV, mass_removal_confirmed_domains,
-};
+use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_api::{
     ApiListingSourceRegistrationSource, ListingSourceApiConfig,
 };
@@ -308,14 +306,6 @@ async fn main() {
             push_queue_capacity: 10,
             push_max_batch_age: Duration::from_secs(5),
             push_max_concurrency: 1,
-            mass_removal_confirmed_domains: mass_removal_confirmed_domains(
-                std::env::var(MASS_REMOVAL_CONFIRMED_DOMAINS_ENV)
-                    .ok()
-                    .as_deref(),
-            )
-            .unwrap_or_else(|error| {
-                panic!("invalid {MASS_REMOVAL_CONFIRMED_DOMAINS_ENV}: {error}")
-            }),
             ..Default::default()
         };
 
@@ -337,7 +327,6 @@ async fn main() {
             push_queue_capacity = config.effective_push_queue_capacity(),
             push_max_batch_age_ms = config.effective_push_max_batch_age().as_millis(),
             push_max_concurrency = config.effective_push_max_concurrency(),
-            mass_removal_confirmed_domains = ?config.mass_removal_confirmed_domains,
             "Crawler cron configuration loaded"
         );
 

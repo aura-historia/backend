@@ -1,3 +1,4 @@
+use super::ReviewActor;
 use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
@@ -40,12 +41,24 @@ pub struct ListingSourceOverview {
     /// start. `None` while `held_removal_urls` is 0.
     #[serde(with = "time::serde::rfc3339::option")]
     pub held_since: Option<time::OffsetDateTime>,
+    /// The end of the operator's live confirmation of the source's mass removal, until which the
+    /// mass-removal guard captures its removals; `None` without a live confirmation.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub mass_removal_confirmed_until: Option<time::OffsetDateTime>,
+    /// Who confirmed it; `None` with `mass_removal_confirmed_until`.
+    pub mass_removal_confirmed_by: Option<ReviewActor>,
     /// The last error kind of the product URLs that carry one, with the number of URLs per kind,
     /// the most frequent first.
     pub url_error_kinds: Vec<UrlErrorKindCount>,
     /// Product pages whose last scrape recorded `MissingRequiredValue`, listed by
     /// `GET /api/listing-sources/{id}/missing-value-pages`.
     pub missing_value_urls: i64,
+    /// Since when the spider has been crawling the source in this process; `None` while it is not.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub crawling_since: Option<time::OffsetDateTime>,
+    /// Since when the scraper has been scraping the source in this process; `None` while it is not.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub scraping_since: Option<time::OffsetDateTime>,
     /// How the spider and the scraper last left the source, so an operator sees whether it waits
     /// for a review or for an operator, or keeps failing to scrape, without reading the logs.
     #[serde(flatten)]
@@ -105,8 +118,12 @@ mod tests {
             blocking_review_id: None,
             held_removal_urls: 0,
             held_since: None,
+            mass_removal_confirmed_until: None,
+            mass_removal_confirmed_by: None,
             url_error_kinds: Vec::new(),
             missing_value_urls: 0,
+            crawling_since: None,
+            scraping_since: None,
             crawl_state: CrawlStateOverview {
                 last_crawl_outcome: Some("NEEDS_OPERATOR".to_owned()),
                 last_crawl_error_kind: Some("NoUrlPattern".to_owned()),

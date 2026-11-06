@@ -1273,6 +1273,63 @@ async fn scraper_should_return_candidate_when_scraped_more_than_1_day_ago() {
     );
 }
 
+/// The guard reads only a confirmation that is still in the future, so an expired one, a revoked
+/// one and an unknown source all read as none.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mass_removal_confirmed_until_should_read_only_a_live_confirmation() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "confirmed.example.com").await;
+    let set_confirmation = |seconds_from_now: i32| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "UPDATE listing_sources \
+                 SET mass_removal_confirmed_until = NOW() + make_interval(secs => $2), \
+                     mass_removal_confirmed_by = 'HUMAN' \
+                 WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(seconds_from_now)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+
+    assert_eq!(
+        service
+            .mass_removal_confirmed_until(&listing_source_id)
+            .await
+            .unwrap(),
+        None
+    );
+    set_confirmation(3600).await;
+    assert!(
+        service
+            .mass_removal_confirmed_until(&listing_source_id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    set_confirmation(-1).await;
+    assert_eq!(
+        service
+            .mass_removal_confirmed_until(&listing_source_id)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        service
+            .mass_removal_confirmed_until(&ListingSourceId::new())
+            .await
+            .unwrap(),
+        None
+    );
+}
+
 // ---------------------------------------------------------------------------
 // count_due_urls — counts exactly the URLs candidate selection could return
 // ---------------------------------------------------------------------------

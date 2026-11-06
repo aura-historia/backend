@@ -301,9 +301,10 @@ where
     let push_max_batch_age_ms = cron_config.effective_push_max_batch_age().as_millis();
     let push_max_concurrency = cron_config.effective_push_max_concurrency();
 
+    let work_locks = Arc::new(LocalLockManager::new());
     let cron_job = CrawlerCronJob::new(
         cron_config,
-        Arc::new(LocalLockManager::new()),
+        Arc::clone(&work_locks),
         spider_candidates,
         spider_svc,
         scraper_candidates,
@@ -323,7 +324,8 @@ where
         review_bind_addr = %review_config.bind_addr,
         "Crawler Server is fully initialized. Starting background tasks..."
     );
-    let review_server = ReviewServer::new(review_repo, review_config, fetcher);
+    let review_server =
+        ReviewServer::new(review_repo, review_config, fetcher).with_work_locks(work_locks);
 
     (review_server, cron_job)
 }
