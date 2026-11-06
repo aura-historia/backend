@@ -81,10 +81,11 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         &mut self,
         access_token: &AccessToken,
     ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
-        let (origin, oauth_client_id) = access_token_origin_values(access_token);
+        let (origin, oauth_client_id, oauth_metadata_document_client_id) =
+            access_token_origin_values(access_token);
         let access_token_id = access_token.id().into_uuid();
         let sql = format!(
-            "INSERT INTO access_tokens (access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING {ACCESS_TOKEN_COLUMNS}"
+            "INSERT INTO access_tokens (access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
         let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(access_token_id)
@@ -95,6 +96,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
             .bind(scope_values(access_token.scopes()))
             .bind(origin)
             .bind(oauth_client_id)
+            .bind(oauth_metadata_document_client_id)
             .bind(access_token.expires())
             .fetch_one(&mut *self.connection)
             .await
@@ -108,11 +110,12 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         access_token: &AccessToken,
         expected_version: AccessTokenStorageVersion,
     ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
-        let (origin, oauth_client_id) = access_token_origin_values(access_token);
+        let (origin, oauth_client_id, oauth_metadata_document_client_id) =
+            access_token_origin_values(access_token);
         let access_token_id = access_token.id().into_uuid();
         let expected_version = version_to_i64(expected_version)?;
         let sql = format!(
-            "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, expires_at = $7, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND access_token_id = $2 AND version = $8 RETURNING {ACCESS_TOKEN_COLUMNS}"
+            "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, oauth_metadata_document_client_id = $7, expires_at = $8, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND access_token_id = $2 AND version = $9 RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
         let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(access_token.user_id().into_uuid())
@@ -121,6 +124,7 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
             .bind(scope_values(access_token.scopes()))
             .bind(origin)
             .bind(oauth_client_id)
+            .bind(oauth_metadata_document_client_id)
             .bind(access_token.expires())
             .bind(expected_version)
             .fetch_optional(&mut *self.connection)

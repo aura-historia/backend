@@ -1,5 +1,5 @@
+use crate::client_identifier::OAuthClientIdentifier;
 use crate::resource::AuraResource;
-use credential_core::oauth_client_id::OAuthClientId;
 use credential_core::scope::Scope;
 use domain_primitives::{string_newtype, uuid_v7_newtype};
 use std::collections::HashSet;
@@ -16,7 +16,7 @@ string_newtype!(OAuthCodeVerifier);
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthorizationCode {
     code: OAuthAuthorizationCode,
-    client_id: OAuthClientId,
+    client_id: OAuthClientIdentifier,
     user_id: UserId,
     redirect_uri: url::Url,
     resource: Option<AuraResource>,
@@ -30,7 +30,7 @@ pub struct AuthorizationCode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RehydratedAuthorizationCodeState {
     pub code: OAuthAuthorizationCode,
-    pub client_id: OAuthClientId,
+    pub client_id: OAuthClientIdentifier,
     pub user_id: UserId,
     pub redirect_uri: url::Url,
     /// Absent only on outstanding codes issued before resource binding.
@@ -65,8 +65,9 @@ impl AuthorizationCode {
         self.code
     }
 
-    pub fn client_id(&self) -> OAuthClientId {
-        self.client_id
+    /// The client the code was issued to; only that client may exchange it.
+    pub fn client_id(&self) -> &OAuthClientIdentifier {
+        &self.client_id
     }
 
     pub fn user_id(&self) -> UserId {

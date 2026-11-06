@@ -1,8 +1,5 @@
 use super::error::OAuthError;
-use super::{
-    OAuthForm, no_store, required_form, required_form_client_id, required_form_client_secret,
-    scope_string,
-};
+use super::{OAuthForm, no_store, required_form, required_form_client_secret, scope_string};
 use crate::state::OAuthState;
 use axum::{
     Json,
@@ -11,8 +8,10 @@ use axum::{
 };
 use oauth_core::authorization_code::{OAuthAuthorizationCode, OAuthCodeVerifier};
 
+use oauth_core::client_identifier::OAuthClientIdentifier;
 use oauth_service::use_cases::{
-    OAuthGrantType, OAuthTokenType, TokenByAuthorizationCodeRequest, TokenResponse,
+    OAuthGrantType, OAuthTokenClientAuthentication, OAuthTokenType,
+    TokenByAuthorizationCodeRequest, TokenResponse,
 };
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -81,19 +80,42 @@ fn request(
         grant_type,
         code,
         redirect_uri,
-        client_id: required_form_client_id(form)?,
-        client_secret: required_form_client_secret(form)?,
+        client: client_authentication(form)?,
         code_verifier: OAuthCodeVerifier::from(verifier),
         resource: form.get("resource").cloned(),
     })
 }
 
+/// A registered client authenticates with `client_secret_post`; a metadata document client is
+/// public and presents its `client_id` alone, so a secret from it is a client error.
+fn client_authentication(
+    form: &std::collections::HashMap<String, String>,
+) -> Result<OAuthTokenClientAuthentication, OAuthError> {
+    match OAuthClientIdentifier::parse(required_form(form, "client_id")?) {
+        Ok(OAuthClientIdentifier::Registered(client_id)) => {
+            Ok(OAuthTokenClientAuthentication::ClientSecretPost {
+                client_id,
+                client_secret: required_form_client_secret(form)?,
+            })
+        }
+        Ok(OAuthClientIdentifier::MetadataDocument(client_id)) => {
+            if form.contains_key("client_secret") {
+                return Err(OAuthError::InvalidClient);
+            }
+            Ok(OAuthTokenClientAuthentication::None { client_id })
+        }
+        Err(_) => Err(OAuthError::InvalidClient),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::request;
+    use crate::oauth::error::OAuthError;
     use crate::oauth::test_support::{SECRET_MARKER, form, secret_free_problem};
     use credential_core::oauth_client_id::OAuthClientId;
     use oauth_core::authorization_code::OAuthAuthorizationCode;
+    use oauth_service::use_cases::OAuthTokenClientAuthentication;
     use serde_json::json;
     use user_core::access_token::RawAccessToken;
 
@@ -125,6 +147,51 @@ mod tests {
                 request(&values).unwrap().resource
             );
         }
+    }
+
+    #[test]
+    fn should_authenticate_each_client_kind_with_its_own_method() {
+        let base = form(&[
+            ("grant_type", "authorization_code".to_owned()),
+            ("code", OAuthAuthorizationCode::new().to_string()),
+            ("redirect_uri", "http://127.0.0.1:4000/callback".to_owned()),
+            (
+                "code_verifier",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned(),
+            ),
+        ]);
+        let mut public = base.clone();
+        public.insert(
+            "client_id".to_owned(),
+            "https://agent.example/client.json".to_owned(),
+        );
+        assert_eq!(
+            OAuthTokenClientAuthentication::None {
+                client_id: "https://agent.example/client.json".parse().unwrap()
+            },
+            request(&public).unwrap().client
+        );
+
+        let mut with_secret = public.clone();
+        with_secret.insert(
+            "client_secret".to_owned(),
+            String::from(user_core::access_token::RawOAuthClientSecret::new()),
+        );
+        let mut registered_without_secret = base.clone();
+        registered_without_secret.insert("client_id".to_owned(), OAuthClientId::new().to_string());
+        let mut noncanonical = base.clone();
+        noncanonical.insert(
+            "client_id".to_owned(),
+            "https://agent.example:443/client.json".to_owned(),
+        );
+        for form in [with_secret, noncanonical] {
+            assert!(matches!(request(&form), Err(OAuthError::InvalidClient)));
+        }
+        assert!(matches!(
+            request(&registered_without_secret),
+            Err(OAuthError::InvalidRequest)
+        ));
+        assert!(matches!(request(&base), Err(OAuthError::InvalidRequest)));
     }
 
     #[tokio::test]

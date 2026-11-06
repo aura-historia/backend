@@ -124,6 +124,7 @@ export interface StageConfig {
   readonly apiCloudFrontAliases: string[];
   readonly apiCorsAllowOrigins: string[];
   readonly mcp: McpConfig;
+  readonly oauthMetadataDocumentClients: OAuthMetadataDocumentClientsConfig;
   readonly cognitoCustomDomain: CognitoCustomDomainConfig | undefined;
   readonly cognitoCallbackUrls: string[];
   readonly cognitoLogoutUrls: string[];
@@ -149,6 +150,17 @@ export interface StageConfig {
    * product-listing ingestion queue from outside the backend account; undefined grants nothing.
    */
   readonly crawlerIngestionPrincipalArn: string | undefined;
+}
+
+/**
+ * Public OAuth clients that sign in with a Client ID Metadata Document instead of a registration.
+ * Production stays disabled until rotating refresh tokens are deployed (#2802); until then such a
+ * client's one-hour token forces its user to approve it again every hour.
+ */
+export interface OAuthMetadataDocumentClientsConfig {
+  readonly enabled: boolean;
+  /** Domains, including their subdomains, whose documents are refused. */
+  readonly deniedHosts: readonly string[];
 }
 
 export function isStageName(value: string): value is StageName {
@@ -197,6 +209,7 @@ export function stageConfig(stage: StageName): StageConfig {
     apiCloudFrontCertificateArn: ssmValue(`/certificates/${stage}/api-cloudfront-certificate-arn`),
     apiCloudFrontAliases,
     apiCorsAllowOrigins: ["*"],
+    oauthMetadataDocumentClients: { enabled: !isProd, deniedHosts: [] },
     mcp: {
       domainName: isProd ? "mcp.aura-historia.com" : "mcp.stage.aura-historia.com",
       gatewayCertificateArn: ssmValue(`/certificates/${stage}/mcp-regional-certificate-arn`),

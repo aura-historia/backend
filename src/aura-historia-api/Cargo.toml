@@ -40,6 +40,7 @@ fxrate-service = { workspace = true }
 http = { workspace = true }
 httpdate = { workspace = true }
 indexmap = { workspace = true }
+oauth-client-metadata-http = { workspace = true }
 oauth-core = { workspace = true }
 oauth-postgres = { workspace = true }
 oauth-service = { workspace = true }
@@ -99,6 +100,7 @@ watchlist-service = { workspace = true }
 woocommerce-service = { workspace = true }
 
 [dev-dependencies]
+oauth-client-metadata-http = { workspace = true, features = ["loopback-test-origin"] }
 aura-historia-mcp = { workspace = true }
 jsonschema = { version = "0.60.1", default-features = false }
 schemars = { workspace = true }

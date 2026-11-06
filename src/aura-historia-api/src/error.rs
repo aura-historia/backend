@@ -268,6 +268,7 @@ pub(crate) const OAUTH_AUTHORIZATION_CODE_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("OAUTH_AUTHORIZATION_CODE_NOT_FOUND");
 pub(crate) const OAUTH_CLIENT_NOT_FOUND: ApiErrorCode = ApiErrorCode("OAUTH_CLIENT_NOT_FOUND");
 pub(crate) const OAUTH_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("OAUTH_INTERNAL_ERROR");
+pub(crate) const OAUTH_INVALID_CLIENT: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_CLIENT");
 pub(crate) const OAUTH_INVALID_CLIENT_METADATA: ApiErrorCode =
     ApiErrorCode("OAUTH_INVALID_CLIENT_METADATA");
 pub(crate) const OAUTH_INVALID_CLIENT_SECRET: ApiErrorCode =
@@ -2368,6 +2369,11 @@ impl From<UpdateAccessTokenError> for ApiError {
                     "Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.",
                 )
             }
+            UpdateAccessTokenError::PublicClientAuthorityExpansionForbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail(
+                    "Access tokens of agent clients that sign in with a metadata document cannot gain scopes or extend or remove their expiry.",
+                )
+            }
             UpdateAccessTokenError::AccessTokenNotFound => {
                 ApiError::not_found(ACCESS_TOKEN_NOT_FOUND)
                     .with_detail("Access token was not found.")
@@ -3057,6 +3063,13 @@ impl From<OAuthServiceError> for ApiError {
                 )
             }
             OAuthServiceError::ClientNotFound => ApiError::not_found(OAUTH_CLIENT_NOT_FOUND),
+            OAuthServiceError::InvalidMetadataDocumentClient { source } => {
+                ApiError::bad_request(OAUTH_INVALID_CLIENT)
+                    .with_detail(
+                        "The client's metadata document is unavailable, invalid or not accepted.",
+                    )
+                    .with_cause(source)
+            }
             OAuthServiceError::ConcurrencyConflict => ApiError::conflict(CONFLICT),
             OAuthServiceError::InvalidRedirectUri => {
                 ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)

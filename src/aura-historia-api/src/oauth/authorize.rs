@@ -8,8 +8,8 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{CodeChallengeMethod, OAuthCodeChallenge};
+use oauth_core::client_identifier::OAuthClientIdentifier;
 use oauth_service::use_cases::{
     AuthorizeRequest, OAuthResponseType, OAuthState as OAuthRequestState,
 };
@@ -42,6 +42,10 @@ pub(crate) async fn authorize(
             oauth_service::error::OAuthServiceError::ClientNotFound => {
                 OAuthError::InvalidRequest.into_response()
             }
+            // The approving browser is authenticated; 401 would read as its own sign-in failing.
+            oauth_service::error::OAuthServiceError::InvalidMetadataDocumentClient { .. } => {
+                OAuthError::InvalidClient.into_response_with_status(StatusCode::BAD_REQUEST)
+            }
             error @ (oauth_service::error::OAuthServiceError::AuthenticatedActorRequired
             | oauth_service::error::OAuthServiceError::Forbidden
             | oauth_service::error::OAuthServiceError::DelegatedAuthorizationForbidden) => {
@@ -57,8 +61,7 @@ fn request(query: HashMap<String, String>) -> Result<AuthorizeRequest, OAuthErro
         "code" => OAuthResponseType::Code,
         _ => return Err(OAuthError::UnsupportedResponseType),
     };
-    let client_id: OAuthClientId = required(&query, "client_id")?
-        .parse()
+    let client_id = OAuthClientIdentifier::parse(required(&query, "client_id")?)
         .map_err(|_| OAuthError::InvalidRequest)?;
     let redirect_uri = url::Url::parse(required(&query, "redirect_uri")?)
         .map_err(|_| OAuthError::InvalidRequest)?;
@@ -100,6 +103,7 @@ fn required<'a>(
 mod tests {
     use super::*;
     use crate::oauth::test_support::{SECRET_MARKER, form, secret_free_problem};
+    use credential_core::oauth_client_id::OAuthClientId;
 
     #[test]
     fn should_forward_the_exact_optional_resource_to_the_service() {
@@ -129,6 +133,44 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn should_forward_either_client_kind_and_reject_unparsable_client_ids() {
+        let mut query = HashMap::from([
+            ("response_type".to_owned(), "code".to_owned()),
+            (
+                "redirect_uri".to_owned(),
+                "http://127.0.0.1:4000/callback".to_owned(),
+            ),
+            (
+                "code_challenge".to_owned(),
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_owned(),
+            ),
+            ("code_challenge_method".to_owned(), "S256".to_owned()),
+        ]);
+        let registered = OAuthClientId::new();
+        for client_id in [
+            registered.to_string(),
+            "https://agent.example/client.json".to_owned(),
+        ] {
+            query.insert("client_id".to_owned(), client_id.clone());
+            assert_eq!(
+                client_id,
+                request(query.clone()).unwrap().client_id.to_string()
+            );
+        }
+        for client_id in [
+            "https://agent.example",
+            "https://agent.example:8443/c",
+            "oc_x",
+        ] {
+            query.insert("client_id".to_owned(), client_id.to_owned());
+            assert!(matches!(
+                request(query.clone()),
+                Err(OAuthError::InvalidRequest)
+            ));
+        }
+    }
+
     #[tokio::test]
     async fn should_report_invalid_scope_and_unsupported_response_without_echoing_input() {
         let valid = form(&[

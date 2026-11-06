@@ -3,14 +3,21 @@ use crate::ports::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, OAuthClientRepositoryFactory,
     ThirdPartyExchangeCodeRepository, ThirdPartyExchangeCodeRepositoryFactory,
 };
-use crate::use_cases::support::{THIRD_PARTY_EXCHANGE_CODE_TTL, authenticate_client, verify_s256};
+use crate::use_cases::support::{
+    METADATA_DOCUMENT_CLIENT_ACCESS_TOKEN_TTL, THIRD_PARTY_EXCHANGE_CODE_TTL, authenticate_client,
+    verify_s256,
+};
+use application::error::box_error;
 use application::transaction::{Transaction, UnitOfWork};
+use credential_core::metadata_document_client_id::MetadataDocumentClientId;
 use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{
     AuthorizationCode, OAuthAuthorizationCode, OAuthCodeVerifier,
 };
 use oauth_core::client::OAuthClient;
-use oauth_core::resource::AuraResourcePolicy;
+use oauth_core::client_identifier::OAuthClientIdentifier;
+use oauth_core::metadata_document_client::MetadataDocumentClientPolicy;
+use oauth_core::resource::{AuraResource, AuraResourcePolicy};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
 };
@@ -31,14 +38,35 @@ pub enum OAuthTokenType {
     Bearer,
 }
 
+/// How the client identifies itself at the token endpoint. Each client kind has exactly one
+/// method: registered clients use `client_secret_post`, metadata document clients `none`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OAuthTokenClientAuthentication {
+    ClientSecretPost {
+        client_id: OAuthClientId,
+        client_secret: RawOAuthClientSecret,
+    },
+    None {
+        client_id: MetadataDocumentClientId,
+    },
+}
+
+impl OAuthTokenClientAuthentication {
+    pub fn client_id(&self) -> OAuthClientIdentifier {
+        match self {
+            Self::ClientSecretPost { client_id, .. } => (*client_id).into(),
+            Self::None { client_id } => client_id.clone().into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenByAuthorizationCodeRequest {
     pub grant_type: OAuthGrantType,
     pub code: OAuthAuthorizationCode,
     pub redirect_uri: url::Url,
     pub resource: Option<String>,
-    pub client_id: OAuthClientId,
-    pub client_secret: RawOAuthClientSecret,
+    pub client: OAuthTokenClientAuthentication,
     pub code_verifier: OAuthCodeVerifier,
 }
 
@@ -65,6 +93,7 @@ pub struct TokenByAuthorizationCodeHandler<U, C, A, T, R> {
     codes: A,
     exchange_codes: T,
     access_tokens: R,
+    metadata_document_client_policy: MetadataDocumentClientPolicy,
     resource_policy: AuraResourcePolicy,
 }
 impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R> {
@@ -74,6 +103,7 @@ impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R> {
         codes: A,
         exchange_codes: T,
         access_tokens: R,
+        metadata_document_client_policy: MetadataDocumentClientPolicy,
         resource_policy: AuraResourcePolicy,
     ) -> Self {
         Self {
@@ -82,10 +112,19 @@ impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R> {
             codes,
             exchange_codes,
             access_tokens,
+            metadata_document_client_policy,
             resource_policy,
         }
     }
 }
+
+/// The client the token endpoint authenticated.
+enum TokenClient {
+    Registered(Box<OAuthClient>),
+    /// Admitted by policy; its document was validated when the code was approved.
+    MetadataDocument(MetadataDocumentClientId),
+}
+
 #[async_trait::async_trait]
 impl<U, C, A, T, R> TokenByAuthorizationCodeUseCase
     for TokenByAuthorizationCodeHandler<U, C, A, T, R>
@@ -106,46 +145,62 @@ where
             .map(|resource| self.resource_policy.resolve(Some(resource)))
             .transpose()
             .map_err(|_| OAuthServiceError::InvalidResource)?;
+        if let OAuthTokenClientAuthentication::None { client_id } = &request.client {
+            self.metadata_document_client_policy
+                .admit(client_id)
+                .map_err(|source| OAuthServiceError::InvalidMetadataDocumentClient {
+                    source: box_error(source),
+                })?;
+        }
         let mut tx = self.unit_of_work.begin().await?;
-        let client = authenticate_client(
-            &mut self.clients.in_transaction(&mut tx),
-            &request.client_id,
-            &request.client_secret,
-        )
-        .await?;
+        let client = match &request.client {
+            OAuthTokenClientAuthentication::ClientSecretPost {
+                client_id,
+                client_secret,
+            } => TokenClient::Registered(Box::new(
+                authenticate_client(
+                    &mut self.clients.in_transaction(&mut tx),
+                    client_id,
+                    client_secret,
+                )
+                .await?,
+            )),
+            OAuthTokenClientAuthentication::None { client_id } => {
+                TokenClient::MetadataDocument(client_id.clone())
+            }
+        };
         let code = self
             .codes
             .in_transaction(&mut tx)
             .consume_by_code(&request.code)
             .await?
             .ok_or(OAuthServiceError::AuthorizationCodeNotFound)?;
-        if code.is_expired_at(OffsetDateTime::now_utc()) {
-            tx.commit().await?;
-            return Err(OAuthServiceError::AuthorizationCodeExpired);
+        match self.verify_exchange(&request, requested_resource, &code) {
+            Ok(()) => {}
+            // Invalid persisted state rolls back. So does a public client presenting another
+            // client's code: it proved no credential, so it must not burn that code.
+            Err(error @ OAuthServiceError::InvalidPersistedState { .. }) => return Err(error),
+            Err(error @ OAuthServiceError::AuthorizationCodeClientMismatch)
+                if matches!(request.client, OAuthTokenClientAuthentication::None { .. }) =>
+            {
+                return Err(error);
+            }
+            // Any other rejected exchange still consumes the code.
+            Err(error) => {
+                tx.commit().await?;
+                return Err(error);
+            }
         }
-        if code.client_id() != request.client_id {
-            tx.commit().await?;
-            return Err(OAuthServiceError::AuthorizationCodeClientMismatch);
-        }
-        if code.redirect_uri() != &request.redirect_uri {
-            tx.commit().await?;
-            return Err(OAuthServiceError::AuthorizationCodeRedirectUriMismatch);
-        }
-        let granted_resource = self
-            .resource_policy
-            .resolve(code.resource().map(|resource| resource.as_str()))
-            .map_err(|source| OAuthServiceError::InvalidPersistedState {
-                source: application::error::box_error(source),
-            })?;
-        if requested_resource.is_some_and(|resource| resource != granted_resource) {
-            tx.commit().await?;
-            return Err(OAuthServiceError::AuthorizationCodeResourceMismatch);
-        }
-        if !verify_s256(&request.code_verifier, code.code_challenge()) {
-            tx.commit().await?;
-            return Err(OAuthServiceError::InvalidCodeVerifier);
-        }
-        let response = self.issue_credentials(&mut tx, &client, &code).await?;
+        let response = match &client {
+            TokenClient::Registered(client) => {
+                self.issue_registered_client_credentials(&mut tx, client, &code)
+                    .await?
+            }
+            TokenClient::MetadataDocument(client_id) => {
+                self.issue_metadata_document_client_credentials(&mut tx, client_id, &code)
+                    .await?
+            }
+        };
         tx.commit().await?;
         Ok(response)
     }
@@ -157,7 +212,53 @@ where
     T: ThirdPartyExchangeCodeRepositoryFactory<U::Tx>,
     R: AccessTokenRepositoryFactory<U::Tx>,
 {
-    async fn issue_credentials(
+    /// Checks that the exchange presents what the code was bound to at approval.
+    fn verify_exchange(
+        &self,
+        request: &TokenByAuthorizationCodeRequest,
+        requested_resource: Option<AuraResource>,
+        code: &AuthorizationCode,
+    ) -> Result<(), OAuthServiceError> {
+        if code.is_expired_at(OffsetDateTime::now_utc()) {
+            return Err(OAuthServiceError::AuthorizationCodeExpired);
+        }
+        if code.client_id() != &request.client.client_id() {
+            return Err(OAuthServiceError::AuthorizationCodeClientMismatch);
+        }
+        if code.redirect_uri() != &request.redirect_uri {
+            return Err(OAuthServiceError::AuthorizationCodeRedirectUriMismatch);
+        }
+        let granted_resource = self
+            .resource_policy
+            .resolve(code.resource().map(|resource| resource.as_str()))
+            .map_err(|source| OAuthServiceError::InvalidPersistedState {
+                source: box_error(source),
+            })?;
+        if requested_resource.is_some_and(|resource| resource != granted_resource) {
+            return Err(OAuthServiceError::AuthorizationCodeResourceMismatch);
+        }
+        if !verify_s256(&request.code_verifier, code.code_challenge()) {
+            return Err(OAuthServiceError::InvalidCodeVerifier);
+        }
+        Ok(())
+    }
+
+    async fn insert_access_token(
+        &self,
+        tx: &mut U::Tx,
+        access_token: NewAccessToken,
+    ) -> Result<AccessToken, OAuthServiceError> {
+        let access_token = AccessToken::create(access_token);
+        self.access_tokens
+            .in_transaction(tx)
+            .insert(&access_token)
+            .await?;
+        Ok(access_token)
+    }
+
+    /// A confidential client receives the first-party default of a non-expiring token and a
+    /// one-time third-party exchange code.
+    async fn issue_registered_client_credentials(
         &self,
         tx: &mut U::Tx,
         client: &OAuthClient,
@@ -165,22 +266,23 @@ where
     ) -> Result<TokenResponse, OAuthServiceError> {
         let raw_access_token = RawAccessToken::new();
         let issued_at = OffsetDateTime::now_utc();
-        let access_token = AccessToken::create(NewAccessToken {
-            id: AccessTokenId::new(),
-            hashed_token: raw_access_token.clone().into(),
-            user_id: code.user_id(),
-            name: AccessTokenName::from(
-                format!("{} (OAuth-Client {})", client.name(), client.client_id()).as_str(),
-            ),
-            scopes: code.scopes().clone(),
-            origin: AccessTokenOrigin::OAuth {
-                client_id: client.client_id(),
-            },
-            expires: None,
-        });
-        self.access_tokens
-            .in_transaction(tx)
-            .insert(&access_token)
+        let access_token = self
+            .insert_access_token(
+                tx,
+                NewAccessToken {
+                    id: AccessTokenId::new(),
+                    hashed_token: raw_access_token.clone().into(),
+                    user_id: code.user_id(),
+                    name: AccessTokenName::from(
+                        format!("{} (OAuth-Client {})", client.name(), client.client_id()).as_str(),
+                    ),
+                    scopes: code.scopes().clone(),
+                    origin: AccessTokenOrigin::OAuth {
+                        client_id: client.client_id(),
+                    },
+                    expires: None,
+                },
+            )
             .await?;
         let third_party_exchange_code =
             ThirdPartyExchangeCodeGrant::create(RehydratedThirdPartyExchangeCodeGrantState {
@@ -201,6 +303,43 @@ where
             expires: access_token.expires(),
             scopes: access_token.scopes().clone(),
             third_party_exchange_code: Some(third_party_exchange_code.code()),
+        })
+    }
+
+    /// A public client never receives a non-expiring token or a third-party exchange code.
+    async fn issue_metadata_document_client_credentials(
+        &self,
+        tx: &mut U::Tx,
+        client_id: &MetadataDocumentClientId,
+        code: &AuthorizationCode,
+    ) -> Result<TokenResponse, OAuthServiceError> {
+        let raw_access_token = RawAccessToken::new();
+        let access_token = self
+            .insert_access_token(
+                tx,
+                NewAccessToken {
+                    id: AccessTokenId::new(),
+                    hashed_token: raw_access_token.clone().into(),
+                    user_id: code.user_id(),
+                    name: AccessTokenName::from(
+                        format!("{} (OAuth-Client {client_id})", client_id.host()).as_str(),
+                    ),
+                    scopes: code.scopes().clone(),
+                    origin: AccessTokenOrigin::OAuthMetadataDocument {
+                        client_id: client_id.clone(),
+                    },
+                    expires: Some(
+                        OffsetDateTime::now_utc() + METADATA_DOCUMENT_CLIENT_ACCESS_TOKEN_TTL,
+                    ),
+                },
+            )
+            .await?;
+        Ok(TokenResponse {
+            access_token: raw_access_token,
+            token_type: OAuthTokenType::Bearer,
+            expires: access_token.expires(),
+            scopes: access_token.scopes().clone(),
+            third_party_exchange_code: None,
         })
     }
 }

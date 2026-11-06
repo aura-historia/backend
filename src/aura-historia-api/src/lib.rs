@@ -83,16 +83,20 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
+use oauth_client_metadata_http::HttpClientMetadataDocumentSource;
+use oauth_core::metadata_document_client::{
+    DeniedMetadataDocumentHosts, MetadataDocumentClientPolicy,
+};
 use oauth_postgres::{
     SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
     SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
     SqlxThirdPartyExchangeCodeRepositoryFactory,
 };
 use oauth_service::use_cases::{
-    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
-    GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
-    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
-    UpdateOAuthClientHandler,
+    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler,
+    GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler, GetOAuthConsentClientHandler,
+    IntrospectTokenHandler, ListOAuthClientsHandler, MetadataDocumentClients, RevokeTokenHandler,
+    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
@@ -225,6 +229,9 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
 pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
 pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
+pub const OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV: &str =
+    "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED";
+pub const OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV: &str = "OAUTH_METADATA_DOCUMENT_DENIED_HOSTS";
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
@@ -245,6 +252,7 @@ pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
     oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
+    oauth_metadata_document_client_policy: MetadataDocumentClientPolicy,
     cognito_user_pool_id: String,
     product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
@@ -279,6 +287,8 @@ impl ApiConfig {
             &required_config(&mut get, OAUTH_ISSUER_URL_ENV)?,
         )
         .map_err(ApiConfigError::InvalidOAuthIssuer)?;
+        let oauth_metadata_document_client_policy =
+            oauth_metadata_document_client_policy(&mut get)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
@@ -350,6 +360,7 @@ impl ApiConfig {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             oauth_resource_policy,
+            oauth_metadata_document_client_policy,
             cognito_user_pool_id,
             product_listings,
             stripe_billing,
@@ -368,6 +379,10 @@ impl ApiConfig {
 
     pub fn oauth_resource_policy(&self) -> oauth_core::resource::AuraResourcePolicy {
         self.oauth_resource_policy
+    }
+
+    pub fn oauth_metadata_document_client_policy(&self) -> &MetadataDocumentClientPolicy {
+        &self.oauth_metadata_document_client_policy
     }
 
     pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
@@ -408,6 +423,32 @@ impl ApiConfig {
             self.public_listing_source_read_max_in_flight,
             self.public_listing_source_read_request_timeout,
         )
+    }
+}
+
+/// Metadata document clients stay disabled unless explicitly enabled; the denylist is
+/// validated either way so a typo cannot silently admit a host.
+fn oauth_metadata_document_client_policy<F>(
+    get: &mut F,
+) -> Result<MetadataDocumentClientPolicy, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let denied_hosts = DeniedMetadataDocumentHosts::parse(
+        get(OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV)
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|host| !host.is_empty()),
+    )
+    .map_err(ApiConfigError::InvalidOAuthMetadataDocumentDeniedHost)?;
+    match get(OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV).as_deref() {
+        None | Some("false") => Ok(MetadataDocumentClientPolicy::Disabled),
+        Some("true") => Ok(MetadataDocumentClientPolicy::Enabled { denied_hosts }),
+        Some(value) => Err(ApiConfigError::InvalidBooleanConfig {
+            name: OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV,
+            value: value.to_owned(),
+        }),
     }
 }
 
@@ -481,6 +522,12 @@ where
 pub enum ApiConfigError {
     #[error("OAUTH_ISSUER_URL is not a configured Aura issuer")]
     InvalidOAuthIssuer(#[source] oauth_core::resource::InvalidResource),
+    #[error("{OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV} must list domain names")]
+    InvalidOAuthMetadataDocumentDeniedHost(
+        #[source] oauth_core::metadata_document_client::InvalidDeniedMetadataDocumentHost,
+    ),
+    #[error("invalid boolean configuration {name}: {value}")]
+    InvalidBooleanConfig { name: &'static str, value: String },
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
     InvalidBindAddr {
         value: String,
@@ -767,6 +814,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     get(oauth::get_client::get_client)
                         .patch(oauth::update_client::update_client)
                         .delete(oauth::delete_client::delete_client),
+                )
+                .route(
+                    "/v1/oauth/metadata-document-clients",
+                    get(oauth::get_metadata_document_consent_client::get_metadata_document_consent_client),
                 )
                 .route(
                     "/v1/oauth/clients/{client_id}",
@@ -1674,8 +1725,14 @@ async fn app_state_from_config_and_runtime(
         unwatch_product: Arc::clone(&watchlist.remove),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    // One source per process, so authorization and consent share its document cache.
+    let metadata_document_clients = MetadataDocumentClients::new(
+        config.oauth_metadata_document_client_policy().clone(),
+        HttpClientMetadataDocumentSource::new(),
+    );
     let oauth_state = OAuthState {
         resource_policy: config.oauth_resource_policy(),
+        metadata_document_client_policy: config.oauth_metadata_document_client_policy().clone(),
         create_client: Arc::new(CreateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -1692,6 +1749,9 @@ async fn app_state_from_config_and_runtime(
         get_consent_client: Arc::new(GetOAuthConsentClientHandler::new(
             SqlxOAuthClientDetailsReader::new(pool.clone()),
         )),
+        get_metadata_document_consent_client: Arc::new(
+            GetMetadataDocumentConsentClientHandler::new(metadata_document_clients.clone()),
+        ),
         update_client: Arc::new(UpdateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -1706,6 +1766,7 @@ async fn app_state_from_config_and_runtime(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            metadata_document_clients,
             config.oauth_resource_policy(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
@@ -1714,6 +1775,7 @@ async fn app_state_from_config_and_runtime(
             SqlxAuthorizationCodeRepositoryFactory::new(),
             SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
+            config.oauth_metadata_document_client_policy().clone(),
             config.oauth_resource_policy(),
         )),
         token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
@@ -2062,6 +2124,61 @@ mod tests {
             Err(ApiConfigError::MissingRequiredConfig {
                 name: OAUTH_ISSUER_URL_ENV
             })
+        ));
+    }
+
+    #[test]
+    fn should_keep_metadata_document_clients_disabled_unless_explicitly_enabled() {
+        let config = |entries: &[(&'static str, &str)]| {
+            let mut values = valid_api_config_values();
+            for (name, value) in entries {
+                values.insert(name, (*value).to_owned());
+            }
+            ApiConfig::from_getter(|name| values.get(name).cloned())
+        };
+
+        for entries in [
+            &[][..],
+            &[(OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, "false")],
+            &[(OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV, "abuse.example")],
+        ] {
+            assert_eq!(
+                &MetadataDocumentClientPolicy::Disabled,
+                config(entries)
+                    .unwrap()
+                    .oauth_metadata_document_client_policy()
+            );
+        }
+        assert_eq!(
+            &MetadataDocumentClientPolicy::Enabled {
+                denied_hosts: DeniedMetadataDocumentHosts::parse(["abuse.example", "spam.example"])
+                    .unwrap()
+            },
+            config(&[
+                (OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, "true"),
+                (
+                    OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV,
+                    " abuse.example, ,spam.example "
+                ),
+            ])
+            .unwrap()
+            .oauth_metadata_document_client_policy()
+        );
+        for value in ["TRUE", "1", "yes", ""] {
+            assert!(matches!(
+                config(&[(OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, value)]),
+                Err(ApiConfigError::InvalidBooleanConfig { .. })
+            ));
+        }
+        assert!(matches!(
+            config(&[
+                (OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, "true"),
+                (
+                    OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV,
+                    "https://abuse.example"
+                ),
+            ]),
+            Err(ApiConfigError::InvalidOAuthMetadataDocumentDeniedHost(_))
         ));
     }
 

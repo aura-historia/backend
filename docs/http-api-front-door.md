@@ -85,16 +85,22 @@ explicit origin allowlist.
   rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
   additional WAF rate rule. Gateway stage throttles shape requests, not database or
   Lambda concurrency/capacity.
-- Contract-valid loopback HTTPS redirect URIs can match the common rule set's EC2 metadata
+- Contract-valid loopback redirect URIs can match the common rule set's EC2 metadata
   SSRF body/query rules (`localhost`, such as the Shopify CLI `--use-localhost` callback
-  `https://localhost:3458/oauth/callback`) and, as IPv4 literals, its RFI body/query rules.
+  `https://localhost:3458/oauth/callback`, or a native agent's `http://localhost:…/callback`)
+  and, as IPv4 literals, its RFI body/query rules; so can URL-valued OAuth `client_id`s.
   Those four rules are counted in the group; a label rule after it blocks their matches
-  everywhere except the exact OAuth client registration/update, authorize and token paths.
-  The API never fetches URIs submitted there. Their cookie/URI-path variants and every
-  other managed rule still apply on those paths. Never widen this scope to a route that
-  fetches a user-supplied URL; outbound fetchers additionally enforce the shared
-  public-network policy. CloudWatch label metrics and sampled requests show which counted
-  rule matched. The Web ACL has five rules, the Free plan quota; consolidate before adding one.
+  everywhere except the exact OAuth client registration/update, authorize, token and
+  metadata-document consent (`GET /v1/oauth/metadata-document-clients`) paths. The API never fetches a
+  redirect URI submitted there. It fetches only a URL-valued `client_id`'s metadata
+  document, through the dedicated outbound policy in the [OAuth contract](oauth.md#metadata-document-clients):
+  HTTPS on port 443 to hosts resolving exclusively to public addresses, without redirects.
+  That application control replaces the WAF URL-target rules on these paths. Their
+  cookie/URI-path variants and every other managed rule still apply. Never widen this scope
+  to another route that fetches a user-supplied URL; every outbound fetcher enforces the
+  shared public-network policy. CloudWatch label metrics and sampled requests show which
+  counted rule matched. The Web ACL has five rules, the Free plan quota; consolidate before
+  adding one.
 - Edge and application body limits must agree. The managed 8 KiB body-size rule is
   below contract-valid JSON bodies, so a custom WAF rule instead blocks a declared
   `Content-Length` above the Axum whole-request limit with the API's JSON `413`
@@ -149,8 +155,9 @@ and selects the same closed resource policy. Discovery, protocol errors and fixe
 setup are owned by the [OAuth contract](oauth.md).
 
 Metadata requires no URI-bearing request input and receives no WAF exemption. OAuth
-`resource` and callback URIs continue through the existing exact authorization/token path
-exceptions; unrelated paths retain the counted URL-target blocks.
+`resource`, callback URIs and URL-valued client IDs continue through the exact
+authorization, token and metadata-document consent path exceptions; unrelated paths retain
+the counted URL-target blocks.
 
 ## MCP front door
 

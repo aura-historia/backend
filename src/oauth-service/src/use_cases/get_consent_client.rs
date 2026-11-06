@@ -1,6 +1,7 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{OAuthClientDetailsReader, OAuthClientView};
-use application::operation_context::{OperationContext, Principal};
+use crate::use_cases::support::authorize_consent_read;
+use application::operation_context::OperationContext;
 use credential_core::oauth_client_id::OAuthClientId;
 
 #[async_trait::async_trait]
@@ -43,16 +44,7 @@ where
         context: &OperationContext,
         client_id: &OAuthClientId,
     ) -> Result<OAuthClientView, OAuthServiceError> {
-        match &context.principal {
-            Principal::User(_) => {}
-            Principal::Anonymous => return Err(OAuthServiceError::AuthenticatedActorRequired),
-            Principal::DelegatedUser { .. } | Principal::Service(_) | Principal::System => {
-                return Err(OAuthServiceError::Forbidden);
-            }
-        }
-        if let Some(actor_id) = context.principal.actor_id() {
-            tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
-        }
+        authorize_consent_read(context)?;
 
         self.reader
             .find(client_id)

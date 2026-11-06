@@ -45,6 +45,7 @@ struct AdminAccessTokenDetailsRow {
     scopes: Vec<String>,
     origin: String,
     oauth_client_id: Option<uuid::Uuid>,
+    oauth_metadata_document_client_id: Option<String>,
     expires_at: Option<OffsetDateTime>,
     created: OffsetDateTime,
 }
@@ -70,7 +71,7 @@ impl AdminAccessTokenListReader for SqlxAdminAccessTokenListReader<'_> {
             })?;
 
         let mut query = QueryBuilder::<Postgres>::new(
-            "SELECT access_token_id, user_id, name, scopes, origin, oauth_client_id, expires_at, created FROM access_tokens WHERE user_id = ",
+            "SELECT access_token_id, user_id, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, expires_at, created FROM access_tokens WHERE user_id = ",
         );
         query.push_bind(user_id.into_uuid());
         if let Some(search_after) = cursor.search_after {
@@ -110,6 +111,7 @@ impl AdminAccessTokenListReader for SqlxAdminAccessTokenListReader<'_> {
                     scopes: row.scopes,
                     origin: row.origin,
                     oauth_client_id: row.oauth_client_id,
+                    oauth_metadata_document_client_id: row.oauth_metadata_document_client_id,
                     expires_at: row.expires_at,
                 })
                 .map(|details| (details, created))

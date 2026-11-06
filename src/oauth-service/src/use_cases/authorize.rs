@@ -1,19 +1,23 @@
 use crate::error::OAuthServiceError;
 use crate::ports::{
-    AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, OAuthClientRepository,
-    OAuthClientRepositoryFactory,
+    AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, ClientMetadataDocumentSource,
+    OAuthClientRepository, OAuthClientRepositoryFactory,
 };
+use crate::use_cases::metadata_document_clients::MetadataDocumentClients;
 use crate::use_cases::support::{AUTHORIZATION_CODE_TTL, append_query_params};
 use application::operation_context::{CredentialCapability, OperationContext, Principal};
 use application::transaction::{Transaction, UnitOfWork};
+use credential_core::metadata_document_client_id::MetadataDocumentClientId;
 use credential_core::oauth_client_id::OAuthClientId;
 use domain_primitives::string_newtype;
 use oauth_core::authorization_code::{
     AuthorizationCode, CodeChallengeMethod, OAuthAuthorizationCode, OAuthCodeChallenge,
     RehydratedAuthorizationCodeState,
 };
-use oauth_core::resource::AuraResourcePolicy;
-use std::collections::{HashMap, HashSet};
+use oauth_core::client_identifier::OAuthClientIdentifier;
+use oauth_core::metadata_document_client::metadata_document_client_scopes;
+use oauth_core::resource::{AuraResource, AuraResourcePolicy};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::Scope;
 use user_core::user_id::UserId;
@@ -28,7 +32,7 @@ pub enum OAuthResponseType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AuthorizeRequest {
     pub response_type: OAuthResponseType,
-    pub client_id: OAuthClientId,
+    pub client_id: OAuthClientIdentifier,
     pub redirect_uri: url::Url,
     pub resource: Option<String>,
     pub scope: HashSet<Scope>,
@@ -51,28 +55,37 @@ pub trait AuthorizeUseCase: Send + Sync {
     ) -> Result<AuthorizeResponse, OAuthServiceError>;
 }
 
-pub struct AuthorizeHandler<U, C, A> {
+pub struct AuthorizeHandler<U, C, A, S> {
     unit_of_work: U,
     clients: C,
     codes: A,
+    metadata_document_clients: MetadataDocumentClients<S>,
     resource_policy: AuraResourcePolicy,
 }
-impl<U, C, A> AuthorizeHandler<U, C, A> {
-    pub fn new(unit_of_work: U, clients: C, codes: A, resource_policy: AuraResourcePolicy) -> Self {
+impl<U, C, A, S> AuthorizeHandler<U, C, A, S> {
+    pub fn new(
+        unit_of_work: U,
+        clients: C,
+        codes: A,
+        metadata_document_clients: MetadataDocumentClients<S>,
+        resource_policy: AuraResourcePolicy,
+    ) -> Self {
         Self {
             unit_of_work,
             clients,
             codes,
+            metadata_document_clients,
             resource_policy,
         }
     }
 }
 #[async_trait::async_trait]
-impl<U, C, A> AuthorizeUseCase for AuthorizeHandler<U, C, A>
+impl<U, C, A, S> AuthorizeUseCase for AuthorizeHandler<U, C, A, S>
 where
     U: UnitOfWork,
     C: OAuthClientRepositoryFactory<U::Tx>,
     A: AuthorizationCodeRepositoryFactory<U::Tx>,
+    S: ClientMetadataDocumentSource,
 {
     #[tracing::instrument(
         name = "authorize_oauth_request",
@@ -98,11 +111,41 @@ where
             .resource_policy
             .resolve(request.resource.as_deref())
             .map_err(|_| OAuthServiceError::InvalidResource)?;
-        let mut tx = self.unit_of_work.begin().await?;
+        let tx = match &request.client_id {
+            OAuthClientIdentifier::Registered(client_id) => {
+                let mut tx = self.unit_of_work.begin().await?;
+                self.ensure_registered_client_allows(&mut tx, *client_id, &request)
+                    .await?;
+                tx
+            }
+            OAuthClientIdentifier::MetadataDocument(client_id) => {
+                // Fetch before the transaction so outbound I/O never holds a connection.
+                self.ensure_metadata_document_client_allows(client_id, &request)
+                    .await?;
+                self.unit_of_work.begin().await?
+            }
+        };
+        self.issue_code(tx, user_id, resource, request).await
+    }
+}
+
+impl<U, C, A, S> AuthorizeHandler<U, C, A, S>
+where
+    U: UnitOfWork,
+    C: OAuthClientRepositoryFactory<U::Tx>,
+    A: AuthorizationCodeRepositoryFactory<U::Tx>,
+    S: ClientMetadataDocumentSource,
+{
+    async fn ensure_registered_client_allows(
+        &self,
+        tx: &mut U::Tx,
+        client_id: OAuthClientId,
+        request: &AuthorizeRequest,
+    ) -> Result<(), OAuthServiceError> {
         let client = self
             .clients
-            .in_transaction(&mut tx)
-            .find_by_id(request.client_id)
+            .in_transaction(tx)
+            .find_by_id(client_id)
             .await?
             .ok_or(OAuthServiceError::ClientNotFound)?
             .value;
@@ -116,6 +159,33 @@ where
         if !request.scope.is_subset(client.scopes()) {
             return Err(OAuthServiceError::InvalidScope);
         }
+        Ok(())
+    }
+
+    async fn ensure_metadata_document_client_allows(
+        &self,
+        client_id: &MetadataDocumentClientId,
+        request: &AuthorizeRequest,
+    ) -> Result<(), OAuthServiceError> {
+        let document = self.metadata_document_clients.resolve(client_id).await?;
+        if !document.admits_redirect_uri(&request.redirect_uri) {
+            return Err(OAuthServiceError::InvalidRedirectUri);
+        }
+        if !request.scope.is_subset(&metadata_document_client_scopes()) {
+            return Err(OAuthServiceError::InvalidScope);
+        }
+        Ok(())
+    }
+
+    /// Persists a code bound to the client, callback, resource and PKCE challenge, and
+    /// returns the success response (RFC 9207 `iss` included) for the validated callback.
+    async fn issue_code(
+        &self,
+        mut tx: U::Tx,
+        user_id: UserId,
+        resource: AuraResource,
+        request: AuthorizeRequest,
+    ) -> Result<AuthorizeResponse, OAuthServiceError> {
         let now = OffsetDateTime::now_utc();
         let code = AuthorizationCode::create(RehydratedAuthorizationCodeState {
             code: OAuthAuthorizationCode::new(),
@@ -132,12 +202,14 @@ where
             .in_transaction(&mut tx)
             .insert(code.clone())
             .await?;
-        let mut params = HashMap::from([("code", code.code().to_string())]);
-        if let Some(state) = request.state {
-            params.insert("state", state.as_ref().to_owned());
+        let code_value = code.code().to_string();
+        let mut params = vec![("code", code_value.as_str())];
+        if let Some(state) = &request.state {
+            params.push(("state", state.as_ref()));
         }
+        params.push(("iss", self.resource_policy.issuer()));
         let response = AuthorizeResponse {
-            redirect_to: append_query_params(&request.redirect_uri, params),
+            redirect_to: append_query_params(&request.redirect_uri, &params),
         };
         tx.commit().await?;
         Ok(response)
