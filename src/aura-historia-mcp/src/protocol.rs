@@ -35,6 +35,7 @@ pub(crate) fn valid_tool_parameters(method: &str, params: Option<&serde_json::Va
 #[derive(Clone)]
 pub(crate) struct ProtocolHandler {
     pub registry: Registry,
+    pub info: Implementation,
 }
 
 impl ServerHandler for ProtocolHandler {
@@ -42,9 +43,8 @@ impl ServerHandler for ProtocolHandler {
         Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
     }
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_server_info(
-            Implementation::new("aura-historia-mcp", env!("CARGO_PKG_VERSION")),
-        )
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(self.info.clone())
     }
     fn get_tool(&self, name: &str) -> Option<Tool> {
         self.registry.get(name).map(|op| op.tool.clone())

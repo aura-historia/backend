@@ -31,6 +31,7 @@ struct Output {
 fn app(calls: Arc<AtomicUsize>) -> Router {
     let operation = OperationDefinition::new(
         "testOperation",
+        "testOperation",
         "Internal test operation",
         OperationPolicy {
             access: AccessClass::Public,
@@ -156,6 +157,7 @@ async fn should_preserve_status_headers_json_and_no_session_through_actual_lambd
 async fn should_keep_adversarial_escaped_output_below_lambda_envelope_limit() {
     let operation = OperationDefinition::new(
         "testOperation",
+        "testOperation",
         "Test",
         OperationPolicy {
             access: AccessClass::Public,
@@ -213,6 +215,7 @@ async fn should_propagate_remaining_lambda_budget_to_active_operation_and_cancel
     let observed = Arc::new(tokio::sync::Mutex::new(None));
     let token = observed.clone();
     let operation = OperationDefinition::new(
+        "testOperation",
         "testOperation",
         "Test",
         OperationPolicy {
