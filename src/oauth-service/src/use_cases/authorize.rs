@@ -13,7 +13,7 @@ use oauth_core::authorization_code::{
     RehydratedAuthorizationCodeState,
 };
 use oauth_core::resource::AuraResourcePolicy;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::Scope;
 use user_core::user_id::UserId;
@@ -132,12 +132,13 @@ where
             .in_transaction(&mut tx)
             .insert(code.clone())
             .await?;
-        let mut params = HashMap::from([("code", code.code().to_string())]);
-        if let Some(state) = request.state {
-            params.insert("state", state.as_ref().to_owned());
+        let code_value = code.code().to_string();
+        let mut params = vec![("code", code_value.as_str())];
+        if let Some(state) = &request.state {
+            params.push(("state", state.as_ref()));
         }
         let response = AuthorizeResponse {
-            redirect_to: append_query_params(&request.redirect_uri, params),
+            redirect_to: append_query_params(&request.redirect_uri, &params),
         };
         tx.commit().await?;
         Ok(response)

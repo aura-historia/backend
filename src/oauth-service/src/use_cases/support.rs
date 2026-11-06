@@ -7,7 +7,6 @@ use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{OAuthCodeChallenge, OAuthCodeVerifier};
 use oauth_core::client::OAuthClient;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use user_core::access_token::RawOAuthClientSecret;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
@@ -105,11 +104,10 @@ pub(crate) async fn authenticate_client_reader<R: OAuthClientAuthenticationReade
     }
 }
 
-pub(crate) fn append_query_params(uri: &url::Url, params: HashMap<&str, String>) -> String {
+/// Appends `params` in order after any query the callback already carries.
+pub(crate) fn append_query_params(uri: &url::Url, params: &[(&str, &str)]) -> String {
     let mut url = uri.clone();
-    for (key, value) in params {
-        url.query_pairs_mut().append_pair(key, &value);
-    }
+    url.query_pairs_mut().extend_pairs(params);
     url.to_string()
 }
 

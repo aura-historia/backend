@@ -5,6 +5,7 @@ use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
+use oauth_core::ordinary_user_scopes::ORDINARY_USER_SCOPES;
 use oauth_core::resource::AuraResourcePolicy;
 use serde::Serialize;
 use user_core::access_token::Scope;
@@ -36,17 +37,7 @@ impl From<AuraResourcePolicy> for AuthorizationServerMetadata {
             grant_types_supported: ["authorization_code"],
             token_endpoint_auth_methods_supported: ["client_secret_post"],
             code_challenge_methods_supported: ["S256"],
-            scopes_supported: [
-                Scope::UsersRead,
-                Scope::UsersWrite,
-                Scope::SearchFiltersRead,
-                Scope::SearchFiltersWrite,
-                Scope::WatchlistRead,
-                Scope::WatchlistWrite,
-                Scope::NotificationsRead,
-                Scope::NotificationsWrite,
-            ]
-            .map(Scope::as_str),
+            scopes_supported: ORDINARY_USER_SCOPES.map(Scope::as_str),
         }
     }
 }
