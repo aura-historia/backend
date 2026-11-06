@@ -1,13 +1,24 @@
 "use strict";
 const { aws } = require("./admission.cjs");
 
+// The reviewer shares the target's Anthropic runtime credential (docs/infra.md#runtime-credentials).
+function reviewerApiKey(ctx, config, api) {
+  const secret = api(ctx, "secretsmanager", "get-secret-value", [
+    "--secret-id", config.apiKeySecretName, "--version-stage", "AWSCURRENT",
+  ]);
+  let apiKey;
+  try {
+    apiKey = JSON.parse(secret?.SecretString ?? "null")?.apiKey;
+  } catch {
+    apiKey = undefined;
+  }
+  if (secret?.Name !== config.apiKeySecretName || typeof apiKey !== "string" || !apiKey.trim())
+    throw new Error("Reviewer API key is missing from its configured secret");
+  return apiKey;
+}
+
 async function requestReview(ctx, serialized, config, prompt, options = {}) {
-  const parameter = (options.api || aws)(ctx, "ssm", "get-parameter", [
-    "--name", config.apiKeyParameterName, "--with-decryption",
-  ]).Parameter;
-  if (parameter?.Name !== config.apiKeyParameterName ||
-      typeof parameter.Value !== "string" || !parameter.Value.trim())
-    throw new Error("Reviewer API key is missing from its configured SSM parameter");
+  const apiKey = reviewerApiKey(ctx, config, options.api || aws);
   const startedAt = Date.now();
   try {
     const response = await (options.fetch || fetch)("https://api.anthropic.com/v1/messages", {
@@ -15,7 +26,7 @@ async function requestReview(ctx, serialized, config, prompt, options = {}) {
       redirect: "error",
       signal: AbortSignal.timeout(300000),
       headers: {
-        Authorization: `Bearer ${parameter.Value}`,
+        Authorization: `Bearer ${apiKey}`,
         "anthropic-version": "2026-10-21",
         "content-type": "application/json",
       },

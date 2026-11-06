@@ -3,11 +3,10 @@ use aws_lambda_events::cognito::CognitoEventUserPoolsPreSignup;
 use cognito_pre_sign_up::{handler, is_external_provider_signup, parse_provider_signup_policy};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
-    LambdaPostgresConfig, VersionedCompositionCache, current_postgres_credentials, log_cold_start,
-    log_invocation_start, logging_config_from_env, required_config_from_env,
+    LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
+    logging_config_from_env, required_config_from_env,
 };
 use platform_observability::init;
-use platform_postgres_secretsmanager::postgres_credentials_provider_from_env;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -32,11 +31,8 @@ async fn main() -> Result<(), Error> {
         parse_provider_signup_policy(&policy_json)
             .map_err(|_| Error::from("invalid Cognito provider sign-up policy"))?,
     );
-    let postgres = LambdaPostgresConfig::from_env()?;
-    let credentials = postgres_credentials_provider_from_env()
-        .await
-        .map_err(|_| Error::from("PostgreSQL credential provider unavailable"))?;
-    let services = Arc::new(VersionedCompositionCache::new());
+    let postgres = RuntimePostgresConfig::from_env()?;
+    let services = Arc::new(LazyComposition::new());
     let aws_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
     let linker = Arc::new(CognitoAccountLinker::new(
         aws_sdk_cognitoidentityprovider::Client::new(&aws_config),
@@ -48,7 +44,6 @@ async fn main() -> Result<(), Error> {
         move |event: LambdaEvent<CognitoEventUserPoolsPreSignup>| {
             let providers = Arc::clone(&providers);
             let postgres = postgres.clone();
-            let credentials = Arc::clone(&credentials);
             let services = Arc::clone(&services);
             let linker = Arc::clone(&linker);
             async move {
@@ -66,20 +61,17 @@ async fn main() -> Result<(), Error> {
                 }
 
                 let invocation = timeout(INVOCATION_DEADLINE, async {
-                    let credentials =
-                        current_postgres_credentials(COMPONENT, credentials.as_ref()).await?;
                     let service = services
-                        .get_or_try_build(credentials.version_id(), || async {
-                            let pool = postgres
-                                .connect(COMPONENT, credentials.credentials())
-                                .await?;
-                            Ok::<_, Error>(ResolveFederatedAccountHandler::new(
+                        .get_or_try_build(|| async {
+                            let pool = postgres.connect(COMPONENT).await?;
+                            Ok::<_, Error>(Arc::new(ResolveFederatedAccountHandler::new(
                                 SqlxFederatedAccountReader::new(pool),
-                            ))
+                            )))
                         })
                         .await?;
 
-                    match handler(event, providers.as_ref(), service.value(), linker.as_ref()).await
+                    match handler(event, providers.as_ref(), service.as_ref(), linker.as_ref())
+                        .await
                     {
                         Ok(response) => Ok(response),
                         Err(error) => {

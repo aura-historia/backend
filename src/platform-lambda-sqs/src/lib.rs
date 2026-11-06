@@ -130,7 +130,7 @@ pub enum SetupOutcome<T> {
     Panicked,
 }
 
-/// Bounds credential refresh and composition against the same invocation deadline as records.
+/// Bounds composition against the same invocation deadline as records.
 /// Constructing the setup future happens inside the unwind guard, after checking the budget.
 pub async fn run_setup_with_budget<T, E, F, Fut>(
     budget: &LambdaInvocationBudget,
@@ -183,7 +183,7 @@ where
 }
 
 /// FIFO-specific entry point: reject missing, blank, or duplicate IDs (and batches over ten)
-/// before credential refresh or composition. The Standard SQS entry point is unchanged.
+/// before composition. The Standard SQS entry point is unchanged.
 pub async fn handle_fifo_sqs_invocation<T, E, F, Fut, H, HFut>(
     event: LambdaEvent<SqsEvent>,
     component: &'static str,

@@ -1,29 +1,17 @@
 use super::*;
-use aura_historia_mcp::{McpStartupError, RotatingMcpRouter};
-use aura_historia_runtime::{ProductListingConfig, RotatingRuntime};
-use platform_lambda_bootstrap::LambdaPostgresConfig;
-use platform_postgres::{
-    PostgresCredentialRefreshError, PostgresCredentialsProvider, VersionedPostgresCredentials,
-};
-use std::{
-    error::Error,
-    process::Command,
-    sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
+use aura_historia_mcp::LambdaMcpRouter;
+use aura_historia_runtime::{ProductListingConfig, Runtime};
+use std::process::Command;
 
 type TestError = application::error::BoxError;
 
 #[test]
-fn should_refresh_credentials_for_each_public_invocation_and_reject_refresh_failure()
--> Result<(), TestError> {
+fn should_serve_the_complete_catalogue_from_one_warm_lambda_composition() -> Result<(), TestError> {
     let mut command = Command::new(std::env::current_exe()?);
     command
         .args([
             "--exact",
-            "rotation::rotation_probe",
+            "lambda_composition::lambda_composition_probe",
             "--ignored",
             "--nocapture",
         ])
@@ -32,6 +20,8 @@ fn should_refresh_credentials_for_each_public_invocation_and_reject_refresh_fail
             ("POSTGRES_HOST", "127.0.0.1"),
             ("POSTGRES_PORT", "9"),
             ("POSTGRES_DATABASE", "fixture"),
+            ("POSTGRES_USERNAME", "fixture"),
+            ("POSTGRES_PASSWORD", "fixture-password"),
             ("POSTGRES_TLS_ROOT_CERT", "/fixture/ca.pem"),
             ("STAGE", "ephemeral"),
             ("AWS_REGION", "eu-central-1"),
@@ -54,56 +44,20 @@ fn should_refresh_credentials_for_each_public_invocation_and_reject_refresh_fail
     Ok(())
 }
 
-struct Credentials {
-    version: Mutex<Option<&'static str>>,
-    calls: AtomicUsize,
-}
-#[async_trait::async_trait]
-impl PostgresCredentialsProvider for Credentials {
-    async fn current(
-        &self,
-    ) -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        let version = self
-            .version
-            .lock()
-            .unwrap()
-            .ok_or(PostgresCredentialRefreshError::Unavailable)?;
-        Ok(VersionedPostgresCredentials::new(
-            version.into(),
-            "fixture".into(),
-            "fixture-password".into(),
-        )
-        .unwrap())
-    }
-}
-
 #[tokio::test]
-#[ignore = "run by the clean-environment credential-rotation test"]
-async fn rotation_probe() -> Result<(), TestError> {
-    let credentials = Arc::new(Credentials {
-        version: Mutex::new(Some("version-1")),
-        calls: AtomicUsize::new(0),
-    });
-    let runtime = RotatingRuntime::new(
-        "aura-historia-mcp",
-        LambdaPostgresConfig::from_env()?,
-        credentials.clone(),
-    );
-    let app = RotatingMcpRouter::new(
-        runtime,
+#[ignore = "run by the clean-environment Lambda composition test"]
+async fn lambda_composition_probe() -> Result<(), TestError> {
+    let app = LambdaMcpRouter::new(
+        Runtime::from_env().await?,
         TransportConfig {
             allowed_hosts: vec!["mcp.example.test".into()],
             ..Default::default()
         },
         ProductListingConfig::from_env()?,
     );
-    let old = app.current().await?;
-    let same = app.current().await?;
-    assert_eq!(2, credentials.calls.load(Ordering::SeqCst));
-    let (_, old_list, _) = post(old.clone(), "tools/list", json!({})).await;
-    let (_, same_list, _) = post(same, "tools/list", json!({})).await;
-    assert_eq!(old_list, same_list);
+    let (first, concurrent) = tokio::join!(app.current(), app.current());
+    let (first, concurrent) = (first?, concurrent?);
+    let (_, listed, _) = post(first.clone(), "tools/list", json!({})).await;
     let mut expected = std::collections::BTreeSet::new();
     for manifest in [
         include_str!("../../public-operations.json"),
@@ -115,42 +69,21 @@ async fn rotation_probe() -> Result<(), TestError> {
             assert!(expected.insert(operation["name"].as_str().unwrap().to_owned()));
         }
     }
-    assert!(old_list["result"].get("nextCursor").is_none());
-    let listed = old_list["result"]["tools"].as_array().unwrap();
-    assert_eq!(38, listed.len());
-    let actual = listed
+    assert!(listed["result"].get("nextCursor").is_none());
+    let tools = listed["result"]["tools"].as_array().unwrap();
+    assert_eq!(38, tools.len());
+    let actual = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap().to_owned())
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(listed.len(), actual.len());
+    assert_eq!(tools.len(), actual.len());
     assert_eq!(expected, actual);
-    assert_eq!(old_list, lambda_catalogue(old.clone(), json!({})).await?);
-
-    *credentials.version.lock().unwrap() = Some("version-2");
-    let (left, right) = tokio::join!(app.current(), app.current());
-    let (left, right) = (left?, right?);
-    assert_eq!(4, credentials.calls.load(Ordering::SeqCst));
-    assert_eq!(old_list, post(left, "tools/list", json!({})).await.1);
-    assert_eq!(old_list, post(right, "tools/list", json!({})).await.1);
-
-    *credentials.version.lock().unwrap() = None;
-    let error = match app.current().await {
-        Err(error) => error,
-        Ok(_) => panic!("failed refresh returned a cached router"),
-    };
-    assert!(matches!(
-        error,
-        McpStartupError::Runtime(aura_historia_runtime::RuntimeError::CredentialsRefresh(_))
-    ));
-    assert!(error.source().is_some());
-    // A request already holding the old router can still complete after replacement.
-    assert_eq!(old_list, post(old, "tools/list", json!({})).await.1);
-    *credentials.version.lock().unwrap() = Some("version-2");
+    assert_eq!(listed, lambda_catalogue(first, json!({})).await?);
+    assert_eq!(listed, post(concurrent, "tools/list", json!({})).await.1);
     assert_eq!(
-        old_list,
+        listed,
         post(app.current().await?, "tools/list", json!({})).await.1
     );
-    assert_eq!(6, credentials.calls.load(Ordering::SeqCst));
     Ok(())
 }
 

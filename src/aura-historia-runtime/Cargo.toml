@@ -23,9 +23,7 @@ partnership-postgres = { workspace = true }
 partnership-service = { workspace = true }
 party-postgres = { workspace = true }
 party-service = { workspace = true }
-platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
-platform-postgres-secretsmanager = { workspace = true }
 product-listing-ingestion-sqs = { workspace = true }
 product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
@@ -46,5 +44,4 @@ watchlist-service = { workspace = true }
 [dev-dependencies]
 listing-source-core = { workspace = true }
 serial_test = { workspace = true }
-test-api = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }

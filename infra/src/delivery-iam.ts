@@ -78,7 +78,12 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
   execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY,
     actions: ["dms:*", "rds:*", "cognito-idp:Create*", "cognito-idp:Update*", "cognito-idp:Delete*", "kinesis:Create*",
       "kinesis:Delete*", "kinesis:Update*", "sqs:CreateQueue", "sqs:DeleteQueue", "sqs:SetQueueAttributes",
-      "ec2:CreateVpc", "ec2:DeleteVpc", "secretsmanager:GetSecretValue", "sts:AssumeRole"], resources: ["*"] }));
+      "ec2:CreateVpc", "ec2:DeleteVpc", "sts:AssumeRole"], resources: ["*"] }));
+  // CloudFormation resolves version-pinned runtime credential references with this role; no other secret is readable.
+  const runtimeCredentials = runtimeCredentialSecretArns(arn, stage);
+  execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ["secretsmanager:GetSecretValue"],
+    notResources: runtimeCredentials }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ["secretsmanager:GetSecretValue"], resources: runtimeCredentials }));
   // Runtime resources are name/ownership checked by admission; service APIs without resource-level support use '*'.
   execution.addToPolicy(new iam.PolicyStatement({ actions: ["lambda:*"], resources: functionArns }));
   execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ["lambda:InvokeFunction"], resources: [
@@ -154,4 +159,13 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
   planner.addToPolicy(new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [execution.roleArn, migrationExecution.roleArn],
     conditions: { StringEquals: { "iam:PassedToService": "cloudformation.amazonaws.com" } } }));
   return { execution, migrationExecution, action, planner };
+}
+
+/** Secrets that routine deployments may inject into runtime configuration (see credentials.ts). */
+export function runtimeCredentialSecretArns(
+  arn: (service: string, resource: string, resourceName: string) => string, stage: StageName): string[] {
+  return [
+    arn("secretsmanager", "secret", `/aura-historia/${stage}/postgres/runtime-??????`),
+    arn("secretsmanager", "secret", `/aura-historia/${stage}/app/*`),
+  ];
 }

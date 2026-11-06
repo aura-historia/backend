@@ -11,6 +11,8 @@ const execution = require("./execution.cjs");
 const inspection = require("./inspection.cjs");
 
 const {
+  CREDENTIAL_VERSION,
+  LEAKED_CREDENTIAL,
   versionTemplate,
   mappingChange,
   pipelineFixture,
@@ -233,6 +235,16 @@ test("prepare through native admission, candidate migration and verified worker 
     assert.ok(
       prepared.report.evidence.some((item) => item.kind === "MODEL_REVIEW"),
     );
+    const [inventory, model] = ["INVENTORY", "MODEL_REVIEW"].map((kind) =>
+      execution.evidenceObject(
+        prepared.report.evidence.find((item) => item.kind === kind),
+        store,
+      ),
+    );
+    const compute = inventory.plans.find((plan) => plan.boundary === "compute");
+    assert.equal(compute.parameters.StripeCredentialVersion, CREDENTIAL_VERSION);
+    for (const evidence of [inventory, model])
+      assert.ok(!JSON.stringify(evidence).includes(LEAKED_CREDENTIAL));
     const request = {
       ...fixture.request(),
       id: env.DELIVERY_REQUEST_ID,

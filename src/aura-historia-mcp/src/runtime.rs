@@ -1,11 +1,11 @@
 use crate::public::{PublicServices, operations};
 use crate::{AuraTokenGate, ConfigError, RegistryError, TransportConfig, router};
 use aura_historia_runtime::{
-    ProductListingConfig, ProductListingDependencies, ProductListingProviderError, RotatingRuntime,
-    Runtime, RuntimeError,
+    ProductListingConfig, ProductListingDependencies, ProductListingProviderError, Runtime,
+    RuntimeError,
 };
 use axum::Router;
-use platform_lambda_bootstrap::VersionedCompositionCache;
+use platform_lambda_bootstrap::LazyComposition;
 use std::sync::Arc;
 
 /// Provider handles selected by the production catalogue; applications may inject local adapters.
@@ -56,39 +56,36 @@ fn production_registry(
     crate::Registry::new(registered)
 }
 
-/// Credential refresh precedes every invocation, including discovery and warm catalogue calls.
-/// Cached routers own their service handles; replacing a version leaves in-flight handles alive.
-pub struct RotatingMcpRouter {
-    runtime: RotatingRuntime,
-    routers: VersionedCompositionCache<Router>,
+/// Composes the router on the first invocation of an execution environment and serves every
+/// later invocation from it. A failed composition is retried by the next invocation.
+pub struct LambdaMcpRouter {
+    runtime: Runtime,
+    routers: LazyComposition<Router>,
     transport: TransportConfig,
     listings: ProductListingConfig,
 }
 
-impl RotatingMcpRouter {
+impl LambdaMcpRouter {
     pub fn new(
-        runtime: RotatingRuntime,
+        runtime: Runtime,
         transport: TransportConfig,
         listings: ProductListingConfig,
     ) -> Self {
         Self {
             runtime,
-            routers: VersionedCompositionCache::new(),
+            routers: LazyComposition::new(),
             transport,
             listings,
         }
     }
 
     pub async fn current(&self) -> Result<Router, McpStartupError> {
-        let runtime = self.runtime.current().await?;
-        let app = self
-            .routers
-            .get_or_try_build(runtime.version_id(), || async {
+        self.routers
+            .get_or_try_build(|| async {
                 let dependencies = McpDependencies::from_env(&self.listings)?;
-                mcp_router(self.transport.clone(), runtime.value(), dependencies)
+                mcp_router(self.transport.clone(), &self.runtime, dependencies)
             })
-            .await?;
-        Ok(app.value().clone())
+            .await
     }
 }
 

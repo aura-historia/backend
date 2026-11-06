@@ -21,7 +21,6 @@ pub enum Dependency {
     Cognito,
     Loops,
     FxRatesApi,
-    SecretsManager,
     /// The service did not say which system failed.
     Unknown,
 }
@@ -39,7 +38,6 @@ impl Dependency {
             Self::Cognito => "cognito",
             Self::Loops => "loops",
             Self::FxRatesApi => "fxratesapi",
-            Self::SecretsManager => "secrets_manager",
             Self::Unknown => "unknown",
         }
     }

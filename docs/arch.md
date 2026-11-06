@@ -195,8 +195,8 @@ Transports that share application operations MUST reuse narrow, typed service-fa
 rather than another transport's state, router or controllers. The shared composition root owns
 pool/client configuration and concrete adapter construction; family selection MUST NOT load
 unrelated provider configuration. Extract each family when a transport needs it, preserving
-service-owned transactions and authorization. Warm credential-version compositions reuse pools
-and handles, retain in-flight leases across replacement, and fail closed on refresh failures.
+service-owned transactions and authorization. A warm execution environment composes pools and
+handles once and reuses them; a failed composition is retried by the next invocation.
 The [`aura-historia-runtime` composition seam](../src/aura-historia-runtime/README.md) documents
 its bounded ownership and incremental extraction rule.
 
@@ -1562,6 +1562,11 @@ pub(crate) struct SearchConfig {
 Adapters that fetch untrusted or externally supplied URLs MUST enforce an SSRF policy at the network boundary. Validate URL syntax and every redirect, resolve DNS safely, exclude unsafe/special-use addresses, and pin approved peer addresses for the actual connection. Address resolution or classification failures MUST fail closed; address classification alone does not prove a request will reach an approved destination.
 
 Secrets MUST NOT be embedded in domain/application types, logs, errors, or committed configuration files.
+
+Runtime credentials are deployment inputs: the platform resolves them from the secret store into
+process configuration, and a credential change takes a release. Runtime code MUST NOT read a
+secret store per request or invocation. Non-secret configuration stores MUST NOT hold credentials.
+The [runtime credentials contract](infra.md#runtime-credentials) owns the mechanism.
 
 External clients and pools SHOULD be constructed at the composition boundary and reused rather than created per request.
 

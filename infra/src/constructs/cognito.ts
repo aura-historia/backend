@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Construct } from "constructs";
 import { ssmValue, type CognitoIdentityProviderConfig, type StageConfig } from "../config";
+import { credentialSecrets, credentialValue } from "../credentials";
 
 export interface IdentityProps {
   readonly config: StageConfig;
@@ -66,7 +67,7 @@ export class Identity extends Construct {
 
     this.configureUserPool(props);
 
-    const identityProviders = createIdentityProviders(this, this.userPool, props.config.cognitoIdentityProviders);
+    const identityProviders = createIdentityProviders(this, this.userPool, props.config);
 
     this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, props.postConfirmationLambda);
     if (props.config.cognitoIdentityProviders.length > 0) {
@@ -160,23 +161,25 @@ export class Identity extends Construct {
 function createIdentityProviders(
   scope: Construct,
   userPool: cognito.UserPool,
-  providers: readonly CognitoIdentityProviderConfig[],
+  config: StageConfig,
 ): CreatedIdentityProvider[] {
-  return providers.map((provider) => createIdentityProvider(scope, userPool, provider));
+  const secret = credentialSecrets(config.stage).cognitoIdentityProviders;
+  return config.cognitoIdentityProviders.map((provider) =>
+    createIdentityProvider(scope, userPool, provider, credentialValue(scope, secret, provider.clientSecretField)));
 }
 
 function createIdentityProvider(
   scope: Construct,
   userPool: cognito.UserPool,
   provider: CognitoIdentityProviderConfig,
+  clientSecret: cdk.SecretValue,
 ): CreatedIdentityProvider {
   switch (provider.kind) {
     case "google": {
       const resource = new cognito.UserPoolIdentityProviderGoogle(scope, `${provider.providerName}IdentityProvider`, {
         userPool,
         clientId: ssmValue(provider.clientIdParameterName),
-        // Cognito ProviderDetails rejects ssm-secure; this is a dynamic reference, not a literal secret.
-        clientSecretValue: cdk.SecretValue.unsafePlainText(ssmValue(provider.clientSecretParameterName)),
+        clientSecretValue: clientSecret,
         scopes: [...provider.scopes],
         attributeMapping: {
           email: cognito.ProviderAttribute.GOOGLE_EMAIL,
@@ -199,8 +202,7 @@ function createIdentityProvider(
         {
           userPool,
           clientId: ssmValue(provider.clientIdParameterName),
-          // Facebook's client secret is an SSM String dynamic reference, never source or Lambda config.
-          clientSecret: ssmValue(provider.clientSecretParameterName),
+          clientSecret: clientSecret.unsafeUnwrap(),
           apiVersion: provider.apiVersion,
           scopes: [...provider.scopes],
           attributeMapping: {

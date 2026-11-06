@@ -4,7 +4,6 @@ pub mod keyset;
 pub use failure::{PostgresFailure, SqlState};
 
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
-use async_trait::async_trait;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use std::fmt;
@@ -145,28 +144,6 @@ pub enum PostgresCredentialRefreshError {
     /// The provider answered with a secret that holds no valid credentials.
     #[error("PostgreSQL credential refresh unavailable")]
     InvalidSecret,
-}
-
-impl PostgresCredentialRefreshError {
-    /// The lower-case class used by failure diagnostics.
-    pub const fn diagnostic_category(self) -> &'static str {
-        match self {
-            Self::Timeout => "timeout",
-            Self::Throttled => "throttled",
-            Self::AccessDenied => "access_denied",
-            Self::KeyUnavailable => "kms_unavailable",
-            Self::Configuration => "configuration",
-            Self::Rejected => "rejected",
-            Self::Unavailable => "unavailable",
-            Self::InvalidSecret => "invalid_secret",
-        }
-    }
-}
-
-#[async_trait]
-pub trait PostgresCredentialsProvider: Send + Sync {
-    async fn current(&self)
-    -> Result<VersionedPostgresCredentials, PostgresCredentialRefreshError>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

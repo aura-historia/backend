@@ -10,7 +10,6 @@ sha2 = { workspace = true }
 platform-observability = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-postgres = { workspace = true }
-platform-postgres-secretsmanager = { workspace = true }
 tracing = { workspace = true }
 user-core = { workspace = true }
 user-service = { workspace = true }

@@ -117,7 +117,7 @@ actual PostgreSQL/account headroom including REST, workers, migration/admin rese
 and version/drain overlap before traffic or increasing either setting. Recycle/drain
 old environments and measure real connections during promotion; Gateway rate limits
 are not a database capacity guarantee. MCP receives private database/TLS and shared listing
-provider configuration, while IAM retains only its runtime PostgreSQL secret access. Its public
+provider configuration and reads no secret store. Its public
 catalogue requires no billing, newsletter or Cognito configuration. Add provider credentials only with their selected family.
 Certificate/DNS prerequisites and the generic stage smoke belong to the
 [MCP front-door procedure](http-api-front-door.md#mcp-deployment-and-stage-verification).
@@ -286,6 +286,41 @@ minutes; authorization errors and terminal failure statuses still fail immediate
 SQL may have committed while application deployment failed. Reconciliation
 must preserve that schema evidence and the previous verified application baseline.
 
+### Runtime credentials
+
+Runtime credentials are deployment inputs. Templates reference fields of Secrets Manager
+secrets, each pinned to a `<Name>CredentialVersion` stack parameter that the template's
+`AuraHistoria::CredentialVersions` metadata maps to its secret. CloudFormation resolves the
+values into Lambda and ECS task configuration when it updates those resources, and each
+published Lambda version's description carries the pinned versions it uses, so a
+credential-only release also moves aliases and versioned consumers. Runtime code never reads a
+secret store per request; a changed credential takes effect with a release. The release reviewer
+reads the Anthropic secret's key when it runs.
+
+[`credentials.ts`](../infra/src/credentials.ts) owns the secret names and JSON fields; provision
+app secrets before the first release that references them, and keep only runtime credentials
+under the `app/` prefix: the routine CloudFormation role may read exactly the runtime PostgreSQL
+secret and that prefix. Routine delivery binds each parameter to the secret's `AWSCURRENT`
+version, reading metadata only, and holds when a secret is missing. Templates accept only the
+UUID version IDs Secrets Manager generates; never supply a client request token. Protected
+identity and initialization stacks take the same parameters in the platform procedure: bind them
+with `node ci/delivery/credential-versions.cjs <target> <template.json>`.
+
+Plain SSM `String` parameters hold non-secret configuration only: change sets report their
+resolved values, which would otherwise reach release evidence. Planning still redacts every
+value that may come from a dynamic reference. Database administration, migration, inspection
+and replication secrets remain invocation-time reads of the database operations and DMS.
+Deployed function and task configuration holds plaintext: restrict its read access. Never put
+credentials in source, CLI arguments, logs or release evidence.
+
+To change a credential, write a new secret version from a request file, release, verify the new
+credential in use and only then revoke the old one. Third-party keys overlap, so this is
+interruption-free. The runtime PostgreSQL role has one password: run the approved bootstrap
+operation, which applies role passwords from their secrets, immediately before the release;
+until the release completes, new connections from deployed versions fail with SQLSTATE `28P01`.
+If that release fails and rolls back, restore the previous secret version to `AWSCURRENT` and run
+bootstrap again before retrying.
+
 ### Operator setup and cutover
 
 Delivery infrastructure and stack-boundary migration are separately approved
@@ -326,7 +361,7 @@ Before enabling normal requests:
    target inventory under `ci/delivery/targets/`. Missing private facts require
    sanitized operator evidence and hold deployment until reviewed.
    The reviewer calls the Anthropic Messages API directly with Opus 5.5 at high
-   effort. Its planner role reads only the target's Anthropic API key parameter
+   effort. Its planner role reads only the target's Anthropic API key secret
    at runtime; never copy that key into GitHub secrets, logs or release evidence.
    The verdict uses schema-constrained JSON. Thinking and response text share
    the bounded output budget. Thinking blocks
@@ -356,12 +391,7 @@ Before enabling normal requests:
 | `DELIVERY_DEV_ENABLED` | Same explicit flag as delivery provisioning; default false |
 
 Parameter names and types belong in configuration/constructs, not a second
-inventory here. Some credentials use plain SSM `String` dynamic references and
-are copied into function configuration; a reference is not runtime secret
-isolation. Restrict parameter, function-configuration and deployment access.
-Changing a parameter alone does not refresh consumers: deploy/recycle affected
-configurations and verify the new credential before revoking the old one.
-Never put credentials in source, CLI arguments, logs or release evidence.
+inventory here. Credentials follow [runtime credentials](#runtime-credentials).
 Provider/consent-specific requirements live in [marketing consent](marketing-consent.md).
 
 Production managed login uses `https://auth.aura-historia.com`. The identity stack

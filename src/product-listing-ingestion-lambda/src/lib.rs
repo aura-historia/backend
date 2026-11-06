@@ -54,7 +54,7 @@ pub fn invocation_budget(context: &lambda_runtime::Context) -> LambdaInvocationB
     LambdaInvocationBudget::from_context(context, LAMBDA_INVOCATION_CAP, RESPONSE_HEADROOM)
 }
 
-/// Validate all SQS IDs before bounded credential refresh and composition. An incomplete setup
+/// Validate all SQS IDs before bounded composition. An incomplete setup
 /// leaves every record for native retry; no transport receipt is used as command identity.
 /// `custody` holds commands that can never apply, normally the queue's own dead-letter queue.
 pub async fn handle_invocation<F, Fut>(

@@ -5,7 +5,8 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as path from "node:path";
 import type * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { ssmValue, type StageConfig } from "../config";
+import type { StageConfig } from "../config";
+import { credentialResolver, credentialSecrets } from "../credentials";
 import { releaseLambdaCode, lambdaArtifactParameters } from "../release-artifacts";
 import type { Network } from "./network";
 import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } from "./storage";
@@ -47,7 +48,8 @@ export class InitializationLambdas extends Construct {
     this.databaseInspection = databaseFunction(this, "DatabaseInspectionLambda", props,
       releaseLambdaCode(cdk.Stack.of(this), props.artifactBucket, "database-migration-lambda"), layer, "INSPECT");
     new cdk.CfnOutput(cdk.Stack.of(this), "DatabaseInspectionVersionArn", { value: this.databaseInspection.currentVersion.functionArn });
-    const fxRateSync = new lambda.Function(this, "FxRateSyncLambda", {
+    const credential = credentialResolver(this);
+    new lambda.Function(this, "FxRateSyncLambda", {
       vpc: props.network.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [props.network.applicationSecurityGroup],
@@ -58,13 +60,11 @@ export class InitializationLambdas extends Construct {
       code: releaseLambdaCode(cdk.Stack.of(this), props.artifactBucket, "fxrate-lambda"),
       memorySize: 128,
       timeout: cdk.Duration.seconds(10),
-      environment: withPostgresEnvironment({ postgres: props.postgres }, {
-        FXRATES_API_TOKEN: ssmValue(`/fxratesapi/${props.config.stage}/api-token`),
+      environment: withPostgresEnvironment({ config: props.config, postgres: props.postgres, credential }, {
+        FXRATES_API_TOKEN: credential(credentialSecrets(props.config.stage).fxRatesApi, "apiToken"),
       }),
       layers: [layer],
     });
-    if (!props.postgres.secretArn) throw new Error("Initialization FX Lambda requires a PostgreSQL runtime secret.");
-    grantSecret(fxRateSync, [props.postgres.secretArn]);
   }
 }
 

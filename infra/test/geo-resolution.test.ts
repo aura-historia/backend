@@ -35,8 +35,7 @@ describe.each(STAGES)("%s durable geographic resolution", (stage) => {
     expect(policy?.Properties.PolicyDocument.Statement).toContainEqual({ Action: "geo-places:Geocode", Effect: "Allow", Resource: "*", Condition: { StringEquals: { "aws:RequestedRegion": "eu-central-1" } } });
     expect(JSON.stringify(policy?.Properties)).not.toMatch(/geo-places:\*|sqs:SendMessage|es:ESHttp|ses:SendEmail/);
     const cleanupPolicy = policies.find((p) => JSON.stringify(p.Properties.Roles).includes("BackendCleanupLambdaServiceRole"));
-    expect(cleanupPolicy).toBeDefined();
-    expect(JSON.stringify(cleanupPolicy?.Properties)).not.toMatch(/geo-places:|sqs:SendMessage/);
+    expect(JSON.stringify(cleanupPolicy?.Properties ?? {})).not.toMatch(/geo-places:|sqs:SendMessage/);
     const schedulerPolicy = policies.find((p) => JSON.stringify(p.Properties.Roles).includes("MaintenanceSchedulerExecutionRole"));
     expect(schedulerPolicy).toBeDefined();
     expect(JSON.stringify(schedulerPolicy?.Properties)).not.toContain("GeoResolutionVersion");

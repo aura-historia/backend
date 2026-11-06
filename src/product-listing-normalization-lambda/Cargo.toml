@@ -11,7 +11,6 @@ platform-lambda-bootstrap = { workspace = true }
 platform-lambda-sqs = { path = "../platform-lambda-sqs" }
 platform-observability = { workspace = true }
 platform-postgres = { workspace = true }
-platform-postgres-secretsmanager = { workspace = true }
 product-listing-postgres = { workspace = true }
 product-listing-service = { workspace = true }
 product-service = { workspace = true }

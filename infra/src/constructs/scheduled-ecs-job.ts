@@ -39,7 +39,6 @@ export interface ScheduledEcsJobProps {
   readonly imageDigest: string;
   readonly containerName: string;
   readonly environment: Record<string, string>;
-  readonly secrets: (job: Construct) => Record<string, ecs.Secret>;
   readonly scheduleExpression: string;
   readonly enabled: cdk.CfnCondition;
   readonly retention: logs.RetentionDays;
@@ -96,7 +95,6 @@ export class ScheduledEcsJob extends Construct {
       linuxParameters,
       logging: ecs.LogDrivers.awsLogs({ logGroup: applicationLog, streamPrefix: props.containerName, mode: ecs.AwsLogDriverMode.NON_BLOCKING, maxBufferSize: cdk.Size.mebibytes(25) }),
       environment: props.environment,
-      secrets: props.secrets(this),
     });
     container.addMountPoints({ sourceVolume: "tmp", containerPath: "/tmp", readOnly: false });
     this.deliveryDlq = props.deliveryDlq;

@@ -48,6 +48,41 @@ function versionTemplate(versionId, target = "cdc-router-lambda-prod") {
     },
   };
 }
+const CREDENTIAL_VERSION = "f0e1d2c3-0000-4000-8000-00000000c0de";
+const LEAKED_CREDENTIAL = "sk_live_fixture_resolved_value";
+const STRIPE_SECRET = "/aura-historia/prod/app/stripe";
+// The baseline resolves a plain SSM reference; the candidate pins a Secrets Manager version.
+function credentialTemplate(template, pinned) {
+  const next = structuredClone(template);
+  next.Resources.Worker.Properties.Environment = {
+    Variables: {
+      STAGE: "prod",
+      STRIPE_API_KEY: pinned
+        ? {
+            "Fn::Join": [
+              "",
+              [
+                `{{resolve:secretsmanager:${STRIPE_SECRET}:SecretString:apiKey::`,
+                { Ref: "StripeCredentialVersion" },
+                "}}",
+              ],
+            ],
+          }
+        : "{{resolve:ssm:/stripe/prod/api-key}}",
+    },
+  };
+  if (pinned) {
+    next.Parameters.StripeCredentialVersion = { Type: "String" };
+    next.Metadata = {
+      "AuraHistoria::CredentialVersions": { StripeCredentialVersion: STRIPE_SECRET },
+    };
+  }
+  return next;
+}
+const workerContext = (key) =>
+  JSON.stringify({
+    Properties: { Environment: { Variables: { STAGE: "prod", STRIPE_API_KEY: key } } },
+  });
 const mappingChange = {
   ResourceChange: {
     LogicalResourceId: "Mapping",
@@ -205,7 +240,7 @@ function pipelineFixture(directory) {
         },
       },
     },
-    compute: versionTemplate("VersionNew"),
+    compute: credentialTemplate(versionTemplate("VersionNew"), true),
     api: basic({ Api: { Type: "AWS::ApiGatewayV2::Api", Properties: {} } }),
     observability: basic({
       Alarm: { Type: "AWS::CloudWatch::Alarm", Properties: {} },
@@ -213,7 +248,7 @@ function pipelineFixture(directory) {
   };
   const beforeTemplates = {
     ...templates,
-    compute: versionTemplate("VersionOld"),
+    compute: credentialTemplate(versionTemplate("VersionOld"), false),
   };
   const templateAssets = Object.entries(templates).map(([suffix, value]) =>
     asset(
@@ -333,7 +368,10 @@ function pipelineFixture(directory) {
     Api: "api",
     Alarm: "alarm",
   };
-  const values = preparation.artifactParameters(bundle),
+  const values = {
+      ...preparation.artifactParameters(bundle),
+      StripeCredentialVersion: CREDENTIAL_VERSION,
+    },
     oldValues = { ...values, CommitSHA: baselineSha };
   for (const key of Object.keys(oldValues))
     if (key.endsWith("ArtifactKey"))
@@ -515,6 +553,24 @@ function pipelineFixture(directory) {
                   ResourceType: "AWS::Lambda::Function",
                   Action: "Modify",
                   Replacement: "False",
+                  ...(suffix === "compute"
+                    ? {
+                        BeforeContext: workerContext(LEAKED_CREDENTIAL),
+                        AfterContext: workerContext("{{changeSet:SENSITIVE}}"),
+                        Details: [
+                          {
+                            Target: {
+                              Attribute: "Properties",
+                              Name: "Environment",
+                              Path: "/Properties/Environment/Variables/STRIPE_API_KEY",
+                              BeforeValue: LEAKED_CREDENTIAL,
+                              AfterValue: "{{changeSet:SENSITIVE}}",
+                              RequiresRecreation: "Never",
+                            },
+                          },
+                        ],
+                      }
+                    : {}),
                 },
               },
               ...(suffix === "compute" ? [mappingChange] : []),
@@ -616,8 +672,17 @@ function pipelineFixture(directory) {
         ],
       };
     }
-    if (service === "ssm" && operation === "get-parameter")
-      return { Parameter: { Name: "/anthropic/prod/api-key", Value: "test-key" } };
+    if (service === "secretsmanager" && operation === "describe-secret") {
+      assert.equal(arg("--secret-id"), STRIPE_SECRET);
+      return {
+        VersionIdsToStages: { [CREDENTIAL_VERSION]: ["AWSCURRENT"] },
+      };
+    }
+    if (service === "secretsmanager" && operation === "get-secret-value")
+      return {
+        Name: "/aura-historia/prod/app/anthropic",
+        SecretString: JSON.stringify({ apiKey: "test-key" }),
+      };
     throw new Error(`Unexpected API ${service}/${operation}`);
   };
   const env = {
@@ -663,4 +728,10 @@ function pipelineFixture(directory) {
     },
   };
 }
-module.exports = { versionTemplate, mappingChange, pipelineFixture };
+module.exports = {
+  CREDENTIAL_VERSION,
+  LEAKED_CREDENTIAL,
+  versionTemplate,
+  mappingChange,
+  pipelineFixture,
+};

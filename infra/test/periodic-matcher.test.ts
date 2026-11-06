@@ -7,6 +7,8 @@ import { ScheduledEcsJob, ecsCpuArchitectureForPlatform } from "../src/construct
 import { ecsTaskEventPattern, ecsTaskL2EventPattern } from "../src/constructs/ecs-task-event-patterns";
 import { matcherTaskEventPattern, periodicMatcherNames, PERIODIC_MATCHER_IMAGE } from "../src/periodic-matcher-config";
 import { scheduledEcsClusterName } from "../src/scheduled-ecs-config";
+import { credentialSecrets } from "../src/credentials";
+import { credentialReference } from "./credential-reference";
 
 function stacks(stage: "dev" | "prod") {
   return createApplicationStacks(new cdk.App({ analyticsReporting: false }), { stage });
@@ -164,13 +166,18 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(task.ContainerDefinitions).toHaveLength(1);
     expect(JSON.stringify(task.ContainerDefinitions[0].Image)).toContain("PeriodicMatcherImageDigest");
     expect(JSON.stringify(task.ContainerDefinitions[0].Image)).toContain("aura-historia-periodic-matcher");
-    expect(task.ContainerDefinitions[0].Secrets).toHaveLength(5);
-    const environmentNames = task.ContainerDefinitions[0].Environment.map((entry: { Name: string }) => entry.Name);
-    for (const forbiddenName of ["POSTGRES_PASSWORD", "OPENSEARCH_PASSWORD", "CLOUDFLARE_API_TOKEN"]) {
-      expect(environmentNames).not.toContain(forbiddenName);
-    }
-    expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/opensearch/${stage}/reader/password`);
-    expect(JSON.stringify(task.ContainerDefinitions[0].Secrets)).toContain(`/secrets/${stage}/cloudflare-workers-ai-api-token`);
+    // Credentials are deploy-time references like Lambda configuration; the task fetches no secret at start.
+    expect(task.ContainerDefinitions[0].Secrets).toBeUndefined();
+    const environment = Object.fromEntries(task.ContainerDefinitions[0].Environment
+      .map((entry: { Name: string; Value: unknown }) => [entry.Name, entry.Value]));
+    const secrets = credentialSecrets(stage);
+    expect(environment).toMatchObject({
+      POSTGRES_USERNAME: credentialReference(secrets.postgresRuntime, "username"),
+      POSTGRES_PASSWORD: credentialReference(secrets.postgresRuntime, "password"),
+      OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${stage}/reader/username}}`,
+      OPENSEARCH_PASSWORD: credentialReference(secrets.openSearch, "readerPassword"),
+      CLOUDFLARE_API_TOKEN: credentialReference(secrets.cloudflare, "workersAiApiToken"),
+    });
     expect(Object.keys(template.toJSON().Parameters).filter((name: string) => name.startsWith("PeriodicMatcher"))).toEqual(["PeriodicMatcherImageDigest", "PeriodicMatcherEnabled"]);
     const roles = Object.entries(template.findResources("AWS::IAM::Role"));
     const taskRole = roles.find(([id]) => id.includes("PeriodicMatcherTaskRole"));
@@ -192,6 +199,8 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
     expect(schedulerTrust).toContain(`aura-historia-periodic-matcher-${stage}`);
     const policies = Object.entries(template.findResources("AWS::IAM::Policy"));
     expect(policies.some(([id]) => id.includes("PeriodicMatcherTaskRole"))).toBe(false);
+    const executionPolicies = policies.filter(([id]) => id.includes("PeriodicMatcherExecutionRole"));
+    expect(JSON.stringify(executionPolicies)).not.toMatch(/secretsmanager:|ssm:/);
     const [schedulerPolicyId, schedulerPolicy] = policies.find(([id]) => id.includes("PeriodicMatcherSchedulerRole"))!;
     const schedulerStatements = schedulerPolicy.Properties.PolicyDocument.Statement;
     expect(schedulerStatements.map((statement: { Action: string }) => statement.Action)).toEqual(["ecs:RunTask", "iam:PassRole", "sqs:SendMessage"]);
@@ -329,7 +338,7 @@ test("two scheduled ECS jobs share one stage cluster but retain independent task
     names: { ...secondNames, lifecyclePolicy: "example-job-events-dev" },
     platform: armImage.platform, cpu: 512, memoryLimitMiB: 1024,
     imageRepository: "example-job", imageDigest: `sha256:${"a".repeat(64)}`,
-    containerName: "example-job", environment: { STAGE: "dev" }, secrets: () => ({}),
+    containerName: "example-job", environment: { STAGE: "dev" },
     extendTaskRole: (role) => role.addToPolicy(new iam.PolicyStatement({ actions: ["s3:GetObject"], resources: ["arn:aws:s3:::example-bucket/input/*"] })),
     scheduleExpression: "cron(0 12 * * ? *)",
     enabled: new cdk.CfnCondition(app.compute, "ExampleJobActivation", { expression: cdk.Fn.conditionEquals("true", "false") }),

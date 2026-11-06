@@ -3,10 +3,10 @@
 mod authentication;
 #[path = "public_release/fixtures.rs"]
 mod fixtures;
+#[path = "public_release/lambda_composition.rs"]
+mod lambda_composition;
 #[path = "public_release/personalization/mod.rs"]
 mod personalization;
-#[path = "public_release/rotation.rs"]
-mod rotation;
 #[path = "public_release/sdk.rs"]
 mod sdk;
 
