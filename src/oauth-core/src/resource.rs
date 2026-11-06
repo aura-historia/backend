@@ -50,6 +50,7 @@ pub struct InvalidResource;
 pub struct AuraResourcePolicy {
     rest: AuraResource,
     mcp: AuraResource,
+    site_domain: &'static str,
     site_origin: &'static str,
     mcp_origin: &'static str,
 }
@@ -59,6 +60,7 @@ impl AuraResourcePolicy {
         Self {
             rest: AuraResource::ProductionRest,
             mcp: AuraResource::ProductionMcp,
+            site_domain: "aura-historia.com",
             site_origin: "https://aura-historia.com",
             mcp_origin: "https://mcp.aura-historia.com",
         }
@@ -68,6 +70,7 @@ impl AuraResourcePolicy {
         Self {
             rest: AuraResource::StageRest,
             mcp: AuraResource::StageMcp,
+            site_domain: "stage.aura-historia.com",
             site_origin: "https://stage.aura-historia.com",
             mcp_origin: "https://mcp.stage.aura-historia.com",
         }
@@ -96,6 +99,12 @@ impl AuraResourcePolicy {
     /// The website origin, which also hosts the browser consent page.
     pub const fn site_origin(self) -> &'static str {
         self.site_origin
+    }
+
+    /// The website's host name, which identifies the organization in website discovery
+    /// documents.
+    pub const fn site_domain(self) -> &'static str {
+        self.site_domain
     }
 
     /// The origin of the MCP host; the MCP resource is its `/v1` endpoint.
@@ -169,6 +178,7 @@ mod tests {
             ),
         ] {
             assert_eq!(site, policy.site_origin());
+            assert_eq!(site, format!("https://{}", policy.site_domain()));
             assert_eq!(policy.issuer(), policy.rest_resource());
             assert_eq!(
                 policy.rest_resource(),
