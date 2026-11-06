@@ -24,8 +24,11 @@ use time::format_description::well_known::Rfc3339;
 
 /// The most pending reviews one answer of `list_pending_reviews` lists.
 pub(super) const MAX_PENDING_REVIEWS: usize = 50;
-/// The most URLs of a URL-pattern review's sample `get_review` answers.
+/// The most URLs of a URL-pattern review's sample one `get_review` answer lists.
 const MAX_SAMPLE_URLS: usize = 150;
+/// The most bytes the URLs of one sample page take as JSON, so a page of long URLs ends early,
+/// with its `sample_urls_next_offset`, instead of being cut by the answer bound.
+const MAX_SAMPLE_PAGE_BYTES: usize = 30 * 1024;
 /// The most events, the latest ones, `get_review` answers.
 const MAX_EVENTS: usize = 40;
 /// The longest notes, error messages and reasons an answer carries, in characters.
@@ -114,9 +117,16 @@ pub struct ReviewView {
     pub candidate: CandidateView,
     /// The pages a product-schema candidate is evaluated on.
     pub pages: Vec<ReviewPageView>,
-    /// The URL sample of a URL-pattern review, with how the candidate classifies each URL.
+    /// One page of the URL sample of a URL-pattern review, with how the candidate classifies each
+    /// URL: at most 150 URLs from `sample_urls_offset` on.
     pub sample_urls: Vec<SampleUrlView>,
+    /// The position in the whole sample of the first URL of `sample_urls`.
+    pub sample_urls_offset: usize,
+    /// How many URLs the whole sample holds.
     pub sample_urls_total: usize,
+    /// The `offset` that reads the next page of the sample with `get_review`; null on the last
+    /// page.
+    pub sample_urls_next_offset: Option<usize>,
     /// The product-schema matrix the console stored for the candidate, if any. A candidate change
     /// drops it; `refresh_matrix` evaluates a new one.
     pub matrix: Option<MatrixView>,
@@ -319,7 +329,13 @@ impl RepairRequestView {
 }
 
 impl ReviewView {
-    pub(super) fn of(detail: wire::ReviewDetail, candidate: wire::Candidate) -> Self {
+    /// The review as the agents read it, with the page of its URL sample that starts at
+    /// `sample_offset`.
+    pub(super) fn of(
+        detail: wire::ReviewDetail,
+        candidate: wire::Candidate,
+        sample_offset: usize,
+    ) -> Self {
         let wire::ReviewDetail {
             review,
             candidate_is_live,
@@ -329,8 +345,7 @@ impl ReviewView {
         } = detail;
         let mut truncations = Vec::new();
         let matrix = stored_matrix(&review, &pages);
-        let sample_urls_total = urls.len();
-        let sample_urls = keep_first(urls, MAX_SAMPLE_URLS, "sample_urls", &mut truncations);
+        let sample = SamplePage::of(urls, sample_offset, &mut truncations);
         let events_total = events.len();
         let events = keep_last(events, MAX_EVENTS, "events", &mut truncations);
         Self {
@@ -349,8 +364,10 @@ impl ReviewView {
             human_required: review.human_required,
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
-            sample_urls: sample_urls.into_iter().map(SampleUrlView::of).collect(),
-            sample_urls_total,
+            sample_urls: sample.urls,
+            sample_urls_offset: sample.offset,
+            sample_urls_total: sample.total,
+            sample_urls_next_offset: sample.next_offset,
             matrix,
             events: events.into_iter().map(EventView::of).collect(),
             events_total,
@@ -430,6 +447,47 @@ impl ReviewPageView {
             url: page.url,
             role: page.role,
             fetched: timestamp(page.fetched),
+        }
+    }
+}
+
+/// One page of a review's URL sample.
+struct SamplePage {
+    urls: Vec<SampleUrlView>,
+    offset: usize,
+    total: usize,
+    next_offset: Option<usize>,
+}
+
+impl SamplePage {
+    /// The URLs from `offset` on, at most [`MAX_SAMPLE_URLS`] of them and [`MAX_SAMPLE_PAGE_BYTES`]
+    /// as JSON, naming in `truncations` the part of the sample the page shows when it is not all.
+    fn of(urls: Vec<CrawlerReviewUrl>, offset: usize, truncations: &mut Vec<String>) -> Self {
+        let total = urls.len();
+        let offset = offset.min(total);
+        let mut bytes_left = MAX_SAMPLE_PAGE_BYTES;
+        let urls: Vec<SampleUrlView> = urls
+            .into_iter()
+            .skip(offset)
+            .take(MAX_SAMPLE_URLS)
+            .map(SampleUrlView::of)
+            .take_while(|url| {
+                let bytes = serde_json::to_vec(url).map_or(0, |json| json.len() + 1);
+                let fits = bytes <= bytes_left;
+                bytes_left = bytes_left.saturating_sub(bytes);
+                fits
+            })
+            .collect();
+        let end = offset + urls.len();
+        let next_offset = (end < total).then_some(end);
+        if offset > 0 || next_offset.is_some() {
+            truncations.push(format!("sample_urls: URLs {offset} to {end} of {total}"));
+        }
+        Self {
+            urls,
+            offset,
+            total,
+            next_offset,
         }
     }
 }
@@ -649,6 +707,7 @@ mod tests {
                 schemas: vec![],
                 removed_page_schemas: vec![],
             }),
+            0,
         ));
 
         assert_eq!(
@@ -658,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn should_show_a_url_pattern_review_with_its_labels_latest_events_and_first_sample_urls() {
+    fn should_show_a_url_pattern_review_with_its_labels_latest_events_and_first_sample_page() {
         let candidate = json!({
             "decision": { "type": "PATTERN", "value": "/item/" },
             "current_pattern": null,
@@ -667,29 +726,9 @@ mod tests {
                 "labels": [{ "url": "https://antiques.example/item/1", "label": "PRODUCT", "reason": "one chair" }],
             },
         });
-        let detail: wire::ReviewDetail = decoded(json!({
-            "review": review("PENDING_REVIEW", "URL_PATTERN", candidate.clone()),
-            "candidate_is_live": false,
-            "pages": [],
-            "urls": (0..200).map(|index| json!({
-                "review_url_id": crate::CrawlerReviewUrlId::new().to_string(),
-                "review_id": CrawlerReviewId::new().to_string(),
-                "url": format!("https://antiques.example/item/{index}"),
-                "previous_class": null,
-                "current_pattern_match": null,
-                "candidate_pattern_match": true,
-                "candidate_class": "product",
-            })).collect::<Vec<_>>(),
-            "events": (0..50).map(|index| json!({
-                "actor": "AGENT_AUTHOR",
-                "action": "CANDIDATE_EDITED",
-                "candidate_version": index,
-                "notes": null,
-                "created": "2026-10-27T12:00:00Z",
-            })).collect::<Vec<_>>(),
-        }));
+        let detail = url_pattern_detail(&candidate, 200, 50);
 
-        let view = ReviewView::of(detail, wire::Candidate::UrlPattern(decoded(candidate)));
+        let view = ReviewView::of(detail, wire::Candidate::UrlPattern(decoded(candidate)), 0);
 
         let view = json!(view);
         assert_eq!(
@@ -712,11 +751,121 @@ mod tests {
         assert_eq!(
             view["truncations"],
             json!([
-                "sample_urls: the first 150 of 200",
+                "sample_urls: URLs 0 to 150 of 200",
                 "events: the last 40 of 50"
             ])
         );
         assert_eq!(view["matrix"], Value::Null);
+    }
+
+    fn url_pattern_detail(candidate: &Value, urls: usize, events: usize) -> wire::ReviewDetail {
+        decoded(json!({
+            "review": review("PENDING_REVIEW", "URL_PATTERN", candidate.clone()),
+            "candidate_is_live": false,
+            "pages": [],
+            "urls": (0..urls).map(|index| json!({
+                "review_url_id": crate::CrawlerReviewUrlId::new().to_string(),
+                "review_id": CrawlerReviewId::new().to_string(),
+                "url": format!("https://antiques.example/item/{index}"),
+                "previous_class": null,
+                "current_pattern_match": null,
+                "candidate_pattern_match": true,
+                "candidate_class": "product",
+            })).collect::<Vec<_>>(),
+            "events": (0..events).map(|index| json!({
+                "actor": "AGENT_AUTHOR",
+                "action": "CANDIDATE_EDITED",
+                "candidate_version": index,
+                "notes": null,
+                "created": "2026-10-27T12:00:00Z",
+            })).collect::<Vec<_>>(),
+        }))
+    }
+
+    #[test]
+    fn should_page_through_the_whole_sample_by_offset() {
+        let candidate = json!({
+            "decision": { "type": "NO_PATTERN" },
+            "current_pattern": null,
+        });
+        let page = |offset| {
+            json!(ReviewView::of(
+                url_pattern_detail(&candidate, 400, 0),
+                wire::Candidate::UrlPattern(decoded(candidate.clone())),
+                offset,
+            ))
+        };
+
+        let pages: Vec<Value> = [0, 150, 300].map(page).into();
+
+        let shown: Vec<(u64, u64, Value, u64)> = pages
+            .iter()
+            .map(|view| {
+                (
+                    view["sample_urls_offset"].as_u64().unwrap_or(u64::MAX),
+                    view["sample_urls"].as_array().map_or(0, Vec::len) as u64,
+                    view["sample_urls_next_offset"].clone(),
+                    view["sample_urls_total"].as_u64().unwrap_or(0),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (0, 150, json!(150), 400),
+                (150, 150, json!(300), 400),
+                (300, 100, Value::Null, 400)
+            ]
+        );
+        assert_eq!(
+            pages[2]["sample_urls"][0]["url"],
+            "https://antiques.example/item/300"
+        );
+        assert_eq!(
+            pages[2]["truncations"],
+            json!(["sample_urls: URLs 300 to 400 of 400"])
+        );
+    }
+
+    #[test]
+    fn should_end_a_sample_page_of_long_urls_before_the_byte_bound() {
+        let candidate = json!({ "decision": { "type": "NO_PATTERN" }, "current_pattern": null });
+        let long_path = "x".repeat(1_000);
+        let mut detail = url_pattern_detail(&candidate, 150, 0);
+        for url in &mut detail.urls {
+            url.url.push_str(&long_path);
+        }
+
+        let view = json!(ReviewView::of(
+            detail,
+            wire::Candidate::UrlPattern(decoded(candidate)),
+            0,
+        ));
+
+        let shown = view["sample_urls"].as_array().map_or(0, Vec::len);
+        assert!(shown > 0 && shown < MAX_SAMPLE_URLS, "{shown}");
+        assert_eq!(view["sample_urls_next_offset"], json!(shown));
+        assert!(serde_json::to_vec(&view["sample_urls"]).unwrap().len() <= MAX_SAMPLE_PAGE_BYTES);
+    }
+
+    #[test]
+    fn should_show_an_empty_page_past_the_end_of_the_sample() {
+        let candidate = json!({ "decision": { "type": "NO_PATTERN" }, "current_pattern": null });
+
+        let view = json!(ReviewView::of(
+            url_pattern_detail(&candidate, 10, 0),
+            wire::Candidate::UrlPattern(decoded(candidate)),
+            99,
+        ));
+
+        assert_eq!(
+            (
+                &view["sample_urls"],
+                &view["sample_urls_offset"],
+                &view["sample_urls_next_offset"]
+            ),
+            (&json!([]), &json!(10), &Value::Null)
+        );
     }
 
     #[test]

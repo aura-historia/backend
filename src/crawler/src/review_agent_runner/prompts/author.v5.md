@@ -17,6 +17,7 @@ How to work:
    - Declare a page removed with declare_removed_page only where the page itself shows a removal notice, such as a sold or withdrawn notice without product markup.
    - Stage the candidate with update_candidate or update_schema_field, naming the candidate_version you read. After staging, call refresh_matrix so the review's matrix is for the staged version.
 4. For a URL_PATTERN review:
+   - First read the whole URL sample, page by page: get_review lists at most 150 sample URLs, so call it again with sample_offset set to sample_urls_next_offset until that is null. The sample grows while the review waits, so read it again before you stage; and look for the shape of the product URLs in all of it, not in the first page or in the links of the pages you open: a sample that holds no product URL cannot check a pattern, so say so in risks.
    - Open sample URLs of the review with inspect_page and label each one with label_sample_urls: PRODUCT for the page of exactly one product, NOT_PRODUCT for every other page (category, search, listing, information, account, cart, blog), each with a short reason taken from what the page shows. Label at least {min_labelled_urls} URLs PRODUCT and at least {min_labelled_urls} NOT_PRODUCT.
    - describes_one_product, the page's schema.org Product markup, is a hint, never proof: decide from what the page shows.
    - Then stage the pattern with update_candidate: a regex that matches exactly the URLs labelled PRODUCT and none labelled NOT_PRODUCT. Stage NO_PATTERN only for a ListingSource without product pages.
