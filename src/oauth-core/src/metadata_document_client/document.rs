@@ -130,11 +130,29 @@ fn client_name(value: Option<&str>) -> Result<OAuthClientName, InvalidClientMeta
     let name = value.map(str::trim).unwrap_or_default();
     if name.is_empty()
         || name.chars().count() > MAX_METADATA_DOCUMENT_CLIENT_NAME_CHARS
-        || name.chars().any(char::is_control)
+        || name
+            .chars()
+            .any(|c| c.is_control() || is_invisible_formatting(c))
     {
         return Err(InvalidClientMetadataDocument::ClientName);
     }
     Ok(OAuthClientName::from(name))
+}
+
+/// Zero-width and bidirectional formatting characters could make a self-asserted name
+/// render as another client's on the consent page.
+fn is_invisible_formatting(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+    )
 }
 
 fn redirect_uris(
@@ -325,6 +343,8 @@ mod tests {
             Some(String::new()),
             Some("   ".to_owned()),
             Some("Agent\u{7}".to_owned()),
+            Some("Agent\u{202E}tnegA".to_owned()),
+            Some("Ag\u{200B}ent".to_owned()),
             Some("a".repeat(MAX_METADATA_DOCUMENT_CLIENT_NAME_CHARS + 1)),
         ] {
             assert_eq!(

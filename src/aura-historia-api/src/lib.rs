@@ -816,7 +816,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                         .delete(oauth::delete_client::delete_client),
                 )
                 .route(
-                    "/v1/oauth/clients",
+                    "/v1/oauth/metadata-document-clients",
                     get(oauth::get_metadata_document_consent_client::get_metadata_document_consent_client),
                 )
                 .route(

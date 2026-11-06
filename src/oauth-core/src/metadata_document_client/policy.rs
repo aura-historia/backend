@@ -60,7 +60,9 @@ impl DeniedMetadataDocumentHosts {
         entries
             .into_iter()
             .map(|entry| match Host::parse(entry.as_ref().trim()) {
-                Ok(Host::Domain(domain)) if !domain.starts_with('.') => Ok(domain),
+                Ok(Host::Domain(domain)) if !domain.starts_with('.') && !domain.ends_with('.') => {
+                    Ok(domain)
+                }
                 _ => Err(InvalidDeniedMetadataDocumentHost),
             })
             .collect::<Result<_, _>>()
@@ -150,6 +152,7 @@ mod tests {
             "https://abuse.example",
             "abuse example",
             ".abuse.example",
+            "abuse.example.",
         ] {
             assert_eq!(
                 Err(InvalidDeniedMetadataDocumentHost),

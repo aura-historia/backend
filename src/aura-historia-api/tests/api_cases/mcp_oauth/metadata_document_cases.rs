@@ -57,7 +57,7 @@ impl PublicAgent {
         let response = self
             .http
             .get(format!(
-                "{}/v1/oauth/clients",
+                "{}/v1/oauth/metadata-document-clients",
                 METADATA_DOCUMENT_API.base_url()
             ))
             .bearer_auth(api_support::cognito_access_token_for_test_user(user))
@@ -302,6 +302,7 @@ async fn should_refuse_unusable_documents_unlisted_callbacks_and_secrets() {
     assert_eq!(0, codes, "no refused request may issue a code");
 
     // A public client presents no secret, and only the client a code was issued to may use it.
+    // A public impostor's rejected attempt leaves the code intact.
     let approval = agent.approve(user, CALLBACK, "users:read").await;
     let code =
         authorization_response(approval.headers()["location"].to_str().unwrap())["code"].clone();
@@ -324,6 +325,9 @@ async fn should_refuse_unusable_documents_unlisted_callbacks_and_secrets() {
         json!({"error": "invalid_grant"}),
         swapped.json::<Value>().await.unwrap()
     );
+    // Neither attempt proved this agent's identity, so neither burned its code.
+    let exchanged = agent.exchange(&code, &[]).await;
+    assert_eq!(StatusCode::OK, exchanged.status());
     let consumed = agent.exchange(&code, &[]).await;
     assert_eq!(StatusCode::BAD_REQUEST, consumed.status());
 }

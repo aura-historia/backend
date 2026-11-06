@@ -114,7 +114,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.STAGE).toBe(stage);
     expect(environment.Variables.PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED).toBe(String(stage === "prod"));
     expect(environment.Variables.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
-    // Production must not admit public clients before refresh-token rotation is deployed.
+    // Production admits public clients only once refresh-token rotation is deployed.
     expect(environment.Variables.OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED).toBe(String(stage !== "prod"));
     expect(environment.Variables.OAUTH_METADATA_DOCUMENT_DENIED_HOSTS).toBeUndefined();
     expect(environment.Variables.COMMIT_SHA).toEqual({ Ref: "CommitSHA" });

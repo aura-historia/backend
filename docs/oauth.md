@@ -160,8 +160,8 @@ environment, `OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED` (default `false`) turns t
 client kind on, and `OAUTH_METADATA_DOCUMENT_DENIED_HOSTS` lists the denied domains,
 comma-separated; [`infra/src/config.ts`](../infra/src/config.ts) sets both. While disabled,
 URL client IDs are rejected and discovery does not advertise them. Production stays
-disabled until rotating refresh tokens are deployed (#2802), because public clients must
-never hold non-expiring tokens.
+disabled until rotating refresh tokens are deployed (#2802): a public client's token expires
+after an hour, so without them its user must approve it again every hour.
 
 **Outbound policy.** Document fetches fail closed: HTTPS on port 443 only, to a host whose
 every resolved address is public under the shared public-network policy, with the
@@ -190,14 +190,16 @@ advertises. The authorization code persists the `client_id` URL.
 
 **Token exchange.** The client sends `client_id` without a secret; a `client_secret` from
 it is `invalid_client`. S256 PKCE and the resource rules above apply unchanged, and only the
-`client_id` the code was issued to may exchange it. The client receives a Bearer token that
+`client_id` the code was issued to may exchange it. A rejected exchange consumes the code,
+except when a metadata document client presents another client's code: having proved no
+credential, it cannot burn that code. The client receives a Bearer token that
 expires after 1 hour and no third-party exchange code. The access token records the
 `client_id` URL as its client, so the user lists and revokes it with their other tokens. Its
 scopes and expiry can only be narrowed afterwards, not widened or removed.
 
 ### Consent metadata
 
-`GET /v1/oauth/clients?client_id=…&redirect_uri=…` serves the consent page for a metadata
+`GET /v1/oauth/metadata-document-clients?client_id=…&redirect_uri=…` serves the consent page for a metadata
 document client with a first-party Cognito JWT. It takes the URL client ID as a query
 parameter, because a URL does not fit the `/v1/oauth/clients/{clientId}` path that registered
 clients keep using. It loads and validates the current document and returns `400` unless

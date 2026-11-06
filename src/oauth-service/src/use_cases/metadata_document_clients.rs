@@ -50,7 +50,7 @@ impl<S: ClientMetadataDocumentSource> MetadataDocumentClients<S> {
     }
 }
 
-/// Every message in the chain; none carries document content.
+/// Every message in the chain. Adapters keep document content and URLs out of them.
 fn cause_chain(error: &(dyn std::error::Error + 'static)) -> String {
     let mut chain = error.to_string();
     let mut source = error.source();

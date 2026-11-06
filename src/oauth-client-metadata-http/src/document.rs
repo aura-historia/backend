@@ -17,22 +17,38 @@ struct MetadataDocumentWire {
     logo_uri: Option<String>,
 }
 
+/// Why a body is not a metadata document. serde's messages echo document values, so only
+/// the error class and position are kept.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MalformedDocument {
-    #[error("metadata document is not a JSON object")]
-    NotObject(#[source] serde_json::Error),
+    #[error("metadata document is not a JSON object ({category:?} at {line}:{column})")]
+    NotObject {
+        category: serde_json::error::Category,
+        line: usize,
+        column: usize,
+    },
     #[error("metadata document member has an unexpected type")]
-    MemberType(#[source] serde_json::Error),
+    MemberType,
+}
+
+impl MalformedDocument {
+    fn not_object(error: serde_json::Error) -> Self {
+        Self::NotObject {
+            category: error.classify(),
+            line: error.line(),
+            column: error.column(),
+        }
+    }
 }
 
 pub(crate) fn parse_claims(body: &[u8]) -> Result<ClientMetadataDocumentClaims, MalformedDocument> {
     let members = serde_json::from_slice::<serde_json::Map<String, serde_json::Value>>(body)
-        .map_err(MalformedDocument::NotObject)?;
+        .map_err(MalformedDocument::not_object)?;
     let declares_client_secret = SECRET_MEMBERS
         .iter()
         .any(|member| members.contains_key(*member));
     let wire = serde_json::from_value::<MetadataDocumentWire>(serde_json::Value::Object(members))
-        .map_err(MalformedDocument::MemberType)?;
+        .map_err(|_| MalformedDocument::MemberType)?;
     Ok(ClientMetadataDocumentClaims {
         client_id: wire.client_id,
         client_name: wire.client_name,
@@ -92,6 +108,18 @@ mod tests {
     }
 
     #[test]
+    fn should_keep_document_values_out_of_error_messages() {
+        for body in [
+            &br#"{"redirect_uris": "SECRET-CONTENT"}"#[..],
+            br#"["SECRET-CONTENT""#,
+        ] {
+            let error = parse_claims(body).unwrap_err();
+            assert!(!error.to_string().contains("SECRET-CONTENT"), "{error}");
+            assert!(std::error::Error::source(&error).is_none());
+        }
+    }
+
+    #[test]
     fn should_report_declared_secrets_even_when_empty() {
         for body in [
             &br#"{"client_secret": "s3cr3t"}"#[..],
@@ -113,7 +141,7 @@ mod tests {
         ] {
             assert!(matches!(
                 parse_claims(body),
-                Err(MalformedDocument::NotObject(_))
+                Err(MalformedDocument::NotObject { .. })
             ));
         }
         for body in [
@@ -123,7 +151,7 @@ mod tests {
         ] {
             assert!(matches!(
                 parse_claims(body),
-                Err(MalformedDocument::MemberType(_))
+                Err(MalformedDocument::MemberType)
             ));
         }
     }

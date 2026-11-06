@@ -425,7 +425,7 @@ describe("HTTP API route policy matrix", () => {
     }));
     expect(API_ROUTE_CATALOG).toContainEqual({
       method: "GET",
-      path: "/v1/oauth/clients",
+      path: "/v1/oauth/metadata-document-clients",
       lambda: "auraHistoriaApi",
       auth: RouteAuthPolicy.ApplicationBearer,
       policy: {

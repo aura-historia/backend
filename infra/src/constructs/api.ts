@@ -174,7 +174,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/access-tokens/{access_token_id}", ["DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients/{client_id}", ["GET", "PATCH", "DELETE"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/clients", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/metadata-document-clients", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/clients/{client_id}", ["GET"]),
 
   ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/authorize", ["GET"]),
@@ -492,7 +492,7 @@ export const API_OVERSIZED_CONTENT_LENGTH_PATTERN =
  * The URI path is matched raw, so encoded, dot-segment or trailing-slash variants stay out of scope.
  */
 export const API_OAUTH_REDIRECT_URI_PATH_PATTERN =
-  "^/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token|clients))$";
+  "^/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token|metadata-document-clients))$";
 
 /**
  * Common-rule-set rules for URLs that target internal hosts in the body or query. Contract-valid

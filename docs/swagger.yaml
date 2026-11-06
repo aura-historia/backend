@@ -10368,7 +10368,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-  /v1/oauth/clients:
+  /v1/oauth/metadata-document-clients:
     get:
       summary: Get metadata document client metadata for consent
       description: |

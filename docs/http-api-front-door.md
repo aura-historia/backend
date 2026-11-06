@@ -91,7 +91,7 @@ explicit origin allowlist.
   and, as IPv4 literals, its RFI body/query rules; so can URL-valued OAuth `client_id`s.
   Those four rules are counted in the group; a label rule after it blocks their matches
   everywhere except the exact OAuth client registration/update, authorize, token and
-  metadata-document consent (`GET /v1/oauth/clients`) paths. The API never fetches a
+  metadata-document consent (`GET /v1/oauth/metadata-document-clients`) paths. The API never fetches a
   redirect URI submitted there. It fetches only a URL-valued `client_id`'s metadata
   document, through the dedicated outbound policy in the [OAuth contract](oauth.md#metadata-document-clients):
   HTTPS on port 443 to hosts resolving exclusively to public addresses, without redirects.

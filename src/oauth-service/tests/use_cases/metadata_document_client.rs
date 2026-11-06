@@ -380,8 +380,8 @@ async fn should_never_exchange_a_code_across_client_kinds_or_clients() {
         OAuthServiceError::AuthorizationCodeClientMismatch
     ));
     assert!(
-        lock(&ports.0).code.is_none(),
-        "a rejected exchange consumes the code"
+        lock(&ports.0).code.is_some(),
+        "a public client cannot burn another client's code"
     );
 
     // A registered client's code presented without a secret under a URL client ID.
@@ -401,6 +401,7 @@ async fn should_never_exchange_a_code_across_client_kinds_or_clients() {
         OAuthServiceError::AuthorizationCodeClientMismatch
     ));
     assert!(lock(&ports.0).issued.is_none());
+    assert!(lock(&ports.0).code.is_some());
 }
 
 #[tokio::test]

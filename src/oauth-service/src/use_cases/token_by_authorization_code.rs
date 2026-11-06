@@ -120,7 +120,7 @@ impl<U, C, A, T, R> TokenByAuthorizationCodeHandler<U, C, A, T, R> {
 
 /// The client the token endpoint authenticated.
 enum TokenClient {
-    Registered(OAuthClient),
+    Registered(Box<OAuthClient>),
     /// Admitted by policy; its document was validated when the code was approved.
     MetadataDocument(MetadataDocumentClientId),
 }
@@ -157,14 +157,14 @@ where
             OAuthTokenClientAuthentication::ClientSecretPost {
                 client_id,
                 client_secret,
-            } => TokenClient::Registered(
+            } => TokenClient::Registered(Box::new(
                 authenticate_client(
                     &mut self.clients.in_transaction(&mut tx),
                     client_id,
                     client_secret,
                 )
                 .await?,
-            ),
+            )),
             OAuthTokenClientAuthentication::None { client_id } => {
                 TokenClient::MetadataDocument(client_id.clone())
             }
@@ -177,8 +177,15 @@ where
             .ok_or(OAuthServiceError::AuthorizationCodeNotFound)?;
         match self.verify_exchange(&request, requested_resource, &code) {
             Ok(()) => {}
-            // Invalid persisted state rolls back; a rejected exchange still consumes the code.
+            // Invalid persisted state rolls back. So does a public client presenting another
+            // client's code: it proved no credential, so it must not burn that code.
             Err(error @ OAuthServiceError::InvalidPersistedState { .. }) => return Err(error),
+            Err(error @ OAuthServiceError::AuthorizationCodeClientMismatch)
+                if matches!(request.client, OAuthTokenClientAuthentication::None { .. }) =>
+            {
+                return Err(error);
+            }
+            // Any other rejected exchange still consumes the code.
             Err(error) => {
                 tx.commit().await?;
                 return Err(error);

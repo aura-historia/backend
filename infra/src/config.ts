@@ -154,8 +154,8 @@ export interface StageConfig {
 
 /**
  * Public OAuth clients that sign in with a Client ID Metadata Document instead of a registration.
- * Production stays disabled until expiring tokens with rotating refresh tokens are deployed
- * (#2802): public clients must never hold non-expiring tokens.
+ * Production stays disabled until rotating refresh tokens are deployed (#2802); until then such a
+ * client's one-hour token forces its user to approve it again every hour.
  */
 export interface OAuthMetadataDocumentClientsConfig {
   readonly enabled: boolean;

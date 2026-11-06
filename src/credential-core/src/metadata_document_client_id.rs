@@ -23,7 +23,7 @@ pub enum InvalidMetadataDocumentClientId {
     NotHttps,
     #[error("metadata document client ID must be in canonical URL form")]
     NotCanonical,
-    #[error("metadata document client ID must name a domain host")]
+    #[error("metadata document client ID must name a domain host without a trailing dot")]
     NotDomainHost,
     #[error("metadata document client ID must use the default HTTPS port")]
     NonDefaultPort,
@@ -72,7 +72,8 @@ impl TryFrom<&str> for MetadataDocumentClientId {
         if url.fragment().is_some() {
             return Err(InvalidMetadataDocumentClientId::Fragment);
         }
-        if !matches!(url.host(), Some(Host::Domain(_))) {
+        // A trailing dot names the same DNS host, so it would slip past host comparisons.
+        if !matches!(url.host(), Some(Host::Domain(domain)) if !domain.ends_with('.')) {
             return Err(InvalidMetadataDocumentClientId::NotDomainHost);
         }
         if url.port().is_some() {
@@ -208,6 +209,10 @@ mod tests {
             ),
             (
                 "https://[2001:db8::1]/client.json",
+                InvalidMetadataDocumentClientId::NotDomainHost,
+            ),
+            (
+                "https://client.example./client.json",
                 InvalidMetadataDocumentClientId::NotDomainHost,
             ),
             (
