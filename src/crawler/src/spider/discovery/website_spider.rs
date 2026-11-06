@@ -33,6 +33,7 @@ use crate::spider::discovery::frontier::{
 use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
+use crate::spider::discovery::redirects::{RedirectAnswer, RedirectFollower};
 use crate::spider::discovery::robots::{CrawlRobots, admit_crawl};
 use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
@@ -40,6 +41,8 @@ use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
+/// Redirect targets Spider's queue holds before it drains them; it drains on every fetch round.
+const REDIRECT_QUEUE_CAPACITY: usize = 1024;
 const SPIDER_MAX_BODY_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
 const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_RETRY_COUNT: u8 = 2;
@@ -302,6 +305,12 @@ pub struct CrawlDiagnostics {
     /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
+    /// Redirects pages answered whose target the crawl followed, each requested as a page of
+    /// its own (`docs/crawler/networking.md#destination-policy`).
+    pub redirects_followed: usize,
+    /// Redirects the crawl did not follow: to another host, to a target a rule refuses, without a
+    /// usable `Location` or past the hop bound.
+    pub redirects_rejected: usize,
     /// How robots.txt applied to the crawl: `rules` or
     /// `unavailable_allow_all`.
     pub robots_policy: Option<&'static str>,
@@ -1253,6 +1262,8 @@ struct LocalFilter {
     found_links: FoundLinks,
     /// The pages an incremental crawl knows, and the links to them it answered itself.
     known_pages: Arc<KnownPageAnswers>,
+    /// Queues the targets of the redirects the delivered pages answer.
+    redirects: RedirectFollower,
 }
 
 impl LocalFilter {
@@ -1433,6 +1444,9 @@ impl SpiderImpl {
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client.clone());
+        let redirect_queue = website
+            .queue(REDIRECT_QUEUE_CAPACITY)
+            .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
 
         let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
         let follow_rules = Arc::new(FollowRules::new(
@@ -1528,6 +1542,7 @@ impl SpiderImpl {
                 .expect("bloom filter init failed"),
             found_links: found_links.clone(),
             known_pages: Arc::clone(&known_pages),
+            redirects: RedirectFollower::new(redirect_queue, robots.clone()),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1777,6 +1792,20 @@ async fn relay_library_pages(
             if let Some(page_links) = page.page_links.as_deref() {
                 filter.found_links.record(page.get_url(), page_links);
             }
+        }
+
+        match filter.redirects.answer(
+            status_code,
+            page.get_url(),
+            page.headers.as_ref(),
+            &filter.found_links,
+        ) {
+            RedirectAnswer::Followed => {
+                diagnostics.redirects_followed += 1;
+                continue;
+            }
+            RedirectAnswer::Rejected => diagnostics.redirects_rejected += 1,
+            RedirectAnswer::NotARedirect => {}
         }
 
         match filter.admit(page.get_url()) {
@@ -2064,6 +2093,7 @@ mod tests {
     use crate::network::CRAWLER_ACCEPT;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
+    use crate::spider::discovery::redirects::MAX_REDIRECT_HOPS;
     use crate::spider::discovery::root_host;
     use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
     use std::collections::HashSet;
@@ -2487,8 +2517,8 @@ mod tests {
         }
     }
 
-    /// Each delivered page carries what its own head declares. Spider does not follow a redirect,
-    /// so a redirected URL is delivered without the target's head and declares nothing.
+    /// Each delivered page carries what its own head declares. A redirected URL is not a page:
+    /// its target is, and that one answers 404 here.
     #[tokio::test]
     async fn should_deliver_each_page_with_the_identity_its_head_declares() {
         let site = TestSite::spawn(Arc::new(canonical_link_site)).await;
@@ -2517,8 +2547,9 @@ mod tests {
             Some("http://example.com/products/ladle")
         );
         assert_eq!(collection_page.platform, Some(ShopPlatform::Shopify));
+        assert_eq!(identities.get("http://example.com/products/old"), None);
         assert_eq!(
-            identities.get("http://example.com/products/old"),
+            identities.get("http://example.com/products/new"),
             Some(&PageIdentityEvidence::default())
         );
     }
@@ -4483,6 +4514,141 @@ mod tests {
         assert!(site.finish().await.is_empty());
     }
 
+    /// A site whose root links the pages in `links`, one slow page that keeps the crawl running
+    /// while the redirects are answered, and the answers of `pages`.
+    fn redirecting_site(
+        links: &'static [&'static str],
+        pages: fn(&str) -> Option<SiteResponse>,
+    ) -> SiteHandler {
+        Arc::new(move |target: &str, _previous: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                links
+                    .iter()
+                    .map(|link| format!(r#"<a href="{link}">page</a>"#))
+                    .chain([r#"<a href="/slow">slow</a>"#.to_string()])
+                    .collect(),
+            ),
+            "/slow" => {
+                SiteResponse::SlowHtml(Duration::from_millis(300), "200 OK", "<p>slow</p>".into())
+            }
+            "/robots.txt" => {
+                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /private/\n".into())
+            }
+            _ => pages(target)
+                .unwrap_or_else(|| SiteResponse::Html("404 Not Found", String::new())),
+        })
+    }
+
+    fn category_redirect_pages(target: &str) -> Option<SiteResponse> {
+        match target {
+            "/category" => Some(SiteResponse::Redirect("/category/")),
+            "/category/" => Some(SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/category/item-1">item</a>"#.into(),
+            )),
+            "/category/item-1" => Some(SiteResponse::Html("200 OK", "<p>item</p>".into())),
+            _ => None,
+        }
+    }
+
+    /// A category link the shop answers with a redirect to its slashed spelling is requested
+    /// there, as a page of the crawl stored in the spelling fetched, and what it links is found.
+    #[tokio::test]
+    async fn should_follow_an_in_crawl_redirect_to_the_slashed_spelling() {
+        let site = TestSite::spawn(redirecting_site(&["/category"], category_redirect_pages)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert!(discovered.contains("http://example.com/category/"));
+        assert!(discovered.contains("http://example.com/category/item-1"));
+        assert!(!discovered.contains("http://example.com/category"));
+        assert_eq!(diagnostics.redirects_followed, 1);
+        assert_eq!(diagnostics.redirects_rejected, 0);
+    }
+
+    /// The two spellings of a page are requested once, whether the crawl met the slashed one by
+    /// a link or by the redirect.
+    #[tokio::test]
+    async fn should_request_a_trailing_slash_twin_once() {
+        let site = TestSite::spawn(redirecting_site(
+            &["/category", "/category/"],
+            category_redirect_pages,
+        ))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.requests_for("/category/").await;
+        site.finish().await;
+
+        assert!(discovered.contains("http://example.com/category/item-1"));
+        assert_eq!(requests, 1);
+    }
+
+    /// A redirect off the crawl root's host, to a port the policy refuses or to a page robots.txt
+    /// disallows is counted as rejected and never requested.
+    #[tokio::test]
+    async fn should_reject_in_crawl_redirects_to_refused_targets() {
+        fn refused_pages(target: &str) -> Option<SiteResponse> {
+            match target {
+                "/off-host" => Some(SiteResponse::Redirect("http://other.example/page")),
+                "/off-port" => Some(SiteResponse::Redirect("http://example.com:40542/page")),
+                "/to-robots" => Some(SiteResponse::Redirect("/private/page")),
+                _ => None,
+            }
+        }
+        let site = TestSite::spawn(redirecting_site(
+            &["/off-host", "/off-port", "/to-robots"],
+            refused_pages,
+        ))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "other.example"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let log = site.finish().await;
+
+        assert_eq!(diagnostics.redirects_followed, 0);
+        assert_eq!(diagnostics.redirects_rejected, 3);
+        assert!(discovered.contains("http://example.com/off-host"));
+        assert!(
+            !log.iter()
+                .any(|(host, target, ..)| host.starts_with("other.example")
+                    || target == "/page"
+                    || target == "/private/page"),
+            "{log:?}"
+        );
+    }
+
+    /// A chain of redirects is followed as far as the root's own chain is.
+    #[tokio::test]
+    async fn should_bound_the_chain_of_in_crawl_redirects() {
+        fn chain(target: &str) -> Option<SiteResponse> {
+            let hop = target.strip_prefix("/hop")?.parse::<usize>().ok()?;
+            Some(SiteResponse::Redirect(Box::leak(
+                format!("/hop{}", hop + 1).into_boxed_str(),
+            )))
+        }
+        let site = TestSite::spawn(redirecting_site(&["/hop0"], chain)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let log = site.finish().await;
+
+        let hops = log
+            .iter()
+            .filter(|(_, target, ..)| target.starts_with("/hop"))
+            .count();
+        assert_eq!(hops, MAX_REDIRECT_HOPS + 1);
+        assert_eq!(diagnostics.redirects_followed, MAX_REDIRECT_HOPS);
+        assert_eq!(diagnostics.redirects_rejected, 1);
+    }
+
     fn site_with_robots(robots: SiteResponse) -> SiteHandler {
         Arc::new(move |target: &str, previous: usize| {
             if target == "/robots.txt" {
@@ -4595,6 +4761,15 @@ mod tests {
                 Arc::new(RegexSet::empty()),
             ))),
             known_pages: Arc::default(),
+            redirects: RedirectFollower::new(
+                broadcast::channel(1).0,
+                CrawlRobots {
+                    deny_list: RobotsRules::parse("").deny_list(),
+                    crawl_delay: None,
+                    rules: None,
+                    policy: "unavailable_allow_all",
+                },
+            ),
         }
     }
 
