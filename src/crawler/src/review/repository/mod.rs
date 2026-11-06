@@ -29,6 +29,7 @@ use tracing::info;
 use url::Url;
 
 mod live_matrix;
+mod mass_removal_confirmation;
 mod missing_value_pages;
 mod pending_reviews;
 mod rearm;
@@ -45,6 +46,7 @@ mod url_pattern_sample;
 mod verdicts;
 
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
+pub use mass_removal_confirmation::MassRemovalConfirmation;
 pub use missing_value_pages::{
     MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
 };
@@ -81,6 +83,8 @@ pub enum ReviewRepositoryError {
     Regex(#[from] regex::Error),
     #[error("review not found: {0}")]
     NotFound(CrawlerReviewId),
+    #[error("ListingSource not found: {0}")]
+    ListingSourceNotFound(ListingSourceId),
     #[error("review {0} is not pending review")]
     NotPending(CrawlerReviewId),
     #[error(

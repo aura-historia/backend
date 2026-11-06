@@ -1,7 +1,9 @@
 //! `GET /api/listing_sources`: the operator's ListingSource overview. The contract is in
 //! `docs/crawler/operations.md` (review service).
 
-use crate::review::model::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
+use crate::review::model::{
+    CrawlStateOverview, ListingSourceOverview, ReviewActor, UrlErrorKindCount,
+};
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
@@ -79,6 +81,10 @@ impl ListingSourceOverviewReader {
                     CASE WHEN b.blocked_urls IS NOT NULL THEN bl.review_id END AS blocking_review_id,
                     COALESCE(u.held_removal_urls, 0) AS held_removal_urls,
                     u.held_since,
+                    CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_until END
+                        AS mass_removal_confirmed_until,
+                    CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_by END
+                        AS mass_removal_confirmed_by,
                     COALESCE(u.missing_value_urls, 0) AS missing_value_urls,
                     s.last_crawl_outcome IS NOT DISTINCT FROM $2 AS needs_operator
                 FROM listing_sources s
@@ -179,6 +185,10 @@ impl ListingSourceOverviewReader {
                     .transpose()?,
                 held_removal_urls: row.try_get("held_removal_urls")?,
                 held_since: row.try_get("held_since")?,
+                mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
+                mass_removal_confirmed_by: confirming_actor(
+                    row.try_get("mass_removal_confirmed_by")?,
+                )?,
                 url_error_kinds: Vec::new(),
                 missing_value_urls: row.try_get("missing_value_urls")?,
                 crawl_state: CrawlStateOverview {
@@ -237,4 +247,17 @@ impl ListingSourceOverviewReader {
         }
         Ok(by_listing_source)
     }
+}
+
+/// The actor a persisted confirmation names; an unknown name fails, so the console never shows a
+/// confirmation it cannot attribute.
+fn confirming_actor(name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
+    name.map(|name| {
+        ReviewActor::from_persisted(&name).ok_or_else(|| {
+            sqlx::Error::Decode(
+                format!("invalid persisted mass_removal_confirmed_by `{name}`").into(),
+            )
+        })
+    })
+    .transpose()
 }

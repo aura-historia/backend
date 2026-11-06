@@ -237,6 +237,21 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
+    #[case::review_token_confirms_a_mass_removal(
+        "POST /api/listing-sources/ls_1/mass-removal-confirmation",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::author_token_confirms_no_mass_removal(
+        "POST /api/listing-sources/ls_1/mass-removal-confirmation",
+        Some(AUTHOR_TOKEN),
+        None
+    )]
+    #[case::reviewer_token_revokes_no_mass_removal_confirmation(
+        "DELETE /api/listing-sources/ls_1/mass-removal-confirmation",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
     #[case::author_token_opens_no_missing_value_page_review(
         "POST /api/listing-sources/ls_1/missing-value-pages/review",
         Some(AUTHOR_TOKEN),

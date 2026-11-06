@@ -239,6 +239,7 @@ main.app.view-sources.sidebar-collapsed { grid-template-columns: minmax(0, 1fr);
 .subpage { display: flex; align-items: center; gap: var(--s-3); font-size: var(--fs-sm); }
 .subpage .url { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subpage button { min-height: 28px; padding: 2px 10px; }
+.subpage select { min-height: 28px; padding: 2px 8px; }
 
 #editMessages { display: grid; gap: var(--s-3); }
 .card-body.stack { display: grid; gap: var(--s-3); }

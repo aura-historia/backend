@@ -2,7 +2,9 @@
 //! of the URLs it scraped captures none of them.
 //!
 //! The rule is pure. The scraper cron counts a batch's new removals and scraped URLs, asks for
-//! the decision once the batch has scraped its last URL and captures or holds the removals;
+//! the decision once the batch has scraped its last URL and captures or holds the removals. An
+//! operator confirms a real bulk clearance per ListingSource in the review console for a bounded
+//! time; the scraper reads that confirmation when it decides.
 //! `docs/crawler/scheduling-and-retries.md` (mass-removal guard) owns the durable contract.
 
 /// New removals one batch must reach before their share is judged, so a shop with few due URLs
@@ -14,6 +16,31 @@ pub const MASS_REMOVAL_MAX_SHARE_PERCENT: usize = 50;
 /// `last_error_kind` the scraper records for a URL whose removal the guard held back, which the
 /// ListingSource overview counts as held removals.
 pub const MASS_REMOVAL_HELD_ERROR_KIND: &str = "MassRemovalHeld";
+/// The most hours an operator's confirmation of a mass removal holds: a week, so a forgotten
+/// confirmation never leaves a source unguarded for long.
+pub const MASS_REMOVAL_CONFIRMATION_MAX_HOURS: u32 = 7 * 24;
+
+/// How long an operator's confirmation of a ListingSource's mass removal holds, in whole hours
+/// from 1 to [`MASS_REMOVAL_CONFIRMATION_MAX_HOURS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MassRemovalConfirmationHours(u32);
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("hours must be a whole number from 1 to {MASS_REMOVAL_CONFIRMATION_MAX_HOURS}, not {0}")]
+pub struct InvalidMassRemovalConfirmationHours(pub u32);
+
+impl MassRemovalConfirmationHours {
+    pub fn try_from_hours(hours: u32) -> Result<Self, InvalidMassRemovalConfirmationHours> {
+        (1..=MASS_REMOVAL_CONFIRMATION_MAX_HOURS)
+            .contains(&hours)
+            .then_some(Self(hours))
+            .ok_or(InvalidMassRemovalConfirmationHours(hours))
+    }
+
+    pub fn get(self) -> u32 {
+        self.0
+    }
+}
 
 /// The new removals of a batch that the guard holds back: at least [`MASS_REMOVAL_MIN_URLS`]
 /// and more than [`MASS_REMOVAL_MAX_SHARE_PERCENT`] percent of the URLs it scraped.
@@ -78,6 +105,28 @@ mod tests {
     fn should_capture_fewer_removals_than_the_minimum_whatever_their_share() {
         assert_eq!(MassRemoval::of(MASS_REMOVAL_MIN_URLS - 1, 9), None);
         assert_eq!(MassRemoval::of(1, 1), None);
+    }
+
+    #[test]
+    fn should_accept_a_confirmation_of_one_hour_through_a_week() {
+        for hours in [1, 24, MASS_REMOVAL_CONFIRMATION_MAX_HOURS] {
+            let confirmation = MassRemovalConfirmationHours::try_from_hours(hours);
+
+            assert_eq!(
+                confirmation.map(MassRemovalConfirmationHours::get),
+                Ok(hours)
+            );
+        }
+    }
+
+    #[test]
+    fn should_refuse_a_confirmation_of_no_hours_or_more_than_a_week() {
+        for hours in [0, MASS_REMOVAL_CONFIRMATION_MAX_HOURS + 1] {
+            assert_eq!(
+                MassRemovalConfirmationHours::try_from_hours(hours),
+                Err(InvalidMassRemovalConfirmationHours(hours))
+            );
+        }
     }
 
     #[test]

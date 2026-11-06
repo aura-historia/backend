@@ -47,6 +47,7 @@ const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 /// event's time, as the review agents' daily digest does.
 const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
+mod mass_removal_confirmation;
 mod missing_value_pages;
 mod pending_reviews;
 mod schema_matrix;
@@ -250,6 +251,9 @@ impl ReviewServer {
     /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
     async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
         if let Some(response) = self.route_missing_value_pages(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
             return response;
         }
         // Preview responses, including their errors, are framed by the console.
@@ -977,7 +981,7 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 }
 
 /// Maps a refused review request to its answer, the same on every review route: 404 for an
-/// unknown review or review page, 400 for a request the review cannot take, 403 with a `reason`
+/// unknown review, review page or ListingSource, 400 for a request the review cannot take, 403 with a `reason`
 /// for a change the actor may not make, 409 for a request the review's current state refuses,
 /// a URL-pattern review whose ListingSource has no crawl root among them,
 /// 429 with `Retry-After` once the review agent made its decisions of the hour, and 500 for a
@@ -989,7 +993,9 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// and the cap as `limit`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
-        ReviewRepositoryError::NotFound(_) | ReviewRepositoryError::ReviewPageNotFound(_) => {
+        ReviewRepositoryError::NotFound(_)
+        | ReviewRepositoryError::ReviewPageNotFound(_)
+        | ReviewRepositoryError::ListingSourceNotFound(_) => {
             HttpResponse::json(404, &json!({ "error": error.to_string() }))
         }
         ReviewRepositoryError::NotPending(_)
@@ -5095,6 +5101,122 @@ Origin: http://127.0.0.1:7878/x
             assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
             let (_, reviews) = send(&server, "GET /api/reviews", "").await;
             assert_eq!(reviews, json!([]), "a refused page opens no review");
+        }
+    }
+
+    mod mass_removal_confirmation {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send, send_as};
+        use super::{ReviewServer, ReviewServerConfig};
+        use crate::review::agent_tokens::ReviewAgentTokens;
+        use crate::review::live_jobs::DEFAULT_MAX_CONCURRENT_LIVE_JOBS;
+        use crate::review::repository::CrawlerReviewRepository;
+        use crate::scraper::scraper_service::html_fetcher::MockHtmlFetcher;
+        use listing_source_core::ListingSourceId;
+        use serde_json::{Value, json};
+        use std::net::SocketAddr;
+        use std::sync::Arc;
+        use test_api::IntegrationTestService as _;
+
+        async fn console() -> (ReviewServer, ListingSourceId) {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+                  crawl_root_url, crawl_host, created, updated) \
+                 VALUES ($1, 'Clearance source', 'clearance-source', TRUE, \
+                         'https://shop.example/', 'shop.example', NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert fixture: {error}"));
+            let server = ReviewServer::new(
+                CrawlerReviewRepository::new(pool),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+                },
+                Arc::new(MockHtmlFetcher::new()),
+            );
+            (server, listing_source_id)
+        }
+
+        async fn overview_of(server: &ReviewServer, listing_source_id: ListingSourceId) -> Value {
+            let (_, sources) = send(server, "GET /api/listing_sources", "").await;
+            sources
+                .as_array()
+                .and_then(|sources| {
+                    sources
+                        .iter()
+                        .find(|source| source["listing_source_id"] == listing_source_id.to_string())
+                })
+                .cloned()
+                .unwrap_or_else(|| panic!("source not listed: {sources}"))
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_confirm_and_revoke_a_mass_removal_for_a_human_only() {
+            let (server, listing_source_id) = console().await;
+            let route =
+                format!("/api/listing-sources/{listing_source_id}/mass-removal-confirmation");
+
+            let (status, confirmation) = send(
+                &server,
+                &format!("POST {route}"),
+                &json!({ "hours": 24 }).to_string(),
+            )
+            .await;
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "{status} {confirmation}"
+            );
+            assert_eq!(confirmation["mass_removal_confirmed_by"], "HUMAN");
+            assert_eq!(confirmation["rearmed_held_urls"], 0);
+            let source = overview_of(&server, listing_source_id).await;
+            assert_eq!(
+                source["mass_removal_confirmed_until"],
+                confirmation["mass_removal_confirmed_until"]
+            );
+            assert_eq!(source["mass_removal_confirmed_by"], "HUMAN");
+
+            let (status, refused) = send(
+                &server,
+                &format!("POST {route}"),
+                &json!({ "hours": 0 }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
+            let (status, _) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST {route}"),
+                &json!({ "hours": 24 }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+
+            let (status, revoked) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {revoked}");
+            assert_eq!(revoked, json!({ "ok": true }));
+            let source = overview_of(&server, listing_source_id).await;
+            assert!(source["mass_removal_confirmed_until"].is_null(), "{source}");
+            assert!(source["mass_removal_confirmed_by"].is_null(), "{source}");
+
+            let unknown = format!(
+                "/api/listing-sources/{}/mass-removal-confirmation",
+                ListingSourceId::new()
+            );
+            let (status, missing) = send(
+                &server,
+                &format!("POST {unknown}"),
+                &json!({ "hours": 24 }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
         }
     }
 }
