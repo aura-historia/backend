@@ -98,7 +98,7 @@ async fn seed_product(
         .bind(format!("lifecycle-guard-party-{party_id}"))
         .execute(&mut *transaction)
         .await?;
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Lifecycle guard source', $3)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Lifecycle guard source', $3, 'DEALER')")
         .bind(listing_source_id)
         .bind(format!("lifecycle-guard-source-{listing_source_id}"))
         .bind(party_id)

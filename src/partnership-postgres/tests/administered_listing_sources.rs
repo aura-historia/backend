@@ -60,7 +60,7 @@ async fn grant(pool: &PgPool, partnership: PartnershipId, source: ListingSourceI
 }
 async fn source(pool: &PgPool, party: PartyId, name: &str) -> ListingSourceId {
     let source = ListingSourceId::new();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)").bind(source.into_uuid()).bind(format!("source-{}", source.as_uuid())).bind(name).bind(party.into_uuid()).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')").bind(source.into_uuid()).bind(format!("source-{}", source.as_uuid())).bind(name).bind(party.into_uuid()).execute(pool).await.unwrap();
     source
 }
 

@@ -1084,7 +1084,7 @@ async fn seed_source() -> ShopifySourceFixture {
         .execute(&pool)
         .await
         .unwrap_or_else(|error| panic!("failed inserting source operator: {error}"));
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')")
         .bind(uuid::Uuid::from(listing_source_id))
         .bind(format!("shopify-source-{}", listing_source_id.as_uuid()))
         .bind("Shopify source")

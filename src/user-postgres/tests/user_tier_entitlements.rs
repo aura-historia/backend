@@ -603,7 +603,7 @@ async fn seed_watchlist_entries(
         .await
         .unwrap_or_else(|error| panic!("failed to begin product seed transaction: {error:?}"));
     sqlx::query(
-        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $1, $2, $3, party_id FROM operator",
+        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, concat($2, '-operator'), concat($3, ' operator')) RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT $1, $2, $3, party_id, 'DEALER' FROM operator",
     )
     .bind(listing_source_id)
     .bind(format!("tier-entitlements-source-{listing_source_id}"))

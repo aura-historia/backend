@@ -73,6 +73,12 @@ async fn should_share_the_stored_overview_regardless_of_query_strings() {
     assert_eq!(
         json!({
             "sourcesIndexed": 1,
+            "sourcesIndexedByType": {
+                "dealers": 1,
+                "auctionHouses": 0,
+                "marketplaces": 0,
+                "auctionPlatforms": 0
+            },
             "liveObjects": 1,
             "countries": 0,
             "languages": 0,

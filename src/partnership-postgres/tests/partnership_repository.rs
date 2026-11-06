@@ -78,7 +78,7 @@ async fn seed_user(pool: &PgPool) -> UserId {
 async fn seed_listing_source(pool: &PgPool, party_id: PartyId) -> ListingSourceId {
     let listing_source_id = ListingSourceId::new();
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')",
     )
     .bind(listing_source_id.into_uuid())
     .bind(format!(

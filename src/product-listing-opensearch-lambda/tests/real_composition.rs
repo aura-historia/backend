@@ -324,7 +324,7 @@ async fn insert_active_product_with_event(
     let slug = format!("lambda-source-{}", listing_source_id.as_uuid());
     let operator_party_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Lambda projection fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $3, $2, 'Lambda projection fixture source', party_id FROM operator",
+        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Lambda projection fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT $3, $2, 'Lambda projection fixture source', party_id, 'DEALER' FROM operator",
     )
     .bind(operator_party_id)
     .bind(slug)
@@ -368,7 +368,7 @@ async fn insert_sold_product_with_missing_fx_snapshot_event(
     let slug = format!("lambda-sold-source-{}", listing_source_id.as_uuid());
     let operator_party_id = uuid::Uuid::now_v7();
     sqlx::query(
-        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Lambda sold projection fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT $3, $2, 'Lambda sold projection fixture source', party_id FROM operator",
+        "WITH operator AS (INSERT INTO parties (party_id, party_slug_id, name) VALUES ($1, $2, 'Lambda sold projection fixture operator') RETURNING party_id) INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT $3, $2, 'Lambda sold projection fixture source', party_id, 'DEALER' FROM operator",
     )
     .bind(operator_party_id)
     .bind(slug)

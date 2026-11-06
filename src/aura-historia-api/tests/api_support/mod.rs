@@ -937,7 +937,7 @@ async fn seed_listing_source_with_id(listing_source_id: ListingSourceId) {
         .await
         .unwrap_or_else(|error| panic!("failed to seed party: {error}"));
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, listing_source_type) VALUES ($1, $2, $3, $4, $5, 'DEALER')",
     )
     .bind(listing_source_id.as_uuid())
     .bind(format!(
@@ -1022,7 +1022,7 @@ pub async fn seed_listing_source_for_search(
         .await
         .unwrap_or_else(|error| panic!("failed to seed search operator party: {error}"));
     sqlx::query(
-        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, referral_configuration) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, image, referral_configuration, listing_source_type) VALUES ($1, $2, $3, $4, $5, $6, $7, 'DEALER')",
     )
     .bind(listing_source_id.as_uuid())
     .bind(&listing_source_slug_id)

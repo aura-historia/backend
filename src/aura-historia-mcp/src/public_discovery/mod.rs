@@ -425,7 +425,7 @@ mod tests {
             .structured_content
             .unwrap();
         assert_eq!(
-            json!({"asOf":"2026-10-19T12:34:56.789Z","sourcesIndexed":12,"liveObjects":3456,"countries":7,"languages":5,"newObjectsLast7Days":89}),
+            json!({"asOf":"2026-10-19T12:34:56.789Z","sourcesIndexed":12,"sourcesIndexedByType":{"dealers":5,"auctionHouses":4,"marketplaces":2,"auctionPlatforms":1},"liveObjects":3456,"countries":7,"languages":5,"newObjectsLast7Days":89}),
             result
         );
         invalid(&registry, "getPublicOverview", json!({"language":"de"})).await;
@@ -796,6 +796,13 @@ mod tests {
                     Outcome::Success => Ok(PublicCatalogueOverview {
                         as_of: time::macros::datetime!(2026-10-19 12:34:56.789 UTC),
                         sources_indexed: 12,
+                        sources_indexed_by_type:
+                            product_listing_service::use_cases::SourcesIndexedByType {
+                                dealers: 5,
+                                auction_houses: 4,
+                                marketplaces: 2,
+                                auction_platforms: 1,
+                            },
                         live_objects: 3456,
                         countries: 7,
                         languages: 5,

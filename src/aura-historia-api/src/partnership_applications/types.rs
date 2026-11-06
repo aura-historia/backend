@@ -4,6 +4,7 @@ use crate::{
 };
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    ListingSourceType,
 };
 use partnership_core::{
     partnership_application::{
@@ -61,6 +62,8 @@ pub(super) struct ProposedPartyData {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProposedListingSourceData {
     pub(super) name: String,
+    #[serde(with = "crate::wire::listing_source_type")]
+    pub(super) listing_source_type: ListingSourceType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) url: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -104,6 +107,7 @@ impl TryFrom<PartnershipProposalData<String>> for PartnershipProposal {
                             "proposal.listingSource.name must be nonblank and at most 255 UTF-8 bytes.",
                         )
                     })?,
+                    listing_source_type: listing_source.listing_source_type,
                     presentation: ListingSourcePresentation {
                         url: listing_source.url,
                         image: listing_source.image,
@@ -251,6 +255,7 @@ fn proposal_data(value: &PartnershipProposal) -> PartnershipProposalData {
             },
             listing_source: Box::new(ProposedListingSourceData {
                 name: listing_source.name.to_string(),
+                listing_source_type: listing_source.listing_source_type,
                 url: listing_source.presentation.url.clone(),
                 image: listing_source.presentation.image.clone(),
                 requested_ingestion_methods: listing_source.requested_ingestion_methods.clone(),
@@ -287,6 +292,7 @@ mod tests {
                 "listingSource": {
                     "name": "Ada Antiques",
                     "url": "https://ada.example",
+                    "listingSourceType": "AUCTION_HOUSE",
                     "requestedIngestionMethods": ["PARTNER_API"]
                 }
             }
@@ -298,9 +304,32 @@ mod tests {
             })?;
         assert!(matches!(
             proposal,
-            PartnershipProposal::ProposedListingSource { .. }
+            PartnershipProposal::ProposedListingSource { listing_source, .. }
+                if listing_source.listing_source_type == ListingSourceType::AuctionHouse
         ));
         Ok(())
+    }
+
+    #[test]
+    fn should_require_listing_source_type_in_proposed_listing_source() {
+        for listing_source_type in [None, Some("auction_house"), Some("SELLER")] {
+            let mut listing_source = json!({
+                "name": "Ada Antiques",
+                "requestedIngestionMethods": ["PARTNER_API"]
+            });
+            if let Some(listing_source_type) = listing_source_type {
+                listing_source["listingSourceType"] = json!(listing_source_type);
+            }
+            let request = serde_json::from_value::<SubmitPartnershipApplicationData>(json!({
+                "proposal": {
+                    "type": "PROPOSED_LISTING_SOURCE",
+                    "party": { "name": "Ada Antiques" },
+                    "listingSource": listing_source
+                }
+            }));
+
+            assert!(request.is_err(), "{listing_source_type:?}");
+        }
     }
 
     #[test]
@@ -317,6 +346,7 @@ mod tests {
                 "name": "Ada Antiques",
                 "url": "https://ada.example/",
                 "image": "https://ada.example/image.png",
+                "listingSourceType": "AUCTION_HOUSE",
                 "requestedIngestionMethods": ["PARTNER_API"]
             }
         });

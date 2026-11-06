@@ -5,7 +5,9 @@ use product_listing_service::{
         PublicCatalogueOverviewReadError, PublicCatalogueOverviewReader,
         PublicCatalogueOverviewReaderFactory,
     },
-    use_cases::queries::get_public_catalogue_overview::PublicCatalogueOverview,
+    use_cases::queries::get_public_catalogue_overview::{
+        PublicCatalogueOverview, SourcesIndexedByType,
+    },
 };
 use time::{OffsetDateTime, UtcOffset};
 
@@ -20,6 +22,10 @@ struct SqlxPublicCatalogueOverviewReader<'tx> {
 pub(crate) struct PublicCatalogueOverviewRow {
     as_of: OffsetDateTime,
     sources_indexed: i64,
+    dealer_sources_indexed: i64,
+    auction_house_sources_indexed: i64,
+    marketplace_sources_indexed: i64,
+    auction_platform_sources_indexed: i64,
     live_objects: i64,
     countries: i64,
     languages: i64,
@@ -34,6 +40,8 @@ pub(crate) enum PublicCatalogueOverviewRowMappingError {
         #[source]
         source: std::num::TryFromIntError,
     },
+    #[error("sources indexed by type do not sum to sources indexed")]
+    SourcesIndexedByTypeSum,
 }
 
 impl SqlxPublicCatalogueOverviewReaderFactory {
@@ -56,7 +64,10 @@ impl PublicCatalogueOverviewReaderFactory<SqlxTransaction>
 }
 
 const PUBLIC_CATALOGUE_OVERVIEW_SQL: &str = r#"
-SELECT as_of, sources_indexed, live_objects, countries, languages, new_objects_last_7_days
+SELECT
+    as_of, sources_indexed, dealer_sources_indexed, auction_house_sources_indexed,
+    marketplace_sources_indexed, auction_platform_sources_indexed, live_objects, countries,
+    languages, new_objects_last_7_days
 FROM public_catalogue_overview
 WHERE singleton
 "#;
@@ -93,9 +104,37 @@ impl TryFrom<PublicCatalogueOverviewRow> for PublicCatalogueOverview {
                 .map_err(|source| PublicCatalogueOverviewRowMappingError::Count { field, source })
         };
 
+        let sources_indexed = count("sources_indexed", row.sources_indexed)?;
+        let sources_indexed_by_type = SourcesIndexedByType {
+            dealers: count("dealer_sources_indexed", row.dealer_sources_indexed)?,
+            auction_houses: count(
+                "auction_house_sources_indexed",
+                row.auction_house_sources_indexed,
+            )?,
+            marketplaces: count(
+                "marketplace_sources_indexed",
+                row.marketplace_sources_indexed,
+            )?,
+            auction_platforms: count(
+                "auction_platform_sources_indexed",
+                row.auction_platform_sources_indexed,
+            )?,
+        };
+        let by_type_total = [
+            sources_indexed_by_type.auction_houses,
+            sources_indexed_by_type.marketplaces,
+            sources_indexed_by_type.auction_platforms,
+        ]
+        .into_iter()
+        .try_fold(sources_indexed_by_type.dealers, u64::checked_add);
+        if by_type_total != Some(sources_indexed) {
+            return Err(PublicCatalogueOverviewRowMappingError::SourcesIndexedByTypeSum);
+        }
+
         Ok(Self {
             as_of: row.as_of.to_offset(UtcOffset::UTC),
-            sources_indexed: count("sources_indexed", row.sources_indexed)?,
+            sources_indexed,
+            sources_indexed_by_type,
             live_objects: count("live_objects", row.live_objects)?,
             countries: count("countries", row.countries)?,
             languages: count("languages", row.languages)?,
@@ -118,6 +157,10 @@ mod tests {
                 .unwrap_or_else(|error| panic!("valid test timestamp: {error}"))
                 .to_offset(offset),
             sources_indexed: 1,
+            dealer_sources_indexed: 1,
+            auction_house_sources_indexed: 0,
+            marketplace_sources_indexed: 0,
+            auction_platform_sources_indexed: 0,
             live_objects: 2,
             countries: 1,
             languages: 2,
@@ -132,6 +175,19 @@ mod tests {
 
         assert_eq!(AS_OF_UNIX_SECONDS, overview.as_of.unix_timestamp());
         assert_eq!(UtcOffset::UTC, overview.as_of.offset());
+    }
+
+    #[test]
+    fn should_reject_sources_indexed_by_type_that_do_not_sum_to_sources_indexed() {
+        let result = PublicCatalogueOverview::try_from(PublicCatalogueOverviewRow {
+            marketplace_sources_indexed: 1,
+            ..row()
+        });
+
+        assert!(matches!(
+            result,
+            Err(PublicCatalogueOverviewRowMappingError::SourcesIndexedByTypeSum)
+        ));
     }
 
     #[test]

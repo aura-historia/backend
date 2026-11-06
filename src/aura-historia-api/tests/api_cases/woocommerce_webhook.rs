@@ -1077,7 +1077,7 @@ async fn seed_listing_source() -> uuid::Uuid {
         .execute(&mut *tx)
         .await
         .expect("seed party");
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url) VALUES ($1, $2, $3, $4, $5)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, url, listing_source_type) VALUES ($1, $2, $3, $4, $5, 'DEALER')")
         .bind(source).bind(format!("woocommerce-webhook-source-{source}"))
         .bind(format!("WooCommerce Webhook Listing Source {source}"))
         .bind(party).bind("https://woocommerce-webhook.example/")

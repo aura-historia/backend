@@ -113,7 +113,7 @@ async fn fixture_with_projection() -> (
         .execute(&p)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id)VALUES($1,$2,'Gallery',$3)").bind(source.into_uuid()).bind(format!("source-{}",source.as_uuid().simple())).bind(party.into_uuid()).execute(&p).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type)VALUES($1,$2,'Gallery',$3, 'DEALER')").bind(source.into_uuid()).bind(format!("source-{}",source.as_uuid().simple())).bind(party.into_uuid()).execute(&p).await.unwrap();
     let uow = SqlxUnitOfWork::new(p.clone());
     let profile = CreateShippingProfileHandler::new(
         uow.clone(),

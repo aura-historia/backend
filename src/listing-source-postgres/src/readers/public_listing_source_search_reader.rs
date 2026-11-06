@@ -725,7 +725,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("seed performance operators: {error}"));
 
         sqlx::query(
-            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) SELECT ('00000000-0000-7001-8000-' || lpad(source_index::text, 12, '0'))::uuid, 'performance-source-' || lpad(source_index::text, 6, '0'), CASE WHEN source_index % 25 = 0 THEN 'Müller Auction House ' || source_index WHEN source_index % 25 = 1 THEN 'Auction Catalogue ' || source_index ELSE 'Regional Source ' || source_index END, ('00000000-0000-7000-8000-' || lpad((source_index % $1)::text, 12, '0'))::uuid FROM generate_series(0, $2) AS source_index",
+            "INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) SELECT ('00000000-0000-7001-8000-' || lpad(source_index::text, 12, '0'))::uuid, 'performance-source-' || lpad(source_index::text, 6, '0'), CASE WHEN source_index % 25 = 0 THEN 'Müller Auction House ' || source_index WHEN source_index % 25 = 1 THEN 'Auction Catalogue ' || source_index ELSE 'Regional Source ' || source_index END, ('00000000-0000-7000-8000-' || lpad((source_index % $1)::text, 12, '0'))::uuid, 'DEALER' FROM generate_series(0, $2) AS source_index",
         )
         .bind(scenario.operator_count)
         .bind(scenario.source_count - 1)
@@ -937,7 +937,7 @@ mod tests {
         name: &str,
         party_id: uuid::Uuid,
     ) {
-        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, $3, $4)")
+        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, $3, $4, 'DEALER')")
             .bind(id)
             .bind(slug)
             .bind(name)

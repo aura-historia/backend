@@ -309,6 +309,7 @@ mod tests {
                     id,
                     name: ListingSourceName::try_from("Test ListingSource")
                         .unwrap_or_else(|error| panic!("invalid test ListingSource name: {error}")),
+                    listing_source_type: listing_source_core::ListingSourceType::Dealer,
                     operator_party_id: PartyId::new(),
                     ingestion_methods: Default::default(),
                     presentation: ListingSourcePresentation::default(),

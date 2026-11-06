@@ -134,7 +134,7 @@ async fn granted_source(pool: &PgPool, actor: &Actor) -> ListingSourceId {
     .execute(pool)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id,url) VALUES($1,$2,'Removed tools source',$3,'https://shop.example.test')").bind(source.as_uuid()).bind(format!("source-{}",source.as_uuid())).bind(party.as_uuid()).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id,url, listing_source_type) VALUES($1,$2,'Removed tools source',$3,'https://shop.example.test', 'DEALER')").bind(source.as_uuid()).bind(format!("source-{}",source.as_uuid())).bind(party.as_uuid()).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO partnerships(partnership_id,party_id) VALUES($1,$2)")
         .bind(partnership)
         .bind(party.as_uuid())

@@ -2,6 +2,13 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-06 — ListingSource types and indexed sources by type (#2792)
+
+- **Breaking change:** `POST /v1/admin/listing-sources` requires `listingSourceType`, one of `DEALER`, `AUCTION_HOUSE`, `MARKETPLACE` or `AUCTION_PLATFORM`. It records the source's primary sales model: dealers and auction houses sell their operator's own or consigned inventory at fixed prices or by auction, marketplaces and auction platforms host other sellers. A seller's storefront on a marketplace is classified by that seller. The type is descriptive only and does not affect ingestion, listing validation or Auction facts. Every existing ListingSource is a `DEALER`.
+- `PATCH /v1/admin/listing-sources/{listingSourceId}` accepts `listingSourceType` to reclassify a source; `null` is rejected. The admin detail and list responses return `listingSourceType`, and `GET /v1/admin/listing-sources` filters by an exact `listingSourceType`, combinable with the other filters. `searchAfter` cursors issued before this change return `400 BAD_QUERY_PARAMETER_VALUE`; restart such a traversal.
+- **Breaking change:** a `PROPOSED_LISTING_SOURCE` partnership application requires `proposal.listingSource.listingSourceType`, and application responses return it. Approval creates the ListingSource with that type; administrators correct it afterwards through the admin PATCH. Applications submitted earlier report `DEALER`.
+- `GET /v1/overview` and the MCP `getPublicOverview` tool return `sourcesIndexedByType` with `dealers`, `auctionHouses`, `marketplaces` and `auctionPlatforms`. Each counts distinct ListingSources of that type with at least one `ACTIVE` listing, the rule `sourcesIndexed` uses, in the same calculation, so the values always sum to `sourcesIndexed`. All keys are always present.
+
 ## 2026-11-05 — Responses omit absent values instead of `null` (#2785)
 
 - **Breaking change:** REST responses and MCP tool results omit absent members instead of returning `null`. Treat a missing member like the former `null`. A hidden image is now an empty image object, and the Party location resolution routes return `{}` when a location has no geocoding work.

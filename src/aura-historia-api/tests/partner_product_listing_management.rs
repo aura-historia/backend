@@ -153,7 +153,7 @@ async fn fixture() -> Fixture {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES ($1,$2,'Partner source',$3)").bind(source.as_uuid()).bind(format!("source-{}",source.as_uuid())).bind(party).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) VALUES ($1,$2,'Partner source',$3, 'DEALER')").bind(source.as_uuid()).bind(format!("source-{}",source.as_uuid())).bind(party).execute(&pool).await.unwrap();
     // A Partnership grant does not make this user an administrator.
     let partnership = uuid::Uuid::now_v7();
     sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1,$2)")
@@ -170,7 +170,7 @@ async fn fixture() -> Fixture {
         .unwrap();
     sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id,listing_source_id) VALUES ($1,$2)").bind(partnership).bind(source.as_uuid()).execute(&pool).await.unwrap();
     let other_source = ListingSourceId::new();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id) VALUES ($1,$2,'Other source',$3)").bind(other_source.as_uuid()).bind(format!("source-{}",other_source.as_uuid())).bind(party).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) VALUES ($1,$2,'Other source',$3, 'DEALER')").bind(other_source.as_uuid()).bind(format!("source-{}",other_source.as_uuid())).bind(party).execute(&pool).await.unwrap();
     let id = seed_listing(&pool, source, "original-key").await;
     let other_id = seed_listing(&pool, other_source, "original-key").await;
     let reader = SqlxAdminProductListingReader::new(pool.clone());
@@ -668,7 +668,7 @@ async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursor
     );
     // Unknown retained IDs are not created by explicit restore; an empty authorized source reads empty.
     let empty_source = ListingSourceId::new();
-    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id) SELECT $1,$2,'Empty source',operator_party_id FROM listing_sources WHERE listing_source_id=$3").bind(empty_source.as_uuid()).bind(format!("empty-{}",empty_source.as_uuid())).bind(f.source.as_uuid()).execute(&f.pool).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type) SELECT $1,$2,'Empty source',operator_party_id, 'DEALER' FROM listing_sources WHERE listing_source_id=$3").bind(empty_source.as_uuid()).bind(format!("empty-{}",empty_source.as_uuid())).bind(f.source.as_uuid()).execute(&f.pool).await.unwrap();
     sqlx::query("INSERT INTO partnership_listing_source_grants (partnership_id,listing_source_id) SELECT partnership_id,$1 FROM partnership_members WHERE user_id=$2").bind(empty_source.as_uuid()).bind(f.authenticator.user.as_uuid()).execute(&f.pool).await.unwrap();
     let other = format!("/v1/listing-sources/{empty_source}/product-listings");
     let (status, page) = request(&f.app, "GET", &other, Some("partner"), Value::Null).await;

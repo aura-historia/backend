@@ -35,6 +35,7 @@ pub async fn update_listing_source(
     let command = UpdateListingSourceCommand {
         listing_source_id,
         name: parts.name,
+        listing_source_type: parts.listing_source_type,
         ingestion_configuration: parts.ingestion_configuration,
         url: parts.url,
         image: parts.image,

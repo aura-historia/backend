@@ -281,7 +281,7 @@ async fn insert_product_with_created_event(
         .bind(format!("content-assessment-party-{party_id}"))
         .execute(&mut *tx)
         .await?;
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Content assessment source', $3)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Content assessment source', $3, 'DEALER')")
         .bind(listing_source_id)
         .bind(format!("content-assessment-source-{listing_source_id}"))
         .bind(party_id)

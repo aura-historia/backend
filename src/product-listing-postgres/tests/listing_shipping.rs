@@ -63,7 +63,7 @@ async fn seed(p: &PgPool) -> (ListingSourceId, ShippingProfileId, Vec<ProductLis
         .execute(p)
         .await
         .unwrap();
-    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id)VALUES($1,$2,'Gallery',$3)").bind(source.into_uuid()).bind(format!("source-{}",source.as_uuid().simple())).bind(owner.into_uuid()).execute(p).await.unwrap();
+    sqlx::query("INSERT INTO listing_sources(listing_source_id,listing_source_slug_id,name,operator_party_id, listing_source_type)VALUES($1,$2,'Gallery',$3, 'DEALER')").bind(source.into_uuid()).bind(format!("source-{}",source.as_uuid().simple())).bind(owner.into_uuid()).execute(p).await.unwrap();
     sqlx::query("INSERT INTO shipping_profiles(shipping_profile_id,listing_source_id,current_source_id,management_revision,terms_revision,lifecycle,name,terms)VALUES($1,$2,$2,1,1,'ACTIVE','Gallery',$3)").bind(profile.into_uuid()).bind(source.into_uuid()).bind(shipping_json::encode::<References>(&gallery_terms(8000)).unwrap()).execute(p).await.unwrap();
     sqlx::query("INSERT INTO shipping_source_defaults(listing_source_id,current_source_id,shipping_profile_id,revision)VALUES($1,$1,$2,2)").bind(source.into_uuid()).bind(profile.into_uuid()).execute(p).await.unwrap();
     let mut ids = Vec::new();

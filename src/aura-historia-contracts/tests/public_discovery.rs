@@ -243,13 +243,19 @@ fn should_describe_every_overview_aggregate_without_losing_integer_precision() {
     let result = output(PublicOverviewData::from(PublicCatalogueOverview {
         as_of: time::macros::datetime!(2026-10-19 12:34:56.789 UTC),
         sources_indexed: u64::MAX,
+        sources_indexed_by_type: product_listing_service::use_cases::SourcesIndexedByType {
+            dealers: u64::MAX,
+            auction_houses: 0,
+            marketplaces: 0,
+            auction_platforms: 0,
+        },
         live_objects: u64::MAX,
         countries: 7,
         languages: 5,
         new_objects_last_7_days: 89,
     }));
     assert_eq!(
-        json!({"asOf":"2026-10-19T12:34:56.789Z","sourcesIndexed":u64::MAX,"liveObjects":u64::MAX,"countries":7,"languages":5,"newObjectsLast7Days":89}),
+        json!({"asOf":"2026-10-19T12:34:56.789Z","sourcesIndexed":u64::MAX,"sourcesIndexedByType":{"dealers":u64::MAX,"auctionHouses":0,"marketplaces":0,"auctionPlatforms":0},"liveObjects":u64::MAX,"countries":7,"languages":5,"newObjectsLast7Days":89}),
         result
     );
 }

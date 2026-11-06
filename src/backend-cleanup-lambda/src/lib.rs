@@ -436,6 +436,13 @@ mod tests {
                 overview: PublicCatalogueOverview {
                     as_of: std::time::SystemTime::UNIX_EPOCH.into(),
                     sources_indexed: 1,
+                    sources_indexed_by_type:
+                        product_listing_service::use_cases::SourcesIndexedByType {
+                            dealers: 1,
+                            auction_houses: 0,
+                            marketplaces: 0,
+                            auction_platforms: 0,
+                        },
                     live_objects: 2,
                     countries: 0,
                     languages: 1,

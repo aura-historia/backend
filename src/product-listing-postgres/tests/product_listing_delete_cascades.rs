@@ -142,7 +142,7 @@ async fn seed_product_listing_owned_rows(pool: &sqlx::PgPool) -> Result<SeededRo
         .bind(format!("delete-cascade-party-{party_id}"))
         .execute(&mut *transaction)
         .await?;
-    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Delete cascade source', $3)")
+    sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Delete cascade source', $3, 'DEALER')")
         .bind(listing_source_id)
         .bind(&listing_source_slug_id)
         .bind(party_id)

@@ -94,7 +94,7 @@ async fn seed(pool: &sqlx::PgPool, source: Option<ListingSourceId>, key: &str) -
         .execute(pool)
         .await
         .unwrap();
-        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id) VALUES ($1, $2, 'Admin source', $3)").bind(id.as_uuid()).bind(format!("source-{}", id.as_uuid())).bind(party_id).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type) VALUES ($1, $2, 'Admin source', $3, 'DEALER')").bind(id.as_uuid()).bind(format!("source-{}", id.as_uuid())).bind(party_id).execute(pool).await.unwrap();
         id
     };
     let id = ProductListingId::new();

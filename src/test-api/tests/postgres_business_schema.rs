@@ -168,12 +168,13 @@ async fn should_support_core_business_relations() {
             'Source Operator'
         );
 
-        INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id)
+        INSERT INTO listing_sources (listing_source_id, listing_source_slug_id, name, operator_party_id, listing_source_type)
         VALUES (
             '__LISTING_SOURCE_ID__',
             'source-one',
             'Source One',
-            '__PARTY_ID__'
+            '__PARTY_ID__',
+            'DEALER'
         );
 
         INSERT INTO partnerships (partnership_id, party_id)

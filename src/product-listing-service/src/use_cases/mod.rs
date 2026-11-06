@@ -106,7 +106,7 @@ pub use queries::get_product_listing_history::{
 };
 pub use queries::get_public_catalogue_overview::{
     GetPublicCatalogueOverviewError, GetPublicCatalogueOverviewHandler,
-    GetPublicCatalogueOverviewUseCase, PublicCatalogueOverview,
+    GetPublicCatalogueOverviewUseCase, PublicCatalogueOverview, SourcesIndexedByType,
 };
 pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsError, GetSimilarProductListingsHandler,
