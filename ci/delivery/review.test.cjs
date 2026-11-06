@@ -75,11 +75,49 @@ test("full source inventory does not consume or relax the focused model input bu
   assert.equal(context.inventoryDigest, digest(evidence));
   assert.equal(context.source.changedSourceAndContractDiff, evidence.source.diff);
   assert.ok(Buffer.byteLength(serializeContext(context, {})) < 10000);
-  context.source.changedSourceAndContractDiff = "x".repeat(1600000);
-  assert.ok(Buffer.byteLength(serializeContext(context, {})) > 1500000);
-  assert.throws(() => serializeContext(context, { maxInputBytes: 1500000 }), /context exceeds reviewer budget/);
-  context.source.changedSourceAndContractDiff = "x".repeat(3 * 1024 * 1024 + 1);
+  context.source.changedSourceAndContractDiff = "x".repeat(1200000);
+  assert.ok(Buffer.byteLength(serializeContext(context, {})) > 1100000);
+  assert.throws(() => serializeContext(context, { maxInputBytes: 1100000 }), /context exceeds reviewer budget/);
+  // The default stays below the model's 1M-token window (~2.3 bytes per token for code and JSON).
+  context.source.changedSourceAndContractDiff = "x".repeat(1.25 * 1024 * 1024 + 1);
   assert.throws(() => serializeContext(context, {}), /context exceeds reviewer budget/);
+});
+test("the reviewer sees deployed code and contracts and is told which paths it does not see", () => {
+  const patch = (path, body = "+changed") => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${body}\n`;
+  const reviewed = [
+    "src/aura-historia-api/src/lib.rs",
+    "src/product-listing-service/src/lib.rs",
+    "infra/src/constructs/lambdas.ts",
+    "docs/swagger.yaml",
+    "docs/events/flow.md",
+    "opensearch/mappings/product_listings.json",
+    "ci/lambda-binaries.json",
+  ];
+  const omitted = {
+    "not deployed by the release pipeline": ["src/crawler/src/service/cron/scraper.rs", "src/test-api/src/lib.rs"],
+    "test or fixture code": [
+      "src/aura-historia-api/tests/routes.rs",
+      "infra/test/credentials.test.ts",
+      "ci/delivery/fixtures/pipeline.cjs",
+    ],
+    "crawler or report documentation": ["docs/crawler/operations.md"],
+    "repository and agent tooling": [".github/workflows/deploy.yml", "src/aura-historia-api/AGENTS.md", "AGENTS.md"],
+    "release control plane, repinned separately": ["ci/delivery/review.cjs"],
+  };
+  const evidence = inventory();
+  evidence.source.diff = [
+    ...reviewed,
+    ...Object.values(omitted).flat(),
+    "migrations/20261106090000_example.sql",
+  ].map((path) => patch(path)).join("");
+  const context = reviewContext(evidence);
+  const kept = [...context.source.changedSourceAndContractDiff.matchAll(/^diff --git a\/(\S+)/gm)].map(([, path]) => path);
+  assert.deepEqual(kept, reviewed);
+  assert.deepEqual(
+    Object.fromEntries(context.source.omittedFromReview.map(({ reason, paths }) => [reason, paths])),
+    omitted,
+  );
+  assert.ok(!context.source.changedSourceAndContractDiff.includes("migrations/"));
 });
 test("malformed/truncated/uncertain model output is held and hard policy is monotonic", async () => {
   assert.throws(() => parseReview('{"verdict":'), SyntaxError);

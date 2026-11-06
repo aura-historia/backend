@@ -91,6 +91,43 @@ function consumerContext(aws) {
   };
 }
 
+// The reviewer judges what an application release deploys and the contracts it changes. These
+// paths never ship in a release bundle; the complete diff stays in the inventory evidence.
+const OMITTED_FROM_REVIEW = [
+  ["not deployed by the release pipeline",
+    /^src\/(crawler|test-api|test-api-macros|product-listing-normalization-replay)\//],
+  ["test or fixture code", /(^|\/)(tests?|benches|benchmarks|fixtures)\/|\.test\.(ts|cjs|js)$/],
+  ["crawler or report documentation", /^docs\/(crawler|reports)\//],
+  ["repository and agent tooling", /^(\.agents|\.claude|\.github)\/|(^|\/)(AGENTS|CLAUDE)\.md$/],
+  ["release control plane, repinned separately", /^ci\/delivery\//],
+];
+
+function patchPath(patch) {
+  return /^diff --git "?a\/(.+?)"? "?b\//.exec(patch)?.[1] ?? null;
+}
+
+/** Splits the cumulative diff into reviewed patches and omitted paths grouped by reason. */
+function reviewedSource(diff) {
+  const reviewed = [];
+  const omitted = new Map();
+  for (const patch of diff.split(/(?=^diff --git )/m)) {
+    const path = patchPath(patch);
+    // Pending migration SQL is reviewed in full through the database context.
+    if (path?.startsWith("migrations/")) continue;
+    const reason = path && OMITTED_FROM_REVIEW.find(([, pattern]) => pattern.test(path))?.[0];
+    if (!reason) {
+      reviewed.push(patch);
+      continue;
+    }
+    if (!omitted.has(reason)) omitted.set(reason, []);
+    omitted.get(reason).push(path);
+  }
+  return {
+    diff: reviewed.join(""),
+    omitted: [...omitted].map(([reason, paths]) => ({ reason, paths })),
+  };
+}
+
 function reviewContext(inventory) {
   const { source, database, schema, aws, plans, config, baselineState, templateComparisons } = inventory;
   if (
@@ -99,10 +136,9 @@ function reviewContext(inventory) {
     !Array.isArray(source.migrations) || typeof source.diff !== "string"
   )
     throw new Error("Complete verified inventory required for focused review");
-  const sourceDiff = source.diff.split(/(?=^diff --git )/m)
-    .filter((patch) => !/^diff --git a\/migrations\//.test(patch)).join("");
+  const reviewed = reviewedSource(source.diff);
   return {
-    version: "compatibility-context-v1",
+    version: "compatibility-context-v2",
     inventoryDigest: digest(inventory),
     release: {
       target: config.target, account: config.account, region: config.region,
@@ -113,7 +149,8 @@ function reviewContext(inventory) {
     },
     source: {
       mergedCommitNotes: source.commits,
-      changedSourceAndContractDiff: sourceDiff,
+      changedSourceAndContractDiff: reviewed.diff,
+      omittedFromReview: reviewed.omitted,
     },
     database: databaseContext(inventory),
     infrastructure: infrastructureContext(inventory),
@@ -128,9 +165,13 @@ function reviewContext(inventory) {
   };
 }
 
+// The model window is 1M tokens. Code and JSON average about 2.3 bytes per token and dense content
+// less, so this byte bound holds an oversized context as human review before the provider rejects it.
+const DEFAULT_MAX_INPUT_BYTES = 1.25 * 1024 * 1024;
+
 function serializeContext(evidence, config) {
   const serialized = JSON.stringify(evidence);
-  if (Buffer.byteLength(serialized) > (config.maxInputBytes || 3 * 1024 * 1024))
+  if (Buffer.byteLength(serialized) > (config.maxInputBytes || DEFAULT_MAX_INPUT_BYTES))
     throw new Error(
       "Complete context exceeds reviewer budget; explicit human review required",
     );
