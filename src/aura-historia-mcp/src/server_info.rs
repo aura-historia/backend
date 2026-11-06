@@ -9,21 +9,15 @@ const SERVER_TITLE: &str = "Aura Historia";
 const SERVER_DESCRIPTION: &str = "Search Aura Historia's index of art, antiques and design objects listed by dealers, auction houses, marketplaces and auction platforms, and manage the signed-in user's account, watchlist, saved searches and notifications.";
 
 pub(crate) fn server_info(config: &TransportConfig) -> Implementation {
-    let website = website_origin(config.resource_policy);
+    let website = config.resource_policy.site_origin();
     Implementation::new(SERVER_NAME, config.server_version.as_str())
         .with_title(SERVER_TITLE)
         .with_description(SERVER_DESCRIPTION)
         .with_icons(vec![
-            png_icon(&website, "icon1080x1080.png", "1080x1080"),
-            png_icon(&website, "favicon.png", "32x32"),
+            png_icon(website, "icon1080x1080.png", "1080x1080"),
+            png_icon(website, "favicon.png", "32x32"),
         ])
         .with_website_url(website)
-}
-
-/// Each environment's website is its issuer without the `api.` label, as OAuth discovery
-/// derives its browser origin.
-fn website_origin(policy: AuraResourcePolicy) -> String {
-    policy.issuer().replacen("https://api.", "https://", 1)
 }
 
 fn png_icon(website: &str, file: &str, size: &str) -> Icon {
