@@ -34,7 +34,7 @@ pub use settings::{
     AgentProcessSettings, RunMode, RunnerLocation, RunnerSettings, RunnerSettingsError,
     current_location,
 };
-pub use stop::{RunnerStop, STOP_DEADLINE};
+pub use stop::{AGENT_DRAIN_DEADLINE, RunnerStop, STOP_DEADLINE};
 
 use digest::{Digest, RollingCost};
 use ledger::{FIVE_HOURS, LEDGER_RETENTION, ONE_WEEK, ProcessLedger};
@@ -48,8 +48,9 @@ use crate::review_mcp::{
     AgentRole, ConsoleClient, ConsoleClientError, ConsoleError, RoleTokenFile,
 };
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use time::{Duration, OffsetDateTime};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// The name `value` is serialized under, such as `LIMIT_REACHED`, for a log field or the digest;
 /// empty for none.
@@ -155,16 +156,7 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     let limits = agent_limits(&console)
         .await
         .map_err(RunnerError::AgentLimits)?;
-    info!(
-        mode = ?settings.mode,
-        auth_method = %login.method,
-        organization = login.organization.as_deref().unwrap_or(""),
-        subscription = login.subscription.as_deref().unwrap_or(""),
-        console_url = %settings.console.console_url,
-        state_dir = %settings.state_dir.display(),
-        agent_min_labelled_urls = limits.min_labelled_urls.get(),
-        "Review agent runner started with the CLI's Claude login"
-    );
+    log_login(&LOGIN_ANNOUNCED, settings, &login, &limits);
     let started = OffsetDateTime::now_utc();
     let mut state = load_state(&settings.state_dir)?;
     if let Some(ended) = state.expire(started) {
@@ -203,6 +195,38 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
         save_state(&settings.state_dir, &state)?;
     }
     Ok(RunOutcome::Ran { summary, digest })
+}
+
+/// Whether this process has told its login yet.
+static LOGIN_ANNOUNCED: AtomicBool = AtomicBool::new(false);
+
+/// Tells the CLI's login the run starts with: at info once per process start, at debug on every
+/// later run, which probes the login again so that a logout fails the run closed. `announced`
+/// is the process's one memory of having told it.
+fn log_login(
+    announced: &AtomicBool,
+    settings: &RunnerSettings,
+    login: &login::CliLogin,
+    limits: &AgentLimits,
+) {
+    macro_rules! announce {
+        ($log:ident) => {
+            $log!(
+                mode = ?settings.mode,
+                auth_method = %login.method,
+                organization = login.organization.as_deref().unwrap_or(""),
+                subscription = login.subscription.as_deref().unwrap_or(""),
+                console_url = %settings.console.console_url,
+                state_dir = %settings.state_dir.display(),
+                agent_min_labelled_urls = limits.min_labelled_urls.get(),
+                "Review agent runner started with the CLI's Claude login"
+            )
+        };
+    }
+    match announced.swap(true, Ordering::Relaxed) {
+        false => announce!(info),
+        true => announce!(debug),
+    }
 }
 
 /// The limits of the agents' decisions the console applies, which the prompts tell the agents:
@@ -1526,7 +1550,9 @@ echo "end $role $review" >> "$dir/order.log"
             }),
         );
         let settings = fixture.settings(&[], &[]);
-        let stop = RunnerStop::default();
+        let drain = std::time::Duration::from_millis(600);
+        let stop = RunnerStop::with_drain(drain);
+        let stopped_at = std::cell::Cell::new(None);
 
         let (outcome, ()) = tokio::join!(
             tokio::time::timeout(STOP_DEADLINE, run(&settings, &stop)),
@@ -1535,9 +1561,11 @@ echo "end $role $review" >> "$dir/order.log"
                     .claude
                     .logged(&format!("hang author {}", running.review_id))
                     .await;
+                stopped_at.set(Some(std::time::Instant::now()));
                 stop.request();
             }
         );
+        let drained = stopped_at.get().map(|at| at.elapsed());
 
         let outcome = outcome
             .unwrap_or_else(|_| panic!("the stopped run outlasted the stop deadline"))
@@ -1563,7 +1591,14 @@ echo "end $role $review" >> "$dir/order.log"
         assert_eq!(ledger.len(), 1, "{ledger:?}");
         assert_eq!(ledger[0]["review_id"], id.to_string());
         assert_eq!(ledger[0]["end"], "FAILED");
-        assert_eq!(ledger[0]["failure"], "stopped when the runner stopped");
+        assert_eq!(
+            ledger[0]["failure"],
+            "stopped when the runner's stop deadline passed"
+        );
+        assert!(
+            drained.is_some_and(|drained| drained >= drain),
+            "the running process was stopped {drained:?} after the stop, before its {drain:?} drain"
+        );
         assert_eq!(ledger[0]["num_turns"], 7);
         assert_eq!(ledger[0]["total_cost_usd"], 0.3);
         assert_eq!(
@@ -1575,6 +1610,83 @@ echo "end $role $review" >> "$dir/order.log"
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// A service pass probes the login every interval, but tells it at info once per process.
+    #[test]
+    fn should_tell_the_login_at_info_once_and_at_debug_on_later_runs() {
+        use std::sync::{Mutex, PoisonError};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        #[derive(Clone, Default)]
+        struct Levels(Arc<Mutex<Vec<tracing::Level>>>);
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Levels {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                self.0
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(*event.metadata().level());
+            }
+        }
+
+        let logged = Levels::default();
+        let announced = AtomicBool::new(false);
+        let login = login::CliLogin {
+            method: "claude.ai".to_owned(),
+            organization: None,
+            subscription: None,
+        };
+        let settings = {
+            let state = StateDirectory::new();
+            let env = HashMap::from([
+                (
+                    "CRAWLER_REVIEW_CONSOLE_URL".to_owned(),
+                    "http://127.0.0.1:1".to_owned(),
+                ),
+                (
+                    "CRAWLER_REVIEW_AGENT_TOKEN_FILE".to_owned(),
+                    state.path().join("tokens.json").display().to_string(),
+                ),
+                (
+                    "CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR".to_owned(),
+                    state.path().display().to_string(),
+                ),
+                ("HOME".to_owned(), state.path().display().to_string()),
+            ]);
+            RunnerSettings::from_args_and_env(
+                Vec::<String>::new(),
+                |name| env.get(name).cloned(),
+                &RunnerLocation {
+                    working_dir: state.path().to_path_buf(),
+                    executable: state.path().join("review-agent-runner"),
+                },
+            )
+            .unwrap_or_else(|error| panic!("{error}"))
+        };
+
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(logged.clone()),
+            || {
+                tracing::callsite::rebuild_interest_cache();
+                for _ in 0..3 {
+                    log_login(&announced, &settings, &login, &AgentLimits::default());
+                }
+            },
+        );
+
+        let levels = logged.0.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(
+            *levels,
+            [
+                tracing::Level::INFO,
+                tracing::Level::DEBUG,
+                tracing::Level::DEBUG
+            ]
+        );
     }
 
     #[tokio::test]

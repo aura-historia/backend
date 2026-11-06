@@ -39,10 +39,11 @@ RestartSec=1min
 RestartPreventExitStatus=2
 # `systemctl stop` sends SIGTERM to the runner alone, never straight to the CLIs, which would then
 # report no cost: the runner stops them as at their timeout, SIGINT first, records their cost and
-# exits with 143 within its 20-second stop deadline. systemd then kills what is left of the unit,
-# and everything once TimeoutStopSec has passed.
+# exits with 143 within its stop deadline. Running processes first get ten minutes to finish, then
+# are stopped, so the 11-minute stop deadline covers both. systemd then kills what is left of the
+# unit, and everything once TimeoutStopSec has passed.
 KillMode=mixed
-TimeoutStopSec=30s
+TimeoutStopSec=660s
 SuccessExitStatus=143
 # The agent processes read untrusted shop pages: keep them away from the rest of the host. The
 # whole file system is read-only but the state directory and the private /tmp, and /home, /root
