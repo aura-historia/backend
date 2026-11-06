@@ -34,12 +34,10 @@ impl AuthorizationServerMetadata {
         metadata_document_clients: &MetadataDocumentClientPolicy,
     ) -> Self {
         let issuer = resource_policy.issuer();
-        // Both closed policy environments share the corresponding browser host.
-        let browser_origin = issuer.replacen("https://api.", "https://", 1);
         let metadata_document_clients = metadata_document_clients.is_enabled();
         Self {
             issuer,
-            authorization_endpoint: format!("{browser_origin}/en/oauth/authorize"),
+            authorization_endpoint: format!("{}/en/oauth/authorize", resource_policy.site_origin()),
             token_endpoint: format!("{issuer}/v1/oauth/token"),
             response_types_supported: ["code"],
             response_modes_supported: ["query"],

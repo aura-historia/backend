@@ -43,10 +43,15 @@ pub struct InvalidResource;
 /// The issuer and its environment-local token store bind every Aura credential,
 /// including legacy credentials, to this shared logical resource. The selected
 /// identifier is retained on authorization codes to prevent exchange substitution.
+///
+/// The policy is also the closed environment that `OAUTH_ISSUER_URL` selects: every public
+/// origin an environment advertises comes from here, never from string manipulation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuraResourcePolicy {
     rest: AuraResource,
     mcp: AuraResource,
+    site_origin: &'static str,
+    mcp_origin: &'static str,
 }
 
 impl AuraResourcePolicy {
@@ -54,6 +59,8 @@ impl AuraResourcePolicy {
         Self {
             rest: AuraResource::ProductionRest,
             mcp: AuraResource::ProductionMcp,
+            site_origin: "https://aura-historia.com",
+            mcp_origin: "https://mcp.aura-historia.com",
         }
     }
 
@@ -61,6 +68,8 @@ impl AuraResourcePolicy {
         Self {
             rest: AuraResource::StageRest,
             mcp: AuraResource::StageMcp,
+            site_origin: "https://stage.aura-historia.com",
+            mcp_origin: "https://mcp.stage.aura-historia.com",
         }
     }
 
@@ -77,6 +86,16 @@ impl AuraResourcePolicy {
 
     pub const fn mcp_resource(self) -> &'static str {
         self.mcp.as_str()
+    }
+
+    /// The website origin, which also hosts the browser consent page.
+    pub const fn site_origin(self) -> &'static str {
+        self.site_origin
+    }
+
+    /// The origin of the MCP host; the MCP resource is its `/v1` endpoint.
+    pub const fn mcp_origin(self) -> &'static str {
+        self.mcp_origin
     }
 
     pub const fn allowed_resources(self) -> [&'static str; 2] {
@@ -124,6 +143,23 @@ mod tests {
             for resource in other.allowed_resources() {
                 assert_eq!(Err(InvalidResource), policy.resolve(Some(resource)));
             }
+        }
+    }
+
+    #[test]
+    fn should_keep_each_environment_origin_consistent_with_its_resources() {
+        for (policy, site) in [
+            (
+                AuraResourcePolicy::production(),
+                "https://aura-historia.com",
+            ),
+            (
+                AuraResourcePolicy::stage(),
+                "https://stage.aura-historia.com",
+            ),
+        ] {
+            assert_eq!(site, policy.site_origin());
+            assert_eq!(policy.mcp_resource(), format!("{}/v1", policy.mcp_origin()));
         }
     }
 

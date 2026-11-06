@@ -147,8 +147,8 @@ fn bearer_token(headers: &HeaderMap) -> Result<Option<&str>, ()> {
 }
 
 pub(crate) fn resource_metadata_url(policy: AuraResourcePolicy) -> String {
-    // The shared policy supplies only canonical HTTPS resource URLs.
-    let mut url = url::Url::parse(policy.mcp_resource()).expect("canonical Aura MCP resource URL");
-    url.set_path("/.well-known/oauth-protected-resource/v1");
-    url.into()
+    format!(
+        "{}/.well-known/oauth-protected-resource/v1",
+        policy.mcp_origin()
+    )
 }
