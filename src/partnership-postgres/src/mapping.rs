@@ -1,8 +1,8 @@
 use application::error::box_error;
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::{
-    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePresentation,
-    ListingSourceType,
+    InvalidListingSourceType, ListingIngestionMethod, ListingSourceId, ListingSourceName,
+    ListingSourcePresentation, ListingSourceType,
 };
 use partnership_core::{
     partnership_application::{
@@ -59,6 +59,8 @@ pub(crate) enum MappingError {
     Proposal(#[source] serde_json::Error),
     #[error("invalid proposal value")]
     Value,
+    #[error("invalid proposed listing source type")]
+    ListingSourceType(#[source] InvalidListingSourceType),
     #[error("invalid application approval result")]
     ApprovalResult,
     #[error("inconsistent application approval result")]
@@ -203,7 +205,7 @@ impl TryFrom<ProposalV1> for PartnershipProposal {
                         listing_source_type: listing_source
                             .listing_source_type
                             .parse::<ListingSourceType>()
-                            .map_err(|_| MappingError::Value)?,
+                            .map_err(MappingError::ListingSourceType)?,
                         presentation: ListingSourcePresentation {
                             url: listing_source
                                 .url

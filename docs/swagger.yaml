@@ -131,8 +131,9 @@ paths:
         `sourcesIndexed` counts distinct ListingSources with at least one counted listing.
         `sourcesIndexedByType` splits that count by the ListingSource's type; every ListingSource has
         exactly one type, so the four values always sum to `sourcesIndexed`. A seller's storefront on a
-        marketplace is a dealer source; individual sellers on marketplaces and auction platforms are not
-        counted.
+        marketplace counts by that seller's type, not as a marketplace; individual sellers on
+        marketplaces and auction platforms are not counted. A reclassified ListingSource moves with
+        the next calculation.
         `countries` counts distinct countries in the counted listings' effective advertised-inventory
         geography; business association and shipping destinations do not establish inventory location.
         `languages` counts the union of original title and description languages; generated

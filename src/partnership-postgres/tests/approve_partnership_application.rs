@@ -269,10 +269,47 @@ fn proposed_source() -> serde_json::Value {
             "name": "Northwind Source",
             "url": null,
             "image": null,
-            "listing_source_type": "DEALER",
+            "listing_source_type": "AUCTION_HOUSE",
             "requested_ingestion_methods": ["PARTNER_API"]
         }
     })
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reject_persisting_a_proposed_source_without_a_known_listing_source_type() {
+    let pool = get_postgres_client().await;
+    let user_id = seed_user(&pool).await;
+    for listing_source_type in [None, Some("SELLER")] {
+        let mut proposal = proposed_source();
+        match listing_source_type {
+            Some(value) => proposal["listing_source"]["listing_source_type"] = json!(value),
+            None => {
+                proposal["listing_source"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("listing_source_type");
+            }
+        }
+
+        let error = sqlx::query(
+            "INSERT INTO partnership_applications (partnership_application_id, applicant_user_id, business_state, proposal) VALUES ($1, $2, 'SUBMITTED', $3)",
+        )
+        .bind(PartnershipApplicationId::new().into_uuid())
+        .bind(user_id.into_uuid())
+        .bind(proposal)
+        .execute(&pool)
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("{listing_source_type:?} must be rejected"));
+
+        assert_eq!(
+            Some("partnership_applications_proposed_listing_source_type_check"),
+            error
+                .as_database_error()
+                .and_then(|error| error.constraint()),
+            "{listing_source_type:?}"
+        );
+    }
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -307,6 +344,16 @@ async fn should_commit_proposed_source_approval_and_replay_without_duplicate_mem
     assert_eq!(1, count(&pool, "partnerships").await);
     assert_eq!(1, count(&pool, "partnership_members").await);
     assert_eq!(1, count(&pool, "partnership_listing_source_grants").await);
+    assert_eq!(
+        "AUCTION_HOUSE",
+        sqlx::query_scalar::<_, String>(
+            "SELECT listing_source_type FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(first.listing_source_id.unwrap().into_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
 
     let party_id = sqlx::query_scalar::<_, uuid::Uuid>(
         "SELECT party_id FROM partnerships WHERE partnership_id = $1",

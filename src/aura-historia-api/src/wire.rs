@@ -176,7 +176,8 @@ pub(crate) mod listing_source_type {
     use super::*;
     use listing_source_core::ListingSourceType;
 
-    const EXPECTED: &[&str] = &["DEALER", "AUCTION_HOUSE", "MARKETPLACE", "AUCTION_PLATFORM"];
+    pub(super) const EXPECTED: &[&str] =
+        &["DEALER", "AUCTION_HOUSE", "MARKETPLACE", "AUCTION_PLATFORM"];
 
     pub(crate) fn serialize<S>(value: &ListingSourceType, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -360,6 +361,12 @@ mod tests {
         #[derive(serde::Serialize, serde::Deserialize)]
         struct Wrapper(#[serde(with = "listing_source_type")] ListingSourceType);
 
+        assert_eq!(
+            listing_source_type::EXPECTED,
+            ListingSourceType::iter()
+                .map(ListingSourceType::as_str)
+                .collect::<Vec<_>>()
+        );
         for value in ListingSourceType::iter() {
             let encoded = serde_json::to_value(Wrapper(value)).unwrap();
             assert_eq!(json!(value.as_str()), encoded);

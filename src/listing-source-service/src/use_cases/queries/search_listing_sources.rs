@@ -602,6 +602,16 @@ mod tests {
         );
         assert!(
             !SearchListingSourcesRequest {
+                search: ListingSourceSearch {
+                    listing_source_type: Some(ListingSourceType::Dealer),
+                    ..ListingSourceSearch::default()
+                },
+                ..continuation(&request(), name.clone())
+            }
+            .continuation_in_scope()
+        );
+        assert!(
+            !SearchListingSourcesRequest {
                 sort: slug_desc.sort,
                 ..continuation(&request(), name)
             }

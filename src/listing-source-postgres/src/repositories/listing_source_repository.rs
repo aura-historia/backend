@@ -798,7 +798,7 @@ mod tests {
                 id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Provider Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
-                listing_source_type: listing_source_core::ListingSourceType::Dealer,
+                listing_source_type: listing_source_core::ListingSourceType::AuctionHouse,
                 operator_party_id,
                 ingestion_methods: HashSet::from([
                     ListingIngestionMethod::WebCrawl,
@@ -913,6 +913,7 @@ mod tests {
             details.operator_name
         );
         assert_eq!(operator_party_id, details.operator_party_id);
+        assert_eq!(ListingSourceType::AuctionHouse, details.listing_source_type);
         assert_eq!(source.ingestion_methods(), &details.ingestion_methods);
         assert_eq!(
             source.platform_technology(),
@@ -967,6 +968,7 @@ mod tests {
         );
 
         source.replace_platform_technology(Some(PlatformTechnology::try_from("SHOPWARE").unwrap()));
+        source.reclassify(ListingSourceType::Marketplace);
         source.replace_ingestion_methods(HashSet::from([ListingIngestionMethod::PartnerApi]));
         let updated_configuration =
             ListingSourceIngestionConfigurations(vec![ListingIngestionConfiguration::PartnerApi]);
