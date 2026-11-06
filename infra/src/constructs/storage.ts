@@ -19,8 +19,6 @@ export interface PostgresConnectionSettings {
   readonly database: string;
   readonly maxConnections: string;
   readonly tlsRootCert: string;
-  /** Transitional (#2798): only for runtime grants that outlive the deploy-time credential cutover. */
-  readonly secretArn?: string;
 }
 
 export interface PostgresMigrationConnectionSettings {
@@ -138,7 +136,6 @@ export class Storage extends Construct {
       port: this.database.dbInstanceEndpointPort,
       database: rdsConfig.databaseName,
       maxConnections: "1",
-      secretArn: this.runtimeCredentials.secretArn,
       tlsRootCert: PRODUCTION_POSTGRES_TLS_ROOT_CERTIFICATE,
     };
     this.migrationPostgres = {

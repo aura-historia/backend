@@ -21,12 +21,3 @@ export function releaseVersionDescription(artifactSha256Parameter: string, secre
     ]],
   };
 }
-
-/** Transitional (#2798): the runtime secret grant kept until the deploy-time credential cutover completes. */
-export function transitionalRuntimeSecretGrant(stage: string): unknown {
-  return {
-    Action: "secretsmanager:GetSecretValue",
-    Effect: "Allow",
-    Resource: { "Fn::ImportValue": `application-${stage}-data:ExportsOutputRefStoragePostgresRuntimeCredentials3F505EE124FDDA1A` },
-  };
-}
