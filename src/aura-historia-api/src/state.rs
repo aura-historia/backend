@@ -25,11 +25,12 @@ use notification_service::use_cases::commands::update_all_notifications_seen::Up
 use notification_service::use_cases::commands::update_notification_seen::UpdateNotificationSeenUseCase;
 use notification_service::use_cases::commands::update_notifications_seen::UpdateNotificationsSeenUseCase;
 use notification_service::use_cases::queries::list_notifications::ListNotificationsUseCase;
+use oauth_core::metadata_document_client::MetadataDocumentClientPolicy;
 use oauth_service::use_cases::{
-    AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase, GetOAuthClientUseCase,
-    GetOAuthConsentClientUseCase, IntrospectTokenUseCase, ListOAuthClientsUseCase,
-    RevokeTokenUseCase, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase,
-    UpdateOAuthClientUseCase,
+    AuthorizeUseCase, CreateOAuthClientUseCase, DeleteOAuthClientUseCase,
+    GetMetadataDocumentConsentClientUseCase, GetOAuthClientUseCase, GetOAuthConsentClientUseCase,
+    IntrospectTokenUseCase, ListOAuthClientsUseCase, RevokeTokenUseCase,
+    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeUseCase, UpdateOAuthClientUseCase,
 };
 use partnership_service::use_cases::commands::put_listing_source_ingestion_configuration::PutListingSourceIngestionConfigurationUseCase;
 use partnership_service::use_cases::queries::get_admin_partnership::GetAdminPartnershipUseCase;
@@ -621,6 +622,8 @@ pub struct OAuthState {
     pub(crate) list_clients: Arc<dyn ListOAuthClientsUseCase>,
     pub(crate) get_client: Arc<dyn GetOAuthClientUseCase>,
     pub(crate) get_consent_client: Arc<dyn GetOAuthConsentClientUseCase>,
+    pub(crate) get_metadata_document_consent_client:
+        Arc<dyn GetMetadataDocumentConsentClientUseCase>,
     pub(crate) update_client: Arc<dyn UpdateOAuthClientUseCase>,
     pub(crate) delete_client: Arc<dyn DeleteOAuthClientUseCase>,
     pub(crate) authorize: Arc<dyn AuthorizeUseCase>,
@@ -629,6 +632,7 @@ pub struct OAuthState {
     pub(crate) revoke: Arc<dyn RevokeTokenUseCase>,
     pub(crate) introspect: Arc<dyn IntrospectTokenUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+    pub(crate) metadata_document_client_policy: MetadataDocumentClientPolicy,
 }
 
 impl OAuthState {
@@ -638,6 +642,7 @@ impl OAuthState {
         list_clients: Arc<dyn ListOAuthClientsUseCase>,
         get_client: Arc<dyn GetOAuthClientUseCase>,
         get_consent_client: Arc<dyn GetOAuthConsentClientUseCase>,
+        get_metadata_document_consent_client: Arc<dyn GetMetadataDocumentConsentClientUseCase>,
         update_client: Arc<dyn UpdateOAuthClientUseCase>,
         delete_client: Arc<dyn DeleteOAuthClientUseCase>,
         authorize: Arc<dyn AuthorizeUseCase>,
@@ -647,6 +652,7 @@ impl OAuthState {
         introspect: Arc<dyn IntrospectTokenUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
         resource_policy: oauth_core::resource::AuraResourcePolicy,
+        metadata_document_client_policy: MetadataDocumentClientPolicy,
     ) -> Self {
         Self {
             resource_policy,
@@ -654,6 +660,7 @@ impl OAuthState {
             list_clients,
             get_client,
             get_consent_client,
+            get_metadata_document_consent_client,
             update_client,
             delete_client,
             authorize,
@@ -662,6 +669,7 @@ impl OAuthState {
             revoke,
             introspect,
             authenticator,
+            metadata_document_client_policy,
         }
     }
 }

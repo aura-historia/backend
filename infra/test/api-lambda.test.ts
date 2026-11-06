@@ -58,6 +58,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "NEWSLETTER_CONFIRMATION_EMAIL_REPLY_TO",
     "NEWSLETTER_CONFIRMATION_FRONTEND_ORIGIN",
     "OAUTH_ISSUER_URL",
+    "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED",
     "OPENSEARCH_ENDPOINT_URL",
     "PRODUCT_LISTING_INGESTION_QUEUE_URL",
     "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
@@ -113,6 +114,9 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.STAGE).toBe(stage);
     expect(environment.Variables.PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED).toBe(String(stage === "prod"));
     expect(environment.Variables.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
+    // Production must not admit public clients before refresh-token rotation is deployed.
+    expect(environment.Variables.OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED).toBe(String(stage !== "prod"));
+    expect(environment.Variables.OAUTH_METADATA_DOCUMENT_DENIED_HOSTS).toBeUndefined();
     expect(environment.Variables.COMMIT_SHA).toEqual({ Ref: "CommitSHA" });
     expect(environment.Variables.S3_BUCKET_NAME_TEMPLATES).toBe("aura-historia-release-bundles-eu-central-1");
     expect(environment.Variables.NEWSLETTER_CONFIRMATION_EMAIL_FROM)

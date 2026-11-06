@@ -1,6 +1,9 @@
 use crate::rows::{
     AuthorizationCodeRow, OAuthClientRow, OAuthClientViewRow, ThirdPartyExchangeCodeRow,
 };
+use credential_core::metadata_document_client_id::{
+    InvalidMetadataDocumentClientId, MetadataDocumentClientId,
+};
 use credential_core::oauth_client_id::OAuthClientId;
 use credential_core::scope::Scope;
 use oauth_core::authorization_code::{
@@ -11,6 +14,7 @@ use oauth_core::client::{
     InvalidOAuthRedirectUris, OAuthClient, OAuthClientName, OAuthRedirectUris,
     RehydratedOAuthClientState,
 };
+use oauth_core::client_identifier::OAuthClientIdentifier;
 use oauth_core::resource::{AuraResource, InvalidResource};
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
@@ -28,8 +32,8 @@ pub(crate) const OAUTH_CLIENT_VIEW_COLUMNS: &str = "\
     client_id, name, redirect_uris, tos_uri, policy_uri, client_uri, logo_uri, scopes, created, \
     updated";
 pub(crate) const AUTHORIZATION_CODE_COLUMNS: &str = "\
-    authorization_code AS code, client_id, user_id, redirect_uri, scopes, code_challenge, \
-    code_challenge_method, resource, expires_at AS expires";
+    authorization_code AS code, client_id, metadata_document_client_id, user_id, redirect_uri, \
+    scopes, code_challenge, code_challenge_method, resource, expires_at AS expires";
 pub(crate) const THIRD_PARTY_EXCHANGE_CODE_COLUMNS: &str = "\
     third_party_exchange_code AS code, access_token_id, access_token, \
     access_token_expires_at AS access_token_expires, scopes, expires_at AS expires";
@@ -51,6 +55,10 @@ pub(crate) enum OAuthRowMappingError {
     InvalidAccessToken(#[source] user_core::access_token::InvalidRawTokenError),
     #[error("persisted OAuth client identifier is invalid")]
     InvalidOAuthClientId(#[source] domain_primitives::object_id::ObjectIdError),
+    #[error("persisted metadata document client identifier is invalid")]
+    InvalidMetadataDocumentClientId(#[source] InvalidMetadataDocumentClientId),
+    #[error("persisted authorization code must name exactly one client")]
+    AmbiguousAuthorizationCodeClient,
     #[error("persisted user identifier is invalid")]
     InvalidUserId(#[source] domain_primitives::object_id::ObjectIdError),
     #[error("persisted access token identifier is invalid")]
@@ -117,6 +125,22 @@ impl TryFrom<OAuthClientViewRow> for oauth_service::ports::OAuthClientView {
     }
 }
 
+/// Exactly one client column is set; the schema enforces it and the mapping fails closed.
+fn authorization_code_client(
+    client_id: Option<uuid::Uuid>,
+    metadata_document_client_id: Option<String>,
+) -> Result<OAuthClientIdentifier, OAuthRowMappingError> {
+    match (client_id, metadata_document_client_id) {
+        (Some(client_id), None) => OAuthClientId::try_from(client_id)
+            .map(OAuthClientIdentifier::Registered)
+            .map_err(OAuthRowMappingError::InvalidOAuthClientId),
+        (None, Some(client_id)) => MetadataDocumentClientId::try_from(client_id)
+            .map(OAuthClientIdentifier::MetadataDocument)
+            .map_err(OAuthRowMappingError::InvalidMetadataDocumentClientId),
+        _ => Err(OAuthRowMappingError::AmbiguousAuthorizationCodeClient),
+    }
+}
+
 impl TryFrom<AuthorizationCodeRow> for AuthorizationCode {
     type Error = OAuthRowMappingError;
 
@@ -125,8 +149,10 @@ impl TryFrom<AuthorizationCodeRow> for AuthorizationCode {
             RehydratedAuthorizationCodeState {
                 code: OAuthAuthorizationCode::try_from(row.code)
                     .map_err(OAuthRowMappingError::InvalidAuthorizationCode)?,
-                client_id: OAuthClientId::try_from(row.client_id)
-                    .map_err(OAuthRowMappingError::InvalidOAuthClientId)?,
+                client_id: authorization_code_client(
+                    row.client_id,
+                    row.metadata_document_client_id,
+                )?,
                 user_id: UserId::try_from(row.user_id)
                     .map_err(OAuthRowMappingError::InvalidUserId)?,
                 redirect_uri: url::Url::parse(&row.redirect_uri)
@@ -311,7 +337,8 @@ mod tests {
     fn authorization_code_row(client_id: Uuid, user_id: Uuid) -> AuthorizationCodeRow {
         AuthorizationCodeRow {
             code: uuid_v7_fixture().to_string(),
-            client_id,
+            client_id: Some(client_id),
+            metadata_document_client_id: None,
             user_id,
             redirect_uri: "https://client.example/callback".to_owned(),
             scopes: vec![],
@@ -320,6 +347,38 @@ mod tests {
             code_challenge_method: "S256".to_owned(),
             expires: time::OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    #[test]
+    fn should_map_a_metadata_document_client_and_reject_ambiguous_or_invalid_clients() {
+        let client_id = "https://agent.example/client.json";
+        let mut row = authorization_code_row(uuid_v7_fixture(), uuid_v7_fixture());
+        row.client_id = None;
+        row.metadata_document_client_id = Some(client_id.to_owned());
+        assert_eq!(
+            &OAuthClientIdentifier::MetadataDocument(client_id.parse().unwrap()),
+            AuthorizationCode::try_from(row).unwrap().client_id()
+        );
+
+        for (registered, metadata_document) in [
+            (None, None),
+            (Some(uuid_v7_fixture()), Some(client_id.to_owned())),
+        ] {
+            let mut row = authorization_code_row(uuid_v7_fixture(), uuid_v7_fixture());
+            row.client_id = registered;
+            row.metadata_document_client_id = metadata_document;
+            assert!(matches!(
+                AuthorizationCode::try_from(row),
+                Err(OAuthRowMappingError::AmbiguousAuthorizationCodeClient)
+            ));
+        }
+        let mut row = authorization_code_row(uuid_v7_fixture(), uuid_v7_fixture());
+        row.client_id = None;
+        row.metadata_document_client_id = Some("https://agent.example:443/client.json".to_owned());
+        assert!(matches!(
+            AuthorizationCode::try_from(row),
+            Err(OAuthRowMappingError::InvalidMetadataDocumentClientId(_))
+        ));
     }
 
     #[test]

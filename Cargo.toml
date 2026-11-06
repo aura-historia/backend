@@ -117,6 +117,7 @@ members = [
     "src/oauth-core",
     "src/oauth-service",
     "src/oauth-postgres",
+    "src/oauth-client-metadata-http",
     "src/fxrate-lambda",
     "src/crawler",
 ]
@@ -173,6 +174,7 @@ embedding = { path = "src/embedding" }
 classifier-model = { path = "src/classifier-model" }
 image-fetcher = { path = "src/image-fetcher" }
 public-network-policy = { path = "src/public-network-policy" }
+oauth-client-metadata-http = { path = "src/oauth-client-metadata-http" }
 geo = { path = "src/geo" }
 geo-service = { path = "src/geo-service" }
 geo-postgres = { path = "src/geo-postgres" }

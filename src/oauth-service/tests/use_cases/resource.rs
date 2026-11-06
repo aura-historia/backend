@@ -9,6 +9,7 @@ fn authorize_handler(ports: &FakePorts, policy: AuraResourcePolicy) -> impl Auth
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         policy,
     )
 }
@@ -23,6 +24,7 @@ fn token_handler(
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        MetadataDocumentClientPolicy::Disabled,
         policy,
     )
 }
@@ -38,8 +40,10 @@ fn token_request(
         code: code.code(),
         redirect_uri: code.redirect_uri().clone(),
         resource: resource.map(str::to_owned),
-        client_id: code.client_id(),
-        client_secret: secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id: registered(code.client_id()),
+            client_secret: secret,
+        },
         code_verifier: OAuthCodeVerifier::from("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
     }
 }
@@ -103,7 +107,7 @@ async fn should_bind_s256_grants_to_the_exact_identifier_without_changing_token_
             assert_eq!(user_id, issued.user_id());
             assert_eq!(
                 &AccessTokenOrigin::OAuth {
-                    client_id: code.client_id()
+                    client_id: registered(code.client_id())
                 },
                 issued.origin()
             );

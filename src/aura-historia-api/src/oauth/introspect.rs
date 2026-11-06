@@ -9,7 +9,6 @@ use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
-use credential_core::oauth_client_id::OAuthClientId;
 use oauth_service::use_cases::{IntrospectTokenRequest, IntrospectTokenResponse, OAuthTokenType};
 use serde::Serialize;
 
@@ -19,7 +18,7 @@ pub(crate) struct IntrospectionResponseData {
     #[serde(skip_serializing_if = "Option::is_none")]
     scope: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    client_id: Option<OAuthClientId>,
+    client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sub: Option<user_core::user_id::UserId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,7 +34,7 @@ impl From<IntrospectTokenResponse> for IntrospectionResponseData {
         Self {
             active: response.active,
             scope: response.scopes.as_ref().map(scope_string),
-            client_id: response.client_id,
+            client_id: response.client_id.map(|client_id| client_id.to_string()),
             sub: response.subject,
             token_type: response.token_type.map(|token_type| match token_type {
                 OAuthTokenType::Bearer => "Bearer",

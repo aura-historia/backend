@@ -8,6 +8,8 @@ const OPENSEARCH: OpenSearch = OpenSearch();
 static AURA_API: AuraHistoriaApi = AuraHistoriaApi::new(api_support::aura_api_app);
 static NEWSLETTER_C09_API: AuraHistoriaApi =
     AuraHistoriaApi::new(api_support::newsletter_c09_api_app);
+static METADATA_DOCUMENT_API: AuraHistoriaApi =
+    AuraHistoriaApi::new(api_support::metadata_document_api_app);
 
 #[path = "api_cases/admin_overview.rs"]
 mod admin_overview;

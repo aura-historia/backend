@@ -385,6 +385,82 @@ async fn should_read_access_token_details_list_and_authentication_deterministica
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_round_trip_a_metadata_document_client_origin_through_every_reader() {
+    let pool = get_postgres_client().await;
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let users = SqlxUserRepositoryFactory::new();
+    let tokens = SqlxAccessTokenRepositoryFactory::new();
+    let user = sample_user("metadata-document-origin");
+    let raw = RawAccessToken::new();
+    let origin = AccessTokenOrigin::OAuthMetadataDocument {
+        client_id: "https://agent.example/oauth/client.json".parse().unwrap(),
+    };
+    let token = AccessToken::create(NewAccessToken {
+        origin: origin.clone(),
+        // PostgreSQL keeps microseconds.
+        ..sample_new_access_token(
+            user.id(),
+            raw,
+            Some(
+                OffsetDateTime::from_unix_timestamp(
+                    OffsetDateTime::now_utc().unix_timestamp() + 3_600,
+                )
+                .unwrap(),
+            ),
+        )
+    });
+
+    let mut tx = begin(&unit_of_work).await;
+    insert_user(&users, &mut tx, &user).await;
+    insert_token(&tokens, &mut tx, &token).await;
+    commit(tx).await;
+
+    let mut tx = begin(&unit_of_work).await;
+    let found = find_token_by_id(&tokens, &mut tx, user.id(), token.id()).await;
+    commit(tx).await;
+    assert_access_token_state(&token, &found.value);
+    let detail = SqlxAccessTokenDetailsReader::new(pool.clone())
+        .find_by_id(user.id(), token.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(origin, detail.origin);
+    let listed = SqlxAccessTokenListReader::new(pool.clone())
+        .list_for_user(user.id())
+        .await
+        .unwrap();
+    assert_eq!(
+        vec![origin.clone()],
+        listed
+            .into_iter()
+            .map(|token| token.origin)
+            .collect::<Vec<_>>()
+    );
+    let authenticated = SqlxAccessTokenAuthenticationReader::new(pool.clone())
+        .find_authentication_by_hashed_token(token.hashed_token())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(origin, authenticated.origin);
+
+    let invalid = sqlx::query(
+        "UPDATE access_tokens SET oauth_metadata_document_client_id = NULL \
+         WHERE access_token_id = $1",
+    )
+    .bind(token.id().into_uuid())
+    .execute(&pool)
+    .await
+    .expect_err("a metadata document origin must record its client");
+    assert_eq!(
+        Some("23514"),
+        invalid
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref()
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_not_authenticate_access_token_for_suspended_user() {
     let pool = get_postgres_client().await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
@@ -421,6 +497,22 @@ async fn should_not_authenticate_access_token_for_suspended_user() {
 
     assert!(matches!(active, Ok(Some(_))));
     assert!(matches!(suspended, Ok(None)));
+}
+
+fn sample_new_access_token(
+    user_id: UserId,
+    raw: RawAccessToken,
+    expires: Option<OffsetDateTime>,
+) -> NewAccessToken {
+    NewAccessToken {
+        id: AccessTokenId::new(),
+        hashed_token: raw.into(),
+        user_id,
+        name: AccessTokenName::from("agent token"),
+        scopes: HashSet::from([Scope::UsersRead]),
+        origin: AccessTokenOrigin::User,
+        expires,
+    }
 }
 
 fn sample_access_token(

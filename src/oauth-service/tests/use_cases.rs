@@ -3,6 +3,7 @@ use application::operation_context::{
 };
 use application::pagination::Cursor;
 use application::transaction::{Transaction, TransactionError, UnitOfWork};
+use credential_core::metadata_document_client_id::MetadataDocumentClientId;
 use credential_core::oauth_client_id::OAuthClientId;
 use domain_primitives::versioned::Versioned;
 use oauth_core::authorization_code::{
@@ -12,6 +13,10 @@ use oauth_core::authorization_code::{
 use oauth_core::client::{
     OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState,
 };
+use oauth_core::client_identifier::OAuthClientIdentifier;
+use oauth_core::metadata_document_client::{
+    ClientMetadataDocumentClaims, MetadataDocumentClientPolicy,
+};
 use oauth_core::resource::AuraResourcePolicy;
 use oauth_core::third_party_exchange_code::{
     RehydratedThirdPartyExchangeCodeGrantState, ThirdPartyExchangeCode, ThirdPartyExchangeCodeGrant,
@@ -19,16 +24,18 @@ use oauth_core::third_party_exchange_code::{
 use oauth_service::error::OAuthServiceError;
 use oauth_service::ports::*;
 use oauth_service::use_cases::{
-    AuthorizeHandler, AuthorizeRequest, AuthorizeUseCase, CreateOAuthClientCommand,
-    CreateOAuthClientHandler, CreateOAuthClientUseCase, DeleteOAuthClientHandler,
-    DeleteOAuthClientUseCase, GetOAuthClientHandler, GetOAuthClientUseCase,
-    GetOAuthConsentClientHandler, GetOAuthConsentClientUseCase, IntrospectTokenHandler,
-    IntrospectTokenRequest, IntrospectTokenUseCase, ListOAuthClientsHandler,
-    ListOAuthClientsRequest, ListOAuthClientsResult, ListOAuthClientsUseCase, OAuthGrantType,
-    OAuthResponseType, OAuthState, OAuthTokenType, RevokeTokenHandler, RevokeTokenRequest,
-    RevokeTokenUseCase, TokenByAuthorizationCodeHandler, TokenByAuthorizationCodeRequest,
-    TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler, TokenByThirdPartyCodeUseCase,
-    UpdateOAuthClientCommand, UpdateOAuthClientHandler, UpdateOAuthClientUseCase,
+    AuthorizeHandler, AuthorizeRequest, AuthorizeResponse, AuthorizeUseCase,
+    CreateOAuthClientCommand, CreateOAuthClientHandler, CreateOAuthClientUseCase,
+    DeleteOAuthClientHandler, DeleteOAuthClientUseCase, GetOAuthClientHandler,
+    GetOAuthClientUseCase, GetOAuthConsentClientHandler, GetOAuthConsentClientUseCase,
+    IntrospectTokenHandler, IntrospectTokenRequest, IntrospectTokenUseCase,
+    ListOAuthClientsHandler, ListOAuthClientsRequest, ListOAuthClientsResult,
+    ListOAuthClientsUseCase, MetadataDocumentClients, OAuthGrantType, OAuthResponseType,
+    OAuthState, OAuthTokenClientAuthentication, OAuthTokenType, RevokeTokenHandler,
+    RevokeTokenRequest, RevokeTokenUseCase, TokenByAuthorizationCodeHandler,
+    TokenByAuthorizationCodeRequest, TokenByAuthorizationCodeUseCase, TokenByThirdPartyCodeHandler,
+    TokenByThirdPartyCodeUseCase, UpdateOAuthClientCommand, UpdateOAuthClientHandler,
+    UpdateOAuthClientUseCase,
 };
 use std::collections::{BTreeSet, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -158,6 +165,34 @@ impl AccessTokenRepositoryFactory<FakeTransaction> for FakePorts {
     }
 }
 
+/// Registered-client flows must never load a metadata document.
+#[derive(Clone, Copy)]
+struct NoMetadataDocuments;
+
+#[async_trait::async_trait]
+impl ClientMetadataDocumentSource for NoMetadataDocuments {
+    async fn load(
+        &self,
+        _client_id: &MetadataDocumentClientId,
+    ) -> Result<ClientMetadataDocumentClaims, ClientMetadataDocumentLoadError> {
+        panic!("registered-client flows must not load metadata documents")
+    }
+}
+
+/// The registered client ID a code was issued to.
+fn registered(client_id: &OAuthClientIdentifier) -> OAuthClientId {
+    match client_id {
+        OAuthClientIdentifier::Registered(client_id) => *client_id,
+        OAuthClientIdentifier::MetadataDocument(_) => {
+            panic!("code was issued to a registered client")
+        }
+    }
+}
+
+fn no_metadata_document_clients() -> MetadataDocumentClients<NoMetadataDocuments> {
+    MetadataDocumentClients::new(MetadataDocumentClientPolicy::Disabled, NoMetadataDocuments)
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(g) => g,
@@ -210,7 +245,7 @@ fn url(value: &str) -> url::Url {
 fn authorization_code(client_id: OAuthClientId, expires: OffsetDateTime) -> AuthorizationCode {
     AuthorizationCode::create(RehydratedAuthorizationCodeState {
         code: OAuthAuthorizationCode::new(),
-        client_id,
+        client_id: client_id.into(),
         user_id: UserId::new(),
         redirect_uri: url("https://client.example/callback"),
         scopes: HashSet::from([Scope::ProductListingsWrite]),
@@ -241,7 +276,7 @@ fn client_with_secret(raw: &RawOAuthClientSecret) -> OAuthClient {
 fn authorize_request(client_id: OAuthClientId, scope: HashSet<Scope>) -> AuthorizeRequest {
     AuthorizeRequest {
         response_type: OAuthResponseType::Code,
-        client_id,
+        client_id: client_id.into(),
         redirect_uri: url("https://client.example/callback"),
         scope,
         state: None,
@@ -266,6 +301,7 @@ async fn redeem_authorization_code(
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        MetadataDocumentClientPolicy::Disabled,
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -273,8 +309,10 @@ async fn redeem_authorization_code(
         resource: None,
         code: code_value,
         redirect_uri,
-        client_id,
-        client_secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id,
+            client_secret,
+        },
         code_verifier: OAuthCodeVerifier::from(code_verifier),
     })
     .await
@@ -1165,6 +1203,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     );
     let auth = authorize
@@ -1172,7 +1211,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
             &first_party_context(),
             AuthorizeRequest {
                 response_type: OAuthResponseType::Code,
-                client_id: client.client_id(),
+                client_id: client.client_id().into(),
                 redirect_uri: url("https://client.example/callback"),
                 scope: HashSet::from([Scope::ProductListingsWrite]),
                 state: Some(OAuthState::from("state-1")),
@@ -1198,6 +1237,7 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        MetadataDocumentClientPolicy::Disabled,
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1205,8 +1245,10 @@ async fn should_commit_authorization_code_exchange_when_valid() {
         resource: None,
         code,
         redirect_uri: url("https://client.example/callback"),
-        client_id: client.client_id(),
-        client_secret: raw_secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id: client.client_id(),
+            client_secret: raw_secret,
+        },
         code_verifier: OAuthCodeVerifier::from("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
     })
     .await
@@ -1242,6 +1284,7 @@ async fn should_commit_consumed_authorization_code_when_expired() {
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        MetadataDocumentClientPolicy::Disabled,
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1249,8 +1292,10 @@ async fn should_commit_consumed_authorization_code_when_expired() {
         resource: None,
         code: code.code(),
         redirect_uri: url("https://client.example/callback"),
-        client_id: client.client_id(),
-        client_secret: raw_secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id: client.client_id(),
+            client_secret: raw_secret,
+        },
         code_verifier: OAuthCodeVerifier::from("invalid-for-expired-code"),
     })
     .await
@@ -1380,6 +1425,7 @@ async fn should_roll_back_authorization_code_consumption_when_access_token_inser
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        MetadataDocumentClientPolicy::Disabled,
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1387,8 +1433,10 @@ async fn should_roll_back_authorization_code_consumption_when_access_token_inser
         resource: None,
         code: code.code(),
         redirect_uri: url("https://client.example/callback"),
-        client_id: client.client_id(),
-        client_secret: raw_secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id: client.client_id(),
+            client_secret: raw_secret,
+        },
         code_verifier: OAuthCodeVerifier::from("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
     })
     .await
@@ -1424,6 +1472,7 @@ async fn should_roll_back_authorization_code_consumption_when_exchange_code_inse
         ports.clone(),
         ports.clone(),
         ports.clone(),
+        MetadataDocumentClientPolicy::Disabled,
         AuraResourcePolicy::production(),
     )
     .execute(TokenByAuthorizationCodeRequest {
@@ -1431,8 +1480,10 @@ async fn should_roll_back_authorization_code_consumption_when_exchange_code_inse
         resource: None,
         code: code.code(),
         redirect_uri: url("https://client.example/callback"),
-        client_id: client.client_id(),
-        client_secret: raw_secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id: client.client_id(),
+            client_secret: raw_secret,
+        },
         code_verifier: OAuthCodeVerifier::from("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
     })
     .await
@@ -1457,13 +1508,14 @@ async fn should_reject_authorize_with_invalid_scope() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
     .execute(
         &context(Principal::User(UserId::new())),
         AuthorizeRequest {
             response_type: OAuthResponseType::Code,
-            client_id: client.client_id(),
+            client_id: client.client_id().into(),
             redirect_uri: url("https://client.example/callback"),
             scope: HashSet::from([Scope::UsersRead]),
             state: None,
@@ -1491,6 +1543,7 @@ async fn should_allow_authorize_for_a_direct_user_principal() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
     .execute(
@@ -1512,6 +1565,7 @@ async fn should_reject_authorize_for_anonymous_principal_before_transaction() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
     .execute(
@@ -1534,6 +1588,7 @@ async fn should_reject_authorize_for_delegated_principal_without_write_capabilit
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
     .execute(
@@ -1560,6 +1615,7 @@ async fn should_reject_delegated_authorize_scope_outside_caller_capabilities() {
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
     .execute(
@@ -1589,6 +1645,7 @@ async fn should_reject_delegated_authorize_without_creating_a_code() {
             FakeUnitOfWork(ports.clone()),
             ports.clone(),
             ports.clone(),
+            no_metadata_document_clients(),
             AuraResourcePolicy::production(),
         )
         .execute(
@@ -1642,6 +1699,7 @@ async fn should_stop_a_delegated_admin_from_registering_and_approving_its_own_cl
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        no_metadata_document_clients(),
         AuraResourcePolicy::production(),
     )
     .execute(
@@ -1746,7 +1804,7 @@ async fn should_revoke_and_introspect_tokens() {
         .await
         .unwrap();
     assert!(active.active);
-    assert_eq!(Some(client.client_id()), active.client_id);
+    assert_eq!(Some(client.client_id().into()), active.client_id);
     assert_eq!(0, lock(&ports.0).transaction_begins);
     RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
         .execute(
@@ -1841,5 +1899,7 @@ async fn should_succeed_when_revoking_an_unknown_token() {
     assert_eq!(1, state.transaction_commits);
 }
 
+#[path = "use_cases/metadata_document_client.rs"]
+mod metadata_document_client;
 #[path = "use_cases/resource.rs"]
 mod resource;

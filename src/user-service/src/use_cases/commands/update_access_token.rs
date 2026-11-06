@@ -40,6 +40,8 @@ pub enum UpdateAccessTokenError {
     Forbidden,
     #[error("delegated credentials cannot expand access token authority")]
     DelegatedAuthorityExpansionForbidden,
+    #[error("a public OAuth client's access token cannot gain authority")]
+    PublicClientAuthorityExpansionForbidden,
     #[error("access token not found")]
     AccessTokenNotFound,
     #[error("access token name is required")]
@@ -150,6 +152,12 @@ where
                 outcome = "failure",
             );
             return Err(error);
+        }
+        // A public client cannot keep a secret, so its token keeps expiring and never widens.
+        if !current.origin().permits_authority_expansion()
+            && !access_token.grants_no_more_than(&current)
+        {
+            return Err(UpdateAccessTokenError::PublicClientAuthorityExpansionForbidden);
         }
         if changed {
             access_token = repository.update(&access_token, version).await?.value;
@@ -679,6 +687,75 @@ mod tests {
         let updated = stored(&fakes).unwrap_or_else(|| panic!("stored token is retained"));
         assert_eq!(&expanded, updated.scopes());
         assert_eq!(None, updated.expires());
+    }
+
+    #[tokio::test]
+    async fn should_only_narrow_a_public_oauth_client_token() {
+        let user_id = UserId::new();
+        let expires = OffsetDateTime::now_utc() + Duration::hours(1);
+        let current = AccessToken::create(NewAccessToken {
+            id: AccessTokenId::new(),
+            hashed_token: RawAccessToken::new().into(),
+            user_id,
+            name: AccessTokenName::from("agent token"),
+            scopes: HashSet::from([Scope::UsersRead, Scope::WatchlistRead]),
+            origin: AccessTokenOrigin::OAuthMetadataDocument {
+                client_id: "https://agent.example/client.json".parse().unwrap(),
+            },
+            expires: Some(expires),
+        });
+        for command in [
+            UpdateAccessTokenCommand {
+                expires: PatchField::Clear,
+                ..Default::default()
+            },
+            UpdateAccessTokenCommand {
+                expires: PatchField::Set(expires + Duration::days(365)),
+                ..Default::default()
+            },
+            UpdateAccessTokenCommand {
+                scopes: PatchField::Set(HashSet::from([Scope::UsersRead, Scope::UsersWrite])),
+                ..Default::default()
+            },
+        ] {
+            let fakes = fakes_with(&current);
+            let result = UpdateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+                .execute(
+                    &context(Principal::User(user_id)),
+                    UpdateAccessTokenCommand {
+                        user_id,
+                        access_token_id: current.id(),
+                        ..command
+                    },
+                )
+                .await;
+
+            assert!(matches!(
+                result,
+                Err(UpdateAccessTokenError::PublicClientAuthorityExpansionForbidden)
+            ));
+            assert_eq!(Some(&current), stored(&fakes).as_ref());
+        }
+
+        let fakes = fakes_with(&current);
+        let narrowed = HashSet::from([Scope::UsersRead]);
+        let result = UpdateAccessTokenHandler::new(fakes.clone(), fakes.clone())
+            .execute(
+                &context(Principal::User(user_id)),
+                UpdateAccessTokenCommand {
+                    user_id,
+                    access_token_id: current.id(),
+                    name: PatchField::Set(AccessTokenName::from("renamed")),
+                    scopes: PatchField::Set(narrowed.clone()),
+                    expires: PatchField::Set(expires - Duration::minutes(30)),
+                },
+            )
+            .await;
+        assert!(result.is_ok(), "unexpected result: {result:?}");
+        assert_eq!(
+            Some(&narrowed),
+            stored(&fakes).as_ref().map(AccessToken::scopes)
+        );
     }
 
     #[tokio::test]

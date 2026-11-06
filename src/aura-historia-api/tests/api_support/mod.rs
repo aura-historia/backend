@@ -74,16 +74,20 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
+use oauth_client_metadata_http::HttpClientMetadataDocumentSource;
+use oauth_core::metadata_document_client::{
+    DeniedMetadataDocumentHosts, MetadataDocumentClientPolicy,
+};
 use oauth_postgres::{
     SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
     SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
     SqlxThirdPartyExchangeCodeRepositoryFactory,
 };
 use oauth_service::use_cases::{
-    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
-    GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
-    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
-    UpdateOAuthClientHandler,
+    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler,
+    GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler, GetOAuthConsentClientHandler,
+    IntrospectTokenHandler, ListOAuthClientsHandler, MetadataDocumentClients, RevokeTokenHandler,
+    TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler, UpdateOAuthClientHandler,
 };
 use partnership_core::{
     partnership_application_id::PartnershipApplicationId, partnership_id::PartnershipId,
@@ -1225,19 +1229,7 @@ async fn test_state(
     let pool = get_postgres_client().await;
     seed_current_fx_snapshot(&pool).await;
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
-    let access_token_use_case = user_service::use_cases::AuthenticateAccessTokenHandler::new(
-        user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
-    );
-    let authenticate_user = AuthenticateUserHandler::new(
-        user_postgres::SqlxUserAuthenticationReader::new(pool.clone()),
-    );
-    let authenticator = Arc::new(UserAuthenticationAuthenticator::new(
-        ApiAuthService::new(
-            TestJwtAuthenticator,
-            AuraAccessTokenAuthenticator::new(access_token_use_case),
-        ),
-        authenticate_user,
-    ));
+    let authenticator = test_token_authenticator(&pool);
     let opensearch_client = get_opensearch_client().await;
     let product_listings_index = test_api::TestContext::current()
         .expect("search context")
@@ -1915,77 +1907,13 @@ async fn test_state(
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
 
-    let oauth_state = OAuthState::new(
-        Arc::new(CreateOAuthClientHandler::new(
-            unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-        )),
-        Arc::new(ListOAuthClientsHandler::new(
-            SqlxOAuthClientListReader::new(pool.clone()),
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-        )),
-        Arc::new(GetOAuthClientHandler::new(
-            SqlxOAuthClientDetailsReader::new(pool.clone()),
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-        )),
-        Arc::new(GetOAuthConsentClientHandler::new(
-            SqlxOAuthClientDetailsReader::new(pool.clone()),
-        )),
-        Arc::new(UpdateOAuthClientHandler::new(
-            unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-        )),
-        Arc::new(DeleteOAuthClientHandler::new(
-            unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            CheckUserAdminHandler::new(
-                unit_of_work.clone(),
-                user_postgres::SqlxUserAdminReaderFactory::new(),
-            ),
-        )),
-        Arc::new(AuthorizeHandler::new(
-            unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAuthorizationCodeRepositoryFactory::new(),
-            oauth_core::resource::AuraResourcePolicy::production(),
-        )),
-        Arc::new(TokenByAuthorizationCodeHandler::new(
-            unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAuthorizationCodeRepositoryFactory::new(),
-            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
-            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
-            oauth_core::resource::AuraResourcePolicy::production(),
-        )),
-        Arc::new(TokenByThirdPartyCodeHandler::new(
-            unit_of_work.clone(),
-            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
-        )),
-        Arc::new(RevokeTokenHandler::new(
-            unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
-        )),
-        Arc::new(IntrospectTokenHandler::new(
-            SqlxOAuthClientAuthenticationReader::new(pool.clone()),
-            user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
-        )),
+    let oauth_state = oauth_state(
+        &pool,
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
-        oauth_core::resource::AuraResourcePolicy::production(),
+        MetadataDocumentClients::new(
+            MetadataDocumentClientPolicy::Disabled,
+            HttpClientMetadataDocumentSource::new(),
+        ),
     );
     state::AppState::new()
         .with_auctions(auctions_state)
@@ -2037,6 +1965,107 @@ async fn test_state(
         .with_billing(billing_state)
 }
 
+fn test_token_authenticator(pool: &sqlx::PgPool) -> Arc<dyn TokenAuthenticator> {
+    Arc::new(UserAuthenticationAuthenticator::new(
+        ApiAuthService::new(
+            TestJwtAuthenticator,
+            AuraAccessTokenAuthenticator::new(
+                user_service::use_cases::AuthenticateAccessTokenHandler::new(
+                    user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
+                ),
+            ),
+        ),
+        AuthenticateUserHandler::new(user_postgres::SqlxUserAuthenticationReader::new(
+            pool.clone(),
+        )),
+    ))
+}
+
+fn oauth_state(
+    pool: &sqlx::PgPool,
+    authenticator: Arc<dyn TokenAuthenticator>,
+    metadata_document_clients: MetadataDocumentClients<HttpClientMetadataDocumentSource>,
+) -> OAuthState {
+    OAuthState::new(
+        Arc::new(CreateOAuthClientHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthClientRepositoryFactory::new(),
+            CheckUserAdminHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(ListOAuthClientsHandler::new(
+            SqlxOAuthClientListReader::new(pool.clone()),
+            CheckUserAdminHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(GetOAuthClientHandler::new(
+            SqlxOAuthClientDetailsReader::new(pool.clone()),
+            CheckUserAdminHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(GetOAuthConsentClientHandler::new(
+            SqlxOAuthClientDetailsReader::new(pool.clone()),
+        )),
+        Arc::new(GetMetadataDocumentConsentClientHandler::new(
+            metadata_document_clients.clone(),
+        )),
+        Arc::new(UpdateOAuthClientHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthClientRepositoryFactory::new(),
+            CheckUserAdminHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(DeleteOAuthClientHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthClientRepositoryFactory::new(),
+            CheckUserAdminHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                user_postgres::SqlxUserAdminReaderFactory::new(),
+            ),
+        )),
+        Arc::new(AuthorizeHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
+            metadata_document_clients.clone(),
+            oauth_core::resource::AuraResourcePolicy::production(),
+        )),
+        Arc::new(TokenByAuthorizationCodeHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthClientRepositoryFactory::new(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+            metadata_document_clients.policy().clone(),
+            oauth_core::resource::AuraResourcePolicy::production(),
+        )),
+        Arc::new(TokenByThirdPartyCodeHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+        )),
+        Arc::new(RevokeTokenHandler::new(
+            SqlxUnitOfWork::new(pool.clone()),
+            SqlxOAuthClientRepositoryFactory::new(),
+            user_postgres::SqlxAccessTokenRepositoryFactory::new(),
+        )),
+        Arc::new(IntrospectTokenHandler::new(
+            SqlxOAuthClientAuthenticationReader::new(pool.clone()),
+            user_postgres::SqlxAccessTokenAuthenticationReader::new(pool.clone()),
+        )),
+        authenticator,
+        oauth_core::resource::AuraResourcePolicy::production(),
+        metadata_document_clients.policy().clone(),
+    )
+}
+
 struct TestJwtAuthenticator;
 
 #[async_trait::async_trait]
@@ -2061,4 +2090,137 @@ impl TokenAuthenticator for TestJwtAuthenticator {
             capabilities: std::collections::BTreeSet::new(),
         })
     }
+}
+
+/// Host whose Client ID Metadata Documents the local acceptance origin serves.
+pub const METADATA_DOCUMENT_HOST: &str = "agent.test";
+/// Host the acceptance policy denies.
+pub const DENIED_METADATA_DOCUMENT_HOST: &str = "denied.test";
+/// The loopback callback the acceptance documents list; requests may use any port.
+pub const METADATA_DOCUMENT_CALLBACK: &str = "http://127.0.0.1/callback";
+const METADATA_DOCUMENT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// The API with metadata document clients enabled. Documents of [`METADATA_DOCUMENT_HOST`]
+/// come from a context-owned loopback origin; every other host keeps the production policy.
+pub fn metadata_document_api_app() -> Pin<Box<dyn Future<Output = axum::Router> + Send>> {
+    Box::pin(async {
+        let pool = get_postgres_client().await;
+        let origin = start_metadata_document_origin().await;
+        let state = test_state(
+            TestEmbeddingGenerator::Success,
+            ProductListingSearchCacheTestPolicy::Disabled,
+        )
+        .await;
+        app(state.with_oauth(oauth_state(
+            &pool,
+            test_token_authenticator(&pool),
+            MetadataDocumentClients::new(
+                MetadataDocumentClientPolicy::Enabled {
+                    denied_hosts: DeniedMetadataDocumentHosts::parse([
+                        DENIED_METADATA_DOCUMENT_HOST,
+                    ])
+                    .unwrap(),
+                },
+                HttpClientMetadataDocumentSource::with_loopback_test_origin(
+                    METADATA_DOCUMENT_HOST,
+                    origin,
+                    METADATA_DOCUMENT_FETCH_TIMEOUT,
+                ),
+            ),
+        )))
+    })
+}
+
+/// The document a public agent publishes at `https://agent.test{path}`.
+pub fn metadata_document(path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "client_id": format!("https://{METADATA_DOCUMENT_HOST}{path}"),
+        "client_name": "Acceptance Agent",
+        "client_uri": format!("https://{METADATA_DOCUMENT_HOST}"),
+        "redirect_uris": [METADATA_DOCUMENT_CALLBACK, "http://localhost/callback"],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    })
+}
+
+/// Serves valid and deliberately broken documents until the context shuts down.
+async fn start_metadata_document_origin() -> std::net::SocketAddr {
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+    use axum::routing::get;
+
+    fn json(document: serde_json::Value) -> axum::response::Response {
+        (
+            [(header::CONTENT_TYPE, "application/json")],
+            document.to_string(),
+        )
+            .into_response()
+    }
+    let routes = axum::Router::new()
+        .route(
+            "/oauth/client.json",
+            get(|| async {
+                let mut response = json(metadata_document("/oauth/client.json"));
+                response.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("max-age=60"),
+                );
+                response
+            }),
+        )
+        .route(
+            "/oauth/mismatch.json",
+            get(|| async { json(metadata_document("/oauth/other.json")) }),
+        )
+        .route(
+            "/oauth/redirect.json",
+            get(|| async {
+                (
+                    StatusCode::FOUND,
+                    [(header::LOCATION, "/oauth/client.json")],
+                )
+                    .into_response()
+            }),
+        )
+        .route(
+            "/oauth/oversized.json",
+            get(|| async {
+                let mut document = metadata_document("/oauth/oversized.json");
+                document["software_statement"] = serde_json::json!("x".repeat(6 * 1024));
+                json(document)
+            }),
+        )
+        .route(
+            "/oauth/slow.json",
+            get(|| async {
+                tokio::time::sleep(METADATA_DOCUMENT_FETCH_TIMEOUT * 2).await;
+                json(metadata_document("/oauth/slow.json"))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop, mut stopping) = tokio::sync::watch::channel(false);
+    let (task_sender, task_receiver) =
+        tokio::sync::oneshot::channel::<tokio::task::JoinHandle<()>>();
+    test_api::TestContext::current()
+        .expect("metadata document origin context")
+        .on_shutdown(async move {
+            stop.send_replace(true);
+            task_receiver.await?.await?;
+            Ok(())
+        })
+        .expect("register metadata document origin shutdown before spawning");
+    let task = tokio::spawn(async move {
+        axum::serve(listener, routes)
+            .with_graceful_shutdown(async move {
+                let _ = stopping.changed().await;
+            })
+            .await
+            .unwrap();
+    });
+    if task_sender.send(task).is_err() {
+        panic!("metadata document origin shutdown ownership was lost");
+    }
+    address
 }

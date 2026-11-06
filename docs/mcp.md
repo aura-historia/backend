@@ -350,9 +350,11 @@ side effects.
 
 ## Generic OAuth acceptance and stage smoke
 
-Register one fixed confidential client per environment with an exact HTTPS callback and a
-scope ceiling, then follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup).
-The same MCP URL supports anonymous discovery and public calls before, during and after a
+Agent clients that support Client ID Metadata Documents, such as Claude, ChatGPT and VS Code,
+sign in without registration where the environment enables
+[metadata document clients](oauth.md#metadata-document-clients). Otherwise register one fixed
+confidential client per environment with an exact HTTPS callback and a scope ceiling, then
+follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup). The same MCP URL supports anonymous discovery and public calls before, during and after a
 connection. Protected tools remain listed; their HTTP `401`/`403` challenges identify the
 resource metadata and required scopes. To add scopes, start a new authorization with a fresh
 state and S256 verifier, obtain human approval and exchange its single-use code. A client
@@ -369,6 +371,12 @@ and the repository's test infrastructure available:
 cargo test --locked -p aura-historia-api --test api \
   mcp_oauth::should_verify_generic_oauth_and_real_hybrid_mcp -- --nocapture
 ```
+
+A second runner, `mcp_oauth::should_verify_metadata_document_clients_and_real_hybrid_mcp`,
+signs a public agent in through consent metadata, approval and a secret-free token exchange
+on a loopback callback, then calls MCP with its token. A context-owned loopback origin serves
+the agent's metadata documents, valid and deliberately broken; other hosts keep the
+production outbound policy.
 
 That fixture constructs the advertised browser handoff and exercises backend approval with
 test first-party identity. It does not render or test the webapp. Local fixtures, compatibility

@@ -2,6 +2,7 @@ use crate::mapping::{AUTHORIZATION_CODE_COLUMNS, scope_values};
 use crate::rows::AuthorizationCodeRow;
 use application::error::box_error;
 use oauth_core::authorization_code::{AuthorizationCode, OAuthAuthorizationCode};
+use oauth_core::client_identifier::OAuthClientIdentifier;
 use oauth_service::ports::{
     AuthorizationCodeRepository, AuthorizationCodeRepositoryFactory, OAuthCodeRepositoryError,
 };
@@ -38,14 +39,19 @@ impl AuthorizationCodeRepositoryFactory<SqlxTransaction>
 impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
     async fn insert(&mut self, code: AuthorizationCode) -> Result<(), OAuthCodeRepositoryError> {
         let code_value: String = code.code().into();
+        let (client_id, metadata_document_client_id) = match code.client_id() {
+            OAuthClientIdentifier::Registered(client_id) => (Some(client_id.into_uuid()), None),
+            OAuthClientIdentifier::MetadataDocument(client_id) => (None, Some(client_id.as_str())),
+        };
         sqlx::query(
             "INSERT INTO oauth_authorization_codes (\
-                authorization_code, client_id, user_id, redirect_uri, scopes, code_challenge, code_challenge_method, \
-                expires_at, resource\
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                authorization_code, client_id, metadata_document_client_id, user_id, redirect_uri, \
+                scopes, code_challenge, code_challenge_method, expires_at, resource\
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(code_value)
-        .bind(code.client_id().into_uuid())
+        .bind(client_id)
+        .bind(metadata_document_client_id)
         .bind(code.user_id().into_uuid())
         .bind(code.redirect_uri().as_str())
         .bind(scope_values(code.scopes()))

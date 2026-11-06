@@ -14,6 +14,9 @@ use user_service::use_cases::queries::check_user_admin::{
 
 pub(crate) const AUTHORIZATION_CODE_TTL: time::Duration = time::Duration::minutes(10);
 pub(crate) const THIRD_PARTY_EXCHANGE_CODE_TTL: time::Duration = time::Duration::seconds(60);
+/// Public clients hold short-lived tokens; they reauthorize when one expires.
+pub(crate) const METADATA_DOCUMENT_CLIENT_ACCESS_TOKEN_TTL: time::Duration =
+    time::Duration::hours(1);
 
 pub(crate) fn authorize_oauth_admin(context: &OperationContext) -> Result<(), OAuthServiceError> {
     context
@@ -29,6 +32,21 @@ pub(crate) fn authorize_oauth_client_read(
         .require()
         .credential_capability(CredentialCapability::AccessTokensRead)
         .authorize::<OAuthServiceError>()
+}
+
+/// Consent metadata serves the human approving a request with first-party authority.
+pub(crate) fn authorize_consent_read(context: &OperationContext) -> Result<(), OAuthServiceError> {
+    match &context.principal {
+        Principal::User(_) => {}
+        Principal::Anonymous => return Err(OAuthServiceError::AuthenticatedActorRequired),
+        Principal::DelegatedUser { .. } | Principal::Service(_) | Principal::System => {
+            return Err(OAuthServiceError::Forbidden);
+        }
+    }
+    if let Some(actor_id) = context.principal.actor_id() {
+        tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
+    }
+    Ok(())
 }
 
 pub(crate) async fn authorize_oauth_client_admin<A>(

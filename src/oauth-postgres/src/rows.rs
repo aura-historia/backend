@@ -35,7 +35,8 @@ pub(crate) struct OAuthClientViewRow {
 #[derive(Debug, sqlx::FromRow)]
 pub(crate) struct AuthorizationCodeRow {
     pub(crate) code: String,
-    pub(crate) client_id: Uuid,
+    pub(crate) client_id: Option<Uuid>,
+    pub(crate) metadata_document_client_id: Option<String>,
     pub(crate) user_id: Uuid,
     pub(crate) redirect_uri: String,
     pub(crate) scopes: Vec<String>,

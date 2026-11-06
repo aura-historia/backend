@@ -125,12 +125,13 @@ describe("API CloudFront Web ACL", () => {
       "GET /v1/admin/oauth-clients",
       "GET /v1/admin/oauth-clients/{client_id}",
       "GET /v1/oauth/authorize",
+      "GET /v1/oauth/clients",
       "PATCH /v1/admin/oauth-clients/{client_id}",
       "POST /v1/admin/oauth-clients",
       "POST /v1/oauth/token",
     ]);
-    // Public AS metadata needs no URI-bearing input; only the existing exact OAuth
-    // authorize/token paths carry resource and callback URIs through these checks.
+    // Public AS metadata needs no URI-bearing input; only the exact OAuth authorize, token
+    // and metadata-document consent paths carry client, resource and callback URIs.
     for (const outside of [
       "/v1/admin/oauth-clients/",
       "/v1/admin/oauth-clients/oc_01m5avv95qeyj84c66cn827eyh/",
@@ -147,6 +148,8 @@ describe("API CloudFront Web ACL", () => {
       "/v1/oauth/revoke",
       "/v1/oauth/introspect",
       "/v1/oauth/clients/oc_01m5avv95qeyj84c66cn827eyh",
+      "/v1/oauth/clients/",
+      "/v1/oauth/clients/https:%2F%2Fagent.example%2Fclient.json",
       "/v1/listing-sources/ls_01m5avv95qeyj84c66cn827eyh/ingestion-configurations/woocommerce",
       "/api/v1/admin/oauth-clients",
       "/api/v1/admin/oauth-clients/oc_01m5avv95qeyj84c66cn827eyh",

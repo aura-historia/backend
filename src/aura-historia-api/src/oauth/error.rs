@@ -57,9 +57,9 @@ impl Serialize for OAuthError {
 impl From<OAuthServiceError> for OAuthError {
     fn from(error: OAuthServiceError) -> Self {
         match error {
-            OAuthServiceError::ClientNotFound | OAuthServiceError::InvalidClientSecret => {
-                Self::InvalidClient
-            }
+            OAuthServiceError::ClientNotFound
+            | OAuthServiceError::InvalidClientSecret
+            | OAuthServiceError::InvalidMetadataDocumentClient { .. } => Self::InvalidClient,
             OAuthServiceError::AuthorizationCodeNotFound
             | OAuthServiceError::AuthorizationCodeExpired
             | OAuthServiceError::AuthorizationCodeClientMismatch
@@ -91,16 +91,27 @@ impl From<OAuthServiceError> for OAuthError {
     }
 }
 
-impl IntoResponse for OAuthError {
-    fn into_response(self) -> Response {
-        let status = match self {
+impl OAuthError {
+    fn status(&self) -> StatusCode {
+        match self {
             Self::InvalidClient => StatusCode::UNAUTHORIZED,
             Self::AccessDenied => StatusCode::FORBIDDEN,
             Self::ServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::TemporarilyUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             _ => StatusCode::BAD_REQUEST,
-        };
+        }
+    }
+
+    /// The protocol error with an endpoint-specific status.
+    pub(crate) fn into_response_with_status(self, status: StatusCode) -> Response {
         no_store((status, Json(serde_json::json!({ "error": self }))).into_response())
+    }
+}
+
+impl IntoResponse for OAuthError {
+    fn into_response(self) -> Response {
+        let status = self.status();
+        self.into_response_with_status(status)
     }
 }
 
@@ -141,6 +152,13 @@ mod tests {
             ),
             (OAuthServiceError::InvalidCodeVerifier, 400, "invalid_grant"),
             (OAuthServiceError::InvalidScope, 400, "invalid_scope"),
+            (
+                OAuthServiceError::InvalidMetadataDocumentClient {
+                    source: box_error(std::io::Error::other(SECRET_MARKER)),
+                },
+                401,
+                "invalid_client",
+            ),
         ] {
             let (actual_status, body) =
                 secret_free_problem(OAuthError::from(error), SECRET_MARKER).await;

@@ -44,6 +44,12 @@ pub enum OAuthServiceError {
     ThirdPartyExchangeCodeExpired,
     #[error("OAuth client metadata is invalid: {0}")]
     InvalidClientMetadata(String),
+    /// A metadata document client is not admitted, or its document is unavailable or invalid.
+    #[error("OAuth metadata document client is invalid")]
+    InvalidMetadataDocumentClient {
+        #[source]
+        source: BoxError,
+    },
     #[error("temporary OAuth failure")]
     TemporarilyUnavailable {
         #[source]

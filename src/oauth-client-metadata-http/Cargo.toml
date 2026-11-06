@@ -1,0 +1,28 @@
+[package]
+name = "oauth-client-metadata-http"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+credential-core = { workspace = true }
+httpdate = { workspace = true }
+oauth-core = { workspace = true }
+oauth-service = { workspace = true }
+public-network-policy = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "sync", "time"] }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time"] }
+
+[features]
+default = []
+# Lets an acceptance fixture serve one host's documents from a plain-HTTP loopback origin.
+# Production composition never enables it.
+loopback-test-origin = []

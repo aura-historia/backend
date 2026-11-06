@@ -3,14 +3,14 @@ use sqlx::FromRow;
 use std::collections::HashSet;
 use user_core::access_token::{
     AccessToken, AccessTokenId, AccessTokenName, AccessTokenOrigin, HashedRawAccessToken,
-    RehydratedAccessTokenState, Scope,
+    InvalidMetadataDocumentClientId, MetadataDocumentClientId, RehydratedAccessTokenState, Scope,
 };
 use user_core::user_id::UserId;
 use user_service::ports::{
     AccessTokenAuthentication, AccessTokenDetails, AccessTokenStorageVersion, VersionedAccessToken,
 };
 
-pub(crate) const ACCESS_TOKEN_COLUMNS: &str = "access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, expires_at, version";
+pub(crate) const ACCESS_TOKEN_COLUMNS: &str = "access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, expires_at, version";
 
 #[derive(Debug, FromRow)]
 pub(crate) struct AccessTokenRow {
@@ -22,6 +22,7 @@ pub(crate) struct AccessTokenRow {
     pub scopes: Vec<String>,
     pub origin: String,
     pub oauth_client_id: Option<uuid::Uuid>,
+    pub oauth_metadata_document_client_id: Option<String>,
     pub expires_at: Option<time::OffsetDateTime>,
     pub version: i64,
 }
@@ -34,6 +35,7 @@ pub(crate) struct AccessTokenDetailsRow {
     pub scopes: Vec<String>,
     pub origin: String,
     pub oauth_client_id: Option<uuid::Uuid>,
+    pub oauth_metadata_document_client_id: Option<String>,
     pub expires_at: Option<time::OffsetDateTime>,
 }
 
@@ -44,6 +46,7 @@ pub(crate) struct AccessTokenAuthenticationRow {
     pub scopes: Vec<String>,
     pub origin: String,
     pub oauth_client_id: Option<uuid::Uuid>,
+    pub oauth_metadata_document_client_id: Option<String>,
     pub expires_at: Option<time::OffsetDateTime>,
 }
 
@@ -53,7 +56,7 @@ pub(crate) enum AccessTokenRowMappingError {
     InvalidScope(String),
     #[error("invalid access token origin: {0}")]
     InvalidOrigin(String),
-    #[error("OAuth access token missing OAuth client id")]
+    #[error("OAuth access token must record exactly the client of its origin")]
     MissingOAuthClientId,
     #[error("user access token has unexpected OAuth client id")]
     UnexpectedOAuthClientId,
@@ -63,6 +66,8 @@ pub(crate) enum AccessTokenRowMappingError {
     InvalidUserId(#[source] domain_primitives::object_id::ObjectIdError),
     #[error("invalid persisted OAuth client identifier")]
     InvalidOAuthClientId(#[source] domain_primitives::object_id::ObjectIdError),
+    #[error("invalid persisted metadata document client identifier")]
+    InvalidMetadataDocumentClientId(#[source] InvalidMetadataDocumentClientId),
     #[error("invalid access token version")]
     InvalidVersion(#[from] domain_primitives::version::InvalidVersionError),
 }
@@ -81,6 +86,7 @@ impl TryFrom<AccessTokenRow> for VersionedAccessToken {
             scopes: row.scopes,
             origin: row.origin,
             oauth_client_id: row.oauth_client_id,
+            oauth_metadata_document_client_id: row.oauth_metadata_document_client_id,
             expires_at: row.expires_at,
         })?;
 
@@ -99,7 +105,11 @@ impl TryFrom<AccessTokenDetailsRow> for AccessTokenDetails {
                 .map_err(AccessTokenRowMappingError::InvalidAccessTokenId)?,
             name: AccessTokenName::from(row.name),
             scopes: parse_scopes(row.scopes)?,
-            origin: parse_origin(row.origin, row.oauth_client_id)?,
+            origin: parse_origin(
+                row.origin,
+                row.oauth_client_id,
+                row.oauth_metadata_document_client_id,
+            )?,
             expires: row.expires_at,
         })
     }
@@ -115,7 +125,11 @@ impl TryFrom<AccessTokenAuthenticationRow> for AccessTokenAuthentication {
             user_id: UserId::try_from(row.user_id)
                 .map_err(AccessTokenRowMappingError::InvalidUserId)?,
             scopes: parse_scopes(row.scopes)?,
-            origin: parse_origin(row.origin, row.oauth_client_id)?,
+            origin: parse_origin(
+                row.origin,
+                row.oauth_client_id,
+                row.oauth_metadata_document_client_id,
+            )?,
             expires: row.expires_at,
         })
     }
@@ -125,12 +139,16 @@ pub(crate) fn scope_values(scopes: &HashSet<Scope>) -> Vec<&'static str> {
     scopes.iter().copied().map(Scope::as_str).collect()
 }
 
+/// The origin value and the client column that matches it.
 pub(crate) fn access_token_origin_values(
     access_token: &AccessToken,
-) -> (&'static str, Option<uuid::Uuid>) {
+) -> (&'static str, Option<uuid::Uuid>, Option<&str>) {
     match access_token.origin() {
-        AccessTokenOrigin::User => ("USER", None),
-        AccessTokenOrigin::OAuth { client_id } => ("OAUTH", Some(client_id.into_uuid())),
+        AccessTokenOrigin::User => ("USER", None, None),
+        AccessTokenOrigin::OAuth { client_id } => ("OAUTH", Some(client_id.into_uuid()), None),
+        AccessTokenOrigin::OAuthMetadataDocument { client_id } => {
+            ("OAUTH_METADATA_DOCUMENT", None, Some(client_id.as_str()))
+        }
     }
 }
 
@@ -143,6 +161,7 @@ struct AccessTokenPersistedState {
     scopes: Vec<String>,
     origin: String,
     oauth_client_id: Option<uuid::Uuid>,
+    oauth_metadata_document_client_id: Option<String>,
     expires_at: Option<time::OffsetDateTime>,
 }
 
@@ -157,7 +176,11 @@ fn access_token_from_parts(
             .map_err(AccessTokenRowMappingError::InvalidUserId)?,
         name: AccessTokenName::from(state.name),
         scopes: parse_scopes(state.scopes)?,
-        origin: parse_origin(state.origin, state.oauth_client_id)?,
+        origin: parse_origin(
+            state.origin,
+            state.oauth_client_id,
+            state.oauth_metadata_document_client_id,
+        )?,
         expires: state.expires_at,
     }))
 }
@@ -197,19 +220,27 @@ fn parse_scopes(values: Vec<String>) -> Result<HashSet<Scope>, AccessTokenRowMap
 fn parse_origin(
     origin: String,
     oauth_client_id: Option<uuid::Uuid>,
+    oauth_metadata_document_client_id: Option<String>,
 ) -> Result<AccessTokenOrigin, AccessTokenRowMappingError> {
-    match origin.as_str() {
-        "USER" if oauth_client_id.is_none() => Ok(AccessTokenOrigin::User),
-        "USER" => Err(AccessTokenRowMappingError::UnexpectedOAuthClientId),
-        "OAUTH" => oauth_client_id
-            .map(|client_id| {
-                client_id
-                    .try_into()
-                    .map(|client_id| AccessTokenOrigin::OAuth { client_id })
-                    .map_err(AccessTokenRowMappingError::InvalidOAuthClientId)
-            })
-            .transpose()?
-            .ok_or(AccessTokenRowMappingError::MissingOAuthClientId),
+    match (
+        origin.as_str(),
+        oauth_client_id,
+        oauth_metadata_document_client_id,
+    ) {
+        ("USER", None, None) => Ok(AccessTokenOrigin::User),
+        ("USER", _, _) => Err(AccessTokenRowMappingError::UnexpectedOAuthClientId),
+        ("OAUTH", Some(client_id), None) => client_id
+            .try_into()
+            .map(|client_id| AccessTokenOrigin::OAuth { client_id })
+            .map_err(AccessTokenRowMappingError::InvalidOAuthClientId),
+        ("OAUTH_METADATA_DOCUMENT", None, Some(client_id)) => {
+            MetadataDocumentClientId::try_from(client_id)
+                .map(|client_id| AccessTokenOrigin::OAuthMetadataDocument { client_id })
+                .map_err(AccessTokenRowMappingError::InvalidMetadataDocumentClientId)
+        }
+        ("OAUTH" | "OAUTH_METADATA_DOCUMENT", _, _) => {
+            Err(AccessTokenRowMappingError::MissingOAuthClientId)
+        }
         _ => Err(AccessTokenRowMappingError::InvalidOrigin(origin)),
     }
 }
@@ -247,6 +278,55 @@ mod tests {
             parse_scopes(vec!["listing-sources:write".to_owned()])
                 .unwrap_or_else(|_| unreachable!())
         );
+    }
+
+    #[test]
+    fn should_require_exactly_the_client_column_of_each_origin() {
+        let client_id = "https://agent.example/client.json";
+        let registered = Some(uuid_v7_fixture());
+        let document = || Some(client_id.to_owned());
+
+        assert_eq!(
+            AccessTokenOrigin::OAuthMetadataDocument {
+                client_id: client_id.parse().unwrap()
+            },
+            parse_origin("OAUTH_METADATA_DOCUMENT".to_owned(), None, document()).unwrap()
+        );
+        assert_eq!(
+            AccessTokenOrigin::User,
+            parse_origin("USER".to_owned(), None, None).unwrap()
+        );
+        for (origin, oauth_client_id, metadata_document_client_id) in [
+            ("USER", None, document()),
+            ("OAUTH", registered, document()),
+            ("OAUTH", None, document()),
+            ("OAUTH_METADATA_DOCUMENT", registered, document()),
+            ("OAUTH_METADATA_DOCUMENT", registered, None),
+            ("OAUTH_METADATA_DOCUMENT", None, None),
+        ] {
+            assert!(
+                matches!(
+                    parse_origin(
+                        origin.to_owned(),
+                        oauth_client_id,
+                        metadata_document_client_id
+                    ),
+                    Err(AccessTokenRowMappingError::MissingOAuthClientId
+                        | AccessTokenRowMappingError::UnexpectedOAuthClientId)
+                ),
+                "{origin}"
+            );
+        }
+        assert!(matches!(
+            parse_origin(
+                "OAUTH_METADATA_DOCUMENT".to_owned(),
+                None,
+                Some("https://agent.example:443/client.json".to_owned())
+            ),
+            Err(AccessTokenRowMappingError::InvalidMetadataDocumentClientId(
+                _
+            ))
+        ));
     }
 
     #[test]
@@ -323,6 +403,7 @@ mod tests {
                 scopes: vec![],
                 origin: "OAUTH".to_owned(),
                 oauth_client_id: Some(oauth_client_id),
+                oauth_metadata_document_client_id: None,
                 expires_at: None,
                 version: 1,
             };
@@ -346,6 +427,7 @@ mod tests {
                 scopes: vec![],
                 origin: "OAUTH".to_owned(),
                 oauth_client_id: Some(oauth_client_id),
+                oauth_metadata_document_client_id: None,
                 expires_at: None,
             };
 
@@ -367,6 +449,7 @@ mod tests {
                 scopes: vec![],
                 origin: "OAUTH".to_owned(),
                 oauth_client_id: Some(oauth_client_id),
+                oauth_metadata_document_client_id: None,
                 expires_at: None,
             };
 

@@ -90,6 +90,7 @@
     "notification-email",
     "notification-email-aws",
     "notification-service",
+    "oauth-client-metadata-http",
     "oauth-core",
     "oauth-service",
     "partnership-core",

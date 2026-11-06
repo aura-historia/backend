@@ -78,6 +78,10 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
     OAUTH_ISSUER_URL: config.oauthIssuerUrl,
+    OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED: String(config.oauthMetadataDocumentClients.enabled),
+    ...(config.oauthMetadataDocumentClients.deniedHosts.length > 0
+      ? { OAUTH_METADATA_DOCUMENT_DENIED_HOSTS: config.oauthMetadataDocumentClients.deniedHosts.join(",") }
+      : {}),
     PRODUCT_LISTING_INGESTION_QUEUE_URL: context.queues.productListingIngestion.queue.queueUrl,
     NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET: context.emailConfigurationSet.configurationSetName,
     NEWSLETTER_CONFIRMATION_EMAIL_FROM: config.notificationEmail.from,

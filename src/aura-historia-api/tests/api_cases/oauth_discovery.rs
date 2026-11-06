@@ -35,11 +35,16 @@ async fn should_publish_public_exact_discovery_without_authentication() {
         serde_json::json!(["S256"]),
         metadata["code_challenge_methods_supported"]
     );
+    // Every authorization response names its issuer (RFC 9207), for every client.
+    assert_eq!(
+        serde_json::json!(true),
+        metadata["authorization_response_iss_parameter_supported"]
+    );
+    // This API leaves metadata document clients at their disabled default.
     for unsupported in [
         "registration_endpoint",
         "revocation_endpoint",
         "introspection_endpoint",
-        "authorization_response_iss_parameter_supported",
         "client_id_metadata_document_supported",
     ] {
         assert!(metadata.get(unsupported).is_none(), "{unsupported}");

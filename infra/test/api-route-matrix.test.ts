@@ -118,7 +118,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(158);
+      expect(routes).toHaveLength(159);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || key === "GET /.well-known/oauth-authorization-server")).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -425,6 +425,18 @@ describe("HTTP API route policy matrix", () => {
     }));
     expect(API_ROUTE_CATALOG).toContainEqual({
       method: "GET",
+      path: "/v1/oauth/clients",
+      lambda: "auraHistoriaApi",
+      auth: RouteAuthPolicy.ApplicationBearer,
+      policy: {
+        bearer: "REQUIRED",
+        authorization: RouteAuthorizationClass.AuthenticatedUser,
+        oauthCredentials: OAuthCredentialRequirement.None,
+        providerProof: ProviderProofRequirement.None,
+      },
+    });
+    expect(API_ROUTE_CATALOG).toContainEqual({
+      method: "GET",
       path: "/v1/oauth/clients/{client_id}",
       lambda: "auraHistoriaApi",
       auth: RouteAuthPolicy.ApplicationBearer,
@@ -506,7 +518,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(158);
+    expect(routes).toHaveLength(159);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; adding exact discovery creates one route.
     expect(routes.length).toBeLessThanOrEqual(300);

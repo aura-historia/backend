@@ -22,7 +22,7 @@ impl AccessTokenListReader for SqlxAccessTokenListReader {
         user_id: UserId,
     ) -> Result<Vec<AccessTokenDetails>, AccessTokenListReadError> {
         let rows = sqlx::query_as::<_, AccessTokenDetailsRow>(
-            "SELECT access_token_id, user_id, name, scopes, origin, oauth_client_id, expires_at FROM access_tokens WHERE user_id = $1 ORDER BY created ASC, access_token_id ASC",
+            "SELECT access_token_id, user_id, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, expires_at FROM access_tokens WHERE user_id = $1 ORDER BY created ASC, access_token_id ASC",
         )
         .bind(user_id.into_uuid())
         .fetch_all(&self.pool)

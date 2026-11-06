@@ -1,4 +1,5 @@
-//! Generic fixed-client acceptance over real local OAuth, REST and MCP HTTP boundaries.
+//! Generic acceptance over real local OAuth, REST and MCP HTTP boundaries, for fixed
+//! registered clients and for public clients identified by a metadata document URL.
 mod client;
 mod mcp;
 
@@ -13,8 +14,17 @@ use test_api::{IntegrationTestService, aura_integration_test, get_postgres_clien
 // child process; selected overview/account calls never contact this deliberately closed port.
 #[test]
 fn should_verify_generic_oauth_and_real_hybrid_mcp() {
+    run_isolated_cases("mcp_oauth::cases::", 10);
+}
+
+#[test]
+fn should_verify_metadata_document_clients_and_real_hybrid_mcp() {
+    run_isolated_cases("mcp_oauth::metadata_document_cases::", 2);
+}
+
+fn run_isolated_cases(filter: &str, expected_passed: usize) {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["mcp_oauth::cases::", "--ignored", "--nocapture"])
+        .args([filter, "--ignored", "--nocapture"])
         // This parent owns no lease; the child batch allocates its own bounded contexts.
         .env_remove("NEXTEST")
         .env_remove("NEXTEST_RUN_ID")
@@ -30,10 +40,13 @@ fn should_verify_generic_oauth_and_real_hybrid_mcp() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("10 passed; 0 failed"));
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains(&format!("{expected_passed} passed; 0 failed"))
+    );
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         if line.starts_with("test result:")
-            || (line.starts_with("test mcp_oauth::cases::") && line.ends_with(" ... ok"))
+            || (line.starts_with(&format!("test {filter}")) && line.ends_with(" ... ok"))
         {
             println!("{line}");
         }
@@ -41,3 +54,4 @@ fn should_verify_generic_oauth_and_real_hybrid_mcp() {
 }
 
 mod cases;
+mod metadata_document_cases;

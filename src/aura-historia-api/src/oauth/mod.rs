@@ -14,6 +14,7 @@ pub mod create_client;
 pub mod delete_client;
 pub mod get_client;
 pub mod get_consent_client;
+pub mod get_metadata_document_consent_client;
 pub mod introspect;
 pub mod list_clients;
 pub mod revoke;
