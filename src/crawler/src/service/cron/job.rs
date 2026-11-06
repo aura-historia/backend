@@ -55,6 +55,13 @@ impl CrawlerCronJob {
         }
     }
 
+    /// Replaces the job's stop switch with `stop`, so that parts built before the job, such as the
+    /// spider, can end their running work with the same stop.
+    pub fn with_stop(mut self, stop: CronStop) -> Self {
+        self.stop = stop;
+        self
+    }
+
     /// The switch that makes [`run_loop`](Self::run_loop) stop starting work and return once
     /// the work already running has finished.
     pub fn stop_handle(&self) -> CronStop {

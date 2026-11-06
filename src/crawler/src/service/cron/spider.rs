@@ -33,6 +33,9 @@ const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 6
 const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
 const TRUNCATED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+/// A crawl the crawler's shutdown ended is due again once the crawler is back: the hold only
+/// keeps a restart loop from starting it before the process has settled.
+const STOPPED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60);
 const RATE_LIMITED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60 * 60);
 
 fn long_cooldown(profile: CrawlCooldownProfile) -> Duration {
@@ -213,6 +216,8 @@ const URL_PATTERN_REVIEW_WAIT: Duration = SPIDER_RECRAWL_INTERVAL;
 enum SpiderSlotStatus {
     Succeeded,
     Truncated,
+    /// The crawler's shutdown ended the crawl.
+    Stopped,
     /// A shop's rate-limit answer ended the crawl.
     RateLimited,
     /// The crawl stopped classifying at a pending URL-pattern review.
@@ -382,6 +387,35 @@ async fn record_truncated_run(
         "Spider run truncated by hard timeout"
     );
     SpiderSlotStatus::Truncated
+}
+
+/// A crawl the crawler's shutdown ended, or whose too small sample the shutdown caused, is
+/// neither a truncation nor a failure: it keeps the frontier it left and is due again soon.
+async fn record_stopped_run(
+    spider_candidates: &dyn SpiderCandidateService,
+    candidate: &SpiderCandidate,
+) -> SpiderSlotStatus {
+    let next_crawl_at = next_crawl_after(STOPPED_CRAWL_RETRY_COOLDOWN);
+    match spider_candidates
+        .mark_crawl_stopped(&candidate.crawled_root(), next_crawl_at)
+        .await
+    {
+        Ok(CrawlOutcomeWrite::Recorded) => {}
+        Ok(CrawlOutcomeWrite::RootMoved) => {
+            return record_root_moved(candidate, CrawlCompletion::Stopped.as_str(), None);
+        }
+        Err(err) => warn!(
+            error = ?err,
+            crawl_host = %candidate.crawl_root.host(),
+            "Failed to persist stopped crawl metadata"
+        ),
+    }
+    info!(
+        crawl_host = %candidate.crawl_root.host(),
+        next_crawl_at = %next_crawl_at,
+        "Spider run stopped by the crawler's shutdown; the next crawl resumes from its frontier"
+    );
+    SpiderSlotStatus::Stopped
 }
 
 /// An incremental crawl between full crawls: it keeps the ListingSource's full-crawl,
@@ -730,6 +764,9 @@ async fn record_run_outcome(
         Ok(result) if let Some(review_id) = result.pending_url_pattern_review => {
             record_review_wait_run(spider_candidates, candidate, result, review_id).await
         }
+        Ok(result) if result.completion == CrawlCompletion::Stopped => {
+            record_stopped_run(spider_candidates, candidate).await
+        }
         Ok(result)
             if candidate.kind == CrawlKind::Incremental
                 && result.completion.rate_limit().is_none() =>
@@ -743,6 +780,9 @@ async fn record_run_outcome(
             record_rate_limited_run(spider_candidates, candidate, result, rate_limit).await
         }
         Ok(result) => record_truncated_run(spider_candidates, candidate, result).await,
+        Err(error) if error.crawl_was_stopped() => {
+            record_stopped_run(spider_candidates, candidate).await
+        }
         Err(error) => record_failed_run(spider_candidates, candidate, error).await,
     }
 }
@@ -755,6 +795,7 @@ fn persisted_crawl_outcome(
     match (status, run) {
         (SpiderSlotStatus::Succeeded, Ok(result)) => Some(result.completion.as_str()),
         (SpiderSlotStatus::Truncated, _) => Some(CrawlCompletion::HardTimeoutTruncated.as_str()),
+        (SpiderSlotStatus::Stopped, _) => Some(CrawlCompletion::Stopped.as_str()),
         (SpiderSlotStatus::RateLimited, _) => Some(RATE_LIMITED_CRAWL_OUTCOME),
         (SpiderSlotStatus::AwaitingReview, _) => Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME),
         (SpiderSlotStatus::Failed, _) => Some(FAILED_CRAWL_OUTCOME),
@@ -803,7 +844,7 @@ fn emit_crawl_metrics(
             .with_value(CrawlerMetric::CrawlProductUrls, product_urls as u64)
             .with_value(
                 CrawlerMetric::CrawlTruncated,
-                u64::from(!completion.is_full()),
+                u64::from(!completion.is_full() && completion != CrawlCompletion::Stopped),
             )
             .emit();
     }
@@ -882,6 +923,7 @@ impl CrawlerCronJob {
         let mut total = 0usize;
         let mut succeeded = 0usize;
         let mut truncated = 0usize;
+        let mut stopped = 0usize;
         let mut rate_limited = 0usize;
         let mut awaiting_review = 0usize;
         let mut review_decided = 0usize;
@@ -969,6 +1011,7 @@ impl CrawlerCronJob {
                     match outcome.status {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
+                        SpiderSlotStatus::Stopped => stopped += 1,
                         SpiderSlotStatus::RateLimited => rate_limited += 1,
                         SpiderSlotStatus::AwaitingReview => awaiting_review += 1,
                         SpiderSlotStatus::ReviewDecided => review_decided += 1,
@@ -991,6 +1034,7 @@ impl CrawlerCronJob {
             total,
             succeeded,
             truncated,
+            stopped,
             rate_limited,
             awaiting_review,
             review_decided,
@@ -2563,6 +2607,93 @@ mod tests {
         spider_job(spider_candidates, spider_service, 1)
             .run_spider_once()
             .await;
+    }
+
+    /// A crawl the shutdown ended keeps its frontier in the spider service; the scheduler records
+    /// it as its own outcome, due again soon, without a truncation, a failure or a completion.
+    fn stopped_candidates(
+        expected_listing_source_id: ListingSourceId,
+    ) -> MockSpiderCandidateService {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    Ok(if first_call {
+                        vec![spider_candidate(expected_listing_source_id)]
+                    } else {
+                        vec![]
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_stopped()
+            .times(1)
+            .withf(move |root, next_crawl_at| {
+                root.listing_source_id == expected_listing_source_id
+                    && next_crawl_at_is_about(*next_crawl_at, STOPPED_CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        spider_candidates.expect_mark_crawl_truncated().times(0);
+        spider_candidates.expect_mark_crawl_completed().times(0);
+        spider_candidates.expect_mark_crawl_failure().times(0);
+        spider_candidates
+    }
+
+    #[tokio::test]
+    async fn should_record_a_stopped_crawl_as_due_soon_without_counting_a_truncation() {
+        let spider_candidates = stopped_candidates(ListingSourceId::new());
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async { Ok(run_result(CrawlCompletion::Stopped)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_not_count_a_failure_when_the_shutdown_left_too_few_pages_to_judge() {
+        let spider_candidates = stopped_candidates(ListingSourceId::new());
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async {
+                    Err(SpiderServiceError::NoProductUrls {
+                        crawl_root_url: "https://example.com".to_string(),
+                        total_links: 3,
+                        product_pattern: "/p/".to_string(),
+                        completion: CrawlCompletion::Stopped,
+                    })
+                })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[test]
+    fn should_persist_the_stopped_outcome_in_screaming_snake_case() {
+        assert_eq!(CrawlCompletion::Stopped.as_str(), "STOPPED");
+        assert_eq!(
+            serde_json::to_string(&CrawlCompletion::Stopped).unwrap(),
+            "\"STOPPED\""
+        );
+        assert_eq!(
+            persisted_crawl_outcome(
+                &Ok(run_result(CrawlCompletion::Stopped)),
+                SpiderSlotStatus::Stopped
+            ),
+            Some("STOPPED")
+        );
     }
 
     #[tokio::test]

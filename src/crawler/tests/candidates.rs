@@ -262,6 +262,52 @@ async fn spider_should_select_full_and_incremental_crawls_by_their_intervals() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_mark_crawl_stopped_should_keep_failure_and_truncation_state_and_come_due_soon() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "spider-stopped.example.com").await;
+    let root = crawled_root(listing_source_id, "spider-stopped.example.com");
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET crawl_truncation_count = 2, crawl_failure_count = 1, \
+             last_crawl_error_kind = 'ConnectError' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    service
+        .mark_crawl_stopped(
+            &root,
+            time::OffsetDateTime::now_utc() - time::Duration::seconds(1),
+        )
+        .await
+        .unwrap();
+
+    let (failures, error_kind, next_crawl_at, outcome, truncations, last_crawled) =
+        crawl_state(&pool, listing_source_id).await;
+    assert_eq!((failures, error_kind.as_deref()), (1, Some("ConnectError")));
+    assert!(next_crawl_at.is_some());
+    assert_eq!(outcome.as_deref(), Some("STOPPED"));
+    assert_eq!(truncations, 2, "a stop is not a truncation");
+    assert_eq!(last_crawled, None, "a stopped crawl is no full crawl");
+    let due: Vec<ListingSourceId> = service
+        .get_candidates(1000, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| candidate.listing_source_id)
+        .collect();
+    assert!(
+        due.contains(&listing_source_id),
+        "the stopped crawl is due again"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn spider_mark_incremental_crawl_finished_should_keep_full_crawl_and_rate_limit_state() {
     let pool = get_postgres_client().await;
     let service = SpiderCandidateServiceImpl::new(pool.clone());

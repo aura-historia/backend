@@ -5,8 +5,8 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 /// Asks the cron loops to stop starting work. Clones share one switch, and a requested stop
-/// stays requested: no new pass, scraper batch or scraper URL starts, while work already
-/// running finishes.
+/// stays requested: no new pass, scraper batch or scraper URL starts. Work already
+/// running finishes, and a running crawl ends at once with its frontier kept.
 #[derive(Clone)]
 pub struct CronStop(watch::Sender<bool>);
 
@@ -19,6 +19,12 @@ impl Default for CronStop {
 impl CronStop {
     pub fn request(&self) {
         self.0.send_replace(true);
+    }
+
+    /// A view of the switch for work that ends itself once a stop is requested, such as a
+    /// running crawl.
+    pub fn subscribe(&self) -> watch::Receiver<bool> {
+        self.0.subscribe()
     }
 
     pub(crate) fn is_requested(&self) -> bool {
