@@ -12,6 +12,7 @@ use crate::{
     config::normalized_origin,
     metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
+    server_info::server_info,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
@@ -63,10 +64,12 @@ pub fn router(
         .collect();
     sdk_config = sdk_config.enforce_origin_validation();
     let operations = registry.clone();
+    let info = server_info(&config);
     let sdk = StreamableHttpService::new(
         move || {
             Ok(ProtocolHandler {
                 registry: operations.clone(),
+                info: info.clone(),
             })
         },
         Arc::new(NeverSessionManager::default()),
@@ -89,6 +92,10 @@ pub fn router(
         .route(
             "/.well-known/oauth-protected-resource/v1",
             get(protected_resource),
+        )
+        .route(
+            "/.well-known/openai-apps-challenge",
+            get(openai_apps_challenge),
         )
         .route("/health", get(probe))
         .route("/ready", get(probe))
@@ -114,6 +121,21 @@ async fn protected_resource(State(state): State<HttpState>, headers: HeaderMap) 
         "scopes_supported": ["users:read"],
     }))
     .into_response()
+}
+
+/// OpenAI verifies the MCP host by fetching exactly the token issued in its portal.
+async fn openai_apps_challenge(State(state): State<HttpState>, headers: HeaderMap) -> Response {
+    if let Err(status) = validate_origin_and_host(&headers, &state.config) {
+        return status.into_response();
+    }
+    match &state.config.openai_apps_challenge {
+        Some(token) => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            token.clone(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {

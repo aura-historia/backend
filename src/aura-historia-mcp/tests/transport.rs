@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use aura_historia_mcp::{
     AccessClass, AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate,
     OperationDefinition, OperationError, OperationPolicy, Registry, RegistryError, TransportConfig,
-    router,
+    UNRELEASED_SERVER_VERSION, router,
 };
 use axum::{
     Router,
@@ -168,6 +168,8 @@ impl AdmissionGate for PendingGate {
 
 #[path = "transport/admission.rs"]
 mod admission;
+#[path = "transport/directory.rs"]
+mod directory;
 #[path = "transport/protocol.rs"]
 mod protocol;
 #[path = "transport/registry.rs"]
