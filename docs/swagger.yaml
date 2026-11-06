@@ -17,8 +17,9 @@ info:
     \ Cognito ID tokens are not accepted as API credentials.\n- **`AccessTokenAuth`** — Aura Historia opaque bearer access\
     \ tokens created via\n  `/v1/me/access-tokens` or OAuth 2.0, primarily intended for partner automations and server-to-server\n\
     \  ingestion scenarios.\n\nWhen a route lists multiple security schemes, any one of the listed schemes may be accepted.\n\
+    A `401` for a missing or invalid bearer on a route that accepts Aura access tokens carries\n`WWW-Authenticate: Bearer resource_metadata=\"{issuer}/.well-known/oauth-protected-resource\"`; OAuth\nprotocol and consent routes keep their own errors. `/.well-known/api-catalog` lists the REST and MCP APIs.\n\
     Some read endpoints can also be called without authentication, while a valid user token may enrich\nthe response with\
-    \ personalized state such as watchlist, notification, or search-filter metadata. Aura Historia access\ntokens receive only the sections their read scopes permit; see `ProductListingUserStateData`.\n\n## MCP interface\n\nThe separate `https://mcp.aura-historia.com/v1` Streamable HTTP endpoint accepts opaque Aura access tokens only. Public calls may omit credentials; invalid supplied credentials receive HTTP 401, protected operations require their declared scopes, and insufficient grants receive HTTP 403 with the complete required scope set. Credential-free protected-resource metadata is served on the MCP host at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/v1`. See [the MCP contract](https://github.com/aura-historia/backend/blob/develop/docs/mcp.md) for protocol and discovery details.\n\n## Data and response conventions\n\
+    \ personalized state such as watchlist, notification, or search-filter metadata. Aura Historia access\ntokens receive only the sections their read scopes permit; see `ProductListingUserStateData`.\n\n## MCP interface\n\nThe separate `https://mcp.aura-historia.com/v1` Streamable HTTP endpoint accepts opaque Aura access tokens only. Public calls may omit credentials; invalid supplied credentials receive HTTP 401, protected operations require their declared scopes, and insufficient grants receive HTTP 403 with the complete required scope set. Credential-free protected-resource metadata is served on the MCP host at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/v1`, and its MCP Server Card at `/.well-known/mcp/server-card.json`. See [the MCP contract](https://github.com/aura-historia/backend/blob/develop/docs/mcp.md) for protocol and discovery details.\n\n## Data and response conventions\n\
     \n- **PATCH:** an omitted request member remains unchanged. A documented nullable PATCH member\n  accepts `null` to clear\
     \ its value; `null` for any other member returns `400 BAD_BODY_VALUE`.\n  Use `[]`, not `null`, to replace a non-null\
     \ collection with an empty collection. Empty HTTP\n  bodies are invalid, `{}` is a valid object-PATCH no-op, and the partner-product\
@@ -33,7 +34,7 @@ info:
     - Many list and search endpoints use **cursor-based pagination** via `searchAfter`\n- Origin API responses include\
     \ server-generated `X-Request-Id` and `X-Correlation-Id` headers. Clients may send `X-Correlation-Id` to preserve a trace\
     \ only when it is a 1–128-character ASCII value containing letters, digits, `.`, `_`, or `-`; invalid values are replaced.\
-    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the six cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Request bodies are limited to 1 MiB and requests time out after 30 seconds. A declared `Content-Length` above 1 MiB is\
+    \ Both headers are CORS-exposed; CloudFront removes them from viewer responses on the cache-enabled discovery behaviors so shared cache hits cannot replay origin IDs.\n- Request bodies are limited to 1 MiB and requests time out after 30 seconds. A declared `Content-Length` above 1 MiB is\
     \ rejected at the edge with `413` (`BAD_BODY_VALUE`, JSON body) before authentication or route handling.\n- `POST /v1/webhooks/loops` is limited to 64 KiB and has a 10-second processing budget; it requires a valid Loops signature but no Aura bearer.\n- `GET /v1/health` is a\
     \ process liveness check. `GET /v1/ready` returns `204` only when the configured PostgreSQL and OpenSearch dependencies are\
     \ reachable; it otherwise returns `503`.\n- WooCommerce webhook ingestion responds with **`204 No Content`** after\
@@ -88,6 +89,93 @@ paths:
                 scopes_supported: ['users:read', 'users:write', 'search-filters:read', 'search-filters:write', 'watchlist:read', 'watchlist:write', 'notifications:read', 'notifications:write']
                 authorization_response_iss_parameter_supported: true
                 client_id_metadata_document_supported: true
+  /.well-known/oauth-protected-resource:
+    get:
+      summary: Discover the REST protected resource
+      description: >-
+        Public RFC 9728 metadata for the shared Aura default resource that REST serves. `resource`
+        and the single authorization server are the configured environment's issuer, bearer tokens
+        travel in the `Authorization` header, and `scopes_supported` lists the ordinary-user
+        vocabulary that authorization-server discovery advertises; a client's scope ceiling remains
+        authoritative. A `401` for a missing or invalid bearer on a route that accepts Aura access
+        tokens points here with `WWW-Authenticate: Bearer resource_metadata="…"`. The MCP host
+        publishes its own metadata for the MCP resource. See docs/agent-discovery.md.
+      operationId: getOAuthProtectedResourceMetadata
+      tags:
+        - OAuth
+      security: []
+      responses:
+        "200":
+          description: Public metadata; supplied credentials are not evaluated. CloudFront keeps this exact route uncached.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/OAuthNoStore'
+            Pragma:
+              $ref: '#/components/headers/OAuthNoCache'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthProtectedResourceMetadataData'
+              example:
+                resource: https://api.aura-historia.com
+                authorization_servers: [https://api.aura-historia.com]
+                bearer_methods_supported: [header]
+                scopes_supported: ['users:read', 'users:write', 'search-filters:read', 'search-filters:write', 'watchlist:read', 'watchlist:write', 'notifications:read', 'notifications:write']
+  /.well-known/api-catalog:
+    get:
+      summary: Discover the Aura APIs
+      description: Public RFC 9727 API catalog in the Linkset format. The catalog's own context lists the REST and MCP endpoints as `item` links; each API context links its description (`service-desc`, the OpenAPI document or the MCP server card), documentation (`service-doc`) and status probe (`status`). Every URL belongs to the configured environment, apart from the shared documentation site. Credentials and query strings are not evaluated; send none. See docs/agent-discovery.md.
+      operationId: getApiCatalog
+      tags:
+        - Agent Discovery
+      security: []
+      responses:
+        "200":
+          description: The API catalog. Approved anonymous discovery representation with a 300-second shared TTL; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Link:
+              $ref: '#/components/headers/ApiCatalogLink'
+          content:
+            application/linkset+json:
+              schema:
+                $ref: '#/components/schemas/ApiCatalogData'
+              example:
+                linkset:
+                  - anchor: https://api.aura-historia.com/.well-known/api-catalog
+                    item:
+                      - href: https://api.aura-historia.com/v1
+                      - href: https://mcp.aura-historia.com/v1
+                  - anchor: https://api.aura-historia.com/v1
+                    service-desc:
+                      - href: https://docs.api.aura-historia.com/swagger.yaml
+                        type: application/vnd.oai.openapi
+                    service-doc:
+                      - href: https://docs.api.aura-historia.com/
+                        type: text/html
+                    status:
+                      - href: https://api.aura-historia.com/v1/health
+                  - anchor: https://mcp.aura-historia.com/v1
+                    service-desc:
+                      - href: https://mcp.aura-historia.com/.well-known/mcp/server-card.json
+                        type: application/mcp-server-card+json
+                    service-doc:
+                      - href: https://docs.api.aura-historia.com/mcp.md
+                        type: text/markdown
+                    status:
+                      - href: https://mcp.aura-historia.com/ready
+    head:
+      summary: Locate the Aura API catalog
+      description: Returns the `GET` headers without a body, including the `api-catalog` link that RFC 9727 requires.
+      operationId: headApiCatalog
+      tags:
+        - Agent Discovery
+      security: []
+      responses:
+        "200":
+          description: The catalog exists at the linked URL.
+          headers:
+            Link:
+              $ref: '#/components/headers/ApiCatalogLink'
   /v1/health:
     get:
       summary: Check process liveness
@@ -18400,6 +18488,10 @@ components:
     OAuthNoCache:
       description: Legacy cache prevention for OAuth credential traffic.
       schema: { type: string, enum: [no-cache] }
+    ApiCatalogLink:
+      description: The catalog's own URL with the `api-catalog` relation (RFC 9727).
+      schema: { type: string }
+      example: '<https://api.aura-historia.com/.well-known/api-catalog>; rel="api-catalog"'
     AsyncProductListingIdempotencyKey:
       description: Effective key, echoed on every evaluated report (including non-2xx); not guaranteed on pre-evaluation ApiError responses. CORS-exposed for browser clients.
       schema:
@@ -18589,6 +18681,69 @@ components:
         error:
           type: string
           enum: [invalid_request, invalid_client, invalid_grant, unsupported_grant_type, unsupported_response_type, invalid_scope, invalid_target, access_denied, server_error, temporarily_unavailable]
+    OAuthProtectedResourceMetadataData:
+      type: object
+      additionalProperties: false
+      required: [resource, authorization_servers, bearer_methods_supported, scopes_supported]
+      properties:
+        resource:
+          type: string
+          enum: ['https://api.aura-historia.com', 'https://api.stage.aura-historia.com']
+        authorization_servers:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: ['https://api.aura-historia.com', 'https://api.stage.aura-historia.com']
+        bearer_methods_supported:
+          type: array
+          items: { type: string, enum: [header] }
+        scopes_supported:
+          type: array
+          items:
+            type: string
+            enum: ['users:read', 'users:write', 'search-filters:read', 'search-filters:write', 'watchlist:read', 'watchlist:write', 'notifications:read', 'notifications:write']
+    ApiCatalogData:
+      type: object
+      additionalProperties: false
+      required: [linkset]
+      description: RFC 9264 Linkset. The first context is the catalog itself; the others describe one API each.
+      properties:
+        linkset:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiCatalogContextData'
+    ApiCatalogContextData:
+      type: object
+      additionalProperties: false
+      required: [anchor]
+      properties:
+        anchor:
+          type: string
+          description: The catalog URL or an API endpoint.
+        item:
+          type: array
+          items: { $ref: '#/components/schemas/ApiCatalogLinkData' }
+        service-desc:
+          type: array
+          items: { $ref: '#/components/schemas/ApiCatalogLinkData' }
+        service-doc:
+          type: array
+          items: { $ref: '#/components/schemas/ApiCatalogLinkData' }
+        status:
+          type: array
+          items: { $ref: '#/components/schemas/ApiCatalogLinkData' }
+    ApiCatalogLinkData:
+      type: object
+      additionalProperties: false
+      required: [href]
+      properties:
+        href:
+          type: string
+        type:
+          type: string
+          description: Media type of the target, where known.
     OAuthAuthorizationServerMetadataData:
       type: object
       additionalProperties: false
@@ -27196,6 +27351,7 @@ x-tagGroups:
   - name: Operations
     tags:
       - Operations
+      - Agent Discovery
   - name: Discovery
     tags:
       - ProductListings
@@ -27248,3 +27404,5 @@ tags:
     description: Partnership application submission, review tracking, administration, and decision workflows.
   - name: OAuth
     description: OAuth 2.0 authorization, token, revocation, introspection, and OAuth client metadata management.
+  - name: Agent Discovery
+    description: Machine-readable documents that describe the Aura APIs to agents.

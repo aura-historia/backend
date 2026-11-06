@@ -85,6 +85,9 @@ const apiRoutes = (
  */
 export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-authorization-server", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-protected-resource", ["GET"]),
+  // RFC 9727 requires HEAD; Gateway routes do not imply it from GET.
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/api-catalog", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 
@@ -226,7 +229,7 @@ export class BackendHttpApi extends Construct {
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
         allowOrigins: props.config.apiCorsAllowOrigins,
-        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"],
+        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate"],
       },
     });
 
@@ -389,6 +392,7 @@ export class BackendHttpApi extends Construct {
       "/v1/product-listings",
       "/v1/product-listings/*",
       "/v1/overview",
+      "/.well-known/api-catalog",
     ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {

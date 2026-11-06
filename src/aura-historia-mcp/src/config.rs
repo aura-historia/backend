@@ -175,4 +175,6 @@ pub enum ConfigError {
     OpenAiAppsChallenge,
     #[error("invalid environment encoding for {0}")]
     Encoding(&'static str),
+    #[error("MCP server card cannot be serialized")]
+    ServerCard(#[source] application::error::BoxError),
 }

@@ -169,6 +169,7 @@ pub struct AppState {
     pub(crate) auctions: Option<AuctionsState>,
     pub(crate) admin_product_listings: Option<AdminProductListingsState>,
     pub(crate) public_auctions: Option<PublicAuctionsState>,
+    pub(crate) agent_discovery: Option<crate::agent_discovery::AgentDiscoveryState>,
 }
 
 impl Default for AppState {
@@ -222,6 +223,7 @@ impl AppState {
             auctions: None,
             admin_product_listings: None,
             public_auctions: None,
+            agent_discovery: None,
         }
     }
 
@@ -332,6 +334,16 @@ impl AppState {
 
     pub fn with_oauth(mut self, oauth: OAuthState) -> Self {
         self.oauth = Some(oauth);
+        self
+    }
+
+    /// Serves the API catalog and protected-resource metadata, and adds the Bearer challenge
+    /// to authentication failures on routes that accept Aura access tokens.
+    pub fn with_agent_discovery(
+        mut self,
+        agent_discovery: crate::agent_discovery::AgentDiscoveryState,
+    ) -> Self {
+        self.agent_discovery = Some(agent_discovery);
         self
     }
 

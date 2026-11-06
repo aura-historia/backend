@@ -73,6 +73,39 @@ async fn should_publish_public_exact_discovery_without_authentication() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_challenge_aura_token_routes_but_not_first_party_consent_routes() {
+    // Unit tests own the metadata and challenge values; this proves the composed router.
+    let client = reqwest::Client::new();
+    let base = AURA_API.base_url();
+    let protected = client
+        .get(format!("{base}/v1/me/account"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, protected.status());
+    assert!(
+        protected.headers()[reqwest::header::WWW_AUTHENTICATE]
+            .to_str()
+            .unwrap()
+            .starts_with("Bearer resource_metadata=")
+    );
+
+    // Consent requires a first-party session, which an Aura token cannot satisfy.
+    let consent = client
+        .get(format!("{base}/v1/oauth/clients/{}", OAuthClientId::new()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, consent.status());
+    assert!(
+        consent
+            .headers()
+            .get(reqwest::header::WWW_AUTHENTICATE)
+            .is_none()
+    );
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_standard_secret_free_token_errors_at_the_discovered_path() {
     let admin = oauth_admin().await;
     let credentials = create_oauth_client(&admin.client, &admin.cognito_token).await;

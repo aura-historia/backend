@@ -64,7 +64,9 @@ started it; a refresh may repeat it or omit `resource`, and any other identifier
 ## Authorization-server discovery
 
 Both environments publish public [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html)
-metadata at `/.well-known/oauth-authorization-server` on the issuer origin. No bearer or
+metadata at `/.well-known/oauth-authorization-server` on the issuer origin. The REST
+protected-resource metadata, the Bearer challenges that point to it and the other discovery
+documents belong to [agent discovery](agent-discovery.md). No bearer or
 client credential is required or evaluated there. The response uses `Cache-Control: no-store` and `Pragma: no-cache`; the front door
 keeps this exact route out of shared edge caching.
 
@@ -244,8 +246,8 @@ tokens also ends all of the user's connections.
 `OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS`, `OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS`
 and `OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS` configure the metadata document client
 lifetimes per environment; the idle limit may not exceed the absolute limit. An expired
-access token receives `401` on REST and MCP, whose challenge reports `invalid_token`, which
-makes the client refresh.
+access token receives `401` on REST and MCP, with a Bearer challenge; MCP's reports
+`invalid_token`. Either makes the client refresh.
 
 ### Refresh tokens
 
