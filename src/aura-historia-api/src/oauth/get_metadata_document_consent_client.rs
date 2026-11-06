@@ -36,6 +36,8 @@ pub(crate) struct MetadataDocumentConsentClientData {
     redirect_uri_host: String,
     loopback_redirect_uris_only: bool,
     scope: Vec<String>,
+    /// Scopes the user already granted this client.
+    granted_scope: Vec<String>,
 }
 
 impl From<MetadataDocumentConsentClientView> for MetadataDocumentConsentClientData {
@@ -49,6 +51,7 @@ impl From<MetadataDocumentConsentClientView> for MetadataDocumentConsentClientDa
             redirect_uri_host: view.redirect_uri_host,
             loopback_redirect_uris_only: view.loopback_redirect_uris_only,
             scope: scope_strings(view.scopes),
+            granted_scope: scope_strings(view.granted_scopes),
         }
     }
 }
@@ -179,6 +182,7 @@ mod tests {
                 redirect_uri_host: "127.0.0.1".to_owned(),
                 loopback_redirect_uris_only: true,
                 scopes: HashSet::from([Scope::UsersRead, Scope::WatchlistRead]),
+                granted_scopes: HashSet::from([Scope::UsersRead]),
             },
         ))
         .unwrap();
@@ -192,6 +196,7 @@ mod tests {
                 "redirect_uri_host": "127.0.0.1",
                 "loopback_redirect_uris_only": true,
                 "scope": ["users:read", "watchlist:read"],
+                "granted_scope": ["users:read"],
             }),
             value
         );

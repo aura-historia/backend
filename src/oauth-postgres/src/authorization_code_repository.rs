@@ -8,6 +8,7 @@ use oauth_service::ports::{
 };
 use platform_postgres::SqlxTransaction;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
+use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxAuthorizationCodeRepositoryFactory;
@@ -46,8 +47,9 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         sqlx::query(
             "INSERT INTO oauth_authorization_codes (\
                 authorization_code, client_id, metadata_document_client_id, user_id, redirect_uri, \
-                scopes, code_challenge, code_challenge_method, expires_at, resource\
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                scopes, code_challenge, code_challenge_method, expires_at, resource, \
+                issues_refresh_token\
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(code_value)
         .bind(client_id)
@@ -59,6 +61,7 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         .bind("S256")
         .bind(code.expires())
         .bind(code.resource().map(|resource| resource.as_str()))
+        .bind(code.issues_refresh_token())
         .execute(&mut *self.connection)
         .await
         .map(|_| ())
@@ -84,6 +87,31 @@ impl AuthorizationCodeRepository for SqlxAuthorizationCodeRepository<'_> {
         row.map(TryInto::try_into)
             .transpose()
             .map_err(invalid_code_state)
+    }
+
+    async fn delete_for_user_and_client(
+        &mut self,
+        user_id: UserId,
+        client_id: &OAuthClientIdentifier,
+    ) -> Result<u64, OAuthCodeRepositoryError> {
+        let query = match client_id {
+            OAuthClientIdentifier::Registered(client_id) => sqlx::query(
+                "DELETE FROM oauth_authorization_codes WHERE user_id = $1 AND client_id = $2",
+            )
+            .bind(user_id.into_uuid())
+            .bind(client_id.into_uuid()),
+            OAuthClientIdentifier::MetadataDocument(client_id) => sqlx::query(
+                "DELETE FROM oauth_authorization_codes \
+                 WHERE user_id = $1 AND metadata_document_client_id = $2",
+            )
+            .bind(user_id.into_uuid())
+            .bind(client_id.as_str()),
+        };
+        query
+            .execute(&mut *self.connection)
+            .await
+            .map(|result| result.rows_affected())
+            .map_err(write_code_error)
     }
 }
 

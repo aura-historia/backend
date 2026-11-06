@@ -19,7 +19,7 @@ fn should_verify_generic_oauth_and_real_hybrid_mcp() {
 
 #[test]
 fn should_verify_metadata_document_clients_and_real_hybrid_mcp() {
-    run_isolated_cases("mcp_oauth::metadata_document_cases::", 2);
+    run_isolated_cases("mcp_oauth::metadata_document_cases::", 4);
 }
 
 fn run_isolated_cases(filter: &str, expected_passed: usize) {

@@ -1,4 +1,7 @@
-use crate::ports::{OAuthClientReadError, OAuthClientRepositoryError, OAuthCodeRepositoryError};
+use crate::ports::{
+    OAuthClientReadError, OAuthClientRepositoryError, OAuthCodeRepositoryError,
+    OAuthConnectionRepositoryError,
+};
 use application::error::{BoxError, box_error};
 use application::operation_context::{AuthenticationRequired, OperationAuthorizationError};
 use application::transaction::TransactionError;
@@ -38,6 +41,24 @@ pub enum OAuthServiceError {
     AuthorizationCodeRedirectUriMismatch,
     #[error("PKCE code_verifier did not match code_challenge")]
     InvalidCodeVerifier,
+    /// The user ended the connection after approving the code.
+    #[error("OAuth connection of the authorization code not found")]
+    ConnectionNotFound,
+    /// Unknown, or issued to another client.
+    #[error("refresh token is invalid")]
+    RefreshTokenInvalid,
+    #[error("refresh token expired")]
+    RefreshTokenExpired,
+    /// A concurrent refresh with the same token replaced it moments ago.
+    #[error("refresh token was just replaced by a concurrent refresh")]
+    RefreshTokenReplaced,
+    /// An already replaced token came back; its family has been revoked.
+    #[error("refresh token was reused")]
+    RefreshTokenReused,
+    #[error("refresh token resource mismatch")]
+    RefreshTokenResourceMismatch,
+    #[error("delegated credentials cannot disconnect OAuth clients")]
+    DelegatedDisconnectForbidden,
     #[error("Third-party exchange code not found")]
     ThirdPartyExchangeCodeNotFound,
     #[error("Third-party exchange code expired")]
@@ -130,6 +151,22 @@ impl From<OAuthCodeRepositoryError> for OAuthServiceError {
     }
 }
 
+impl From<OAuthConnectionRepositoryError> for OAuthServiceError {
+    fn from(error: OAuthConnectionRepositoryError) -> Self {
+        match error {
+            // The competing request committed first; retrying sees its result.
+            OAuthConnectionRepositoryError::Conflict { source }
+            | OAuthConnectionRepositoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            OAuthConnectionRepositoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+            OAuthConnectionRepositoryError::Internal { source } => Self::Internal { source },
+        }
+    }
+}
+
 impl From<AccessTokenAuthenticationReadError> for OAuthServiceError {
     fn from(error: AccessTokenAuthenticationReadError) -> Self {
         match error {
@@ -194,6 +231,11 @@ mod tests {
         assert_source(OAuthServiceError::from(
             OAuthCodeRepositoryError::Internal {
                 source: box_error(std::io::Error::other("code repository")),
+            },
+        ));
+        assert_source(OAuthServiceError::from(
+            OAuthConnectionRepositoryError::Conflict {
+                source: box_error(std::io::Error::other("connection repository")),
             },
         ));
         assert_source(OAuthServiceError::from(

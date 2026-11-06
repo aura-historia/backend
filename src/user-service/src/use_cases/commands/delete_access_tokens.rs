@@ -395,6 +395,14 @@ mod tests {
             state.deleted_user_ids.push(user_id);
             Ok(state.deleted_count)
         }
+
+        async fn delete_by_oauth_holder(
+            &mut self,
+            _user_id: UserId,
+            _holder: crate::ports::OAuthTokenHolder,
+        ) -> Result<u64, AccessTokenRepositoryError> {
+            unimplemented!("access-token use cases never revoke by OAuth holder")
+        }
     }
 
     impl AccessTokenRepositoryFactory<FakeTx> for Fakes {

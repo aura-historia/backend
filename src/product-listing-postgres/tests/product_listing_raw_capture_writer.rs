@@ -470,13 +470,13 @@ async fn should_remove_expired_provider_receipt_without_deleting_raw_provenance(
     .rows_affected();
     assert_eq!(1, expired);
 
-    let deleted: (i64, i64, i64, i64) =
+    let deleted: (i64, i64, i64, i64, i64, i64, i64) =
         sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
             .bind(1_000_i32)
             .fetch_one(&pool)
             .await
             .unwrap_or_else(|error| panic!("clean expired provider receipt: {error}"));
-    assert_eq!((0, 0, 0, 1), deleted);
+    assert_eq!((0, 0, 0, 1, 0, 0, 0), deleted);
     assert_eq!(1, raw_revision_count(&pool, listing_source_id).await);
     assert_eq!(0, provider_receipt_count(&pool, listing_source_id).await);
 }

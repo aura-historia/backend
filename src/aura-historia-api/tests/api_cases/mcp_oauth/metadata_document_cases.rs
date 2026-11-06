@@ -98,19 +98,62 @@ impl PublicAgent {
             ("resource", MCP_RESOURCE),
         ];
         form.extend_from_slice(extra);
+        self.token(&form).await
+    }
+
+    async fn refresh(&self, refresh_token: &str) -> reqwest::Response {
+        self.token(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", self.client_id.as_str()),
+            ("refresh_token", refresh_token),
+            ("resource", MCP_RESOURCE),
+        ])
+        .await
+    }
+
+    async fn token(&self, form: &[(&str, &str)]) -> reqwest::Response {
         let response = self
             .http
             .post(format!(
                 "{}/v1/oauth/token",
                 METADATA_DOCUMENT_API.base_url()
             ))
-            .form(&form)
+            .form(form)
             .send()
             .await
             .unwrap();
         assert_credentials_headers(&response);
         response
     }
+
+    /// Signs `user` in through consent, approval and code exchange.
+    async fn sign_in(&self, user: UserId, scope: &str) -> Value {
+        let approval = self.approve(user, CALLBACK, scope).await;
+        assert_eq!(StatusCode::FOUND, approval.status());
+        let code = authorization_response(approval.headers()["location"].to_str().unwrap())["code"]
+            .clone();
+        let exchange = self.exchange(&code, &[]).await;
+        assert_eq!(StatusCode::OK, exchange.status());
+        exchange.json().await.unwrap()
+    }
+}
+
+/// The account's own credential listing or disconnect, with `bearer` as the credential.
+async fn account_access_tokens(
+    http: &reqwest::Client,
+    method: reqwest::Method,
+    bearer: &str,
+    query: &[(&str, &str)],
+) -> reqwest::Response {
+    http.request(
+        method,
+        format!("{}/v1/me/access-tokens", METADATA_DOCUMENT_API.base_url()),
+    )
+    .bearer_auth(bearer)
+    .query(query)
+    .send()
+    .await
+    .unwrap()
 }
 
 /// The authorization response parameters, after checking it returns to the agent's callback.
@@ -152,6 +195,16 @@ async fn should_sign_in_a_metadata_document_client_and_call_mcp_with_its_token()
         json!(true),
         metadata["authorization_response_iss_parameter_supported"]
     );
+    assert_eq!(
+        json!(["authorization_code", "refresh_token"]),
+        metadata["grant_types_supported"]
+    );
+    assert!(
+        metadata["scopes_supported"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("offline_access"))
+    );
 
     let consent = agent.consent(user, CALLBACK).await;
     assert_eq!(StatusCode::OK, consent.status());
@@ -169,6 +222,7 @@ async fn should_sign_in_a_metadata_document_client_and_call_mcp_with_its_token()
                 "search-filters:write", "users:read", "users:write", "watchlist:read",
                 "watchlist:write"
             ],
+            "granted_scope": [],
         }),
         consent
     );
@@ -199,7 +253,13 @@ async fn should_sign_in_a_metadata_document_client_and_call_mcp_with_its_token()
     assert_eq!("users:read", token["scope"]);
     let expires_in = token["expires_in"].as_i64().unwrap();
     assert!((3_500..=3_600).contains(&expires_in), "{expires_in}");
-    assert!(token.get("refresh_token").is_none());
+    assert!(
+        token["refresh_token"]
+            .as_str()
+            .unwrap()
+            .starts_with("aurahistoria_refreshtoken_"),
+        "the document lists the refresh_token grant"
+    );
     assert!(token.get("third_party_exchange_code").is_none());
     let access_token = token["access_token"].as_str().unwrap();
     let (origin, oauth_client_id, metadata_document_client_id): (
@@ -208,7 +268,7 @@ async fn should_sign_in_a_metadata_document_client_and_call_mcp_with_its_token()
         Option<String>,
     ) = sqlx::query_as(
         "SELECT origin, oauth_client_id, oauth_metadata_document_client_id FROM access_tokens \
-         WHERE user_id = $1",
+         WHERE user_id = $1 AND oauth_connection_id IS NOT NULL",
     )
     .bind(user.into_uuid())
     .fetch_one(&get_postgres_client().await)
@@ -330,4 +390,172 @@ async fn should_refuse_unusable_documents_unlisted_callbacks_and_secrets() {
     assert_eq!(StatusCode::OK, exchanged.status());
     let consumed = agent.exchange(&code, &[]).await;
     assert_eq!(StatusCode::BAD_REQUEST, consumed.status());
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &METADATA_DOCUMENT_API], isolated = true)]
+#[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
+async fn should_refresh_an_expired_access_token_until_the_user_disconnects_the_client() {
+    let agent = PublicAgent::new(CLIENT_ID);
+    let user = api_support::seed_user("USER").await;
+    let cognito = api_support::cognito_access_token_for_test_user(user);
+    let signed_in = agent.sign_in(user, "users:read").await;
+    let access_token = signed_in["access_token"].as_str().unwrap().to_owned();
+    let refresh_token = signed_in["refresh_token"].as_str().unwrap().to_owned();
+    let mcp = McpServer::start().await;
+    let account = successful_result(
+        mcp.call("getUserAccount", json!({}), Some(&access_token))
+            .await,
+    )
+    .await;
+    assert_eq!(json!(user), account["userId"]);
+
+    // The dashboard lists one connection, never its rotating tokens.
+    let listing = account_access_tokens(&agent.http, reqwest::Method::GET, &cognito, &[]).await;
+    assert_eq!(StatusCode::OK, listing.status());
+    let listing: Value = listing.json().await.unwrap();
+    let entries = listing.as_array().unwrap();
+    assert_eq!(1, entries.len(), "{listing}");
+    assert_eq!("OAuthMetadataDocument", entries[0]["origin"]);
+    assert_eq!(
+        json!({
+            "clientId": CLIENT_ID,
+            "name": "Acceptance Agent",
+            "kind": "METADATA_DOCUMENT",
+            "host": "agent.test",
+        }),
+        entries[0]["client"]
+    );
+    assert_eq!(json!(["users:read"]), entries[0]["scopes"]);
+    assert!(
+        entries[0]["connectionId"]
+            .as_str()
+            .unwrap()
+            .starts_with("ocn_")
+    );
+    assert!(entries[0].get("accessTokenId").is_none());
+    assert!(entries[0].get("lastUsed").is_some());
+
+    // The access token expires; MCP rejects it and the client refreshes.
+    sqlx::query(
+        "UPDATE access_tokens SET expires_at = now() - interval '1 second' WHERE user_id = $1",
+    )
+    .bind(user.into_uuid())
+    .execute(&mcp.pool)
+    .await
+    .unwrap();
+    let expired = mcp
+        .call("getUserAccount", json!({}), Some(&access_token))
+        .await;
+    assert_eq!(StatusCode::UNAUTHORIZED, expired.status());
+    assert!(
+        expired.headers()["www-authenticate"]
+            .to_str()
+            .unwrap()
+            .contains("invalid_token")
+    );
+    let expired_rest = agent
+        .http
+        .get(format!(
+            "{}/v1/me/account",
+            METADATA_DOCUMENT_API.base_url()
+        ))
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(StatusCode::UNAUTHORIZED, expired_rest.status());
+    let refreshed = agent.refresh(&refresh_token).await;
+    assert_eq!(StatusCode::OK, refreshed.status());
+    let refreshed: Value = refreshed.json().await.unwrap();
+    assert_eq!("Bearer", refreshed["token_type"]);
+    assert_eq!("users:read", refreshed["scope"]);
+    let expires_in = refreshed["expires_in"].as_i64().unwrap();
+    assert!((3_500..=3_600).contains(&expires_in), "{expires_in}");
+    let renewed_access_token = refreshed["access_token"].as_str().unwrap();
+    let rotated_refresh_token = refreshed["refresh_token"].as_str().unwrap();
+    assert_ne!(refresh_token, rotated_refresh_token);
+    let account = successful_result(
+        mcp.call("getUserAccount", json!({}), Some(renewed_access_token))
+            .await,
+    )
+    .await;
+    assert_eq!(json!(user), account["userId"]);
+    // The replaced refresh token stops working at once.
+    let replayed = agent.refresh(&refresh_token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, replayed.status());
+    assert_eq!(
+        json!({"error": "invalid_grant"}),
+        replayed.json::<Value>().await.unwrap()
+    );
+
+    // A delegated credential cannot disconnect; the user's own session can.
+    let delegated = account_access_tokens(
+        &agent.http,
+        reqwest::Method::DELETE,
+        renewed_access_token,
+        &[("clientId", CLIENT_ID)],
+    )
+    .await;
+    assert_eq!(StatusCode::FORBIDDEN, delegated.status());
+    let disconnected = account_access_tokens(
+        &agent.http,
+        reqwest::Method::DELETE,
+        &cognito,
+        &[("clientId", CLIENT_ID)],
+    )
+    .await;
+    assert_eq!(StatusCode::NO_CONTENT, disconnected.status());
+
+    let revoked = mcp
+        .call("getUserAccount", json!({}), Some(renewed_access_token))
+        .await;
+    assert_eq!(StatusCode::UNAUTHORIZED, revoked.status());
+    let refresh_after_disconnect = agent.refresh(rotated_refresh_token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, refresh_after_disconnect.status());
+    assert_eq!(
+        json!({"error": "invalid_grant"}),
+        refresh_after_disconnect.json::<Value>().await.unwrap()
+    );
+    let listing = account_access_tokens(&agent.http, reqwest::Method::GET, &cognito, &[]).await;
+    assert_eq!(json!([]), listing.json::<Value>().await.unwrap());
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &METADATA_DOCUMENT_API], isolated = true)]
+#[ignore = "executed by the isolated generic OAuth/MCP acceptance runner"]
+async fn should_revoke_the_sign_in_when_a_replaced_refresh_token_returns() {
+    let agent = PublicAgent::new(CLIENT_ID);
+    let user = api_support::seed_user("USER").await;
+    let signed_in = agent.sign_in(user, "users:read offline_access").await;
+    let stolen = signed_in["refresh_token"].as_str().unwrap().to_owned();
+    let refreshed: Value = agent.refresh(&stolen).await.json().await.unwrap();
+    let access_token = refreshed["access_token"].as_str().unwrap();
+    let current = refreshed["refresh_token"].as_str().unwrap();
+    let mcp = McpServer::start().await;
+    // Past the grace window for concurrent refreshes.
+    sqlx::query(
+        "UPDATE oauth_refresh_tokens \
+         SET issued = issued - interval '1 minute', replaced_at = replaced_at - interval '1 minute' \
+         WHERE replaced_at IS NOT NULL",
+    )
+    .execute(&mcp.pool)
+    .await
+    .unwrap();
+
+    let reused = agent.refresh(&stolen).await;
+
+    assert_eq!(StatusCode::BAD_REQUEST, reused.status());
+    assert_eq!(
+        json!({"error": "invalid_grant"}),
+        reused.json::<Value>().await.unwrap()
+    );
+    let revoked = mcp
+        .call("getUserAccount", json!({}), Some(access_token))
+        .await;
+    assert_eq!(StatusCode::UNAUTHORIZED, revoked.status());
+    let current = agent.refresh(current).await;
+    assert_eq!(StatusCode::BAD_REQUEST, current.status());
+    assert_eq!(
+        json!({"error": "invalid_grant"}),
+        current.json::<Value>().await.unwrap()
+    );
 }

@@ -3062,6 +3062,10 @@ impl From<OAuthServiceError> for ApiError {
                     "Aura Historia access tokens cannot register OAuth clients; use a Cognito access JWT.",
                 )
             }
+            OAuthServiceError::DelegatedDisconnectForbidden => ApiError::forbidden(FORBIDDEN)
+                .with_detail(
+                    "Aura Historia access tokens cannot disconnect OAuth clients; use a Cognito access JWT.",
+                ),
             OAuthServiceError::ClientNotFound => ApiError::not_found(OAUTH_CLIENT_NOT_FOUND),
             OAuthServiceError::InvalidMetadataDocumentClient { source } => {
                 ApiError::bad_request(OAUTH_INVALID_CLIENT)
@@ -3075,10 +3079,17 @@ impl From<OAuthServiceError> for ApiError {
                 ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)
             }
             OAuthServiceError::InvalidScope => ApiError::bad_request(OAUTH_INVALID_SCOPE),
-            OAuthServiceError::InvalidResource | OAuthServiceError::AuthorizationCodeResourceMismatch => {
+            OAuthServiceError::InvalidResource
+            | OAuthServiceError::AuthorizationCodeResourceMismatch
+            | OAuthServiceError::RefreshTokenResourceMismatch => {
                 ApiError::bad_request(OAUTH_INVALID_RESOURCE)
             }
-            OAuthServiceError::AuthorizationCodeNotFound => {
+            OAuthServiceError::AuthorizationCodeNotFound
+            | OAuthServiceError::ConnectionNotFound
+            | OAuthServiceError::RefreshTokenInvalid
+            | OAuthServiceError::RefreshTokenExpired
+            | OAuthServiceError::RefreshTokenReplaced
+            | OAuthServiceError::RefreshTokenReused => {
                 ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_NOT_FOUND)
             }
             OAuthServiceError::AuthorizationCodeExpired => {

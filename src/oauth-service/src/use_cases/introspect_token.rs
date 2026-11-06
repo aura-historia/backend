@@ -75,7 +75,7 @@ where
             Some(token) => {
                 let client_id = match token.origin {
                     AccessTokenOrigin::OAuth { client_id } => Some(client_id.into()),
-                    AccessTokenOrigin::OAuthMetadataDocument { client_id } => {
+                    AccessTokenOrigin::OAuthMetadataDocument { client_id, .. } => {
                         Some(client_id.into())
                     }
                     AccessTokenOrigin::User => None,

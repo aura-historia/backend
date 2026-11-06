@@ -52,6 +52,7 @@ where
             expires: grant.access_token_expires(),
             scopes: grant.scopes().clone(),
             third_party_exchange_code: None,
+            refresh_token: None,
         })
     }
 }

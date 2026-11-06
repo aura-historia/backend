@@ -127,7 +127,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(162);
+      expect(routes).toHaveLength(163);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || WELL_KNOWN_ROUTE_KEYS.includes(key))).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -548,7 +548,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(162);
+    expect(routes).toHaveLength(163);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; adding exact discovery creates one route.
     expect(routes.length).toBeLessThanOrEqual(300);

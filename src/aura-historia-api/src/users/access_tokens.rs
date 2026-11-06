@@ -12,12 +12,19 @@ use axum::Json;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use oauth_core::client_identifier::OAuthClientIdentifier;
+use oauth_service::use_cases::DisconnectOAuthClientCommand;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use user_core::access_token::{AccessTokenId, AccessTokenName, AccessTokenOrigin, Scope};
+use user_core::access_token::{
+    AccessTokenId, AccessTokenName, AccessTokenOrigin, OAuthConnectionId, Scope,
+};
 use user_core::user_id::UserId;
+use user_service::ports::{
+    AccessTokenListEntry, AccessTokenListEntryId, ListedAccessToken, ListedOAuthConnection,
+};
 use user_service::use_cases::commands::create_access_token::{
     CreateAccessTokenCommand, CreateAccessTokenResult,
 };
@@ -56,12 +63,137 @@ struct TokenData {
     access_token_id: AccessTokenId,
     name: String,
     scopes: Vec<String>,
-    origin: String,
+    origin: &'static str,
     #[serde(
         skip_serializing_if = "Option::is_none",
         with = "time::serde::rfc3339::option"
     )]
     expires: Option<OffsetDateTime>,
+}
+
+/// One entry of the credential listing: a token the user manages individually, or a
+/// metadata document client's connection, which stands for its rotating tokens.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccessTokenListEntryData {
+    user_id: UserId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_token_id: Option<AccessTokenId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    connection_id: Option<OAuthConnectionId>,
+    name: String,
+    scopes: Vec<String>,
+    origin: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client: Option<OAuthClientData>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
+    expires: Option<OffsetDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
+    created: Option<OffsetDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        with = "time::serde::rfc3339::option"
+    )]
+    last_used: Option<OffsetDateTime>,
+}
+
+/// The OAuth client holding a listed credential.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OAuthClientData {
+    client_id: String,
+    name: String,
+    kind: &'static str,
+    host: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DisconnectQuery {
+    #[serde(default)]
+    client_id: Option<String>,
+}
+
+/// Stable wire values of a credential's origin. `User` keeps the value listings always had.
+fn origin_value(origin: &AccessTokenOrigin) -> &'static str {
+    match origin {
+        AccessTokenOrigin::User => "User",
+        AccessTokenOrigin::OAuth { .. } => "OAuth",
+        AccessTokenOrigin::OAuthMetadataDocument { .. } => "OAuthMetadataDocument",
+    }
+}
+
+fn scope_values(scopes: HashSet<Scope>) -> Vec<String> {
+    let mut values = scopes
+        .into_iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect::<Vec<_>>();
+    values.sort();
+    values
+}
+
+impl From<AccessTokenListEntry> for AccessTokenListEntryData {
+    fn from(entry: AccessTokenListEntry) -> Self {
+        match entry {
+            AccessTokenListEntry::AccessToken(listed) => Self::from(listed),
+            AccessTokenListEntry::Connection(connection) => Self::from(connection),
+        }
+    }
+}
+
+impl From<ListedAccessToken> for AccessTokenListEntryData {
+    fn from(listed: ListedAccessToken) -> Self {
+        let ListedAccessToken { token, client } = listed;
+        let client = match (&token.origin, client) {
+            (AccessTokenOrigin::OAuth { client_id }, Some(client)) => Some(OAuthClientData {
+                client_id: client_id.to_string(),
+                name: client.name,
+                kind: "REGISTERED",
+                host: client.host,
+            }),
+            _ => None,
+        };
+        Self {
+            user_id: token.user_id,
+            access_token_id: Some(token.access_token_id),
+            connection_id: None,
+            name: token.name.to_string(),
+            scopes: scope_values(token.scopes),
+            origin: origin_value(&token.origin),
+            client,
+            expires: token.expires,
+            created: None,
+            last_used: None,
+        }
+    }
+}
+
+impl From<ListedOAuthConnection> for AccessTokenListEntryData {
+    fn from(connection: ListedOAuthConnection) -> Self {
+        Self {
+            user_id: connection.user_id,
+            access_token_id: None,
+            connection_id: Some(connection.connection_id),
+            name: connection.client_name.clone(),
+            scopes: scope_values(connection.scopes),
+            origin: "OAuthMetadataDocument",
+            client: Some(OAuthClientData {
+                host: connection.client_id.host().to_owned(),
+                client_id: connection.client_id.into(),
+                name: connection.client_name,
+                kind: "METADATA_DOCUMENT",
+            }),
+            expires: None,
+            created: Some(connection.created),
+            last_used: Some(connection.last_used),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,7 +226,7 @@ impl From<AccessTokenView> for TokenData {
                 .into_iter()
                 .map(|s| s.as_str().to_owned())
                 .collect(),
-            origin: format!("{:?}", v.origin),
+            origin: origin_value(&v.origin),
             expires: v.expires,
         }
     }
@@ -149,7 +281,13 @@ pub async fn list_access_tokens(State(state): State<UsersState>, headers: Header
         .await
     {
         Ok(r) => no_store(
-            Json(r.items.into_iter().map(TokenData::from).collect::<Vec<_>>()).into_response(),
+            Json(
+                r.items
+                    .into_iter()
+                    .map(AccessTokenListEntryData::from)
+                    .collect::<Vec<_>>(),
+            )
+            .into_response(),
         ),
         Err(e) => ApiError::from(e).into_response(),
     }
@@ -240,17 +378,22 @@ fn parse_access_token_search_after(value: &str) -> Result<AccessTokenSearchCurso
     };
     let position = OffsetDateTime::parse(position, &Rfc3339)
         .map_err(|error| bad_query("searchAfter", error))?;
-    let access_token_id = parse_query_object_id(access_token_id, "searchAfter", "AccessToken")?;
+    let entry_id =
+        match parse_query_object_id::<AccessTokenId>(access_token_id, "searchAfter", "AccessToken")
+        {
+            Ok(access_token_id) => AccessTokenListEntryId::AccessToken(access_token_id),
+            Err(error) => access_token_id
+                .parse::<OAuthConnectionId>()
+                .map(AccessTokenListEntryId::Connection)
+                .map_err(|_| error)?,
+        };
 
-    Ok(AccessTokenSearchCursor {
-        position,
-        access_token_id,
-    })
+    Ok(AccessTokenSearchCursor { position, entry_id })
 }
 
 fn response_from_admin_result(
     result: ListAdminAccessTokensResult,
-) -> Result<JsonCursoredData<TokenData>, ApiError> {
+) -> Result<JsonCursoredData<AccessTokenListEntryData>, ApiError> {
     let CursoredResult {
         items,
         cursor,
@@ -262,7 +405,10 @@ fn response_from_admin_result(
         .transpose()?;
 
     Ok(JsonCursoredData::new(
-        items.into_iter().map(TokenData::from).collect(),
+        items
+            .into_iter()
+            .map(AccessTokenListEntryData::from)
+            .collect(),
         search_after,
         total,
     ))
@@ -273,7 +419,11 @@ fn serialize_access_token_search_after(cursor: AccessTokenSearchCursor) -> Resul
         .position
         .format(&Rfc3339)
         .map_err(|_| ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR))?;
-    Ok(json!([position, cursor.access_token_id]))
+    let entry_id = match cursor.entry_id {
+        AccessTokenListEntryId::AccessToken(id) => id.to_string(),
+        AccessTokenListEntryId::Connection(id) => id.to_string(),
+    };
+    Ok(json!([position, entry_id]))
 }
 
 fn bad_query(field: &'static str, detail: impl std::fmt::Display) -> ApiError {
@@ -359,6 +509,46 @@ pub async fn delete_access_token(
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => ApiError::from(e).into_response(),
     }
+}
+
+/// Disconnects one OAuth client: revokes every credential the user granted it.
+pub async fn delete_access_tokens(
+    State(state): State<UsersState>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+) -> Response {
+    let (ctx, user_id) = match protected_context(state.authenticator.as_ref(), &headers).await {
+        Ok(v) => v,
+        Err(r) => return no_store(*r),
+    };
+    let client_id = match parse_disconnect_query(raw_query.as_deref()) {
+        Ok(value) => value,
+        Err(error) => return no_store(error.into_response()),
+    };
+    match state
+        .disconnect_oauth_client
+        .execute(&ctx, DisconnectOAuthClientCommand { user_id, client_id })
+        .await
+    {
+        Ok(()) => no_store(StatusCode::NO_CONTENT.into_response()),
+        Err(error) => no_store(ApiError::from(error).into_response()),
+    }
+}
+
+fn parse_disconnect_query(raw_query: Option<&str>) -> Result<OAuthClientIdentifier, ApiError> {
+    let query: DisconnectQuery = crate::wire::from_query_str(raw_query.unwrap_or_default())
+        .map_err(|error| bad_query("query", error))?;
+    query
+        .client_id
+        .as_deref()
+        .map(OAuthClientIdentifier::parse)
+        .and_then(Result::ok)
+        .ok_or_else(|| {
+            bad_query(
+                "clientId",
+                "clientId must be a registered OAuth client ID or a client metadata document URL.",
+            )
+        })
 }
 
 pub async fn delete_admin_access_tokens(
@@ -506,10 +696,24 @@ mod tests {
                         |error| ApiError::internal_server_error(ACCESS_TOKEN_INTERNAL_ERROR)
                             .with_detail(error.to_string())
                     )?,
-                    access_token_id,
+                    entry_id: AccessTokenListEntryId::AccessToken(access_token_id),
                 }),
             }),
             request.cursor
+        );
+        let connection_id = OAuthConnectionId::new();
+        let request = parse_list_admin_access_tokens_query(
+            user_id,
+            Some(&format!(
+                "searchAfter=[\"2026-09-04T12:00:00Z\",\"{connection_id}\"]"
+            )),
+        )?;
+        assert_eq!(
+            Some(AccessTokenListEntryId::Connection(connection_id)),
+            request
+                .cursor
+                .and_then(|cursor| cursor.search_after)
+                .map(|search_after| search_after.entry_id)
         );
         Ok(())
     }
@@ -556,6 +760,23 @@ mod tests {
         assert_eq!(HashSet::from(["users:read", "users:write"]), scopes);
         assert_eq!("2026-06-30T00:00:00Z", value["expires"]);
         assert_eq!("User", value["origin"]);
+        for (origin, expected) in [
+            (
+                AccessTokenOrigin::OAuth {
+                    client_id: user_core::access_token::OAuthClientId::new(),
+                },
+                "OAuth",
+            ),
+            (
+                AccessTokenOrigin::OAuthMetadataDocument {
+                    client_id: "https://agent.example/client.json".parse().unwrap(),
+                    connection_id: OAuthConnectionId::new(),
+                },
+                "OAuthMetadataDocument",
+            ),
+        ] {
+            assert_eq!(expected, origin_value(&origin));
+        }
         assert!(value.get("accessTokenId").is_some());
         for field in ["accessToken", "token", "tokenShort", "tokenHash", "hash"] {
             assert!(value.get(field).is_none(), "unexpected {field}: {value}");
@@ -723,6 +944,97 @@ mod tests {
                 parse_scopes(HashSet::from([value.to_owned()])).expect("canonical scope")
             );
             assert_eq!(value, scope.as_str());
+        }
+    }
+
+    #[test]
+    fn should_list_registered_client_tokens_and_connections_with_their_client_identity() {
+        use user_service::ports::{AccessTokenDetails, RegisteredOAuthClientDisplay};
+        let user_id = UserId::new();
+        let client_id = user_core::access_token::OAuthClientId::new();
+        let registered = serde_json::to_value(AccessTokenListEntryData::from(
+            AccessTokenListEntry::AccessToken(
+                ListedAccessToken::new(
+                    AccessTokenDetails {
+                        user_id,
+                        access_token_id: AccessTokenId::new(),
+                        name: AccessTokenName::from("Shop sync"),
+                        scopes: HashSet::from([Scope::ProductListingsWrite]),
+                        origin: AccessTokenOrigin::OAuth { client_id },
+                        expires: None,
+                    },
+                    Some(RegisteredOAuthClientDisplay {
+                        name: "Shop".to_owned(),
+                        host: "shop.example".to_owned(),
+                    }),
+                )
+                .unwrap(),
+            ),
+        ))
+        .unwrap();
+        assert_eq!("OAuth", registered["origin"]);
+        assert_eq!(
+            json!({
+                "clientId": client_id.to_string(),
+                "name": "Shop",
+                "kind": "REGISTERED",
+                "host": "shop.example",
+            }),
+            registered["client"]
+        );
+        assert!(registered.get("connectionId").is_none());
+
+        let connection_id = OAuthConnectionId::new();
+        let connection = serde_json::to_value(AccessTokenListEntryData::from(
+            AccessTokenListEntry::Connection(ListedOAuthConnection {
+                connection_id,
+                user_id,
+                client_id: "https://agent.example/client.json".parse().unwrap(),
+                client_name: "Agent".to_owned(),
+                scopes: HashSet::from([Scope::WatchlistRead, Scope::UsersRead]),
+                created: OffsetDateTime::parse("2026-11-01T00:00:00Z", &Rfc3339).unwrap(),
+                last_used: OffsetDateTime::parse("2026-11-06T12:00:00Z", &Rfc3339).unwrap(),
+            }),
+        ))
+        .unwrap();
+        assert_eq!(
+            json!({
+                "userId": user_id,
+                "connectionId": connection_id,
+                "name": "Agent",
+                "scopes": ["users:read", "watchlist:read"],
+                "origin": "OAuthMetadataDocument",
+                "client": {
+                    "clientId": "https://agent.example/client.json",
+                    "name": "Agent",
+                    "kind": "METADATA_DOCUMENT",
+                    "host": "agent.example",
+                },
+                "created": "2026-11-01T00:00:00Z",
+                "lastUsed": "2026-11-06T12:00:00Z",
+            }),
+            connection
+        );
+    }
+
+    #[test]
+    fn should_require_a_client_id_of_either_kind_to_disconnect() {
+        let registered = user_core::access_token::OAuthClientId::new();
+        assert!(matches!(
+            parse_disconnect_query(Some(&format!("clientId={registered}"))),
+            Ok(OAuthClientIdentifier::Registered(id)) if id == registered
+        ));
+        assert!(matches!(
+            parse_disconnect_query(Some("clientId=https%3A%2F%2Fagent.example%2Fclient.json")),
+            Ok(OAuthClientIdentifier::MetadataDocument(_))
+        ));
+        for query in [
+            None,
+            Some("clientId="),
+            Some("clientId=https%3A%2F%2Fagent.example"),
+            Some("clientId=not-a-client"),
+        ] {
+            assert!(parse_disconnect_query(query).is_err(), "{query:?}");
         }
     }
 }

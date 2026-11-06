@@ -1,5 +1,6 @@
 mod address_book;
 pub use address_book::SqlxAddressBookFactory;
+mod access_token_list_mapping;
 mod access_token_mapping;
 mod cognito_identity;
 mod user_identity_deletion;
