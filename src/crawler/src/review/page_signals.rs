@@ -151,6 +151,16 @@ mod tests {
         );
     }
 
+    /// A status label beside the amount keeps a `state` value from being price text, but a price
+    /// element that says "Sold for £500" still shows a price the candidate should capture.
+    #[test]
+    fn should_see_a_price_beside_a_status_label() {
+        assert_eq!(
+            signals_of("<span class=\"price\">Sold for £500</span>"),
+            (true, false)
+        );
+    }
+
     #[test]
     fn should_see_neither_on_a_page_that_shows_neither() {
         assert_eq!(
