@@ -1090,6 +1090,13 @@ mod tests {
         let matrix = live_matrix(&[captured], &[], &shown, Duration::ZERO);
         assert_eq!(checks(Some(&matrix), &review_pages(&shown)), Vec::new());
 
+        // An auction-style shop shows its estimate in the price element.
+        let mut estimated = schema("h1");
+        estimated.price_estimate_min = Some(rule(".price", ExtractionKind::Text));
+        estimated.description = Some(rule(".description", ExtractionKind::Text));
+        let matrix = live_matrix(&[estimated], &[], &shown, Duration::ZERO);
+        assert_eq!(checks(Some(&matrix), &review_pages(&shown)), Vec::new());
+
         let bare = [
             product_page("chair", "h1", "Chair"),
             product_page("table", "h1", "Table"),

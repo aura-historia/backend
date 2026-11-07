@@ -41,8 +41,10 @@ fn signals_of<'a>(
 
 /// The `price` and `description` rules missing for review pages that show a price or a
 /// description block: on a page a candidate schema applies to, none of the schemas that apply has
-/// the rule. A page no schema applies to, or a template captures as removed, is left to the
-/// coverage checks, and so is a page the matrix did not evaluate.
+/// the rule. An estimate rule captures the amount a price element shows too, as an auction-style
+/// shop shows its estimate there instead of a price. A page no schema applies to, or a template
+/// captures as removed, is left to the coverage checks, and so is a page the matrix did not
+/// evaluate.
 pub(crate) fn missing_content_rules(
     matrix: &SchemaMatrix,
     coverages: &[(&CrawlerReviewPage, PageCoverage)],
@@ -74,10 +76,10 @@ pub(crate) fn missing_content_rules(
             review_page_id: page.review_page_id,
             url: page.url.clone(),
         };
-        if signals.shows_price_text && !any_has_rule(&applying, "price") {
+        if signals.shows_price_text && !any_has_rule(&applying, &PRICE_RULES) {
             price.push(guarded());
         }
-        if signals.shows_description_block && !any_has_rule(&applying, "description") {
+        if signals.shows_description_block && !any_has_rule(&applying, &["description"]) {
             description.push(guarded());
         }
     }
@@ -88,10 +90,17 @@ pub(crate) fn missing_content_rules(
         .collect()
 }
 
-fn any_has_rule(evaluations: &[&SchemaPageEvaluation], field: &str) -> bool {
-    evaluations
-        .iter()
-        .any(|evaluation| evaluation.fields.iter().any(|rule| rule.field == field))
+/// The rules that capture an amount a price element shows.
+const PRICE_RULES: [&str; 3] = ["price", "price_estimate_min", "price_estimate_max"];
+
+/// Whether a schema of `evaluations` has a rule for one of `fields`.
+fn any_has_rule(evaluations: &[&SchemaPageEvaluation], fields: &[&str]) -> bool {
+    evaluations.iter().any(|evaluation| {
+        evaluation
+            .fields
+            .iter()
+            .any(|rule| fields.contains(&rule.field.as_str()))
+    })
 }
 
 /// Whether a review page shows a sold or unavailable product: a template captures it as removed,
