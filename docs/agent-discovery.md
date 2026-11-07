@@ -178,6 +178,8 @@ disconnecting, with the environment's issuer, metadata URLs and user scopes. It 
 clients read them from the token response. It has no `agent_auth` block, and the
 authorization-server metadata advertises none, because Aura registers no agent identities.
 Scanners that require `agent_auth` or a registration flow therefore do not pass it.
+Its metadata URLs are bare URLs, not code spans: agent-readiness scanners that follow them
+from `auth.md` take a closing backtick as part of the URL.
 
 ## Changing a document
 
