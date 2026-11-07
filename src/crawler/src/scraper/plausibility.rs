@@ -9,6 +9,7 @@ use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
@@ -472,16 +473,30 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
 /// "Add to cart £45", is the action the `state` contract allows where a page shows no label: a
 /// selector cannot take the action's words without the amount the shop prints beside them.
 fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
-    let status_label = regex!(
-        r"(?i)\b(?:sold|reserved|verkocht|gereserveerd|uitverkocht|verkauft|reserviert|ausverkauft|vendu|vendue|réservé|réservée|épuisé|vendido|reservado|agotado|venduto|riservato|esaurito|available|in stock|out of stock|op voorraad|auf lager|beschikbaar)\b"
-    );
     let cart_or_enquiry_action = regex!(
         r"(?i)\b(?:add to (?:cart|basket|bag)|buy|enquire|inquire|make an offer|in (?:den )?warenkorb|in (?:de )?winkel(?:wagen|mand)|ajouter au panier)\b"
     );
-    (!status_label.is_match(state)
+    (is_price_text(state)
         && !cart_or_enquiry_action.is_match(state)
-        && is_price_text(state))
+        && !is_status_label_beside_amount(state))
     .then_some(PlausibilityCheck::PriceText)
+}
+
+/// Whether the ProductListing normalization resolves `state`, or what is left of it once the
+/// amount and its connectors are taken away ("Sold for £500" leaves "Sold"), to an availability.
+/// The labels are the normalization's, so the exemption cannot drift from what it resolves;
+/// the cart and enquiry actions it does not resolve stay with the caller.
+fn is_status_label_beside_amount(state: &str) -> bool {
+    let amount_and_connectors = regex!(
+        r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
+    );
+    let resolves = |text: &str| {
+        quick_check_availability(text)
+            .ok()
+            .and_then(ListingAvailabilityQuickCheck::availability)
+            .is_some()
+    };
+    resolves(state) || resolves(&amount_and_connectors.replace_all(state, " "))
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
@@ -860,6 +875,7 @@ mod tests {
         fn should_take_a_status_label_or_a_cart_action_next_to_a_price_for_a_state() {
             for state in [
                 "Sold for £500",
+                "In stock £45",
                 "Verkocht - € 75",
                 "Reserved £1,200",
                 "Gereserveerd € 450",
