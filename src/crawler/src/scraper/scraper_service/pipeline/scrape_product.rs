@@ -801,8 +801,10 @@ impl ScraperServiceImpl {
 
     /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
     /// ListingSource's `missing_required_value` review for it, so the review agents see the page
-    /// that no human adds. Other modes open none. A failure to open it is logged: the URL still
-    /// records the outcome, and the next scrape tries again.
+    /// that no human adds; that page needs nobody's attention, so it logs at INFO. Other modes
+    /// open none and log a WARN, as the scrape's failure did before, since a human adds the page
+    /// from the console. A failure to open the review is a WARN too: the URL still records the
+    /// outcome, and the next scrape tries again.
     async fn report_missing_required_value(
         &self,
         page: FetchedPage<'_>,
@@ -831,9 +833,10 @@ impl ScraperServiceImpl {
                 url = %page.url,
                 findings = %findings,
                 error = %error,
+                cause = ?std::error::Error::source(&error),
                 "Page left a required value blank; could not open its missing_required_value review"
             ),
-            None => info!(
+            None => warn!(
                 url = %page.url,
                 findings = %findings,
                 "Page left a required value blank"

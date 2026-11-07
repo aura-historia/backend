@@ -85,7 +85,12 @@ impl ReviewServer {
             .record_inspected_page_markup(review_id, &url, projected.describes_one_product)
             .await
         {
-            warn!(review_id = %review_id, error = %error, "Failed to record an inspected sample page's markup");
+            warn!(
+                review_id = %review_id,
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Failed to record an inspected sample page's markup"
+            );
         }
         Ok(PageProjection {
             review_id,
