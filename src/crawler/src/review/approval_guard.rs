@@ -9,6 +9,9 @@ use crate::review::model::{
     CrawlerReviewPage, LabelledSampleUrl, LiveMatrixEvaluation, SampleUrlLabel, SchemaMatrix,
     SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
 };
+use crate::review::page_content_checks::{
+    MissingContentRule, missing_content_rules, pages_without_signals,
+};
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
     ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
@@ -55,6 +58,9 @@ pub enum FailedApprovalCheck {
     /// Candidate extractions that fail a per-page, cross-page or identity agreement plausibility
     /// check, which deterministic approval in `auto` mode refuses too, on any page.
     ImplausibleExtraction { pages: Vec<ImplausiblePage> },
+    /// Review pages that show a price or a description block while no schema applying to them
+    /// has a `price` or a `description` rule.
+    ContentRuleMissing { rules: Vec<MissingContentRule> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
     /// The candidate's sample labels on the review's crawl host mark fewer than `minimum` URLs as
@@ -131,6 +137,15 @@ impl fmt::Display for FailedApprovalCheck {
                 formatter,
                 "{} extraction(s) fail a plausibility check deterministic approval refuses",
                 pages.len()
+            ),
+            Self::ContentRuleMissing { rules } => write!(
+                formatter,
+                "the review pages show content no rule captures: {}; add the rule, or the page shows none",
+                rules
+                    .iter()
+                    .map(|rule| format!("{} on {} page(s)", rule.field, rule.pages.len()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
             Self::TooFewLabels {
@@ -223,6 +238,12 @@ pub(crate) fn product_schema_approval_checks(
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
+    let content_rules = missing_content_rules(matrix, &coverages);
+    if !content_rules.is_empty() {
+        failed.push(FailedApprovalCheck::ContentRuleMissing {
+            rules: content_rules,
+        });
+    }
     failed
 }
 
@@ -242,6 +263,11 @@ fn outdated_reason(
         return Some(
             "the live schemas or stored removed-page templates approval would merge or rebase onto changed since"
                 .to_owned(),
+        );
+    }
+    if pages_without_signals(matrix) {
+        return Some(
+            "it predates the page signals the guard reads; evaluate the matrix again".to_owned(),
         );
     }
     let evaluates_a_review_page = |reference: &SchemaPageReference| match reference {
@@ -871,6 +897,86 @@ mod tests {
                 refused.as_slice(),
                 [FailedApprovalCheck::RuleMatchesNothing { rules }]
                     if rules.len() == 1 && rules[0].field == "price" && rules[0].page_count == 2
+            ),
+            "{refused:?}"
+        );
+    }
+
+    const PROSE: &str = "A Georgian oak chest of drawers with original brass handles, restored in 2019 and in very good condition.";
+
+    /// `pages` whose HTML also shows a price and a description block.
+    fn with_price_and_description(
+        pages: [(CrawlerReviewPage, String); 2],
+    ) -> [(CrawlerReviewPage, String); 2] {
+        pages.map(|(page, html)| {
+            let content = format!(
+                "<span class=\"price\">Price £113</span><div class=\"description\">{PROSE}</div></body>"
+            );
+            (page, html.replace("</body>", &content))
+        })
+    }
+
+    #[test]
+    fn should_name_the_pages_that_show_a_price_and_a_description_no_rule_captures() {
+        let pages = with_price_and_description([
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ]);
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert_eq!(
+            refused,
+            vec![FailedApprovalCheck::ContentRuleMissing {
+                rules: vec![
+                    MissingContentRule {
+                        field: "price",
+                        pages: pages.iter().map(|(page, _)| guarded(page)).collect(),
+                    },
+                    MissingContentRule {
+                        field: "description",
+                        pages: pages.iter().map(|(page, _)| guarded(page)).collect(),
+                    },
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn should_pass_rules_for_what_the_pages_show_and_pages_that_show_nothing_to_capture() {
+        let shown = with_price_and_description([
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ]);
+        let mut captured = schema("h1");
+        captured.price = Some(rule(".price", ExtractionKind::Text));
+        captured.description = Some(rule(".description", ExtractionKind::Text));
+        let matrix = live_matrix(&[captured], &[], &shown, Duration::ZERO);
+        assert_eq!(checks(Some(&matrix), &review_pages(&shown)), Vec::new());
+
+        let bare = [
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &bare, Duration::ZERO);
+        assert_eq!(checks(Some(&matrix), &review_pages(&bare)), Vec::new());
+    }
+
+    /// A matrix stored before the page signals cannot show what the pages hold, so it is outdated
+    /// rather than passing the content check unseen.
+    #[test]
+    fn should_treat_a_live_matrix_without_page_signals_as_outdated() {
+        let pages = [product_page("chair", "h1", "Chair")];
+        let mut matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        matrix.page_signals.clear();
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::LiveMatrixOutdated { .. }]
             ),
             "{refused:?}"
         );

@@ -4,6 +4,7 @@ use crate::review::model::{
     RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
+use crate::review::page_signals::page_signals as signals_of_page;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
 };
@@ -108,8 +109,14 @@ fn evaluate_matrix(
         })
         .collect();
     let mut removed_page_matches = Vec::new();
+    let mut page_signals = Vec::with_capacity(pages.len());
     for page in pages {
         let html = parse_page(page.raw_html);
+        page_signals.push(signals_of_page(
+            page.page_reference.clone(),
+            page.url,
+            &html,
+        ));
         let mut page_evaluations: Vec<SchemaPageEvaluation> = schemas
             .iter()
             .map(|schema| evaluate_schema_page(schema, page, &html))
@@ -129,6 +136,7 @@ fn evaluate_matrix(
         review_id,
         candidates,
         removed_page_matches,
+        page_signals,
         live_evaluation: None,
     };
     evaluate_cross_page_findings(&mut matrix);
