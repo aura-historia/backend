@@ -8,9 +8,22 @@
 
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::CrawlerReviewId;
-use crate::review::agent_decisions::AgentDecisionPolicy;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::model::{ReviewActor, ReviewEventAction, STATUS_PENDING_REVIEW};
 use std::collections::HashMap;
+
+/// The part of a review's event trail that follows its latest `HUMAN` event, or all of it when no
+/// human acted on it: a `WHERE` condition on the event `e` of the review aliased `r`. Binds `$3`,
+/// the human actor.
+macro_rules! after_last_human_event {
+    () => {
+        "e.created > COALESCE( \
+            (SELECT MAX(h.created) FROM crawler_review_events h \
+             WHERE h.review_id = r.review_id AND h.actor = $3), \
+            '-infinity'::timestamptz)"
+    };
+}
+pub(super) use after_last_human_event;
 
 /// The agents' needs-repair rounds of the review aliased `r`: its agent `REPAIR_REQUESTED` events
 /// after its latest `HUMAN` event, or after its first event when no human acted on it. A review's
@@ -20,15 +33,30 @@ use std::collections::HashMap;
 /// `$3`, the human actor.
 macro_rules! agent_rounds_of_review {
     () => {
-        "(SELECT COUNT(*) FROM crawler_review_events e \
-          WHERE e.review_id = r.review_id AND e.actor = ANY($1) AND e.action = $2 \
-            AND e.created > COALESCE( \
-                (SELECT MAX(h.created) FROM crawler_review_events h \
-                 WHERE h.review_id = r.review_id AND h.actor = $3), \
-                '-infinity'::timestamptz))"
+        concat!(
+            "(SELECT COUNT(*) FROM crawler_review_events e \
+              WHERE e.review_id = r.review_id AND e.actor = ANY($1) AND e.action = $2 AND ",
+            after_last_human_event!(),
+            ")"
+        )
     };
 }
 pub(super) use agent_rounds_of_review;
+
+/// Whether an agent handed the review aliased `r` to a human since a human last acted on it: it
+/// waits for a human whatever its rounds. Binds `$1` and `$3` as [`agent_rounds_of_review`].
+macro_rules! agent_handed_review_to_human {
+    () => {
+        concat!(
+            "EXISTS (SELECT 1 FROM crawler_review_events e \
+              WHERE e.review_id = r.review_id AND e.actor = ANY($1) \
+                AND e.action = 'HANDED_TO_HUMAN' AND ",
+            after_last_human_event!(),
+            ")"
+        )
+    };
+}
+pub(super) use agent_handed_review_to_human;
 
 /// The values of `$1` to `$3` of [`agent_rounds_of_review`]: the agent actors, the needs-repair
 /// action and the human actor.
@@ -40,17 +68,19 @@ pub(super) fn agent_round_binds() -> ([&'static str; 2], &'static str, &'static 
     )
 }
 
-/// The agents' needs-repair rounds of each of `review_ids`, as [`agent_rounds_of_review`] counts
-/// them.
+/// What the agents did on each of `review_ids` since a human last acted on it, as
+/// [`agent_rounds_of_review`] and [`agent_handed_review_to_human`] read the trail.
 pub(crate) async fn agent_repair_rounds<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     review_ids: &[CrawlerReviewId],
-) -> Result<HashMap<CrawlerReviewId, u32>, sqlx::Error> {
+) -> Result<HashMap<CrawlerReviewId, AgentRounds>, sqlx::Error> {
     let review_ids: Vec<uuid::Uuid> = review_ids.iter().map(|id| *id.as_uuid()).collect();
     let (agents, repair_requested, human) = agent_round_binds();
-    sqlx::query_as::<_, (uuid::Uuid, i64)>(concat!(
+    sqlx::query_as::<_, (uuid::Uuid, i64, bool)>(concat!(
         "SELECT r.review_id, ",
         agent_rounds_of_review!(),
+        ", ",
+        agent_handed_review_to_human!(),
         " FROM crawler_reviews r WHERE r.review_id = ANY($4)"
     ))
     .bind(agents)
@@ -60,11 +90,14 @@ pub(crate) async fn agent_repair_rounds<'e>(
     .fetch_all(executor)
     .await?
     .into_iter()
-    .map(|(review_id, rounds)| {
+    .map(|(review_id, rounds, handed_to_human)| {
         // A count beyond `u32` is past any cap, so saturating keeps the review with a human.
         Ok((
             crawler_review_id_from_uuid(review_id)?,
-            u32::try_from(rounds).unwrap_or(u32::MAX),
+            AgentRounds {
+                needs_repair: u32::try_from(rounds).unwrap_or(u32::MAX),
+                handed_to_human,
+            },
         ))
     })
     .collect()
@@ -85,14 +118,14 @@ pub(super) async fn refuse_agent_while_human_required(
     if !actor.is_agent() || status != STATUS_PENDING_REVIEW {
         return Ok(());
     }
-    let agent_rounds = agent_repair_rounds(&mut **transaction, &[review_id])
+    let rounds = agent_repair_rounds(&mut **transaction, &[review_id])
         .await?
         .remove(&review_id)
-        .unwrap_or(0);
-    if agent_decisions.waits_for_human(status, agent_rounds) {
+        .unwrap_or_default();
+    if agent_decisions.waits_for_human(status, rounds) {
         return Err(ReviewRepositoryError::HumanRequired {
             review_id,
-            agent_rounds,
+            agent_rounds: rounds.needs_repair,
             max_repair_rounds: agent_decisions.limits().max_repair_rounds.get(),
         });
     }

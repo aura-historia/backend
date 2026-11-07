@@ -1,4 +1,4 @@
-use crate::review::agent_decisions::AgentDecisionPolicy;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::approval_guard::FailedApprovalCheck;
 use crate::review::model::*;
 use crate::review::page_coverage::ReviewPageCoverage;
@@ -102,6 +102,12 @@ pub enum ReviewRepositoryError {
     AuthorMayNotDecide,
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
+    #[error(
+        "a hand-over to a human needs a note saying why the agent cannot take the review further"
+    )]
+    MissingHandoverNote,
+    #[error("only a review agent hands a review to a human; a human changes or judges it instead")]
+    OnlyAgentsHandOver,
     #[error("review {0} has unsupported artifact type {1}")]
     UnsupportedArtifact(CrawlerReviewId, String),
     #[error("invalid schema field `{0}`")]
@@ -1645,12 +1651,12 @@ fn parse_product_schema_payload(
 /// [`agent_repair_rounds`]) and whether it waits for a human by `agent_decisions`.
 fn row_to_review(
     row: sqlx::postgres::PgRow,
-    agent_rounds: &HashMap<CrawlerReviewId, u32>,
+    agent_rounds: &HashMap<CrawlerReviewId, AgentRounds>,
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<CrawlerReview, sqlx::Error> {
     let review_id = crawler_review_id_from_uuid(row.try_get("review_id")?)?;
     let status: String = row.try_get("status")?;
-    let agent_rounds = agent_rounds.get(&review_id).copied().unwrap_or(0);
+    let rounds = agent_rounds.get(&review_id).copied().unwrap_or_default();
     Ok(CrawlerReview {
         review_id,
         listing_source_id: listing_source_id_from_uuid(
@@ -1660,7 +1666,7 @@ fn row_to_review(
         listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
         listing_source_crawl_host: row.try_get("listing_source_crawl_host")?,
         artifact_type: row.try_get("artifact_type")?,
-        human_required: agent_decisions.waits_for_human(&status, agent_rounds),
+        human_required: agent_decisions.waits_for_human(&status, rounds),
         status,
         reason: row.try_get("reason")?,
         candidate_payload: row.try_get("candidate_payload")?,
@@ -1668,7 +1674,7 @@ fn row_to_review(
         validation_summary: row.try_get("validation_summary")?,
         reviewer_notes: row.try_get("reviewer_notes")?,
         repair_request: row_to_repair_request(&row)?,
-        agent_rounds,
+        agent_rounds: rounds.needs_repair,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
         reviewed: row.try_get("reviewed")?,

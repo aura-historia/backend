@@ -123,6 +123,9 @@ pub enum ReviewEventAction {
     /// `DELETE /api/review-pages/{id}`.
     PageRemoved,
     RepairRequested,
+    /// `POST /api/reviews/{id}/hand-to-human`: a review agent made the review wait for a human
+    /// without a further needs-repair round, saying why in the event's notes.
+    HandedToHuman,
     Approved,
     Rejected,
     /// `POST /api/reviews/{id}/restore`: a human brought back what the review's approval replaced.
@@ -133,12 +136,13 @@ pub enum ReviewEventAction {
 }
 
 impl ReviewEventAction {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
         Self::PageRemoved,
         Self::RepairRequested,
+        Self::HandedToHuman,
         Self::Approved,
         Self::Rejected,
         Self::Restored,
@@ -153,6 +157,7 @@ impl ReviewEventAction {
             Self::PageAdded => "PAGE_ADDED",
             Self::PageRemoved => "PAGE_REMOVED",
             Self::RepairRequested => "REPAIR_REQUESTED",
+            Self::HandedToHuman => "HANDED_TO_HUMAN",
             Self::Approved => "APPROVED",
             Self::Rejected => "REJECTED",
             Self::Restored => "RESTORED",

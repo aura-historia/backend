@@ -515,6 +515,22 @@ impl ReviewServer {
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/hand-to-human")
+        {
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/hand-to-human") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .hand_to_human(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/schema-field")
         {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/schema-field") else {
@@ -1013,6 +1029,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::NotPending(_)
         | ReviewRepositoryError::MissingRepairNote
+        | ReviewRepositoryError::MissingHandoverNote
         | ReviewRepositoryError::MissingRejectionNote
         | ReviewRepositoryError::UnsupportedArtifact(_, _)
         | ReviewRepositoryError::InvalidSchemaField(_)
@@ -1044,6 +1061,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "REVIEWER_CANNOT_CHANGE_CANDIDATES")
         }
         ReviewRepositoryError::AuthorMayNotDecide => forbidden(&error, "AUTHOR_CANNOT_DECIDE"),
+        ReviewRepositoryError::OnlyAgentsHandOver => forbidden(&error, "HAND_OVER_NEEDS_AGENT"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }

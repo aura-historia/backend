@@ -254,6 +254,44 @@ impl CrawlerReviewRepository {
     }
 }
 
+impl CrawlerReviewRepository {
+    /// Hands a pending review to a human at once: a review agent that cannot take the review
+    /// further, such as an author that has nothing to change on a candidate the reviewer already
+    /// judged, says why in `note`. The event trail keeps the note, and from then on the review
+    /// waits for a human exactly as one at the repair-round cap does, until a human changes or
+    /// judges it. It counts no needs-repair round, replaces no repair request and changes no
+    /// candidate.
+    pub async fn hand_to_human(
+        &self,
+        review_id: CrawlerReviewId,
+        actor: ReviewActor,
+        note: Option<&str>,
+    ) -> Result<(), ReviewRepositoryError> {
+        if !actor.is_agent() {
+            return Err(ReviewRepositoryError::OnlyAgentsHandOver);
+        }
+        let note = note
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .ok_or(ReviewRepositoryError::MissingHandoverNote)?;
+        let mut transaction = self.pool.begin().await?;
+        lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions).await?;
+        sqlx::query("UPDATE crawler_reviews SET updated = NOW() WHERE review_id = $1")
+            .bind(review_id.as_uuid())
+            .execute(&mut *transaction)
+            .await?;
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::HandedToHuman { note },
+        )
+        .await?;
+        info!(review_id = %review_id, actor = %actor, "Review agent handed a review to a human");
+        Ok(())
+    }
+}
+
 /// Refuses, before any review is read, a verdict the actor may not give on any review: the author
 /// agent's, which only stages. Other actors pass; only the console of `agent` authoring mode
 /// lets a request act as the reviewer agent.

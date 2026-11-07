@@ -2046,6 +2046,95 @@ async fn should_refuse_every_agent_change_and_verdict_once_the_agents_reached_th
     );
 }
 
+/// An agent hands a review to a human at once with its reasoning as the event's note: the review
+/// waits for a human as one at the cap does, without a needs-repair round, until a human changes
+/// it; only an agent hands over, and only with a note.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_hand_a_review_to_a_human_at_once_without_counting_a_round() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 3);
+    let listing_source_id = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    repository
+        .request_repair(
+            review_id,
+            ReviewActor::AgentReviewer,
+            Some("state is a button"),
+        )
+        .await
+        .unwrap();
+
+    let by_human = repository
+        .hand_to_human(review_id, ReviewActor::Human, Some("why"))
+        .await;
+    let without_note = repository
+        .hand_to_human(review_id, ReviewActor::AgentAuthor, Some("  "))
+        .await;
+    assert!(matches!(
+        by_human,
+        Err(ReviewRepositoryError::OnlyAgentsHandOver)
+    ));
+    assert!(matches!(
+        without_note,
+        Err(ReviewRepositoryError::MissingHandoverNote)
+    ));
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, false));
+
+    repository
+        .hand_to_human(
+            review_id,
+            ReviewActor::AgentAuthor,
+            Some("the button text is the only availability signal"),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(agent_rounds(&repository, review_id).await, (1, true));
+    let events = repository.get_review(review_id).await.unwrap().events;
+    let handed = events.last().unwrap();
+    assert_eq!(
+        (handed.actor, handed.action, handed.notes.as_deref()),
+        (
+            ReviewActor::AgentAuthor,
+            ReviewEventAction::HandedToHuman,
+            Some("the button text is the only availability signal")
+        )
+    );
+    let again = repository
+        .hand_to_human(review_id, ReviewActor::AgentReviewer, Some("again"))
+        .await;
+    let verdict = repository
+        .request_repair(review_id, ReviewActor::AgentReviewer, Some("again"))
+        .await;
+    for refusal in [again, verdict] {
+        assert!(
+            matches!(refusal, Err(ReviewRepositoryError::HumanRequired { .. })),
+            "{refusal:?}"
+        );
+    }
+    assert_eq!(events.len(), 2);
+
+    repository
+        .update_schema_field(
+            review_id,
+            ReviewActor::Human,
+            version(&repository, review_id).await,
+            0,
+            "title",
+            Some(rule("h1, h2")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(agent_rounds(&repository, review_id).await, (0, false));
+}
+
 /// A human hands a review that waits for them back to the agents with any change or verdict of
 /// their own, and the agents' rounds count again from it; a decided review waits for nobody.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

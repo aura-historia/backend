@@ -55,6 +55,11 @@ pub(super) enum ReviewMutation<'a> {
         #[serde(skip)]
         note: &'a str,
     },
+    /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note.
+    HandedToHuman {
+        #[serde(skip)]
+        note: &'a str,
+    },
     ProductSchemasApproved {
         #[serde(skip)]
         notes: Option<&'a str>,
@@ -157,6 +162,7 @@ impl ReviewMutation<'_> {
             Self::PageAdded { .. } => ReviewEventAction::PageAdded,
             Self::PageRemoved { .. } => ReviewEventAction::PageRemoved,
             Self::RepairRequested { .. } => ReviewEventAction::RepairRequested,
+            Self::HandedToHuman { .. } => ReviewEventAction::HandedToHuman,
             Self::ProductSchemasApproved { .. } | Self::UrlPatternApproved { .. } => {
                 ReviewEventAction::Approved
             }
@@ -170,7 +176,7 @@ impl ReviewMutation<'_> {
 
     fn notes(&self) -> Option<&str> {
         match self {
-            Self::RepairRequested { note } => Some(note),
+            Self::RepairRequested { note } | Self::HandedToHuman { note } => Some(note),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
             | Self::Rejected { notes }
@@ -456,6 +462,14 @@ mod tests {
                 },
                 ReviewEventAction::RepairRequested,
                 Some("title misses sold pages"),
+                json!({}),
+            ),
+            (
+                ReviewMutation::HandedToHuman {
+                    note: "nothing to change",
+                },
+                ReviewEventAction::HandedToHuman,
+                Some("nothing to change"),
                 json!({}),
             ),
             (

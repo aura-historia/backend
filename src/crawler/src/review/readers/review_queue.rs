@@ -2,7 +2,7 @@
 //! visible. The contract is in `docs/crawler/operations.md` (review service).
 
 use crate::CrawlerReviewId;
-use crate::review::agent_decisions::AgentDecisionPolicy;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::model::{AutoSchemaEvaluationOutcome, ReviewQueueEntry};
 use crate::review::repository::{
     CrawlerReviewRepository, agent_repair_rounds, crawler_review_id_from_uuid,
@@ -73,11 +73,11 @@ impl ReviewQueueReader {
     fn queue_entry(
         &self,
         row: PgRow,
-        agent_rounds: &HashMap<CrawlerReviewId, u32>,
+        agent_rounds: &HashMap<CrawlerReviewId, AgentRounds>,
     ) -> Result<ReviewQueueEntry, sqlx::Error> {
         let review_id = crawler_review_id_from_uuid(row.try_get("review_id")?)?;
         let status: String = row.try_get("status")?;
-        let agent_rounds = agent_rounds.get(&review_id).copied().unwrap_or(0);
+        let rounds = agent_rounds.get(&review_id).copied().unwrap_or_default();
         let auto_schema_evaluation = row
             .try_get::<Option<serde_json::Value>, _>("auto_schema_evaluation")?
             .map(serde_json::from_value::<AutoSchemaEvaluationOutcome>)
@@ -94,12 +94,12 @@ impl ReviewQueueReader {
             listing_source_name: row.try_get("listing_source_name")?,
             listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
             artifact_type: row.try_get("artifact_type")?,
-            human_required: self.agent_decisions.waits_for_human(&status, agent_rounds),
+            human_required: self.agent_decisions.waits_for_human(&status, rounds),
             status,
             reason: row.try_get("reason")?,
             candidate_version: row.try_get("candidate_version")?,
             repair_request: row_to_repair_request(&row)?,
-            agent_rounds,
+            agent_rounds: rounds.needs_repair,
             auto_schema_evaluation,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
