@@ -1,14 +1,14 @@
 //! The daily digest of the agents' work, for humans who oversee after the fact: the reviews that
-//! wait for a human because the agents' needs-repair rounds on them reached the cap, what the
-//! event trail of all reviews recorded in the window (approvals, rejections and needs-repair
-//! verdicts by actor, restores and revoked rejections), what the agents reported (the server's
+//! wait for a human (the agents' needs-repair rounds on them reached the cap, or an agent handed
+//! them over), what the event trail of all reviews recorded in the window (approvals, rejections,
+//! needs-repair verdicts and hand-overs by actor, restores and revoked rejections), what the agents reported (the server's
 //! refusals by failed check, each process's outcome), and each review's tokens and cost. It is
 //! written to a Markdown file in the state directory's `digests/` and summarised in one log line.
 
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
 use super::queue::{HumanRequiredReview, ReviewEventEntry, ReviewEventsSince};
-use super::reports::{AgentReport, ServerOutcome};
+use super::reports::{AgentReport, ServerOutcome, TrailVerdict};
 use super::wire_name;
 use crate::CrawlerReviewId;
 use std::collections::BTreeMap;
@@ -54,6 +54,8 @@ pub struct Digest {
     pub approved: DecisionCount,
     pub rejected: DecisionCount,
     pub needs_repair: DecisionCount,
+    /// The reviews an agent handed to a human at once, with its reasoning as the event's note.
+    pub handed_to_human: DecisionCount,
     pub restored: usize,
     /// The rejections a human revoked, so they classify their pages as non-product pages no more.
     pub revoked_rejections: usize,
@@ -61,7 +63,8 @@ pub struct Digest {
     pub needs_a_human: Vec<HumanRequiredReview>,
     decisions: Vec<ReviewEventEntry>,
     events_truncated: bool,
-    /// The server's refusals of the reviewer's decisions by failed check, as the reports name them.
+    /// The server's refusals of the reviewer's decisions by failed check, as the reports name them:
+    /// the event trail records only what the console accepted, so a refusal is the agent's account.
     pub refusals_by_check: BTreeMap<String, usize>,
     /// Refusals that named no failed check, by their kind.
     pub refusals_by_kind: BTreeMap<String, usize>,
@@ -91,7 +94,12 @@ impl Digest {
             .filter(|event| {
                 matches!(
                     event.action.as_str(),
-                    "APPROVED" | "REJECTED" | "REPAIR_REQUESTED" | "RESTORED" | "REJECTION_REVOKED"
+                    "APPROVED"
+                        | "REJECTED"
+                        | "REPAIR_REQUESTED"
+                        | "HANDED_TO_HUMAN"
+                        | "RESTORED"
+                        | "REJECTION_REVOKED"
                 )
             })
             .collect();
@@ -120,6 +128,7 @@ impl Digest {
             approved: count("APPROVED"),
             rejected: count("REJECTED"),
             needs_repair: count("REPAIR_REQUESTED"),
+            handed_to_human: count("HANDED_TO_HUMAN"),
             restored: total("RESTORED"),
             revoked_rejections: total("REJECTION_REVOKED"),
             needs_a_human,
@@ -201,12 +210,12 @@ impl Digest {
         }
         let _ = writeln!(
             out,
-            "The agents' needs-repair rounds on these pending reviews reached the cap, so no agent works them. Change or judge each in the review console to hand it back to the agents, or approve or reject it.\n"
+            "These pending reviews wait for a human: the agents' needs-repair rounds on them reached the cap, or an agent handed them over with its reasoning. No agent works them. Change or judge each in the review console to hand it back to the agents, or approve or reject it.\n"
         );
         for review in &self.needs_a_human {
             let _ = writeln!(
                 out,
-                "- {} {} · {} · {} agent rounds{}",
+                "- {} {} · {} · {} agent rounds{}{}",
                 review.review_id,
                 review.artifact_type,
                 review
@@ -214,6 +223,7 @@ impl Digest {
                     .as_deref()
                     .unwrap_or("(unnamed source)"),
                 review.agent_rounds,
+                self.handover_of(review.review_id),
                 review
                     .repair_request
                     .as_ref()
@@ -228,6 +238,23 @@ impl Digest {
         out.push('\n');
     }
 
+    /// The latest hand-over of `review_id` in the window: who handed it over, when, and why.
+    fn handover_of(&self, review_id: CrawlerReviewId) -> String {
+        self.decisions
+            .iter()
+            .rev()
+            .find(|event| event.review_id == review_id && event.action == "HANDED_TO_HUMAN")
+            .map(|event| {
+                format!(
+                    " · handed over by {} at {}: {}",
+                    event.actor,
+                    timestamp(event.created),
+                    short(event.notes.as_deref().unwrap_or("no reasoning recorded"))
+                )
+            })
+            .unwrap_or_default()
+    }
+
     fn write_decisions(&self, out: &mut String) {
         let _ = writeln!(out, "## Decisions in the event trail\n");
         let _ = writeln!(out, "| Action | By agents | By humans or the crawler |");
@@ -236,6 +263,7 @@ impl Digest {
             ("Approved", self.approved),
             ("Rejected", self.rejected),
             ("Needs repair", self.needs_repair),
+            ("Handed to a human", self.handed_to_human),
         ] {
             let _ = writeln!(out, "| {name} | {} | {} |", count.agents, count.others);
         }
@@ -278,7 +306,7 @@ impl Digest {
     }
 
     fn write_refusals(&self, out: &mut String) {
-        let _ = writeln!(out, "## Server refusals of the reviewer's decisions\n");
+        let _ = writeln!(out, "## Server refusals the reviewer reported\n");
         if self.refusals_by_check.is_empty() && self.refusals_by_kind.is_empty() {
             let _ = writeln!(out, "None reported.\n");
             return;
@@ -352,9 +380,10 @@ impl Digest {
                     risks(&report.risks)
                 ),
                 AgentReport::Reviewer(report) => format!(
-                    "reviewer {} ({} confidence, server {}{}): {}{}",
+                    "reviewer {} ({} confidence, {}, reported server answer {}{}): {}{}",
                     wire_name(Some(report.decision)),
                     wire_name(Some(report.confidence)),
+                    trail_text(record.trail_verdict),
                     wire_name(Some(report.server_answer.outcome)),
                     if report.server_answer.failed_checks.is_empty() {
                         String::new()
@@ -429,8 +458,9 @@ fn process_line(record: &ProcessRecord) -> String {
     let detail = match (&record.report, record.limit, &record.failure) {
         (Some(AgentReport::Author(report)), _, _) => wire_name(Some(report.action)),
         (Some(AgentReport::Reviewer(report)), _, _) => format!(
-            "{} {}",
+            "{} ({}, reported {})",
             wire_name(Some(report.decision)),
+            trail_text(record.trail_verdict),
             wire_name(Some(report.server_answer.outcome))
         ),
         (None, Some(limit), _) => format!("{} limit", wire_name(Some(limit))),
@@ -443,6 +473,16 @@ fn process_line(record: &ProcessRecord) -> String {
         ""
     };
     format!("{role} {detail}{charged}")
+}
+
+/// What the event trail recorded of a reviewer process, which the digest shows ahead of the
+/// report's own claim about the server's answer. A record without it, from before the runner read
+/// the trail or from a trail it could not read, says so.
+fn trail_text(verdict: Option<TrailVerdict>) -> String {
+    match verdict {
+        Some(verdict) => format!("trail {}", wire_name(Some(verdict))),
+        None => "trail unknown".to_owned(),
+    }
 }
 
 fn risks(risks: &[String]) -> String {
@@ -490,6 +530,7 @@ mod tests {
     use crate::review_agent_runner::queue::ReviewArtifact;
     use crate::review_agent_runner::reports::{
         AuthorAction, AuthorReport, Confidence, ReviewerDecision, ReviewerReport, ServerAnswer,
+        TrailVerdict,
     };
     use time::Duration;
     use time::macros::datetime;
@@ -644,7 +685,10 @@ mod tests {
         assert_eq!(digest.reviews[&review_id].usage.input_tokens, 1_400);
         assert_eq!(
             digest.reviews[&review_id].processes,
-            ["author STAGED", "reviewer APPROVE REFUSED"]
+            [
+                "author STAGED",
+                "reviewer APPROVE (trail unknown, reported REFUSED)"
+            ]
         );
         assert_eq!(
             digest.refusals_by_check,
@@ -664,6 +708,91 @@ mod tests {
             "author STAGED at version 4: Staged the pattern /item/. Risks: two labels only"
         ));
         assert!(markdown.contains("Rolling five hours: $1.50. Rolling week: $9.00."));
+    }
+
+    /// The digest and the process rows show what the event trail recorded of a reviewer process,
+    /// and the report's `NOT_SENT` only as the agent's reported account.
+    #[test]
+    fn should_show_the_trail_s_verdict_and_label_the_report_s_server_answer_as_reported() {
+        let mut contradicted = record(TO - Duration::hours(1), 0.2);
+        contradicted.role = ProcessRole::Reviewer;
+        contradicted.trail_verdict = Some(TrailVerdict::Approved);
+        contradicted.report = Some(reviewer(
+            contradicted.review_id,
+            ServerOutcome::NotSent,
+            &[],
+        ));
+        let mut legacy = record(TO - Duration::hours(2), 0.2);
+        legacy.role = ProcessRole::Reviewer;
+        legacy.report = Some(reviewer(legacy.review_id, ServerOutcome::NotSent, &[]));
+
+        let digest = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![],
+                truncated: false,
+            },
+            vec![contradicted.clone(), legacy.clone()],
+            vec![],
+            rolling_cost(),
+        );
+
+        let markdown = digest.markdown();
+        assert!(
+            markdown.contains("reviewer APPROVE (trail APPROVED, reported NOT_SENT)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("reviewer APPROVE (trail unknown, reported NOT_SENT)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(
+                "reviewer APPROVE (HIGH confidence, trail APPROVED, reported server answer NOT_SENT)"
+            ),
+            "{markdown}"
+        );
+    }
+
+    #[test]
+    fn should_count_a_hand_over_and_show_its_reasoning_where_the_review_waits_for_a_human() {
+        let review_id = CrawlerReviewId::new();
+        let mut handed = event("AGENT_AUTHOR", "HANDED_TO_HUMAN", 2);
+        handed.review_id = review_id;
+        handed.notes = Some("Author's reasoning: the button is the only label".to_owned());
+        let waiting = HumanRequiredReview {
+            review_id,
+            artifact_type: ReviewArtifact::ProductSchema,
+            listing_source_name: Some("Antiques".to_owned()),
+            agent_rounds: 1,
+            repair_request: None,
+        };
+
+        let digest = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![handed],
+                truncated: false,
+            },
+            vec![],
+            vec![waiting],
+            rolling_cost(),
+        );
+
+        let markdown = digest.markdown();
+        assert_eq!(digest.handed_to_human.agents, 1);
+        assert!(
+            markdown.contains("| Handed to a human | 1 | 0 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(&format!(
+                "- {review_id} PRODUCT_SCHEMA · Antiques · 1 agent rounds · handed over by AGENT_AUTHOR at 2026-10-28T04:00:00Z: Author's reasoning: the button is the only label\n"
+            )),
+            "{markdown}"
+        );
     }
 
     #[test]

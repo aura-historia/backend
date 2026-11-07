@@ -1,6 +1,7 @@
 //! One pass of the agents over the pending reviews: per review a fresh author process, then, when
 //! the author staged or kept a candidate, a fresh reviewer process, with at most the configured
-//! number of processes at once. Each process's outcome is recorded in the ledger and logged.
+//! number of processes at once. The pass is a rolling pool: a freed slot is refilled from the
+//! queue as it is then, until the run's budget of reviews is spent, each review worked once. Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
 //! not what its report says the console answered. A review that waits for a human is no agent
@@ -8,6 +9,9 @@
 //! to a human, so it neither fails nor cools down, whichever process's needs-repair verdict
 //! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
 //! as a review no agent worked ([`select_reviews`]).
+//! An author that reports `NOTHING_TO_STAGE` on a candidate the reviewer already judged gives the
+//! reviewer nothing new: the pass hands the review to a human at once, with the author's
+//! reasoning as the note of the console's hand-over event, instead of one more needs-repair round.
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
@@ -21,17 +25,21 @@ use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
-    QueuedReview, review_events_since, review_queue, select_reviews, waits_for_human,
+    QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_candidate,
+    select_reviews, waits_for_human,
 };
-use super::reports::{AgentReport, AuthorAction};
+use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
 use super::wire_name as name;
+use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
 use crate::review::model::{ReviewActor, ReviewEventAction};
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
+use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 use time::OffsetDateTime;
 use tracing::{info, warn};
@@ -98,6 +106,22 @@ enum Step {
     RunnerStop,
 }
 
+/// A finished process: how it ended, and for a reviewer the verdict its review's event trail
+/// records since it started, `None` when the runner did not or could not read it.
+struct Processed {
+    step: Step,
+    trail_verdict: Option<TrailVerdict>,
+}
+
+impl Processed {
+    fn of(step: Step) -> Self {
+        Self {
+            step,
+            trail_verdict: None,
+        }
+    }
+}
+
 /// Works the pending reviews `console` lists with the author token, telling the agents the
 /// console's `limits`, until `runner_stop` is requested. The state and ledger come back changed
 /// even when the pass fails, so a pause or cooldown it set is kept.
@@ -148,62 +172,129 @@ pub enum PassError {
 }
 
 impl Pass<'_> {
+    /// Works the queue with a rolling pool: whenever a slot is free and the run's budget of
+    /// `max_reviews_per_run` reviews is not spent, it reads the queue again and starts the next
+    /// workable reviews, so a slot that frees never waits for the slowest process and the run
+    /// picks up reviews that became workable meanwhile, such as one a human handed back. Each
+    /// review is worked at most once per run, and one that came to wait for a human is no longer
+    /// started. A pause stops the refill; the running processes finish, and the runner's stop is
+    /// handled by the processes themselves.
     async fn run(&self) -> Result<(), PassError> {
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Ok(());
         }
-        let queue = review_queue(self.console)
-            .await
-            .map_err(PassError::Console)?;
-        let pending = queue.workable.len();
-        let waiting_for_human = queue.waiting_for_human.len();
-        let (cooldowns, last_worked) =
-            self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
-        let (selected, cooling_down) = select_reviews(
-            queue.workable,
-            &cooldowns,
-            &last_worked,
-            OffsetDateTime::now_utc(),
-            usize::try_from(self.settings.max_reviews_per_run.get()).unwrap_or(usize::MAX),
-        );
-        self.with(|shared| {
-            shared.summary.pending = pending;
-            shared.summary.waiting_for_human = waiting_for_human;
-            shared.summary.cooling_down = cooling_down;
-        });
-        info!(
-            pending,
-            waiting_for_human,
-            cooling_down,
-            selected = selected.len(),
-            max_reviews_per_run = self.settings.max_reviews_per_run.get(),
-            max_processes = self.settings.max_processes.get(),
-            "Review agents pass started"
-        );
+        let budget = usize::try_from(self.settings.max_reviews_per_run.get()).unwrap_or(usize::MAX);
         let concurrency = usize::try_from(self.settings.max_processes.get()).unwrap_or(1);
-        futures::stream::iter(selected)
-            .map(|review| self.work_review(review))
-            .buffer_unordered(concurrency)
-            .collect::<Vec<()>>()
-            .await;
+        let mut running = FuturesUnordered::new();
+        let mut started = BTreeSet::new();
+        let mut refilling = true;
+        while refilling || !running.is_empty() {
+            let free = concurrency
+                .saturating_sub(running.len())
+                .min(budget.saturating_sub(started.len()));
+            if refilling && free > 0 && !self.runner_stop.is_requested() {
+                let first_read = started.is_empty();
+                match self.next_reviews(&started, free, first_read).await {
+                    Ok(reviews) if reviews.is_empty() => {}
+                    Ok(reviews) => match self.stop(OffsetDateTime::now_utc()) {
+                        Some(stop) => {
+                            self.with(|shared| shared.summary.stopped = Some(stop));
+                            refilling = false;
+                        }
+                        None => {
+                            for review in reviews {
+                                started.insert(review.review_id);
+                                running.push(self.work_review(review));
+                            }
+                        }
+                    },
+                    Err(error) if first_read => return Err(error),
+                    Err(error) => {
+                        warn!(
+                            error = %error,
+                            cause = ?std::error::Error::source(&error),
+                            "Cannot read the review queue to refill the run; it ends when its running processes do"
+                        );
+                        refilling = false;
+                    }
+                }
+            }
+            refilling &= started.len() < budget && !self.runner_stop.is_requested();
+            if running.next().await.is_none() {
+                break;
+            }
+        }
         if self.runner_stop.is_requested() {
             self.with(|shared| shared.summary.stopped = Some(PassStop::RunnerStop));
         }
         Ok(())
     }
 
+    /// Reads the queue and picks the next `free` workable reviews no process of this run worked
+    /// yet. The first read also tells what the run found in the queue.
+    async fn next_reviews(
+        &self,
+        started: &BTreeSet<CrawlerReviewId>,
+        free: usize,
+        first_read: bool,
+    ) -> Result<Vec<QueuedReview>, PassError> {
+        let queue = review_queue(self.console)
+            .await
+            .map_err(PassError::Console)?;
+        let pending = queue.workable.len();
+        let waiting_for_human = queue.waiting_for_human.len();
+        let unworked: Vec<QueuedReview> = queue
+            .workable
+            .into_iter()
+            .filter(|review| !started.contains(&review.review_id))
+            .collect();
+        let (cooldowns, last_worked) =
+            self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
+        let (selected, cooling_down) = select_reviews(
+            unworked,
+            &cooldowns,
+            &last_worked,
+            OffsetDateTime::now_utc(),
+            free,
+        );
+        if first_read {
+            self.with(|shared| {
+                shared.summary.pending = pending;
+                shared.summary.waiting_for_human = waiting_for_human;
+                shared.summary.cooling_down = cooling_down;
+            });
+            info!(
+                pending,
+                waiting_for_human,
+                cooling_down,
+                selected = selected.len(),
+                max_reviews_per_run = self.settings.max_reviews_per_run.get(),
+                max_processes = self.settings.max_processes.get(),
+                "Review agents pass started"
+            );
+        }
+        Ok(selected)
+    }
+
     /// The author's pass, then the reviewer's when the author left a candidate to decide. A review
     /// that waits for a human after either pass, whichever process's needs-repair verdict brought
     /// it to the cap, gets no further process and no cooldown.
     async fn work_review(&self, review: QueuedReview) {
-        let author_report = match self.run_process(AgentRole::Author, &review).await {
+        let author_report = match self.run_process(AgentRole::Author, &review).await.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return,
             Step::NoDecision => None,
             Step::Reported(report) => Some(report),
         };
         if self.waits_for_human_after(AgentRole::Author, &review).await {
             self.with(|shared| shared.summary.handed_to_human += 1);
+            return;
+        }
+        if let Some(AgentReport::Author(report)) = &author_report
+            && report.action == AuthorAction::NothingToStage
+            && self.reviewer_judged_candidate(&review).await
+        {
+            self.hand_over_to_human(&review, report).await;
             return;
         }
         if !leaves_a_candidate_to_decide(author_report.as_ref()) {
@@ -214,21 +305,76 @@ impl Pass<'_> {
             self.hold_back_reviewer(&review, until);
             return;
         }
-        let reviewer_started = OffsetDateTime::now_utc();
-        match self.run_process(AgentRole::Reviewer, &review).await {
+        let processed = self.run_process(AgentRole::Reviewer, &review).await;
+        match processed.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {}
             Step::Reported(report) => {
                 self.pause_reviewers_at_decision_cap(&report).await;
-                self.finish_reviewer_pass(&review, reviewer_started).await;
+                self.finish_reviewer_pass(&review, processed.trail_verdict)
+                    .await;
             }
-            Step::NoDecision => self.finish_reviewer_pass(&review, reviewer_started).await,
+            Step::NoDecision => {
+                self.finish_reviewer_pass(&review, processed.trail_verdict)
+                    .await;
+            }
+        }
+    }
+
+    /// Whether the reviewer already judged the review's current candidate, so a reviewer process
+    /// after an author that changed nothing would only repeat its verdict as one more round. A
+    /// review the runner cannot read counts as not judged: it gets its reviewer, as before.
+    async fn reviewer_judged_candidate(&self, review: &QueuedReview) -> bool {
+        match reviewer_judged_candidate(self.console, review.review_id).await {
+            Ok(judged) => judged,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read whether the reviewer judged the candidate the author left unchanged; the reviewer runs"
+                );
+                false
+            }
+        }
+    }
+
+    /// Hands the review to a human at once with the author's reasoning, which the console records
+    /// as an event of the review's trail, instead of starting a reviewer process that would repeat
+    /// its verdict on the unchanged candidate. A hand-over the console does not take cools the
+    /// review down unless it waits for a human anyway.
+    async fn hand_over_to_human(&self, review: &QueuedReview, report: &AuthorReport) {
+        match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
+            Ok(()) => {
+                info!(
+                    review_id = %review.review_id,
+                    "The author found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
+                );
+                self.with(|shared| shared.summary.handed_to_human += 1);
+            }
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot hand the review to a human"
+                );
+                if self.waits_for_human_after(AgentRole::Author, review).await {
+                    self.with(|shared| shared.summary.handed_to_human += 1);
+                } else {
+                    self.cool_down(review);
+                }
+            }
         }
     }
 
     /// Counts the reviewer's decision, or cools the review down when it made none and does not
     /// wait for a human.
-    async fn finish_reviewer_pass(&self, review: &QueuedReview, reviewer_started: OffsetDateTime) {
-        if self.reviewer_decided(review, reviewer_started).await {
+    async fn finish_reviewer_pass(
+        &self,
+        review: &QueuedReview,
+        trail_verdict: Option<TrailVerdict>,
+    ) {
+        if trail_verdict.is_some_and(TrailVerdict::is_decision) {
             self.with(|shared| shared.summary.decided += 1);
         } else if !self
             .waits_for_human_after(AgentRole::Reviewer, review)
@@ -357,24 +503,43 @@ impl Pass<'_> {
         }
     }
 
-    /// Whether the event trail records a reviewer agent's decision on `review` since `since`.
-    /// The trail, not the report, says what the console took: a reviewer may report a refused
-    /// approval although its needs-repair verdict after it was accepted, or end before it reports.
-    /// A trail the runner cannot read counts as no decision, so the review cools down.
-    async fn reviewer_decided(&self, review: &QueuedReview, since: OffsetDateTime) -> bool {
-        const DECISIONS: [ReviewEventAction; 3] = [
-            ReviewEventAction::Approved,
-            ReviewEventAction::Rejected,
-            ReviewEventAction::RepairRequested,
+    /// What the event trail records of the reviewer agent's verdict on `review` since `since`,
+    /// the last one when it gave several. The trail, not the report, says what the console took:
+    /// a reviewer may report a refused approval although its needs-repair verdict after it was
+    /// accepted, report `NOT_SENT` for a verdict the trail shows, or end before it reports. A
+    /// trail the runner cannot read gives `None`, which counts as no decision, so the review
+    /// cools down.
+    async fn reviewer_verdict(
+        &self,
+        review: &QueuedReview,
+        since: OffsetDateTime,
+    ) -> Option<TrailVerdict> {
+        const DECISIONS: [(ReviewEventAction, TrailVerdict); 3] = [
+            (ReviewEventAction::Approved, TrailVerdict::Approved),
+            (ReviewEventAction::Rejected, TrailVerdict::Rejected),
+            (
+                ReviewEventAction::RepairRequested,
+                TrailVerdict::RepairRequested,
+            ),
         ];
         match review_events_since(self.console, since).await {
-            Ok(trail) => trail.events.iter().any(|event| {
-                event.review_id == review.review_id
-                    && event.actor == ReviewActor::AgentReviewer.as_str()
-                    && DECISIONS
-                        .iter()
-                        .any(|decision| event.action == decision.as_str())
-            }),
+            Ok(trail) => Some(
+                trail
+                    .events
+                    .iter()
+                    .rev()
+                    .filter(|event| {
+                        event.review_id == review.review_id
+                            && event.actor == ReviewActor::AgentReviewer.as_str()
+                    })
+                    .find_map(|event| {
+                        DECISIONS
+                            .iter()
+                            .find(|(action, _)| event.action == action.as_str())
+                            .map(|(_, verdict)| *verdict)
+                    })
+                    .unwrap_or(TrailVerdict::NoVerdict),
+            ),
             Err(error) => {
                 warn!(
                     review_id = %review.review_id,
@@ -382,16 +547,20 @@ impl Pass<'_> {
                     cause = ?std::error::Error::source(&error),
                     "Cannot read the event trail for the reviewer's decision; the review cools down"
                 );
-                false
+                None
             }
         }
     }
 
-    async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Step {
+    /// Runs one agent process of `role` on `review` and records it. After a reviewer process that
+    /// ended without being stopped, it reads the event trail for the verdict the console took and
+    /// records that with the process, next to the report's own claim.
+    async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Processed {
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
-            return Step::NotStarted;
+            return Processed::of(Step::NotStarted);
         }
+        let started = OffsetDateTime::now_utc();
         let contract = role_contract(role);
         let process = self.settings.role(role);
         if role == AgentRole::Author {
@@ -421,9 +590,19 @@ impl Pass<'_> {
             }
             Err(error) => record.failed(error.to_string()),
         };
+        let trail_verdict = match (role, &step) {
+            (AgentRole::Reviewer, Step::Reported(_) | Step::NoDecision) => {
+                self.reviewer_verdict(review, started).await
+            }
+            _ => None,
+        };
+        record.trail_verdict = trail_verdict;
         record.finished = OffsetDateTime::now_utc();
         self.finish(record);
-        step
+        Processed {
+            step,
+            trail_verdict,
+        }
     }
 
     /// What a finished, stopped or failed process left.
@@ -651,6 +830,14 @@ fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
     })
 }
 
+/// The note of the hand-over to a human: why no reviewer runs, then the author's own reasoning.
+fn handover_note(report: &AuthorReport) -> String {
+    format!(
+        "The author agent reported NOTHING_TO_STAGE on a candidate the reviewer agent had already judged, so no further reviewer round runs. Author's reasoning: {}",
+        report.summary
+    )
+}
+
 impl ProcessRecord {
     fn started(review: &QueuedReview, role: AgentRole, prompt_version: &str) -> Self {
         Self {
@@ -672,6 +859,7 @@ impl ProcessRecord {
             total_cost_usd: 0.0,
             cost_charged: false,
             report: None,
+            trail_verdict: None,
         }
     }
 

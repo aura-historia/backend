@@ -88,6 +88,25 @@ impl AgentLimits {
     }
 }
 
+/// What the review agents did on a review since a human last changed or judged it, from its event
+/// trail.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentRounds {
+    /// The agents' needs-repair verdicts: the rounds of their back-and-forth on the review.
+    pub needs_repair: u32,
+    /// Whether an agent handed the review to a human at once, which needs no further round.
+    pub handed_to_human: bool,
+}
+
+impl AgentRounds {
+    pub const fn needs_repair(rounds: u32) -> Self {
+        Self {
+            needs_repair: rounds,
+            handed_to_human: false,
+        }
+    }
+}
+
 /// The review agents' decision policy of one crawler start, which the composition root builds
 /// once from the authoring mode and the [`AgentLimits`] settings and every component shares. Only
 /// `agent` mode has review agents. In every other mode no request acts as an agent, so the limits
@@ -116,14 +135,14 @@ impl AgentDecisionPolicy {
             .then_some(self.limits.max_repair_rounds)
     }
 
-    /// Whether a review in `status` that the agents gave `agent_rounds` needs-repair verdicts
-    /// since a human last changed or judged it waits for a human: it is pending and their
-    /// back-and-forth on it reached the [repair-round cap](Self::repair_rounds_cap).
-    pub fn waits_for_human(&self, status: &str, agent_rounds: u32) -> bool {
+    /// Whether a review in `status` that the agents worked as `rounds` says since a human last
+    /// changed or judged it waits for a human: it is pending and either their back-and-forth on it
+    /// reached the [repair-round cap](Self::repair_rounds_cap) or an agent handed it over.
+    pub fn waits_for_human(&self, status: &str, rounds: AgentRounds) -> bool {
         status == STATUS_PENDING_REVIEW
             && self
                 .repair_rounds_cap()
-                .is_some_and(|cap| agent_rounds >= cap.get())
+                .is_some_and(|cap| rounds.handed_to_human || rounds.needs_repair >= cap.get())
     }
 }
 
@@ -288,13 +307,34 @@ mod tests {
     fn should_hand_a_review_to_a_human_once_the_agents_reached_the_cap() {
         let policy = capped_at_three(CrawlerAuthoringMode::Agent);
 
-        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 0));
-        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 2));
-        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, 3));
-        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, 4));
+        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(0)));
+        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(2)));
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(3)));
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(4)));
         for decided in ["APPROVED", "REJECTED", "SUPERSEDED"] {
-            assert!(!policy.waits_for_human(decided, 3), "{decided}");
+            assert!(
+                !policy.waits_for_human(decided, AgentRounds::needs_repair(3)),
+                "{decided}"
+            );
         }
+    }
+
+    /// An agent's hand-off needs no round, but only where review agents work the reviews and
+    /// only on a pending review.
+    #[test]
+    fn should_hand_a_review_to_a_human_when_an_agent_handed_it_over_before_the_cap() {
+        let handed = AgentRounds {
+            needs_repair: 1,
+            handed_to_human: true,
+        };
+        let agent = capped_at_three(CrawlerAuthoringMode::Agent);
+
+        assert!(agent.waits_for_human(STATUS_PENDING_REVIEW, handed));
+        assert!(!agent.waits_for_human("APPROVED", handed));
+        assert!(
+            !capped_at_three(CrawlerAuthoringMode::Review)
+                .waits_for_human(STATUS_PENDING_REVIEW, handed)
+        );
     }
 
     /// Outside `agent` mode a human decides every review, so none waits for a human, not even one
@@ -307,11 +347,15 @@ mod tests {
             CrawlerAuthoringMode::Manual,
         ] {
             assert!(
-                !capped_at_three(authoring).waits_for_human(STATUS_PENDING_REVIEW, 3),
+                !capped_at_three(authoring)
+                    .waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(3)),
                 "{authoring:?}"
             );
         }
-        assert!(!AgentDecisionPolicy::default().waits_for_human(STATUS_PENDING_REVIEW, 3));
+        assert!(
+            !AgentDecisionPolicy::default()
+                .waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(3))
+        );
         assert_eq!(AgentDecisionPolicy::default().repair_rounds_cap(), None);
         assert_eq!(
             capped_at_three(CrawlerAuthoringMode::Agent).repair_rounds_cap(),
