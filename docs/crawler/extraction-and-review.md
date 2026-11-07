@@ -24,14 +24,14 @@ The crawler does not normalize extracted values. Price parsing, currency, availa
 
 Before a candidate is used, the crawler checks the raw strings it extracted from one page ([`plausibility.rs`](../../src/crawler/src/scraper/plausibility.rs)):
 
-- `title` is not blank; `state` is not blank and no longer than a label;
+- `title` is not blank; `state` is not blank, no longer than a label and not a price: an amount with a currency symbol, code or word, or after "price", such as "£ 1,800 plus VAT", where availability labels, quantities and cart or enquiry actions carry none;
 - `price` and the estimates, when present, are not blank, no longer than a label and do not consist of zero digits only;
 - `description` and each raw attribute, when present, are not blank;
 - no `title`, `state`, price, estimate or `description` value carries CSS rules or script source;
 - the extracted `source_listing_id`, checked before the URL-hash fallback replaces a blank one, is present, capturable and one identifier rather than a list of three or more class-like words, such as a whole `<body class>` that holds the post id but changes with the template and the product's tags;
 - `images` do not repeat an image.
 
-Each finding names its field and check; a stored field name is read back only as a core field or a registered raw attribute key, and any other name is rejected rather than taken for a raw attribute. At runtime a `title`, `state`, CSS/script or uncapturable-identity finding rejects the candidate; price, estimate and image findings rank it below candidates with fewer such findings, and completeness and stored order break ties; a blank or word-list identity, a blank description and a blank raw attribute do not affect selection. A blank description reaches the worker, which clears it; a blank raw attribute stays in the source payload and is left out of the generic raw values, because the worker keeps attribute values as given. Free-text states such as "Viewing by appointment only." pass, and the worker reports them. Rejected candidates and schema repair stay crawler-side and never enter the business [normalization replay corpus](../normalization-replay.md).
+Each finding names its field and check; a stored field name is read back only as a core field or a registered raw attribute key, and any other name is rejected rather than taken for a raw attribute. At runtime a `title`, `state` (price text included), CSS/script or uncapturable-identity finding rejects the candidate; price, estimate and image findings rank it below candidates with fewer such findings, and completeness and stored order break ties; a blank or word-list identity, a blank description and a blank raw attribute do not affect selection. A blank description reaches the worker, which clears it; a blank raw attribute stays in the source payload and is left out of the generic raw values, because the worker keeps attribute values as given. Free-text states such as "Viewing by appointment only." pass, and the worker reports them. Rejected candidates and schema repair stay crawler-side and never enter the business [normalization replay corpus](../normalization-replay.md).
 
 ### Missing required values
 
