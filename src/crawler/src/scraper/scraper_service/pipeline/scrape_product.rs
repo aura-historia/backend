@@ -801,9 +801,10 @@ impl ScraperServiceImpl {
 
     /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
     /// ListingSource's `missing_required_value` review for it, so the review agents see the page
-    /// that no human adds; that page needs nobody's attention, so it logs at INFO. Other modes
-    /// open none and log a WARN, as the scrape's failure did before, since a human adds the page
-    /// from the console. A failure to open the review is a WARN too: the URL still records the
+    /// that no human adds, unless a rejection of such a review already judged the page under the
+    /// live schemas; that page needs nobody's attention, so it logs at INFO. Other modes open
+    /// none and log a WARN, as the scrape's failure did before, since a human adds the page from
+    /// the console. A failure to open the review is a WARN too: the URL still records the
     /// outcome, and the next scrape tries again.
     async fn report_missing_required_value(
         &self,
@@ -823,11 +824,16 @@ impl ScraperServiceImpl {
             _ => None,
         };
         match review {
-            Some(Ok(review_id)) => info!(
+            Some(Ok(Some(review_id))) => info!(
                 url = %page.url,
                 review_id = %review_id,
                 findings = %findings,
                 "Page left a required value blank; joined the missing_required_value review"
+            ),
+            Some(Ok(None)) => info!(
+                url = %page.url,
+                findings = %findings,
+                "Page left a required value blank; a rejected missing_required_value review already judged it under the live schemas"
             ),
             Some(Err(error)) => warn!(
                 url = %page.url,
