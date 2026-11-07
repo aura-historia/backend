@@ -74,8 +74,9 @@ pub trait AccessTokenRepository: Send {
         access_token_id: AccessTokenId,
     ) -> Result<bool, AccessTokenRepositoryError>;
 
-    /// Revokes every access token of the user and ends the user's OAuth connections with
-    /// their refresh tokens. Returns the number of access tokens deleted.
+    /// Revokes every access token of the user, ends the user's OAuth connections with their
+    /// refresh tokens and withdraws approvals no client has exchanged yet. Returns the number
+    /// of access tokens deleted.
     async fn delete_by_user_id(
         &mut self,
         user_id: UserId,

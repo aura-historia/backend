@@ -360,33 +360,33 @@ fn parse_access_token_search_after(value: &str) -> Result<AccessTokenSearchCurso
         bad_query(
             "searchAfter",
             format!(
-                "searchAfter must be a JSON array containing timestamp and AccessToken ID: {error}"
+                "searchAfter must be a JSON array containing a timestamp and an AccessToken or connection ID: {error}"
             ),
         )
     })?;
     let Value::Array(values) = value else {
         return Err(bad_query(
             "searchAfter",
-            "searchAfter must contain an RFC3339 timestamp and AccessToken ID.",
+            "searchAfter must contain an RFC3339 timestamp and an AccessToken or connection ID.",
         ));
     };
     let [Value::String(position), Value::String(access_token_id)] = values.as_slice() else {
         return Err(bad_query(
             "searchAfter",
-            "searchAfter must contain an RFC3339 timestamp and AccessToken ID.",
+            "searchAfter must contain an RFC3339 timestamp and an AccessToken or connection ID.",
         ));
     };
     let position = OffsetDateTime::parse(position, &Rfc3339)
         .map_err(|error| bad_query("searchAfter", error))?;
-    let entry_id =
-        match parse_query_object_id::<AccessTokenId>(access_token_id, "searchAfter", "AccessToken")
-        {
-            Ok(access_token_id) => AccessTokenListEntryId::AccessToken(access_token_id),
-            Err(error) => access_token_id
-                .parse::<OAuthConnectionId>()
-                .map(AccessTokenListEntryId::Connection)
-                .map_err(|_| error)?,
-        };
+    let entry_id = match access_token_id.parse::<AccessTokenId>() {
+        Ok(access_token_id) => AccessTokenListEntryId::AccessToken(access_token_id),
+        Err(_) => parse_query_object_id::<OAuthConnectionId>(
+            access_token_id,
+            "searchAfter",
+            "AccessToken or connection",
+        )
+        .map(AccessTokenListEntryId::Connection)?,
+    };
 
     Ok(AccessTokenSearchCursor { position, entry_id })
 }

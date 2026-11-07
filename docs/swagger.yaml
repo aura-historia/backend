@@ -136,7 +136,7 @@ paths:
             Link:
               $ref: '#/components/headers/ApiCatalogLink'
           content:
-            application/linkset+json:
+            'application/linkset+json; profile="https://www.rfc-editor.org/info/rfc9727"':
               schema:
                 $ref: '#/components/schemas/ApiCatalogData'
               example:
@@ -8178,7 +8178,8 @@ paths:
       summary: Revoke all of a user's Aura Historia access tokens as admin
       description: |
         Revokes all Aura Historia access tokens owned by the target user in one atomic PostgreSQL transaction,
-        and ends the user's OAuth connections with their refresh tokens, so no client can obtain new tokens.
+        ends the user's OAuth connections with their refresh tokens and withdraws approvals no client has exchanged yet,
+        so no client can obtain new tokens.
 
         Cognito JWTs and Aura Historia access tokens are accepted. The caller's persisted user role
         must be `ADMIN`; delegated Aura Historia access tokens must also have `access-tokens:write`.
@@ -9057,9 +9058,11 @@ paths:
 
         connection, with every access token and refresh token it holds; for a registered client every access token issued
 
-        to it for this user, and the client's approvals not yet exchanged. The client must sign the user in again afterwards. Repeating the request, or naming a client
+        to it for this user. For either kind it also withdraws the client's approvals not yet exchanged. The client must
 
-        the user is not connected to, also returns `204 No Content`.
+        sign the user in again afterwards. Repeating the request, or naming a client the user is not connected to, also
+
+        returns `204 No Content`.
 
         Requires a Cognito access JWT. A valid Aura Historia access token is rejected with `403 FORBIDDEN`, even with
 
@@ -11274,20 +11277,31 @@ paths:
 
         with `client_id` / `client_secret` form fields (`client_secret_post`); a metadata document client
 
-        sends its `client_id` URL without a secret (`none`). PKCE code verification (RFC 7636)
+        sends its `client_id` URL without a secret (`none`). For `grant_type=authorization_code`, PKCE code
 
-        is mandatory: `code_verifier` must produce the `code_challenge` supplied to the authorize
+        verification (RFC 7636) is mandatory: `code_verifier` must produce the `code_challenge` supplied to the
 
-        endpoint.
+        authorize endpoint.
 
+
+        Codes are issued only for approvals made with a Cognito access JWT, so the token is an independent
+
+        credential of the approving user: expiring or revoking any other Aura Historia access token does not affect it.
 
         A registered client's access token is non-expiring by default (same lifetime as tokens created via
 
-        `POST /v1/me/access-tokens`). A metadata document client's token expires after one hour by default and comes
+        `POST /v1/me/access-tokens`), and its response also includes a short-lived `third_party_exchange_code` that
 
-        without a `third_party_exchange_code`; it also receives a `refresh_token` when its document lists the
+        can be redeemed once via `GET /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`. The exchange code
 
-        `refresh_token` grant or the authorization request asked for `offline_access`.
+        expires after 60 seconds and is deleted on first use.
+
+
+        A metadata document client's token expires after one hour by default and comes without a
+
+        `third_party_exchange_code`; it also receives a `refresh_token` when its document lists the `refresh_token`
+
+        grant or the authorization request asked for `offline_access`.
 
 
         With `grant_type=refresh_token`, a metadata document client sends `refresh_token` and its `client_id`, without a
@@ -11301,17 +11315,6 @@ paths:
         `invalid_scope`, another resource `invalid_target`; registered clients receive `400 unauthorized_client`. See
 
         the OAuth contract for lifetimes.
- Codes are issued only for approvals made with a Cognito access
-
-        JWT, so the token is an independent credential of the approving user: expiring or revoking
-
-        any other Aura Historia access token does not affect it. Registered-client responses also include a short-lived
-
-        `third_party_exchange_code` that can be redeemed once via
-
-        `GET /v1/oauth/tokens/by-third-party-code/{thirdPartyCode}`. The exchange code expires
-
-        after 60 seconds and is deleted on first use.
 
         "
       operationId: oauthToken
@@ -11319,17 +11322,14 @@ paths:
         - OAuth
       requestBody:
         required: true
-        description: Authorization code exchange payload (form-urlencoded).
+        description: Authorization code exchange or refresh payload (form-urlencoded).
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
               required:
                 - grant_type
-                - code
-                - redirect_uri
                 - client_id
-                - code_verifier
               properties:
                 grant_type:
                   type: string
@@ -11345,7 +11345,7 @@ paths:
                 redirect_uri:
                   type: string
                   format: uri
-                  description: Must exactly match the `redirect_uri` used in the corresponding authorization request.
+                  description: Must exactly match the `redirect_uri` used in the corresponding authorization request. Required for `authorization_code`.
                   example: https://client.example/callback
                 resource:
                   type: string

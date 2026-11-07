@@ -581,7 +581,8 @@ describe("HTTP API route policy matrix", () => {
     }).sort()).toEqual(catalogRouteKeys());
     expect(routes).toHaveLength(173);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
-    // Prefix cutover has already landed; adding exact discovery creates one route.
+    // Prefix cutover has already landed; exact discovery and site-document routes add one route
+    // per method each.
     expect(routes.length).toBeLessThanOrEqual(300);
     expect(routes.every((route) => isCanonicalRouteKey(String(route.Properties.RouteKey)))).toBe(true);
     expect(routes.filter((route) => String(route.Properties.RouteKey).includes(" /api/"))).toEqual([]);

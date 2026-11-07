@@ -158,13 +158,10 @@ there are no per-directory variants. Check new or changed tools against the
 
 Schemas stay as generated. Models load at most each tool's name, title, description and input
 schema: the tool definitions of the Claude and OpenAI model APIs have no output schema, and
-OpenAI uses `outputSchema` to check `structuredContent`. Of the complete catalogue's roughly
-290 KB of compact JSON, output schemas are about 230 KB and the model-visible part about 54 KB
-(20 KB for the public tools). Output schemas already share their types through `$defs` and
-`$ref`; the remaining repetition is the same types in several tools, which MCP cannot share
-because each tool's schema is self-contained. Their descriptions are about 12% of their size
-and document the result for clients, so they stay. Input schemas are the complete shared
-request contracts.
+OpenAI uses `outputSchema` to check `structuredContent`. Output schemas already share their
+types through `$defs` and `$ref`; the remaining repetition is the same types in several tools,
+which MCP cannot share because each tool's schema is self-contained. Their descriptions document
+the result for clients, so they stay. Input schemas are the complete shared request contracts.
 
 ## Watchlist tools
 

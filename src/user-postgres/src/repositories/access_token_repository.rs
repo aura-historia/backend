@@ -161,12 +161,18 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
             .execute(&mut *self.connection)
             .await
             .map_err(write_error)?;
-        // A metadata document client's refresh tokens would otherwise mint new access tokens.
-        sqlx::query("DELETE FROM oauth_connections WHERE user_id = $1")
-            .bind(user_id.into_uuid())
-            .execute(&mut *self.connection)
-            .await
-            .map_err(write_error)?;
+        // A metadata document client's refresh tokens, or an approval no client has exchanged
+        // yet, would otherwise mint new access tokens.
+        for statement in [
+            "DELETE FROM oauth_connections WHERE user_id = $1",
+            "DELETE FROM oauth_authorization_codes WHERE user_id = $1",
+        ] {
+            sqlx::query(statement)
+                .bind(user_id.into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(write_error)?;
+        }
 
         Ok(result.rows_affected())
     }

@@ -237,6 +237,19 @@ async fn should_delete_all_access_tokens_for_target_user_without_touching_other_
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            "INSERT INTO oauth_authorization_codes \
+                (authorization_code, metadata_document_client_id, user_id, redirect_uri, \
+                 code_challenge, code_challenge_method, expires_at) \
+             VALUES ($1, 'https://agent.example/client.json', $2, \
+                     'http://127.0.0.1/callback', 'challenge', 'S256', \
+                     now() + interval '1 minute')",
+        )
+        .bind(format!("pending-code-{}", user.id()))
+        .bind(user.id().into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
     }
 
     let mut tx = begin(&unit_of_work).await;
@@ -272,6 +285,16 @@ async fn should_delete_all_access_tokens_for_target_user_without_touching_other_
         vec![unrelated.id().into_uuid()],
         connected_users,
         "revoking all of a user's tokens also ends the user's connections"
+    );
+    let approving_users: Vec<uuid::Uuid> =
+        sqlx::query_scalar("SELECT user_id FROM oauth_authorization_codes")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        vec![unrelated.id().into_uuid()],
+        approving_users,
+        "revoking all of a user's tokens also withdraws approvals not yet exchanged"
     );
     assert!(matches!(first_target_remaining, Ok(None)));
     assert!(matches!(second_target_remaining, Ok(None)));

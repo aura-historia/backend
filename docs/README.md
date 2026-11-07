@@ -22,7 +22,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | HTTP routing, authentication and cache isolation | [API front door](http-api-front-door.md) |
 | OAuth consent, shared resource and credential binding | [OAuth](oauth.md) |
 | MCP protocol compatibility, registry and bounded transport | [MCP transport](mcp.md) |
-| Discovery documents for agents: server card, API catalog, protected-resource metadata | [Agent discovery](agent-discovery.md) |
+| Discovery documents for agents: server card, API catalog, protected-resource metadata, website documents | [Agent discovery](agent-discovery.md) |
 | External search host setup, security and recovery | [Self-hosted OpenSearch](opensearch-stage.md) |
 | Public API requests/responses and change history | [OpenAPI](swagger.yaml), [changelog](CHANGELOG.md) |
 | Normalization diagnostics, replay corpus and fixtures | [Normalization replay](normalization-replay.md) |

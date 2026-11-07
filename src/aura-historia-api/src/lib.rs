@@ -1135,9 +1135,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(partnerships::router(partnerships));
     }
 
-    // Every bearer-authenticated route above accepts Aura access tokens. OAuth protocol and
-    // first-party consent routes, merged below, keep their own credential semantics and get
-    // no Aura challenge.
+    // Every bearer-authenticated route above accepts Aura access tokens; only issuing a personal
+    // access token and disconnecting an OAuth client then refuse them for a Cognito session.
+    // OAuth protocol and first-party consent routes, merged below, keep their own credential
+    // semantics and get no Aura challenge.
     if let Some(discovery) = &state.agent_discovery {
         let challenge =
             agent_discovery::protected_resource::bearer_challenge(discovery.resource_policy);
@@ -1193,11 +1194,11 @@ fn oauth_routes(oauth: OAuthState) -> Router {
 fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Router {
     Router::new()
         .route(
-            "/.well-known/oauth-protected-resource",
+            agent_discovery::protected_resource::PROTECTED_RESOURCE_METADATA_PATH,
             get(agent_discovery::protected_resource::get_protected_resource_metadata),
         )
         .route(
-            "/.well-known/api-catalog",
+            agent_discovery::api_catalog::API_CATALOG_PATH,
             get(agent_discovery::api_catalog::get_api_catalog)
                 .head(agent_discovery::api_catalog::get_api_catalog),
         )

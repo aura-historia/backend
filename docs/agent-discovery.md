@@ -95,8 +95,10 @@ requested, as MCP clients already do. RFC 9728 §3.3 literally asks for the full
 which one resource identifier for every REST path cannot satisfy.
 
 A `401` for a missing or invalid bearer (`INVALID_CREDENTIALS`) on any REST route outside the
-OAuth group carries `WWW-Authenticate: Bearer resource_metadata="<this metadata URL>"`; every
-bearer-authenticated route there accepts Aura access tokens. REST CORS exposes the header. The
+OAuth group carries `WWW-Authenticate: Bearer resource_metadata="<this metadata URL>"`. Every
+bearer-authenticated route there accepts Aura access tokens, although issuing a personal access
+token and disconnecting an OAuth client then require a first-party Cognito session and refuse an
+Aura access token with `403`. REST CORS exposes the header. The
 OAuth group gets no challenge: protocol endpoints keep the errors in
 [OAuth](oauth.md#protocol-errors-and-cache-prevention), and consent, approval and OAuth client
 administration are first-party flows that take a Cognito session, not an Aura access token. Other
