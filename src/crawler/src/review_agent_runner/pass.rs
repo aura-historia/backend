@@ -1,7 +1,8 @@
 //! One pass of the agents over the pending reviews: per review a fresh author process, then, when
 //! the author staged or kept a candidate, a fresh reviewer process, with at most the configured
 //! number of processes at once. The pass is a rolling pool: a freed slot is refilled from the
-//! queue as it is then, until the run's budget of reviews is spent, each review worked once. Each process's outcome is recorded in the ledger and logged.
+//! queue as it is then, until the run's budget of reviews is spent, each review worked once.
+//! Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
 //! not what its report says the console answered. A review that waits for a human is no agent

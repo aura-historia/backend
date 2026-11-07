@@ -217,9 +217,10 @@ pub(crate) struct CurrentReview<'a> {
 /// review's stored `matrix` is a live evaluation of exactly what approval would make live, of
 /// exactly the review's current pages, fetched within `max_age` of `now`; every review page is
 /// covered by a schema or captured as removed; no schema leaves a required field empty on a
-/// product page; no rule matches nothing on every page its schema applies to; and no extraction
-/// fails a plausibility check that deterministic approval refuses, so the guard is never less
-/// strict than the `auto` gate.
+/// product page; no rule matches nothing on every page its schema applies to; no extraction fails
+/// a plausibility check that deterministic approval refuses, so the guard is never less strict
+/// than the `auto` gate; a review page shows a sold or unavailable product, or the review records
+/// that its author found none; and no page shows a price or a description no rule captures.
 pub(crate) fn product_schema_approval_checks(
     matrix: Option<&SchemaMatrix>,
     review: &CurrentReview<'_>,
