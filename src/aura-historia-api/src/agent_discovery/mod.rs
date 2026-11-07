@@ -1,19 +1,28 @@
-//! Machine-readable documents that describe the API host to agents. The
+//! Machine-readable documents that describe the API host, and the website documents that the
+//! API serves for the webapp to publish. The
 //! [agent discovery contract](../../../../docs/agent-discovery.md) owns their shapes.
 pub(crate) mod api_catalog;
 pub(crate) mod protected_resource;
+pub(crate) mod site_documents;
 
+use agent_discovery::SiteDocuments;
 use oauth_core::resource::AuraResourcePolicy;
+use std::sync::Arc;
 
 /// The environment that `OAUTH_ISSUER_URL` selects; every advertised URL comes from it.
 #[derive(Clone)]
 pub struct AgentDiscoveryState {
     pub(crate) resource_policy: AuraResourcePolicy,
+    pub(crate) site_documents: Arc<SiteDocuments>,
 }
 
 impl AgentDiscoveryState {
+    /// Renders the website documents once, for every request this process serves.
     pub fn new(resource_policy: AuraResourcePolicy) -> Self {
-        Self { resource_policy }
+        Self {
+            resource_policy,
+            site_documents: Arc::new(SiteDocuments::render(resource_policy.into())),
+        }
     }
 }
 
@@ -141,6 +150,34 @@ mod tests {
                 "<https://api.aura-historia.com/.well-known/api-catalog>; rel=\"api-catalog\"",
                 catalog.headers()[header::LINK]
             );
+
+            let skill = router
+                .clone()
+                .oneshot(get(
+                    method.clone(),
+                    "/v1/site-discovery/agent-skills/catalogue-search/SKILL.md",
+                ))
+                .await
+                .unwrap();
+            assert_eq!(StatusCode::OK, skill.status(), "{method}");
+            assert_eq!(
+                "public, max-age=0, s-maxage=300, stale-if-error=0",
+                skill.headers()[header::CACHE_CONTROL]
+            );
+            assert_eq!("*", skill.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN]);
         }
+
+        let unknown = router
+            .oneshot(get(
+                Method::GET,
+                "/v1/site-discovery/agent-skills/unknown/SKILL.md",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(StatusCode::NOT_FOUND, unknown.status());
+        assert_eq!(
+            "private, no-store",
+            unknown.headers()[header::CACHE_CONTROL]
+        );
     }
 }

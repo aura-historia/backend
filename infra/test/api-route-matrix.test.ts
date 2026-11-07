@@ -34,6 +34,13 @@ const SELECTIVE_CACHE_GET_ROUTE_KEYS = [
   "GET /.well-known/api-catalog",
   "HEAD /.well-known/api-catalog",
 ];
+const SITE_DISCOVERY_ROUTE_KEYS = [
+  "ai-catalog.json",
+  "poppy.json",
+  "agent-skills/index.json",
+  "agent-skills/{}/SKILL.md",
+  "auth.md",
+].flatMap((document) => [`GET /v1/site-discovery/${document}`, `HEAD /v1/site-discovery/${document}`]);
 const WELL_KNOWN_ROUTE_KEYS = [
   "GET /.well-known/oauth-authorization-server",
   "GET /.well-known/oauth-protected-resource",
@@ -41,9 +48,18 @@ const WELL_KNOWN_ROUTE_KEYS = [
   "HEAD /.well-known/api-catalog",
 ];
 
+/** Canonical routes are `/v1` operations, exact well-known documents or site discovery `HEAD`s. */
+function isCanonicalRouteKey(key: string): boolean {
+  const [method, ...pathParts] = key.split(" ");
+  const normalized = routeKey(method, pathParts.join(" "));
+  return /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(normalized) || WELL_KNOWN_ROUTE_KEYS.includes(normalized) ||
+    SITE_DISCOVERY_ROUTE_KEYS.includes(normalized);
+}
+
 function matchesSelectiveCacheBehavior(path: string): boolean {
   return (
     path === "/.well-known/api-catalog" ||
+    path.startsWith("/v1/site-discovery/") ||
     path === "/v1/listing-sources" ||
     path.startsWith("/v1/listing-sources/by-slug/") ||
     path === "/v1/auctions" ||
@@ -127,9 +143,9 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(163);
+      expect(routes).toHaveLength(173);
       expect(new Set(routes).size).toBe(routes.length);
-      expect(routes.every((key) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(key) || WELL_KNOWN_ROUTE_KEYS.includes(key))).toBe(true);
+      expect(routes.every(isCanonicalRouteKey)).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
       expect(routes.filter((key) => key.includes(" /api/"))).toEqual([]);
     }
@@ -165,6 +181,18 @@ describe("HTTP API route policy matrix", () => {
     // OAuth metadata keeps no-store; the catalog is an approved anonymous representation.
     expect(matchesSelectiveCacheBehavior("/.well-known/oauth-protected-resource")).toBe(false);
     expect(matchesSelectiveCacheBehavior("/.well-known/api-catalog")).toBe(true);
+  });
+
+  test("serves the website discovery documents anonymously as shared GET and HEAD representations", () => {
+    const documents = API_ROUTE_CATALOG.filter((route) => route.path.startsWith("/v1/site-discovery/"));
+    expect(documents.map((route) => routeKey(route.method, route.path))).toEqual(SITE_DISCOVERY_ROUTE_KEYS);
+    for (const route of documents) {
+      expect(route).toMatchObject({ auth: RouteAuthPolicy.Anonymous, policy: {
+        bearer: "NONE", authorization: RouteAuthorizationClass.Public,
+        oauthCredentials: OAuthCredentialRequirement.None, providerProof: ProviderProofRequirement.None,
+      } });
+      expect(matchesSelectiveCacheBehavior(route.path)).toBe(true);
+    }
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
@@ -491,15 +519,18 @@ describe("HTTP API route policy matrix", () => {
       .map((route) => routeKey(route.method, route.path))
       .sort();
 
-    // RFC 9727 requires HEAD on the catalog; every other selective route is GET only.
-    expect(selectivePathRoutes.every((route) =>
-      route.method === "GET" || (route.method === "HEAD" && route.path === "/.well-known/api-catalog"))).toBe(true);
-    expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS].sort());
-    expect(selectivePathRoutes).toHaveLength(13);
+    // The API catalog and the website discovery documents answer HEAD; every other selective
+    // route is GET only.
+    expect(selectivePathRoutes.every((route) => route.method === "GET" || (route.method === "HEAD" && (
+      route.path === "/.well-known/api-catalog" || route.path.startsWith("/v1/site-discovery/"))))).toBe(true);
+    expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS, ...SITE_DISCOVERY_ROUTE_KEYS].sort());
+    expect(selectivePathRoutes).toHaveLength(23);
     const selectiveReadRoutes = selectivePathRoutes;
     for (const route of selectiveReadRoutes) {
-      // The overview and API catalog evaluate no credentials; discovery routes accept optional bearers.
-      const anonymous = route.path === "/v1/overview" || route.path === "/.well-known/api-catalog";
+      // The overview and discovery documents evaluate no credentials; catalogue reads accept
+      // optional bearers.
+      const anonymous = route.path === "/v1/overview" || route.path === "/.well-known/api-catalog" ||
+        route.path.startsWith("/v1/site-discovery/");
       expect(route.auth).toBe(anonymous ? RouteAuthPolicy.Anonymous : RouteAuthPolicy.OptionalBearer);
       expect(route.policy).toEqual({
         bearer: anonymous ? "NONE" : "OPTIONAL",
@@ -548,11 +579,11 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(163);
+    expect(routes).toHaveLength(173);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; adding exact discovery creates one route.
     expect(routes.length).toBeLessThanOrEqual(300);
-    expect(routes.every((route) => /^(GET|POST|PUT|PATCH|DELETE) \/v1\//.test(String(route.Properties.RouteKey)) || WELL_KNOWN_ROUTE_KEYS.includes(String(route.Properties.RouteKey)))).toBe(true);
+    expect(routes.every((route) => isCanonicalRouteKey(String(route.Properties.RouteKey)))).toBe(true);
     expect(routes.filter((route) => String(route.Properties.RouteKey).includes(" /api/"))).toEqual([]);
     for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
       expect(routes.filter((route) => route.Properties.RouteKey === `${method} ${ASYNC_PATH}`))
@@ -736,6 +767,7 @@ describe("HTTP API route policy matrix", () => {
       "/v1/product-listings/*",
       "/v1/overview",
       "/.well-known/api-catalog",
+      "/v1/site-discovery/*",
     ];
     const selectiveBehaviors = distributionConfig.CacheBehaviors.slice(0, selectivePathPatterns.length);
     const broadApiBehavior = distributionConfig.CacheBehaviors[selectivePathPatterns.length];

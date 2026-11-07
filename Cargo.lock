@@ -39,6 +39,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-discovery"
+version = "0.1.0"
+dependencies = [
+ "oauth-core",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +299,7 @@ version = "0.1.0"
 dependencies = [
  "admin-overview-postgres",
  "admin-overview-service",
+ "agent-discovery",
  "application",
  "async-trait",
  "auction-core",

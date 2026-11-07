@@ -1,5 +1,6 @@
 use super::AgentDiscoveryState;
 use crate::transport::cache;
+use agent_discovery::DiscoveryEnvironment;
 use axum::{
     Json,
     extract::State,
@@ -14,8 +15,6 @@ pub(crate) const API_CATALOG_PATH: &str = "/.well-known/api-catalog";
 /// the catalog profile.
 const API_CATALOG_MEDIA_TYPE: &str =
     "application/linkset+json; profile=\"https://www.rfc-editor.org/info/rfc9727\"";
-/// The MCP host serves the card at this path; the MCP crate owns that route.
-const MCP_SERVER_CARD_PATH: &str = "/.well-known/mcp/server-card.json";
 const API_CATALOG_SHARED_TTL_SECONDS: u32 = 300;
 
 #[derive(Serialize)]
@@ -90,7 +89,7 @@ impl ApiCatalog {
                 },
                 LinkContext {
                     service_desc: vec![Link::typed(
-                        format!("{mcp}{MCP_SERVER_CARD_PATH}"),
+                        DiscoveryEnvironment::from(policy).mcp_server_card_url(),
                         "application/mcp-server-card+json",
                     )],
                     service_doc: vec![Link::typed(format!("{docs}/mcp.md"), "text/markdown")],

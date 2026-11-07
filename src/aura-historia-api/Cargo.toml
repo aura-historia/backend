@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+agent-discovery = { workspace = true }
 aura-historia-auth = { workspace = true }
 aura-historia-contracts = { workspace = true }
 aura-historia-runtime = { workspace = true }

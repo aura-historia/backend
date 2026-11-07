@@ -33,6 +33,7 @@ pub mod watchlist;
 pub mod webhooks;
 pub(crate) mod wire;
 
+use crate::agent_discovery::site_documents;
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
@@ -1199,6 +1200,26 @@ fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Ro
             "/.well-known/api-catalog",
             get(agent_discovery::api_catalog::get_api_catalog)
                 .head(agent_discovery::api_catalog::get_api_catalog),
+        )
+        .route(
+            "/v1/site-discovery/ai-catalog.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/poppy.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/agent-skills/index.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/auth.md",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
         )
         .with_state(discovery)
 }

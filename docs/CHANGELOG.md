@@ -2,6 +2,15 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-06 — Website discovery documents for agents (#2805)
+
+- Added `GET` and `HEAD` for the documents that describe the website to agents, which the webapp publishes on `aura-historia.com`. Responses allow any origin, and anonymous ones are shared at the edge for 300 seconds. See [agent discovery](agent-discovery.md#website-documents).
+  - `/v1/site-discovery/ai-catalog.json` (`application/ai-catalog+json`): an AI catalog with entries for the MCP server, the REST API and the agent skills index.
+  - `/v1/site-discovery/poppy.json` (`application/json`): a Personal Agent Protocol `0.1` declaration of the website alone (`web: {}`).
+  - `/v1/site-discovery/agent-skills/index.json` (`application/json`): an Agent Skills Discovery v0.2.0 index with the `sha256:` digest of each skill.
+  - `/v1/site-discovery/agent-skills/{skillName}/SKILL.md` (`text/markdown`): the skills `catalogue-search`, `connect-account` and `partner-listing-batches`; any other name returns `404`.
+  - `/v1/site-discovery/auth.md` (`text/markdown`): how agents authenticate, from anonymous access to signing a user in and personal access tokens.
+
 ## 2026-11-06 — Agent connections, refresh tokens and client identity in the access-token listing (#2802)
 
 - Metadata document clients are now enabled in every environment. Each user's grants to such a client form one connection: the union of the scopes the user approved, its access tokens and its refresh tokens. Approving a step-up request adds the newly approved scopes to the connection. Their access tokens still expire after one hour by default.

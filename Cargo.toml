@@ -8,6 +8,7 @@ test-api = { workspace = true }
 
 [workspace]
 members = [
+    "src/agent-discovery",
     "src/application",
     "src/aura-historia-api",
     "src/aura-historia-auth",
@@ -123,6 +124,7 @@ members = [
 ]
 
 [workspace.dependencies]
+agent-discovery = { path = "src/agent-discovery" }
 aura-historia-auth = { path = "src/aura-historia-auth" }
 aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-mcp = { path = "src/aura-historia-mcp" }

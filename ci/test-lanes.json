@@ -60,6 +60,7 @@
   ],
   "REMAINING": [
     "admin-overview-service",
+    "agent-discovery",
     "application",
     "auction-core",
     "auction-service",
