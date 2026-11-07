@@ -1193,12 +1193,13 @@ fn oauth_routes(oauth: OAuthState) -> Router {
 
 fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Router {
     Router::new()
+        // Literal paths: the infrastructure route contract reads them from this source.
         .route(
-            agent_discovery::protected_resource::PROTECTED_RESOURCE_METADATA_PATH,
+            "/.well-known/oauth-protected-resource",
             get(agent_discovery::protected_resource::get_protected_resource_metadata),
         )
         .route(
-            agent_discovery::api_catalog::API_CATALOG_PATH,
+            "/.well-known/api-catalog",
             get(agent_discovery::api_catalog::get_api_catalog)
                 .head(agent_discovery::api_catalog::get_api_catalog),
         )
