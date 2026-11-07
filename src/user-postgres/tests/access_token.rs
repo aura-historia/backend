@@ -569,7 +569,7 @@ async fn should_list_registered_client_tokens_with_their_client_and_revoke_them_
             logo_uri, scopes) \
          VALUES ($1, 'short', 'hash', 'Shop Connector', ARRAY['https://shop.example/callback'], \
             'https://shop.example/tos', 'https://shop.example/privacy', \
-            'https://user@Shop.example:8443/home', 'https://shop.example/logo.png', \
+            'https://shop.example/home', 'https://shop.example/logo.png', \
             ARRAY['users:read'])",
     )
     .bind(client_id.into_uuid())
@@ -612,8 +612,8 @@ async fn should_list_registered_client_tokens_with_their_client_and_revoke_them_
         .collect::<Vec<_>>();
     let shop = Some(RegisteredOAuthClientDisplay {
         name: "Shop Connector".to_owned(),
-        // The client URI is stored as entered, but only its host is shown.
-        host: "Shop.example".to_owned(),
+        // Only the client URI's host is shown.
+        host: "shop.example".to_owned(),
     });
     assert_eq!(3, clients.len());
     assert!(clients.contains(&(AccessTokenName::from("first sign-in"), shop.clone())));

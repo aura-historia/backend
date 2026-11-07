@@ -55,6 +55,35 @@ impl OAuthRedirectUris {
     }
 }
 
+/// The home page an administrator registers for a client. Credential listings show its host
+/// to identify the client, so it must be an HTTP(S) URL that names one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthClientUri(Url);
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("OAuth client URI must be an HTTP(S) URL with a host: {0}")]
+pub struct InvalidOAuthClientUri(Url);
+
+impl TryFrom<Url> for OAuthClientUri {
+    type Error = InvalidOAuthClientUri;
+
+    fn try_from(value: Url) -> Result<Self, Self::Error> {
+        if matches!(value.scheme(), "https" | "http")
+            && value.host_str().is_some_and(|host| !host.is_empty())
+        {
+            Ok(Self(value))
+        } else {
+            Err(InvalidOAuthClientUri(value))
+        }
+    }
+}
+
+impl OAuthClientUri {
+    pub fn into_url(self) -> Url {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct OAuthClient {
     client_id: OAuthClientId,
@@ -179,6 +208,26 @@ fn replace_if_changed<T: PartialEq>(target: &mut T, value: T) -> ChangeOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_accept_only_http_client_uris_with_a_host() {
+        for value in ["https://shop.example/home", "http://shop.example"] {
+            assert_eq!(
+                url(value),
+                OAuthClientUri::try_from(url(value)).unwrap().into_url()
+            );
+        }
+        for value in [
+            "urn:example:shop",
+            "mailto:team@shop.example",
+            "file:///home",
+        ] {
+            assert_eq!(
+                Err(InvalidOAuthClientUri(url(value))),
+                OAuthClientUri::try_from(url(value))
+            );
+        }
+    }
     use user_core::access_token::RawOAuthClientSecret;
 
     fn url(value: &str) -> Url {

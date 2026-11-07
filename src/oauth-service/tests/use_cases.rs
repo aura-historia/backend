@@ -1499,26 +1499,56 @@ async fn should_skip_no_op_and_optimistically_update_changed_client_metadata() {
 #[tokio::test]
 async fn should_reject_invalid_client_metadata() {
     let ports = FakePorts::default();
-    let err = CreateOAuthClientHandler::new(
+    let create = |redirect_uris: HashSet<url::Url>, client_uri: &str| CreateOAuthClientCommand {
+        name: OAuthClientName::from("A"),
+        redirect_uris,
+        tos_uri: url("https://client.example/tos"),
+        policy_uri: url("https://client.example/policy"),
+        client_uri: url(client_uri),
+        logo_uri: url("https://client.example/logo.png"),
+        scopes: HashSet::new(),
+    };
+    for command in [
+        create(HashSet::new(), "https://client.example"),
+        // Listings identify a registered client by its client URI's host.
+        create(
+            HashSet::from([url("https://client.example/callback")]),
+            "urn:example:client",
+        ),
+    ] {
+        let err = CreateOAuthClientHandler::new(
+            FakeUnitOfWork(ports.clone()),
+            ports.clone(),
+            FakeCheckUserAdmin::allow_all(),
+        )
+        .execute(&first_party_context(), command)
+        .await
+        .unwrap_err();
+        assert!(matches!(err, OAuthServiceError::InvalidClientMetadata(_)));
+    }
+
+    let err = UpdateOAuthClientHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports,
+        ports.clone(),
         FakeCheckUserAdmin::allow_all(),
     )
     .execute(
         &first_party_context(),
-        CreateOAuthClientCommand {
-            name: OAuthClientName::from("A"),
-            redirect_uris: HashSet::new(),
-            tos_uri: url("https://client.example/tos"),
-            policy_uri: url("https://client.example/policy"),
-            client_uri: url("https://client.example"),
-            logo_uri: url("https://client.example/logo.png"),
-            scopes: HashSet::new(),
+        &OAuthClientId::new(),
+        UpdateOAuthClientCommand {
+            name: None,
+            redirect_uris: None,
+            tos_uri: None,
+            policy_uri: None,
+            client_uri: Some(url("mailto:team@client.example")),
+            logo_uri: None,
+            scopes: None,
         },
     )
     .await
     .unwrap_err();
     assert!(matches!(err, OAuthServiceError::InvalidClientMetadata(_)));
+    assert_eq!(0, lock(&ports.0).transaction_begins);
 }
 
 #[tokio::test]

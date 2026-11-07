@@ -5,7 +5,7 @@ use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::client::{
-    OAuthClient, OAuthClientName, OAuthRedirectUris, RehydratedOAuthClientState,
+    OAuthClient, OAuthClientName, OAuthClientUri, OAuthRedirectUris, RehydratedOAuthClientState,
 };
 use std::collections::HashSet;
 use url::Url;
@@ -83,6 +83,8 @@ where
         reject_delegated_registration(context)?;
         let redirect_uris = OAuthRedirectUris::try_from(command.redirect_uris)
             .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
+        let client_uri = OAuthClientUri::try_from(command.client_uri)
+            .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
 
         let raw_client_secret = RawOAuthClientSecret::new();
         let client = OAuthClient::create(RehydratedOAuthClientState {
@@ -92,7 +94,7 @@ where
             redirect_uris,
             tos_uri: command.tos_uri,
             policy_uri: command.policy_uri,
-            client_uri: command.client_uri,
+            client_uri: client_uri.into_url(),
             logo_uri: command.logo_uri,
             scopes: command.scopes,
         });

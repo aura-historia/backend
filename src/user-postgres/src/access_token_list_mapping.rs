@@ -10,16 +10,13 @@ use user_service::ports::{
 
 /// A user's listing entries: individually managed tokens with their registered client, and
 /// metadata document client connections, which stand for their rotating tokens. `$1` binds
-/// the user. Registered client URIs are stored in canonical URL form, so the host is the
-/// authority after any user information.
+/// the user.
 pub(crate) const ACCESS_TOKEN_LIST_ENTRIES: &str = "\
     SELECT 'ACCESS_TOKEN' AS entry_kind, tokens.access_token_id AS entry_id, tokens.user_id, \
            tokens.name, tokens.scopes, tokens.origin, tokens.oauth_client_id, \
            tokens.oauth_metadata_document_client_id, tokens.oauth_connection_id, \
            tokens.expires_at, tokens.created, NULL::timestamptz AS last_used, \
-           clients.name AS client_name, \
-           substring(clients.client_uri FROM '^[a-z][a-z0-9+.-]*://(?:[^/?#@]*@)?(\\[[^]/?#]*\\]|[^/?#:]+)') \
-               AS client_host \
+           clients.name AS client_name, clients.client_uri \
     FROM access_tokens AS tokens \
     LEFT JOIN oauth_clients AS clients ON clients.client_id = tokens.oauth_client_id \
     WHERE tokens.user_id = $1 AND tokens.oauth_connection_id IS NULL \
@@ -46,7 +43,7 @@ pub(crate) struct AccessTokenListEntryRow {
     pub created: OffsetDateTime,
     pub last_used: Option<OffsetDateTime>,
     pub client_name: Option<String>,
-    pub client_host: Option<String>,
+    pub client_uri: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,11 +91,13 @@ impl TryFrom<AccessTokenListEntryRow> for AccessTokenListEntry {
 fn listed_access_token(
     row: AccessTokenListEntryRow,
 ) -> Result<ListedAccessToken, AccessTokenListEntryMappingError> {
-    let client = match (row.client_name, row.client_host) {
+    let client = match (row.client_name, row.client_uri) {
         (None, None) => None,
-        (Some(name), Some(host)) if !host.is_empty() => {
-            Some(RegisteredOAuthClientDisplay { name, host })
-        }
+        (Some(name), Some(client_uri)) => Some(RegisteredOAuthClientDisplay {
+            name,
+            host: client_uri_host(&client_uri)
+                .ok_or(AccessTokenListEntryMappingError::IncompleteClient)?,
+        }),
         _ => return Err(AccessTokenListEntryMappingError::IncompleteClient),
     };
     let token = AccessTokenDetails::try_from(AccessTokenDetailsRow {
@@ -113,6 +112,15 @@ fn listed_access_token(
         expires_at: row.expires_at,
     })?;
     Ok(ListedAccessToken::new(token, client)?)
+}
+
+/// Registration requires an HTTP(S) client URI with a host, which identifies the client.
+fn client_uri_host(client_uri: &str) -> Option<String> {
+    url::Url::parse(client_uri)
+        .ok()?
+        .host_str()
+        .filter(|host| !host.is_empty())
+        .map(str::to_owned)
 }
 
 fn listed_connection(
@@ -157,7 +165,7 @@ mod tests {
             created: OffsetDateTime::now_utc(),
             last_used: None,
             client_name: None,
-            client_host: None,
+            client_uri: None,
         }
     }
 
@@ -181,7 +189,7 @@ mod tests {
         let entry = AccessTokenListEntry::try_from(AccessTokenListEntryRow {
             oauth_client_id: Some(client_id.into_uuid()),
             client_name: Some("Shop".to_owned()),
-            client_host: Some("shop.example".to_owned()),
+            client_uri: Some("https://user@shop.example:8443/home".to_owned()),
             ..token_row("OAUTH")
         })
         .unwrap();
@@ -197,14 +205,17 @@ mod tests {
             }),
             listed.client
         );
-        assert!(matches!(
-            AccessTokenListEntry::try_from(AccessTokenListEntryRow {
-                oauth_client_id: Some(client_id.into_uuid()),
-                client_name: Some("Shop".to_owned()),
-                ..token_row("OAUTH")
-            }),
-            Err(AccessTokenListEntryMappingError::IncompleteClient)
-        ));
+        for client_uri in [None, Some("urn:example:shop".to_owned())] {
+            assert!(matches!(
+                AccessTokenListEntry::try_from(AccessTokenListEntryRow {
+                    oauth_client_id: Some(client_id.into_uuid()),
+                    client_name: Some("Shop".to_owned()),
+                    client_uri,
+                    ..token_row("OAUTH")
+                }),
+                Err(AccessTokenListEntryMappingError::IncompleteClient)
+            ));
+        }
     }
 
     #[test]

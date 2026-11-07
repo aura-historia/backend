@@ -23472,7 +23472,7 @@ components:
         client_uri:
           type: string
           format: uri
-          description: HTTPS URL of the OAuth client's homepage or product site.
+          description: HTTP(S) URL with a host of the OAuth client's homepage or product site. Credential listings show its host to identify the client; any other URL is rejected with `OAUTH_INVALID_CLIENT_METADATA`.
           example: https://client.example
         logo_uri:
           type: string
@@ -23523,7 +23523,7 @@ components:
         client_uri:
           type: string
           format: uri
-          description: Optional replacement homepage or product-site URL for the OAuth client.
+          description: Optional replacement homepage or product-site URL for the OAuth client, an HTTP(S) URL with a host; any other URL is rejected with `OAUTH_INVALID_CLIENT_METADATA`.
           example: https://updated-client.example
         logo_uri:
           type: string
