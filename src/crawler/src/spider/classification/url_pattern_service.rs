@@ -68,6 +68,11 @@ pub trait UrlPatternService: Send + Sync {
         pattern: &Regex,
     ) -> Result<(), UrlPatternServiceError>;
 
+    /// Whether classification asks the LLM to infer the pattern from the crawled URLs, which
+    /// needs a sample of a minimum size. Otherwise it opens a review an operator or agent writes
+    /// the pattern for, which any sample can open.
+    fn infers_pattern(&self) -> bool;
+
     /// Clears a completed classification so a later crawl may infer again.
     async fn reset_pattern_classification(
         &self,
@@ -173,6 +178,10 @@ impl UrlPatternServiceImpl {
 
 #[async_trait::async_trait]
 impl UrlPatternService for UrlPatternServiceImpl {
+    fn infers_pattern(&self) -> bool {
+        matches!(self.authoring, UrlPatternAuthoring::Inferred { .. })
+    }
+
     #[tracing::instrument(skip(self), fields(listing_source_id = %listing_source_id))]
     async fn load_pattern(
         &self,

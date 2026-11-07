@@ -11,14 +11,15 @@
 //! `docs/crawler/operations.md#review-agent-runner`; it exits with 2 on a setting it does not
 //! accept. The service logs a failed pass and tries again after the interval; `--once` exits with
 //! 1 when it refuses to run or its pass fails. SIGTERM or SIGINT stops it: it starts no further
-//! agent process, stops the running ones as at their timeout, SIGINT first, and records their
-//! cost, then exits with 143 or 130 within [`STOP_DEADLINE`]; what still runs then is killed, and
+//! agent process, lets the running ones finish for [`AGENT_DRAIN_DEADLINE`], stops those still
+//! running as at their timeout, SIGINT first, and records their cost, then exits with 143 or 130
+//! within [`STOP_DEADLINE`]; what still runs then is killed, and
 //! a second signal does not shorten the stop. The cooldowns and pauses it set are already written.
 //! The JSON log goes to stdout.
 
 use crawler::review_agent_runner::{
-    RunMode, RunnerError, RunnerSettings, RunnerStop, STOP_DEADLINE, current_location, run,
-    run_every_interval,
+    AGENT_DRAIN_DEADLINE, RunMode, RunnerError, RunnerSettings, RunnerStop, STOP_DEADLINE,
+    current_location, run, run_every_interval,
 };
 use std::process::ExitCode;
 use tracing::{error, info, warn};
@@ -84,8 +85,9 @@ async fn stop_work(
 ) {
     info!(
         signal,
+        agent_drain_seconds = AGENT_DRAIN_DEADLINE.as_secs(),
         stop_deadline_seconds = STOP_DEADLINE.as_secs(),
-        "Review agent runner stopping: no agent process starts, and the running ones are stopped and recorded"
+        "Review agent runner stopping: no agent process starts, the running ones may finish within the drain deadline and are then stopped and recorded"
     );
     stop.request();
     match tokio::time::timeout(STOP_DEADLINE, work).await {

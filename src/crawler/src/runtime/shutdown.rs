@@ -7,8 +7,12 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-/// How long work already running may take to finish after the first stop signal.
-pub const DEFAULT_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(30);
+/// How long work already running may take to finish after the first stop signal. A running crawl
+/// ends at once on the signal, dropping its in-flight page requests, and then only has to store the
+/// pages already delivered and its frontier, which takes seconds; a scraper batch finishes its
+/// current URL, which may fetch a page and run an extraction. A minute leaves each a wide margin
+/// over its usual wind-down without making a restart wait for work that cannot finish.
+pub const DEFAULT_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StopSignal {

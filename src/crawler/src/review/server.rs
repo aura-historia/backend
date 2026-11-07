@@ -422,6 +422,9 @@ impl ReviewServer {
             let Some(review_id) = parse_review_id(request.path) else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
+            if let Err(error) = self.repository.refresh_url_pattern_sample(review_id).await {
+                warn!(review_id = %review_id, error = %error, "could not refresh the URL sample of the review");
+            }
             return match self.repository.get_review(review_id).await {
                 Ok(detail) => {
                     log_invalid_candidate(&detail);

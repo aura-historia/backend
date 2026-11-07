@@ -33,6 +33,7 @@ use crate::spider::discovery::frontier::{
 use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
+use crate::spider::discovery::redirects::{RedirectAnswer, RedirectFollower};
 use crate::spider::discovery::robots::{CrawlRobots, admit_crawl};
 use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
@@ -40,6 +41,8 @@ use crate::spider::utils::url::canonical::PageIdentityEvidence;
 
 const SPIDER_ACCEPT_ENCODING: &str = "gzip, br, deflate";
 const MAX_ROOT_REDIRECTS: usize = 5;
+/// Redirect targets Spider's queue holds before it drains them; it drains on every fetch round.
+const REDIRECT_QUEUE_CAPACITY: usize = 1024;
 const SPIDER_MAX_BODY_BYTES_ENV: &str = "SPIDER_MAX_SIZE_BYTES";
 const DEFAULT_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_RETRY_COUNT: u8 = 2;
@@ -181,6 +184,10 @@ pub enum CrawlCompletion {
     /// budget ran out, or discovery stopped the crawl because its run ended.
     /// The pages delivered before it are valid but the crawl is incomplete.
     HardTimeoutTruncated,
+    /// The crawler's shutdown ended the crawl before its bounds. The pages delivered before it
+    /// and the frontier it left are valid; unlike a truncation it says nothing about the
+    /// shop's size, so the next crawl resumes from the frontier soon.
+    Stopped,
     /// The shop answered a page with a rate limit and the spider stopped the
     /// crawl, carrying the answer and its `Retry-After`. The pages delivered
     /// before it are valid but the crawl is incomplete.
@@ -193,6 +200,7 @@ impl CrawlCompletion {
             CrawlCompletion::Completed => "COMPLETED",
             CrawlCompletion::PageBudgetReached => "PAGE_BUDGET_REACHED",
             CrawlCompletion::HardTimeoutTruncated => "HARD_TIMEOUT_TRUNCATED",
+            CrawlCompletion::Stopped => "STOPPED",
             CrawlCompletion::RateLimited(_) => "RATE_LIMITED",
         }
     }
@@ -257,6 +265,8 @@ pub enum CrawlStopReason {
     /// The consumer stopped taking pages: the spider run ended, typically by
     /// failing, before discovery finished.
     RunEnded,
+    /// The crawler is shutting down (`SpiderImpl::with_shutdown`).
+    Shutdown,
 }
 
 impl CrawlStopReason {
@@ -265,6 +275,7 @@ impl CrawlStopReason {
         match self {
             CrawlStopReason::RateLimited => "rate_limited",
             CrawlStopReason::RunEnded => "run_ended",
+            CrawlStopReason::Shutdown => "shutdown",
         }
     }
 }
@@ -302,6 +313,12 @@ pub struct CrawlDiagnostics {
     /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
+    /// Redirects pages answered whose target the crawl followed, each requested as a page of
+    /// its own (`docs/crawler/networking.md#destination-policy`).
+    pub redirects_followed: usize,
+    /// Redirects the crawl did not follow: to another host, to a target a rule refuses, without a
+    /// usable `Location` or past the hop bound.
+    pub redirects_rejected: usize,
     /// How robots.txt applied to the crawl: `rules` or
     /// `unavailable_allow_all`.
     pub robots_policy: Option<&'static str>,
@@ -452,16 +469,31 @@ impl SpiderDiscoveryError {
 
     /// Where the crawl root redirected to, when the preflight refused to follow it.
     pub fn redirect_target(&self) -> Option<&str> {
-        match self {
-            Self::Preflight {
-                source: Some(source),
-                ..
-            } => source
-                .downcast_ref::<RootRedirect>()
-                .map(|redirect| redirect.target.as_str()),
-            _ => None,
-        }
+        let Self::Preflight {
+            source: Some(source),
+            ..
+        } = self
+        else {
+            return None;
+        };
+        source
+            .downcast_ref::<RootRedirect>()
+            .map(|redirect| redirect.target.as_str())
+            .or_else(|| {
+                source
+                    .downcast_ref::<RefusedRedirectTarget>()
+                    .map(|refused| refused.target.as_str())
+            })
     }
+}
+
+/// A crawl-root redirect target the public-target policy refused, with the rule that refused it.
+#[derive(Debug, Error)]
+#[error("the crawl root redirected to {target}, which is refused: {rule}")]
+pub struct RefusedRedirectTarget {
+    target: String,
+    #[source]
+    rule: PublicTargetError,
 }
 
 /// The target of a crawl-root redirect the preflight refused, in the spelling the crawler stores
@@ -652,6 +684,7 @@ fn spider_client_builder(timeout: Duration) -> spider::reqwest::ClientBuilder {
 pub struct SpiderImpl {
     config: CrawlerConfig,
     transport: Arc<dyn SpiderTransport>,
+    shutdown: Option<watch::Receiver<bool>>,
 }
 
 impl SpiderImpl {
@@ -660,7 +693,18 @@ impl SpiderImpl {
     }
 
     pub fn with_transport(config: CrawlerConfig, transport: Arc<dyn SpiderTransport>) -> Self {
-        Self { config, transport }
+        Self {
+            config,
+            transport,
+            shutdown: None,
+        }
+    }
+
+    /// Ends every crawl cooperatively once `shutdown` turns true: the crawl stops like its hard
+    /// timeout does and reports [`CrawlCompletion::Stopped`] with the frontier it left.
+    pub fn with_shutdown(mut self, shutdown: watch::Receiver<bool>) -> Self {
+        self.shutdown = Some(shutdown);
+        self
     }
 }
 
@@ -772,7 +816,47 @@ struct PreflightAttemptError {
     retryable: bool,
 }
 
-fn preflight_transport_error(error: SpiderTransportError) -> PreflightAttemptError {
+/// How the preflight arrived at the root page it fetches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootArrival {
+    /// The crawl root as configured, or as moved to its twin host.
+    Configured,
+    /// The `Location` of the previous root answer.
+    Redirect,
+}
+
+/// Why the policy refused the target of a root redirect, naming both the redirect and the rule.
+fn refused_redirect_reason(rule: &PublicTargetError) -> &'static str {
+    match rule {
+        PublicTargetError::InvalidUrl => {
+            "crawl-root redirect target refused: not an HTTP(S) URL without userinfo and with a host"
+        }
+        PublicTargetError::IpLiteral => {
+            "crawl-root redirect target refused: an IP literal instead of a DNS hostname"
+        }
+        PublicTargetError::InvalidPort => {
+            "crawl-root redirect target refused: port is not permitted"
+        }
+        PublicTargetError::ResolutionTimeout => {
+            "crawl-root redirect target refused: its DNS resolution timed out"
+        }
+        PublicTargetError::Resolution => {
+            "crawl-root redirect target refused: its DNS resolution failed"
+        }
+        PublicTargetError::UnsafeResolution => {
+            "crawl-root redirect target refused: it does not resolve exclusively to public addresses"
+        }
+        PublicTargetError::InvalidRedirect => {
+            "crawl-root redirect target refused: invalid redirect"
+        }
+    }
+}
+
+fn preflight_transport_error(
+    error: SpiderTransportError,
+    root: &Url,
+    arrival: RootArrival,
+) -> PreflightAttemptError {
     match error {
         SpiderTransportError::Target(target_error) => {
             let network_kind = network_error_kind_for_public_target_error(target_error.clone());
@@ -780,12 +864,25 @@ fn preflight_transport_error(error: SpiderTransportError) -> PreflightAttemptErr
                 NetworkErrorKind::UnsafeTarget => CrawlFailureKind::InvalidUrl,
                 _ => CrawlFailureKind::ConnectError,
             };
+            let (reason, source): (&'static str, BoxError) = match arrival {
+                RootArrival::Configured => (
+                    "crawl-root target could not be resolved to a public address",
+                    Box::new(target_error),
+                ),
+                RootArrival::Redirect => (
+                    refused_redirect_reason(&target_error),
+                    Box::new(RefusedRedirectTarget {
+                        target: CrawledUrl::new(root.clone()).to_string(),
+                        rule: target_error,
+                    }),
+                ),
+            };
             PreflightAttemptError {
                 retryable: action_for(network_kind) == NetworkAction::Retry,
                 error: SpiderDiscoveryError::Preflight {
                     kind,
-                    reason: "crawl-root target could not be resolved to a public address",
-                    source: Some(Box::new(target_error)),
+                    reason,
+                    source: Some(source),
                     root_reroot: None,
                 },
             }
@@ -831,12 +928,13 @@ struct RootFetch {
 async fn fetch_crawl_root_once(
     transport: &dyn SpiderTransport,
     root: &Url,
+    arrival: RootArrival,
     timeout: Duration,
 ) -> Result<RootFetch, PreflightAttemptError> {
     let client = transport
         .client_for(root, timeout)
         .await
-        .map_err(preflight_transport_error)?;
+        .map_err(|error| preflight_transport_error(error, root, arrival))?;
     let response = client
         .get(root.clone())
         .send()
@@ -851,13 +949,14 @@ async fn fetch_crawl_root_once(
 async fn fetch_crawl_root(
     transport: &dyn SpiderTransport,
     root: &Url,
+    arrival: RootArrival,
     timeout: Duration,
     retry: RetryPolicy,
 ) -> Result<RootFetch, SpiderDiscoveryError> {
     let max_attempts = retry.max_attempts.max(1);
     let mut attempt = 1;
     loop {
-        match fetch_crawl_root_once(transport, root, timeout).await {
+        match fetch_crawl_root_once(transport, root, arrival, timeout).await {
             Ok(fetched) => return Ok(fetched),
             Err(failure) if failure.retryable && attempt < max_attempts => {
                 tokio::time::sleep(inline_retry_backoff_for(retry, attempt)).await;
@@ -915,6 +1014,8 @@ async fn preflight_crawl_root(
 struct RootChain {
     configured: Url,
     current: Url,
+    /// How the chain arrived at `current`.
+    arrival: RootArrival,
     /// The hosts whose root the chain fetched, in order.
     visited_hosts: Vec<Option<String>>,
     /// The move to the twin host the root page's links asked for, once the chain made it.
@@ -925,6 +1026,7 @@ impl RootChain {
     fn new(configured_root: Url) -> Self {
         Self {
             current: configured_root.clone(),
+            arrival: RootArrival::Configured,
             configured: configured_root,
             visited_hosts: Vec::new(),
             reroot: None,
@@ -955,7 +1057,7 @@ async fn follow_crawl_root(
 ) -> Result<(u16, spider::reqwest::Client), SpiderDiscoveryError> {
     for redirect_count in 0..=MAX_ROOT_REDIRECTS {
         let RootFetch { response, client } =
-            fetch_crawl_root(transport, &chain.current, timeout, retry).await?;
+            fetch_crawl_root(transport, &chain.current, chain.arrival, timeout, retry).await?;
         chain
             .visited_hosts
             .push(chain.current.host_str().map(str::to_owned));
@@ -974,6 +1076,7 @@ async fn follow_crawl_root(
                     })
             {
                 chain.current = moved.to.clone();
+                chain.arrival = RootArrival::Configured;
                 chain.reroot = Some(moved);
                 continue;
             }
@@ -1001,6 +1104,7 @@ async fn follow_crawl_root(
                 )
             })?;
         chain.current = root_redirect_target(&chain.configured, &chain.current, location)?;
+        chain.arrival = RootArrival::Redirect;
     }
 
     Err(SpiderDiscoveryError::root_redirect(
@@ -1253,6 +1357,8 @@ struct LocalFilter {
     found_links: FoundLinks,
     /// The pages an incremental crawl knows, and the links to them it answered itself.
     known_pages: Arc<KnownPageAnswers>,
+    /// Queues the targets of the redirects the delivered pages answer.
+    redirects: RedirectFollower,
 }
 
 impl LocalFilter {
@@ -1433,6 +1539,9 @@ impl SpiderImpl {
         let decoder_refused_links = Arc::clone(&refused_links);
         let mut website = Website::new(root_url.as_str());
         website.set_http_client(client.clone());
+        let redirect_queue = website
+            .queue(REDIRECT_QUEUE_CAPACITY)
+            .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
 
         let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
         let follow_rules = Arc::new(FollowRules::new(
@@ -1498,6 +1607,7 @@ impl SpiderImpl {
             link_discovery_duration,
             known_links: known_link_count,
         };
+        let shutdown = self.shutdown.clone();
         let stop_crawl = Arc::new(Notify::new());
         let crawl_stop = Arc::clone(&stop_crawl);
         let (root_verdict, root_judgement) = watch::channel(None);
@@ -1528,6 +1638,7 @@ impl SpiderImpl {
                 .expect("bloom filter init failed"),
             found_links: found_links.clone(),
             known_pages: Arc::clone(&known_pages),
+            redirects: RedirectFollower::new(redirect_queue, robots.clone()),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1549,7 +1660,10 @@ impl SpiderImpl {
                 filter,
                 &mut diagnostics,
                 &crawl_root_url,
-                &stop_crawl,
+                CrawlStopTriggers {
+                    crawl: &stop_crawl,
+                    shutdown,
+                },
                 &root_verdict,
             )
             .await;
@@ -1567,6 +1681,7 @@ impl SpiderImpl {
                     diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
                     diagnostics.known_fetches_saved = known_pages.answered_links();
                     apply_library_outcome(&mut diagnostics, outcome);
+                    diagnostics.completion = stopped_or(&diagnostics);
                     diagnostics.completion = completion_with_frontier(
                         diagnostics.completion,
                         !discovery.frontier.is_empty(),
@@ -1662,21 +1777,21 @@ async fn mark_known_links_visited(website: &mut Website, known: &KnownPages) -> 
 /// Relays the pages Spider broadcasts through the local filter to the
 /// consumer until the broadcast closes and every accepted page is delivered,
 /// or the consumer is gone. A rate-limit answer, or the consumer going away
-/// while Spider still crawls, asks the crawl task to stop; the first reason
-/// asked for is returned.
+/// while Spider still crawls, or the crawler's shutdown, asks the crawl task to stop; the first
+/// reason asked for is returned.
 async fn relay_library_pages(
     mut spider_rx: broadcast::Receiver<Page>,
     tx: &mpsc::Sender<CrawledPage>,
     mut filter: LocalFilter,
     diagnostics: &mut CrawlDiagnostics,
     crawl_root_url: &str,
-    stop_crawl: &Notify,
+    mut triggers: CrawlStopTriggers<'_>,
     root_verdict: &watch::Sender<Option<RootVerdict>>,
 ) -> Option<CrawlStopReason> {
     let mut stop_requested = None;
     let mut request_stop = |reason| {
         stop_requested.get_or_insert(reason);
-        stop_crawl.notify_one();
+        triggers.crawl.notify_one();
     };
     let mut first_page_seen = false;
     // Accepted URLs wait here instead of blocking the broadcast
@@ -1696,6 +1811,11 @@ async fn relay_library_pages(
                     request_stop(CrawlStopReason::RunEnded);
                 }
                 break;
+            }
+            () = shutdown_requested(&mut triggers.shutdown) => {
+                triggers.shutdown = None;
+                request_stop(CrawlStopReason::Shutdown);
+                continue;
             }
             received = spider_rx.recv(), if broadcast_open => match received {
                 Ok(page) => page,
@@ -1777,6 +1897,20 @@ async fn relay_library_pages(
             if let Some(page_links) = page.page_links.as_deref() {
                 filter.found_links.record(page.get_url(), page_links);
             }
+        }
+
+        match filter.redirects.answer(
+            status_code,
+            page.get_url(),
+            page.headers.as_ref(),
+            &filter.found_links,
+        ) {
+            RedirectAnswer::Followed => {
+                diagnostics.redirects_followed += 1;
+                continue;
+            }
+            RedirectAnswer::Rejected => diagnostics.redirects_rejected += 1,
+            RedirectAnswer::NotARedirect => {}
         }
 
         match filter.admit(page.get_url()) {
@@ -1964,6 +2098,34 @@ const RATE_LIMIT_ANSWER_STOPPED_CRAWL: &str = "rate_limit_answer_stopped_crawl";
 
 /// A rate-limit answer ends the crawl as rate-limited however Spider stopped
 /// afterwards: the answered page and the links behind it were not crawled.
+/// What the relay stops the crawl task with, and what asks it to.
+struct CrawlStopTriggers<'a> {
+    /// Wakes the crawl task, which drops its crawl.
+    crawl: &'a Notify,
+    /// The crawler's shutdown; unset once it has asked.
+    shutdown: Option<watch::Receiver<bool>>,
+}
+
+/// The completion of a crawl the crawler's shutdown ended, unless a rate-limit answer ended it
+/// first.
+fn stopped_or(diagnostics: &CrawlDiagnostics) -> CrawlCompletion {
+    match diagnostics.stopped_early {
+        Some(CrawlStopReason::Shutdown) => CrawlCompletion::Stopped,
+        _ => diagnostics.completion,
+    }
+}
+
+/// Resolves when the crawler's shutdown is requested; never without one.
+async fn shutdown_requested(shutdown: &mut Option<watch::Receiver<bool>>) {
+    if let Some(shutdown) = shutdown
+        && shutdown.wait_for(|requested| *requested).await.is_ok()
+    {
+        return;
+    }
+    // Without a shutdown, or once its sender is gone, no stop can come.
+    std::future::pending::<()>().await;
+}
+
 fn rate_limited_or(diagnostics: &CrawlDiagnostics, completion: CrawlCompletion) -> CrawlCompletion {
     diagnostics
         .rate_limit
@@ -2064,6 +2226,7 @@ mod tests {
     use crate::network::CRAWLER_ACCEPT;
     use crate::network::robots::RobotsRules;
     use crate::spider::discovery::frontier::CrawlSeeds;
+    use crate::spider::discovery::redirects::MAX_REDIRECT_HOPS;
     use crate::spider::discovery::root_host;
     use crate::spider::utils::url::canonical::{ShopPlatform, canonical_product_url};
     use std::collections::HashSet;
@@ -2487,8 +2650,8 @@ mod tests {
         }
     }
 
-    /// Each delivered page carries what its own head declares. Spider does not follow a redirect,
-    /// so a redirected URL is delivered without the target's head and declares nothing.
+    /// Each delivered page carries what its own head declares. A redirected URL is not a page:
+    /// its target is, and that one answers 404 here.
     #[tokio::test]
     async fn should_deliver_each_page_with_the_identity_its_head_declares() {
         let site = TestSite::spawn(Arc::new(canonical_link_site)).await;
@@ -2517,8 +2680,9 @@ mod tests {
             Some("http://example.com/products/ladle")
         );
         assert_eq!(collection_page.platform, Some(ShopPlatform::Shopify));
+        assert_eq!(identities.get("http://example.com/products/old"), None);
         assert_eq!(
-            identities.get("http://example.com/products/old"),
+            identities.get("http://example.com/products/new"),
             Some(&PageIdentityEvidence::default())
         );
     }
@@ -4109,6 +4273,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn should_stop_the_crawl_and_keep_its_frontier_when_the_crawler_shuts_down() {
+        let site = TestSite::spawn(Arc::new(endless_chain_site)).await;
+        let config = CrawlerConfig {
+            max_pages_per_crawl: 1_000,
+            max_crawl_duration: Duration::from_secs(60),
+            ..test_config()
+        };
+        let (shutdown, shutdown_requested) = watch::channel(false);
+        let spider = SpiderImpl::with_transport(config, site.transport(&["example.com"]))
+            .with_shutdown(shutdown_requested);
+        let SpiderCrawl {
+            mut pages,
+            diagnostics,
+            discovery,
+        } = spider
+            .crawl_with_body_limit(
+                CrawlRequest::from_root("http://example.com/", CrawlPace::default()),
+                Some("8388608"),
+            )
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            pages.recv().await.expect("the chain delivers pages");
+        }
+
+        shutdown.send_replace(true);
+        // The run keeps taking the pages already delivered, as it does while it stops.
+        let drain = tokio::spawn(async move { while pages.recv().await.is_some() {} });
+        let diagnostics = tokio::time::timeout(Duration::from_secs(5), diagnostics)
+            .await
+            .expect("the crawl stops promptly, not at its wall-clock budget")
+            .unwrap();
+        drain.await.unwrap();
+        let discovery = discovery.await.unwrap();
+        site.finish().await;
+
+        assert_eq!(
+            diagnostics.stopped_early,
+            Some(CrawlStopReason::Shutdown),
+            "{diagnostics:?}"
+        );
+        assert_eq!(diagnostics.completion, CrawlCompletion::Stopped);
+        assert!(
+            !discovery.frontier.is_empty(),
+            "the chain's next page is the frontier the next crawl resumes from"
+        );
+    }
+
+    #[tokio::test]
     async fn should_stop_the_crawl_before_reporting_when_the_run_ends_early() {
         let site = TestSite::spawn(Arc::new(endless_chain_site)).await;
         let config = CrawlerConfig {
@@ -4402,6 +4615,63 @@ mod tests {
         site.finish().await;
     }
 
+    /// Transport that refuses a port, as the public-target policy does, and pins the rest.
+    struct PortRefusingTransport {
+        refused_port: u16,
+        inner: Arc<dyn SpiderTransport>,
+    }
+
+    #[async_trait::async_trait]
+    impl SpiderTransport for PortRefusingTransport {
+        async fn client_for(
+            &self,
+            url: &Url,
+            timeout: Duration,
+        ) -> Result<spider::reqwest::Client, SpiderTransportError> {
+            if url.port() == Some(self.refused_port) {
+                return Err(SpiderTransportError::Target(PublicTargetError::InvalidPort));
+            }
+            self.inner.client_for(url, timeout).await
+        }
+    }
+
+    /// A root that redirects to a target the policy refuses fails as that: the reason names the
+    /// redirect and the rule, and the log carries the target.
+    #[tokio::test]
+    async fn should_name_the_redirect_and_the_rule_when_the_root_redirects_to_a_refused_port() {
+        let site = TestSite::spawn(Arc::new(|target: &str, previous: usize| {
+            if target == "/" {
+                SiteResponse::Redirect("http://example.com:40542/store/")
+            } else {
+                regression_site(target, previous)
+            }
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            Arc::new(PortRefusingTransport {
+                refused_port: 40542,
+                inner: site.transport(&["example.com"]),
+            }),
+        );
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::InvalidUrl,
+                reason: "crawl-root redirect target refused: port is not permitted",
+                ..
+            }
+        ));
+        assert_eq!(
+            error.redirect_target(),
+            Some("http://example.com:40542/store/")
+        );
+        site.finish().await;
+    }
+
     #[tokio::test]
     async fn should_bound_root_redirect_chain() {
         let site = TestSite::spawn(Arc::new(|target: &str, _: usize| {
@@ -4481,6 +4751,142 @@ mod tests {
             }
         ));
         assert!(site.finish().await.is_empty());
+    }
+
+    /// A site whose root links the pages in `links`, one slow page that keeps the crawl running
+    /// while the redirects are answered, and the answers of `pages`.
+    fn redirecting_site(
+        links: &'static [&'static str],
+        pages: fn(&str) -> Option<SiteResponse>,
+    ) -> SiteHandler {
+        Arc::new(move |target: &str, _previous: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                links
+                    .iter()
+                    .map(|link| format!(r#"<a href="{link}">page</a>"#))
+                    .chain([r#"<a href="/slow">slow</a>"#.to_string()])
+                    .collect(),
+            ),
+            "/slow" => {
+                SiteResponse::SlowHtml(Duration::from_millis(300), "200 OK", "<p>slow</p>".into())
+            }
+            "/robots.txt" => {
+                SiteResponse::Html("200 OK", "User-agent: *\nDisallow: /private/\n".into())
+            }
+            _ => {
+                pages(target).unwrap_or_else(|| SiteResponse::Html("404 Not Found", String::new()))
+            }
+        })
+    }
+
+    fn category_redirect_pages(target: &str) -> Option<SiteResponse> {
+        match target {
+            "/category" => Some(SiteResponse::Redirect("/category/")),
+            "/category/" => Some(SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/category/item-1">item</a>"#.into(),
+            )),
+            "/category/item-1" => Some(SiteResponse::Html("200 OK", "<p>item</p>".into())),
+            _ => None,
+        }
+    }
+
+    /// A category link the shop answers with a redirect to its slashed spelling is requested
+    /// there, as a page of the crawl stored in the spelling fetched, and what it links is found.
+    #[tokio::test]
+    async fn should_follow_an_in_crawl_redirect_to_the_slashed_spelling() {
+        let site = TestSite::spawn(redirecting_site(&["/category"], category_redirect_pages)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert!(discovered.contains("http://example.com/category/"));
+        assert!(discovered.contains("http://example.com/category/item-1"));
+        assert!(!discovered.contains("http://example.com/category"));
+        assert_eq!(diagnostics.redirects_followed, 1);
+        assert_eq!(diagnostics.redirects_rejected, 0);
+    }
+
+    /// The two spellings of a page are requested once, whether the crawl met the slashed one by
+    /// a link or by the redirect.
+    #[tokio::test]
+    async fn should_request_a_trailing_slash_twin_once() {
+        let site = TestSite::spawn(redirecting_site(
+            &["/category", "/category/"],
+            category_redirect_pages,
+        ))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, _) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requests = site.requests_for("/category/").await;
+        site.finish().await;
+
+        assert!(discovered.contains("http://example.com/category/item-1"));
+        assert_eq!(requests, 1);
+    }
+
+    /// A redirect off the crawl root's host, to a port the policy refuses or to a page robots.txt
+    /// disallows is counted as rejected and never requested.
+    #[tokio::test]
+    async fn should_reject_in_crawl_redirects_to_refused_targets() {
+        fn refused_pages(target: &str) -> Option<SiteResponse> {
+            match target {
+                "/off-host" => Some(SiteResponse::Redirect("http://other.example/page")),
+                "/off-port" => Some(SiteResponse::Redirect("http://example.com:40542/page")),
+                "/to-robots" => Some(SiteResponse::Redirect("/private/page")),
+                _ => None,
+            }
+        }
+        let site = TestSite::spawn(redirecting_site(
+            &["/off-host", "/off-port", "/to-robots"],
+            refused_pages,
+        ))
+        .await;
+        let spider = SpiderImpl::with_transport(
+            test_config(),
+            site.transport(&["example.com", "other.example"]),
+        );
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let log = site.finish().await;
+
+        assert_eq!(diagnostics.redirects_followed, 0);
+        assert_eq!(diagnostics.redirects_rejected, 3);
+        assert!(discovered.contains("http://example.com/off-host"));
+        assert!(
+            !log.iter()
+                .any(|(host, target, ..)| host.starts_with("other.example")
+                    || target == "/page"
+                    || target == "/private/page"),
+            "{log:?}"
+        );
+    }
+
+    /// A chain of redirects is followed as far as the root's own chain is.
+    #[tokio::test]
+    async fn should_bound_the_chain_of_in_crawl_redirects() {
+        fn chain(target: &str) -> Option<SiteResponse> {
+            let hop = target.strip_prefix("/hop")?.parse::<usize>().ok()?;
+            Some(SiteResponse::Redirect(Box::leak(
+                format!("/hop{}", hop + 1).into_boxed_str(),
+            )))
+        }
+        let site = TestSite::spawn(redirecting_site(&["/hop0"], chain)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let log = site.finish().await;
+
+        let hops = log
+            .iter()
+            .filter(|(_, target, ..)| target.starts_with("/hop"))
+            .count();
+        assert_eq!(hops, MAX_REDIRECT_HOPS + 1);
+        assert_eq!(diagnostics.redirects_followed, MAX_REDIRECT_HOPS);
+        assert_eq!(diagnostics.redirects_rejected, 1);
     }
 
     fn site_with_robots(robots: SiteResponse) -> SiteHandler {
@@ -4595,6 +5001,15 @@ mod tests {
                 Arc::new(RegexSet::empty()),
             ))),
             known_pages: Arc::default(),
+            redirects: RedirectFollower::new(
+                broadcast::channel(1).0,
+                CrawlRobots {
+                    deny_list: RobotsRules::parse("").deny_list(),
+                    crawl_delay: None,
+                    rules: None,
+                    policy: "unavailable_allow_all",
+                },
+            ),
         }
     }
 
@@ -4945,7 +5360,11 @@ mod tests {
                 false,
             ),
         ] {
-            let failure = preflight_transport_error(SpiderTransportError::Target(target_error));
+            let failure = preflight_transport_error(
+                SpiderTransportError::Target(target_error),
+                &Url::parse("https://example.com/").unwrap(),
+                RootArrival::Configured,
+            );
             assert_eq!(failure.retryable, expected_retry);
             assert!(matches!(
                 failure.error,

@@ -131,7 +131,7 @@ struct ScrapeCandidateOutcome {
     capture: Option<RawCaptureRequest>,
     errored: bool,
     /// The page waits on a pending product-schema review: neither a success nor a failure.
-    awaits_schema_review: bool,
+    awaited_schema_review: Option<CrawlerReviewId>,
     skipped: bool,
     /// The URL lost a process-local URL or ListingSource lock race and stays
     /// eligible for a later pass without any durable state change.
@@ -863,16 +863,7 @@ async fn retire_duplicate_of_known_destination(
     ctx: &ScrapeBatchContext,
     destination: &url::Url,
 ) -> ScrapeCandidateOutcome {
-    match ctx
-        .scraper_candidates
-        .set_disposition(
-            &candidate.listing_source_id,
-            &candidate.url,
-            CrawlerDisposition::Duplicate,
-            candidate.last_captured_raw_input_sha256.as_deref(),
-        )
-        .await
-    {
+    match retire_as_duplicate(candidate, ctx).await {
         Ok(write_outcome) => {
             info!(
                 event = "crawler.product_url_retired_duplicate_of_known_destination",
@@ -882,10 +873,7 @@ async fn retire_duplicate_of_known_destination(
                 crawler_url_write_outcome = ?write_outcome,
                 "Retired a product URL that redirects to a product URL its ListingSource already stores"
             );
-            ScrapeCandidateOutcome {
-                skipped: true,
-                ..Default::default()
-            }
+            skipped_outcome()
         }
         Err(error) => {
             warn!(
@@ -897,6 +885,56 @@ async fn retire_duplicate_of_known_destination(
             errored_outcome()
         }
     }
+}
+
+/// Retires a URL whose page derives a `source_listing_id` another product URL of its
+/// ListingSource already carries, as the shop's spelling of the same product (for example
+/// another category or sort parameter). The row that carries the identity keeps its scrape state
+/// and is the one captured; nothing is captured for this URL
+/// (`docs/crawler/networking.md#duplicate-source-listing-ids`).
+async fn retire_duplicate_of_known_identity(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    source_listing_id: &str,
+    carrier: &url::Url,
+) -> ScrapeCandidateOutcome {
+    match retire_as_duplicate(candidate, ctx).await {
+        Ok(write_outcome) => {
+            info!(
+                event = "crawler.product_url_retired_duplicate_of_known_identity",
+                listing_source_id = %candidate.listing_source_id,
+                old_url = %candidate.url,
+                new_url = %carrier,
+                source_listing_id = %source_listing_id,
+                crawler_url_write_outcome = ?write_outcome,
+                "Retired a product URL whose source listing id another product URL of its ListingSource already carries"
+            );
+            skipped_outcome()
+        }
+        Err(error) => {
+            warn!(
+                error = %error,
+                listing_source_id = %candidate.listing_source_id,
+                url = %candidate.url,
+                "Failed to retire a product URL whose source listing id is already carried"
+            );
+            errored_outcome()
+        }
+    }
+}
+
+async fn retire_as_duplicate(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+    ctx.scraper_candidates
+        .set_disposition(
+            &candidate.listing_source_id,
+            &candidate.url,
+            CrawlerDisposition::Duplicate,
+            candidate.last_captured_raw_input_sha256.as_deref(),
+        )
+        .await
 }
 
 /// Records a scrape that ended at a redirect nothing settles: the URL keeps its listing, neither
@@ -935,6 +973,37 @@ async fn handle_successful_scrape(
         .filter(|identity| *identity != scraped.source_listing_id)
     {
         return reject_identity_conflict(candidate, ctx, captured_identity, &scraped).await;
+    }
+    if candidate.last_source_listing_id.is_none() {
+        match ctx
+            .scraper_candidates
+            .url_carrying_source_listing_id(
+                &candidate.listing_source_id,
+                &scraped.source_listing_id,
+                &candidate.url,
+            )
+            .await
+        {
+            Ok(Some(carrier)) => {
+                return retire_duplicate_of_known_identity(
+                    candidate,
+                    ctx,
+                    &scraped.source_listing_id,
+                    &carrier,
+                )
+                .await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    listing_source_id = %candidate.listing_source_id,
+                    url = %candidate.url,
+                    "Failed to look up the product URL carrying a scraped source listing id"
+                );
+                return errored_outcome();
+            }
+        }
     }
     let provenance = match crawler_provenance(
         Some(scraped.hash.as_str()),
@@ -1116,18 +1185,21 @@ async fn handle_scrape_error(
         }
     };
     record_batch_error_state(ctx, &error).await;
-    let awaits_schema_review = matches!(error, ScraperError::PendingSchemaReview { .. });
+    let awaited_schema_review = match &error {
+        ScraperError::PendingSchemaReview { review_id, .. } => Some(*review_id),
+        _ => None,
+    };
 
     ScrapeCandidateOutcome {
-        errored: !awaits_schema_review,
-        awaits_schema_review,
+        errored: awaited_schema_review.is_none(),
+        awaited_schema_review,
         scrape_health,
         http_failure: record.answer,
         circuit_opened: record.circuit_opened,
         persisted_scrape_health: record.persisted_scrape_health,
         robots_unreachable: is_robots_unreachable(&error),
         // A wait is no URL failure, so `UrlFailures` leaves it out as `ScrapesFailed` does.
-        failure_kind: (!awaits_schema_review).then_some(record.error_kind),
+        failure_kind: awaited_schema_review.is_none().then_some(record.error_kind),
         ..Default::default()
     }
 }
@@ -1769,7 +1841,7 @@ async fn scrape_batch_candidates(
 
         if candidate_outcome.errored {
             outcome.failed += 1;
-        } else if candidate_outcome.awaits_schema_review {
+        } else if candidate_outcome.awaited_schema_review.is_some() {
             outcome.awaiting_schema_review += 1;
         } else if let Some(CandidateRemoval::New(removal)) = candidate_outcome.removal {
             new_removals.push(*removal);
@@ -1833,6 +1905,20 @@ async fn scrape_batch_candidates(
                     "Failed to close scrape circuit"
                 ),
             }
+        }
+
+        // Every page of the ListingSource fails the same cached schemas until the reviewer
+        // decides, so fetching the rest of the batch would only park each page as well.
+        if let Some(review_id) = candidate_outcome.awaited_schema_review {
+            let remaining = candidate_count.saturating_sub(candidate_index + 1);
+            info!(
+                event = "crawler.scraper.batch_awaits_schema_review",
+                review_id = %review_id,
+                deferred_urls = remaining,
+                "Deferring remaining scraper URLs until the pending schema review is decided"
+            );
+            outcome.deferred_urls += remaining;
+            break;
         }
 
         // One unreachable robots.txt refuses the whole origin: the rest of
@@ -2882,6 +2968,16 @@ mod tests {
         }
     }
 
+    /// A candidate service whose ListingSource stores no other URL under the scraped identity,
+    /// so a scraped page is captured.
+    fn scraper_candidates_without_identity_carrier() -> MockScraperCandidateService {
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_url_carrying_source_listing_id()
+            .returning(|_, _, _| Box::pin(async { Ok(None) }));
+        scraper_candidates
+    }
+
     fn scrape_candidate_context(
         scraper_candidates: MockScraperCandidateService,
         scraper_service: MockScraperService,
@@ -2998,7 +3094,7 @@ mod tests {
         let (command_tx, mut command_rx) = tokio::sync::mpsc::channel(1);
         let context = ScrapeBatchContext {
             scraper: Arc::new(scraper_service),
-            scraper_candidates: Arc::new(MockScraperCandidateService::new()),
+            scraper_candidates: Arc::new(scraper_candidates_without_identity_carrier()),
             lock_manager,
             command_tx,
             budget_exhausted_listing_sources: Arc::new(Mutex::new(HashSet::new())),
@@ -3457,7 +3553,7 @@ mod tests {
                 })
             });
 
-        let mut scraper_candidates = MockScraperCandidateService::new();
+        let mut scraper_candidates = scraper_candidates_without_identity_carrier();
         scraper_candidates
             .expect_mark_as_scraped()
             .once()
@@ -3487,7 +3583,7 @@ mod tests {
         let raw_input = crawler_verified_removal_input(&effective_url)
             .unwrap_or_else(|error| panic!("test raw input: {error}"));
 
-        let mut scraper_candidates = MockScraperCandidateService::new();
+        let mut scraper_candidates = scraper_candidates_without_identity_carrier();
         scraper_candidates.expect_mark_as_scraped().never();
         let ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
 
@@ -3910,7 +4006,7 @@ mod tests {
             let mut candidate = scraper_candidate("ListingSource", url::Url::parse(URL).unwrap());
             candidate.last_captured_raw_input_sha256 = Some(removal_sha256());
             let ctx = scrape_candidate_context(
-                MockScraperCandidateService::new(),
+                scraper_candidates_without_identity_carrier(),
                 returned_product_scraper(vec![3; 32]),
             );
 
@@ -3929,7 +4025,7 @@ mod tests {
             candidate.last_scraped_hash = Some("product-hash".to_owned());
             candidate.last_scraped_schema_fingerprint = Some("product-schema".to_owned());
 
-            let mut removal_candidates = MockScraperCandidateService::new();
+            let mut removal_candidates = scraper_candidates_without_identity_carrier();
             removal_candidates
                 .expect_forget_capture_before_removal()
                 .once()
@@ -3944,7 +4040,7 @@ mod tests {
             raw_capture.expect_capture().once().returning(|_| {
                 Box::pin(async { vec![ProductListingRawCaptureOutcome::Persisted] })
             });
-            let mut failing_candidates = MockScraperCandidateService::new();
+            let mut failing_candidates = scraper_candidates_without_identity_carrier();
             failing_candidates
                 .expect_mark_removed()
                 .once()
@@ -3969,7 +4065,7 @@ mod tests {
             returning.last_scraped_hash = None;
             returning.last_scraped_schema_fingerprint = None;
             let ctx = scrape_candidate_context(
-                MockScraperCandidateService::new(),
+                scraper_candidates_without_identity_carrier(),
                 returned_product_scraper(product_sha256),
             );
 
@@ -4257,7 +4353,7 @@ mod tests {
         let first_candidate_url = first_url.clone();
         let second_candidate_url = second_url.clone();
 
-        let mut scraper_candidates = MockScraperCandidateService::new();
+        let mut scraper_candidates = scraper_candidates_without_identity_carrier();
         scraper_candidates
             .expect_get_candidates()
             .returning(get_candidates_once_by_source(move || {
@@ -4934,7 +5030,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_scrape_remaining_listing_source_candidates_when_schema_review_is_pending() {
+    async fn should_defer_remaining_listing_source_candidates_when_schema_review_is_pending() {
         let listing_source_id = ListingSourceId::new();
         let first_url = url::Url::parse("https://example.com/product/1").unwrap();
         let second_url = url::Url::parse("https://example.com/product/2").unwrap();
@@ -4970,11 +5066,11 @@ mod tests {
             .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
         scraper_candidates.expect_mark_fetch_failure().never();
 
-        // The first page waits on the pending review; a cached schema still extracts the second.
+        // The first page waits on the pending review, so the second is never fetched.
         let mut scraper_service = MockScraperService::new();
         scraper_service
             .expect_scrape()
-            .times(2)
+            .once()
             .returning(move |request| {
                 let url = request.url;
                 let waits = url == waiting_url;
@@ -6101,6 +6197,175 @@ mod tests {
         }
     }
 
+    mod schema_review_batch_stop {
+        use super::*;
+
+        #[tokio::test]
+        async fn should_defer_the_rest_of_the_batch_without_fetching_after_a_schema_review_wait() {
+            let (candidates, listing_source_id) = source_batch("review-stop.example.com", 5);
+            let waiting_url = candidates[2].url.clone();
+            let fetched = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_mark_waiting_on_schema_review()
+                .once()
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().returning({
+                let fetched = fetched.clone();
+                move |request| {
+                    let url = request.url;
+                    fetched.lock().unwrap().push(url.clone());
+                    let result = if url == waiting_url {
+                        Err(ScraperError::PendingSchemaReview {
+                            url,
+                            review_id: CrawlerReviewId::new(),
+                        })
+                    } else {
+                        Ok(None)
+                    };
+                    Box::pin(async move { scrape_outcome(result) })
+                }
+            });
+
+            let outcome = scrape_batch_candidates(
+                candidates.clone(),
+                batch_context_of(
+                    scraper_candidates,
+                    scraper_service,
+                    listing_source_id,
+                    CrawlerCronConfig::default().scraper_batch_time_budget,
+                ),
+            )
+            .await;
+
+            let expected: Vec<_> = candidates[..3].iter().map(|c| c.url.clone()).collect();
+            assert_eq!(*fetched.lock().unwrap(), expected);
+            assert_eq!(outcome.awaiting_schema_review, 1);
+            assert_eq!(outcome.deferred_urls, 2);
+            assert_eq!((outcome.failed, outcome.skipped), (0, 2));
+        }
+    }
+
+    mod duplicate_source_listing_id {
+        use super::*;
+
+        const IDENTITY: &str = "source-listing";
+
+        fn scraped_product(url: url::Url) -> ScrapedProduct {
+            ScrapedProduct {
+                acquired_at: time::OffsetDateTime::now_utc(),
+                raw_input: crawler_verified_removal_input(&url)
+                    .unwrap_or_else(|error| panic!("test raw input: {error}")),
+                hash: "hash".to_owned(),
+                schema_fingerprint: "schema".to_owned(),
+                raw_input_sha256: vec![7; 32],
+                effective_url: url,
+                source_listing_id: IDENTITY.to_owned(),
+                title: "Chair".to_owned(),
+            }
+        }
+
+        fn scraping(url: &url::Url) -> MockScraperService {
+            let mut scraper_service = MockScraperService::new();
+            let url = url.clone();
+            scraper_service.expect_scrape().once().returning(move |_| {
+                let scraped = scraped_product(url.clone());
+                Box::pin(async move { scrape_outcome(Ok(Some(scraped))) })
+            });
+            scraper_service
+        }
+
+        #[tokio::test]
+        async fn should_retire_the_url_as_a_duplicate_without_a_capture_when_another_url_carries_the_identity()
+         {
+            let url = url::Url::parse("https://example.com/view.php?p_idx=7&page=2").unwrap();
+            let carrier = url::Url::parse("https://example.com/view.php?p_idx=7").unwrap();
+            let candidate = scraper_candidate("ListingSource", url.clone());
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_url_carrying_source_listing_id()
+                .once()
+                .withf({
+                    let url = url.clone();
+                    move |_, identity, excluded| identity == IDENTITY && *excluded == url
+                })
+                .returning(move |_, _, _| {
+                    let carrier = carrier.clone();
+                    Box::pin(async move { Ok(Some(carrier)) })
+                });
+            scraper_candidates
+                .expect_set_disposition()
+                .once()
+                .withf({
+                    let url = url.clone();
+                    move |_, retired, disposition, _| {
+                        *retired == url && *disposition == CrawlerDisposition::Duplicate
+                    }
+                })
+                .returning(|_, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            scraper_candidates.expect_mark_as_scraped().never();
+            let ctx = scrape_candidate_context(scraper_candidates, scraping(&url));
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(outcome.capture.is_none());
+            assert!(outcome.skipped);
+            assert!(!outcome.errored);
+        }
+
+        #[tokio::test]
+        async fn should_capture_the_url_when_no_other_url_carries_the_identity() {
+            let url = url::Url::parse("https://example.com/view.php?p_idx=7").unwrap();
+            let candidate = scraper_candidate("ListingSource", url.clone());
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_url_carrying_source_listing_id()
+                .once()
+                .returning(|_, _, _| Box::pin(async { Ok(None) }));
+            scraper_candidates.expect_set_disposition().never();
+            let ctx = scrape_candidate_context(scraper_candidates, scraping(&url));
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(outcome.capture.is_some());
+        }
+
+        #[tokio::test]
+        async fn should_not_treat_a_recapture_of_the_url_that_carries_the_identity_as_a_duplicate()
+        {
+            let url = url::Url::parse("https://example.com/view.php?p_idx=7").unwrap();
+            let mut candidate = scraper_candidate("ListingSource", url.clone());
+            candidate.last_source_listing_id = Some(IDENTITY.to_owned());
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_url_carrying_source_listing_id()
+                .never();
+            scraper_candidates.expect_set_disposition().never();
+            let ctx = scrape_candidate_context(scraper_candidates, scraping(&url));
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(outcome.capture.is_some());
+        }
+
+        #[tokio::test]
+        async fn should_report_an_error_without_a_capture_when_the_identity_lookup_fails() {
+            let url = url::Url::parse("https://example.com/view.php?p_idx=7").unwrap();
+            let candidate = scraper_candidate("ListingSource", url.clone());
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_url_carrying_source_listing_id()
+                .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
+            let ctx = scrape_candidate_context(scraper_candidates, scraping(&url));
+
+            let outcome = scrape_candidate(candidate, &ctx).await;
+
+            assert!(outcome.errored);
+            assert!(outcome.capture.is_none());
+        }
+    }
+
     mod scraper_metrics {
         use super::*;
         use crate::metrics::test_support::capture_metrics;
@@ -6125,7 +6390,7 @@ mod tests {
             let (candidates, listing_source_id) = source_batch("metrics.example.com", 2);
             let source_label = candidates[0].listing_source_id.to_string();
             let failing_url = candidates[0].url.clone();
-            let mut scraper_candidates = MockScraperCandidateService::new();
+            let mut scraper_candidates = scraper_candidates_without_identity_carrier();
             scraper_candidates
                 .expect_mark_fetch_failure()
                 .returning(|_, _, _, _, _, _, _| {
@@ -6182,7 +6447,8 @@ mod tests {
             let (metrics, _guard) = capture_metrics();
             let (candidates, listing_source_id) = source_batch("waiting.example.com", 2);
             let source_label = candidates[0].listing_source_id.to_string();
-            let waiting_url = candidates[0].url.clone();
+            // The review wait ends the batch, so the failing page comes first.
+            let waiting_url = candidates[1].url.clone();
             let mut scraper_candidates = MockScraperCandidateService::new();
             scraper_candidates
                 .expect_mark_waiting_on_schema_review()

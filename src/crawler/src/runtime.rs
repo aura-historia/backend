@@ -23,7 +23,7 @@ use crate::scraper::css_selector::product_schema_repository::ListingSourceProduc
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
 use crate::scraper::css_selector::removed_page_schema_repository::RemovedPageSchemaRepositoryImpl;
 use crate::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
-use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob};
+use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob, CronStop};
 use crate::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
     ListingSourceRegistrationSource,
@@ -276,7 +276,10 @@ where
         url_classifier,
         ..Default::default()
     };
-    let website_spider = Box::new(SpiderImpl::new(cron_config.spider_website_config()));
+    let cron_stop = CronStop::default();
+    let website_spider = Box::new(
+        SpiderImpl::new(cron_config.spider_website_config()).with_shutdown(cron_stop.subscribe()),
+    );
 
     let spider_svc = Box::new(SpiderServiceImpl::new(
         spider_config,
@@ -311,7 +314,8 @@ where
         scraper_svc,
         listing_source_registration,
         raw_capture,
-    );
+    )
+    .with_stop(cron_stop);
 
     info!(
         db_max_connections,

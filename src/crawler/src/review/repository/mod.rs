@@ -71,6 +71,7 @@ use schema_payload::{
 };
 use url_pattern_sample::{
     CandidateClassification, candidate_product_count, pattern_takes, reclassify_sample,
+    refresh_sample,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -445,6 +446,16 @@ impl CrawlerReviewRepository {
         fetch_review_events_since(&self.pool, since, limit).await
     }
 
+    /// Adds the URLs the crawl stored since the review opened to the sample of the pending
+    /// URL-pattern review `review_id`, at most once a minute; see [`refresh_sample`]. Any other
+    /// review is left as it is.
+    pub async fn refresh_url_pattern_sample(
+        &self,
+        review_id: CrawlerReviewId,
+    ) -> Result<(), sqlx::Error> {
+        refresh_sample(&self.pool, review_id, self.url_classifier).await
+    }
+
     pub async fn get_review(
         &self,
         review_id: CrawlerReviewId,
@@ -527,7 +538,7 @@ impl CrawlerReviewRepository {
                     candidate_pattern_match, candidate_class
              FROM crawler_review_urls
              WHERE review_id = $1
-             ORDER BY created",
+             ORDER BY created, review_url_id",
         )
         .bind(review_id.as_uuid())
         .fetch_all(&self.pool)

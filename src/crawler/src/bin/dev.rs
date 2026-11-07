@@ -56,8 +56,9 @@
 //! # Stopping
 //!
 //! Ctrl+C (SIGINT) or SIGTERM stops the binary gracefully: no new spider or scraper work starts,
-//! running work gets 30 seconds to finish and the raw observations captured so far are written,
-//! the review agent runner stops its agent processes and records their cost, then the process
+//! running crawls end at once with their frontier kept, other running work gets 60 seconds to
+//! finish and the raw observations captured so far are written, the review agent runner lets its
+//! agent processes finish for ten minutes, then stops them and records their cost, then the process
 //! exits 0. A second Ctrl+C exits at once. The contract is in
 //! `docs/crawler/operations.md#stopping-the-crawler`.
 
