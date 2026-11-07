@@ -477,12 +477,28 @@ mod tests {
             .filter(|review| {
                 review.status == "PENDING_REVIEW" && review.listing_source_crawl_enabled
             })
+            .filter(|review| {
+                let late = claude_dir
+                    .join("late")
+                    .join(review.review_id.to_string())
+                    .exists();
+                let run_started = std::fs::read_to_string(claude_dir.join("order.log"))
+                    .is_ok_and(|order| order.contains("start author"));
+                !late || run_started
+            })
             .collect();
+        let waits = |review: &CrawlerReview| {
+            review.human_required
+                || claude_dir
+                    .join("human")
+                    .join(review.review_id.to_string())
+                    .exists()
+        };
         let count = |human_required: bool| {
             i64::try_from(
                 queue
                     .iter()
-                    .filter(|review| review.human_required == human_required)
+                    .filter(|review| waits(review) == human_required)
                     .count(),
             )
             .unwrap_or(i64::MAX)
@@ -496,7 +512,7 @@ mod tests {
             .filter(|review| {
                 query
                     .get("human_required")
-                    .is_none_or(|wanted| review.human_required.to_string() == *wanted)
+                    .is_none_or(|wanted| waits(review).to_string() == *wanted)
             })
             .collect();
         let start = query.get("after").map_or(0, |after| {
@@ -518,7 +534,7 @@ mod tests {
                 candidate_version: review.candidate_version,
                 repair_request: review.repair_request.clone(),
                 agent_rounds: review.agent_rounds,
-                human_required: review.human_required,
+                human_required: waits(review),
                 handed_back: std::fs::read_to_string(
                     claude_dir
                         .join("handed_back")
@@ -673,7 +689,10 @@ printf '%s\n' "$@" > "$call/argv"
 printf '%s' "$prompt" > "$call/stdin"
 env > "$call/env"
 echo "start $role $review" >> "$dir/order.log"
-if [ -f "$dir/hand_over/$review-$role" ]; then touch "$dir/human/$review"; fi
+if [ -f "$dir/hand_over/$review-$role" ]; then
+  target="$(cat "$dir/hand_over/$review-$role")"
+  touch "$dir/human/${target:-$review}"
+fi
 if [ "$role" = reviewer ]; then
   decision="$dir/decisions/$review"
   [ -f "$decision" ] || decision="$dir/decisions/reviewer"
@@ -710,6 +729,7 @@ echo "end $role $review" >> "$dir/order.log"
                 "unreadable",
                 "judged",
                 "handover_refused",
+                "late",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -751,6 +771,29 @@ echo "end $role $review" >> "$dir/order.log"
         fn hand_to_human(&self, name: &str) {
             std::fs::write(self.directory.path().join("hand_over").join(name), "")
                 .unwrap_or_default();
+        }
+
+        /// Has the process `<review id>-<role>` give the verdict that leaves the review `other`, not
+        /// its own, waiting for a human.
+        fn hand_other_to_human(&self, name: &str, other: CrawlerReviewId) {
+            std::fs::write(
+                self.directory.path().join("hand_over").join(name),
+                other.to_string(),
+            )
+            .unwrap_or_default();
+        }
+
+        /// Keeps the review `review_id` out of the queue until a process of the run has started,
+        /// as a review that opens while the run works.
+        fn appears_during_the_run(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("late")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
         }
 
         /// Hands the review `review_id` back to the agents now, as a human's change or verdict
@@ -1964,6 +2007,89 @@ echo "end $role $review" >> "$dir/order.log"
         let run = summary(&run_with(&fixture.settings(&[], &[])).await);
 
         assert_eq!((run.worked, run.processes, run.stopped), (2, 4, None));
+    }
+
+    /// The pool refills from the queue whenever a slot frees: a review that opened while the run
+    /// worked is worked in the same run, within the run's budget and once per review.
+    #[tokio::test]
+    async fn should_refill_a_freed_slot_from_the_queue_with_a_review_that_opened_during_the_run() {
+        let first = review("PENDING_REVIEW", true);
+        let late = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![first.clone(), late.clone()]).await;
+        fixture.claude.appears_during_the_run(late.review_id);
+        let settings = fixture.settings(
+            &[],
+            &[("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "4")],
+        );
+
+        let run = summary(&run_with(&settings).await);
+
+        assert_eq!((run.pending, run.worked, run.processes), (1, 2, 4));
+        let (first_id, late_id) = (first.review_id, late.review_id);
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {first_id}"),
+                format!("end author {first_id}"),
+                format!("start reviewer {first_id}"),
+                format!("end reviewer {first_id}"),
+                format!("start author {late_id}"),
+                format!("end author {late_id}"),
+                format!("start reviewer {late_id}"),
+                format!("end reviewer {late_id}"),
+            ]
+        );
+    }
+
+    /// A refill reads the queue as it is then: a review that came to wait for a human while
+    /// another one was worked gets no process.
+    #[tokio::test]
+    async fn should_not_start_a_review_that_came_to_wait_for_a_human_before_its_slot_freed() {
+        let first = review("PENDING_REVIEW", true);
+        let waiting_by_then = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![first.clone(), waiting_by_then.clone()]).await;
+        fixture.claude.hand_other_to_human(
+            &format!("{}-author", first.review_id),
+            waiting_by_then.review_id,
+        );
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.worked, run.processes), (1, 2));
+        assert!(
+            !fixture
+                .claude
+                .order()
+                .iter()
+                .any(|line| line.ends_with(&waiting_by_then.review_id.to_string())),
+            "{:?}",
+            fixture.claude.order()
+        );
+    }
+
+    /// The run's budget of reviews and the once-per-run rule hold under refilling: a review the
+    /// agents leave workable, with a needs-repair verdict, is not worked again in the same run.
+    #[tokio::test]
+    async fn should_work_at_most_the_budget_of_reviews_and_each_once_per_run() {
+        let fixture = Fixture::new((0..4).map(|_| review("PENDING_REVIEW", true)).collect()).await;
+        fixture.claude.decide("reviewer", "REPAIR_REQUESTED");
+        let settings = fixture.settings(
+            &[],
+            &[
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "3"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES", "2"),
+            ],
+        );
+
+        let run = summary(&run_with(&settings).await);
+
+        assert_eq!((run.worked, run.processes), (3, 6));
+        let order = fixture.claude.order();
+        let authors: std::collections::BTreeSet<&String> = order
+            .iter()
+            .filter(|line| line.starts_with("start author"))
+            .collect();
+        assert_eq!(authors.len(), 3, "{order:?}");
     }
 
     #[tokio::test]

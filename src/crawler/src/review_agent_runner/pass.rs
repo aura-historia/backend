@@ -1,6 +1,7 @@
 //! One pass of the agents over the pending reviews: per review a fresh author process, then, when
 //! the author staged or kept a candidate, a fresh reviewer process, with at most the configured
-//! number of processes at once. Each process's outcome is recorded in the ledger and logged.
+//! number of processes at once. The pass is a rolling pool: a freed slot is refilled from the
+//! queue as it is then, until the run's budget of reviews is spent, each review worked once. Each process's outcome is recorded in the ledger and logged.
 //! A process that ends without a decision cools its review down, and a usage limit pauses the
 //! runner until its reset. Whether a reviewer decided is what the review's event trail records,
 //! not what its report says the console answered. A review that waits for a human is no agent
@@ -32,10 +33,13 @@ use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
 use super::wire_name as name;
+use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
 use crate::review::model::{ReviewActor, ReviewEventAction};
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
+use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 use time::OffsetDateTime;
 use tracing::{info, warn};
@@ -168,49 +172,109 @@ pub enum PassError {
 }
 
 impl Pass<'_> {
+    /// Works the queue with a rolling pool: whenever a slot is free and the run's budget of
+    /// `max_reviews_per_run` reviews is not spent, it reads the queue again and starts the next
+    /// workable reviews, so a slot that frees never waits for the slowest process and the run
+    /// picks up reviews that became workable meanwhile, such as one a human handed back. Each
+    /// review is worked at most once per run, and one that came to wait for a human is no longer
+    /// started. A pause stops the refill; the running processes finish, and the runner's stop is
+    /// handled by the processes themselves.
     async fn run(&self) -> Result<(), PassError> {
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Ok(());
         }
+        let budget = usize::try_from(self.settings.max_reviews_per_run.get()).unwrap_or(usize::MAX);
+        let concurrency = usize::try_from(self.settings.max_processes.get()).unwrap_or(1);
+        let mut running = FuturesUnordered::new();
+        let mut started = BTreeSet::new();
+        let mut refilling = true;
+        while refilling || !running.is_empty() {
+            let free = concurrency
+                .saturating_sub(running.len())
+                .min(budget.saturating_sub(started.len()));
+            if refilling && free > 0 && !self.runner_stop.is_requested() {
+                let first_read = started.is_empty();
+                match self.next_reviews(&started, free, first_read).await {
+                    Ok(reviews) if reviews.is_empty() => {}
+                    Ok(reviews) => match self.stop(OffsetDateTime::now_utc()) {
+                        Some(stop) => {
+                            self.with(|shared| shared.summary.stopped = Some(stop));
+                            refilling = false;
+                        }
+                        None => {
+                            for review in reviews {
+                                started.insert(review.review_id);
+                                running.push(self.work_review(review));
+                            }
+                        }
+                    },
+                    Err(error) if first_read => return Err(error),
+                    Err(error) => {
+                        warn!(
+                            error = %error,
+                            cause = ?std::error::Error::source(&error),
+                            "Cannot read the review queue to refill the run; it ends when its running processes do"
+                        );
+                        refilling = false;
+                    }
+                }
+            }
+            refilling &= started.len() < budget && !self.runner_stop.is_requested();
+            if running.next().await.is_none() {
+                break;
+            }
+        }
+        if self.runner_stop.is_requested() {
+            self.with(|shared| shared.summary.stopped = Some(PassStop::RunnerStop));
+        }
+        Ok(())
+    }
+
+    /// Reads the queue and picks the next `free` workable reviews no process of this run worked
+    /// yet. The first read also tells what the run found in the queue.
+    async fn next_reviews(
+        &self,
+        started: &BTreeSet<CrawlerReviewId>,
+        free: usize,
+        first_read: bool,
+    ) -> Result<Vec<QueuedReview>, PassError> {
         let queue = review_queue(self.console)
             .await
             .map_err(PassError::Console)?;
         let pending = queue.workable.len();
         let waiting_for_human = queue.waiting_for_human.len();
+        let unworked: Vec<QueuedReview> = queue
+            .workable
+            .into_iter()
+            .filter(|review| !started.contains(&review.review_id))
+            .collect();
         let (cooldowns, last_worked) =
             self.with(|shared| (shared.state.cooldown_ends(), shared.ledger.last_worked()));
         let (selected, cooling_down) = select_reviews(
-            queue.workable,
+            unworked,
             &cooldowns,
             &last_worked,
             OffsetDateTime::now_utc(),
-            usize::try_from(self.settings.max_reviews_per_run.get()).unwrap_or(usize::MAX),
+            free,
         );
-        self.with(|shared| {
-            shared.summary.pending = pending;
-            shared.summary.waiting_for_human = waiting_for_human;
-            shared.summary.cooling_down = cooling_down;
-        });
-        info!(
-            pending,
-            waiting_for_human,
-            cooling_down,
-            selected = selected.len(),
-            max_reviews_per_run = self.settings.max_reviews_per_run.get(),
-            max_processes = self.settings.max_processes.get(),
-            "Review agents pass started"
-        );
-        let concurrency = usize::try_from(self.settings.max_processes.get()).unwrap_or(1);
-        futures::stream::iter(selected)
-            .map(|review| self.work_review(review))
-            .buffer_unordered(concurrency)
-            .collect::<Vec<()>>()
-            .await;
-        if self.runner_stop.is_requested() {
-            self.with(|shared| shared.summary.stopped = Some(PassStop::RunnerStop));
+        if first_read {
+            self.with(|shared| {
+                shared.summary.pending = pending;
+                shared.summary.waiting_for_human = waiting_for_human;
+                shared.summary.cooling_down = cooling_down;
+            });
+            info!(
+                pending,
+                waiting_for_human,
+                cooling_down,
+                selected = selected.len(),
+                max_reviews_per_run = self.settings.max_reviews_per_run.get(),
+                max_processes = self.settings.max_processes.get(),
+                "Review agents pass started"
+            );
         }
-        Ok(())
+        Ok(selected)
     }
 
     /// The author's pass, then the reviewer's when the author left a candidate to decide. A review
