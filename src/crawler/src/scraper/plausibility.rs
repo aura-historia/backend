@@ -458,8 +458,8 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
         price_text_check(state),
     ]
     .into_iter()
-        .flatten()
-        .collect()
+    .flatten()
+    .collect()
 }
 
 /// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
@@ -468,9 +468,8 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
 fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
     let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪]");
-    let code_before = regex!(
-        r"(?i)\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron)\s*\d"
-    );
+    let code_before =
+        regex!(r"(?i)\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron)\s*\d");
     let code_or_word_after = regex!(
         r"(?i)\d\s*(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?)\b"
     );

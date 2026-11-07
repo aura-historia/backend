@@ -736,8 +736,7 @@ mod tests {
         let note = long_repair_note();
         assert!(note.chars().count() > MAX_NOTE_CHARS);
         let mut repairing = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
-        repairing["repair_request"] =
-            json!({ "note": note, "requested": "2026-10-27T11:00:00Z" });
+        repairing["repair_request"] = json!({ "note": note, "requested": "2026-10-27T11:00:00Z" });
 
         let answer = json!(ReviewView::of(
             decoded(json!({
