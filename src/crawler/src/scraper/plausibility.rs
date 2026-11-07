@@ -187,6 +187,9 @@ impl PlausibilityFinding {
             SourceListingId, State, Title,
         };
         match (&self.field, self.check) {
+            // Live schemas that read a price element keep capturing; the matrix shows the finding
+            // and `blocks_approval` keeps such a candidate out of approval.
+            (State, PlausibilityCheck::PriceText) => PlausibilityImpact::ReportOnly,
             (_, MarkupTokens) | (Title | State, _) | (SourceListingId, InvalidIdentifier) => {
                 PlausibilityImpact::RejectsCandidate
             }
@@ -464,8 +467,15 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
 
 /// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
 /// Availability labels and cart or enquiry actions carry no currency marker, and a bare quantity
-/// such as "2 in stock" or "Only 1 left" has none either.
+/// such as "2 in stock" or "Only 1 left" has none either. A value that also carries a status
+/// label, such as "Sold for £500", is a status the normalization resolves, not price text.
 fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
+    let status_label = regex!(
+        r"(?i)\b(?:sold|reserved|verkocht|gereserveerd|uitverkocht|verkauft|reserviert|ausverkauft|vendu|vendue|réservé|réservée|épuisé|vendido|reservado|agotado|venduto|riservato|esaurito|available|in stock|out of stock|op voorraad|auf lager|beschikbaar)\b"
+    );
+    if status_label.is_match(state) {
+        return None;
+    }
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
     let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪]");
     let code_before =
@@ -814,7 +824,7 @@ mod tests {
         }
 
         #[test]
-        fn should_reject_a_state_that_reads_a_price() {
+        fn should_report_a_state_that_reads_a_price() {
             for price in [
                 "£ 1,800 plus VAT",
                 "€ 75",
@@ -831,8 +841,35 @@ mod tests {
                 let findings = PlausibilityFindings::of(&raw);
 
                 assert_eq!(findings.as_slice(), [finding(State, PriceText)], "{price}");
-                assert!(findings.rejects_candidate(), "{price}");
             }
+        }
+
+        #[test]
+        fn should_take_a_status_label_next_to_a_price_for_a_status() {
+            for state in [
+                "Sold for £500",
+                "Verkocht - € 75",
+                "Reserved £1,200",
+                "Gereserveerd € 450",
+                "Vendu 300 EUR",
+            ] {
+                let mut raw = plausible();
+                raw.state = state.to_owned();
+
+                assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
+            }
+        }
+
+        #[test]
+        fn should_report_price_text_in_a_state_without_rejecting_the_candidate() {
+            let mut raw = plausible();
+            raw.state = "Price: £795".to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(State, PriceText)]);
+            assert!(!findings.rejects_candidate());
+            assert!(findings.blocks_approval());
         }
 
         #[test]

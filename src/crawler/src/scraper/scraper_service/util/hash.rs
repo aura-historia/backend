@@ -50,7 +50,7 @@ pub(crate) fn hash_extractions<'a>(
 /// change that alters the captured values of an unchanged raw extraction; a change to raw
 /// extraction itself changes the page hash of every page it affects and needs no raise
 /// (`docs/crawler/extraction-and-review.md#extraction-contract`).
-pub(crate) const EXTRACTOR_VERSION: u32 = 3;
+pub(crate) const EXTRACTOR_VERSION: u32 = 2;
 
 /// Fingerprint the extractor version and the ordered effective schema set. Schema structures
 /// serialize deterministically (raw keys are a `BTreeMap`), so an extractor-version or selector
