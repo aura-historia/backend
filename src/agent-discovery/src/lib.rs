@@ -95,10 +95,13 @@ fn skill_path(name: &str) -> String {
     format!("agent-skills/{name}/SKILL.md")
 }
 
-/// `auth.md` lives at the website root, where agents look for it; every other document lives
-/// below the website's `/.well-known` path.
+/// Documents that agents look for at their own path below the website root rather than below
+/// `/.well-known`.
+const ROOT_DOCUMENTS: [&str; 1] = [auth_md::PATH];
+
+/// Where the website publishes the document at `path` below the discovery root.
 fn site_path(path: &str) -> String {
-    if path == auth_md::PATH {
+    if ROOT_DOCUMENTS.contains(&path) {
         format!("/{path}")
     } else {
         format!("/.well-known/{path}")
@@ -232,10 +235,7 @@ mod tests {
             for document in documents.iter() {
                 for url in urls(document.body()) {
                     // The home page and the logo are the webapp's own.
-                    if url.starts_with(site)
-                        && url != site
-                        && url != format!("{site}/icon1080x1080.png")
-                    {
+                    if url.starts_with(site) && url != site && url != environment.site_logo_url() {
                         assert!(
                             published(&documents, environment, url).is_some(),
                             "{url} in {}",
