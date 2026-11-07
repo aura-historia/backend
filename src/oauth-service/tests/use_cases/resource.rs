@@ -9,6 +9,8 @@ fn authorize_handler(ports: &FakePorts, policy: AuraResourcePolicy) -> impl Auth
         FakeUnitOfWork(ports.clone()),
         ports.clone(),
         ports.clone(),
+        ports.clone(),
+        no_metadata_document_clients(),
         policy,
     )
 }
@@ -19,10 +21,8 @@ fn token_handler(
 ) -> impl TokenByAuthorizationCodeUseCase {
     TokenByAuthorizationCodeHandler::new(
         FakeUnitOfWork(ports.clone()),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
-        ports.clone(),
+        token_exchange_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
         policy,
     )
 }
@@ -38,8 +38,10 @@ fn token_request(
         code: code.code(),
         redirect_uri: code.redirect_uri().clone(),
         resource: resource.map(str::to_owned),
-        client_id: code.client_id(),
-        client_secret: secret,
+        client: OAuthTokenClientAuthentication::ClientSecretPost {
+            client_id: registered(code.client_id()),
+            client_secret: secret,
+        },
         code_verifier: OAuthCodeVerifier::from("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
     }
 }
@@ -103,7 +105,7 @@ async fn should_bind_s256_grants_to_the_exact_identifier_without_changing_token_
             assert_eq!(user_id, issued.user_id());
             assert_eq!(
                 &AccessTokenOrigin::OAuth {
-                    client_id: code.client_id()
+                    client_id: registered(code.client_id())
                 },
                 issued.origin()
             );
@@ -341,17 +343,23 @@ async fn should_authenticate_mcp_tokens_with_shared_authentication_and_apply_dat
     );
     assert!(!authenticated.scopes.contains(&Scope::UsersWrite));
     let client_id = lock(&ports.0).client.as_ref().unwrap().client_id();
-    RevokeTokenHandler::new(FakeUnitOfWork(ports.clone()), ports.clone(), ports.clone())
-        .execute(
-            &context(Principal::System),
-            RevokeTokenRequest {
+    RevokeTokenHandler::new(
+        FakeUnitOfWork(ports.clone()),
+        revocation_stores(&ports.clone()),
+        credentials(MetadataDocumentClientPolicy::Disabled),
+    )
+    .execute(
+        &context(Principal::System),
+        RevokeTokenRequest {
+            token: RevocableToken::AccessToken(token.access_token),
+            client: OAuthTokenClientAuthentication::ClientSecretPost {
                 client_id,
                 client_secret: secret,
-                token: token.access_token,
             },
-        )
-        .await
-        .unwrap();
+        },
+    )
+    .await
+    .unwrap();
     assert!(matches!(
         authenticator
             .execute(&context(Principal::Anonymous), request)

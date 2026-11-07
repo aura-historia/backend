@@ -59,8 +59,8 @@ failures fail closed; opaque Aura tokens keep their existing persisted checks.
 Preserve request headers, cookies, query strings and exact signed bodies through the
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
-and Axum response CORS must retain required authorization/provider headers and
-`Idempotency-Key` admission/exposure. REST Gateway CORS allows any Origin (`*`)
+and Axum response CORS must retain required authorization/provider headers,
+`Idempotency-Key` admission/exposure and `WWW-Authenticate` exposure. REST Gateway CORS allows any Origin (`*`)
 in both stages, including preview hosts, for browser requests that do not use
 `credentials: "include"`. Clients supply bearer tokens explicitly in the
 `Authorization` header. CORS does not grant application authority; all existing
@@ -85,16 +85,22 @@ explicit origin allowlist.
   rules; `NoUserAgent_HEADER` and `SizeRestrictions_BODY` are count-only. There is no
   additional WAF rate rule. Gateway stage throttles shape requests, not database or
   Lambda concurrency/capacity.
-- Contract-valid loopback HTTPS redirect URIs can match the common rule set's EC2 metadata
+- Contract-valid loopback redirect URIs can match the common rule set's EC2 metadata
   SSRF body/query rules (`localhost`, such as the Shopify CLI `--use-localhost` callback
-  `https://localhost:3458/oauth/callback`) and, as IPv4 literals, its RFI body/query rules.
+  `https://localhost:3458/oauth/callback`, or a native agent's `http://localhost:…/callback`)
+  and, as IPv4 literals, its RFI body/query rules; so can URL-valued OAuth `client_id`s.
   Those four rules are counted in the group; a label rule after it blocks their matches
-  everywhere except the exact OAuth client registration/update, authorize and token paths.
-  The API never fetches URIs submitted there. Their cookie/URI-path variants and every
-  other managed rule still apply on those paths. Never widen this scope to a route that
-  fetches a user-supplied URL; outbound fetchers additionally enforce the shared
-  public-network policy. CloudWatch label metrics and sampled requests show which counted
-  rule matched. The Web ACL has five rules, the Free plan quota; consolidate before adding one.
+  everywhere except the exact OAuth client registration/update, authorize, token and
+  metadata-document consent (`GET /v1/oauth/metadata-document-clients`) paths. The API never fetches a
+  redirect URI submitted there. It fetches only a URL-valued `client_id`'s metadata
+  document, through the dedicated outbound policy in the [OAuth contract](oauth.md#metadata-document-clients):
+  HTTPS on port 443 to hosts resolving exclusively to public addresses, without redirects.
+  That application control replaces the WAF URL-target rules on these paths. Their
+  cookie/URI-path variants and every other managed rule still apply. Never widen this scope
+  to another route that fetches a user-supplied URL; every outbound fetcher enforces the
+  shared public-network policy. CloudWatch label metrics and sampled requests show which
+  counted rule matched. The Web ACL has five rules, the Free plan quota; consolidate before
+  adding one.
 - Edge and application body limits must agree. The managed 8 KiB body-size rule is
   below contract-valid JSON bodies, so a custom WAF rule instead blocks a declared
   `Content-Length` above the Axum whole-request limit with the API's JSON `413`
@@ -121,6 +127,8 @@ remain uncached. Application cache approval and edge policy must agree.
 | Product-listing ID/by-slug detail | 120 s |
 | Product-listing history and ready similar results | 300 s |
 | Public catalogue overview | 900 s |
+| [API catalog](agent-discovery.md#api-catalog), including `HEAD` | 300 s |
+| [Website discovery documents](agent-discovery.md#website-documents), including `HEAD` | 300 s |
 
 Approved responses use `public, max-age=0, s-maxage=<TTL>, stale-if-error=0`. Listing
 responses containing advertised shipping cap this TTL at referenced geographic provider
@@ -131,8 +139,9 @@ The custom policy has zero minimum/default TTL, keys on `Authorization`, `Origin
 forwarded but not keyed: never add cookie-dependent data to a shared representation.
 OPTIONS is not cached; no stale-while-revalidate or positive stale-on-error window exists.
 
-Only reviewed discovery path behaviors, including the exact `/v1/overview` path, use
-this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
+Only reviewed discovery path behaviors, including the exact `/v1/overview` and
+`/.well-known/api-catalog` paths and `/v1/site-discovery/*`, whose routes are all exact anonymous
+documents, use this policy; generic `/v1/*` and default behaviors use `CachingDisabled`. Wildcard
 expansion requires route/cache review and tests. Do not add token-derived keys, cookie
 partitions or an edge auth function.
 Cache-enabled behaviors strip `X-Request-Id` and `X-Correlation-Id` on both hits and
@@ -144,13 +153,19 @@ them. Configured CloudFront error TTLs are zero; application errors are also no-
 The exact public `GET /.well-known/oauth-authorization-server` route belongs to the closed
 REST route catalog and requires neither bearer nor client credentials. It uses the
 CloudFront default cache-disabled behavior and origin `no-store` headers. OAuth credential
-responses and protocol errors use `no-store` and `Pragma: no-cache`. The shared deployment `OAUTH_ISSUER_URL` configures both API and MCP
+responses and protocol errors use `no-store` and `Pragma: no-cache`. The exact public
+`GET /.well-known/oauth-protected-resource` route is handled the same way; the
+[agent discovery contract](agent-discovery.md#rest-protected-resource-metadata) owns it and
+the Bearer challenges that point to it. The shared deployment `OAUTH_ISSUER_URL` configures both API and MCP
 and selects the same closed resource policy. Discovery, protocol errors and fixed-client
 setup are owned by the [OAuth contract](oauth.md).
 
 Metadata requires no URI-bearing request input and receives no WAF exemption. OAuth
-`resource` and callback URIs continue through the existing exact authorization/token path
-exceptions; unrelated paths retain the counted URL-target blocks.
+`resource`, callback URIs and URL-valued client IDs continue through the exact
+authorization, token and metadata-document consent path exceptions; unrelated paths retain
+the counted URL-target blocks. Revocation and the account disconnect
+(`DELETE /v1/me/access-tokens?clientId=…`) carry only a client ID, which names a domain and
+never an IP literal or callback, so they need no exception and keep those blocks.
 
 ## MCP front door
 
@@ -160,9 +175,12 @@ Its canonical endpoint is `https://mcp.aura-historia.com/v1`; AWS **`dev`** serv
 independent. [`mcp.ts`](../infra/src/constructs/mcp.ts) declares exact paths only:
 `/v1` forwards methods to the native transport, including `GET`/`HEAD`/`DELETE`
 rejections (`405`, `Allow: POST`); `/health` and `/ready` admit `GET`/`HEAD` (`204`).
-The two exact `GET`/`HEAD` paths `/.well-known/oauth-protected-resource` and
-`/.well-known/oauth-protected-resource/v1` serve the
-[protected-resource metadata](mcp.md#operation-families-and-admission). No proxy,
+Four further exact `GET`/`HEAD` paths serve discovery documents:
+`/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/v1` the
+[protected-resource metadata](mcp.md#operation-families-and-admission),
+`/.well-known/openai-apps-challenge` the
+[OpenAI domain verification token](mcp.md#directory-metadata), and
+`/.well-known/mcp/server-card.json` the [server card](agent-discovery.md#mcp-server-card). No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront
@@ -170,12 +188,18 @@ forwards all viewer headers, query strings and cookies using AllViewer, includin
 `Host`, `Authorization`, `Origin`, `Accept`, `Content-Type`, `MCP-Protocol-Version`,
 `Mcp-Method`, `Mcp-Name`, `Mcp-Session-Id` and `X-Correlation-Id`. Preserve response
 status, `WWW-Authenticate`, `Allow`, content type and request/correlation IDs.
-Every MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
+Every other MCP behavior uses CachingDisabled, zero error TTL and a `Cache-Control:
 no-store` response policy, including Gateway-generated errors and preflight. No
-headers or status codes are rewritten to hide authentication/protocol errors.
+headers or status codes are rewritten to hide authentication/protocol errors. The
+server card's exact-path behavior is the only cached one: it honors the card's
+five-minute origin TTL, keys on the path alone and neither keys nor forwards credentials,
+so discovery traffic stays off the bounded MCP Lambda. Its response policy adds `no-store`
+only where Gateway generated the response without one.
 
 Gateway owns browser preflight; its exact origin list is also passed to the native
-Origin validator. Prod permits `https://aura-historia.com`; dev permits
+Origin validator. The public server card is the exception: its behavior's CloudFront CORS
+policy replaces Gateway's CORS headers with `Access-Control-Allow-Origin: *`, and the native
+route skips the Origin check. Prod permits `https://aura-historia.com`; dev permits
 `https://stage.aura-historia.com` and `http://localhost:3000`. There are no wildcard
 or opaque `null` origins, cookies/credential-mode CORS is not enabled, and normal
 server clients may omit Origin. A browser uses bearer Authorization explicitly;
@@ -248,6 +272,11 @@ these checks before approving traffic:
 | `GET`, `HEAD`, `DELETE /v1` | `405` and `Allow: POST`, no SSE or session establishment |
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
+| `GET`/`HEAD /.well-known/openai-apps-challenge` | `200` `text/plain` with exactly the configured token, or `404` while none is configured; no-store |
+| `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` title and release version, and the supported protocol versions |
+| API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
+| API `GET`/`HEAD` on each [website document](agent-discovery.md#website-documents) below `/v1/site-discovery/`, with a foreign Origin | `200` with the document's media type, `Access-Control-Allow-Origin: *` and stage URLs only; a repeat is an edge hit; the index digests match the served skills; an unlisted skill name is `404` no-store |
+| API `GET /.well-known/oauth-protected-resource`, then `GET /v1/me/account` without a bearer | `200` metadata for `https://api.stage.aura-historia.com`, no-store; the `401` carries `WWW-Authenticate: Bearer resource_metadata="…"` naming that metadata |
 | An unrelated `/v1/me` path | `404`, no REST response |
 | Allowed-origin POST and OPTIONS preflight requesting Authorization and all MCP headers | Exact allow-origin and required header admission/exposure; no wildcard |
 | Unapproved or `null` Origin, unsupported version, or mismatched `Mcp-Method`/body | Rejected before dispatch; denied preflight grants no allow-origin |

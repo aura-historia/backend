@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, stageConfig } from "../src/config";
-import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG } from "../src/constructs/mcp";
+import { openAiAppsChallengeEnvironment } from "../src/constructs/lambda-environment";
+import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG, MCP_SERVER_CARD_PATH } from "../src/constructs/mcp";
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
 import { credentialSecrets } from "../src/credentials";
@@ -36,6 +37,8 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "ANY /v1", "GET /health", "HEAD /health", "GET /ready", "HEAD /ready",
       "GET /.well-known/oauth-protected-resource", "HEAD /.well-known/oauth-protected-resource",
       "GET /.well-known/oauth-protected-resource/v1", "HEAD /.well-known/oauth-protected-resource/v1",
+      "GET /.well-known/openai-apps-challenge", "HEAD /.well-known/openai-apps-challenge",
+      "GET /.well-known/mcp/server-card.json", "HEAD /.well-known/mcp/server-card.json",
     ].sort());
     expect(MCP_ROUTE_CATALOG.map((route) => `${route.method} ${route.path}`).sort())
       .toEqual(routes.map((route) => route.Properties.RouteKey).sort());
@@ -115,8 +118,10 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(mcp.findResources("AWS::Route53::RecordSet")).toEqual({});
   });
 
-  test("disables every shared cache and adds no-store to preflight and Gateway errors without stripping challenges or trace IDs", () => {
-    const [[policyId, responseHeaders]] = Object.entries(mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy"));
+  test("disables shared caching on every protocol behavior and adds no-store to preflight and Gateway errors without stripping challenges or trace IDs", () => {
+    const policies = mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+    const [[policyId, responseHeaders]] = Object.entries(policies)
+      .filter(([, policy]) => policy.Properties.ResponseHeadersPolicyConfig.Name === `mcp-${stage}-no-store`);
     const [distribution] = Object.values(mcp.findResources("AWS::CloudFront::Distribution"));
     const front = distribution.Properties.DistributionConfig;
     expect(front.DefaultCacheBehavior).toMatchObject({
@@ -124,15 +129,62 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       CachedMethods: ["GET", "HEAD"], CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
       ResponseHeadersPolicyId: { Ref: policyId }, TargetOriginId: "McpHttpApiOrigin",
     });
-    expect(front.CacheBehaviors).toBeUndefined();
+    expect(front.CacheBehaviors.map((behavior: { PathPattern: string }) => behavior.PathPattern))
+      .toEqual(["/.well-known/mcp/server-card.json"]);
+    expect(Object.keys(policies)).toHaveLength(2);
     expect(responseHeaders.Properties.ResponseHeadersPolicyConfig).toEqual({
       Name: `mcp-${stage}-no-store`,
       CustomHeadersConfig: { Items: [{ Header: "Cache-Control", Value: "no-store", Override: true }] },
     });
     expect(front.CustomErrorResponses).toEqual([400, 403, 404, 405, 414, 416, 500, 501, 502, 503, 504]
       .map((ErrorCode) => ({ ErrorCode, ErrorCachingMinTTL: 0 })));
-    expect(mcp.findResources("AWS::CloudFront::CachePolicy")).toEqual({});
     expect(JSON.stringify(front)).not.toContain("aura-historia-api");
+  });
+
+  test("routes the server card at the path the MCP transport serves and the discovery documents link", () => {
+    const declaration = (file: string, name: string) => readFileSync(resolve(__dirname, "../..", file), "utf8")
+      .match(new RegExp(`const ${name}: &str = "([^"]+)";`))?.[1];
+    expect(declaration("src/aura-historia-mcp/src/server_card.rs", "SERVER_CARD_PATH")).toBe(MCP_SERVER_CARD_PATH);
+    expect(declaration("src/agent-discovery/src/environment.rs", "MCP_SERVER_CARD_PATH"))
+      .toBe(MCP_SERVER_CARD_PATH);
+  });
+
+  test("lets any origin read the server card and caches only it, briefly and without credentials in the key", () => {
+    const [distribution] = Object.values(mcp.findResources("AWS::CloudFront::Distribution"));
+    const [[cachePolicyId, cachePolicy]] = Object.entries(mcp.findResources("AWS::CloudFront::CachePolicy"));
+    const [[cardHeadersId, cardHeaders]] = Object.entries(mcp.findResources("AWS::CloudFront::ResponseHeadersPolicy"))
+      .filter(([, policy]) => policy.Properties.ResponseHeadersPolicyConfig.Name === `mcp-${stage}-server-card`);
+    const [card] = distribution.Properties.DistributionConfig.CacheBehaviors;
+    expect(card).toEqual({
+      PathPattern: "/.well-known/mcp/server-card.json",
+      AllowedMethods: ["GET", "HEAD", "OPTIONS"], CachedMethods: ["GET", "HEAD"],
+      CachePolicyId: { Ref: cachePolicyId }, Compress: true,
+      OriginRequestPolicyId: "216adef6-5c7f-47e4-b989-5492eafa07d3",
+      ResponseHeadersPolicyId: { Ref: cardHeadersId }, TargetOriginId: "McpHttpApiOrigin",
+      ViewerProtocolPolicy: "redirect-to-https",
+    });
+    expect(cachePolicy.Properties.CachePolicyConfig).toEqual({
+      Name: `mcp-${stage}-server-card`, Comment: `${stage} MCP server card`,
+      MinTTL: 0, DefaultTTL: 0, MaxTTL: 300,
+      ParametersInCacheKeyAndForwardedToOrigin: {
+        CookiesConfig: { CookieBehavior: "none" },
+        EnableAcceptEncodingBrotli: true, EnableAcceptEncodingGzip: true,
+        HeadersConfig: { HeaderBehavior: "none" },
+        QueryStringsConfig: { QueryStringBehavior: "none" },
+      },
+    });
+    expect(cardHeaders.Properties.ResponseHeadersPolicyConfig).toEqual({
+      Name: `mcp-${stage}-server-card`,
+      // The origin's own Cache-Control wins; only Gateway-generated errors lack one.
+      CustomHeadersConfig: { Items: [{ Header: "Cache-Control", Value: "no-store", Override: false }] },
+      CorsConfig: {
+        AccessControlAllowCredentials: false,
+        AccessControlAllowHeaders: { Items: ["*"] },
+        AccessControlAllowMethods: { Items: ["GET", "HEAD", "OPTIONS"] },
+        AccessControlAllowOrigins: { Items: ["*"] },
+        OriginOverride: true,
+      },
+    });
   });
 
   test("allocates a bounded Lambda with listing providers and no ingestion publication", () => {
@@ -164,6 +216,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     });
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
+      ...(config.mcp.openAiAppsChallenge === undefined ? [] : ["MCP_OPENAI_APPS_CHALLENGE"]),
       "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
@@ -171,6 +224,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "POSTGRES_USERNAME", "POSTGRES_PASSWORD",
     ].sort());
     expect(environment.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
+    expect(environment.MCP_OPENAI_APPS_CHALLENGE).toEqual(config.mcp.openAiAppsChallenge);
     const budget = fn.Properties.ReservedConcurrentExecutions * Number(environment.POSTGRES_MAX_CONNECTIONS);
     expect(budget).toBe(stage === "prod" ? 5 : 2);
     const rest = Object.values(compute.findResources("AWS::Lambda::Function"))
@@ -281,4 +335,14 @@ test("recognizes precisely declared lengths above the transport's request budget
   expect(oversized.test("000262144")).toBe(false);
   expect(oversized.test("000262145")).toBe(true);
   expect(oversized.test("999999999999999999999999999999")).toBe(true);
+});
+
+test("passes only a token the MCP server accepts for OpenAI domain verification", () => {
+  const mcp = stageConfig("prod").mcp;
+  expect(openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: undefined })).toEqual({});
+  expect(openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: "token-1_A=" }))
+    .toEqual({ MCP_OPENAI_APPS_CHALLENGE: "token-1_A=" });
+  for (const token of ["", "token\n", " token", "two words", "tökén", "x".repeat(513)]) {
+    expect(() => openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: token })).toThrow(/openAiAppsChallenge/);
+  }
 });

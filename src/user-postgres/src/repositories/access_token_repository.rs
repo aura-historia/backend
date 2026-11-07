@@ -8,7 +8,7 @@ use user_core::access_token::{AccessToken, AccessTokenId};
 use user_core::user_id::UserId;
 use user_service::ports::{
     AccessTokenRepository, AccessTokenRepositoryError, AccessTokenRepositoryFactory,
-    AccessTokenStorageVersion, VersionedAccessToken,
+    AccessTokenStorageVersion, OAuthTokenHolder, VersionedAccessToken,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -81,10 +81,10 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         &mut self,
         access_token: &AccessToken,
     ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
-        let (origin, oauth_client_id) = access_token_origin_values(access_token);
+        let origin = access_token_origin_values(access_token);
         let access_token_id = access_token.id().into_uuid();
         let sql = format!(
-            "INSERT INTO access_tokens (access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING {ACCESS_TOKEN_COLUMNS}"
+            "INSERT INTO access_tokens (access_token_id, user_id, token_short, token_hash, name, scopes, origin, oauth_client_id, oauth_metadata_document_client_id, oauth_connection_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
         let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(access_token_id)
@@ -93,8 +93,10 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
             .bind(access_token.hashed_token().long_token_hash())
             .bind(access_token.name().as_ref())
             .bind(scope_values(access_token.scopes()))
-            .bind(origin)
-            .bind(oauth_client_id)
+            .bind(origin.origin)
+            .bind(origin.oauth_client_id)
+            .bind(origin.oauth_metadata_document_client_id)
+            .bind(origin.oauth_connection_id)
             .bind(access_token.expires())
             .fetch_one(&mut *self.connection)
             .await
@@ -108,19 +110,21 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
         access_token: &AccessToken,
         expected_version: AccessTokenStorageVersion,
     ) -> Result<VersionedAccessToken, AccessTokenRepositoryError> {
-        let (origin, oauth_client_id) = access_token_origin_values(access_token);
+        let origin = access_token_origin_values(access_token);
         let access_token_id = access_token.id().into_uuid();
         let expected_version = version_to_i64(expected_version)?;
         let sql = format!(
-            "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, expires_at = $7, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND access_token_id = $2 AND version = $8 RETURNING {ACCESS_TOKEN_COLUMNS}"
+            "UPDATE access_tokens SET name = $3, scopes = $4, origin = $5, oauth_client_id = $6, oauth_metadata_document_client_id = $7, oauth_connection_id = $8, expires_at = $9, version = version + 1, updated = aura_advance_updated(updated) WHERE user_id = $1 AND access_token_id = $2 AND version = $10 RETURNING {ACCESS_TOKEN_COLUMNS}"
         );
         let row = sqlx::query_as::<_, AccessTokenRow>(AssertSqlSafe(sql))
             .bind(access_token.user_id().into_uuid())
             .bind(access_token_id)
             .bind(access_token.name().as_ref())
             .bind(scope_values(access_token.scopes()))
-            .bind(origin)
-            .bind(oauth_client_id)
+            .bind(origin.origin)
+            .bind(origin.oauth_client_id)
+            .bind(origin.oauth_metadata_document_client_id)
+            .bind(origin.oauth_connection_id)
             .bind(access_token.expires())
             .bind(expected_version)
             .fetch_optional(&mut *self.connection)
@@ -154,6 +158,43 @@ impl AccessTokenRepository for SqlxAccessTokenRepository<'_> {
     ) -> Result<u64, AccessTokenRepositoryError> {
         let result = sqlx::query("DELETE FROM access_tokens WHERE user_id = $1")
             .bind(user_id.into_uuid())
+            .execute(&mut *self.connection)
+            .await
+            .map_err(write_error)?;
+        // A metadata document client's refresh tokens, or an approval no client has exchanged
+        // yet, would otherwise mint new access tokens.
+        for statement in [
+            "DELETE FROM oauth_connections WHERE user_id = $1",
+            "DELETE FROM oauth_authorization_codes WHERE user_id = $1",
+        ] {
+            sqlx::query(statement)
+                .bind(user_id.into_uuid())
+                .execute(&mut *self.connection)
+                .await
+                .map_err(write_error)?;
+        }
+
+        Ok(result.rows_affected())
+    }
+
+    async fn delete_by_oauth_holder(
+        &mut self,
+        user_id: UserId,
+        holder: OAuthTokenHolder,
+    ) -> Result<u64, AccessTokenRepositoryError> {
+        let query = match holder {
+            OAuthTokenHolder::RegisteredClient(client_id) => sqlx::query(
+                "DELETE FROM access_tokens WHERE user_id = $1 AND origin = 'OAUTH' AND oauth_client_id = $2",
+            )
+            .bind(user_id.into_uuid())
+            .bind(client_id.into_uuid()),
+            OAuthTokenHolder::Connection(connection_id) => sqlx::query(
+                "DELETE FROM access_tokens WHERE user_id = $1 AND oauth_connection_id = $2",
+            )
+            .bind(user_id.into_uuid())
+            .bind(connection_id.into_uuid()),
+        };
+        let result = query
             .execute(&mut *self.connection)
             .await
             .map_err(write_error)?;

@@ -8,10 +8,16 @@ import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 import { createMcpWebAcl } from "./mcp-web-acl";
 
+/** The public, credential-free Server Card; the only MCP path that may be cached. */
+export const MCP_SERVER_CARD_PATH = "/.well-known/mcp/server-card.json";
+
 /** Exact paths only. ANY /v1 lets the transport return its deliberate 405/Allow response. */
 export const MCP_ROUTE_CATALOG = [
   { method: apigwv2.HttpMethod.ANY, path: "/v1" },
-  ...["/health", "/ready", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1"]
+  ...[
+    "/health", "/ready", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1",
+    "/.well-known/openai-apps-challenge", MCP_SERVER_CARD_PATH,
+  ]
     .flatMap((path) => [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.HEAD].map((method) => ({ method, path }))),
 ] as const;
 
@@ -121,6 +127,7 @@ function createDistribution(scope: Construct, config: StageConfig, domain: apigw
       httpVersion: "http2",
       ipv6Enabled: true,
       priceClass: "PriceClass_100",
+      cacheBehaviors: [serverCardBehavior(scope, config, originId)],
       defaultCacheBehavior: {
         allowedMethods: ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"],
         cachedMethods: ["GET", "HEAD"],
@@ -147,4 +154,51 @@ function createDistribution(scope: Construct, config: StageConfig, domain: apigw
       webAclId: createMcpWebAcl(scope, config.stage),
     },
   });
+}
+
+/**
+ * The card is identical for every viewer and ignores credentials, so the edge honors its
+ * short origin TTL and shields the bounded MCP Lambda from discovery traffic. Gateway CORS
+ * keeps the exact protocol origins; this behavior alone lets any origin read the card.
+ * The origin always sets Cache-Control; the non-overriding no-store covers Gateway errors.
+ */
+function serverCardBehavior(scope: Construct, config: StageConfig, originId: string): cloudfront.CfnDistribution.CacheBehaviorProperty {
+  const cachePolicy = new cloudfront.CfnCachePolicy(scope, "ServerCardCachePolicy", {
+    cachePolicyConfig: {
+      name: `mcp-${config.stage}-server-card`,
+      comment: `${config.stage} MCP server card`,
+      minTtl: 0, defaultTtl: 0, maxTtl: 300,
+      parametersInCacheKeyAndForwardedToOrigin: {
+        cookiesConfig: { cookieBehavior: "none" },
+        enableAcceptEncodingBrotli: true,
+        enableAcceptEncodingGzip: true,
+        headersConfig: { headerBehavior: "none" },
+        queryStringsConfig: { queryStringBehavior: "none" },
+      },
+    },
+  });
+  const responseHeaders = new cloudfront.CfnResponseHeadersPolicy(scope, "ServerCardResponseHeaders", {
+    responseHeadersPolicyConfig: {
+      name: `mcp-${config.stage}-server-card`,
+      customHeadersConfig: { items: [{ header: "Cache-Control", value: "no-store", override: false }] },
+      corsConfig: {
+        accessControlAllowCredentials: false,
+        accessControlAllowHeaders: { items: ["*"] },
+        accessControlAllowMethods: { items: ["GET", "HEAD", "OPTIONS"] },
+        accessControlAllowOrigins: { items: ["*"] },
+        originOverride: true,
+      },
+    },
+  });
+  return {
+    pathPattern: MCP_SERVER_CARD_PATH,
+    allowedMethods: ["GET", "HEAD", "OPTIONS"],
+    cachedMethods: ["GET", "HEAD"],
+    cachePolicyId: cachePolicy.ref,
+    compress: true,
+    originRequestPolicyId: cloudfront.OriginRequestPolicy.ALL_VIEWER.originRequestPolicyId,
+    responseHeadersPolicyId: responseHeaders.ref,
+    targetOriginId: originId,
+    viewerProtocolPolicy: "redirect-to-https",
+  };
 }

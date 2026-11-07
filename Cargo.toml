@@ -8,6 +8,7 @@ test-api = { workspace = true }
 
 [workspace]
 members = [
+    "src/agent-discovery",
     "src/application",
     "src/aura-historia-api",
     "src/aura-historia-auth",
@@ -117,11 +118,13 @@ members = [
     "src/oauth-core",
     "src/oauth-service",
     "src/oauth-postgres",
+    "src/oauth-client-metadata-http",
     "src/fxrate-lambda",
     "src/crawler",
 ]
 
 [workspace.dependencies]
+agent-discovery = { path = "src/agent-discovery" }
 aura-historia-auth = { path = "src/aura-historia-auth" }
 aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-mcp = { path = "src/aura-historia-mcp" }
@@ -173,6 +176,7 @@ embedding = { path = "src/embedding" }
 classifier-model = { path = "src/classifier-model" }
 image-fetcher = { path = "src/image-fetcher" }
 public-network-policy = { path = "src/public-network-policy" }
+oauth-client-metadata-http = { path = "src/oauth-client-metadata-http" }
 geo = { path = "src/geo" }
 geo-service = { path = "src/geo-service" }
 geo-postgres = { path = "src/geo-postgres" }

@@ -153,6 +153,7 @@ fn registry(calls: &Arc<AtomicUsize>, observed: &Arc<Mutex<Vec<OperationContext>
             let observed = observed.clone();
             OperationDefinition::new(
                 name,
+                name,
                 "Authentication fixture",
                 policy(access, scopes),
                 move |_: Arguments, context| {
@@ -645,7 +646,7 @@ async fn should_publish_identical_credential_free_metadata_for_both_paths_in_eac
             assert_eq!(StatusCode::OK, response.status());
             assert_eq!("no-store", response.headers()["cache-control"]);
             assert_eq!(
-                json!({"resource":policy.mcp_resource(),"authorization_servers":[policy.issuer()],"scopes_supported":["users:read"],"bearer_methods_supported":["header"]}),
+                json!({"resource":policy.mcp_resource(),"authorization_servers":[policy.issuer()],"scopes_supported":["users:read","users:write","search-filters:read","search-filters:write","watchlist:read","watchlist:write","notifications:read","notifications:write"],"bearer_methods_supported":["header"]}),
                 json_body(response).await
             );
             for (header, value) in [

@@ -85,6 +85,15 @@ const apiRoutes = (
  */
 export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-authorization-server", ["GET"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/oauth-protected-resource", ["GET"]),
+  // RFC 9727 requires HEAD; Gateway routes do not imply it from GET.
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/.well-known/api-catalog", ["GET", "HEAD"]),
+  // Website discovery documents, which the webapp publishes on its own origin; HEAD is explicit.
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/ai-catalog.json", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/poppy.json", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/index.json", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/auth.md", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 
@@ -143,7 +152,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/addresses/{address_id}", ["GET", "PUT", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/browsing-destination", ["GET", "PUT"]),
-  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens", ["GET", "POST", "PATCH"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens", ["GET", "POST", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/access-tokens/{access_token_id}", ["GET", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist/{product_listing_id}", ["PATCH", "DELETE"]),
@@ -174,6 +183,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/users/{user_id}/access-tokens/{access_token_id}", ["DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/admin/oauth-clients/{client_id}", ["GET", "PATCH", "DELETE"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/metadata-document-clients", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/oauth/clients/{client_id}", ["GET"]),
 
   ...apiRoutes(RouteAuthPolicy.OAuth, "/v1/oauth/authorize", ["GET"]),
@@ -225,7 +235,7 @@ export class BackendHttpApi extends Construct {
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
         allowOrigins: props.config.apiCorsAllowOrigins,
-        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id"],
+        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate"],
       },
     });
 
@@ -388,6 +398,8 @@ export class BackendHttpApi extends Construct {
       "/v1/product-listings",
       "/v1/product-listings/*",
       "/v1/overview",
+      "/.well-known/api-catalog",
+      "/v1/site-discovery/*",
     ];
 
     return new cloudfront.CfnDistribution(this, "ApiDistribution", {
@@ -484,12 +496,14 @@ export const API_OVERSIZED_CONTENT_LENGTH_PATTERN =
   "^0*(?:[1-9][0-9]{7,}|[2-9][0-9]{6}|1[1-9][0-9]{5}|10[5-9][0-9]{4}|1049[0-9]{3}|1048[6-9][0-9]{2}|10485[89][0-9]|104857[7-9])$";
 
 /**
- * Exact paths whose body or query carries OAuth redirect URIs: client registration/update,
- * authorize and token exchange. The API never fetches URIs submitted to these routes.
+ * Exact paths whose body or query carries OAuth redirect URIs or URL-valued client IDs: client
+ * registration/update, consent metadata for metadata document clients, authorize and token
+ * exchange. The API fetches only a submitted `client_id` metadata document, through its own
+ * outbound policy (HTTPS on port 443 to public addresses), never a submitted redirect URI.
  * The URI path is matched raw, so encoded, dot-segment or trailing-slash variants stay out of scope.
  */
 export const API_OAUTH_REDIRECT_URI_PATH_PATTERN =
-  "^/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token))$";
+  "^/v1/(?:admin/oauth-clients(?:/oc_[0-9a-z]{26})?|oauth/(?:authorize|token|metadata-document-clients))$";
 
 /**
  * Common-rule-set rules for URLs that target internal hosts in the body or query. Contract-valid

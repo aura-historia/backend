@@ -41,7 +41,8 @@ pub fn operations(services: PublicAuctions) -> Result<Vec<OperationDefinition>, 
 fn list(service: Arc<dyn ListAuctionsUseCase>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "listAuctions",
-        "List public auctions with source, format, reported status, exact schedule range, created or scheduled sorting and continuation filters.",
+        "List auctions",
+        "List auctions of the auction houses and platforms that Aura Historia indexes, filtered by provider, format, reported status and schedule period and sorted by creation or schedule time. Use it to find upcoming, running or past auctions. A schedule period needs timeRole, from and to together, and sorting by schedule time needs timeRole. Pass the returned searchAfter object as a JSON string to get the next page.",
         policy(),
         move |query: DirectoryQuery, invocation| {
             let service = Arc::clone(&service);
@@ -62,7 +63,8 @@ fn list(service: Arc<dyn ListAuctionsUseCase>) -> Result<OperationDefinition, Re
 fn get(service: Arc<dyn GetPublicAuctionUseCase>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getAuction",
-        "Get complete public auction details, source metadata, schedule, counts and catalogue links.",
+        "Get auction",
+        "Get one auction by its auctionId: name, provider, format, schedule, reported status, reported and visible lot counts, and the link to its catalogue at the provider.",
         policy(),
         move |input: AuctionArguments, invocation| {
             let service = Arc::clone(&service);
@@ -83,7 +85,8 @@ fn catalogue(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getAuctionCatalogue",
-        "Get public auction lots with language, currency, shipping presentation and stable catalogue continuation. Optional Aura userState requires each section's read scope: watchlist:read, search-filters:read, notifications:read or users:read. Write scopes do not imply reads.",
+        "Get auction catalogue",
+        "List the lots of one auction by its auctionId in catalogue order, as listings in the requested language and currency with shipping details. Pass the returned searchAfter object as a JSON string to get the next page. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
         move |input: CatalogueArguments, invocation| {
             let service = Arc::clone(&service);

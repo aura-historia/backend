@@ -1,5 +1,4 @@
 use crate::user_id::UserId;
-use credential_core::oauth_client_id::OAuthClientId;
 use domain_primitives::{object_id_newtype, string_newtype};
 use prefixed_api_key::{
     PrefixedApiKey, PrefixedApiKeyController,
@@ -12,6 +11,11 @@ use time::OffsetDateTime;
 object_id_newtype!(AccessTokenId, "at");
 string_newtype!(AccessTokenName, max_length(128));
 
+pub use credential_core::metadata_document_client_id::{
+    InvalidMetadataDocumentClientId, MetadataDocumentClientId,
+};
+pub use credential_core::oauth_client_id::OAuthClientId;
+pub use credential_core::oauth_connection_id::OAuthConnectionId;
 pub use credential_core::scope::Scope;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +55,24 @@ pub struct RehydratedAccessTokenState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccessTokenOrigin {
     User,
-    OAuth { client_id: OAuthClientId },
+    /// Issued to an administrator-registered confidential OAuth client.
+    OAuth {
+        client_id: OAuthClientId,
+    },
+    /// Issued to a public OAuth client identified by its metadata document URL, within the
+    /// user's connection to that client. Ending the connection revokes the token.
+    OAuthMetadataDocument {
+        client_id: MetadataDocumentClientId,
+        connection_id: OAuthConnectionId,
+    },
+}
+
+impl AccessTokenOrigin {
+    /// Whether the token's holder can keep a secret. A public client's token must keep expiring
+    /// and must not gain authority after issuance.
+    pub fn permits_authority_expansion(&self) -> bool {
+        !matches!(self, Self::OAuthMetadataDocument { .. })
+    }
 }
 
 impl AccessToken {

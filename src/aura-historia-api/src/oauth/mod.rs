@@ -14,6 +14,7 @@ pub mod create_client;
 pub mod delete_client;
 pub mod get_client;
 pub mod get_consent_client;
+pub mod get_metadata_document_consent_client;
 pub mod introspect;
 pub mod list_clients;
 pub mod revoke;
@@ -24,6 +25,7 @@ pub mod update_client;
 use crate::error::{ApiError, BAD_BODY_VALUE, BAD_QUERY_PARAMETER_VALUE};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
+use oauth_core::refresh_token::OFFLINE_ACCESS_SCOPE;
 use std::collections::HashSet;
 use user_core::access_token::Scope;
 
@@ -64,15 +66,27 @@ pub(crate) fn parse_scopes(
         .collect()
 }
 
-pub(crate) fn parse_scope_string(
-    value: Option<&str>,
-    field: &'static str,
-) -> Result<HashSet<Scope>, Response> {
-    value
-        .unwrap_or("")
+/// The scopes of an OAuth request, and whether it also asked for `offline_access`.
+pub(crate) struct RequestedScope {
+    pub scopes: HashSet<Scope>,
+    pub offline_access: bool,
+}
+
+/// Parses an OAuth `scope` parameter, accepting `offline_access` beside Aura scopes.
+pub(crate) fn parse_requested_scope(value: Option<&str>) -> Result<RequestedScope, Response> {
+    let value = value.unwrap_or("");
+    let offline_access = value
         .split_whitespace()
-        .map(|scope| parse_scope_with_field(scope, field, true))
-        .collect()
+        .any(|scope| scope == OFFLINE_ACCESS_SCOPE);
+    let scopes = value
+        .split_whitespace()
+        .filter(|scope| *scope != OFFLINE_ACCESS_SCOPE)
+        .map(|scope| parse_scope_with_field(scope, "scope", true))
+        .collect::<Result<_, _>>()?;
+    Ok(RequestedScope {
+        scopes,
+        offline_access,
+    })
 }
 
 fn parse_scope(value: &str) -> Result<Scope, Response> {
@@ -187,7 +201,9 @@ mod tests {
         );
         assert_eq!(
             expected,
-            parse_scope_string(Some("auctions:read"), "scope").unwrap_or_else(|_| unreachable!())
+            parse_requested_scope(Some("auctions:read"))
+                .map(|requested| requested.scopes)
+                .unwrap_or_else(|_| unreachable!())
         );
         assert_eq!("auctions:read", scope_string(&expected));
         assert_eq!(vec!["auctions:read".to_owned()], scope_strings(expected));
@@ -203,7 +219,8 @@ mod tests {
         );
         assert_eq!(
             expected,
-            parse_scope_string(Some("product-listings:read"), "scope")
+            parse_requested_scope(Some("product-listings:read"))
+                .map(|requested| requested.scopes)
                 .unwrap_or_else(|_| unreachable!())
         );
         assert_eq!("product-listings:read", scope_string(&expected));
@@ -222,7 +239,12 @@ mod tests {
             "auctions:delete",
         ] {
             assert!(parse_scopes([value.to_owned()]).is_err(), "{value}");
-            assert!(parse_scope_string(Some(value), "scope").is_err(), "{value}");
+            assert!(
+                parse_requested_scope(Some(value))
+                    .map(|requested| requested.scopes)
+                    .is_err(),
+                "{value}"
+            );
         }
     }
 
@@ -236,7 +258,8 @@ mod tests {
         );
         assert_eq!(
             expected,
-            parse_scope_string(Some("listing-sources:write"), "scope")
+            parse_requested_scope(Some("listing-sources:write"))
+                .map(|requested| requested.scopes)
                 .unwrap_or_else(|_| unreachable!())
         );
         assert_eq!("listing-sources:write", scope_string(&expected));
@@ -270,9 +293,27 @@ mod tests {
             );
             assert_eq!(
                 expected,
-                parse_scope_string(Some(value), "scope").unwrap_or_else(|_| panic!("{value}"))
+                parse_requested_scope(Some(value))
+                    .map(|requested| requested.scopes)
+                    .unwrap_or_else(|_| panic!("{value}"))
             );
             assert_eq!(value, scope_string(&expected));
         }
+    }
+
+    #[test]
+    fn should_separate_offline_access_from_aura_scopes() {
+        let requested = parse_requested_scope(Some("users:read offline_access watchlist:read"))
+            .unwrap_or_else(|_| unreachable!());
+        assert!(requested.offline_access);
+        assert_eq!(
+            HashSet::from([Scope::UsersRead, Scope::WatchlistRead]),
+            requested.scopes
+        );
+
+        let requested =
+            parse_requested_scope(Some("users:read")).unwrap_or_else(|_| unreachable!());
+        assert!(!requested.offline_access);
+        assert!(parse_requested_scope(Some("offline_access openid")).is_err());
     }
 }

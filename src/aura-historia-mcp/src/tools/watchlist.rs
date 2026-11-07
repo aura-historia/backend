@@ -73,7 +73,8 @@ fn list_operation(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getWatchlistProductListings",
-        "List your watchlist with complete personalized listing details and notification settings. Supports language, currency and pagination. JSON-encode the returned searchAfter array for the next request.",
+        "List watchlist",
+        "List the listings on the signed-in user's watchlist with their full details and notification settings, in the requested language and currency. Pass the returned searchAfter array as a JSON string to get the next page.",
         policy(CredentialCapability::WatchlistRead, true, false, true),
         move |input: ListInput, context| {
             let service = service.clone();
@@ -98,7 +99,8 @@ fn add_operation(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "addWatchlistProduct",
-        "Add a listing to your watchlist. Notifications default to enabled when omitted or null. Existing entries conflict and tier quotas apply. A timeout can leave the mutation outcome unknown; inspect your watchlist before retrying.",
+        "Add to watchlist",
+        "Add a listing to the signed-in user's watchlist by productListingId so they can follow it and, with notifications on (the default), hear about changes. A listing already on the watchlist returns CONFLICT; subscription tier limits apply.",
         policy(CredentialCapability::WatchlistWrite, false, false, true),
         move |input: AddInput, context| {
             let service = service.clone();
@@ -122,7 +124,8 @@ fn remove_operation(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteWatchlistProduct",
-        "Remove a listing from your watchlist. A missing entry returns NOT_FOUND, including after an earlier successful removal. A timeout can leave the mutation outcome unknown; inspect your watchlist before retrying.",
+        "Remove from watchlist",
+        "Remove a listing from the signed-in user's watchlist by productListingId. Returns an empty object; a listing that is not on the watchlist returns NOT_FOUND, also after an earlier call removed it.",
         policy(CredentialCapability::WatchlistWrite, false, true, true),
         move |input: RemoveInput, context| {
             let service = service.clone();
@@ -149,7 +152,8 @@ fn update_operation(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "patchWatchlistProduct",
-        "Update your watchlist notification setting or ACTIVE/INACTIVE_BY_USER state and return the complete personalized listing in the selected language and currency. Omitted fields stay unchanged; null notification/state fields are invalid. Tier quotas apply when activating an entry. A timeout can leave the mutation outcome unknown; inspect your watchlist before retrying.",
+        "Update watchlist entry",
+        "Turn notifications for a watched listing on or off, or pause (INACTIVE_BY_USER) or resume (ACTIVE) the entry. Omitted fields stay unchanged and null is invalid; resuming is subject to subscription tier limits. Returns the listing with its full details in the requested language and currency.",
         policy(CredentialCapability::WatchlistWrite, false, true, true),
         move |input: UpdateInput, context| {
             let service = service.clone();

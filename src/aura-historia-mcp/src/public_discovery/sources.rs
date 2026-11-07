@@ -16,7 +16,8 @@ pub(super) fn operations(
     let detail_budget = budget.clone();
     let search = OperationDefinition::new(
         "searchPublicListingSources",
-        "Browse or search public listing sources by name, with query-bound cursor pagination and page sizes from 1 through 50.",
+        "Search listing sources",
+        "Search the providers whose listings Aura Historia indexes (dealers, auction houses, marketplaces and auction platforms) by name. Without a query it browses all providers; a query too short to match returns no results. Returns 1 to 50 providers per page (default 21); pass the returned searchAfter unchanged, with the same query and size, to get the next page.",
         read_policy(),
         move |input: SearchPublicListingSourcesData, invocation| {
             let search = services.search.clone();
@@ -47,7 +48,8 @@ pub(super) fn operations(
     )?;
     let detail = OperationDefinition::new(
         "getPublicListingSourceBySlug",
-        "Read the public listing-source card by its canonical slug.",
+        "Get listing source",
+        "Get the public profile of one provider (a dealer, auction house, marketplace or auction platform) by its listingSourceSlugId, the last segment of an Aura Historia provider page URL (/shops/{slug}): name, operator, website and image.",
         read_policy(),
         move |input: GetPublicListingSourceBySlugData, invocation| {
             let get = services.get_by_slug.clone();

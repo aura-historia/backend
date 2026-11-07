@@ -7,7 +7,7 @@ use application::operation_context::OperationContext;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::oauth_client_id::OAuthClientId;
 use domain_primitives::change_outcome::ChangeOutcome;
-use oauth_core::client::{OAuthClient, OAuthClientName, OAuthRedirectUris};
+use oauth_core::client::{OAuthClient, OAuthClientName, OAuthClientUri, OAuthRedirectUris};
 use std::collections::HashSet;
 use url::Url;
 use user_core::access_token::Scope;
@@ -84,6 +84,12 @@ where
             .map(OAuthRedirectUris::try_from)
             .transpose()
             .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
+        let client_uri = command
+            .client_uri
+            .clone()
+            .map(OAuthClientUri::try_from)
+            .transpose()
+            .map_err(|error| OAuthServiceError::InvalidClientMetadata(error.to_string()))?;
 
         let mut tx = self.unit_of_work.begin().await?;
         let loaded = self
@@ -94,7 +100,8 @@ where
             .ok_or(OAuthServiceError::ClientNotFound)?;
         let loaded_version = loaded.version;
         let mut client = loaded.value;
-        let outcome = apply_client_metadata_changes(&mut client, command, redirect_uris);
+        let outcome =
+            apply_client_metadata_changes(&mut client, command, redirect_uris, client_uri);
         let changed = outcome.changed();
         let persisted = if changed {
             self.clients
@@ -127,6 +134,7 @@ fn apply_client_metadata_changes(
     client: &mut OAuthClient,
     command: UpdateOAuthClientCommand,
     redirect_uris: Option<OAuthRedirectUris>,
+    client_uri: Option<OAuthClientUri>,
 ) -> ChangeOutcome {
     let mut outcome = ChangeOutcome::Unchanged;
     if let Some(name) = command.name {
@@ -141,8 +149,8 @@ fn apply_client_metadata_changes(
     if let Some(policy_uri) = command.policy_uri {
         outcome = outcome.combine(client.change_policy_uri(policy_uri));
     }
-    if let Some(client_uri) = command.client_uri {
-        outcome = outcome.combine(client.change_client_uri(client_uri));
+    if let Some(client_uri) = client_uri {
+        outcome = outcome.combine(client.change_client_uri(client_uri.into_url()));
     }
     if let Some(logo_uri) = command.logo_uri {
         outcome = outcome.combine(client.change_logo_uri(logo_uri));

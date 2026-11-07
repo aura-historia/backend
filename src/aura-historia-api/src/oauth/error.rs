@@ -20,6 +20,9 @@ pub(crate) enum OAuthError {
     InvalidGrant,
     #[error("unsupported_grant_type")]
     UnsupportedGrantType,
+    /// The client may not use the requested grant type.
+    #[error("unauthorized_client")]
+    UnauthorizedClient,
     #[error("unsupported_response_type")]
     UnsupportedResponseType,
     #[error("invalid_scope")]
@@ -57,18 +60,24 @@ impl Serialize for OAuthError {
 impl From<OAuthServiceError> for OAuthError {
     fn from(error: OAuthServiceError) -> Self {
         match error {
-            OAuthServiceError::ClientNotFound | OAuthServiceError::InvalidClientSecret => {
-                Self::InvalidClient
-            }
+            OAuthServiceError::ClientNotFound
+            | OAuthServiceError::InvalidClientSecret
+            | OAuthServiceError::InvalidMetadataDocumentClient { .. } => Self::InvalidClient,
             OAuthServiceError::AuthorizationCodeNotFound
             | OAuthServiceError::AuthorizationCodeExpired
             | OAuthServiceError::AuthorizationCodeClientMismatch
             | OAuthServiceError::AuthorizationCodeRedirectUriMismatch
             | OAuthServiceError::InvalidCodeVerifier
+            | OAuthServiceError::ConnectionNotFound
+            | OAuthServiceError::RefreshTokenInvalid
+            | OAuthServiceError::RefreshTokenExpired
+            | OAuthServiceError::RefreshTokenReplaced
+            | OAuthServiceError::RefreshTokenReused
             | OAuthServiceError::ThirdPartyExchangeCodeNotFound
             | OAuthServiceError::ThirdPartyExchangeCodeExpired => Self::InvalidGrant,
             OAuthServiceError::InvalidResource
-            | OAuthServiceError::AuthorizationCodeResourceMismatch => Self::InvalidTarget,
+            | OAuthServiceError::AuthorizationCodeResourceMismatch
+            | OAuthServiceError::RefreshTokenResourceMismatch => Self::InvalidTarget,
             OAuthServiceError::InvalidScope => Self::InvalidScope,
             OAuthServiceError::InvalidRedirectUri | OAuthServiceError::InvalidClientMetadata(_) => {
                 Self::InvalidRequest
@@ -76,7 +85,8 @@ impl From<OAuthServiceError> for OAuthError {
             OAuthServiceError::AuthenticatedActorRequired
             | OAuthServiceError::Forbidden
             | OAuthServiceError::DelegatedAuthorizationForbidden
-            | OAuthServiceError::DelegatedClientRegistrationForbidden => Self::AccessDenied,
+            | OAuthServiceError::DelegatedClientRegistrationForbidden
+            | OAuthServiceError::DelegatedDisconnectForbidden => Self::AccessDenied,
             error @ OAuthServiceError::TemporarilyUnavailable { .. } => {
                 Self::TemporarilyUnavailable {
                     source: box_error(error),
@@ -91,16 +101,27 @@ impl From<OAuthServiceError> for OAuthError {
     }
 }
 
-impl IntoResponse for OAuthError {
-    fn into_response(self) -> Response {
-        let status = match self {
+impl OAuthError {
+    fn status(&self) -> StatusCode {
+        match self {
             Self::InvalidClient => StatusCode::UNAUTHORIZED,
             Self::AccessDenied => StatusCode::FORBIDDEN,
             Self::ServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::TemporarilyUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             _ => StatusCode::BAD_REQUEST,
-        };
+        }
+    }
+
+    /// The protocol error with an endpoint-specific status.
+    pub(crate) fn into_response_with_status(self, status: StatusCode) -> Response {
         no_store((status, Json(serde_json::json!({ "error": self }))).into_response())
+    }
+}
+
+impl IntoResponse for OAuthError {
+    fn into_response(self) -> Response {
+        let status = self.status();
+        self.into_response_with_status(status)
     }
 }
 
@@ -140,7 +161,28 @@ mod tests {
                 "invalid_grant",
             ),
             (OAuthServiceError::InvalidCodeVerifier, 400, "invalid_grant"),
+            (OAuthServiceError::ConnectionNotFound, 400, "invalid_grant"),
+            (OAuthServiceError::RefreshTokenInvalid, 400, "invalid_grant"),
+            (OAuthServiceError::RefreshTokenExpired, 400, "invalid_grant"),
+            (
+                OAuthServiceError::RefreshTokenReplaced,
+                400,
+                "invalid_grant",
+            ),
+            (OAuthServiceError::RefreshTokenReused, 400, "invalid_grant"),
+            (
+                OAuthServiceError::RefreshTokenResourceMismatch,
+                400,
+                "invalid_target",
+            ),
             (OAuthServiceError::InvalidScope, 400, "invalid_scope"),
+            (
+                OAuthServiceError::InvalidMetadataDocumentClient {
+                    source: box_error(std::io::Error::other(SECRET_MARKER)),
+                },
+                401,
+                "invalid_client",
+            ),
         ] {
             let (actual_status, body) =
                 secret_free_problem(OAuthError::from(error), SECRET_MARKER).await;

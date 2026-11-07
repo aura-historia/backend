@@ -7,7 +7,6 @@ use credential_core::oauth_client_id::OAuthClientId;
 use oauth_core::authorization_code::{OAuthCodeChallenge, OAuthCodeVerifier};
 use oauth_core::client::OAuthClient;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use user_core::access_token::RawOAuthClientSecret;
 use user_service::use_cases::queries::check_user_admin::{
     CheckUserAdminError, CheckUserAdminRequest, CheckUserAdminUseCase,
@@ -30,6 +29,21 @@ pub(crate) fn authorize_oauth_client_read(
         .require()
         .credential_capability(CredentialCapability::AccessTokensRead)
         .authorize::<OAuthServiceError>()
+}
+
+/// Consent metadata serves the human approving a request with first-party authority.
+pub(crate) fn authorize_consent_read(context: &OperationContext) -> Result<(), OAuthServiceError> {
+    match &context.principal {
+        Principal::User(_) => {}
+        Principal::Anonymous => return Err(OAuthServiceError::AuthenticatedActorRequired),
+        Principal::DelegatedUser { .. } | Principal::Service(_) | Principal::System => {
+            return Err(OAuthServiceError::Forbidden);
+        }
+    }
+    if let Some(actor_id) = context.principal.actor_id() {
+        tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
+    }
+    Ok(())
 }
 
 pub(crate) async fn authorize_oauth_client_admin<A>(
@@ -105,11 +119,10 @@ pub(crate) async fn authenticate_client_reader<R: OAuthClientAuthenticationReade
     }
 }
 
-pub(crate) fn append_query_params(uri: &url::Url, params: HashMap<&str, String>) -> String {
+/// Appends `params` in order after any query the callback already carries.
+pub(crate) fn append_query_params(uri: &url::Url, params: &[(&str, &str)]) -> String {
     let mut url = uri.clone();
-    for (key, value) in params {
-        url.query_pairs_mut().append_pair(key, &value);
-    }
+    url.query_pairs_mut().extend_pairs(params);
     url.to_string()
 }
 

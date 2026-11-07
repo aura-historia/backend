@@ -39,6 +39,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-discovery"
+version = "0.1.0"
+dependencies = [
+ "oauth-core",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +299,7 @@ version = "0.1.0"
 dependencies = [
  "admin-overview-postgres",
  "admin-overview-service",
+ "agent-discovery",
  "application",
  "async-trait",
  "auction-core",
@@ -334,6 +345,7 @@ dependencies = [
  "notification-core",
  "notification-postgres",
  "notification-service",
+ "oauth-client-metadata-http",
  "oauth-core",
  "oauth-postgres",
  "oauth-service",
@@ -2243,6 +2255,8 @@ version = "0.1.0"
 dependencies = [
  "domain-primitives",
  "serde",
+ "thiserror 2.0.21",
+ "url",
  "uuid",
 ]
 
@@ -5540,6 +5554,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "oauth-client-metadata-http"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "credential-core",
+ "httpdate",
+ "oauth-core",
+ "oauth-service",
+ "public-network-policy",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -9982,6 +10015,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "url",
  "user-core",
  "user-service",
  "uuid",

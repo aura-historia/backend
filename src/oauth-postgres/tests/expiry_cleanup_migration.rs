@@ -5,6 +5,10 @@ use uuid::Uuid;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
+/// Deleted access tokens, authorization codes, third-party exchange codes, provider receipts,
+/// refresh tokens, refresh-token families and connections.
+type CleanupCounts = (i64, i64, i64, i64, i64, i64, i64);
+
 const USER_ID: Uuid = Uuid::from_u128(0x01890a5dac96774bbf1dd5586c639f75);
 const CLIENT_ID: Uuid = Uuid::from_u128(0x01890a5dac96774bbf1dd5586c639f76);
 const EXPIRED_ACCESS_TOKEN_ID: Uuid = Uuid::from_u128(0x01890a5dac96774bbf1dd5586c639f77);
@@ -103,12 +107,12 @@ async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_ba
         )
         .await?;
 
-        let deleted: (i64, i64, i64, i64) =
+        let deleted: CleanupCounts =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(1_000_i32)
                 .fetch_one(&pool)
                 .await?;
-        assert_eq!(deleted, (1, 1, 1, 0));
+        assert_eq!(deleted, (1, 1, 1, 0, 0, 0, 0));
 
         assert!(!access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_ID).await?);
         assert!(!authorization_code_exists(&pool, EXPIRED_AUTHORIZATION_CODE).await?);
@@ -118,12 +122,12 @@ async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_ba
         assert!(third_party_exchange_code_exists(&pool, FUTURE_THIRD_PARTY_EXCHANGE_CODE).await?);
         assert!(access_token_exists(&pool, NON_EXPIRING_ACCESS_TOKEN_ID).await?);
 
-        let repeated: (i64, i64, i64, i64) =
+        let repeated: CleanupCounts =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(1_000_i32)
                 .fetch_one(&pool)
                 .await?;
-        assert_eq!(repeated, (0, 0, 0, 0));
+        assert_eq!(repeated, (0, 0, 0, 0, 0, 0, 0));
 
         Ok(())
     }
@@ -139,7 +143,7 @@ async fn should_physically_remove_only_expired_oauth_credentials_in_a_bounded_ba
 async fn should_reject_null_cleanup_batch_size() {
     let result: Result<(), Box<dyn std::error::Error>> = async {
         let pool = get_postgres_client().await;
-        let null_batch_result: Result<(i64, i64, i64, i64), sqlx::Error> =
+        let null_batch_result: Result<CleanupCounts, sqlx::Error> =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(Option::<i32>::None)
                 .fetch_one(&pool)
@@ -185,12 +189,12 @@ async fn should_not_cascade_an_expired_access_token_with_more_expired_exchange_c
             .await?;
         }
 
-        let first_deleted: (i64, i64, i64, i64) =
+        let first_deleted: CleanupCounts =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(1_i32)
                 .fetch_one(&pool)
                 .await?;
-        assert_eq!(first_deleted, (0, 0, 1, 0));
+        assert_eq!(first_deleted, (0, 0, 1, 0, 0, 0, 0));
         assert!(access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID).await?);
         assert_eq!(
             third_party_exchange_code_count_for_access_token(
@@ -201,20 +205,20 @@ async fn should_not_cascade_an_expired_access_token_with_more_expired_exchange_c
             2
         );
 
-        let second_deleted: (i64, i64, i64, i64) =
+        let second_deleted: CleanupCounts =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(1_i32)
                 .fetch_one(&pool)
                 .await?;
-        assert_eq!(second_deleted, (0, 0, 1, 0));
+        assert_eq!(second_deleted, (0, 0, 1, 0, 0, 0, 0));
         assert!(access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID).await?);
 
-        let third_deleted: (i64, i64, i64, i64) =
+        let third_deleted: CleanupCounts =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(1_i32)
                 .fetch_one(&pool)
                 .await?;
-        assert_eq!(third_deleted, (1, 0, 1, 0));
+        assert_eq!(third_deleted, (1, 0, 1, 0, 0, 0, 0));
         assert!(!access_token_exists(&pool, EXPIRED_ACCESS_TOKEN_WITH_MANY_CODES_ID).await?);
         assert_eq!(
             third_party_exchange_code_count_for_access_token(
@@ -257,22 +261,22 @@ async fn should_share_expired_rows_between_concurrent_cleanup_transactions() {
         .await?;
 
         let mut first = pool.begin().await?;
-        let first_deleted: (i64, i64, i64, i64) = sqlx::query_as(
+        let first_deleted: CleanupCounts = sqlx::query_as(
             "SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)",
         )
         .bind(1_i32)
         .fetch_one(&mut *first)
         .await?;
-        assert_eq!(first_deleted, (0, 1, 0, 0));
+        assert_eq!(first_deleted, (0, 1, 0, 0, 0, 0, 0));
 
         let mut second = pool.begin().await?;
-        let second_deleted: (i64, i64, i64, i64) = sqlx::query_as(
+        let second_deleted: CleanupCounts = sqlx::query_as(
             "SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)",
         )
         .bind(1_i32)
         .fetch_one(&mut *second)
         .await?;
-        assert_eq!(second_deleted, (0, 1, 0, 0));
+        assert_eq!(second_deleted, (0, 1, 0, 0, 0, 0, 0));
 
         first.commit().await?;
         second.commit().await?;
@@ -303,12 +307,12 @@ async fn should_restore_expired_rows_when_cleanup_transaction_rolls_back() {
         seed_authorization_code(&pool, authorization_code, "rollback-code", expired_at).await?;
 
         let mut transaction = pool.begin().await?;
-        let deleted: (i64, i64, i64, i64) =
+        let deleted: CleanupCounts =
             sqlx::query_as("SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)")
                 .bind(1_i32)
                 .fetch_one(&mut *transaction)
                 .await?;
-        assert_eq!(deleted, (0, 1, 0, 0));
+        assert_eq!(deleted, (0, 1, 0, 0, 0, 0, 0));
 
         transaction.rollback().await?;
         assert!(authorization_code_exists(&pool, authorization_code).await?);
@@ -321,6 +325,153 @@ async fn should_restore_expired_rows_when_cleanup_transaction_rolls_back() {
         result.is_ok(),
         "OAuth expiry cleanup rollback integration test failed: {result:?}"
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], exclusive = true)]
+async fn should_remove_expired_refresh_token_families_in_bounded_steps_then_empty_connections() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let now = OffsetDateTime::now_utc();
+        seed_user_and_client(&pool).await?;
+        let expired_connection = seed_connection(&pool, "expired", now).await?;
+        let live_connection = seed_connection(&pool, "live", now).await?;
+        let pending_connection = seed_connection(&pool, "pending", now).await?;
+        let empty_connection = seed_connection(&pool, "empty", now).await?;
+        seed_family(
+            &pool,
+            expired_connection,
+            "expired",
+            3,
+            now - Duration::hours(1),
+        )
+        .await?;
+        seed_family(&pool, live_connection, "live", 2, now + Duration::days(1)).await?;
+        // An approved code not yet exchanged keeps its connection.
+        sqlx::query(
+            "INSERT INTO oauth_authorization_codes ( \
+                 authorization_code, metadata_document_client_id, user_id, redirect_uri, \
+                 code_challenge, code_challenge_method, expires_at \
+             ) VALUES ('01890a5d-ac96-774b-bf1d-d5586c639f90', \
+                 'https://pending.example/client.json', $1, 'http://127.0.0.1/callback', \
+                 'pending-challenge', 'S256', $2)",
+        )
+        .bind(USER_ID)
+        .bind(now + Duration::minutes(5))
+        .execute(&pool)
+        .await?;
+
+        let cleanup = |pool: PgPool| async move {
+            sqlx::query_as::<_, CleanupCounts>(
+                "SELECT * FROM cleanup_expired_credentials_and_provider_receipts($1)",
+            )
+            .bind(2_i32)
+            .fetch_one(&pool)
+            .await
+        };
+        // Two of the expired family's three tokens, and the connection without credentials.
+        assert_eq!((0, 0, 0, 0, 2, 0, 1), cleanup(pool.clone()).await?);
+        assert!(connection_exists(&pool, expired_connection).await?);
+        assert!(!connection_exists(&pool, empty_connection).await?);
+        let remaining_expired: Vec<Option<OffsetDateTime>> = sqlx::query_scalar(
+            "SELECT tokens.replaced_at FROM oauth_refresh_tokens AS tokens \
+             JOIN oauth_refresh_token_families AS families USING (family_id) \
+             WHERE families.connection_id = $1",
+        )
+        .bind(expired_connection)
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            vec![None],
+            remaining_expired,
+            "replaced tokens are removed before the current one"
+        );
+        // The last token, then its family, then the connection it emptied.
+        assert_eq!((0, 0, 0, 0, 1, 1, 1), cleanup(pool.clone()).await?);
+        assert!(!connection_exists(&pool, expired_connection).await?);
+        assert_eq!((0, 0, 0, 0, 0, 0, 0), cleanup(pool.clone()).await?);
+        assert!(connection_exists(&pool, live_connection).await?);
+        assert!(connection_exists(&pool, pending_connection).await?);
+        let live_tokens: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oauth_refresh_tokens")
+            .fetch_one(&pool)
+            .await?;
+        assert_eq!(2, live_tokens);
+        Ok(())
+    }
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "OAuth connection cleanup integration test failed: {result:?}"
+    );
+}
+
+async fn seed_connection(
+    pool: &PgPool,
+    host: &str,
+    now: OffsetDateTime,
+) -> Result<Uuid, sqlx::Error> {
+    let connection_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO oauth_connections \
+             (connection_id, user_id, client_id, client_name, scopes, created, last_used) \
+         VALUES ($1, $2, $3, $4, ARRAY['users:read'], $5, $5)",
+    )
+    .bind(connection_id)
+    .bind(USER_ID)
+    .bind(format!("https://{host}.example/client.json"))
+    .bind(host)
+    .bind(now - Duration::days(1))
+    .execute(pool)
+    .await?;
+    Ok(connection_id)
+}
+
+/// A family whose current token expires at `expires_at`, after `tokens - 1` rotations.
+async fn seed_family(
+    pool: &PgPool,
+    connection_id: Uuid,
+    name: &str,
+    tokens: usize,
+    expires_at: OffsetDateTime,
+) -> Result<(), sqlx::Error> {
+    let family_id = Uuid::now_v7();
+    let created = expires_at - Duration::days(30);
+    sqlx::query(
+        "INSERT INTO oauth_refresh_token_families \
+             (family_id, connection_id, scopes, resource, created, absolute_expires_at, \
+              expires_at) \
+         VALUES ($1, $2, ARRAY['users:read'], 'https://mcp.aura-historia.com/v1', $3, $4, $4)",
+    )
+    .bind(family_id)
+    .bind(connection_id)
+    .bind(created)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    for index in 0..tokens {
+        let issued = created + Duration::minutes(i64::try_from(index).unwrap_or_default());
+        let replaced_at = (index + 1 < tokens).then(|| issued + Duration::minutes(1));
+        sqlx::query(
+            "INSERT INTO oauth_refresh_tokens \
+                 (token_short, token_hash, family_id, issued, replaced_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(format!("{name}-{index}-short"))
+        .bind(format!("{name}-{index}-hash"))
+        .bind(family_id)
+        .bind(issued)
+        .bind(replaced_at)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn connection_exists(pool: &PgPool, connection_id: Uuid) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM oauth_connections WHERE connection_id = $1)")
+        .bind(connection_id)
+        .fetch_one(pool)
+        .await
 }
 
 async fn seed_user_and_client(pool: &PgPool) -> Result<(), sqlx::Error> {

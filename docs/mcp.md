@@ -27,7 +27,8 @@ Each POST contains one UTF-8 JSON-RPC message, uses `Content-Type:
 application/json`, and accepts both `application/json` and
 `text/event-stream` as required by Streamable HTTP. Responses are bounded
 JSON; accepted notifications receive an empty `202`. The transport advertises
-tools without streaming, subscriptions, sampling, elicitation or tasks.
+tools without streaming, subscriptions, sampling, elicitation or tasks. The
+[server card](agent-discovery.md#mcp-server-card) publishes its `serverInfo` before connection.
 HTTP GET and DELETE at `/v1` return `405` with `Allow: POST`. The old
 HTTP+SSE transport is excluded.
 
@@ -56,8 +57,8 @@ SDK upgrades must rerun the matrix before expanding the supported revisions.
 ## Operation families and admission
 
 Families register `OperationDefinition::new<I, O>` with the selected existing
-API operation ID, a description, access class, required Aura scopes, and all
-four mutation/retry/open-world annotations. The
+API operation ID, a [display title and description](#directory-metadata), access class,
+required Aura scopes, and all four mutation/retry/open-world annotations. The
 [public operation manifest](../src/aura-historia-mcp/public-operations.json) and
 [authenticated operation manifest](../src/aura-historia-mcp/authenticated-operations.json)
 record disjoint subsets of the same endpoint and registry. Together they record the selected
@@ -81,7 +82,7 @@ text for older generic clients. Neither representation drops fields. A result
 that exceeds the limit fails explicitly; collection pagination belongs in the
 shared use case and must never become transport truncation.
 
-The registry rejects duplicate IDs, lists tools lexically by operation ID,
+The registry rejects duplicate IDs and titles, lists tools lexically by operation ID,
 and returns at most 50 definitions with an explicit continuation cursor. The complete
 38-tool catalogue fits one page without `nextCursor`; generic clients still pass any returned
 `nextCursor` as `cursor` until it is absent. Its
@@ -110,11 +111,13 @@ remain the authority for scope, role, partnership and ownership checks.
 
 Both `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-protected-resource/v1` serve credential-free RFC 9728 metadata. They
-identify the exact canonical MCP resource and configured Aura issuer, advertise only header
-bearer credentials and the baseline `users:read` scope. Operation challenges provide the
-required scope set for each protected call. Host/Origin checks and `Cache-Control: no-store`
+identify the exact canonical MCP resource and configured Aura issuer, and advertise only header
+bearer credentials and the ordinary-user scopes, like the REST protected-resource metadata. A
+client that signs in without a challenge requests these, so one approval covers every personal
+tool. Operation challenges still name the required scope set of each protected call. Host/Origin checks and `Cache-Control: no-store`
 apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
-server discovery belongs to [the OAuth contract](oauth.md).
+server discovery belongs to [the OAuth contract](oauth.md); the server card and every other
+discovery document belong to [agent discovery](agent-discovery.md).
 
 Family adapters classify expected input, missing-resource, conflict, forbidden
 and temporary failures into distinct static tool-error codes. Invalid arguments
@@ -123,6 +126,43 @@ causes remain attached to internal error types and never appear in client
 messages. No mutation is automatically retried: a timeout or oversized response
 may follow a completed write, so callers must follow the operation's existing
 idempotency and recovery contract.
+
+## Directory metadata
+
+The Claude Connectors Directory and the ChatGPT plugin directory review this one registry;
+there are no per-directory variants. Check new or changed tools against the
+[Claude review criteria](https://claude.com/docs/connectors/building/review-criteria) and
+[OpenAI's app guidelines](https://developers.openai.com/apps-sdk/app-submission-guidelines).
+
+- **Titles and hints.** A tool's `name` stays its operation ID; its `title` is a short display
+  name of at most 64 characters, unique within the registry regardless of case. `annotations`
+  always carry explicit `readOnlyHint`, `destructiveHint`, `idempotentHint` and
+  `openWorldHint`. The registry refuses a missing, padded, overlong or repeated title, and the
+  [production registry test](../src/aura-historia-mcp/src/runtime.rs) checks the published
+  catalogue for titles and all four hints.
+- **Descriptions** say what the tool does, when it applies, and its limits and side effects, such
+  as continuation, background matching, conflicts or non-idempotent creation, stated as facts
+  about the tool. They give the model no behavioural instructions, promote nothing and name no
+  other tool to call.
+- **Server identity.** `initialize` and `server/discover` report the name `aura-historia-mcp`,
+  the title `Aura Historia`, a description, the environment's website as `websiteUrl` and its
+  PNG icons. `version` is the deployed release's source commit (`COMMIT_SHA`), or `unreleased`
+  outside a release. [`server_info.rs`](../src/aura-historia-mcp/src/server_info.rs) builds it
+  once per router for every discovery response and the
+  [server card](agent-discovery.md#mcp-server-card).
+- **OpenAI domain verification.** `GET`/`HEAD /.well-known/openai-apps-challenge` returns exactly
+  the configured `MCP_OPENAI_APPS_CHALLENGE` token as `text/plain`, or `404` while none is
+  configured. Host/Origin checks and `no-store` apply as for the protected-resource metadata.
+  The token is public by design; set it per stage as `mcp.openAiAppsChallenge` in the
+  [infrastructure configuration](../infra/src/config.ts) once OpenAI's portal issues it.
+  Synthesis rejects a token the server would refuse at startup.
+
+Schemas stay as generated. Models load at most each tool's name, title, description and input
+schema: the tool definitions of the Claude and OpenAI model APIs have no output schema, and
+OpenAI uses `outputSchema` to check `structuredContent`. Output schemas already share their
+types through `$defs` and `$ref`; the remaining repetition is the same types in several tools,
+which MCP cannot share because each tool's schema is self-contained. Their descriptions document
+the result for clients, so they stay. Input schemas are the complete shared request contracts.
 
 ## Watchlist tools
 
@@ -350,9 +390,11 @@ side effects.
 
 ## Generic OAuth acceptance and stage smoke
 
-Register one fixed confidential client per environment with an exact HTTPS callback and a
-scope ceiling, then follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup).
-The same MCP URL supports anonymous discovery and public calls before, during and after a
+Agent clients that support Client ID Metadata Documents, such as Claude, ChatGPT and VS Code,
+sign in without registration where the environment enables
+[metadata document clients](oauth.md#metadata-document-clients). Otherwise register one fixed
+confidential client per environment with an exact HTTPS callback and a scope ceiling, then
+follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup). The same MCP URL supports anonymous discovery and public calls before, during and after a
 connection. Protected tools remain listed; their HTTP `401`/`403` challenges identify the
 resource metadata and required scopes. To add scopes, start a new authorization with a fresh
 state and S256 verifier, obtain human approval and exchange its single-use code. A client
@@ -369,6 +411,14 @@ and the repository's test infrastructure available:
 cargo test --locked -p aura-historia-api --test api \
   mcp_oauth::should_verify_generic_oauth_and_real_hybrid_mcp -- --nocapture
 ```
+
+A second runner, `mcp_oauth::should_verify_metadata_document_clients_and_real_hybrid_mcp`,
+signs a public agent in through consent metadata, approval and a secret-free token exchange
+on a loopback callback, then calls MCP with its token. It also runs the full connection
+cycle: the access token expires, MCP rejects it, the agent refreshes, calls MCP again, and
+after the user disconnects the client MCP and refresh both fail. A context-owned loopback
+origin serves the agent's metadata documents, valid and deliberately broken; other hosts
+keep the production outbound policy.
 
 That fixture constructs the advertised browser handoff and exercises backend approval with
 test first-party identity. It does not render or test the webapp. Local fixtures, compatibility
@@ -439,18 +489,22 @@ Requests get a new request ID (the invocation ID on Lambda) and a correlation ID
 An optional `X-Correlation-Id` is accepted only as a nonempty ASCII identifier
 of at most 128 letters, digits, dashes, underscores or periods. These values
 reach the shared `OperationContext` and successful responses carry both headers.
-All HTTP responses and authentication challenges use `Cache-Control: no-store`.
+All HTTP responses and authentication challenges use `Cache-Control: no-store`, except a
+successful [server card](agent-discovery.md#mcp-server-card).
 MCP catalogue/discovery cache hints remain private with zero lifetime.
 
 | Environment variable | Meaning |
 | --- | --- |
-| `OAUTH_ISSUER_URL` | Required exact Aura issuer: `https://api.aura-historia.com` or `https://api.stage.aura-historia.com`; selects the matching shared resource policy |
+| `OAUTH_ISSUER_URL` | Required exact Aura issuer: `https://api.aura-historia.com` or `https://api.stage.aura-historia.com`; selects the matching shared resource policy and website |
+| `COMMIT_SHA` | Deployed release's full lowercase source commit, reported as `serverInfo.version`; defaults to `unreleased` |
+| `MCP_OPENAI_APPS_CHALLENGE` | Optional OpenAI domain verification token: one visible ASCII word of at most 512 bytes |
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
 
 Configure the public hostname explicitly for Lambda. Missing Origin is accepted;
-present Origin must be a valid allowed scheme/host/port tuple. No wildcard or
+present Origin must be a valid allowed scheme/host/port tuple, except on the public server
+card, which accepts any Origin. No wildcard or
 opaque `null` origin is supported. Default ports compare by their effective
 value, so `https://app.example` and `https://app.example:443` agree; another port
 does not. Invalid environment configuration prevents startup.

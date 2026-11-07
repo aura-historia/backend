@@ -1,5 +1,6 @@
 pub(crate) mod admin_overview;
 pub mod admin_product_listings;
+pub mod agent_discovery;
 pub mod auctions;
 pub mod auth;
 pub mod billing;
@@ -32,6 +33,7 @@ pub mod watchlist;
 pub mod webhooks;
 pub(crate) mod wire;
 
+use crate::agent_discovery::site_documents;
 use crate::auth::{
     ApiAuthService, AuraAccessTokenAuthenticator, AuthError, CognitoJwtAuthenticator,
     CognitoJwtConfig, JwksProvider, ReqwestJwksProvider, TokenAuthenticator,
@@ -83,16 +85,24 @@ use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
     notification_creation::NotificationCreationCoordinatorFactory,
 };
+use oauth_client_metadata_http::HttpClientMetadataDocumentSource;
+use oauth_core::metadata_document_client::{
+    DeniedMetadataDocumentHosts, MetadataDocumentClientPolicy,
+};
+use oauth_core::refresh_token::{InvalidTokenLifetimes, MetadataDocumentClientTokenLifetimes};
 use oauth_postgres::{
     SqlxAuthorizationCodeRepositoryFactory, SqlxOAuthClientAuthenticationReader,
     SqlxOAuthClientDetailsReader, SqlxOAuthClientListReader, SqlxOAuthClientRepositoryFactory,
-    SqlxThirdPartyExchangeCodeRepositoryFactory,
+    SqlxOAuthConnectionGrantReader, SqlxOAuthConnectionRepositoryFactory,
+    SqlxRefreshTokenFamilyRepositoryFactory, SqlxThirdPartyExchangeCodeRepositoryFactory,
 };
 use oauth_service::use_cases::{
-    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler, GetOAuthClientHandler,
+    AuthorizeHandler, CreateOAuthClientHandler, DeleteOAuthClientHandler,
+    DisconnectOAuthClientHandler, GetMetadataDocumentConsentClientHandler, GetOAuthClientHandler,
     GetOAuthConsentClientHandler, IntrospectTokenHandler, ListOAuthClientsHandler,
-    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByThirdPartyCodeHandler,
-    UpdateOAuthClientHandler,
+    MetadataDocumentClientCredentials, MetadataDocumentClients, RevocationStores,
+    RevokeTokenHandler, TokenByAuthorizationCodeHandler, TokenByRefreshTokenHandler,
+    TokenByThirdPartyCodeHandler, TokenExchangeStores, UpdateOAuthClientHandler,
 };
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxAdminProductListingReader;
@@ -225,6 +235,16 @@ pub const NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET_ENV: &str =
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET";
 pub const S3_BUCKET_NAME_TEMPLATES_ENV: &str = "S3_BUCKET_NAME_TEMPLATES";
 pub const OAUTH_ISSUER_URL_ENV: &str = "OAUTH_ISSUER_URL";
+pub const OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV: &str =
+    "OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED";
+pub const OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV: &str = "OAUTH_METADATA_DOCUMENT_DENIED_HOSTS";
+pub const OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV: &str =
+    "OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS";
+pub const OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV: &str = "OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS";
+pub const OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV: &str =
+    "OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS";
+const MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS: u64 = 24 * 60 * 60;
+const MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS: u64 = 365 * 24 * 60 * 60;
 pub const STAGE_ENV: &str = "STAGE";
 pub const COMMIT_SHA_ENV: &str = "COMMIT_SHA";
 pub const MAIL_TEMPLATE_PREFIX_ENV: &str = "MAIL_TEMPLATE_PREFIX";
@@ -245,6 +265,8 @@ pub struct ApiConfig {
     bind_addr: SocketAddr,
     cognito_jwt: CognitoJwtConfig,
     oauth_resource_policy: oauth_core::resource::AuraResourcePolicy,
+    oauth_metadata_document_client_policy: MetadataDocumentClientPolicy,
+    oauth_metadata_document_client_token_lifetimes: MetadataDocumentClientTokenLifetimes,
     cognito_user_pool_id: String,
     product_listings: ProductListingConfig,
     stripe_billing: StripeBillingConfig,
@@ -279,6 +301,10 @@ impl ApiConfig {
             &required_config(&mut get, OAUTH_ISSUER_URL_ENV)?,
         )
         .map_err(ApiConfigError::InvalidOAuthIssuer)?;
+        let oauth_metadata_document_client_policy =
+            oauth_metadata_document_client_policy(&mut get)?;
+        let oauth_metadata_document_client_token_lifetimes =
+            oauth_metadata_document_client_token_lifetimes(&mut get)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
         let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
@@ -350,6 +376,8 @@ impl ApiConfig {
             bind_addr,
             cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
             oauth_resource_policy,
+            oauth_metadata_document_client_policy,
+            oauth_metadata_document_client_token_lifetimes,
             cognito_user_pool_id,
             product_listings,
             stripe_billing,
@@ -368,6 +396,19 @@ impl ApiConfig {
 
     pub fn oauth_resource_policy(&self) -> oauth_core::resource::AuraResourcePolicy {
         self.oauth_resource_policy
+    }
+
+    pub fn oauth_metadata_document_client_policy(&self) -> &MetadataDocumentClientPolicy {
+        &self.oauth_metadata_document_client_policy
+    }
+
+    /// How the token endpoint admits metadata document clients and how long their
+    /// credentials live.
+    pub fn oauth_metadata_document_client_credentials(&self) -> MetadataDocumentClientCredentials {
+        MetadataDocumentClientCredentials::new(
+            self.oauth_metadata_document_client_policy.clone(),
+            self.oauth_metadata_document_client_token_lifetimes,
+        )
     }
 
     pub fn cognito_jwt(&self) -> &CognitoJwtConfig {
@@ -409,6 +450,67 @@ impl ApiConfig {
             self.public_listing_source_read_request_timeout,
         )
     }
+}
+
+/// Metadata document clients stay disabled unless explicitly enabled; the denylist is
+/// validated either way so a typo cannot silently admit a host.
+fn oauth_metadata_document_client_policy<F>(
+    get: &mut F,
+) -> Result<MetadataDocumentClientPolicy, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let denied_hosts = DeniedMetadataDocumentHosts::parse(
+        get(OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV)
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|host| !host.is_empty()),
+    )
+    .map_err(ApiConfigError::InvalidOAuthMetadataDocumentDeniedHost)?;
+    match get(OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV).as_deref() {
+        None | Some("false") => Ok(MetadataDocumentClientPolicy::Disabled),
+        Some("true") => Ok(MetadataDocumentClientPolicy::Enabled { denied_hosts }),
+        Some(value) => Err(ApiConfigError::InvalidBooleanConfig {
+            name: OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV,
+            value: value.to_owned(),
+        }),
+    }
+}
+
+/// Access-token and refresh-token lifetimes of metadata document clients, in seconds, with the
+/// documented defaults when unset.
+fn oauth_metadata_document_client_token_lifetimes<F>(
+    get: &mut F,
+) -> Result<MetadataDocumentClientTokenLifetimes, ApiConfigError>
+where
+    F: FnMut(&'static str) -> Option<String>,
+{
+    let seconds = |get: &mut F, name, default: time::Duration, max| {
+        optional_bounded_u64_config(get, name, default.whole_seconds().unsigned_abs(), 60, max)
+            .map(|seconds| time::Duration::seconds(seconds.cast_signed()))
+    };
+    MetadataDocumentClientTokenLifetimes::new(
+        seconds(
+            get,
+            OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV,
+            MetadataDocumentClientTokenLifetimes::DEFAULT_ACCESS_TOKEN,
+            MAX_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+        )?,
+        seconds(
+            get,
+            OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV,
+            MetadataDocumentClientTokenLifetimes::DEFAULT_REFRESH_TOKEN_IDLE,
+            MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+        )?,
+        seconds(
+            get,
+            OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV,
+            MetadataDocumentClientTokenLifetimes::DEFAULT_REFRESH_TOKEN_ABSOLUTE,
+            MAX_OAUTH_REFRESH_TOKEN_TTL_SECONDS,
+        )?,
+    )
+    .map_err(ApiConfigError::InvalidOAuthTokenLifetimes)
 }
 
 fn required_config<F>(get: &mut F, name: &'static str) -> Result<String, ApiConfigError>
@@ -481,6 +583,14 @@ where
 pub enum ApiConfigError {
     #[error("OAUTH_ISSUER_URL is not a configured Aura issuer")]
     InvalidOAuthIssuer(#[source] oauth_core::resource::InvalidResource),
+    #[error("{OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV} must list domain names")]
+    InvalidOAuthMetadataDocumentDeniedHost(
+        #[source] oauth_core::metadata_document_client::InvalidDeniedMetadataDocumentHost,
+    ),
+    #[error("invalid boolean configuration {name}: {value}")]
+    InvalidBooleanConfig { name: &'static str, value: String },
+    #[error("invalid OAuth token lifetimes")]
+    InvalidOAuthTokenLifetimes(#[source] InvalidTokenLifetimes),
     #[error("invalid {env_name}: {value}", env_name = API_BIND_ADDR_ENV)]
     InvalidBindAddr {
         value: String,
@@ -750,40 +860,6 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
-    if let Some(oauth) = state.oauth {
-        routes = routes.merge(
-            Router::new()
-                .route(
-                    "/.well-known/oauth-authorization-server",
-                    get(oauth::discovery::discovery),
-                )
-                .route(
-                    "/v1/admin/oauth-clients",
-                    get(oauth::list_clients::list_clients)
-                        .post(oauth::create_client::create_client),
-                )
-                .route(
-                    "/v1/admin/oauth-clients/{client_id}",
-                    get(oauth::get_client::get_client)
-                        .patch(oauth::update_client::update_client)
-                        .delete(oauth::delete_client::delete_client),
-                )
-                .route(
-                    "/v1/oauth/clients/{client_id}",
-                    get(oauth::get_consent_client::get_consent_client),
-                )
-                .route("/v1/oauth/authorize", get(oauth::authorize::authorize))
-                .route("/v1/oauth/token", post(oauth::token::token))
-                .route(
-                    "/v1/oauth/tokens/by-third-party-code/{third_party_code}",
-                    get(oauth::token_by_third_party_code::token_by_third_party_code),
-                )
-                .route("/v1/oauth/revoke", post(oauth::revoke::revoke))
-                .route("/v1/oauth/introspect", post(oauth::introspect::introspect))
-                .with_state(oauth),
-        );
-    }
-
     if let Some(addresses) = state.user_addresses {
         routes = routes.merge(
             Router::new()
@@ -965,7 +1041,8 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
                     "/v1/me/access-tokens",
                     get(users::access_tokens::list_access_tokens)
                         .post(users::access_tokens::post_access_token)
-                        .patch(users::access_tokens::patch_access_token),
+                        .patch(users::access_tokens::patch_access_token)
+                        .delete(users::access_tokens::delete_access_tokens),
                 )
                 .route(
                     "/v1/me/access-tokens/{access_token_id}",
@@ -1058,7 +1135,95 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         routes = routes.merge(partnerships::router(partnerships));
     }
 
+    // Every bearer-authenticated route above accepts Aura access tokens; only issuing a personal
+    // access token and disconnecting an OAuth client then refuse them for a Cognito session.
+    // OAuth protocol and first-party consent routes, merged below, keep their own credential
+    // semantics and get no Aura challenge.
+    if let Some(discovery) = &state.agent_discovery {
+        let challenge =
+            agent_discovery::protected_resource::BearerChallenge::new(discovery.resource_policy);
+        routes = routes.layer(axum::middleware::map_response(move |response| {
+            agent_discovery::protected_resource::add_bearer_challenge(challenge.clone(), response)
+        }));
+    }
+    if let Some(oauth) = state.oauth {
+        routes = routes.merge(oauth_routes(oauth));
+    }
+    if let Some(discovery) = state.agent_discovery {
+        routes = routes.merge(agent_discovery_routes(discovery));
+    }
+
     with_transport_middleware(routes, request_timeout)
+}
+
+fn oauth_routes(oauth: OAuthState) -> Router {
+    Router::new()
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth::discovery::discovery),
+        )
+        .route(
+            "/v1/admin/oauth-clients",
+            get(oauth::list_clients::list_clients).post(oauth::create_client::create_client),
+        )
+        .route(
+            "/v1/admin/oauth-clients/{client_id}",
+            get(oauth::get_client::get_client)
+                .patch(oauth::update_client::update_client)
+                .delete(oauth::delete_client::delete_client),
+        )
+        .route(
+            "/v1/oauth/metadata-document-clients",
+            get(oauth::get_metadata_document_consent_client::get_metadata_document_consent_client),
+        )
+        .route(
+            "/v1/oauth/clients/{client_id}",
+            get(oauth::get_consent_client::get_consent_client),
+        )
+        .route("/v1/oauth/authorize", get(oauth::authorize::authorize))
+        .route("/v1/oauth/token", post(oauth::token::token))
+        .route(
+            "/v1/oauth/tokens/by-third-party-code/{third_party_code}",
+            get(oauth::token_by_third_party_code::token_by_third_party_code),
+        )
+        .route("/v1/oauth/revoke", post(oauth::revoke::revoke))
+        .route("/v1/oauth/introspect", post(oauth::introspect::introspect))
+        .with_state(oauth)
+}
+
+fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Router {
+    Router::new()
+        // Literal paths: the infrastructure route contract reads them from this source.
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(agent_discovery::protected_resource::get_protected_resource_metadata),
+        )
+        .route(
+            "/.well-known/api-catalog",
+            get(agent_discovery::api_catalog::get_api_catalog)
+                .head(agent_discovery::api_catalog::get_api_catalog),
+        )
+        .route(
+            "/v1/site-discovery/ai-catalog.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/poppy.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/agent-skills/index.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .route(
+            "/v1/site-discovery/auth.md",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
+        .with_state(discovery)
 }
 
 pub async fn app_state_from_env() -> Result<AppState, ApiStateError> {
@@ -1653,6 +1818,12 @@ async fn app_state_from_config_and_runtime(
             SqlxUserAdminReaderFactory::new(),
             SqlxUserAccountReaderFactory::new(),
         )),
+        disconnect_oauth_client: Arc::new(DisconnectOAuthClientHandler::new(
+            unit_of_work.clone(),
+            SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            SqlxAccessTokenRepositoryFactory::new(),
+        )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
     let saved_searches = runtime.saved_searches(Arc::clone(&embeddings));
@@ -1674,8 +1845,14 @@ async fn app_state_from_config_and_runtime(
         unwatch_product: Arc::clone(&watchlist.remove),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
+    // One source per process, so authorization and consent share its document cache.
+    let metadata_document_clients = MetadataDocumentClients::new(
+        config.oauth_metadata_document_client_policy().clone(),
+        HttpClientMetadataDocumentSource::new(),
+    );
     let oauth_state = OAuthState {
         resource_policy: config.oauth_resource_policy(),
+        metadata_document_client_policy: config.oauth_metadata_document_client_policy().clone(),
         create_client: Arc::new(CreateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -1692,6 +1869,12 @@ async fn app_state_from_config_and_runtime(
         get_consent_client: Arc::new(GetOAuthConsentClientHandler::new(
             SqlxOAuthClientDetailsReader::new(pool.clone()),
         )),
+        get_metadata_document_consent_client: Arc::new(
+            GetMetadataDocumentConsentClientHandler::new(
+                metadata_document_clients.clone(),
+                SqlxOAuthConnectionGrantReader::new(pool.clone()),
+            ),
+        ),
         update_client: Arc::new(UpdateOAuthClientHandler::new(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
@@ -1706,14 +1889,29 @@ async fn app_state_from_config_and_runtime(
             unit_of_work.clone(),
             SqlxOAuthClientRepositoryFactory::new(),
             SqlxAuthorizationCodeRepositoryFactory::new(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            metadata_document_clients,
             config.oauth_resource_policy(),
         )),
         token_by_authorization_code: Arc::new(TokenByAuthorizationCodeHandler::new(
             unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAuthorizationCodeRepositoryFactory::new(),
-            SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+            TokenExchangeStores {
+                clients: SqlxOAuthClientRepositoryFactory::new(),
+                codes: SqlxAuthorizationCodeRepositoryFactory::new(),
+                exchange_codes: SqlxThirdPartyExchangeCodeRepositoryFactory::new(),
+                access_tokens: SqlxAccessTokenRepositoryFactory::new(),
+                connections: SqlxOAuthConnectionRepositoryFactory::new(),
+                refresh_token_families: SqlxRefreshTokenFamilyRepositoryFactory::new(),
+            },
+            config.oauth_metadata_document_client_credentials(),
+            config.oauth_resource_policy(),
+        )),
+        token_by_refresh_token: Arc::new(TokenByRefreshTokenHandler::new(
+            unit_of_work.clone(),
+            SqlxOAuthConnectionRepositoryFactory::new(),
+            SqlxRefreshTokenFamilyRepositoryFactory::new(),
             SqlxAccessTokenRepositoryFactory::new(),
+            config.oauth_metadata_document_client_credentials(),
             config.oauth_resource_policy(),
         )),
         token_by_third_party_code: Arc::new(TokenByThirdPartyCodeHandler::new(
@@ -1722,8 +1920,13 @@ async fn app_state_from_config_and_runtime(
         )),
         revoke: Arc::new(RevokeTokenHandler::new(
             unit_of_work.clone(),
-            SqlxOAuthClientRepositoryFactory::new(),
-            SqlxAccessTokenRepositoryFactory::new(),
+            RevocationStores {
+                clients: SqlxOAuthClientRepositoryFactory::new(),
+                access_tokens: SqlxAccessTokenRepositoryFactory::new(),
+                connections: SqlxOAuthConnectionRepositoryFactory::new(),
+                refresh_token_families: SqlxRefreshTokenFamilyRepositoryFactory::new(),
+            },
+            config.oauth_metadata_document_client_credentials(),
         )),
         introspect: Arc::new(IntrospectTokenHandler::new(
             SqlxOAuthClientAuthenticationReader::new(pool.clone()),
@@ -1824,6 +2027,9 @@ async fn app_state_from_config_and_runtime(
             Arc::new(apply_loops_preference_event),
         ))
         .with_oauth(oauth_state)
+        .with_agent_discovery(agent_discovery::AgentDiscoveryState::new(
+            config.oauth_resource_policy(),
+        ))
         .with_search_filters(search_filters_state)
         .with_notifications(notifications_state)
         .with_billing(billing_state)
@@ -2062,6 +2268,107 @@ mod tests {
             Err(ApiConfigError::MissingRequiredConfig {
                 name: OAUTH_ISSUER_URL_ENV
             })
+        ));
+    }
+
+    #[test]
+    fn should_keep_metadata_document_clients_disabled_unless_explicitly_enabled() {
+        let config = |entries: &[(&'static str, &str)]| {
+            let mut values = valid_api_config_values();
+            for (name, value) in entries {
+                values.insert(name, (*value).to_owned());
+            }
+            ApiConfig::from_getter(|name| values.get(name).cloned())
+        };
+
+        for entries in [
+            &[][..],
+            &[(OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, "false")],
+            &[(OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV, "abuse.example")],
+        ] {
+            assert_eq!(
+                &MetadataDocumentClientPolicy::Disabled,
+                config(entries)
+                    .unwrap()
+                    .oauth_metadata_document_client_policy()
+            );
+        }
+        assert_eq!(
+            &MetadataDocumentClientPolicy::Enabled {
+                denied_hosts: DeniedMetadataDocumentHosts::parse(["abuse.example", "spam.example"])
+                    .unwrap()
+            },
+            config(&[
+                (OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, "true"),
+                (
+                    OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV,
+                    " abuse.example, ,spam.example "
+                ),
+            ])
+            .unwrap()
+            .oauth_metadata_document_client_policy()
+        );
+        for value in ["TRUE", "1", "yes", ""] {
+            assert!(matches!(
+                config(&[(OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, value)]),
+                Err(ApiConfigError::InvalidBooleanConfig { .. })
+            ));
+        }
+        assert!(matches!(
+            config(&[
+                (OAUTH_METADATA_DOCUMENT_CLIENTS_ENABLED_ENV, "true"),
+                (
+                    OAUTH_METADATA_DOCUMENT_DENIED_HOSTS_ENV,
+                    "https://abuse.example"
+                ),
+            ]),
+            Err(ApiConfigError::InvalidOAuthMetadataDocumentDeniedHost(_))
+        ));
+    }
+
+    #[test]
+    fn should_configure_metadata_document_client_token_lifetimes_with_defaults() {
+        let config = |entries: &[(&'static str, &str)]| {
+            let mut values = valid_api_config_values();
+            for (name, value) in entries {
+                values.insert(name, (*value).to_owned());
+            }
+            ApiConfig::from_getter(|name| values.get(name).cloned())
+        };
+
+        assert_eq!(
+            MetadataDocumentClientTokenLifetimes::default(),
+            config(&[])
+                .unwrap()
+                .oauth_metadata_document_client_token_lifetimes
+        );
+        assert_eq!(
+            MetadataDocumentClientTokenLifetimes::new(
+                time::Duration::minutes(5),
+                time::Duration::days(1),
+                time::Duration::days(7),
+            )
+            .unwrap(),
+            config(&[
+                (OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV, "300"),
+                (OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV, "86400"),
+                (OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV, "604800"),
+            ])
+            .unwrap()
+            .oauth_metadata_document_client_token_lifetimes
+        );
+        assert!(matches!(
+            config(&[(OAUTH_METADATA_DOCUMENT_ACCESS_TOKEN_TTL_SECONDS_ENV, "59")]),
+            Err(ApiConfigError::OutOfRangeIntegerConfig { .. })
+        ));
+        assert!(matches!(
+            config(&[
+                (OAUTH_REFRESH_TOKEN_IDLE_TTL_SECONDS_ENV, "604801"),
+                (OAUTH_REFRESH_TOKEN_ABSOLUTE_TTL_SECONDS_ENV, "604800"),
+            ]),
+            Err(ApiConfigError::InvalidOAuthTokenLifetimes(
+                InvalidTokenLifetimes::IdleExceedsAbsolute
+            ))
         ));
     }
 

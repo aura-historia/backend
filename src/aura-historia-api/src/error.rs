@@ -103,6 +103,9 @@ pub(crate) struct ApiError {
     detail: Option<String>,
     #[serde(skip)]
     cause: Option<Box<dyn Error + Send + Sync>>,
+    /// The request presented a bearer credential that is malformed, invalid or expired.
+    #[serde(skip)]
+    bearer_credential_rejected: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -268,6 +271,7 @@ pub(crate) const OAUTH_AUTHORIZATION_CODE_NOT_FOUND: ApiErrorCode =
     ApiErrorCode("OAUTH_AUTHORIZATION_CODE_NOT_FOUND");
 pub(crate) const OAUTH_CLIENT_NOT_FOUND: ApiErrorCode = ApiErrorCode("OAUTH_CLIENT_NOT_FOUND");
 pub(crate) const OAUTH_INTERNAL_ERROR: ApiErrorCode = ApiErrorCode("OAUTH_INTERNAL_ERROR");
+pub(crate) const OAUTH_INVALID_CLIENT: ApiErrorCode = ApiErrorCode("OAUTH_INVALID_CLIENT");
 pub(crate) const OAUTH_INVALID_CLIENT_METADATA: ApiErrorCode =
     ApiErrorCode("OAUTH_INVALID_CLIENT_METADATA");
 pub(crate) const OAUTH_INVALID_CLIENT_SECRET: ApiErrorCode =
@@ -318,6 +322,7 @@ impl ApiError {
             source: None,
             detail: None,
             cause: None,
+            bearer_credential_rejected: false,
         }
     }
 
@@ -446,9 +451,12 @@ impl From<AuthError> for ApiError {
                 ApiError::internal_server_error(AUTH_INTERNAL_ERROR)
                     .with_detail("Authentication failed internally.")
             }
-            AuthError::MissingCredentials
-            | AuthError::InvalidAuthorizationHeader
-            | AuthError::MalformedCredentials
+            AuthError::MissingCredentials | AuthError::InvalidAuthorizationHeader => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is invalid.")
+            }
+            AuthError::MalformedCredentials
             | AuthError::InvalidCredentials
             | AuthError::MissingClaim(_)
             | AuthError::InvalidClaimType(_)
@@ -456,9 +464,12 @@ impl From<AuthError> for ApiError {
             | AuthError::AuraAccessToken(
                 AccessTokenAuthenticationError::MalformedCredentials { .. }
                 | AccessTokenAuthenticationError::InvalidCredentials,
-            ) => ApiError::unauthorized(INVALID_CREDENTIALS)
-                .with_header_field("Authorization")
-                .with_detail("Bearer token is invalid."),
+            ) => ApiError {
+                bearer_credential_rejected: true,
+                ..ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is invalid.")
+            },
         };
         response.cause = Some(application::error::box_error(error));
         response
@@ -2368,6 +2379,11 @@ impl From<UpdateAccessTokenError> for ApiError {
                     "Aura Historia access tokens cannot add scopes to an access token or extend or remove its expiry.",
                 )
             }
+            UpdateAccessTokenError::PublicClientAuthorityExpansionForbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail(
+                    "Access tokens of agent clients that sign in with a metadata document cannot gain scopes or extend or remove their expiry.",
+                )
+            }
             UpdateAccessTokenError::AccessTokenNotFound => {
                 ApiError::not_found(ACCESS_TOKEN_NOT_FOUND)
                     .with_detail("Access token was not found.")
@@ -3056,16 +3072,34 @@ impl From<OAuthServiceError> for ApiError {
                     "Aura Historia access tokens cannot register OAuth clients; use a Cognito access JWT.",
                 )
             }
+            OAuthServiceError::DelegatedDisconnectForbidden => ApiError::forbidden(FORBIDDEN)
+                .with_detail(
+                    "Aura Historia access tokens cannot disconnect OAuth clients; use a Cognito access JWT.",
+                ),
             OAuthServiceError::ClientNotFound => ApiError::not_found(OAUTH_CLIENT_NOT_FOUND),
+            OAuthServiceError::InvalidMetadataDocumentClient { source } => {
+                ApiError::bad_request(OAUTH_INVALID_CLIENT)
+                    .with_detail(
+                        "The client's metadata document is unavailable, invalid or not accepted.",
+                    )
+                    .with_cause(source)
+            }
             OAuthServiceError::ConcurrencyConflict => ApiError::conflict(CONFLICT),
             OAuthServiceError::InvalidRedirectUri => {
                 ApiError::bad_request(OAUTH_INVALID_REDIRECT_URI)
             }
             OAuthServiceError::InvalidScope => ApiError::bad_request(OAUTH_INVALID_SCOPE),
-            OAuthServiceError::InvalidResource | OAuthServiceError::AuthorizationCodeResourceMismatch => {
+            OAuthServiceError::InvalidResource
+            | OAuthServiceError::AuthorizationCodeResourceMismatch
+            | OAuthServiceError::RefreshTokenResourceMismatch => {
                 ApiError::bad_request(OAUTH_INVALID_RESOURCE)
             }
-            OAuthServiceError::AuthorizationCodeNotFound => {
+            OAuthServiceError::AuthorizationCodeNotFound
+            | OAuthServiceError::ConnectionNotFound
+            | OAuthServiceError::RefreshTokenInvalid
+            | OAuthServiceError::RefreshTokenExpired
+            | OAuthServiceError::RefreshTokenReplaced
+            | OAuthServiceError::RefreshTokenReused => {
                 ApiError::bad_request(OAUTH_AUTHORIZATION_CODE_NOT_FOUND)
             }
             OAuthServiceError::AuthorizationCodeExpired => {
@@ -3215,14 +3249,35 @@ impl From<CreateBillingManagementSessionError> for ApiError {
     }
 }
 
+/// Marks a response whose bearer credential was missing or invalid, so routes that accept
+/// Aura access tokens can add their Bearer challenge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BearerAuthenticationFailure {
+    /// No bearer credential was presented.
+    Missing,
+    /// The presented bearer credential is malformed, invalid, expired or revoked.
+    InvalidToken,
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
+        let bearer_authentication_failure = (self.status_code() == StatusCode::UNAUTHORIZED
+            && self.error == INVALID_CREDENTIALS)
+            .then_some(if self.bearer_credential_rejected {
+                BearerAuthenticationFailure::InvalidToken
+            } else {
+                BearerAuthenticationFailure::Missing
+            });
+        let mut response = (
             self.status_code(),
             [(header::CONTENT_TYPE, "application/problem+json")],
             Json(self),
         )
-            .into_response()
+            .into_response();
+        if let Some(failure) = bearer_authentication_failure {
+            response.extensions_mut().insert(failure);
+        }
+        response
     }
 }
 

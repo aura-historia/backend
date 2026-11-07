@@ -105,7 +105,8 @@ fn list(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getUserSearchFilters",
-        "List every own saved search, including complete criteria, state and notification settings.",
+        "List saved searches",
+        "List all of the signed-in user's saved searches with their criteria, state and notification settings. Takes no arguments.",
         policy(CredentialCapability::SearchFiltersRead, false, true),
         move |_: EmptyArguments, invocation| {
             let service = Arc::clone(&service);
@@ -128,7 +129,8 @@ fn create(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "createUserSearchFilter",
-        "Create an own saved search with complete criteria and optional shipping-destination acceptance. Notifications default to true. Matching is scheduled and results are eventual. Creation is not idempotent; never automatically retry an unknown outcome.",
+        "Create saved search",
+        "Save a listing search for the signed-in user. Aura Historia matches new listings against it in the background and, with notifications on (the default), notifies the user, so matches appear later. Subscription tier limits apply. Each call creates a new saved search, so repeating a call that timed out can create a duplicate.",
         policy(CredentialCapability::SearchFiltersWrite, false, false),
         move |input: CreateArguments, invocation| {
             let service = Arc::clone(&service);
@@ -151,7 +153,8 @@ fn get(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getUserSearchFilter",
-        "Get an own saved search with complete criteria, state and notification settings.",
+        "Get saved search",
+        "Get one of the signed-in user's saved searches by userSearchFilterId, with its criteria, state and notification settings.",
         policy(CredentialCapability::SearchFiltersRead, false, true),
         move |input: FilterArguments, invocation| {
             let service = Arc::clone(&service);
@@ -174,7 +177,8 @@ fn delete(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteUserSearchFilter",
-        "Delete an own saved search. Returns an empty object on success; a missing or other user's search remains not found.",
+        "Delete saved search",
+        "Permanently delete one of the signed-in user's saved searches. Returns an empty object; an unknown ID returns NOT_FOUND.",
         policy(CredentialCapability::SearchFiltersWrite, true, true),
         move |input: FilterArguments, invocation| {
             let service = Arc::clone(&service);
@@ -197,7 +201,8 @@ fn update(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateUserSearchFilter",
-        "Patch an own saved search. Nested omission preserves values; supported nulls clear values. Availability, orderability and includeUnspecifiedAvailability must be patched together. Matching remains scheduled and eventual.",
+        "Update saved search",
+        "Change the name, criteria, state or notification setting of one of the signed-in user's saved searches. Omitted fields stay unchanged and null clears fields that can be cleared; availability, orderability and includeUnspecifiedAvailability change together. Matching against new criteria runs in the background. Returns the saved search.",
         policy(CredentialCapability::SearchFiltersWrite, true, true),
         move |input: UpdateArguments, invocation| {
             let service = Arc::clone(&service);
@@ -220,7 +225,8 @@ fn matches(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "listSearchFilterMatches",
-        "List materialized matches for an own saved search in ascending match order, with language, currency and JSON searchAfter continuation. Scheduled matching and search projections are eventual; an empty page does not complete background matching.",
+        "List saved search matches",
+        "List the listings that matched one of the signed-in user's saved searches, oldest match first, in the requested language and currency. Matching runs in the background, so an empty first page means there are no matches yet. Returns up to size matches (default 21, 1 to 100); pass the returned searchAfter array unchanged to get the next page.",
         policy(CredentialCapability::SearchFiltersRead, false, true),
         move |input: MatchesArguments, invocation| {
             let service = Arc::clone(&service);
@@ -248,7 +254,8 @@ fn feedback(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateSearchFilterMatchFeedback",
-        "Patch feedback for an existing own saved-search match: true or false sets feedback, null clears it and omission preserves it. Missing or stale matches are not created.",
+        "Rate saved search match",
+        "Record whether a listing that matched one of the signed-in user's saved searches is relevant: true or false sets the feedback, null clears it and omission keeps it. Returns the match; a listing that is not a current match returns NOT_FOUND.",
         policy(CredentialCapability::SearchFiltersWrite, true, true),
         move |input: FeedbackArguments, invocation| {
             let service = Arc::clone(&service);

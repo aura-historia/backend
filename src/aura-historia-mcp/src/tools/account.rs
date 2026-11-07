@@ -110,7 +110,8 @@ pub fn operations(
 fn get_account(get: Arc<dyn GetOwnUserUseCase>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getUserAccount",
-        "Read your complete Aura account and profile preferences.",
+        "Get account",
+        "Get the signed-in user's Aura Historia account: email, name, language, currency and measurement unit, content preference, marketing consent, subscription tier and role.",
         read_policy(),
         move |_: OwnAccountArguments, invocation| {
             let get = get.clone();
@@ -130,7 +131,8 @@ fn update_account(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateUserAccount",
-        "Update your profile and preferences. Omitted members are unchanged; null clears optional values. The sensitive-content boolean cannot be null.",
+        "Update account",
+        "Update the signed-in user's name, language, currency, measurement unit or whether unassessed or sensitive content is shown. Omitted fields stay unchanged and null clears an optional field; the content preference cannot be null. Returns the updated account.",
         replacement_policy(),
         move |input: PatchOwnUserData, invocation| {
             let update = update.clone();
@@ -153,7 +155,8 @@ fn create_address(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "createUserAddress",
-        "Create a private address bookmark with full submitted geography. Every accepted call creates a new identity; after an unknown outcome, reconcile your address book before retrying.",
+        "Add address",
+        "Save a new private address with a label and its location in the signed-in user's address book; Aura Historia resolves the location for shipping estimates. Each call creates a new address, so repeating a call that timed out can create a duplicate.",
         creation_policy(),
         move |input: CreateData, invocation| {
             let create = create.clone();
@@ -174,7 +177,8 @@ fn create_address(
 fn list_addresses(list: Arc<dyn AddressBookQueries>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "listUserAddresses",
-        "List your private addresses, resolution and source attribution. Pass next as after to continue; limit defaults to 25 and accepts 1 through 100.",
+        "List addresses",
+        "List the signed-in user's saved addresses with their resolved locations. Returns up to limit addresses (default 25, 1 to 100); pass the returned next as after to get the next page.",
         read_policy(),
         move |input: PageQuery, invocation| {
             let list = list.clone();
@@ -196,7 +200,8 @@ fn list_addresses(list: Arc<dyn AddressBookQueries>) -> Result<OperationDefiniti
 fn get_address(get: Arc<dyn AddressBookQueries>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getUserAddress",
-        "Read an owned private address, complete resolution geography and source attribution.",
+        "Get address",
+        "Get one of the signed-in user's saved addresses by addressId, with its resolved location and the attribution of the geocoding provider.",
         read_policy(),
         move |input: AddressArguments, invocation| {
             let get = get.clone();
@@ -216,7 +221,8 @@ fn update_address(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "updateUserAddress",
-        "Replace the label and submitted geography of an owned address using its expectedVersion. The address identity and owner are immutable.",
+        "Update address",
+        "Replace the label and location of one of the signed-in user's saved addresses. expectedVersion must equal the address's current version; a stale version returns CONFLICT. Returns the updated address.",
         replacement_policy(),
         move |input: UpdateAddressArguments, invocation| {
             let update = update.clone();
@@ -240,7 +246,8 @@ fn delete_address(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "deleteUserAddress",
-        "Delete the selected owned address using its expectedVersion. If selected for browsing, deletion clears that destination. Returns an empty object on success.",
+        "Delete address",
+        "Permanently delete one of the signed-in user's saved addresses. expectedVersion must equal its current version. If the address is the browsing destination, that destination is cleared too. Returns an empty object.",
         replacement_policy(),
         move |input: DeleteAddressArguments, invocation| {
             let delete = delete.clone();
@@ -262,7 +269,8 @@ fn delete_address(
 fn get_destination(get: Arc<dyn AddressBookQueries>) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "getBrowsingDestination",
-        "Read your versioned browsing destination: NONE, an owned ADDRESS, or COUNTRY_POSTAL.",
+        "Get browsing destination",
+        "Get the destination Aura Historia uses to estimate shipping while the signed-in user browses: NONE, one of their saved addresses (ADDRESS) or a country with an optional postal code (COUNTRY_POSTAL), with its version.",
         read_policy(),
         move |_: OwnAccountArguments, invocation| {
             let get = get.clone();
@@ -282,7 +290,8 @@ fn set_destination(
 ) -> Result<OperationDefinition, RegistryError> {
     OperationDefinition::new(
         "setBrowsingDestination",
-        "Set or clear your browsing destination using its expectedVersion. NONE clears it; ADDRESS must belong to you; COUNTRY_POSTAL accepts a country and optional postalCode.",
+        "Set browsing destination",
+        "Set or clear the destination used to estimate shipping while the signed-in user browses: NONE clears it, ADDRESS selects one of their saved addresses and COUNTRY_POSTAL a country with an optional postal code. expectedVersion must equal the current version. Returns the new destination and version.",
         replacement_policy(),
         move |input: SetDestinationData, invocation| {
             let set = set.clone();

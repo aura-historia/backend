@@ -5,23 +5,26 @@ mod response;
 use headers::*;
 use message::{DecodedMessage, decode_message};
 pub(crate) use response::deadline_response;
-use response::{finalize_response, protocol_error};
+use response::{finalize_response, protocol_error, public_document};
 
 use crate::{
     AdmissionGate, AdmissionRequest, ConfigError, InvocationContext, Registry, TransportConfig,
     config::normalized_origin,
     metadata::InvocationDeadline,
     protocol::{ProtocolHandler, valid_tool_parameters},
+    server_card::{SERVER_CARD_MEDIA_TYPE, SERVER_CARD_PATH, server_card},
+    server_info::server_info,
 };
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     Router,
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     extract::{Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{any, get},
 };
+use oauth_core::ordinary_user_scopes::ORDINARY_USER_SCOPES;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
@@ -40,6 +43,7 @@ struct HttpState {
     gate: Arc<dyn AdmissionGate>,
     sdk: SdkService,
     admission: Arc<Semaphore>,
+    server_card: Bytes,
 }
 
 pub fn router(
@@ -62,13 +66,13 @@ pub fn router(
         .filter_map(|value| normalized_origin(value))
         .collect();
     sdk_config = sdk_config.enforce_origin_validation();
-    let operations = registry.clone();
+    let handler = ProtocolHandler {
+        registry: registry.clone(),
+        info: server_info(&config),
+    };
+    let server_card = server_card(&handler, config.resource_policy)?;
     let sdk = StreamableHttpService::new(
-        move || {
-            Ok(ProtocolHandler {
-                registry: operations.clone(),
-            })
-        },
+        move || Ok(handler.clone()),
         Arc::new(NeverSessionManager::default()),
         sdk_config,
     );
@@ -78,6 +82,7 @@ pub fn router(
         registry,
         gate,
         sdk,
+        server_card,
     };
     let response_limit = state.config.max_response_bytes;
     Ok(Router::new()
@@ -89,6 +94,11 @@ pub fn router(
         .route(
             "/.well-known/oauth-protected-resource/v1",
             get(protected_resource),
+        )
+        .route(SERVER_CARD_PATH, get(server_card_document))
+        .route(
+            "/.well-known/openai-apps-challenge",
+            get(openai_apps_challenge),
         )
         .route("/health", get(probe))
         .route("/ready", get(probe))
@@ -107,13 +117,39 @@ async fn protected_resource(State(state): State<HttpState>, headers: HeaderMap) 
         return status.into_response();
     }
     let policy = state.config.resource_policy;
+    // The ordinary-user vocabulary, as on REST: a client that signs in without a challenge
+    // requests these, so one approval covers every personal tool.
+    let scopes = ORDINARY_USER_SCOPES.map(user_core::access_token::Scope::as_str);
     axum::Json(json!({
         "resource": policy.mcp_resource(),
         "authorization_servers": [policy.issuer()],
         "bearer_methods_supported": ["header"],
-        "scopes_supported": ["users:read"],
+        "scopes_supported": scopes,
     }))
     .into_response()
+}
+
+/// Public discovery admits any Origin; the Host allowlist still applies.
+async fn server_card_document(State(state): State<HttpState>, headers: HeaderMap) -> Response {
+    if let Err(status) = validate_host(&headers, &state.config) {
+        return status.into_response();
+    }
+    public_document(SERVER_CARD_MEDIA_TYPE, state.server_card.clone())
+}
+
+/// OpenAI verifies the MCP host by fetching exactly the token issued in its portal.
+async fn openai_apps_challenge(State(state): State<HttpState>, headers: HeaderMap) -> Response {
+    if let Err(status) = validate_origin_and_host(&headers, &state.config) {
+        return status.into_response();
+    }
+    match &state.config.openai_apps_challenge {
+        Some(token) => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            token.clone(),
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn handle(State(state): State<HttpState>, request: Request) -> Response {

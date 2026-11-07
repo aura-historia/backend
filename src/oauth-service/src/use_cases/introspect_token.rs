@@ -3,6 +3,7 @@ use crate::ports::OAuthClientAuthenticationReader;
 use crate::use_cases::support::authenticate_client_reader;
 use crate::use_cases::token_by_authorization_code::OAuthTokenType;
 use credential_core::oauth_client_id::OAuthClientId;
+use oauth_core::client_identifier::OAuthClientIdentifier;
 use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::access_token::{
@@ -22,7 +23,7 @@ pub struct IntrospectTokenRequest {
 pub struct IntrospectTokenResponse {
     pub active: bool,
     pub scopes: Option<HashSet<Scope>>,
-    pub client_id: Option<OAuthClientId>,
+    pub client_id: Option<OAuthClientIdentifier>,
     pub subject: Option<UserId>,
     pub token_type: Option<OAuthTokenType>,
     pub expires: Option<OffsetDateTime>,
@@ -73,7 +74,10 @@ where
             Some(token) if token.expires.is_some_and(|expires| expires < now) => inactive(),
             Some(token) => {
                 let client_id = match token.origin {
-                    AccessTokenOrigin::OAuth { client_id } => Some(client_id),
+                    AccessTokenOrigin::OAuth { client_id } => Some(client_id.into()),
+                    AccessTokenOrigin::OAuthMetadataDocument { client_id, .. } => {
+                        Some(client_id.into())
+                    }
                     AccessTokenOrigin::User => None,
                 };
                 IntrospectTokenResponse {

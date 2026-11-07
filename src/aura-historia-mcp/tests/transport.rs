@@ -2,7 +2,8 @@ use application::operation_context::{CredentialCapability, Principal};
 use async_trait::async_trait;
 use aura_historia_mcp::{
     AccessClass, AdmissionGate, AdmissionRejection, AdmissionRequest, AnonymousGate,
-    OperationDefinition, OperationError, OperationPolicy, Registry, TransportConfig, router,
+    OperationDefinition, OperationError, OperationPolicy, Registry, RegistryError, TransportConfig,
+    UNRELEASED_SERVER_VERSION, router,
 };
 use axum::{
     Router,
@@ -54,6 +55,7 @@ fn config() -> TransportConfig {
 }
 fn operation(calls: Arc<AtomicUsize>) -> OperationDefinition {
     OperationDefinition::new(
+        "testOperation",
         "testOperation",
         "Internal test operation",
         policy(),
@@ -166,6 +168,8 @@ impl AdmissionGate for PendingGate {
 
 #[path = "transport/admission.rs"]
 mod admission;
+#[path = "transport/directory.rs"]
+mod directory;
 #[path = "transport/protocol.rs"]
 mod protocol;
 #[path = "transport/registry.rs"]

@@ -2,6 +2,7 @@ use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
 use credential_core::{oauth_client_id::OAuthClientId, scope::Scope};
 use domain_primitives::query::text_query::TextQuery;
+use oauth_core::client_identifier::OAuthClientIdentifier;
 use oauth_core::{
     OAuthClientSearch,
     authorization_code::{
@@ -140,6 +141,88 @@ async fn should_consume_authorization_code_once_and_allow_one_concurrent_consume
         result.is_ok(),
         "authorization-code repository integration test failed: {result:?}"
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_persist_a_metadata_document_client_code_with_exactly_one_client() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let user_id = seed_user(&pool).await?;
+        let client_id = OAuthClientIdentifier::MetadataDocument(
+            "https://agent.example/oauth/client.json".parse()?,
+        );
+        let registered = seed_oauth_client(&pool, "registered-client").await?;
+        let mut code = authorization_code(registered, user_id)?;
+        code = AuthorizationCode::rehydrate(RehydratedAuthorizationCodeState {
+            code: code.code(),
+            client_id: client_id.clone(),
+            user_id,
+            redirect_uri: Url::parse("http://127.0.0.1/callback")?,
+            scopes: code.scopes().clone(),
+            code_challenge: code.code_challenge().clone(),
+            code_challenge_method: CodeChallengeMethod::S256,
+            resource: code.resource(),
+            issues_refresh_token: true,
+            expires: code.expires(),
+        });
+        let code_value = code.code();
+        insert_authorization_code(pool.clone(), code.clone()).await?;
+
+        for (registered_client, metadata_document_client) in [
+            (
+                Some(registered.into_uuid()),
+                Some("https://agent.example/oauth/client.json"),
+            ),
+            (None, None),
+        ] {
+            let invalid = sqlx::query(
+                "UPDATE oauth_authorization_codes \
+                 SET client_id = $1, metadata_document_client_id = $2 \
+                 WHERE authorization_code = $3",
+            )
+            .bind(registered_client)
+            .bind(metadata_document_client)
+            .bind(code_value.to_string())
+            .execute(&pool)
+            .await
+            .expect_err("a code must name exactly one client");
+            assert_eq!(
+                Some("23514"),
+                invalid
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .as_deref()
+            );
+        }
+
+        let consumed = consume_authorization_code(pool.clone(), code_value)
+            .await?
+            .expect("persisted code");
+        assert_eq!(&client_id, consumed.client_id());
+        assert_eq!(code.redirect_uri(), consumed.redirect_uri());
+        assert!(consumed.issues_refresh_token());
+
+        let registered_code = authorization_code(registered, user_id)?;
+        insert_authorization_code(pool.clone(), registered_code.clone()).await?;
+        let refreshing_registered_code = sqlx::query(
+            "UPDATE oauth_authorization_codes SET issues_refresh_token = true \
+             WHERE authorization_code = $1",
+        )
+        .bind(registered_code.code().to_string())
+        .execute(&pool)
+        .await
+        .expect_err("registered clients never receive refresh tokens");
+        assert_eq!(
+            Some("23514"),
+            refreshing_registered_code
+                .as_database_error()
+                .and_then(|error| error.code())
+                .as_deref()
+        );
+        Ok(())
+    }
+    .await;
+    result.unwrap_or_else(|error| panic!("metadata document code contract failed: {error}"));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -511,13 +594,14 @@ fn authorization_code(
     Ok(AuthorizationCode::create(
         RehydratedAuthorizationCodeState {
             code: OAuthAuthorizationCode::from(Uuid::now_v7()),
-            client_id,
+            client_id: client_id.into(),
             user_id,
             redirect_uri: Url::parse("https://dummy.example.test/oauth/callback")?,
             scopes: credential_scopes(),
             code_challenge: OAuthCodeChallenge::from("dummy-pkce-code-challenge"),
             code_challenge_method: CodeChallengeMethod::S256,
             resource: Some(oauth_core::resource::AuraResource::ProductionMcp),
+            issues_refresh_token: false,
             expires: now + Duration::minutes(5),
         },
     ))

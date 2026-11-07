@@ -1,15 +1,15 @@
 use super::error::OAuthError;
-use super::{
-    OAuthForm, no_store, required_form_access_token, required_form_client_id,
-    required_form_client_secret,
-};
+use super::token::client_authentication;
+use super::{OAuthForm, no_store, required_form};
 use crate::state::OAuthState;
 use application::operation_context::{CorrelationId, OperationContext, Principal, RequestId};
 use axum::{
     extract::State,
     response::{IntoResponse, Response},
 };
-use oauth_service::use_cases::RevokeTokenRequest;
+use oauth_core::refresh_token::RawRefreshToken;
+use oauth_service::use_cases::{RevocableToken, RevokeTokenRequest};
+use user_core::access_token::RawAccessToken;
 
 pub(crate) async fn revoke(
     State(state): State<OAuthState>,
@@ -25,17 +25,23 @@ pub(crate) async fn revoke(
     }
 }
 
+/// A registered client authenticates with its secret; a metadata document client with its
+/// `client_id` alone. Either may name an access token; only the latter holds refresh tokens.
 fn request(
     form: &std::collections::HashMap<String, String>,
 ) -> Result<RevokeTokenRequest, OAuthError> {
-    let token = required_form_access_token(form)?;
-    let client_id = required_form_client_id(form)?;
-    let client_secret = required_form_client_secret(form)?;
+    let token = revocable_token(required_form(form, "token")?)?;
     Ok(RevokeTokenRequest {
         token,
-        client_id,
-        client_secret,
+        client: client_authentication(form)?,
     })
+}
+
+fn revocable_token(value: &str) -> Result<RevocableToken, OAuthError> {
+    RawAccessToken::try_from(value.to_owned())
+        .map(RevocableToken::AccessToken)
+        .or_else(|_| RawRefreshToken::try_from(value.to_owned()).map(RevocableToken::RefreshToken))
+        .map_err(|_| OAuthError::InvalidRequest)
 }
 
 fn system_context() -> OperationContext {
@@ -93,6 +99,37 @@ mod tests {
             assert_eq!(401, status);
             assert_eq!("invalid_client", body["error"]);
             assert_eq!(json!({"error": "invalid_client"}), body);
+        }
+    }
+
+    #[test]
+    fn should_accept_access_and_refresh_tokens_from_metadata_document_clients() {
+        use oauth_core::refresh_token::RawRefreshToken;
+        use oauth_service::use_cases::{OAuthTokenClientAuthentication, RevocableToken};
+        let refresh_token = RawRefreshToken::new();
+        let access_token = RawAccessToken::new();
+        for (token, expected) in [
+            (
+                String::from(refresh_token.clone()),
+                RevocableToken::RefreshToken(refresh_token),
+            ),
+            (
+                String::from(access_token.clone()),
+                RevocableToken::AccessToken(access_token),
+            ),
+        ] {
+            let request = request(&form(&[
+                ("token", token),
+                ("client_id", "https://agent.example/client.json".to_owned()),
+            ]))
+            .unwrap_or_else(|_| panic!("a public client revokes without a secret"));
+            assert_eq!(expected, request.token);
+            assert_eq!(
+                OAuthTokenClientAuthentication::None {
+                    client_id: "https://agent.example/client.json".parse().unwrap()
+                },
+                request.client
+            );
         }
     }
 }

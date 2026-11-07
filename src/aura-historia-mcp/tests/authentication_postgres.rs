@@ -41,6 +41,7 @@ fn app(runtime: &Runtime, calls: Arc<AtomicUsize>, user: UserId) -> Router {
     };
     let operation = OperationDefinition::new(
         "protectedFixture",
+        "protectedFixture",
         "DB authentication fixture",
         policy,
         move |_: Arguments, context| {
