@@ -466,6 +466,13 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
 /// Availability labels and cart or enquiry actions carry no currency marker, and a bare quantity
 /// such as "2 in stock" or "Only 1 left" has none either.
 fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
+    is_price_text(state).then_some(PlausibilityCheck::PriceText)
+}
+
+/// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113":
+/// the detector of the `state` check, which the review's page signals reuse to tell that a page
+/// shows a price.
+pub(crate) fn is_price_text(text: &str) -> bool {
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
     let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪]");
     let code_before =
@@ -474,12 +481,11 @@ fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
         r"(?i)\d\s*(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?)\b"
     );
     let labelled = regex!(r"(?i)\b(?:price|prijs|preis|prix|precio|prezzo)\b\W{0,3}\d");
-    (symbol_before.is_match(state)
-        || symbol_after.is_match(state)
-        || code_before.is_match(state)
-        || code_or_word_after.is_match(state)
-        || labelled.is_match(state))
-    .then_some(PlausibilityCheck::PriceText)
+    symbol_before.is_match(text)
+        || symbol_after.is_match(text)
+        || code_before.is_match(text)
+        || code_or_word_after.is_match(text)
+        || labelled.is_match(text)
 }
 
 /// Compares the primary candidate of each ordered image candidate group, so the same
