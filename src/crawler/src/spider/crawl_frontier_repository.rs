@@ -10,6 +10,9 @@ use std::collections::HashSet;
 use url::Url;
 
 use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
+use crate::spider::classification::url_metadata_repository::{
+    UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
+};
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::utils::url::CrawledUrl;
 
@@ -29,6 +32,13 @@ pub struct KnownUrls {
 #[async_trait]
 #[mockall::automock]
 pub trait CrawlFrontierRepository: Send + Sync {
+    /// Collapses the source's stored product URLs that the crawler would now spell differently
+    /// onto that spelling, so a crawl pass starts from rows the scheduler does not scrape twice.
+    async fn collapse_unnormalized_product_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<(), UrlMetadataRepositoryError>;
+
     /// The URLs the source's previous crawl left unvisited, without any whose page the crawler
     /// retired as a duplicate since, under either trailing-slash spelling.
     async fn load_frontier(
@@ -71,6 +81,15 @@ fn persisted_urls(rows: Vec<String>) -> Result<Vec<Url>, sqlx::Error> {
 
 #[async_trait]
 impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
+    async fn collapse_unnormalized_product_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        UrlMetadataRepositoryImpl::new(self.pool.clone())
+            .collapse_unnormalized_product_urls(listing_source_id)
+            .await
+    }
+
     async fn load_frontier(
         &self,
         listing_source_id: &ListingSourceId,

@@ -300,6 +300,8 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         kind: CrawlKind,
     ) -> Result<CrawlSeeds, SpiderServiceError> {
+        self.collapse_unnormalized_product_urls_best_effort(listing_source_id)
+            .await;
         let frontier = self
             .frontier_repository
             .load_frontier(listing_source_id)
@@ -320,6 +322,25 @@ impl SpiderServiceImpl {
             known: known.products,
             retired: known.retired,
         })
+    }
+
+    /// Moves or retires the source's product rows stored under a spelling the crawler no longer
+    /// produces, once per crawl pass. A failure leaves the rows as they are for the next pass.
+    async fn collapse_unnormalized_product_urls_best_effort(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) {
+        if let Err(error) = self
+            .frontier_repository
+            .collapse_unnormalized_product_urls(listing_source_id)
+            .await
+        {
+            warn!(
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Failed to collapse stored product URLs onto their current spelling"
+            );
+        }
     }
 
     /// Keeps what the crawl of `root` left unvisited for the ListingSource's next crawl. A failed
@@ -1252,6 +1273,9 @@ mod service_tests {
     fn no_frontier() -> Arc<MockCrawlFrontierRepository> {
         let mut repository = MockCrawlFrontierRepository::new();
         repository
+            .expect_collapse_unnormalized_product_urls()
+            .returning(|_| Box::pin(async { Ok(()) }));
+        repository
             .expect_load_frontier()
             .returning(|_| Box::pin(async { Ok(Vec::new()) }));
         repository
@@ -1419,6 +1443,10 @@ mod service_tests {
         replaced_with: Option<Vec<Url>>,
     ) -> Arc<MockCrawlFrontierRepository> {
         let mut repository = MockCrawlFrontierRepository::new();
+        repository
+            .expect_collapse_unnormalized_product_urls()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(()) }));
         repository
             .expect_load_frontier()
             .times(1)

@@ -4,6 +4,9 @@ use crawler::spider::classification::url_metadata::{
 use crawler::spider::classification::url_metadata_repository::{
     DiscoveredUrl, UrlMetadataRepository, UrlMetadataRepositoryError, UrlMetadataRepositoryImpl,
 };
+use crawler::spider::crawl_frontier_repository::{
+    CrawlFrontierRepository, CrawlFrontierRepositoryImpl,
+};
 use listing_source_core::ListingSourceId;
 use test_api::*;
 use url::Url;
@@ -1173,5 +1176,87 @@ async fn should_not_move_a_retired_duplicate_row_onto_its_canonical_url() {
             (retired, "DUPLICATE".to_owned()),
             (format!("{SHOP}/products/vase"), "ACTIVE".to_owned()),
         ]
+    );
+}
+
+/// Rows stored before `cur` counted as a presentation parameter keep it in their URL. A pass of
+/// the source moves such a row to the URL without it while no row has that URL, retires it as a
+/// `DUPLICATE` while one does, and leaves every other row alone: retired rows, rows that are no
+/// product and rows of other sources.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_collapse_product_rows_stored_under_a_spelling_the_crawler_no_longer_produces() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlFrontierRepositoryImpl::new(pool.clone());
+    let listing_source_id = canonical_shop(&pool).await;
+    let other_source = ListingSourceId::new();
+    insert_source(&pool, other_source, "other-shop.example.com").await;
+    for path in [
+        "/item/twin-1?cur=EUR",
+        "/item/twin-1",
+        "/item/alone-2?cur=GBP",
+        "/item/paged-3?cur=EUR&page=2",
+        "/item/clean-4",
+    ] {
+        insert_scraped_url(&pool, listing_source_id, &format!("{SHOP}{path}")).await;
+    }
+    insert_scraped_url(
+        &pool,
+        other_source,
+        "https://other-shop.example.com/item/other-5?cur=EUR",
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO listing_source_urls (listing_source_id, url, raw_source_record_key, url_class, crawler_disposition) \
+         VALUES ($1, $2, $2, 'product', 'DUPLICATE'), ($1, $3, $3, 'other', 'ACTIVE')",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(format!("{SHOP}/item/retired-6?cur=EUR"))
+    .bind(format!("{SHOP}/item/not-product-7?cur=EUR"))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    repository
+        .collapse_unnormalized_product_urls(&listing_source_id)
+        .await
+        .unwrap();
+    repository
+        .collapse_unnormalized_product_urls(&listing_source_id)
+        .await
+        .unwrap();
+
+    let expected = [
+        ("/item/alone-2", "ACTIVE"),
+        ("/item/clean-4", "ACTIVE"),
+        ("/item/not-product-7?cur=EUR", "ACTIVE"),
+        ("/item/paged-3?page=2", "ACTIVE"),
+        ("/item/retired-6?cur=EUR", "DUPLICATE"),
+        ("/item/twin-1", "ACTIVE"),
+        ("/item/twin-1?cur=EUR", "DUPLICATE"),
+    ]
+    .map(|(path, disposition)| (format!("{SHOP}{path}"), disposition.to_owned()));
+    assert_eq!(
+        dispositions(&pool, listing_source_id).await,
+        expected.to_vec()
+    );
+    assert_eq!(
+        dispositions(&pool, other_source).await,
+        vec![(
+            "https://other-shop.example.com/item/other-5?cur=EUR".to_owned(),
+            "ACTIVE".to_owned()
+        )]
+    );
+    let moved = stored_rows(&pool, listing_source_id)
+        .await
+        .into_iter()
+        .find(|row| row.0.ends_with("/item/alone-2"))
+        .unwrap();
+    assert_eq!(
+        moved,
+        scraped_row(
+            &format!("{SHOP}/item/alone-2"),
+            &format!("{SHOP}/item/alone-2?cur=GBP")
+        ),
+        "a moved row keeps its scrape state and raw-capture identity"
     );
 }
