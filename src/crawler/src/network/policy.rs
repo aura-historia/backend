@@ -445,6 +445,23 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
 }
 
 impl NetworkErrorKind {
+    /// The stable word logs and diagnostics name the kind by; an HTTP status code is no part of it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UnsafeTarget => "UNSAFE_TARGET",
+            Self::Timeout => "TIMEOUT",
+            Self::Connect => "CONNECT",
+            Self::DnsTimeout => "DNS_TIMEOUT",
+            Self::DnsResolution => "DNS_RESOLUTION",
+            Self::Request => "REQUEST",
+            Self::HttpStatus(_) => "HTTP_STATUS",
+            Self::RobotsDisallowed => "ROBOTS_DISALLOWED",
+            Self::RobotsUnreachable => "ROBOTS_UNREACHABLE",
+            Self::BotChallenge => "BOT_CHALLENGE",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+
     /// robots.txt refused the request, so nothing reached the shop.
     pub fn is_robots_refusal(self) -> bool {
         matches!(self, Self::RobotsDisallowed | Self::RobotsUnreachable)

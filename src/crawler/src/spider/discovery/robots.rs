@@ -138,10 +138,10 @@ impl RobotsUnreachable {
     }
 
     /// The transport error kind, when robots.txt gave no answer.
-    pub fn transport_error(&self) -> Option<String> {
+    pub fn transport_error(&self) -> Option<&'static str> {
         match self.cause {
             UnreachableCause::Status(_) => None,
-            UnreachableCause::Transport(kind) => Some(format!("{kind:?}")),
+            UnreachableCause::Transport(kind) => Some(kind.as_str()),
         }
     }
 }
@@ -299,6 +299,6 @@ mod tests {
             RobotsUnreachable::new(&url, UnreachableCause::Transport(NetworkErrorKind::Timeout));
 
         assert_eq!(unreachable.status(), None);
-        assert_eq!(unreachable.transport_error(), Some("Timeout".to_string()));
+        assert_eq!(unreachable.transport_error(), Some("TIMEOUT"));
     }
 }
