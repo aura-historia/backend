@@ -6,7 +6,7 @@
 
 use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, PendingReviewPage,
-    PendingReviewSummary, RepairRequest,
+    PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
@@ -166,23 +166,74 @@ impl ReviewQueue {
     }
 }
 
-/// `GET /api/reviews/{id}`, of which the runner reads only the review.
+/// `GET /api/reviews/{id}`, of which the runner reads only the review and its event trail.
 #[derive(Debug, Deserialize)]
 struct ReviewDetail {
     review: CrawlerReview,
+    #[serde(default)]
+    events: Vec<DetailEvent>,
+}
+
+/// An event of a review's trail, with the keys the runner reads.
+#[derive(Debug, Deserialize)]
+struct DetailEvent {
+    actor: String,
+    action: String,
+    candidate_version: i64,
+}
+
+async fn review_detail(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<ReviewDetail, ConsoleError> {
+    console
+        .get(&format!("/api/reviews/{review_id}"))
+        .await?
+        .decode()
 }
 
 /// Whether the console says `review_id` waits for a human now: the agents' needs-repair rounds
-/// on it reached the cap, so it refuses every agent change and verdict on it.
+/// on it reached the cap or an agent handed it over, so it refuses every agent change and verdict
+/// on it.
 pub async fn waits_for_human(
     console: &ConsoleClient,
     review_id: CrawlerReviewId,
 ) -> Result<bool, ConsoleError> {
-    let detail: ReviewDetail = console
-        .get(&format!("/api/reviews/{review_id}"))
+    Ok(review_detail(console, review_id)
         .await?
-        .decode()?;
-    Ok(detail.review.human_required)
+        .review
+        .human_required)
+}
+
+/// Whether the reviewer agent already judged the review's current candidate version: its trail
+/// holds a needs-repair verdict of the reviewer at that version. The author's `NOTHING_TO_STAGE`
+/// on such a candidate gives the reviewer nothing new to judge.
+pub async fn reviewer_judged_candidate(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<bool, ConsoleError> {
+    let detail = review_detail(console, review_id).await?;
+    Ok(detail.events.iter().any(|event| {
+        event.actor == ReviewActor::AgentReviewer.as_str()
+            && event.action == ReviewEventAction::RepairRequested.as_str()
+            && event.candidate_version == detail.review.candidate_version
+    }))
+}
+
+/// Hands `review_id` to a human at once with the author agent's token, `reasoning` as the note
+/// of the event that records it.
+pub async fn hand_to_human(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+    reasoning: &str,
+) -> Result<(), ConsoleError> {
+    console
+        .post(
+            &format!("/api/reviews/{review_id}/hand-to-human"),
+            &serde_json::json!({ "notes": reasoning }),
+        )
+        .await
+        .map(|_| ())
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.

@@ -399,7 +399,26 @@ mod tests {
                             Ok(read) => request.extend_from_slice(&buffer[..read]),
                         }
                     }
+                    let content_length = String::from_utf8_lossy(&request)
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .and_then(|length| length.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    let header_end = request
+                        .windows(4)
+                        .position(|window| window == b"\r\n\r\n")
+                        .map_or(request.len(), |at| at + 4);
+                    while request.len() < header_end + content_length {
+                        match stream.read(&mut buffer).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => request.extend_from_slice(&buffer[..read]),
+                        }
+                    }
                     let request = String::from_utf8_lossy(&request).to_string();
+                    let body = request.get(header_end..).unwrap_or_default().to_owned();
                     let authorized = request
                         .lines()
                         .any(|line| line == format!("authorization: Bearer {AUTHOR_TOKEN}"));
@@ -411,6 +430,12 @@ mod tests {
                     } else if path.starts_with("/api/review-events?since=") {
                         let decided_log = claude_dir.join("decided.log");
                         (200, with_decisions(&events, &decided_log).to_string())
+                    } else if let Some(review) = path
+                        .strip_prefix("/api/reviews/")
+                        .and_then(|rest| rest.strip_suffix("/hand-to-human"))
+                        .filter(|_| request.starts_with("POST "))
+                    {
+                        hand_over(review, &body, &claude_dir)
                     } else if let Some(review) = path.strip_prefix("/api/reviews/").and_then(|id| {
                         reviews
                             .iter()
@@ -522,6 +547,24 @@ mod tests {
         .unwrap_or_default()
     }
 
+    /// `POST /api/reviews/{id}/hand-to-human` of the review `review_id`: logs `<review id>
+    /// <notes>` to `handovers.log` and, as the console does, leaves the review waiting for a human.
+    /// A review marked `handover_refused/<review id>` answers `409`.
+    fn hand_over(review_id: &str, body: &str, claude_dir: &Path) -> (u16, String) {
+        if claude_dir.join("handover_refused").join(review_id).exists() {
+            return (409, "{\"error\":\"refused\"}".to_owned());
+        }
+        let notes = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|body| body["notes"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        let mut log = std::fs::read_to_string(claude_dir.join("handovers.log")).unwrap_or_default();
+        log.push_str(&format!("{review_id} {notes}\n"));
+        let _ = std::fs::write(claude_dir.join("handovers.log"), log);
+        let _ = std::fs::write(claude_dir.join("human").join(review_id), "");
+        (200, "{\"ok\":true}".to_owned())
+    }
+
     /// `GET /api/reviews/{id}` of `review`, as the fake `claude` in `claude_dir` left it.
     fn review_detail(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
         let id = review.review_id.to_string();
@@ -533,7 +576,17 @@ mod tests {
             review.agent_rounds = 3;
             review.human_required = true;
         }
-        let detail = json!({ "review": review, "pages": [], "urls": [], "events": [] });
+        let judged = claude_dir.join("judged").join(&id).exists();
+        let events: Vec<Value> = judged
+            .then(|| {
+                json!({
+                    "actor": "AGENT_REVIEWER", "action": "REPAIR_REQUESTED",
+                    "candidate_version": review.candidate_version,
+                })
+            })
+            .into_iter()
+            .collect();
+        let detail = json!({ "review": review, "pages": [], "urls": [], "events": events });
         (200, detail.to_string())
     }
 
@@ -655,6 +708,8 @@ echo "end $role $review" >> "$dir/order.log"
                 "human",
                 "handed_back",
                 "unreadable",
+                "judged",
+                "handover_refused",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -719,6 +774,40 @@ echo "end $role $review" >> "$dir/order.log"
                         .join(format!("{review_id}-{role}")),
                 );
             }
+        }
+
+        /// Marks the review `review_id` as one whose current candidate the reviewer already
+        /// judged with a needs-repair verdict.
+        fn judged(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("judged")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// Has the console refuse to hand the review `review_id` to a human.
+        fn refuse_handover(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("handover_refused")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// The `<review id> <notes>` lines of the hand-overs the fake console took.
+        fn handovers(&self) -> Vec<String> {
+            std::fs::read_to_string(self.directory.path().join("handovers.log"))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_owned)
+                .collect()
         }
 
         /// Has the console fail to answer the review `review_id`.
@@ -1165,6 +1254,76 @@ echo "end $role $review" >> "$dir/order.log"
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// An author that finds nothing to stage on a candidate the reviewer already judged gives the
+    /// reviewer nothing new: the review goes to a human at once with the author's reasoning, no
+    /// reviewer starts, and the review gets no cooldown. On a candidate the reviewer has not judged
+    /// the reviewer runs as before.
+    #[tokio::test]
+    async fn should_hand_a_review_to_a_human_when_the_author_stages_nothing_on_a_judged_candidate()
+    {
+        let judged = review("PENDING_REVIEW", true);
+        let unjudged = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![judged.clone(), unjudged.clone()]).await;
+        fixture.claude.judged(judged.review_id);
+        fixture
+            .claude
+            .answer("author", author_envelope("NOTHING_TO_STAGE", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (run.worked, run.processes, run.handed_to_human, run.decided),
+            (2, 3, 1, 1)
+        );
+        let (judged_id, unjudged_id) = (judged.review_id, unjudged.review_id);
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {judged_id}"),
+                format!("end author {judged_id}"),
+                format!("start author {unjudged_id}"),
+                format!("end author {unjudged_id}"),
+                format!("start reviewer {unjudged_id}"),
+                format!("end reviewer {unjudged_id}"),
+            ]
+        );
+        let handovers = fixture.claude.handovers();
+        assert_eq!(handovers.len(), 1, "{handovers:?}");
+        assert!(
+            handovers[0].starts_with(&judged_id.to_string())
+                && handovers[0].contains("Author's reasoning: Staged and tested on /item/1."),
+            "{handovers:?}"
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// A hand-over the console does not take must not become one more reviewer round: the review
+    /// cools down, and the reviewer does not run.
+    #[tokio::test]
+    async fn should_cool_a_review_down_when_the_console_does_not_take_the_hand_over() {
+        let judged = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![judged.clone()]).await;
+        fixture.claude.judged(judged.review_id);
+        fixture.claude.refuse_handover(judged.review_id);
+        fixture
+            .claude
+            .answer("author", author_envelope("NOTHING_TO_STAGE", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.handed_to_human), (1, 0));
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {}", judged.review_id),
+                format!("end author {}", judged.review_id),
+            ]
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.contains_key(&judged.review_id), "{state:?}");
     }
 
     /// An author process that ends without a decision after its own needs-repair verdict reached

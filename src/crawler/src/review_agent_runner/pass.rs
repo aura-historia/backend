@@ -8,6 +8,9 @@
 //! to a human, so it neither fails nor cools down, whichever process's needs-repair verdict
 //! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
 //! as a review no agent worked ([`select_reviews`]).
+//! An author that reports `NOTHING_TO_STAGE` on a candidate the reviewer already judged gives the
+//! reviewer nothing new: the pass hands the review to a human at once, with the author's
+//! reasoning as the note of the console's hand-over event, instead of one more needs-repair round.
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
@@ -21,9 +24,10 @@ use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
-    QueuedReview, review_events_since, review_queue, select_reviews, waits_for_human,
+    QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_candidate,
+    select_reviews, waits_for_human,
 };
-use super::reports::{AgentReport, AuthorAction};
+use super::reports::{AgentReport, AuthorAction, AuthorReport};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
@@ -206,6 +210,13 @@ impl Pass<'_> {
             self.with(|shared| shared.summary.handed_to_human += 1);
             return;
         }
+        if let Some(AgentReport::Author(report)) = &author_report
+            && report.action == AuthorAction::NothingToStage
+            && self.reviewer_judged_candidate(&review).await
+        {
+            self.hand_over_to_human(&review, report).await;
+            return;
+        }
         if !leaves_a_candidate_to_decide(author_report.as_ref()) {
             self.cool_down(&review);
             return;
@@ -222,6 +233,53 @@ impl Pass<'_> {
                 self.finish_reviewer_pass(&review, reviewer_started).await;
             }
             Step::NoDecision => self.finish_reviewer_pass(&review, reviewer_started).await,
+        }
+    }
+
+    /// Whether the reviewer already judged the review's current candidate, so a reviewer process
+    /// after an author that changed nothing would only repeat its verdict as one more round. A
+    /// review the runner cannot read counts as not judged: it gets its reviewer, as before.
+    async fn reviewer_judged_candidate(&self, review: &QueuedReview) -> bool {
+        match reviewer_judged_candidate(self.console, review.review_id).await {
+            Ok(judged) => judged,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read whether the reviewer judged the candidate the author left unchanged; the reviewer runs"
+                );
+                false
+            }
+        }
+    }
+
+    /// Hands the review to a human at once with the author's reasoning, which the console records
+    /// as an event of the review's trail, instead of starting a reviewer process that would repeat
+    /// its verdict on the unchanged candidate. A hand-over the console does not take cools the
+    /// review down unless it waits for a human anyway.
+    async fn hand_over_to_human(&self, review: &QueuedReview, report: &AuthorReport) {
+        match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
+            Ok(()) => {
+                info!(
+                    review_id = %review.review_id,
+                    "The author found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
+                );
+                self.with(|shared| shared.summary.handed_to_human += 1);
+            }
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot hand the review to a human"
+                );
+                if self.waits_for_human_after(AgentRole::Author, review).await {
+                    self.with(|shared| shared.summary.handed_to_human += 1);
+                } else {
+                    self.cool_down(review);
+                }
+            }
         }
     }
 
@@ -649,6 +707,14 @@ fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
     author_report.is_some_and(|report| {
         !matches!(report, AgentReport::Author(report) if report.action == AuthorAction::Skipped)
     })
+}
+
+/// The note of the hand-over to a human: why no reviewer runs, then the author's own reasoning.
+fn handover_note(report: &AuthorReport) -> String {
+    format!(
+        "The author agent reported NOTHING_TO_STAGE on a candidate the reviewer agent had already judged, so no further reviewer round runs. Author's reasoning: {}",
+        report.summary
+    )
 }
 
 impl ProcessRecord {
