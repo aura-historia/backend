@@ -120,7 +120,9 @@ impl ServerHandler for ReviewMcpServer {
                 .into_tool_result()
                 .into());
         }
-        Ok(tool.call(arguments, Arc::clone(&self.context)).await.into())
+        Ok(tool.call(self.role, arguments, Arc::clone(&self.context))
+            .await
+            .into())
     }
 }
 

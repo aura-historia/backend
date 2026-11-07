@@ -161,19 +161,42 @@ impl ToolDefinition {
             .is_some_and(|required| required.iter().any(|name| name == "review_id"))
     }
 
-    /// Runs the tool on `arguments` and answers its result or its tool error. The call is logged
-    /// with its outcome, never with its arguments or answer.
-    pub async fn call(&self, arguments: JsonObject, context: Arc<ToolContext>) -> CallToolResult {
+    /// Runs the tool of `role` on `arguments` and answers its result or its tool error. The call
+    /// is logged with its outcome and the size of its answer, never with its arguments or answer.
+    pub async fn call(
+        &self,
+        role: AgentRole,
+        arguments: JsonObject,
+        context: Arc<ToolContext>,
+    ) -> CallToolResult {
         let started = Instant::now();
         let result = (self.handler)(arguments, context).await;
+        let (answer_chars, answer_bytes) = answer_size(&result);
         info!(
+            role = %role,
             tool = %self.tool.name,
             is_error = result.is_error.unwrap_or(false),
             elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            answer_chars,
+            answer_bytes,
+            answer_tokens_estimate = answer_bytes.div_ceil(APPROX_BYTES_PER_TOKEN),
             "Review tool call finished"
         );
         result
     }
+}
+
+/// A rough size of JSON text in tokens: four bytes each, for the per-tool cost log only.
+const APPROX_BYTES_PER_TOKEN: usize = 4;
+
+/// The characters and bytes of the JSON answer an agent reads from `result`.
+fn answer_size(result: &CallToolResult) -> (usize, usize) {
+    let answer = result
+        .structured_content
+        .as_ref()
+        .map(Value::to_string)
+        .unwrap_or_default();
+    (answer.chars().count(), answer.len())
 }
 
 /// The tool result of a handler's answer, bounded, or of its failure. A failure that is no
@@ -437,6 +460,47 @@ mod tests {
                 ),
                 "{url}"
             );
+        }
+    }
+
+    #[test]
+    fn should_measure_the_json_answer_an_agent_reads_in_characters_and_bytes() {
+        let result = CallToolResult::structured(serde_json::json!({ "name": "Stuhl ä" }));
+
+        let (chars, bytes) = answer_size(&result);
+
+        assert_eq!(chars, r#"{"name":"Stuhl ä"}"#.chars().count());
+        assert_eq!(bytes, chars + 1);
+        assert_eq!(answer_size(&CallToolResult::success(Vec::new())), (0, 0));
+    }
+
+    #[test]
+    fn tmp_measure_prefix() {
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            let tools = tools_for(role).unwrap();
+            let json = serde_json::to_string(&tools.iter().map(|t| t.tool().clone()).collect::<Vec<_>>()).unwrap();
+            eprintln!("MEASURE tools {role} count={} json_bytes={}", tools.len(), json.len());
+        }
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/html");
+        let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        files.sort();
+        for file in files {
+            let html = std::fs::read_to_string(&file).unwrap();
+            let projected = crate::review::page_projection::ProjectedHtml::of(&html);
+            let view = super::views::PageProjectionView::of(
+                wire::PageProjection {
+                    review_id: CrawlerReviewId::new(),
+                    review_page_id: None,
+                    url: "https://a.example/1".to_owned(),
+                    final_url: "https://a.example/1".to_owned(),
+                    projection: projected.projection,
+                    describes_one_product: true,
+                    json_ld_product_ids: Default::default(),
+                },
+                0,
+            );
+            let answer = serde_json::to_string(&view).unwrap();
+            eprintln!("MEASURE page {} whole={} answer_chars={} answer_bytes={}", file.file_name().unwrap().to_string_lossy(), view.projection_chars, answer.chars().count(), answer.len());
         }
     }
 }
