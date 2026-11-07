@@ -542,8 +542,33 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (json!("CONFLICT"), json!(2))
     );
 
-    // The shop shows no sold page: the author records the pages it checked, which the approval
-    // guard needs next to the matrix.
+    // The shop shows no sold page: the author records the pages it inspected, which the approval
+    // guard needs next to the matrix. A page it did not inspect is refused.
+    let checked = ["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"));
+    let uninspected = author
+        .call(
+            "record_no_sold_page",
+            json!({
+                "review_id": product_schema.to_string(),
+                "urls": checked,
+                "notes": "searched the listing and its sold section",
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (uninspected["kind"].clone(), uninspected["reason"].clone()),
+        (json!("CONFLICT"), json!("PAGES_NOT_INSPECTED"))
+    );
+    for url in &checked {
+        author
+            .call(
+                "inspect_page",
+                json!({ "review_id": product_schema.to_string(), "url": url }),
+            )
+            .await
+            .unwrap();
+    }
     let recorded = author
         .call(
             "record_no_sold_page",

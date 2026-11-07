@@ -231,17 +231,23 @@ pub(super) async fn commit_with_event(
     Ok(())
 }
 
-/// Whether the review's trail holds the author's record that it found no sold or unavailable
-/// page of the ListingSource.
+/// Whether the review's trail holds a record that no sold or unavailable page of the ListingSource
+/// was found that no later `HUMAN` event follows: a human's change or verdict hands the review
+/// back, and the agents search again for its next approval.
 pub(super) async fn has_no_sold_page_record<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     review_id: CrawlerReviewId,
 ) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM crawler_review_events WHERE review_id = $1 AND action = $2)",
+        "SELECT EXISTS (SELECT 1 FROM crawler_review_events e \
+         WHERE e.review_id = $1 AND e.action = $2 \
+           AND NOT EXISTS (SELECT 1 FROM crawler_review_events h \
+                           WHERE h.review_id = e.review_id AND h.actor = $3 \
+                             AND h.created > e.created))",
     )
     .bind(review_id.as_uuid())
     .bind(ReviewEventAction::NoSoldPageRecorded.as_str())
+    .bind(ReviewActor::Human.as_str())
     .fetch_one(executor)
     .await
 }

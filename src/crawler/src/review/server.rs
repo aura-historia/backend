@@ -1050,9 +1050,10 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// technical failure. A 409 for a request based on an older candidate carries the review's
 /// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or
 /// acknowledged at other counts, carries the review's current `coverage`, one for an agent
-/// approval the approval guard refuses lists its `failed_checks`, and one for an agent request on
-/// a review that waits for a human carries `reason` `HUMAN_REQUIRED`, the agents' `agent_rounds`
-/// and the cap as `limit`.
+/// approval the approval guard refuses lists its `failed_checks`, one for an agent's no-sold-page
+/// record naming pages no agent inspected carries `reason` `PAGES_NOT_INSPECTED`, and one for an
+/// agent request on a review that waits for a human carries `reason` `HUMAN_REQUIRED`, the agents'
+/// `agent_rounds` and the cap as `limit`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_)
@@ -1119,6 +1120,10 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
+        ReviewRepositoryError::NoSoldPageUrlsNotInspected(_) => HttpResponse::json(
+            409,
+            &json!({ "error": error.to_string(), "reason": "PAGES_NOT_INSPECTED" }),
+        ),
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
         | ReviewRepositoryError::StaleCoverageAcknowledgement { coverage, .. } => {
             HttpResponse::json(

@@ -3,7 +3,6 @@
 //! candidate takes as product pages. The contract is in `docs/crawler/extraction-and-review.md`
 //! (review rail).
 
-use super::CrawlerReviewRepository;
 use super::reviewer_page_url::ReviewPageIdentity;
 use crate::review::approval_guard::SampleUrl;
 use crate::review::model::UrlPatternReviewCandidate;
@@ -42,28 +41,26 @@ impl CandidateClassification {
     }
 }
 
-impl CrawlerReviewRepository {
-    /// Records what inspecting the page of `url` found, whether it describes exactly one schema.org
-    /// `Product`, on the sample row of the review that holds the page under any spelling the
-    /// crawler stores it under. A URL outside the sample, and any review without a sample, record
-    /// nothing. The approval guard compares the share of such pages with what the pattern takes.
-    pub async fn record_inspected_page_markup(
-        &self,
-        review_id: CrawlerReviewId,
-        url: &Url,
-        describes_one_product: bool,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "UPDATE crawler_review_urls SET describes_one_product = $3 \
-             WHERE review_id = $1 AND url = ANY($2)",
-        )
-        .bind(review_id.as_uuid())
-        .bind(ReviewPageIdentity::spellings(url))
-        .bind(describes_one_product)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
+/// Records what inspecting the page of `url` found, whether it describes exactly one schema.org
+/// `Product`, on the sample row of the review that holds the page under any spelling the crawler
+/// stores it under. A URL outside the sample, and any review without a sample, record nothing.
+/// The approval guard compares the share of such pages with what the pattern takes.
+pub(super) async fn record_sample_page_markup(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    url: &Url,
+    describes_one_product: bool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE crawler_review_urls SET describes_one_product = $3 \
+         WHERE review_id = $1 AND url = ANY($2)",
+    )
+    .bind(review_id.as_uuid())
+    .bind(ReviewPageIdentity::spellings(url))
+    .bind(describes_one_product)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 /// The URLs of the review's sample with what their inspection found, as the approval guard reads

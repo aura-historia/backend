@@ -28,6 +28,7 @@ use time::OffsetDateTime;
 use tracing::info;
 use url::Url;
 
+mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
 mod missing_value_pages;
@@ -114,6 +115,11 @@ pub enum ReviewRepositoryError {
         "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
     )]
     NoSoldPageUrlCount,
+    #[error(
+        "a review agent's record that no sold or unavailable page was found names only pages it inspected for this review since a human last acted on it, and no agent inspected {}; open each with inspect_page first, or leave it out",
+        .0.join(", ")
+    )]
+    NoSoldPageUrlsNotInspected(Vec<String>),
     #[error(
         "a record that no sold or unavailable page was found needs notes of at most {MAX_NO_SOLD_PAGE_NOTE_CHARS} characters saying how the pages were searched"
     )]

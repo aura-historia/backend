@@ -1,9 +1,12 @@
 //! The author's record that it looked for a sold or unavailable page of the ListingSource and
 //! found none, which lets the [approval guard](crate::review::approval_guard) accept a candidate
-//! tested on no such page. The record is an event of the review's trail that names the URLs the
-//! author checked; it changes no candidate, so it never counts as authoring for the four-eyes
-//! rule. The contract is in `docs/crawler/extraction-and-review.md` (approval guard).
+//! tested on no such page until a human next acts on the review. The record is an event of the
+//! review's trail that names the URLs the author checked, each one an agent
+//! [inspected](super::inspected_pages) for the review since a human last acted on it; it changes
+//! no candidate, so it never counts as authoring for the four-eyes rule. The contract is in
+//! `docs/crawler/extraction-and-review.md` (approval guard).
 
+use super::inspected_pages::pages_inspected_since_last_human_event;
 use super::review_events::{ReviewMutation, commit_with_event};
 use super::reviewer_page_url::{ReviewPageIdentity, without_credentials};
 use super::{
@@ -28,7 +31,9 @@ pub const MAX_NO_SOLD_PAGE_NOTE_CHARS: usize = 500;
 impl CrawlerReviewRepository {
     /// Records that `actor` checked `urls` of the pending product-schema review's ListingSource
     /// and found no sold or unavailable page, with its account in `notes`. Only those who change
-    /// candidates record it: the author agent and humans. The review's candidate stays as it is.
+    /// candidates record it: the author agent and humans. The author agent names only pages the
+    /// console projected for the review since a human last acted on it; a human's record is their
+    /// own account. The review's candidate stays as it is.
     pub async fn record_no_sold_page(
         &self,
         review_id: CrawlerReviewId,
@@ -65,6 +70,11 @@ impl CrawlerReviewRepository {
         .await?
         .flatten();
         let checked_urls = validated_checked_urls(urls, crawl_host.as_deref())?;
+        if actor.is_agent() {
+            let inspected =
+                pages_inspected_since_last_human_event(&mut *transaction, review_id).await?;
+            refuse_uninspected_pages(&checked_urls, &inspected)?;
+        }
         let notes = notes.trim();
         if notes.is_empty() || notes.chars().count() > MAX_NO_SOLD_PAGE_NOTE_CHARS {
             return Err(ReviewRepositoryError::InvalidNoSoldPageNote);
@@ -118,6 +128,27 @@ fn validated_checked_urls(
         return Err(ReviewRepositoryError::NoSoldPageUrlCount);
     }
     Ok(checked)
+}
+
+/// Refuses a record that names a page outside `inspected`, naming every such page.
+fn refuse_uninspected_pages(
+    checked_urls: &[String],
+    inspected: &HashSet<ReviewPageIdentity>,
+) -> Result<(), ReviewRepositoryError> {
+    let uninspected: Vec<String> = checked_urls
+        .iter()
+        .filter(|url| {
+            !ReviewPageIdentity::of_stored(url).is_some_and(|page| inspected.contains(&page))
+        })
+        .cloned()
+        .collect();
+    if uninspected.is_empty() {
+        Ok(())
+    } else {
+        Err(ReviewRepositoryError::NoSoldPageUrlsNotInspected(
+            uninspected,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -194,5 +225,23 @@ mod tests {
             );
         }
         assert!(validated_checked_urls(urls(3), None).is_err());
+    }
+
+    #[test]
+    fn should_refuse_a_record_naming_a_page_nobody_inspected_in_any_spelling() {
+        let inspected: HashSet<ReviewPageIdentity> = [
+            "http://www.antiques.example/item/0/",
+            "https://antiques.example/item/1",
+        ]
+        .into_iter()
+        .filter_map(ReviewPageIdentity::of_stored)
+        .collect();
+
+        assert!(refuse_uninspected_pages(&urls(2), &inspected).is_ok());
+        assert!(matches!(
+            refuse_uninspected_pages(&urls(4), &inspected),
+            Err(ReviewRepositoryError::NoSoldPageUrlsNotInspected(uninspected))
+                if uninspected == ["https://antiques.example/item/2", "https://antiques.example/item/3"]
+        ));
     }
 }

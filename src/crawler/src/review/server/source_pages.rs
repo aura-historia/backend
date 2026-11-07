@@ -79,17 +79,18 @@ impl ReviewServer {
         })
         .await
         .map_err(internal_error)?;
-        // The guard's evidence of a pattern's reach; a failed write loses only that evidence.
+        // The guard's evidence of a pattern's reach and of the pages a no-sold-page record may
+        // name; a failed write loses only that evidence, so the guard and the record refuse more.
         if let Err(error) = self
             .repository
-            .record_inspected_page_markup(review_id, &url, projected.describes_one_product)
+            .record_inspected_page(review_id, &url, projected.describes_one_product)
             .await
         {
             warn!(
                 review_id = %review_id,
                 error = %error,
                 cause = ?std::error::Error::source(&error),
-                "Failed to record an inspected sample page's markup"
+                "Failed to record an inspected page"
             );
         }
         Ok(PageProjection {

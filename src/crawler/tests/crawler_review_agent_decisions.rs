@@ -203,15 +203,32 @@ fn approval(expected_candidate_version: i64) -> Approval<'static> {
     }
 }
 
-/// The author agent's record that it checked three pages of the shop and found no sold page.
+/// Records that the console projected each of `urls` for the review, as an agent's
+/// `inspect_page` does.
+async fn inspect_pages(
+    repository: &CrawlerReviewRepository,
+    review_id: CrawlerReviewId,
+    urls: &[String],
+) {
+    for url in urls {
+        repository
+            .record_inspected_page(review_id, &url.parse().unwrap(), true)
+            .await
+            .unwrap();
+    }
+}
+
+/// The author agent's record that it inspected three pages of the shop and found no sold page.
 async fn record_no_sold_page(repository: &CrawlerReviewRepository, review_id: CrawlerReviewId) {
+    let urls = ["chair", "lamp", "vase"]
+        .map(|slug| format!("https://example.com/products/{slug}"))
+        .to_vec();
+    inspect_pages(repository, review_id, &urls).await;
     repository
         .record_no_sold_page(
             review_id,
             ReviewActor::AgentAuthor,
-            ["chair", "lamp", "vase"]
-                .map(|slug| format!("https://example.com/products/{slug}"))
-                .to_vec(),
+            urls,
             "searched the listing and the sold section; no item is marked sold",
         )
         .await
@@ -596,8 +613,30 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
         ),
         "{off_host:?}"
     );
+    let not_inspected = record(
+        ReviewActor::AgentAuthor,
+        vec![shop("a"), shop("b"), shop("c")],
+    )
+    .await;
+    assert!(
+        matches!(
+            &not_inspected,
+            Err(ReviewRepositoryError::NoSoldPageUrlsNotInspected(urls)) if urls.len() == 3
+        ),
+        "{not_inspected:?}"
+    );
     assert!(trail(&repository, review_id).await.is_empty());
 
+    inspect_pages(
+        &repository,
+        review_id,
+        &[
+            shop("a"),
+            "http://www.example.com/products/b/".to_owned(),
+            shop("c"),
+        ],
+    )
+    .await;
     let recorded = record(
         ReviewActor::AgentAuthor,
         vec![shop("a"), shop("b"), shop("c")],
@@ -628,6 +667,70 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
         Some("searched the listing")
     );
     assert_eq!(detail.review.status, STATUS_APPROVED);
+}
+
+/// A no-sold-page record stands until a human acts on the review: after a human's verdict hands
+/// it back, the agents' approval needs a new record, and that record names only pages inspected
+/// since then.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_a_no_sold_page_record_only_until_a_human_acts_on_the_review() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let listing_source_id = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    record_no_sold_page(&repository, review_id).await;
+    repository
+        .request_repair(
+            review_id,
+            ReviewActor::Human,
+            Some("the shop has a sold section"),
+        )
+        .await
+        .unwrap();
+    let urls = ["chair", "lamp", "vase"]
+        .map(|slug| format!("https://example.com/products/{slug}"))
+        .to_vec();
+
+    let handed_back = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
+        .await;
+    let inspected_before_the_human = repository
+        .record_no_sold_page(
+            review_id,
+            ReviewActor::AgentAuthor,
+            urls.clone(),
+            "searched again",
+        )
+        .await;
+    inspect_pages(&repository, review_id, &urls).await;
+    repository
+        .record_no_sold_page(review_id, ReviewActor::AgentAuthor, urls, "searched again")
+        .await
+        .unwrap();
+    repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        failed_checks(handed_back),
+        vec![FailedApprovalCheck::NoSoldPageTested]
+    );
+    assert!(
+        matches!(
+            inspected_before_the_human,
+            Err(ReviewRepositoryError::NoSoldPageUrlsNotInspected(_))
+        ),
+        "{inspected_before_the_human:?}"
+    );
 }
 
 /// A legacy single-schema append review makes exactly its candidate live, so its live matrix
@@ -1468,7 +1571,7 @@ async fn should_refuse_an_agent_url_pattern_narrower_than_the_inspected_product_
         .unwrap();
     for url in items.iter().take(3).chain(barometers.iter().take(7)) {
         repository
-            .record_inspected_page_markup(review_id, &url.parse().unwrap(), true)
+            .record_inspected_page(review_id, &url.parse().unwrap(), true)
             .await
             .unwrap();
     }
