@@ -15,7 +15,9 @@ use crate::network::robots::{
     DenyList, MAX_ROBOTS_TXT_BYTES, MAX_ROBOTS_TXT_REDIRECTS, RobotsFetchStep, RobotsPolicy,
     RobotsRules, robots_txt_url,
 };
+use crate::spider::utils::url::CrawledUrl;
 use std::time::Duration;
+use thiserror::Error;
 use tracing::{debug, info};
 use url::Url;
 
@@ -47,13 +49,15 @@ pub(super) async fn admit_crawl(
     root_client: &spider::reqwest::Client,
     timeout: Duration,
 ) -> Result<CrawlRobots, SpiderDiscoveryError> {
-    let policy = fetch_robots_policy(transport, root, root_client, timeout).await?;
+    let policy = match fetch_robots_policy(transport, root, root_client, timeout).await? {
+        FetchedRobots::Policy(policy) => policy,
+        FetchedRobots::Unreachable(unreachable) => {
+            return Err(robots_unreachable_error(Some(Box::new(unreachable))));
+        }
+    };
     let label = policy.label();
     match policy {
-        RobotsPolicy::Unreachable => Err(SpiderDiscoveryError::preflight(
-            CrawlFailureKind::ServerError,
-            "robots.txt is unreachable, which disallows the crawl",
-        )),
+        RobotsPolicy::Unreachable => Err(robots_unreachable_error(None)),
         RobotsPolicy::Unavailable => Ok(CrawlRobots {
             deny_list: DenyList::default(),
             crawl_delay: None,
@@ -86,26 +90,104 @@ fn crawl_robots(root: &Url, rules: &RobotsRules, policy: &'static str) -> CrawlR
     }
 }
 
+/// Why robots.txt could not be reached: the HTTP status it answered, or the kind of the
+/// transport failure when it gave no answer. Neither carries a response body or credentials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnreachableCause {
+    Status(u16),
+    Transport(NetworkErrorKind),
+}
+
+impl std::fmt::Display for UnreachableCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Status(status) => write!(f, "HTTP status {status}"),
+            Self::Transport(kind) => write!(f, "transport error {kind:?}"),
+        }
+    }
+}
+
+/// The robots.txt a crawl treated as unreachable, in the stored URL spelling, so the failure
+/// log names what was requested and what came back.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("robots.txt at {url} is unreachable: {cause}")]
+pub struct RobotsUnreachable {
+    url: String,
+    cause: UnreachableCause,
+}
+
+impl RobotsUnreachable {
+    fn new(robots_url: &Url, cause: UnreachableCause) -> Self {
+        Self {
+            url: CrawledUrl::new(robots_url.clone()).to_string(),
+            cause,
+        }
+    }
+
+    /// The robots.txt URL that was requested.
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// The HTTP status robots.txt answered, when it answered.
+    pub fn status(&self) -> Option<u16> {
+        match self.cause {
+            UnreachableCause::Status(status) => Some(status),
+            UnreachableCause::Transport(_) => None,
+        }
+    }
+
+    /// The transport error kind, when robots.txt gave no answer.
+    pub fn transport_error(&self) -> Option<String> {
+        match self.cause {
+            UnreachableCause::Status(_) => None,
+            UnreachableCause::Transport(kind) => Some(format!("{kind:?}")),
+        }
+    }
+}
+
+/// The outcome of reading robots.txt; an unreachable one keeps its cause.
+enum FetchedRobots {
+    Policy(RobotsPolicy),
+    Unreachable(RobotsUnreachable),
+}
+
+/// One robots.txt answer: what to do next, or the unreachable answer with its status.
+enum RobotsStep {
+    Fetched(RobotsFetchStep),
+    Unreachable(RobotsUnreachable),
+}
+
 /// Redirects are followed to any public host, as RFC 9309 asks.
 async fn fetch_robots_policy(
     transport: &dyn SpiderTransport,
     root: &Url,
     root_client: &spider::reqwest::Client,
     timeout: Duration,
-) -> Result<RobotsPolicy, SpiderDiscoveryError> {
+) -> Result<FetchedRobots, SpiderDiscoveryError> {
     let mut robots_url = robots_txt_url(root);
     for hop in 0..=MAX_ROBOTS_TXT_REDIRECTS {
         match robots_txt_step(transport, root, root_client, &robots_url, timeout).await {
-            Ok(RobotsFetchStep::Policy(policy)) => return Ok(policy),
-            Ok(RobotsFetchStep::Redirect(next)) => robots_url = next,
+            Ok(RobotsStep::Fetched(RobotsFetchStep::Policy(policy))) => {
+                return Ok(FetchedRobots::Policy(policy));
+            }
+            Ok(RobotsStep::Fetched(RobotsFetchStep::Redirect(next))) => robots_url = next,
+            Ok(RobotsStep::Unreachable(unreachable)) => {
+                return Ok(FetchedRobots::Unreachable(unreachable));
+            }
             Err((kind, source)) => {
                 let shop_host = is_same_or_www_host(root, &robots_url);
-                return RobotsPolicy::for_failed_request(kind, hop > 0, shop_host)
-                    .ok_or_else(|| robots_request_failed(source));
+                return match RobotsPolicy::for_failed_request(kind, hop > 0, shop_host) {
+                    Some(RobotsPolicy::Unreachable) => Ok(FetchedRobots::Unreachable(
+                        RobotsUnreachable::new(&robots_url, UnreachableCause::Transport(kind)),
+                    )),
+                    Some(policy) => Ok(FetchedRobots::Policy(policy)),
+                    None => Err(robots_request_failed(source)),
+                };
             }
         }
     }
-    Ok(RobotsPolicy::Unavailable)
+    Ok(FetchedRobots::Policy(RobotsPolicy::Unavailable))
 }
 
 type RobotsRequestError = (NetworkErrorKind, application::error::BoxError);
@@ -118,7 +200,7 @@ async fn robots_txt_step(
     root_client: &spider::reqwest::Client,
     robots_url: &Url,
     timeout: Duration,
-) -> Result<RobotsFetchStep, RobotsRequestError> {
+) -> Result<RobotsStep, RobotsRequestError> {
     let client = if robots_url.origin() == root.origin() {
         root_client.clone()
     } else {
@@ -150,21 +232,35 @@ async fn robots_txt_step(
                 None => break,
             }
         }
-        return Ok(RobotsFetchStep::Policy(RobotsPolicy::from_body(&body)));
+        return Ok(RobotsStep::Fetched(RobotsFetchStep::Policy(
+            RobotsPolicy::from_body(&body),
+        )));
     }
     let location = response
         .headers()
         .get("location")
         .and_then(|location| location.to_str().ok());
-    Ok(RobotsFetchStep::for_unsuccessful(
-        status.as_u16(),
-        location,
-        robots_url,
-    ))
+    Ok(
+        match RobotsFetchStep::for_unsuccessful(status.as_u16(), location, robots_url) {
+            RobotsFetchStep::Policy(RobotsPolicy::Unreachable) => RobotsStep::Unreachable(
+                RobotsUnreachable::new(robots_url, UnreachableCause::Status(status.as_u16())),
+            ),
+            step => RobotsStep::Fetched(step),
+        },
+    )
 }
 
 fn request_error(error: spider::reqwest::Error) -> RobotsRequestError {
     (classify_reqwest_error(&error), Box::new(error))
+}
+
+fn robots_unreachable_error(source: Option<application::error::BoxError>) -> SpiderDiscoveryError {
+    SpiderDiscoveryError::Preflight {
+        kind: CrawlFailureKind::ServerError,
+        reason: "robots.txt is unreachable, which disallows the crawl",
+        source,
+        root_reroot: None,
+    }
 }
 
 fn robots_request_failed(source: application::error::BoxError) -> SpiderDiscoveryError {
@@ -173,5 +269,36 @@ fn robots_request_failed(source: application::error::BoxError) -> SpiderDiscover
         reason: "robots.txt request failed",
         source: Some(source),
         root_reroot: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_name_the_robots_url_and_status_without_credentials() {
+        let url = Url::parse("https://user:secret@example.com/robots.txt?utm_source=mail").unwrap();
+
+        let unreachable = RobotsUnreachable::new(&url, UnreachableCause::Status(503));
+
+        assert_eq!(unreachable.url(), "https://example.com/robots.txt");
+        assert_eq!(unreachable.status(), Some(503));
+        assert_eq!(unreachable.transport_error(), None);
+        assert_eq!(
+            unreachable.to_string(),
+            "robots.txt at https://example.com/robots.txt is unreachable: HTTP status 503"
+        );
+    }
+
+    #[test]
+    fn should_name_the_transport_error_kind_when_robots_txt_gave_no_answer() {
+        let url = Url::parse("https://example.com/robots.txt").unwrap();
+
+        let unreachable =
+            RobotsUnreachable::new(&url, UnreachableCause::Transport(NetworkErrorKind::Timeout));
+
+        assert_eq!(unreachable.status(), None);
+        assert_eq!(unreachable.transport_error(), Some("Timeout".to_string()));
     }
 }
