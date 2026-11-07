@@ -8,7 +8,7 @@
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
 use super::queue::{HumanRequiredReview, ReviewEventEntry, ReviewEventsSince};
-use super::reports::{AgentReport, ServerOutcome};
+use super::reports::{AgentReport, ServerOutcome, TrailVerdict};
 use super::wire_name;
 use crate::CrawlerReviewId;
 use std::collections::BTreeMap;
@@ -63,7 +63,8 @@ pub struct Digest {
     pub needs_a_human: Vec<HumanRequiredReview>,
     decisions: Vec<ReviewEventEntry>,
     events_truncated: bool,
-    /// The server's refusals of the reviewer's decisions by failed check, as the reports name them.
+    /// The server's refusals of the reviewer's decisions by failed check, as the reports name them:
+    /// the event trail records only what the console accepted, so a refusal is the agent's account.
     pub refusals_by_check: BTreeMap<String, usize>,
     /// Refusals that named no failed check, by their kind.
     pub refusals_by_kind: BTreeMap<String, usize>,
@@ -305,7 +306,7 @@ impl Digest {
     }
 
     fn write_refusals(&self, out: &mut String) {
-        let _ = writeln!(out, "## Server refusals of the reviewer's decisions\n");
+        let _ = writeln!(out, "## Server refusals the reviewer reported\n");
         if self.refusals_by_check.is_empty() && self.refusals_by_kind.is_empty() {
             let _ = writeln!(out, "None reported.\n");
             return;
@@ -379,9 +380,10 @@ impl Digest {
                     risks(&report.risks)
                 ),
                 AgentReport::Reviewer(report) => format!(
-                    "reviewer {} ({} confidence, server {}{}): {}{}",
+                    "reviewer {} ({} confidence, {}, reported server answer {}{}): {}{}",
                     wire_name(Some(report.decision)),
                     wire_name(Some(report.confidence)),
+                    trail_text(record.trail_verdict),
                     wire_name(Some(report.server_answer.outcome)),
                     if report.server_answer.failed_checks.is_empty() {
                         String::new()
@@ -456,8 +458,9 @@ fn process_line(record: &ProcessRecord) -> String {
     let detail = match (&record.report, record.limit, &record.failure) {
         (Some(AgentReport::Author(report)), _, _) => wire_name(Some(report.action)),
         (Some(AgentReport::Reviewer(report)), _, _) => format!(
-            "{} {}",
+            "{} ({}, reported {})",
             wire_name(Some(report.decision)),
+            trail_text(record.trail_verdict),
             wire_name(Some(report.server_answer.outcome))
         ),
         (None, Some(limit), _) => format!("{} limit", wire_name(Some(limit))),
@@ -470,6 +473,16 @@ fn process_line(record: &ProcessRecord) -> String {
         ""
     };
     format!("{role} {detail}{charged}")
+}
+
+/// What the event trail recorded of a reviewer process, which the digest shows ahead of the
+/// report's own claim about the server's answer. A record without it, from before the runner read
+/// the trail or from a trail it could not read, says so.
+fn trail_text(verdict: Option<TrailVerdict>) -> String {
+    match verdict {
+        Some(verdict) => format!("trail {}", wire_name(Some(verdict))),
+        None => "trail unknown".to_owned(),
+    }
 }
 
 fn risks(risks: &[String]) -> String {
@@ -517,6 +530,7 @@ mod tests {
     use crate::review_agent_runner::queue::ReviewArtifact;
     use crate::review_agent_runner::reports::{
         AuthorAction, AuthorReport, Confidence, ReviewerDecision, ReviewerReport, ServerAnswer,
+        TrailVerdict,
     };
     use time::Duration;
     use time::macros::datetime;
@@ -671,7 +685,10 @@ mod tests {
         assert_eq!(digest.reviews[&review_id].usage.input_tokens, 1_400);
         assert_eq!(
             digest.reviews[&review_id].processes,
-            ["author STAGED", "reviewer APPROVE REFUSED"]
+            [
+                "author STAGED",
+                "reviewer APPROVE (trail unknown, reported REFUSED)"
+            ]
         );
         assert_eq!(
             digest.refusals_by_check,
@@ -691,6 +708,51 @@ mod tests {
             "author STAGED at version 4: Staged the pattern /item/. Risks: two labels only"
         ));
         assert!(markdown.contains("Rolling five hours: $1.50. Rolling week: $9.00."));
+    }
+
+    /// The digest and the process rows show what the event trail recorded of a reviewer process,
+    /// and the report's `NOT_SENT` only as the agent's reported account.
+    #[test]
+    fn should_show_the_trail_s_verdict_and_label_the_report_s_server_answer_as_reported() {
+        let mut contradicted = record(TO - Duration::hours(1), 0.2);
+        contradicted.role = ProcessRole::Reviewer;
+        contradicted.trail_verdict = Some(TrailVerdict::Approved);
+        contradicted.report = Some(reviewer(
+            contradicted.review_id,
+            ServerOutcome::NotSent,
+            &[],
+        ));
+        let mut legacy = record(TO - Duration::hours(2), 0.2);
+        legacy.role = ProcessRole::Reviewer;
+        legacy.report = Some(reviewer(legacy.review_id, ServerOutcome::NotSent, &[]));
+
+        let digest = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![],
+                truncated: false,
+            },
+            vec![contradicted.clone(), legacy.clone()],
+            vec![],
+            rolling_cost(),
+        );
+
+        let markdown = digest.markdown();
+        assert!(
+            markdown.contains("reviewer APPROVE (trail APPROVED, reported NOT_SENT)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("reviewer APPROVE (trail unknown, reported NOT_SENT)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(
+                "reviewer APPROVE (HIGH confidence, trail APPROVED, reported server answer NOT_SENT)"
+            ),
+            "{markdown}"
+        );
     }
 
     #[test]

@@ -1903,6 +1903,46 @@ echo "end $role $review" >> "$dir/order.log"
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(!state.cooldowns.contains_key(&repaired.review_id));
         assert!(state.cooldowns.contains_key(&unrecorded.review_id));
+        let ledger = fixture.ledger();
+        let trail_verdict = |review: &CrawlerReview, role: &str| {
+            ledger
+                .iter()
+                .find(|record| {
+                    record["review_id"] == review.review_id.to_string() && record["role"] == role
+                })
+                .map(|record| record["trail_verdict"].clone())
+        };
+        assert_eq!(
+            trail_verdict(&repaired, "reviewer"),
+            Some(json!("REPAIR_REQUESTED"))
+        );
+        assert_eq!(
+            trail_verdict(&unrecorded, "reviewer"),
+            Some(json!("NO_VERDICT"))
+        );
+        assert_eq!(trail_verdict(&repaired, "author"), Some(Value::Null));
+    }
+
+    /// The ledger and the digest show the verdict the trail records for a reviewer whose report
+    /// says `NOT_SENT`, and the report's claim only as its account.
+    #[tokio::test]
+    async fn should_show_the_trail_s_verdict_not_the_reports_not_sent_in_the_ledger_and_digest() {
+        let approved = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![approved.clone()]).await;
+        fixture
+            .claude
+            .answer("reviewer", reviewer_envelope("APPROVE", "NOT_SENT", 0.25));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(run.decided, 1);
+        let reviewer = fixture
+            .ledger()
+            .into_iter()
+            .find(|record| record["role"] == "reviewer")
+            .unwrap_or_else(|| panic!("no reviewer record"));
+        assert_eq!(reviewer["trail_verdict"], "APPROVED");
+        assert_eq!(reviewer["report"]["server_answer"]["outcome"], "NOT_SENT");
     }
 
     /// The agents run on the login's subscription: only its usage limits stop a pass, never the

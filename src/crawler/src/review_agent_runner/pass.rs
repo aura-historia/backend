@@ -27,7 +27,7 @@ use super::queue::{
     QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_candidate,
     select_reviews, waits_for_human,
 };
-use super::reports::{AgentReport, AuthorAction, AuthorReport};
+use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
@@ -100,6 +100,22 @@ enum Step {
     UsageLimit,
     /// The runner's stop stopped it; its review neither goes on nor cools down.
     RunnerStop,
+}
+
+/// A finished process: how it ended, and for a reviewer the verdict its review's event trail
+/// records since it started, `None` when the runner did not or could not read it.
+struct Processed {
+    step: Step,
+    trail_verdict: Option<TrailVerdict>,
+}
+
+impl Processed {
+    fn of(step: Step) -> Self {
+        Self {
+            step,
+            trail_verdict: None,
+        }
+    }
 }
 
 /// Works the pending reviews `console` lists with the author token, telling the agents the
@@ -201,7 +217,7 @@ impl Pass<'_> {
     /// that waits for a human after either pass, whichever process's needs-repair verdict brought
     /// it to the cap, gets no further process and no cooldown.
     async fn work_review(&self, review: QueuedReview) {
-        let author_report = match self.run_process(AgentRole::Author, &review).await {
+        let author_report = match self.run_process(AgentRole::Author, &review).await.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return,
             Step::NoDecision => None,
             Step::Reported(report) => Some(report),
@@ -225,14 +241,18 @@ impl Pass<'_> {
             self.hold_back_reviewer(&review, until);
             return;
         }
-        let reviewer_started = OffsetDateTime::now_utc();
-        match self.run_process(AgentRole::Reviewer, &review).await {
+        let processed = self.run_process(AgentRole::Reviewer, &review).await;
+        match processed.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {}
             Step::Reported(report) => {
                 self.pause_reviewers_at_decision_cap(&report).await;
-                self.finish_reviewer_pass(&review, reviewer_started).await;
+                self.finish_reviewer_pass(&review, processed.trail_verdict)
+                    .await;
             }
-            Step::NoDecision => self.finish_reviewer_pass(&review, reviewer_started).await,
+            Step::NoDecision => {
+                self.finish_reviewer_pass(&review, processed.trail_verdict)
+                    .await;
+            }
         }
     }
 
@@ -285,8 +305,12 @@ impl Pass<'_> {
 
     /// Counts the reviewer's decision, or cools the review down when it made none and does not
     /// wait for a human.
-    async fn finish_reviewer_pass(&self, review: &QueuedReview, reviewer_started: OffsetDateTime) {
-        if self.reviewer_decided(review, reviewer_started).await {
+    async fn finish_reviewer_pass(
+        &self,
+        review: &QueuedReview,
+        trail_verdict: Option<TrailVerdict>,
+    ) {
+        if trail_verdict.is_some_and(TrailVerdict::is_decision) {
             self.with(|shared| shared.summary.decided += 1);
         } else if !self
             .waits_for_human_after(AgentRole::Reviewer, review)
@@ -415,24 +439,43 @@ impl Pass<'_> {
         }
     }
 
-    /// Whether the event trail records a reviewer agent's decision on `review` since `since`.
-    /// The trail, not the report, says what the console took: a reviewer may report a refused
-    /// approval although its needs-repair verdict after it was accepted, or end before it reports.
-    /// A trail the runner cannot read counts as no decision, so the review cools down.
-    async fn reviewer_decided(&self, review: &QueuedReview, since: OffsetDateTime) -> bool {
-        const DECISIONS: [ReviewEventAction; 3] = [
-            ReviewEventAction::Approved,
-            ReviewEventAction::Rejected,
-            ReviewEventAction::RepairRequested,
+    /// What the event trail records of the reviewer agent's verdict on `review` since `since`,
+    /// the last one when it gave several. The trail, not the report, says what the console took:
+    /// a reviewer may report a refused approval although its needs-repair verdict after it was
+    /// accepted, report `NOT_SENT` for a verdict the trail shows, or end before it reports. A
+    /// trail the runner cannot read gives `None`, which counts as no decision, so the review
+    /// cools down.
+    async fn reviewer_verdict(
+        &self,
+        review: &QueuedReview,
+        since: OffsetDateTime,
+    ) -> Option<TrailVerdict> {
+        const DECISIONS: [(ReviewEventAction, TrailVerdict); 3] = [
+            (ReviewEventAction::Approved, TrailVerdict::Approved),
+            (ReviewEventAction::Rejected, TrailVerdict::Rejected),
+            (
+                ReviewEventAction::RepairRequested,
+                TrailVerdict::RepairRequested,
+            ),
         ];
         match review_events_since(self.console, since).await {
-            Ok(trail) => trail.events.iter().any(|event| {
-                event.review_id == review.review_id
-                    && event.actor == ReviewActor::AgentReviewer.as_str()
-                    && DECISIONS
-                        .iter()
-                        .any(|decision| event.action == decision.as_str())
-            }),
+            Ok(trail) => Some(
+                trail
+                    .events
+                    .iter()
+                    .rev()
+                    .filter(|event| {
+                        event.review_id == review.review_id
+                            && event.actor == ReviewActor::AgentReviewer.as_str()
+                    })
+                    .find_map(|event| {
+                        DECISIONS
+                            .iter()
+                            .find(|(action, _)| event.action == action.as_str())
+                            .map(|(_, verdict)| *verdict)
+                    })
+                    .unwrap_or(TrailVerdict::NoVerdict),
+            ),
             Err(error) => {
                 warn!(
                     review_id = %review.review_id,
@@ -440,16 +483,20 @@ impl Pass<'_> {
                     cause = ?std::error::Error::source(&error),
                     "Cannot read the event trail for the reviewer's decision; the review cools down"
                 );
-                false
+                None
             }
         }
     }
 
-    async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Step {
+    /// Runs one agent process of `role` on `review` and records it. After a reviewer process that
+    /// ended without being stopped, it reads the event trail for the verdict the console took and
+    /// records that with the process, next to the report's own claim.
+    async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Processed {
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
-            return Step::NotStarted;
+            return Processed::of(Step::NotStarted);
         }
+        let started = OffsetDateTime::now_utc();
         let contract = role_contract(role);
         let process = self.settings.role(role);
         if role == AgentRole::Author {
@@ -479,9 +526,19 @@ impl Pass<'_> {
             }
             Err(error) => record.failed(error.to_string()),
         };
+        let trail_verdict = match (role, &step) {
+            (AgentRole::Reviewer, Step::Reported(_) | Step::NoDecision) => {
+                self.reviewer_verdict(review, started).await
+            }
+            _ => None,
+        };
+        record.trail_verdict = trail_verdict;
         record.finished = OffsetDateTime::now_utc();
         self.finish(record);
-        step
+        Processed {
+            step,
+            trail_verdict,
+        }
     }
 
     /// What a finished, stopped or failed process left.
@@ -738,6 +795,7 @@ impl ProcessRecord {
             total_cost_usd: 0.0,
             cost_charged: false,
             report: None,
+            trail_verdict: None,
         }
     }
 
