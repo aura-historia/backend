@@ -394,75 +394,88 @@ mod tests {
             let claude_dir = Arc::new(claude_dir);
             tokio::spawn(async move {
                 while let Ok((mut stream, _)) = listener.accept().await {
-                    let mut request = Vec::new();
-                    let mut buffer = [0_u8; 4096];
-                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        match stream.read(&mut buffer).await {
-                            Ok(0) | Err(_) => break,
-                            Ok(read) => request.extend_from_slice(&buffer[..read]),
-                        }
-                    }
-                    let content_length = String::from_utf8_lossy(&request)
-                        .lines()
-                        .find_map(|line| {
-                            line.to_ascii_lowercase()
-                                .strip_prefix("content-length: ")
-                                .and_then(|length| length.trim().parse::<usize>().ok())
-                        })
-                        .unwrap_or(0);
-                    let header_end = request
-                        .windows(4)
-                        .position(|window| window == b"\r\n\r\n")
-                        .map_or(request.len(), |at| at + 4);
-                    while request.len() < header_end + content_length {
-                        match stream.read(&mut buffer).await {
-                            Ok(0) | Err(_) => break,
-                            Ok(read) => request.extend_from_slice(&buffer[..read]),
-                        }
-                    }
-                    let request = String::from_utf8_lossy(&request).to_string();
-                    let body = request.get(header_end..).unwrap_or_default().to_owned();
-                    let authorized = request
-                        .lines()
-                        .any(|line| line == format!("authorization: Bearer {AUTHOR_TOKEN}"));
-                    let path = request.split_whitespace().nth(1).unwrap_or_default();
-                    let (status, body) = if !authorized {
-                        (401, "{\"error\":\"unauthorized\"}".to_owned())
-                    } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
-                        (200, pending_page(&reviews, query, &claude_dir))
-                    } else if path.starts_with("/api/review-events?since=") {
-                        let decided_log = claude_dir.join("decided.log");
-                        (200, with_decisions(&events, &decided_log).to_string())
-                    } else if let Some(review) = path
-                        .strip_prefix("/api/reviews/")
-                        .and_then(|rest| rest.strip_suffix("/hand-to-human"))
-                        .filter(|_| request.starts_with("POST "))
-                    {
-                        hand_over(review, &body, &claude_dir)
-                    } else if let Some(review) = path.strip_prefix("/api/reviews/").and_then(|id| {
-                        reviews
-                            .iter()
-                            .find(|review| review.review_id.to_string() == id)
-                    }) {
-                        review_detail(review, &claude_dir)
-                    } else if path == AGENT_LIMITS_ROUTE
-                        && !claude_dir.join("limits_unreadable").exists()
-                    {
-                        let limits = AgentLimits {
-                            min_labelled_urls: std::num::NonZeroU32::new(CONSOLE_MIN_LABELLED_URLS)
-                                .unwrap_or(std::num::NonZeroU32::MIN),
-                            ..AgentLimits::default()
-                        };
-                        (200, json!(limits).to_string())
-                    } else {
-                        (404, "{\"error\":\"not found\"}".to_owned())
-                    };
-                    let response = format!(
-                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
+                    // Each connection on its own task, so a client that connects and sends
+                    // nothing yet, such as a pooled connection, holds no other request back.
+                    let (reviews, events, claude_dir) = (
+                        Arc::clone(&reviews),
+                        Arc::clone(&events),
+                        Arc::clone(&claude_dir),
                     );
-                    let _ = stream.write_all(response.as_bytes()).await;
-                    let _ = stream.shutdown().await;
+                    tokio::spawn(async move {
+                        let mut request = Vec::new();
+                        let mut buffer = [0_u8; 4096];
+                        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            match stream.read(&mut buffer).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(read) => request.extend_from_slice(&buffer[..read]),
+                            }
+                        }
+                        let content_length = String::from_utf8_lossy(&request)
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length: ")
+                                    .and_then(|length| length.trim().parse::<usize>().ok())
+                            })
+                            .unwrap_or(0);
+                        let header_end = request
+                            .windows(4)
+                            .position(|window| window == b"\r\n\r\n")
+                            .map_or(request.len(), |at| at + 4);
+                        while request.len() < header_end + content_length {
+                            match stream.read(&mut buffer).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(read) => request.extend_from_slice(&buffer[..read]),
+                            }
+                        }
+                        let request = String::from_utf8_lossy(&request).to_string();
+                        let body = request.get(header_end..).unwrap_or_default().to_owned();
+                        let authorized = request
+                            .lines()
+                            .any(|line| line == format!("authorization: Bearer {AUTHOR_TOKEN}"));
+                        let path = request.split_whitespace().nth(1).unwrap_or_default();
+                        let (status, body) = if !authorized {
+                            (401, "{\"error\":\"unauthorized\"}".to_owned())
+                        } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
+                            (200, pending_page(&reviews, query, &claude_dir))
+                        } else if path.starts_with("/api/review-events?since=") {
+                            let decided_log = claude_dir.join("decided.log");
+                            (200, with_decisions(&events, &decided_log).to_string())
+                        } else if let Some(review) = path
+                            .strip_prefix("/api/reviews/")
+                            .and_then(|rest| rest.strip_suffix("/hand-to-human"))
+                            .filter(|_| request.starts_with("POST "))
+                        {
+                            hand_over(review, &body, &claude_dir)
+                        } else if let Some(review) =
+                            path.strip_prefix("/api/reviews/").and_then(|id| {
+                                reviews
+                                    .iter()
+                                    .find(|review| review.review_id.to_string() == id)
+                            })
+                        {
+                            review_detail(review, &claude_dir)
+                        } else if path == AGENT_LIMITS_ROUTE
+                            && !claude_dir.join("limits_unreadable").exists()
+                        {
+                            let limits = AgentLimits {
+                                min_labelled_urls: std::num::NonZeroU32::new(
+                                    CONSOLE_MIN_LABELLED_URLS,
+                                )
+                                .unwrap_or(std::num::NonZeroU32::MIN),
+                                ..AgentLimits::default()
+                            };
+                            (200, json!(limits).to_string())
+                        } else {
+                            (404, "{\"error\":\"not found\"}".to_owned())
+                        };
+                        let response = format!(
+                            "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(response.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                    });
                 }
             });
             Self { url }
