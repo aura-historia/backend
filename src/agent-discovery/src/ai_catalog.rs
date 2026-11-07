@@ -48,7 +48,7 @@ pub(crate) fn render(environment: DiscoveryEnvironment) -> String {
             display_name: "Aura Historia",
             identifier: domain,
             documentation_url: format!("{}/", environment.documentation_origin()),
-            logo_url: format!("{}/icon1080x1080.png", environment.site_origin()),
+            logo_url: environment.site_logo_url(),
         },
         entries: vec![
             Entry {

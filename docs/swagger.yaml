@@ -397,6 +397,51 @@ paths:
       responses:
         "200":
           description: The document exists.
+  /v1/site-discovery/oauth/webmcp-client.json:
+    get:
+      summary: Get the website's WebMCP client metadata document
+      description: >-
+        The OAuth Client ID Metadata Document that the website publishes at
+        `/oauth/webmcp-client.json`. The website signs its users in to the MCP server as an ordinary
+        metadata document client with it, so agents in the browser can use the signed-in MCP tools
+        through WebMCP. `client_id` is the document's website URL. It is a public client
+        (`token_endpoint_auth_method: none`) using the authorization code and refresh token grants.
+        Its callback is the website's `/api/oauth/webmcp/callback`; on stage, the same path on
+        `http://localhost` is also listed for local development. It gets the same consent, scope
+        ceiling, token lifetimes and denylist handling as every other metadata document client.
+        Credentials and query strings are not evaluated; send none. See docs/oauth.md and
+        docs/agent-discovery.md.
+      operationId: getSiteWebMcpClientMetadata
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The document, at most 5 KiB. Anonymous responses use `public, max-age=0, s-maxage=300, stale-if-error=0`; a request carrying `Authorization` is answered with `private, no-store`.
+          headers:
+            Access-Control-Allow-Origin:
+              $ref: '#/components/headers/SiteDiscoveryAllowOrigin'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteWebMcpClientMetadataData'
+              example:
+                client_id: https://aura-historia.com/oauth/webmcp-client.json
+                client_name: AI agents in your browser
+                client_uri: https://aura-historia.com
+                logo_uri: https://aura-historia.com/icon1080x1080.png
+                redirect_uris: [https://aura-historia.com/api/oauth/webmcp/callback]
+                grant_types: [authorization_code, refresh_token]
+                response_types: [code]
+                token_endpoint_auth_method: none
+    head:
+      summary: Check the website's WebMCP client metadata document
+      description: Returns the `GET` headers without a body.
+      operationId: headSiteWebMcpClientMetadata
+      tags: [Agent Discovery]
+      security: []
+      responses:
+        "200":
+          description: The document exists.
   /v1/health:
     get:
       summary: Check process liveness
@@ -18993,6 +19038,36 @@ components:
           type: object
           additionalProperties: false
           description: Agents browse the website as signed-out visitors.
+    SiteWebMcpClientMetadataData:
+      type: object
+      additionalProperties: false
+      required: [client_id, client_name, client_uri, logo_uri, redirect_uris, grant_types, response_types, token_endpoint_auth_method]
+      properties:
+        client_id:
+          type: string
+          enum: [https://aura-historia.com/oauth/webmcp-client.json, https://stage.aura-historia.com/oauth/webmcp-client.json]
+          description: The document's own website URL.
+        client_name:
+          type: string
+          description: Shown on the consent page beside the verified host of `client_id`.
+        client_uri:
+          type: string
+          enum: [https://aura-historia.com, https://stage.aura-historia.com]
+        logo_uri: { type: string }
+        redirect_uris:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: The website's `/api/oauth/webmcp/callback`; on stage also `http://localhost/api/oauth/webmcp/callback`, which matches on any port.
+        grant_types:
+          type: array
+          items: { type: string, enum: [authorization_code, refresh_token] }
+        response_types:
+          type: array
+          items: { type: string, enum: [code] }
+        token_endpoint_auth_method:
+          type: string
+          enum: [none]
     SiteAgentSkillsIndexData:
       type: object
       additionalProperties: false

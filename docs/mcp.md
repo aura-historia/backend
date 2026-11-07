@@ -164,6 +164,26 @@ types through `$defs` and `$ref`; the remaining repetition is the same types in 
 which MCP cannot share because each tool's schema is self-contained. Their descriptions document
 the result for clients, so they stay. Input schemas are the complete shared request contracts.
 
+## Tool snapshot
+
+[`mcp-tools.json`](mcp-tools.json) is the `tools` array that an anonymous `tools/list` returns
+under revision `2026-07-28`, protected tools included. The website syncs it from this repository,
+like the OpenAPI document, and registers its WebMCP tools from it. It never lists tools at
+runtime: `tools/list` is a POST that the CDN cannot cache, so every page view would invoke the MCP
+Lambda and use up its small reserved concurrency.
+
+The registry renders the file. [`tools_snapshot.rs`](../src/aura-historia-mcp/tests/tools_snapshot.rs)
+fails when the file differs from the registry's output. It also fails when production and stage
+would render different files or a tool names an environment origin. After changing a tool,
+regenerate the file:
+
+```sh
+UPDATE_MCP_TOOLS_SNAPSHOT=1 cargo test --locked -p aura-historia-mcp --test tools_snapshot
+```
+
+Renaming or removing a tool, or changing its arguments incompatibly, breaks the website's calls
+to it until the webapp syncs again. Record such changes in the [changelog](CHANGELOG.md).
+
 ## Watchlist tools
 
 | Operation | Scope | Result |

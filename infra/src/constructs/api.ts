@@ -94,6 +94,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/index.json", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/auth.md", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/oauth/webmcp-client.json", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 
