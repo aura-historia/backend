@@ -972,7 +972,7 @@ function renderDetail(detail, matrix) {
       <div id="actionPanel">${renderActionPanel()}</div>
       <div id="editMessages">${renderEditMessages()}</div>
       ${renderCandidateError(detail)}
-      ${renderHumanRequired(review)}
+      ${renderHumanRequired(detail)}
       ${renderRepairRequest(review)}
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
@@ -1132,10 +1132,23 @@ function repairBadge(review) {
     return isWaitingForRepair(review) ? badge('Waiting for repair', 'warn') : '';
 }
 
-function renderHumanRequired(review) {
+// The agent's hand-over since a human last acted on the review, which makes it wait for a human
+// whatever its rounds.
+function handOverSinceHuman(detail) {
+    const events = detail?.events || [];
+    const lastHuman = events.map(event => event.actor).lastIndexOf('HUMAN');
+    return events.slice(lastHuman + 1).reverse().find(event => event.action === 'HANDED_TO_HUMAN');
+}
+
+function renderHumanRequired(detail) {
+    const review = detail?.review;
     if (!review?.human_required) return '';
     const rounds = Number(review.agent_rounds) || 0;
-    return notice('bad', 'Needs a human', `The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last touched this review and stopped. Edit it, change its pages or labels, or give needs-repair with instructions to hand it back; or approve or reject it.`);
+    const handOver = handOverSinceHuman(detail);
+    const why = handOver
+        ? `This review was handed to a human by ${escapeHtml(actorWord(handOver.actor))} since a human last touched it; its reasoning is in the history.`
+        : `The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last touched this review and stopped.`;
+    return notice('bad', 'Needs a human', `${why} Edit it, change its pages or labels, or give needs-repair with instructions to hand it back; or approve or reject it.`);
 }
 
 function renderRepairRequest(review) {

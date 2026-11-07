@@ -2056,6 +2056,7 @@ Origin: http://127.0.0.1:7878/x
         let (head, body) = answer(ReviewRepositoryError::HumanRequired {
             review_id: CrawlerReviewId::new(),
             agent_rounds: 3,
+            handed_to_human: false,
             max_repair_rounds: 3,
         });
         assert!(head.starts_with("HTTP/1.1 409 Conflict"), "{head}");

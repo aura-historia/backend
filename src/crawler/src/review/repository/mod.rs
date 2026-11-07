@@ -242,11 +242,15 @@ pub enum ReviewRepositoryError {
         failed_checks: Vec<FailedApprovalCheck>,
     },
     #[error(
-        "review {review_id} waits for a human: the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}; leave it until a human changes or judges it"
+        "review {review_id} waits for a human: {}; leave it until a human changes or judges it",
+        human_required_cause(*agent_rounds, *handed_to_human, *max_repair_rounds)
     )]
     HumanRequired {
         review_id: CrawlerReviewId,
         agent_rounds: u32,
+        /// Whether a review agent handed the review to a human, which it waits for whatever its
+        /// rounds.
+        handed_to_human: bool,
         max_repair_rounds: u32,
     },
     #[error("only a human restores what an approval replaced")]
@@ -280,6 +284,22 @@ pub enum ReviewRepositoryError {
         #[source]
         source: tokio::task::JoinError,
     },
+}
+
+/// Why a review waits for a human, as [`ReviewRepositoryError::HumanRequired`] says it: an agent's
+/// hand-over, or the agents' needs-repair verdicts that reached the cap.
+fn human_required_cause(
+    agent_rounds: u32,
+    handed_to_human: bool,
+    max_repair_rounds: u32,
+) -> String {
+    if handed_to_human {
+        "a review agent handed it to a human since a human last changed or judged it".to_owned()
+    } else {
+        format!(
+            "the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}"
+        )
+    }
 }
 
 /// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
@@ -1831,8 +1851,36 @@ fn append_manual_schema_edit(
 
 #[cfg(test)]
 mod tests {
-    use super::append_manual_schema_edit;
+    use super::{ReviewRepositoryError, append_manual_schema_edit};
+    use crate::CrawlerReviewId;
     use serde_json::json;
+
+    /// A review an agent handed over waits for a human whatever its rounds, so the refusal names
+    /// the hand-over rather than a count of needs-repair verdicts that did not reach the cap.
+    #[test]
+    fn should_name_the_hand_over_or_the_capped_rounds_a_review_waits_for_a_human_after() {
+        let refusal = |agent_rounds, handed_to_human| {
+            ReviewRepositoryError::HumanRequired {
+                review_id: CrawlerReviewId::new(),
+                agent_rounds,
+                handed_to_human,
+                max_repair_rounds: 3,
+            }
+            .to_string()
+        };
+
+        let handed = refusal(1, true);
+        assert!(
+            handed.contains("waits for a human: a review agent handed it to a human since a human last changed or judged it; leave it"),
+            "{handed}"
+        );
+        assert!(!handed.contains("needs-repair"), "{handed}");
+        let capped = refusal(3, false);
+        assert!(
+            capped.contains("the review agents gave it 3 needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is 3; leave it"),
+            "{capped}"
+        );
+    }
 
     #[test]
     fn appends_manual_schema_edit_audit_entry() {

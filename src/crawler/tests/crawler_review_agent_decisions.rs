@@ -2052,6 +2052,7 @@ fn assert_human_required(
             Err(ReviewRepositoryError::HumanRequired {
                 review_id: id,
                 agent_rounds,
+                handed_to_human: false,
                 max_repair_rounds,
             }) if *id == review_id && *agent_rounds == rounds && *max_repair_rounds == rounds
         ),
