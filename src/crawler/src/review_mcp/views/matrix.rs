@@ -6,6 +6,7 @@ use crate::review::model::{
     RemovedPageTemplateMatch, RemovedPageTemplateOutcome, SchemaPageEvaluation,
     SchemaPageReference, SelectorFieldEvaluation,
 };
+use crate::review::page_content_checks::resolved_availability;
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use schemars::JsonSchema;
@@ -64,12 +65,17 @@ pub struct SchemaPageView {
     pub findings: Vec<FindingView>,
 }
 
-/// What a schema extracted from a page; long values are shortened.
+/// What a schema extracted from a page; long values are shortened. `state_availability` is the
+/// availability the ProductListing normalization resolves `state` to, as the scraper does at
+/// runtime and the approval guard's sold-page check does: its catalogue code such as `SOLD_OUT`,
+/// `null` when `state` is no whole availability label (a sentence about the sale, a cart button),
+/// which gives the listing no availability.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ExtractedView {
     pub source_listing_id: String,
     pub title: String,
     pub state: String,
+    pub state_availability: Option<String>,
     pub price: Option<String>,
     pub price_estimate_min: Option<String>,
     pub price_estimate_max: Option<String>,
@@ -277,6 +283,8 @@ impl ExtractedView {
             source_listing_id: value(&extracted.source_listing_id),
             title: value(&extracted.title),
             state: value(&extracted.state),
+            state_availability: resolved_availability(&extracted.state)
+                .map(|availability| availability.as_str().to_owned()),
             price: extracted.price.as_deref().map(value),
             price_estimate_min: extracted.price_estimate_min.as_deref().map(value),
             price_estimate_max: extracted.price_estimate_max.as_deref().map(value),
@@ -413,6 +421,7 @@ mod tests {
         assert_eq!(page["applies"], false);
         assert_eq!(page["extracted"]["description_excerpt"], "Oak chair");
         assert_eq!(page["extracted"]["images"], 2);
+        assert_eq!(page["extracted"]["state_availability"], "IN_STOCK");
         assert_eq!(
             page["extracted"]["raw_attributes"],
             json!({ "rawMaterial": "oak | brass" })
@@ -444,5 +453,24 @@ mod tests {
             view["removed_page_matches"][1]["product_titles_taken_for_notices"],
             json!(["Oak chair"])
         );
+    }
+
+    #[test]
+    fn should_show_what_each_extracted_state_resolves_to() {
+        let extracted = |state: &str| -> RawExtractedProduct {
+            decoded(json!({
+                "source_listing_id": "A1", "title": "Chair", "description": [], "price": null,
+                "price_estimate_min": null, "price_estimate_max": null, "state": state,
+                "images": [], "raw_attributes": {},
+            }))
+        };
+
+        let resolved = json!(ExtractedView::of(extracted("Sold")));
+        let sentence = json!(ExtractedView::of(extracted(
+            "This item has been sold, though you can still email the seller"
+        )));
+
+        assert_eq!(resolved["state_availability"], "SOLD_OUT");
+        assert_eq!(sentence["state_availability"], Value::Null);
     }
 }

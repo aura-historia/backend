@@ -309,7 +309,18 @@ async fn trail(
 
 fn failed_checks(refusal: Result<(), ReviewRepositoryError>) -> Vec<FailedApprovalCheck> {
     match refusal {
-        Err(ReviewRepositoryError::AgentApprovalRefused { failed_checks, .. }) => failed_checks,
+        Err(ReviewRepositoryError::AgentApprovalRefused { failed_checks, .. }) => failed_checks
+            .into_iter()
+            .map(|check| match check {
+                // The states are proven by the guard's unit tests, not by these scenarios.
+                FailedApprovalCheck::NoSoldPageTested { .. } => {
+                    FailedApprovalCheck::NoSoldPageTested {
+                        states_seen: Vec::new(),
+                    }
+                }
+                other => other,
+            })
+            .collect(),
         other => panic!("expected the approval guard to refuse: {other:?}"),
     }
 }
@@ -480,7 +491,9 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
                     url: table.url.clone(),
                 }],
             },
-            FailedApprovalCheck::NoSoldPageTested,
+            FailedApprovalCheck::NoSoldPageTested {
+                states_seen: Vec::new(),
+            },
         ]
     );
 
@@ -593,7 +606,9 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
 
     assert_eq!(
         failed_checks(refused_approval),
-        vec![FailedApprovalCheck::NoSoldPageTested]
+        vec![FailedApprovalCheck::NoSoldPageTested {
+            states_seen: Vec::new(),
+        }]
     );
     assert!(
         matches!(
@@ -722,7 +737,9 @@ async fn should_count_a_no_sold_page_record_only_until_a_human_acts_on_the_revie
 
     assert_eq!(
         failed_checks(handed_back),
-        vec![FailedApprovalCheck::NoSoldPageTested]
+        vec![FailedApprovalCheck::NoSoldPageTested {
+            states_seen: Vec::new(),
+        }]
     );
     assert!(
         matches!(

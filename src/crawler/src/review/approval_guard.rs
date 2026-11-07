@@ -10,8 +10,8 @@ use crate::review::model::{
     SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crate::review::page_content_checks::{
-    MissingContentRule, missing_content_rules, pages_without_signals,
-    shows_sold_or_unavailable_page,
+    MissingContentRule, SeenState, missing_content_rules, pages_without_signals,
+    shows_sold_or_unavailable_page, states_seen,
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
@@ -63,8 +63,9 @@ pub enum FailedApprovalCheck {
     /// has a `price` or a `description` rule.
     ContentRuleMissing { rules: Vec<MissingContentRule> },
     /// No review page shows a sold or unavailable product, and the review records no search for
-    /// one that found none.
-    NoSoldPageTested,
+    /// one that found none. `states_seen` lists what the candidate schemas extract as `state` on
+    /// the pages they apply to, and what the normalization resolves each to.
+    NoSoldPageTested { states_seen: Vec<SeenState> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
     /// The decision takes clearly fewer of the sample's URLs than the share of inspected pages
@@ -94,6 +95,25 @@ pub enum FailedApprovalCheck {
     /// URLs labelled `NOT_PRODUCT` that the decision classifies as product pages under a spelling
     /// the crawler may store them under.
     NotProductLabelMatched { urls: Vec<String> },
+}
+
+/// The states of a `NO_SOLD_PAGE_TESTED` refusal, each as `'state' → CODE` or `'state' → unresolved`.
+fn describe_states(states: &[SeenState]) -> String {
+    if states.is_empty() {
+        return "none, no candidate schema applies to a review page".to_owned();
+    }
+    states
+        .iter()
+        .map(|seen| {
+            format!(
+                "'{}' → {} on {}",
+                seen.state,
+                seen.resolves_to.unwrap_or("unresolved"),
+                seen.url
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A review page a check names.
@@ -165,9 +185,10 @@ impl fmt::Display for FailedApprovalCheck {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Self::NoSoldPageTested => write!(
+            Self::NoSoldPageTested { states_seen } => write!(
                 formatter,
-                "no review page shows a sold or unavailable product; add one with add_review_page and refresh the matrix, or record the pages you checked with record_no_sold_page when the shop has none"
+                "no review page's state resolves to sold or unavailable; states seen: {}; add a sold page with add_review_page and refresh the matrix, or record the pages you checked with record_no_sold_page when the shop has none",
+                describe_states(states_seen)
             ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
             Self::TooFewLabels {
@@ -275,7 +296,9 @@ pub(crate) fn product_schema_approval_checks(
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
     if !review.no_sold_page_recorded && !shows_sold_or_unavailable_page(matrix, &coverages) {
-        failed.push(FailedApprovalCheck::NoSoldPageTested);
+        failed.push(FailedApprovalCheck::NoSoldPageTested {
+            states_seen: states_seen(matrix, &coverages),
+        });
     }
     let content_rules = missing_content_rules(matrix, &coverages);
     if !content_rules.is_empty() {
@@ -1143,11 +1166,48 @@ mod tests {
 
         assert_eq!(
             checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, false),
-            vec![FailedApprovalCheck::NoSoldPageTested]
+            vec![FailedApprovalCheck::NoSoldPageTested {
+                states_seen: vec![
+                    SeenState {
+                        url: "https://shop.example/products/chair".to_owned(),
+                        state: "In stock".to_owned(),
+                        resolves_to: Some("IN_STOCK"),
+                    },
+                    SeenState {
+                        url: "https://shop.example/products/table".to_owned(),
+                        state: "Add to cart".to_owned(),
+                        resolves_to: Some("AVAILABLE"),
+                    },
+                ],
+            }]
         );
         assert_eq!(
             checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, true),
             Vec::new()
+        );
+    }
+
+    /// The refusal names each state seen with what the normalization makes of it, so an agent sees
+    /// why a sentence announcing the sale does not count.
+    #[test]
+    fn should_name_the_states_seen_in_the_no_sold_page_message() {
+        let pages = [page_in_state(
+            "chair",
+            "This item has been sold, though you can still email the seller",
+        )];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        let current = review_pages(&pages);
+
+        let message = checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, false)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<String>();
+
+        assert!(
+            message.contains(
+                "states seen: 'This item has been sold, though you can still email the seller' → unresolved on https://shop.example/products/chair"
+            ),
+            "{message}"
         );
     }
 
@@ -1554,8 +1614,22 @@ mod tests {
             }))
         );
         assert_eq!(
-            serde_json::to_value(FailedApprovalCheck::NoSoldPageTested).ok(),
-            Some(serde_json::json!({ "check": "NO_SOLD_PAGE_TESTED" }))
+            serde_json::to_value(FailedApprovalCheck::NoSoldPageTested {
+                states_seen: vec![SeenState {
+                    url: "https://antiques.example/products/chair".to_owned(),
+                    state: "Sold".to_owned(),
+                    resolves_to: None,
+                }],
+            })
+            .ok(),
+            Some(serde_json::json!({
+                "check": "NO_SOLD_PAGE_TESTED",
+                "states_seen": [{
+                    "url": "https://antiques.example/products/chair",
+                    "state": "Sold",
+                    "resolves_to": null,
+                }],
+            }))
         );
         assert_eq!(
             serde_json::to_value(FailedApprovalCheck::LiveMatrixMissing).ok(),

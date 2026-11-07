@@ -9,7 +9,7 @@ use crate::review::model::{
 };
 use crate::review::page_coverage::PageCoverage;
 use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_normalization::quick_check_availability;
+use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use serde::Serialize;
 
 /// An optional field whose rule no schema applying to the pages has, though the pages show it.
@@ -103,39 +103,98 @@ fn any_has_rule(evaluations: &[&SchemaPageEvaluation], fields: &[&str]) -> bool 
     })
 }
 
-/// Whether a review page shows a sold or unavailable product: a template captures it as removed,
-/// or a candidate schema extracts a `state` that the ProductListing normalization resolves to sold
-/// out, out of stock or unavailable, as a `schema.org/SoldOut` read from JSON-LD or the label
-/// "Sold" does. A `state` the normalization does not recognize, such as an add-to-cart button's
-/// text, says nothing about the page.
-pub(crate) fn shows_sold_or_unavailable_page(
-    matrix: &SchemaMatrix,
-    coverages: &[(&CrawlerReviewPage, PageCoverage)],
-) -> bool {
-    coverages.iter().any(|(page, coverage)| {
-        let reference = SchemaPageReference::Persisted {
-            review_page_id: page.review_page_id,
-        };
-        *coverage == PageCoverage::CapturedAsRemoved
-            || matrix
-                .candidates
-                .iter()
-                .flat_map(|candidate| &candidate.pages)
-                .filter(|evaluation| evaluation.page_reference == reference && evaluation.apply_ok)
-                .filter_map(|evaluation| evaluation.extracted.as_ref())
-                .any(|extracted| state_is_sold_or_unavailable(&extracted.state))
-    })
+/// What the ProductListing normalization makes of an extracted `state`, as the scraper does at
+/// runtime: `None` for a value that is no whole availability label, which gives the listing no
+/// availability. One function for the approval guard and the matrix view, so they agree.
+pub(crate) fn resolved_availability(state: &str) -> Option<ListingAvailability> {
+    quick_check_availability(state)
+        .ok()
+        .and_then(ListingAvailabilityQuickCheck::availability)
 }
 
-fn state_is_sold_or_unavailable(state: &str) -> bool {
+fn is_sold_or_unavailable(availability: Option<ListingAvailability>) -> bool {
     matches!(
-        quick_check_availability(state)
-            .ok()
-            .and_then(|check| check.availability()),
+        availability,
         Some(
             ListingAvailability::SoldOut
                 | ListingAvailability::OutOfStock
                 | ListingAvailability::Unavailable
         )
     )
+}
+
+/// The `state` each candidate schema extracts on `page`, for the schemas that apply to it.
+fn applied_states<'a>(
+    matrix: &'a SchemaMatrix,
+    page: &CrawlerReviewPage,
+) -> impl Iterator<Item = &'a str> {
+    let reference = SchemaPageReference::Persisted {
+        review_page_id: page.review_page_id,
+    };
+    matrix
+        .candidates
+        .iter()
+        .flat_map(|candidate| &candidate.pages)
+        .filter(move |evaluation| evaluation.page_reference == reference && evaluation.apply_ok)
+        .filter_map(|evaluation| evaluation.extracted.as_ref())
+        .map(|extracted| extracted.state.as_str())
+}
+
+/// Whether a review page shows a sold or unavailable product: a template captures it as removed,
+/// or a candidate schema extracts a `state` that the ProductListing normalization resolves to sold
+/// out, out of stock or unavailable, as a `schema.org/SoldOut` read from JSON-LD or the label
+/// "Sold" does. A `state` the normalization does not recognize, such as an add-to-cart button's
+/// text or a sentence announcing the sale, says nothing about the page.
+pub(crate) fn shows_sold_or_unavailable_page(
+    matrix: &SchemaMatrix,
+    coverages: &[(&CrawlerReviewPage, PageCoverage)],
+) -> bool {
+    coverages.iter().any(|(page, coverage)| {
+        *coverage == PageCoverage::CapturedAsRemoved
+            || applied_states(matrix, page)
+                .any(|state| is_sold_or_unavailable(resolved_availability(state)))
+    })
+}
+
+/// A `state` a candidate schema extracts on a review page, with what it resolves to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SeenState {
+    pub url: String,
+    pub state: String,
+    /// The availability's catalogue code, `None` for a `state` the normalization does not resolve.
+    pub resolves_to: Option<&'static str>,
+}
+
+/// The states the candidate schemas extract on the review pages they apply to, once per page and
+/// value, as `NO_SOLD_PAGE_TESTED` names them.
+pub(crate) fn states_seen(
+    matrix: &SchemaMatrix,
+    coverages: &[(&CrawlerReviewPage, PageCoverage)],
+) -> Vec<SeenState> {
+    let mut seen: Vec<SeenState> = Vec::new();
+    for (page, _) in coverages {
+        for state in applied_states(matrix, page) {
+            let entry = SeenState {
+                url: page.url.clone(),
+                state: shortened(state),
+                resolves_to: resolved_availability(state).map(ListingAvailability::as_str),
+            };
+            if !seen.contains(&entry) {
+                seen.push(entry);
+            }
+        }
+    }
+    seen
+}
+
+const SEEN_STATE_MAX_CHARS: usize = 80;
+
+fn shortened(state: &str) -> String {
+    let mut chars = state.trim().chars();
+    let kept: String = chars.by_ref().take(SEEN_STATE_MAX_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{kept}…")
+    } else {
+        kept
+    }
 }
