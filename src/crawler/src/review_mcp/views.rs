@@ -110,9 +110,9 @@ pub struct ReviewView {
     /// The needs-repair verdicts the agents gave the review since a human last changed or judged
     /// it.
     pub agent_rounds: u32,
-    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap, and
-    /// every change, verdict and page fetch of an agent on it is refused with `HUMAN_REQUIRED`
-    /// until a human changes or judges it. Leave such a review alone.
+    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap or an
+    /// agent handed it over, and every change, verdict and page fetch of an agent on it is refused
+    /// with `HUMAN_REQUIRED` until a human changes or judges it. Leave such a review alone.
     pub human_required: bool,
     pub candidate: CandidateView,
     /// The pages a product-schema candidate is evaluated on.
