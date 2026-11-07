@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-07 — MCP tool snapshot for the website's WebMCP (#2817)
+
+- Added [`mcp-tools.json`](mcp-tools.json): exactly the `tools` array that an anonymous MCP `tools/list` returns under revision `2026-07-28`, including protected tools and their `_meta` access and required scopes. It is the same for production and stage. The website registers its WebMCP tools from it instead of calling `tools/list`. Renaming or removing a tool breaks the website's calls to it until the webapp syncs this file again; such changes are recorded here. See [MCP](mcp.md#tool-snapshot).
+
 ## 2026-11-06 — Website discovery documents for agents (#2805)
 
 - Added `GET` and `HEAD` for the documents that describe the website to agents, which the webapp publishes on `aura-historia.com`. Responses allow any origin, and anonymous ones are shared at the edge for 300 seconds. See [agent discovery](agent-discovery.md#website-documents).
