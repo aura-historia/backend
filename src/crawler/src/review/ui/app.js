@@ -1152,6 +1152,7 @@ const REVIEW_EVENT_LABELS = {
     PAGE_REMOVED: 'Page removed',
     NO_SOLD_PAGE_RECORDED: 'No sold page found',
     REPAIR_REQUESTED: 'Repair requested',
+    HANDED_TO_HUMAN: 'Handed to a human',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
     RESTORED: 'Restored',

@@ -1,7 +1,8 @@
 //! The daily digest of the agents' work, for humans who oversee after the fact: the reviews that
 //! wait for a human (the agents' needs-repair rounds on them reached the cap, or an agent handed
 //! them over), what the event trail of all reviews recorded in the window (approvals, rejections,
-//! needs-repair verdicts and hand-overs by actor, restores and revoked rejections), what the agents reported (the server's
+//! needs-repair verdicts, hand-overs and no-sold-page records by actor, restores and revoked
+//! rejections), what the agents reported (the server's
 //! refusals by failed check, each process's outcome), and each review's tokens and cost. It is
 //! written to a Markdown file in the state directory's `digests/` and summarised in one log line.
 
@@ -56,6 +57,9 @@ pub struct Digest {
     pub needs_repair: DecisionCount,
     /// The reviews an agent handed to a human at once, with its reasoning as the event's note.
     pub handed_to_human: DecisionCount,
+    /// The records that no sold or unavailable page was found, on which an agent's approval may
+    /// rest instead of a tested sold page, with the account of the search as the event's note.
+    pub no_sold_page_recorded: DecisionCount,
     pub restored: usize,
     /// The rejections a human revoked, so they classify their pages as non-product pages no more.
     pub revoked_rejections: usize,
@@ -98,6 +102,7 @@ impl Digest {
                         | "REJECTED"
                         | "REPAIR_REQUESTED"
                         | "HANDED_TO_HUMAN"
+                        | "NO_SOLD_PAGE_RECORDED"
                         | "RESTORED"
                         | "REJECTION_REVOKED"
                 )
@@ -129,6 +134,7 @@ impl Digest {
             rejected: count("REJECTED"),
             needs_repair: count("REPAIR_REQUESTED"),
             handed_to_human: count("HANDED_TO_HUMAN"),
+            no_sold_page_recorded: count("NO_SOLD_PAGE_RECORDED"),
             restored: total("RESTORED"),
             revoked_rejections: total("REJECTION_REVOKED"),
             needs_a_human,
@@ -264,6 +270,7 @@ impl Digest {
             ("Rejected", self.rejected),
             ("Needs repair", self.needs_repair),
             ("Handed to a human", self.handed_to_human),
+            ("No sold page recorded", self.no_sold_page_recorded),
         ] {
             let _ = writeln!(out, "| {name} | {} | {} |", count.agents, count.others);
         }
@@ -793,6 +800,47 @@ mod tests {
             )),
             "{markdown}"
         );
+    }
+
+    /// An agent's approval may rest on the author's record that it found no sold page instead of
+    /// a tested one, so the digest counts the records and lists each with the author's account.
+    #[test]
+    fn should_count_and_list_the_records_that_no_sold_page_was_found() {
+        let mut recorded = event("AGENT_AUTHOR", "NO_SOLD_PAGE_RECORDED", 2);
+        recorded.notes = Some("Searched the sold archive and the filters".to_owned());
+        let review_id = recorded.review_id;
+
+        let digest = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![recorded, event("AGENT_AUTHOR", "PAGE_ADDED", 1)],
+                truncated: false,
+            },
+            vec![],
+            vec![],
+            rolling_cost(),
+        );
+
+        let markdown = digest.markdown();
+        assert_eq!(
+            digest.no_sold_page_recorded,
+            DecisionCount {
+                agents: 1,
+                others: 0
+            }
+        );
+        assert!(
+            markdown.contains("| No sold page recorded | 1 | 0 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(&format!(
+                "{review_id} PRODUCT_SCHEMA · Antiques · AGENT_AUTHOR NO_SOLD_PAGE_RECORDED at version 3: Searched the sold archive and the filters\n"
+            )),
+            "{markdown}"
+        );
+        assert!(!markdown.contains("PAGE_ADDED"), "{markdown}");
     }
 
     #[test]
