@@ -435,7 +435,10 @@
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2283.jpg",
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2281.jpg",
         "https://www.collingeantiques.com/wp-content/uploads/2026/05/IMG_2277.jpg"
-      ]    }
+      ]    },
+    "plausibility_findings": [
+      { "field": "state", "check": "PRICE_TEXT" }
+    ]
   },
   {
     "html": "tests/fixtures/html/collingeantiques_sold.html",
