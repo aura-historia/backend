@@ -1,6 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::authoring::CrawlerAuthoringMode;
+use crate::review::repository::ReviewPlacement;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -824,7 +825,13 @@ impl ScraperServiceImpl {
             _ => None,
         };
         match review {
-            Some(Ok(Some(review_id))) => info!(
+            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => info!(
+                url = %page.url,
+                review_id = %review_id,
+                findings = %findings,
+                "Page left a required value blank; opened the missing_required_value review"
+            ),
+            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => info!(
                 url = %page.url,
                 review_id = %review_id,
                 findings = %findings,

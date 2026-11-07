@@ -334,6 +334,22 @@ pub struct CrawlerReviewRepository {
     url_classifier: UrlClassifier,
 }
 
+/// How a schema review insert placed its pages: in a review it opened, or in the ListingSource's
+/// pending product-schema review that already existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewPlacement {
+    Opened(CrawlerReviewId),
+    Joined(CrawlerReviewId),
+}
+
+impl ReviewPlacement {
+    pub const fn review_id(self) -> CrawlerReviewId {
+        match self {
+            Self::Opened(review_id) | Self::Joined(review_id) => review_id,
+        }
+    }
+}
+
 pub struct SchemaReviewWithStatusInput<'a> {
     pub listing_source_id: &'a ListingSourceId,
     pub reason: &'a str,
@@ -706,19 +722,22 @@ impl CrawlerReviewRepository {
             notes: None,
         })
         .await
+        .map(ReviewPlacement::review_id)
     }
 
     pub async fn create_schema_review_with_status(
         &self,
         input: SchemaReviewWithStatusInput<'_>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        self.insert_schema_review(input).await
+        self.insert_schema_review(input)
+            .await
+            .map(ReviewPlacement::review_id)
     }
 
     async fn insert_schema_review(
         &self,
         input: SchemaReviewWithStatusInput<'_>,
-    ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
+    ) -> Result<ReviewPlacement, ReviewRepositoryError> {
         let SchemaReviewWithStatusInput {
             listing_source_id,
             reason,
@@ -807,7 +826,11 @@ impl CrawlerReviewRepository {
             }
         }
         transaction.commit().await?;
-        Ok(review_id)
+        Ok(if is_new {
+            ReviewPlacement::Opened(review_id)
+        } else {
+            ReviewPlacement::Joined(review_id)
+        })
     }
 
     /// Attaches a page that failed every cached schema to the ListingSource's pending

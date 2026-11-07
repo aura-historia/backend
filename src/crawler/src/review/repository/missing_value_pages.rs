@@ -6,7 +6,7 @@
 
 use super::reviewer_page_url::ReviewPageIdentity;
 use super::{
-    CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
+    CrawlerReviewRepository, ReviewPlacement, ReviewRepositoryError, SchemaReviewWithStatusInput,
     parse_product_schema_payload, review_source_url_pattern, reviewer_page_url,
 };
 use crate::CrawlerReviewId;
@@ -143,6 +143,7 @@ impl CrawlerReviewRepository {
             .await?;
         self.open_missing_value_review(listing_source_id, &live, Vec::new())
             .await
+            .map(ReviewPlacement::review_id)
     }
 
     /// Opens, or joins, the ListingSource's pending product-schema review for a page the
@@ -152,13 +153,13 @@ impl CrawlerReviewRepository {
     /// console opens for the page, with the same reason and candidate. Called in `agent` mode
     /// only, where no human adds the page. `None` when a rejection already judged the page, see
     /// [`Self::rejected_missing_value_review_judged`]: the agents would pay for the same verdict
-    /// on every scrape.
+    /// on every scrape. The placement says whether the page opened the review or joined one.
     pub async fn open_or_join_review_for_scraped_missing_value_page(
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
         raw_html: &str,
-    ) -> Result<Option<CrawlerReviewId>, ReviewRepositoryError> {
+    ) -> Result<Option<ReviewPlacement>, ReviewRepositoryError> {
         if self
             .rejected_missing_value_review_judged(listing_source_id, url)
             .await?
@@ -207,7 +208,7 @@ impl CrawlerReviewRepository {
         listing_source_id: &ListingSourceId,
         live: &[ProductCssSelectorSchema],
         pages: Vec<SchemaReviewPageInput>,
-    ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
+    ) -> Result<ReviewPlacement, ReviewRepositoryError> {
         self.insert_schema_review(SchemaReviewWithStatusInput {
             listing_source_id,
             reason: MISSING_REQUIRED_VALUE_REVIEW_REASON,
