@@ -464,6 +464,12 @@ async fn should_refresh_an_expired_access_token_until_the_user_disconnects_the_c
         .await
         .unwrap();
     assert_eq!(StatusCode::UNAUTHORIZED, expired_rest.status());
+    assert!(
+        expired_rest.headers()["www-authenticate"]
+            .to_str()
+            .unwrap()
+            .ends_with(", error=\"invalid_token\"")
+    );
     let refreshed = agent.refresh(&refresh_token).await;
     assert_eq!(StatusCode::OK, refreshed.status());
     let refreshed: Value = refreshed.json().await.unwrap();

@@ -112,7 +112,7 @@ mod tests {
         let response = router.oneshot(rejected_bearer()).await.unwrap();
         assert_eq!(StatusCode::UNAUTHORIZED, response.status());
         assert_eq!(
-            "Bearer resource_metadata=\"https://api.stage.aura-historia.com/.well-known/oauth-protected-resource\"",
+            "Bearer resource_metadata=\"https://api.stage.aura-historia.com/.well-known/oauth-protected-resource\", error=\"invalid_token\"",
             response.headers()[header::WWW_AUTHENTICATE]
         );
 

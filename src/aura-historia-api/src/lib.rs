@@ -1141,7 +1141,7 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
     // semantics and get no Aura challenge.
     if let Some(discovery) = &state.agent_discovery {
         let challenge =
-            agent_discovery::protected_resource::bearer_challenge(discovery.resource_policy);
+            agent_discovery::protected_resource::BearerChallenge::new(discovery.resource_policy);
         routes = routes.layer(axum::middleware::map_response(move |response| {
             agent_discovery::protected_resource::add_bearer_challenge(challenge.clone(), response)
         }));

@@ -104,7 +104,10 @@ OAuth group gets no challenge: protocol endpoints keep the errors in
 administration are first-party flows that take a Cognito session, not an Aura access token. Other
 `401` codes, such as webhook signature failures, involve no bearer and get no challenge.
 
-The challenge names no `error` or `scope`; each operation's scopes are in [OpenAPI](swagger.yaml).
+A presented bearer that is malformed, invalid, expired or revoked adds `error="invalid_token"`
+([RFC 6750 §3.1](https://www.rfc-editor.org/rfc/rfc6750#section-3.1)), so a client refreshes or
+signs in again; a missing bearer names no error. The challenge names no `scope`; each operation's
+scopes are in [OpenAPI](swagger.yaml).
 
 ## Website documents
 

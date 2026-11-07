@@ -40,8 +40,8 @@ new authorization that requests the scopes you already hold together with the ne
 
 ## Keep the connection working
 
-Access tokens are short-lived. When one expires, a request returns `401` (on MCP with
-`error="invalid_token"`). Refresh it at the token endpoint with `grant_type=refresh_token`,
+Access tokens are short-lived. When one expires, a request returns `401` with
+`error="invalid_token"` in its Bearer challenge. Refresh it at the token endpoint with `grant_type=refresh_token`,
 the `refresh_token` and your `client_id`, without a secret.
 
 - Every refresh returns a new refresh token and the old one stops working at once. Store the

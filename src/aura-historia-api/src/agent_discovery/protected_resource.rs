@@ -48,30 +48,52 @@ pub(crate) fn metadata_url(policy: AuraResourcePolicy) -> String {
     )
 }
 
-/// The Bearer challenge that points a client at the metadata (RFC 9728 §5.1).
-pub(crate) fn bearer_challenge(policy: AuraResourcePolicy) -> HeaderValue {
-    HeaderValue::try_from(format!(
-        "Bearer resource_metadata=\"{}\"",
-        metadata_url(policy)
-    ))
-    .expect("closed policy origins are valid header values")
+/// The Bearer challenges that point a client at the metadata (RFC 9728 §5.1). A presented
+/// credential that failed adds `error="invalid_token"` (RFC 6750 §3.1), so a client knows to
+/// refresh or sign in again; a missing one names no error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BearerChallenge {
+    missing: HeaderValue,
+    invalid_token: HeaderValue,
+}
+
+impl BearerChallenge {
+    pub(crate) fn new(policy: AuraResourcePolicy) -> Self {
+        let missing = format!("Bearer resource_metadata=\"{}\"", metadata_url(policy));
+        let invalid_token = format!("{missing}, error=\"invalid_token\"");
+        let header = |value: String| {
+            HeaderValue::try_from(value).expect("closed policy origins are valid header values")
+        };
+        Self {
+            missing: header(missing),
+            invalid_token: header(invalid_token),
+        }
+    }
+
+    fn for_failure(&self, failure: BearerAuthenticationFailure) -> &HeaderValue {
+        match failure {
+            BearerAuthenticationFailure::Missing => &self.missing,
+            BearerAuthenticationFailure::InvalidToken => &self.invalid_token,
+        }
+    }
 }
 
 /// Adds the challenge to a `401` whose bearer credential was missing or invalid. The router
 /// applies this only to routes that accept Aura access tokens.
 pub(crate) async fn add_bearer_challenge(
-    challenge: HeaderValue,
+    challenge: BearerChallenge,
     mut response: Response,
 ) -> Response {
     if response.status() == StatusCode::UNAUTHORIZED
-        && response
+        && let Some(failure) = response
             .extensions()
             .get::<BearerAuthenticationFailure>()
-            .is_some()
+            .copied()
     {
+        let value = challenge.for_failure(failure).clone();
         response
             .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, challenge);
+            .insert(header::WWW_AUTHENTICATE, value);
     }
     response
 }
@@ -79,6 +101,7 @@ pub(crate) async fn add_bearer_challenge(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::AuthError;
     use crate::error::{ApiError, FORBIDDEN, INVALID_CREDENTIALS, LOOPS_WEBHOOK_UNAUTHORIZED};
     use serde_json::{Value, json};
 
@@ -116,24 +139,48 @@ mod tests {
                 }),
                 body(response).await
             );
+            let challenge = BearerChallenge::new(policy);
+            let metadata = format!(
+                "Bearer resource_metadata=\"{origin}/.well-known/oauth-protected-resource\""
+            );
             assert_eq!(
-                format!(
-                    "Bearer resource_metadata=\"{origin}/.well-known/oauth-protected-resource\""
-                ),
-                bearer_challenge(policy)
+                metadata,
+                *challenge.for_failure(BearerAuthenticationFailure::Missing)
+            );
+            assert_eq!(
+                format!("{metadata}, error=\"invalid_token\""),
+                *challenge.for_failure(BearerAuthenticationFailure::InvalidToken)
             );
         }
     }
 
     #[tokio::test]
     async fn should_challenge_only_bearer_authentication_failures() {
-        let challenge = bearer_challenge(AuraResourcePolicy::stage());
-        let challenged = add_bearer_challenge(
-            challenge.clone(),
-            ApiError::unauthorized(INVALID_CREDENTIALS).into_response(),
-        )
-        .await;
-        assert_eq!(challenge, challenged.headers()[header::WWW_AUTHENTICATE]);
+        let challenge = BearerChallenge::new(AuraResourcePolicy::stage());
+        for (error, failure) in [
+            (
+                ApiError::unauthorized(INVALID_CREDENTIALS),
+                BearerAuthenticationFailure::Missing,
+            ),
+            (
+                ApiError::from(AuthError::MissingCredentials),
+                BearerAuthenticationFailure::Missing,
+            ),
+            (
+                ApiError::from(AuthError::InvalidCredentials),
+                BearerAuthenticationFailure::InvalidToken,
+            ),
+            (
+                ApiError::from(AuthError::MalformedCredentials),
+                BearerAuthenticationFailure::InvalidToken,
+            ),
+        ] {
+            let challenged = add_bearer_challenge(challenge.clone(), error.into_response()).await;
+            assert_eq!(
+                challenge.for_failure(failure),
+                challenged.headers()[header::WWW_AUTHENTICATE]
+            );
+        }
 
         for response in [
             ApiError::unauthorized(LOOPS_WEBHOOK_UNAUTHORIZED).into_response(),
