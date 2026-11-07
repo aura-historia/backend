@@ -614,6 +614,9 @@ mod tests {
                 json!({
                     "actor": "AGENT_REVIEWER", "action": "REPAIR_REQUESTED",
                     "candidate_version": review.candidate_version,
+                    "created": OffsetDateTime::now_utc()
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default(),
                 })
             })
             .into_iter()

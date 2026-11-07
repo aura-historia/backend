@@ -166,12 +166,23 @@ impl ReviewQueue {
     }
 }
 
-/// `GET /api/reviews/{id}`, of which the runner reads only the review and its event trail.
+/// `GET /api/reviews/{id}`, of which the runner reads only the review, when its pages joined it
+/// and its event trail.
 #[derive(Debug, Deserialize)]
 struct ReviewDetail {
     review: CrawlerReview,
     #[serde(default)]
+    pages: Vec<DetailPage>,
+    #[serde(default)]
     events: Vec<DetailEvent>,
+}
+
+/// A page of the review, with the key the runner reads: `fetched`, when the page was stored on
+/// the review, which no later fetch changes.
+#[derive(Debug, Deserialize)]
+struct DetailPage {
+    #[serde(with = "time::serde::rfc3339")]
+    fetched: OffsetDateTime,
 }
 
 /// An event of a review's trail, with the keys the runner reads.
@@ -180,6 +191,8 @@ struct DetailEvent {
     actor: String,
     action: String,
     candidate_version: i64,
+    #[serde(with = "time::serde::rfc3339")]
+    created: OffsetDateTime,
 }
 
 async fn review_detail(
@@ -206,26 +219,33 @@ pub async fn waits_for_human(
 }
 
 /// Whether the reviewer agent already judged the review as it is: its trail ends with a
-/// needs-repair verdict of the reviewer at the current candidate version. The author's
-/// `NOTHING_TO_STAGE` on such a review gives the reviewer nothing new to judge. A later event,
-/// such as a review page the author added or its record that it found no sold page, neither of
-/// which moves the candidate version, is something the reviewer has not judged.
-pub async fn reviewer_judged_candidate(
+/// needs-repair verdict of the reviewer at the current candidate version, and no page joined the
+/// review after that verdict. The author's `NOTHING_TO_STAGE` on such a review gives the reviewer
+/// nothing new to judge. A later event, such as a review page the author added or its record that
+/// it found no sold page, and a waiting page the crawler attached without an event, none of which
+/// moves the candidate version, are something the reviewer has not judged.
+pub async fn reviewer_judged_review(
     console: &ConsoleClient,
     review_id: CrawlerReviewId,
 ) -> Result<bool, ConsoleError> {
     let detail = review_detail(console, review_id).await?;
-    Ok(ends_with_reviewer_verdict_on(
+    Ok(judged_by_reviewer(
         &detail.events,
+        &detail.pages,
         detail.review.candidate_version,
     ))
 }
 
-fn ends_with_reviewer_verdict_on(events: &[DetailEvent], candidate_version: i64) -> bool {
+fn judged_by_reviewer(
+    events: &[DetailEvent],
+    pages: &[DetailPage],
+    candidate_version: i64,
+) -> bool {
     events.last().is_some_and(|event| {
         event.actor == ReviewActor::AgentReviewer.as_str()
             && event.action == ReviewEventAction::RepairRequested.as_str()
             && event.candidate_version == candidate_version
+            && pages.iter().all(|page| page.fetched <= event.created)
     })
 }
 
@@ -382,6 +402,15 @@ mod tests {
             actor: actor.as_str().to_owned(),
             action: action.as_str().to_owned(),
             candidate_version: version,
+            created: OffsetDateTime::UNIX_EPOCH + Duration::days(10_000),
+        }
+    }
+
+    fn page_joined(seconds_after_the_verdict: i64) -> DetailPage {
+        DetailPage {
+            fetched: OffsetDateTime::UNIX_EPOCH
+                + Duration::days(10_000)
+                + Duration::seconds(seconds_after_the_verdict),
         }
     }
 
@@ -403,17 +432,39 @@ mod tests {
             2,
         );
 
-        assert!(ends_with_reviewer_verdict_on(&[staged, verdict()], 2));
-        assert!(!ends_with_reviewer_verdict_on(&[verdict()], 3));
-        assert!(!ends_with_reviewer_verdict_on(&[], 2));
+        assert!(judged_by_reviewer(&[staged, verdict()], &[], 2));
+        assert!(!judged_by_reviewer(&[verdict()], &[], 3));
+        assert!(!judged_by_reviewer(&[], &[], 2));
         for change in [
             ReviewEventAction::NoSoldPageRecorded,
             ReviewEventAction::PageAdded,
             ReviewEventAction::PageRemoved,
         ] {
             let trail = [verdict(), trail_event(ReviewActor::AgentAuthor, change, 2)];
-            assert!(!ends_with_reviewer_verdict_on(&trail, 2), "{change:?}");
+            assert!(!judged_by_reviewer(&trail, &[], 2), "{change:?}");
         }
+    }
+
+    /// A waiting page the crawler attached after the reviewer's verdict joins without an event,
+    /// so the verdict still ends the trail, but the reviewer never saw that page.
+    #[test]
+    fn should_count_a_review_as_not_judged_when_a_page_joined_it_after_the_verdict() {
+        let verdict = [trail_event(
+            ReviewActor::AgentReviewer,
+            ReviewEventAction::RepairRequested,
+            2,
+        )];
+
+        assert!(judged_by_reviewer(
+            &verdict,
+            &[page_joined(-60), page_joined(0)],
+            2
+        ));
+        assert!(!judged_by_reviewer(
+            &verdict,
+            &[page_joined(-60), page_joined(1)],
+            2
+        ));
     }
 
     #[test]

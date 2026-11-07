@@ -1511,9 +1511,12 @@ async fn insert_review_page(
     role: &str,
     raw_html: &str,
 ) -> Result<(), sqlx::Error> {
+    // The time of the write, not of the transaction's start, as the review's events record it: a
+    // page that joins a pending review is written under its row lock, so a page written after a
+    // verdict is stored as fetched after that verdict's event.
     sqlx::query(
-        "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash, fetched) \
+         VALUES ($1, $2, $3, $4, $5, clock_timestamp())",
     )
     .bind(CrawlerReviewPageId::new().as_uuid())
     .bind(review_id.as_uuid())

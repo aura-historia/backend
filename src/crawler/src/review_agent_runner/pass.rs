@@ -10,8 +10,8 @@
 //! to a human, so it neither fails nor cools down, whichever process's needs-repair verdict
 //! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
 //! as a review no agent worked ([`select_reviews`]).
-//! An author that reports `NOTHING_TO_STAGE` on a candidate the reviewer already judged gives the
-//! reviewer nothing new: the pass hands the review to a human at once, with the author's
+//! An author that reports `NOTHING_TO_STAGE` on a candidate the reviewer already judged, with no
+//! page joined since, gives the reviewer nothing new: the pass hands the review to a human at once, with the author's
 //! reasoning as the note of the console's hand-over event, instead of one more needs-repair round.
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
@@ -26,7 +26,7 @@ use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
-    QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_candidate,
+    QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_review,
     select_reviews, waits_for_human,
 };
 use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
@@ -293,7 +293,7 @@ impl Pass<'_> {
         }
         if let Some(AgentReport::Author(report)) = &author_report
             && report.action == AuthorAction::NothingToStage
-            && self.reviewer_judged_candidate(&review).await
+            && self.reviewer_judged_review(&review).await
         {
             self.hand_over_to_human(&review, report).await;
             return;
@@ -321,11 +321,12 @@ impl Pass<'_> {
         }
     }
 
-    /// Whether the reviewer already judged the review's current candidate, so a reviewer process
-    /// after an author that changed nothing would only repeat its verdict as one more round. A
-    /// review the runner cannot read counts as not judged: it gets its reviewer, as before.
-    async fn reviewer_judged_candidate(&self, review: &QueuedReview) -> bool {
-        match reviewer_judged_candidate(self.console, review.review_id).await {
+    /// Whether the reviewer already judged the review's current candidate and pages, so a
+    /// reviewer process after an author that changed nothing would only repeat its verdict as one
+    /// more round. A review the runner cannot read counts as not judged: it gets its reviewer, as
+    /// before.
+    async fn reviewer_judged_review(&self, review: &QueuedReview) -> bool {
+        match reviewer_judged_review(self.console, review.review_id).await {
             Ok(judged) => judged,
             Err(error) => {
                 warn!(
