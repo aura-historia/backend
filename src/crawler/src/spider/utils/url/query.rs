@@ -78,6 +78,7 @@ const PRESENTATION_PARAMETERS: &[ParameterName] = &[
     // currencies
     Exact("currency"),
     Exact("currency_code"),
+    Exact("cur"),
 ];
 
 impl ParameterName {
@@ -194,6 +195,17 @@ mod tests {
             ),
         ] {
             assert_eq!(stripped(fetched), stored, "{fetched}");
+        }
+    }
+
+    #[test]
+    fn should_store_cur_currency_variants_as_the_bare_item_url() {
+        for variant in ["?cur=EUR", "?cur=GBP", "?CUR=eur"] {
+            assert_eq!(
+                stripped(&format!("https://example.com/item/42{variant}")),
+                "https://example.com/item/42",
+                "{variant}"
+            );
         }
     }
 

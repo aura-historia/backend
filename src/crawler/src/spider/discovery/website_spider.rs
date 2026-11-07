@@ -34,6 +34,7 @@ use crate::spider::discovery::known_pages::{KnownPageAnswers, KnownPages};
 use crate::spider::discovery::page_identity::page_identity_evidence;
 use crate::spider::discovery::page_status::{RateLimitSignal, StatusCounts};
 use crate::spider::discovery::redirects::{RedirectAnswer, RedirectFollower};
+pub use crate::spider::discovery::robots::RobotsUnreachable;
 use crate::spider::discovery::robots::{CrawlRobots, admit_crawl};
 use crate::spider::discovery::root_host::{RootReroot, dominant_twin};
 use crate::spider::utils::url::CrawledUrl;
@@ -463,6 +464,17 @@ impl SpiderDiscoveryError {
                 root_reroot: Some(reroot),
                 ..
             } => Some(reroot),
+            _ => None,
+        }
+    }
+
+    /// The robots.txt that was unreachable, with its status or transport error kind.
+    pub fn robots_unreachable(&self) -> Option<&RobotsUnreachable> {
+        match self {
+            Self::Preflight {
+                source: Some(source),
+                ..
+            } => source.downcast_ref::<RobotsUnreachable>(),
             _ => None,
         }
     }
@@ -4954,6 +4966,13 @@ mod tests {
 
             assert!(
                 matches!(error, SpiderDiscoveryError::Preflight { kind, .. } if kind == expected_kind),
+                "{error:?}"
+            );
+            assert_eq!(
+                error
+                    .robots_unreachable()
+                    .and_then(RobotsUnreachable::status),
+                (expected_kind == CrawlFailureKind::ServerError).then_some(503),
                 "{error:?}"
             );
             assert_eq!(site.requests_for("/category/1").await, 0);
