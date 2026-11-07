@@ -312,7 +312,7 @@ impl PendingReview {
             listing_source_id: review.listing_source_id.to_string(),
             listing_source_name: review.listing_source_name,
             candidate_version: review.candidate_version,
-            repair_request: review.repair_request.map(RepairRequestView::of),
+            repair_request: review.repair_request.map(RepairRequestView::preview),
             agent_rounds: review.agent_rounds,
             updated: timestamp(review.updated),
         }
@@ -320,7 +320,18 @@ impl PendingReview {
 }
 
 impl RepairRequestView {
+    /// The request with its whole note: the author repairs what the reviewer asked, and a cut note
+    /// loses part of it. The answer bound of [`super::bounds::bound_answer`] still applies to the
+    /// answer as a whole.
     fn of(repair: RepairRequest) -> Self {
+        Self {
+            note: repair.note,
+            requested: timestamp(repair.requested),
+        }
+    }
+
+    /// The request with its note cut at [`MAX_NOTE_CHARS`], for a list of many reviews.
+    fn preview(repair: RepairRequest) -> Self {
         Self {
             note: note(&repair.note),
             requested: timestamp(repair.requested),
@@ -714,6 +725,55 @@ mod tests {
             (&view["agent_rounds"], &view["human_required"]),
             (&json!(3), &json!(true))
         );
+    }
+
+    fn long_repair_note() -> String {
+        format!("{} END", "page 1: state reads a price. ".repeat(100))
+    }
+
+    #[test]
+    fn should_answer_the_whole_repair_note_of_a_review_within_the_answer_bound() {
+        let note = long_repair_note();
+        assert!(note.chars().count() > MAX_NOTE_CHARS);
+        let mut repairing = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
+        repairing["repair_request"] = json!({ "note": note, "requested": "2026-10-27T11:00:00Z" });
+
+        let answer = json!(ReviewView::of(
+            decoded(json!({
+                "review": repairing,
+                "candidate_is_live": false,
+                "pages": [],
+                "urls": [],
+                "events": [],
+            })),
+            wire::Candidate::ProductSchema(wire::ProductSchemaCandidate {
+                schemas: vec![],
+                removed_page_schemas: vec![],
+            }),
+            0,
+        ));
+
+        assert_eq!(answer["repair_request"]["note"], json!(note));
+        assert_eq!(
+            crate::review_mcp::bounds::bound_answer(
+                answer.clone(),
+                crate::review_mcp::bounds::MAX_TOOL_OUTPUT_BYTES
+            ),
+            Ok(answer)
+        );
+    }
+
+    #[test]
+    fn should_cut_the_repair_note_in_the_list_of_pending_reviews() {
+        let mut queued = queued(1);
+        queued["repair_request"]["note"] = json!(long_repair_note());
+
+        let pending = json!(PendingReviews::of(queue_page(vec![queued], None)));
+
+        let note = pending["reviews"][0]["repair_request"]["note"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(note.contains("[truncated: 1000 of "), "{note}");
     }
 
     #[test]
