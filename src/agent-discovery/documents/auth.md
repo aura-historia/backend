@@ -25,9 +25,9 @@ tokens.
 | Item | Value |
 | --- | --- |
 | Issuer | `{{issuer}}` |
-| Authorization server metadata | `{{issuer}}/.well-known/oauth-authorization-server` |
-| MCP protected-resource metadata | `{{mcp_origin}}/.well-known/oauth-protected-resource/v1` |
-| REST protected-resource metadata | `{{api_origin}}/.well-known/oauth-protected-resource` |
+| Authorization server metadata | {{issuer}}/.well-known/oauth-authorization-server |
+| MCP protected-resource metadata | {{mcp_origin}}/.well-known/oauth-protected-resource/v1 |
+| REST protected-resource metadata | {{api_origin}}/.well-known/oauth-protected-resource |
 | User scopes | {{ordinary_user_scopes}} |
 
 Every sign-in uses the authorization code grant with S256 PKCE. The user approves the request

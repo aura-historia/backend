@@ -25,4 +25,26 @@ mod tests {
         }
         assert!(!rendered.contains("agent_auth"));
     }
+
+    #[test]
+    fn should_write_each_metadata_url_bare_so_url_extractors_end_it_at_whitespace() {
+        let environment: DiscoveryEnvironment = AuraResourcePolicy::production().into();
+        let rendered = render(environment);
+        for url in [
+            format!(
+                "{}/.well-known/oauth-authorization-server",
+                environment.issuer()
+            ),
+            format!(
+                "{}/.well-known/oauth-protected-resource/v1",
+                environment.mcp_origin()
+            ),
+            format!(
+                "{}/.well-known/oauth-protected-resource",
+                environment.api_origin()
+            ),
+        ] {
+            assert!(rendered.contains(&format!("| {url} |")), "{url}");
+        }
+    }
 }
