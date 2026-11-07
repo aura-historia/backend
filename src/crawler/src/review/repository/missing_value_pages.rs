@@ -85,6 +85,14 @@ impl CrawlerReviewRepository {
         if !recorded {
             return Err(ReviewRepositoryError::NotMissingValuePage(url.to_string()));
         }
+        self.live_product_schemas(listing_source_id).await
+    }
+
+    /// The ListingSource's live product schemas, refusing one without any.
+    async fn live_product_schemas(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
         sqlx::query_scalar::<_, serde_json::Value>(
             "SELECT product_schema FROM listing_source_product_schemas WHERE listing_source_id = $1",
         )
