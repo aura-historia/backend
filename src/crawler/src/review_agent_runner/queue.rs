@@ -205,19 +205,28 @@ pub async fn waits_for_human(
         .human_required)
 }
 
-/// Whether the reviewer agent already judged the review's current candidate version: its trail
-/// holds a needs-repair verdict of the reviewer at that version. The author's `NOTHING_TO_STAGE`
-/// on such a candidate gives the reviewer nothing new to judge.
+/// Whether the reviewer agent already judged the review as it is: its trail ends with a
+/// needs-repair verdict of the reviewer at the current candidate version. The author's
+/// `NOTHING_TO_STAGE` on such a review gives the reviewer nothing new to judge. A later event,
+/// such as a review page the author added or its record that it found no sold page, neither of
+/// which moves the candidate version, is something the reviewer has not judged.
 pub async fn reviewer_judged_candidate(
     console: &ConsoleClient,
     review_id: CrawlerReviewId,
 ) -> Result<bool, ConsoleError> {
     let detail = review_detail(console, review_id).await?;
-    Ok(detail.events.iter().any(|event| {
+    Ok(ends_with_reviewer_verdict_on(
+        &detail.events,
+        detail.review.candidate_version,
+    ))
+}
+
+fn ends_with_reviewer_verdict_on(events: &[DetailEvent], candidate_version: i64) -> bool {
+    events.last().is_some_and(|event| {
         event.actor == ReviewActor::AgentReviewer.as_str()
             && event.action == ReviewEventAction::RepairRequested.as_str()
-            && event.candidate_version == detail.review.candidate_version
-    }))
+            && event.candidate_version == candidate_version
+    })
 }
 
 /// Hands `review_id` to a human at once with the author agent's token, `reasoning` as the note
@@ -366,6 +375,45 @@ mod tests {
                 handed_back: None,
             })
             .collect()
+    }
+
+    fn trail_event(actor: ReviewActor, action: ReviewEventAction, version: i64) -> DetailEvent {
+        DetailEvent {
+            actor: actor.as_str().to_owned(),
+            action: action.as_str().to_owned(),
+            candidate_version: version,
+        }
+    }
+
+    /// Only the reviewer's needs-repair verdict on the review as it is now counts as judged: a
+    /// later page or no-sold-page record of the author leaves the candidate version as it was but
+    /// gives the reviewer something new.
+    #[test]
+    fn should_count_a_review_as_judged_only_when_the_reviewer_s_verdict_ends_its_trail() {
+        let verdict = || {
+            trail_event(
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested,
+                2,
+            )
+        };
+        let staged = trail_event(
+            ReviewActor::AgentAuthor,
+            ReviewEventAction::CandidateEdited,
+            2,
+        );
+
+        assert!(ends_with_reviewer_verdict_on(&[staged, verdict()], 2));
+        assert!(!ends_with_reviewer_verdict_on(&[verdict()], 3));
+        assert!(!ends_with_reviewer_verdict_on(&[], 2));
+        for change in [
+            ReviewEventAction::NoSoldPageRecorded,
+            ReviewEventAction::PageAdded,
+            ReviewEventAction::PageRemoved,
+        ] {
+            let trail = [verdict(), trail_event(ReviewActor::AgentAuthor, change, 2)];
+            assert!(!ends_with_reviewer_verdict_on(&trail, 2), "{change:?}");
+        }
     }
 
     #[test]
