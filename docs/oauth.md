@@ -206,6 +206,19 @@ connection and no third-party exchange code, and a refresh token when the
 [issuance rule](#refresh-tokens) applies. An individual access token's scopes and expiry can
 only be narrowed afterwards, not widened or removed.
 
+### The website's WebMCP client
+
+The website is itself a metadata document client, so agents in the browser can use the
+signed-in MCP tools through WebMCP. MCP keeps rejecting Cognito JWTs; the website obtains Aura
+tokens for the MCP resource like any other agent. Its `client_id` is
+`https://aura-historia.com/oauth/webmcp-client.json`, on stage
+`https://stage.aura-historia.com/oauth/webmcp-client.json`. The backend writes the document
+among the [website documents](agent-discovery.md#webmcp-client), and the webapp publishes it at
+that URL. Aura fetches it from the website like any other document, under the same outbound
+policy and cache; the website's Worker forwards that request back to the API. The website gets
+no extra privileges: the same consent page, scope ceiling, token lifetimes, refresh-token rules
+and host denylist apply, and its users end its connection like any other.
+
 ### Connections
 
 A connection is one user's grant to one metadata document client. It holds the union of

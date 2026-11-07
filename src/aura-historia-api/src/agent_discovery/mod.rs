@@ -123,8 +123,8 @@ mod tests {
 
     #[tokio::test]
     async fn should_serve_discovery_documents_through_the_transport_policy() {
-        let router = app(AppState::new()
-            .with_agent_discovery(AgentDiscoveryState::new(AuraResourcePolicy::production())));
+        let discovery = AgentDiscoveryState::new(AuraResourcePolicy::production());
+        let router = app(AppState::new().with_agent_discovery(discovery.clone()));
         let metadata = router
             .clone()
             .oneshot(get(Method::GET, "/.well-known/oauth-protected-resource"))
@@ -151,20 +151,25 @@ mod tests {
                 catalog.headers()[header::LINK]
             );
 
-            let skill = router
-                .clone()
-                .oneshot(get(
-                    method.clone(),
-                    "/v1/site-discovery/agent-skills/catalogue-search/SKILL.md",
-                ))
-                .await
-                .unwrap();
-            assert_eq!(StatusCode::OK, skill.status(), "{method}");
-            assert_eq!(
-                "public, max-age=0, s-maxage=300, stale-if-error=0",
-                skill.headers()[header::CACHE_CONTROL]
-            );
-            assert_eq!("*", skill.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN]);
+            // Every website document has an exact route.
+            for document in discovery.site_documents.iter() {
+                let path = format!("/v1/site-discovery/{}", document.path());
+                let response = router
+                    .clone()
+                    .oneshot(get(method.clone(), &path))
+                    .await
+                    .unwrap();
+                assert_eq!(StatusCode::OK, response.status(), "{method} {path}");
+                assert_eq!(
+                    document.media_type(),
+                    response.headers()[header::CONTENT_TYPE]
+                );
+                assert_eq!(
+                    "public, max-age=0, s-maxage=300, stale-if-error=0",
+                    response.headers()[header::CACHE_CONTROL]
+                );
+                assert_eq!("*", response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN]);
+            }
         }
 
         let unknown = router

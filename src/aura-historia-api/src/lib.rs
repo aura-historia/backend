@@ -1223,6 +1223,10 @@ fn agent_discovery_routes(discovery: agent_discovery::AgentDiscoveryState) -> Ro
             "/v1/site-discovery/auth.md",
             get(site_documents::get_site_document).head(site_documents::get_site_document),
         )
+        .route(
+            "/v1/site-discovery/oauth/webmcp-client.json",
+            get(site_documents::get_site_document).head(site_documents::get_site_document),
+        )
         .with_state(discovery)
 }
 

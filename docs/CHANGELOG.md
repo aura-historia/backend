@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-07 — The website's WebMCP client metadata document (#2818)
+
+- Added `GET` and `HEAD /v1/site-discovery/oauth/webmcp-client.json` (`application/json`): the OAuth Client ID Metadata Document of the website's own WebMCP client, which the webapp publishes at `/oauth/webmcp-client.json`. Its `client_id` is that website URL (`https://aura-historia.com/oauth/webmcp-client.json`, on stage `https://stage.aura-historia.com/oauth/webmcp-client.json`). It declares a public client with the `authorization_code` and `refresh_token` grants and the callback `/api/oauth/webmcp/callback` on the website; stage also lists `http://localhost/api/oauth/webmcp/callback` for local development. Like the other website documents, responses allow any origin and anonymous ones are shared at the edge for 300 seconds. The website signs in like any other metadata document client, with no extra privileges. See [OAuth](oauth.md#the-websites-webmcp-client).
+
 ## 2026-11-07 — MCP tool snapshot for the website's WebMCP (#2817)
 
 - Added [`mcp-tools.json`](mcp-tools.json): exactly the `tools` array that an anonymous MCP `tools/list` returns under revision `2026-07-28`, including protected tools and their `_meta` access and required scopes. It is the same for production and stage. The website registers its WebMCP tools from it instead of calling `tools/list`. Renaming or removing a tool breaks the website's calls to it until the webapp syncs this file again; such changes are recorded here. See [MCP](mcp.md#tool-snapshot).
