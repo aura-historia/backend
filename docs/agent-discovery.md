@@ -191,14 +191,14 @@ the signed-in MCP tools through WebMCP. This is its Client ID Metadata Document.
 the document's own website URL, which lies outside `/.well-known` like `auth.md`. `client_uri` is
 the website, `logo_uri` its logo and `client_name` the user-facing "AI agents in your browser".
 The only callback is the website's `/api/oauth/webmcp/callback`, where the webapp's Worker
-exchanges the code. On stage, the same path on `http://localhost` is also listed, so the webapp's
-local development server can sign in on any port. The document declares a public client
+exchanges the code. On stage, the same path on `http://localhost` is also listed for the
+webapp's local development server. The document declares a public client
 (`token_endpoint_auth_method: none`) with the `authorization_code` and `refresh_token` grants
 and the `code` response type.
 
-Tests validate the document of each environment at its website URL with the `oauth-core`
-validator that the authorization and token endpoints use, and keep it within the 5 KiB those
-endpoints fetch.
+A test loads the document of each environment the way the authorization and token endpoints
+do: the metadata document source fetches it from a stand-in for the website's Worker under its
+fetch limits, and the `oauth-core` validator accepts it for the `client_id` it was fetched from.
 
 ## Changing a document
 

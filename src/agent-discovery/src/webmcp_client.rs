@@ -61,49 +61,12 @@ pub(crate) fn render(environment: DiscoveryEnvironment) -> String {
 mod tests {
     use super::*;
     use crate::SiteDocuments;
-    use oauth_core::{
-        client_identifier::OAuthClientIdentifier,
-        metadata_document_client::{ClientMetadataDocument, ClientMetadataDocumentClaims},
-    };
     use serde_json::{Value, json};
 
-    /// The largest document the authorization and token endpoints fetch.
-    const MAX_FETCHED_DOCUMENT_BYTES: usize = 5 * 1024;
-
-    /// The members Aura reads from a fetched document, mapped as its document source maps them.
-    fn claims(document: &Value) -> ClientMetadataDocumentClaims {
-        let text = |member: &str| {
-            document
-                .get(member)
-                .map(|value| value.as_str().unwrap().into())
-        };
-        let list = |member: &str| {
-            document.get(member).map(|values| {
-                values
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|value| value.as_str().unwrap().into())
-                    .collect()
-            })
-        };
-        ClientMetadataDocumentClaims {
-            client_id: text("client_id"),
-            client_name: text("client_name"),
-            redirect_uris: list("redirect_uris"),
-            token_endpoint_auth_method: text("token_endpoint_auth_method"),
-            grant_types: list("grant_types"),
-            response_types: list("response_types"),
-            client_uri: text("client_uri"),
-            logo_uri: text("logo_uri"),
-            declares_client_secret: ["client_secret", "client_secret_expires_at"]
-                .iter()
-                .any(|member| document.get(*member).is_some()),
-        }
-    }
-
+    /// The API's agent-discovery tests load the document from the website with the OAuth
+    /// endpoints' document source and validator.
     #[test]
-    fn should_validate_as_a_metadata_document_client_at_its_website_url_in_each_environment() {
+    fn should_name_the_url_the_website_publishes_it_at_as_its_client_id() {
         for (policy, url) in [
             (
                 AuraResourcePolicy::production(),
@@ -121,20 +84,8 @@ mod tests {
                 url,
                 format!("{}{}", environment.site_origin(), published.site_path())
             );
-            assert_eq!("application/json", published.media_type());
-            assert!(published.body().len() <= MAX_FETCHED_DOCUMENT_BYTES);
-
-            let OAuthClientIdentifier::MetadataDocument(client_id) =
-                OAuthClientIdentifier::parse(url).unwrap()
-            else {
-                panic!("{url} is not a metadata document client ID");
-            };
             let body: Value = serde_json::from_str(published.body()).unwrap();
-            let document = ClientMetadataDocument::validate(&client_id, claims(&body))
-                .unwrap_or_else(|error| panic!("{url}: {error}"));
-            assert_eq!(CLIENT_NAME, document.name().as_ref());
-            assert!(document.declares_refresh_token_grant());
-            assert!(!document.lists_only_loopback_redirect_uris());
+            assert_eq!(url, body["client_id"]);
         }
     }
 

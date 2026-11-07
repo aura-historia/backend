@@ -151,7 +151,8 @@ mod tests {
                 catalog.headers()[header::LINK]
             );
 
-            // Every website document has an exact route.
+            // Every website document has an exact route; the handler's own tests cover its
+            // media type and caching.
             for document in discovery.site_documents.iter() {
                 let path = format!("/v1/site-discovery/{}", document.path());
                 let response = router
@@ -160,14 +161,6 @@ mod tests {
                     .await
                     .unwrap();
                 assert_eq!(StatusCode::OK, response.status(), "{method} {path}");
-                assert_eq!(
-                    document.media_type(),
-                    response.headers()[header::CONTENT_TYPE]
-                );
-                assert_eq!(
-                    "public, max-age=0, s-maxage=300, stale-if-error=0",
-                    response.headers()[header::CACHE_CONTROL]
-                );
                 assert_eq!("*", response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN]);
             }
         }

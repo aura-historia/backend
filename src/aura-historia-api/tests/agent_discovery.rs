@@ -9,10 +9,15 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
 };
-use oauth_core::resource::AuraResourcePolicy;
+use oauth_client_metadata_http::{FETCH_TIMEOUT, HttpClientMetadataDocumentSource};
+use oauth_core::{
+    client_identifier::OAuthClientIdentifier, metadata_document_client::ClientMetadataDocument,
+    resource::AuraResourcePolicy,
+};
+use oauth_service::ports::ClientMetadataDocumentSource;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, path::Path, sync::Arc};
+use std::{collections::BTreeSet, net::SocketAddr, path::Path, sync::Arc};
 use tower::ServiceExt;
 
 const POLICIES: [AuraResourcePolicy; 2] = [
@@ -246,6 +251,59 @@ fn should_name_only_operations_that_the_api_and_mcp_server_offer() {
     }
     assert!(routes >= 15, "{routes}");
     assert_eq!(12, named_tools);
+}
+
+/// Stands in for the website's Worker: serves each website path from the API path below
+/// `/v1/site-discovery`, unchanged, on a loopback origin.
+async fn website(api: Router) -> SocketAddr {
+    let worker = Router::new().fallback(move |request: Request<Body>| {
+        let api = api.clone();
+        async move {
+            let path = format!("/v1/site-discovery{}", request.uri().path());
+            api.oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, worker).await.unwrap() });
+    address
+}
+
+/// The authorization and token endpoints load the website's WebMCP client like any other
+/// metadata document client: the document source fetches it from the website under its fetch
+/// limits, and the shared validator accepts it for the `client_id` it was fetched from.
+#[tokio::test]
+async fn should_load_the_webmcp_client_from_the_website_as_the_oauth_endpoints_do() {
+    for policy in POLICIES {
+        let environment = DiscoveryEnvironment::from(policy);
+        let source = HttpClientMetadataDocumentSource::with_loopback_test_origin(
+            environment.site_domain(),
+            website(Hosts::new(policy).api).await,
+            FETCH_TIMEOUT,
+        );
+        let url = format!("{}/oauth/webmcp-client.json", environment.site_origin());
+        let OAuthClientIdentifier::MetadataDocument(client_id) =
+            OAuthClientIdentifier::parse(&url).unwrap()
+        else {
+            panic!("{url} is not a metadata document client ID");
+        };
+
+        let claims = source.load(&client_id).await.unwrap();
+        let document = ClientMetadataDocument::validate(&client_id, claims)
+            .unwrap_or_else(|error| panic!("{url}: {error}"));
+
+        assert!(document.declares_refresh_token_grant());
+        let callback =
+            |origin: &str| url::Url::parse(&format!("{origin}/api/oauth/webmcp/callback")).unwrap();
+        assert!(document.admits_redirect_uri(&callback(environment.site_origin())));
+        assert_eq!(
+            policy == AuraResourcePolicy::stage(),
+            document.admits_redirect_uri(&callback("http://localhost:3000")),
+            "only stage admits the local development callback"
+        );
+    }
 }
 
 async fn served(router: &Router, path: &str) -> Vec<u8> {
