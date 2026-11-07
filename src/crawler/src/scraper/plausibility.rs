@@ -466,14 +466,22 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
 }
 
 /// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
-/// Availability labels and cart or enquiry actions carry no currency marker, and a bare quantity
-/// such as "2 in stock" or "Only 1 left" has none either. A value that also carries a status
-/// label, such as "Sold for £500", is a status the normalization resolves, not price text.
+/// Availability labels carry no currency marker, and a bare quantity such as "2 in stock" or
+/// "Only 1 left" has none either. A value that also carries a status label, such as "Sold for
+/// £500", is a status, and one that carries a cart or enquiry action, such as a button that reads
+/// "Add to cart £45", is the action the `state` contract allows where a page shows no label: a
+/// selector cannot take the action's words without the amount the shop prints beside them.
 fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
     let status_label = regex!(
         r"(?i)\b(?:sold|reserved|verkocht|gereserveerd|uitverkocht|verkauft|reserviert|ausverkauft|vendu|vendue|réservé|réservée|épuisé|vendido|reservado|agotado|venduto|riservato|esaurito|available|in stock|out of stock|op voorraad|auf lager|beschikbaar)\b"
     );
-    (!status_label.is_match(state) && is_price_text(state)).then_some(PlausibilityCheck::PriceText)
+    let cart_or_enquiry_action = regex!(
+        r"(?i)\b(?:add to (?:cart|basket|bag)|buy|enquire|inquire|make an offer|in (?:den )?warenkorb|in (?:de )?winkel(?:wagen|mand)|ajouter au panier)\b"
+    );
+    (!status_label.is_match(state)
+        && !cart_or_enquiry_action.is_match(state)
+        && is_price_text(state))
+    .then_some(PlausibilityCheck::PriceText)
 }
 
 /// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
@@ -849,13 +857,17 @@ mod tests {
         }
 
         #[test]
-        fn should_take_a_status_label_next_to_a_price_for_a_status() {
+        fn should_take_a_status_label_or_a_cart_action_next_to_a_price_for_a_state() {
             for state in [
                 "Sold for £500",
                 "Verkocht - € 75",
                 "Reserved £1,200",
                 "Gereserveerd € 450",
                 "Vendu 300 EUR",
+                "Add to cart £45.00",
+                "Buy now - £1,800",
+                "Enquire about this item (£450)",
+                "In winkelwagen € 95",
             ] {
                 let mut raw = plausible();
                 raw.state = state.to_owned();

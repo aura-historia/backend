@@ -24,7 +24,7 @@ The crawler does not normalize extracted values. Price parsing, currency, availa
 
 Before a candidate is used, the crawler checks the raw strings it extracted from one page ([`plausibility.rs`](../../src/crawler/src/scraper/plausibility.rs)):
 
-- `title` is not blank; `state` is not blank, no longer than a label and not price text: an amount with a currency symbol, code or word, or after "price", such as "£ 1,800 plus VAT", unless the value also carries a status label such as "Sold for £500"; availability labels, quantities and cart or enquiry actions carry no amount;
+- `title` is not blank; `state` is not blank, no longer than a label and not price text: an amount with a currency symbol, code or word, or after "price", such as "£ 1,800 plus VAT", unless the value also carries a status label such as "Sold for £500" or a cart or enquiry action such as "Add to cart £45"; availability labels and quantities carry no amount;
 - `price` and the estimates, when present, are not blank, no longer than a label and do not consist of zero digits only;
 - `description` and each raw attribute, when present, are not blank;
 - no `title`, `state`, price, estimate or `description` value carries CSS rules or script source;
