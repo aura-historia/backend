@@ -15,6 +15,7 @@ use super::review_events::{
 };
 use super::sample_labels::url_pattern_review_crawl_host;
 use super::schema_payload::ProductSchemaReviewCandidate;
+use super::url_pattern_sample::fetch_sample_urls;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages,
     listing_source_id_from_uuid, lock_live_product_schemas, persist_product_schemas,
@@ -93,12 +94,14 @@ impl CrawlerReviewRepository {
                 if guarded {
                     let crawl_host =
                         url_pattern_review_crawl_host(&mut transaction, review_id).await?;
+                    let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
                         url_pattern_approval_checks(
                             &candidate,
                             &crawl_host,
                             self.agent_decisions.limits().min_labelled_urls,
+                            &sample,
                         ),
                     )?;
                 }

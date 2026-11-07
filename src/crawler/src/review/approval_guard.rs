@@ -67,6 +67,20 @@ pub enum FailedApprovalCheck {
     NoSoldPageTested,
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
+    /// The decision takes clearly fewer of the sample's URLs than the share of inspected pages
+    /// that describe one product suggests: a pattern too narrow for the shop's product URLs, such
+    /// as one that lists category slugs one by one.
+    PatternTooNarrow {
+        /// The sample URLs the decision takes, out of `sample_total`.
+        matched: usize,
+        sample_total: usize,
+        /// The sample URLs whose inspection found a page describing exactly one product, out of
+        /// those inspected.
+        product_pages: usize,
+        inspected: usize,
+        /// Some of the inspected product pages the decision does not take.
+        unmatched_product_pages: Vec<String>,
+    },
     /// The candidate's sample labels on the review's crawl host mark fewer than `minimum` URLs as
     /// products or fewer than `minimum` as no products, so they cannot show that the decision
     /// takes the ListingSource's product pages and leaves the rest.
@@ -163,6 +177,16 @@ impl fmt::Display for FailedApprovalCheck {
             } => write!(
                 formatter,
                 "the sample labels mark {product} URL(s) on the review's crawl host PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
+            ),
+            Self::PatternTooNarrow {
+                matched,
+                sample_total,
+                product_pages,
+                inspected,
+                ..
+            } => write!(
+                formatter,
+                "the decision takes {matched} of the sample's {sample_total} URLs, but {product_pages} of the {inspected} pages inspected describe one product: it is narrower than the shop's product URLs, so use a structural pattern instead of listed categories and check the product pages it misses"
             ),
             Self::ProductLabelNotMatched { urls } => write!(
                 formatter,
@@ -355,11 +379,13 @@ fn empty_required_fields(
 /// product page and no `NOT_PRODUCT` URL. Labels belong to the candidate, so the approved candidate
 /// version names the labels it is judged on, and they do not expire. No URL is classified by
 /// keywords or by its page's markup here: Claude decides what a product page is, and the crawler
-/// only checks that the decision follows its labels.
+/// only checks that the decision follows its labels and, from the review's `sample` of the
+/// crawled URLs, that it is not clearly narrower than the product pages inspected suggest.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
     domain: &str,
     min_labelled_urls: NonZeroU32,
+    sample: &[SampleUrl],
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
@@ -409,7 +435,66 @@ pub(crate) fn url_pattern_approval_checks(
     if !taken.is_empty() {
         failed.push(FailedApprovalCheck::NotProductLabelMatched { urls: taken });
     }
+    if let Some(too_narrow) = pattern_too_narrow(pattern.as_ref(), sample) {
+        failed.push(too_narrow);
+    }
     failed
+}
+
+/// A URL of a URL-pattern review's sample, with what inspecting its page found, if it was
+/// inspected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SampleUrl {
+    pub url: String,
+    /// Whether the inspected page's structured data describes exactly one schema.org `Product`;
+    /// `None` for a URL nobody inspected.
+    pub describes_one_product: Option<bool>,
+}
+
+/// The fewest inspected sample pages the share of product pages rests on.
+const MIN_INSPECTED_PAGES: usize = 8;
+
+/// The refusal of a `pattern` that takes less than half of the share of the sample that the
+/// inspected pages suggest is product pages, and misses at least one inspected page that describes
+/// one product. The share is a heuristic: inspected pages are not a random draw, and a page's
+/// structured data is a hint, so the check needs [`MIN_INSPECTED_PAGES`] pages, a pattern that
+/// takes under half the product share, and a missed product page as direct evidence. `NO_PATTERN`
+/// takes nothing by design and has no share to compare.
+fn pattern_too_narrow(
+    pattern: Option<&Regex>,
+    sample: &[SampleUrl],
+) -> Option<FailedApprovalCheck> {
+    let pattern = pattern?;
+    let takes = |url: &SampleUrl| decision_takes(Some(pattern), &url.url);
+    let inspected: Vec<&SampleUrl> = sample
+        .iter()
+        .filter(|url| url.describes_one_product.is_some())
+        .collect();
+    let product_pages: Vec<&SampleUrl> = inspected
+        .iter()
+        .copied()
+        .filter(|url| url.describes_one_product == Some(true))
+        .collect();
+    let unmatched_product_pages: Vec<String> = product_pages
+        .iter()
+        .filter(|url| !takes(url))
+        .map(|url| url.url.clone())
+        .take(10)
+        .collect();
+    let matched = sample.iter().filter(|url| takes(url)).count();
+    // matched / sample < product_pages / inspected / 2, in whole numbers.
+    let narrower_than_half_the_share =
+        matched * inspected.len() * 2 < product_pages.len() * sample.len();
+    (inspected.len() >= MIN_INSPECTED_PAGES
+        && narrower_than_half_the_share
+        && !unmatched_product_pages.is_empty())
+    .then(|| FailedApprovalCheck::PatternTooNarrow {
+        matched,
+        sample_total: sample.len(),
+        product_pages: product_pages.len(),
+        inspected: inspected.len(),
+        unmatched_product_pages,
+    })
 }
 
 /// Whether the labelled `url` is on `domain`, under the crawler's host identity, which treats
@@ -1139,7 +1224,7 @@ mod tests {
     }
 
     fn url_checks(candidate: &UrlPatternReviewCandidate) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS)
+        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &[])
     }
 
     /// A decision that takes every URL labelled `PRODUCT`, in the crawler's spelling of it, and no
@@ -1314,6 +1399,76 @@ mod tests {
         );
     }
 
+    /// Sample URLs of a shop whose products sit under `/item/` and under category paths a pattern
+    /// may list one by one, `inspected` of them with what their inspection found.
+    fn shop_sample(inspected: usize, describes_one_product: bool) -> Vec<SampleUrl> {
+        let url = |index: usize| {
+            if index < 6 {
+                format!("https://antique-shop.example/item/lamp-{index}")
+            } else {
+                format!("https://antique-shop.example/clocks/barometers/barometer-{index}")
+            }
+        };
+        (0..20)
+            .map(|index| SampleUrl {
+                url: url(index),
+                describes_one_product: (index % 2 == 0 && index / 2 < inspected)
+                    .then_some(describes_one_product),
+            })
+            .collect()
+    }
+
+    /// A pattern that takes 6 of 20 sample URLs while every inspected page describes one product,
+    /// some of them under a path it misses, is narrower than the shop's product URLs.
+    #[test]
+    fn should_refuse_a_pattern_that_takes_clearly_fewer_urls_than_the_product_share_suggests() {
+        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
+
+        let refused = url_pattern_approval_checks(
+            &candidate,
+            REVIEW_CRAWL_HOST,
+            MIN_LABELLED_URLS,
+            &shop_sample(10, true),
+        );
+
+        assert_eq!(
+            refused,
+            vec![FailedApprovalCheck::PatternTooNarrow {
+                matched: 6,
+                sample_total: 20,
+                product_pages: 10,
+                inspected: 10,
+                unmatched_product_pages: [6, 8, 10, 12, 14, 16, 18]
+                    .map(|index| format!(
+                        "https://antique-shop.example/clocks/barometers/barometer-{index}"
+                    ))
+                    .to_vec(),
+            }]
+        );
+    }
+
+    #[test]
+    fn should_pass_a_structural_pattern_and_a_sample_too_thin_or_without_missed_products() {
+        let narrow = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
+        let structural = labelled(
+            pattern("/(item|clocks/barometers)/[^/]+$"),
+            &PRODUCTS,
+            &NOT_PRODUCTS,
+        );
+        let check = |candidate: &UrlPatternReviewCandidate, sample: &[SampleUrl]| {
+            url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, sample)
+        };
+
+        // The pattern takes every product page the inspection found.
+        assert_eq!(check(&structural, &shop_sample(10, true)), Vec::new());
+        // Too few pages were inspected to say what share of the shop is products.
+        assert_eq!(check(&narrow, &shop_sample(7, true)), Vec::new());
+        // The inspected pages are no products, so the pattern misses none.
+        assert_eq!(check(&narrow, &shop_sample(10, false)), Vec::new());
+        // No sample, as on a review nobody inspected.
+        assert_eq!(check(&narrow, &[]), Vec::new());
+    }
+
     /// `NO_PATTERN` takes no URL, so labelled products always refuse it: a human decides it.
     #[test]
     fn should_refuse_no_pattern_against_urls_labelled_product() {
@@ -1369,6 +1524,24 @@ mod tests {
                 "product": 1,
                 "not_product": 0,
                 "minimum": 3,
+            }))
+        );
+        assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::PatternTooNarrow {
+                matched: 6,
+                sample_total: 20,
+                product_pages: 10,
+                inspected: 10,
+                unmatched_product_pages: vec!["https://antiques.example/b/1".to_owned()],
+            })
+            .ok(),
+            Some(serde_json::json!({
+                "check": "PATTERN_TOO_NARROW",
+                "matched": 6,
+                "sample_total": 20,
+                "product_pages": 10,
+                "inspected": 10,
+                "unmatched_product_pages": ["https://antiques.example/b/1"],
             }))
         );
         assert_eq!(
