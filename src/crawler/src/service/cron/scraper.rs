@@ -1686,6 +1686,8 @@ async fn record_batch_error_state(ctx: &ScrapeBatchContext, error: &ScraperError
             | ScraperError::NotProductPage { .. }
             | ScraperError::RedirectToKnownProduct { .. }
             | ScraperError::PendingSchemaReview { .. }
+            // The pipeline already logged the blank fields and the review the page joined.
+            | ScraperError::MissingRequiredValue { .. }
     ) || is_robots_refusal(error)
     {
         debug!(error = %error, "Scraper run failed");

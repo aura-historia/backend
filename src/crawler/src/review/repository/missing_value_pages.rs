@@ -1,13 +1,14 @@
 //! Pages whose last scrape recorded `MissingRequiredValue`, for a reviewer to declare a
 //! removed-page template on (`docs/crawler/extraction-and-review.md`, removed-page templates).
-//! Such a page opens and joins no review on its own, so the reviewer opens one for it.
+//! Such a page opens and joins no review on its own, except in `agent` mode, where the scraper
+//! opens or joins the review for it; otherwise the reviewer opens one for it.
 
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
     parse_product_schema_payload, review_source_url_pattern, reviewer_page_url,
 };
 use crate::CrawlerReviewId;
-use crate::review::model::STATUS_PENDING_REVIEW;
+use crate::review::model::{PAGE_ROLE_WAITING_PAGE, STATUS_PENDING_REVIEW, SchemaReviewPageInput};
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use listing_source_core::ListingSourceId;
@@ -85,6 +86,14 @@ impl CrawlerReviewRepository {
         if !recorded {
             return Err(ReviewRepositoryError::NotMissingValuePage(url.to_string()));
         }
+        self.live_product_schemas(listing_source_id).await
+    }
+
+    /// The ListingSource's live product schemas, refusing one without any.
+    async fn live_product_schemas(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<Vec<ProductCssSelectorSchema>, ReviewRepositoryError> {
         sqlx::query_scalar::<_, serde_json::Value>(
             "SELECT product_schema FROM listing_source_product_schemas WHERE listing_source_id = $1",
         )
@@ -130,11 +139,43 @@ impl CrawlerReviewRepository {
         let live = self
             .missing_value_page_review_schemas(listing_source_id, url)
             .await?;
+        self.open_missing_value_review(listing_source_id, &live, Vec::new())
+            .await
+    }
+
+    /// Opens, or joins, the ListingSource's pending product-schema review for a page the
+    /// scraper just found with a required value blank, with the page it already fetched as a
+    /// waiting page: no extra fetch, once per page, and at most [`MAX_WAITING_PAGES`] waiting
+    /// pages however many pages of the source leave the value blank. The review is the one the
+    /// console opens for the page, with the same reason and candidate. Called in `agent` mode
+    /// only, where no human adds the page.
+    pub async fn open_or_join_review_for_scraped_missing_value_page(
+        &self,
+        listing_source_id: &ListingSourceId,
+        url: &Url,
+        raw_html: &str,
+    ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
+        let live = self.live_product_schemas(listing_source_id).await?;
+        let page = SchemaReviewPageInput {
+            url: url.to_string(),
+            role: PAGE_ROLE_WAITING_PAGE.to_owned(),
+            raw_html: raw_html.to_owned(),
+        };
+        self.open_missing_value_review(listing_source_id, &live, vec![page])
+            .await
+    }
+
+    async fn open_missing_value_review(
+        &self,
+        listing_source_id: &ListingSourceId,
+        live: &[ProductCssSelectorSchema],
+        pages: Vec<SchemaReviewPageInput>,
+    ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
         self.insert_schema_review(SchemaReviewWithStatusInput {
             listing_source_id,
             reason: MISSING_REQUIRED_VALUE_REVIEW_REASON,
-            schemas: &live,
-            pages: Vec::new(),
+            schemas: live,
+            pages,
             validation_summary: serde_json::json!({}),
             status: STATUS_PENDING_REVIEW,
             notes: None,

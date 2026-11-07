@@ -754,6 +754,81 @@ async fn should_not_wait_on_pending_review_when_the_cached_schema_finds_an_empty
     assert!(pages.iter().all(|page| page.role != PAGE_ROLE_WAITING_PAGE));
 }
 
+/// In `agent` mode the review agents are the only ones to see a page that leaves a required
+/// value blank, so it opens the ListingSource's `missing_required_value` review, and every
+/// further page, or the same page scraped again, joins that one review as a waiting page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_one_missing_value_review_for_the_pages_of_a_source_when_authoring_is_agent() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(id.as_uuid())
+    .bind(json!([item_title_schema()]))
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert live schemas: {error}"));
+    let other_url = Url::parse("https://example.com/products/sold-two").unwrap();
+    let scrape = |page_url: Url| {
+        let repository = repository.clone();
+        async move {
+            let mut fetcher = MockHtmlFetcher::new();
+            let served = page_url.clone();
+            fetcher.expect_fetch().once().returning(move |_| {
+                let served = served.clone();
+                Box::pin(async move { Ok(fetch_result_for(untitled_html(), served)) })
+            });
+            scraper_with_review_gate(
+                fetcher,
+                schema_service_without_generation(Some(cached_schemas(
+                    id,
+                    vec![item_title_schema()],
+                ))),
+                repository,
+                MockScraperCandidateService::new(),
+                CrawlerAuthoringMode::Agent,
+            )
+            .scrape(primary_only_request(&id, &page_url))
+            .await
+        }
+    };
+
+    for page_url in [product_url(), other_url.clone(), product_url()] {
+        let result = scrape(page_url).await.result;
+        assert_eq!(missing_required_value(result), "`title` is blank");
+    }
+
+    assert_eq!(product_schema_review_count(&pool, &id).await, 1);
+    let review_id = repository
+        .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+        .await
+        .unwrap_or_else(|error| panic!("read pending reviews: {error}"))
+        .unwrap_or_else(|| panic!("expected a pending review"));
+    let review = repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review: {error}"));
+    assert_eq!(review.review.reason, "missing_required_value");
+    let mut pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"))
+        .into_iter()
+        .map(|page| (page.url, page.role))
+        .collect::<Vec<_>>();
+    pages.sort();
+    assert_eq!(
+        pages,
+        vec![
+            (product_url().to_string(), PAGE_ROLE_WAITING_PAGE.to_owned()),
+            (other_url.to_string(), PAGE_ROLE_WAITING_PAGE.to_owned()),
+        ]
+    );
+}
+
 /// An empty title is no reason to skip schema work when the cached schema also captures
 /// something other than the product's values from the page.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
