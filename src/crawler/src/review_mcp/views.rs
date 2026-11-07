@@ -245,6 +245,14 @@ pub struct CandidateChanged {
     pub candidate_version: i64,
 }
 
+/// A record that the author found no sold or unavailable page.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct NoSoldPageRecorded {
+    pub review_id: String,
+    /// How many distinct pages the record names.
+    pub recorded_urls: usize,
+}
+
 /// A page added to the review.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PageAdded {

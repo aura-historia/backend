@@ -20,6 +20,7 @@ use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
+use tracing::warn;
 
 impl ReviewServer {
     /// Fetches the review page or the URL of the review's ListingSource that `request`'s `page` or
@@ -78,6 +79,14 @@ impl ReviewServer {
         })
         .await
         .map_err(internal_error)?;
+        // The guard's evidence of a pattern's reach; a failed write loses only that evidence.
+        if let Err(error) = self
+            .repository
+            .record_inspected_page_markup(review_id, &url, projected.describes_one_product)
+            .await
+        {
+            warn!(review_id = %review_id, error = %error, "Failed to record an inspected sample page's markup");
+        }
         Ok(PageProjection {
             review_id,
             review_page_id,

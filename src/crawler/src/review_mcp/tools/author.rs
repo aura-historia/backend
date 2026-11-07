@@ -8,7 +8,8 @@ use super::{
 use crate::review::model::CrawlerReviewPage;
 use crate::review_mcp::errors::ToolError;
 use crate::review_mcp::views::{
-    CandidateChanged, MatrixAnswer, MatrixView, PageAdded, PageRemoved, SampleLabelKind,
+    CandidateChanged, MatrixAnswer, MatrixView, NoSoldPageRecorded, PageAdded, PageRemoved,
+    SampleLabelKind,
 };
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -32,6 +33,7 @@ const REMOVE_REVIEW_PAGE: &str = "Remove a page that was added to the review, or
 
 const DECLARE_REMOVED_PAGE: &str = "Declare a kind of review page removed instead of authoring a schema for it: for a sold or withdrawn item the shop still serves with HTTP 200, a removal notice and no product. Adds one removed-page template to the pending product-schema candidate: selector selects the element holding the notice, and exactly one of text (the notice's text) or regex (a regex the notice's text matches; one that matches any text is refused). Declare a page removed only where the page itself shows a removal notice. The matrix then lists the pages the template matches and whether a schema still extracts a product from them (PRODUCT_STILL_EXTRACTS, a template too broad for that page). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT. Answers the new candidate_version; refresh_matrix afterwards.";
 
+const RECORD_NO_SOLD_PAGE: &str = "Record that you looked for a sold or unavailable product page of the review's ListingSource and found none, so the console accepts a candidate tested on none. An approval needs a review page whose extracted state is sold, out of stock or unavailable (or that a removed-page template captures), or this record. Use it only after you searched: open the shop's listing pages, its sold or archive section and filters, and product pages with inspect_page; when you find a sold or unavailable page, add it with add_review_page instead. urls are 3 to 50 distinct pages of the review's ListingSource you checked (a URL off its crawl host is refused with URL_OUTSIDE_REVIEW_SOURCE; fewer or more with INVALID_REQUEST), notes say how you searched and what you saw, in a few sentences. The record changes no candidate and does not move candidate_version. A review agent's approval is judged on it as the trail shows it, so record only what you checked.";
 const LABEL_SAMPLE_URLS: &str = "Set the sample labels of a pending URL-pattern review: for URLs on the crawl host of the review's ListingSource, its URL sample's among them, say whether each is the page of one product (PRODUCT) or not (NOT_PRODUCT: a category, search, article, imprint or other page), each with a short reason saying what the page shows. Open the pages with inspect_page before labelling them; describes_one_product is a hint, not proof. The list replaces every label the review has, so always send all labels; an empty list removes them. An approval needs at least the console's minimum of each label, and a pattern that takes every PRODUCT URL and no NOT_PRODUCT URL. A URL off the crawl host of the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE; a URL labelled twice and a missing reason with INVALID_REQUEST. expected_candidate_version is the candidate_version you read; labels belong to the candidate, so they move its version. Answers the new candidate_version.";
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -143,6 +145,18 @@ pub(super) struct DeclareRemovedPageArguments {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(super) struct RecordNoSoldPageArguments {
+    /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
+    #[schemars(with = "String")]
+    review_id: CrawlerReviewId,
+    /// The pages of the review's ListingSource you checked: 3 to 50 distinct URLs on its crawl host.
+    urls: Vec<String>,
+    /// How you searched and what you saw, in a few sentences.
+    notes: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(super) struct LabelSampleUrlsArguments {
     /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
     #[schemars(with = "String")]
@@ -200,6 +214,12 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             DECLARE_REMOVED_PAGE,
             Effect::Changes,
             declare_removed_page,
+        )?,
+        ToolDefinition::new(
+            "record_no_sold_page",
+            RECORD_NO_SOLD_PAGE,
+            Effect::Changes,
+            record_no_sold_page,
         )?,
         ToolDefinition::new(
             "label_sample_urls",
@@ -428,6 +448,31 @@ fn removed_page_template(
             "give exactly one of text and regex".to_owned(),
         )),
     }
+}
+
+async fn record_no_sold_page(
+    arguments: RecordNoSoldPageArguments,
+    context: Arc<ToolContext>,
+) -> Result<NoSoldPageRecorded, ToolError> {
+    let review_id = arguments.review_id;
+    let raw_urls: Vec<&str> = arguments.urls.iter().map(String::as_str).collect();
+    let urls: Vec<String> = review_source_urls(&context, review_id, &raw_urls)
+        .await?
+        .iter()
+        .map(|url| url.as_str().to_owned())
+        .collect();
+    let recorded: wire::NoSoldPageRecorded = context
+        .console
+        .post(
+            &review_path(review_id, "/no-sold-page"),
+            &json!({ "urls": urls, "notes": arguments.notes }),
+        )
+        .await?
+        .decode()?;
+    Ok(NoSoldPageRecorded {
+        review_id: review_id.to_string(),
+        recorded_urls: recorded.recorded_urls,
+    })
 }
 
 async fn label_sample_urls(

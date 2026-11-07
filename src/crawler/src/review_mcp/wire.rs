@@ -77,6 +77,12 @@ pub(super) struct PageProjection {
     pub(super) json_ld_product_ids: JsonLdProductIds,
 }
 
+/// The answer of an accepted record that no sold or unavailable page was found.
+#[derive(Debug, Deserialize)]
+pub(super) struct NoSoldPageRecorded {
+    pub(super) recorded_urls: usize,
+}
+
 /// The answer of an accepted candidate edit.
 #[derive(Debug, Deserialize)]
 pub(super) struct CandidateEdited {

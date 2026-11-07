@@ -1,4 +1,4 @@
-use super::{CrawlerReviewPage, RemovedPageTemplateMatch, SchemaCandidateEvaluation};
+use super::{CrawlerReviewPage, PageSignals, RemovedPageTemplateMatch, SchemaCandidateEvaluation};
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,10 @@ pub struct SchemaMatrix {
     /// The review pages the candidate's removed-page templates match; empty without templates.
     #[serde(default)]
     pub removed_page_matches: Vec<RemovedPageTemplateMatch>,
+    /// What each evaluated page shows that a schema should capture; empty for a matrix stored
+    /// before the signals, which the approval guard treats as outdated.
+    #[serde(default)]
+    pub page_signals: Vec<PageSignals>,
     /// What the server evaluated when it evaluated this matrix on the review's live pages;
     /// `None` for a matrix of the pages schema generation was given.
     #[serde(default, skip_serializing_if = "Option::is_none")]

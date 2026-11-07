@@ -353,6 +353,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "add_review_page",
             "remove_review_page",
             "declare_removed_page",
+            "record_no_sold_page",
             "label_sample_urls",
         ]
     );
@@ -478,6 +479,10 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             json!({ "review_id": product_schema.to_string(), "schemas": [schema("h1")], "urls": ["https://elsewhere.example/item/table"] }),
         ),
         (
+            "record_no_sold_page",
+            json!({ "review_id": product_schema.to_string(), "urls": [format!("{SHOP}/item/a"), format!("{SHOP}/item/b"), "https://elsewhere.example/item/c"], "notes": "searched" }),
+        ),
+        (
             "label_sample_urls",
             json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": 1, "labels": [{ "url": "https://elsewhere.example/", "label": "PRODUCT", "reason": "x" }] }),
         ),
@@ -536,6 +541,21 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (stale["kind"].clone(), stale["candidate_version"].clone()),
         (json!("CONFLICT"), json!(2))
     );
+
+    // The shop shows no sold page: the author records the pages it checked, which the approval
+    // guard needs next to the matrix.
+    let recorded = author
+        .call(
+            "record_no_sold_page",
+            json!({
+                "review_id": product_schema.to_string(),
+                "urls": (["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"))),
+                "notes": "searched the listing and its sold section",
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(recorded["recorded_urls"], 3);
 
     // The reviewer's approval is the console's to take: refused without a live matrix of the
     // staged version, taken once the matrix is refreshed.

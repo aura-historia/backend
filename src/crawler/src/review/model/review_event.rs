@@ -122,6 +122,9 @@ pub enum ReviewEventAction {
     PageAdded,
     /// `DELETE /api/review-pages/{id}`.
     PageRemoved,
+    /// `POST /api/reviews/{id}/no-sold-page`: the author looked for a sold or unavailable page of
+    /// the ListingSource and found none. It changes no candidate.
+    NoSoldPageRecorded,
     RepairRequested,
     /// `POST /api/reviews/{id}/hand-to-human`: a review agent made the review wait for a human
     /// without a further needs-repair round, saying why in the event's notes.
@@ -136,11 +139,12 @@ pub enum ReviewEventAction {
 }
 
 impl ReviewEventAction {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
         Self::PageRemoved,
+        Self::NoSoldPageRecorded,
         Self::RepairRequested,
         Self::HandedToHuman,
         Self::Approved,
@@ -156,6 +160,7 @@ impl ReviewEventAction {
             Self::SchemaFieldEdited => "SCHEMA_FIELD_EDITED",
             Self::PageAdded => "PAGE_ADDED",
             Self::PageRemoved => "PAGE_REMOVED",
+            Self::NoSoldPageRecorded => "NO_SOLD_PAGE_RECORDED",
             Self::RepairRequested => "REPAIR_REQUESTED",
             Self::HandedToHuman => "HANDED_TO_HUMAN",
             Self::Approved => "APPROVED",

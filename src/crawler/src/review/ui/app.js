@@ -1150,6 +1150,7 @@ const REVIEW_EVENT_LABELS = {
     SCHEMA_FIELD_EDITED: 'Field edited',
     PAGE_ADDED: 'Page added',
     PAGE_REMOVED: 'Page removed',
+    NO_SOLD_PAGE_RECORDED: 'No sold page found',
     REPAIR_REQUESTED: 'Repair requested',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
@@ -1228,6 +1229,10 @@ function reviewEventSummary(event) {
         case 'PAGE_ADDED':
         case 'PAGE_REMOVED':
             return details.url || '';
+        case 'NO_SOLD_PAGE_RECORDED': {
+            const checked = (details.checked_urls || []).length;
+            return `${checked} page${checked === 1 ? '' : 's'} checked`;
+        }
         case 'APPROVED': {
             const coverage = details.coverage;
             if (coverage) return coverageText({...coverage, notEvaluated: coverage.not_evaluated});

@@ -75,16 +75,17 @@ fn notice_template(text: &str) -> RemovedPageSchema {
     }
 }
 
-/// The product page the shop serves at `url`: a chair titled in an `h1`, or a table titled in an
-/// `h2`, so a schema per template covers each.
+/// The product page the shop serves at `url`: a chair in stock, titled in an `h1`, or a sold
+/// table titled in an `h2`, so a schema per template covers each and a review that holds both
+/// tests a sold page.
 fn shop_page(url: &str) -> String {
-    let (slug, title_tag) = if url.contains("table") {
-        ("table", "h2")
+    let (slug, title_tag, state) = if url.contains("table") {
+        ("table", "h2", "Sold")
     } else {
-        ("chair", "h1")
+        ("chair", "h1", "In stock")
     };
     format!(
-        "<html><body><span class=\"id\">{slug}</span><{title_tag}>{slug}</{title_tag}><span class=\"state\">In stock</span><img class=\"product\" src=\"{slug}.jpg\"></body></html>"
+        "<html><body><span class=\"id\">{slug}</span><{title_tag}>{slug}</{title_tag}><span class=\"state\">{state}</span><img class=\"product\" src=\"{slug}.jpg\"></body></html>"
     )
 }
 
@@ -200,6 +201,21 @@ fn approval(expected_candidate_version: i64) -> Approval<'static> {
         notes: Some("checked on the live pages"),
         incomplete_coverage: IncompleteCoverage::Refuse,
     }
+}
+
+/// The author agent's record that it checked three pages of the shop and found no sold page.
+async fn record_no_sold_page(repository: &CrawlerReviewRepository, review_id: CrawlerReviewId) {
+    repository
+        .record_no_sold_page(
+            review_id,
+            ReviewActor::AgentAuthor,
+            ["chair", "lamp", "vase"]
+                .map(|slug| format!("https://example.com/products/{slug}"))
+                .to_vec(),
+            "searched the listing and the sold section; no item is marked sold",
+        )
+        .await
+        .unwrap();
 }
 
 /// Approves the review's current version as a human who confirmed its coverage, as the console
@@ -440,12 +456,15 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     );
     assert_eq!(
         failed_checks(uncovered),
-        vec![FailedApprovalCheck::PagesNotCovered {
-            pages: vec![GuardedPage {
-                review_page_id: table.review_page_id,
-                url: table.url.clone(),
-            }],
-        }]
+        vec![
+            FailedApprovalCheck::PagesNotCovered {
+                pages: vec![GuardedPage {
+                    review_page_id: table.review_page_id,
+                    url: table.url.clone(),
+                }],
+            },
+            FailedApprovalCheck::NoSoldPageTested,
+        ]
     );
 
     let edited = repository
@@ -513,6 +532,104 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     );
 }
 
+/// A candidate tested on no sold or unavailable page is approved only with the author's record
+/// that it found none: recorded by the author agent or a human on a pending product-schema review,
+/// on pages of the shop, and without moving the candidate or counting as authoring.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_with_the_authors_record()
+ {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let listing_source_id = listing_source(&pool).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    let shop = |slug: &str| format!("https://example.com/products/{slug}");
+    let record = |actor: ReviewActor, urls: Vec<String>| {
+        repository.record_no_sold_page(review_id, actor, urls, "searched the listing")
+    };
+
+    let refused_approval = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
+        .await;
+    let reviewer = record(
+        ReviewActor::AgentReviewer,
+        vec![shop("a"), shop("b"), shop("c")],
+    )
+    .await;
+    let too_few = record(ReviewActor::AgentAuthor, vec![shop("a"), shop("b")]).await;
+    let off_host = record(
+        ReviewActor::AgentAuthor,
+        vec![
+            shop("a"),
+            shop("b"),
+            "https://elsewhere.example/c".to_owned(),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        failed_checks(refused_approval),
+        vec![FailedApprovalCheck::NoSoldPageTested]
+    );
+    assert!(
+        matches!(
+            reviewer,
+            Err(ReviewRepositoryError::ReviewerMayNotChangeCandidates)
+        ),
+        "{reviewer:?}"
+    );
+    assert!(
+        matches!(too_few, Err(ReviewRepositoryError::NoSoldPageUrlCount)),
+        "{too_few:?}"
+    );
+    assert!(
+        matches!(
+            off_host,
+            Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(_))
+        ),
+        "{off_host:?}"
+    );
+    assert!(trail(&repository, review_id).await.is_empty());
+
+    let recorded = record(
+        ReviewActor::AgentAuthor,
+        vec![shop("a"), shop("b"), shop("c")],
+    )
+    .await;
+    assert_eq!(recorded.ok(), Some(3));
+    assert_eq!(version(&repository, review_id).await, 1);
+    repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
+        .await
+        .unwrap();
+
+    let detail = repository.get_review(review_id).await.unwrap();
+    let recorded_event = &detail.events[0];
+    assert_eq!(
+        (recorded_event.actor, recorded_event.action),
+        (
+            ReviewActor::AgentAuthor,
+            ReviewEventAction::NoSoldPageRecorded
+        )
+    );
+    assert_eq!(
+        recorded_event.details["checked_urls"],
+        json!([shop("a"), shop("b"), shop("c")])
+    );
+    assert_eq!(
+        recorded_event.notes.as_deref(),
+        Some("searched the listing")
+    );
+    assert_eq!(detail.review.status, STATUS_APPROVED);
+}
+
 /// A legacy single-schema append review makes exactly its candidate live, so its live matrix
 /// evaluates that candidate and a live list changed since the evaluation does not outdate it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -531,6 +648,7 @@ async fn should_evaluate_and_approve_exactly_the_candidate_of_a_legacy_append_re
     .await;
 
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    record_no_sold_page(&repository, review_id).await;
     set_live_schemas(&pool, &listing_source_id, &[schema("h2.changed")]).await;
     repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
@@ -694,6 +812,7 @@ async fn should_restore_what_an_agent_approval_replaced() {
         .await
         .unwrap();
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    record_no_sold_page(&repository, review_id).await;
     repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(edited))
         .await
@@ -1301,6 +1420,98 @@ async fn should_keep_the_sample_labels_when_the_decision_changes() {
     );
 }
 
+/// A pattern that follows its labels but takes far fewer of the sample than the pages inspected
+/// as describing one product suggest, a category list that misses other product paths, is
+/// refused with the numbers; the structural pattern is approved.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_an_agent_url_pattern_narrower_than_the_inspected_product_pages() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20)
+        .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent));
+    let listing_source_id = listing_source_on(&pool, SHOP).await;
+    let items: Vec<String> = (0..6)
+        .map(|n| shop_url(&format!("/item/lamp-{n}")))
+        .collect();
+    let barometers: Vec<String> = (0..14)
+        .map(|n| shop_url(&format!("/clocks/barometers/barometer-{n}")))
+        .collect();
+    let sample: Vec<String> = items.iter().chain(&barometers).cloned().collect();
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &sample,
+            None,
+        )
+        .await
+        .unwrap();
+    let labelled = repository
+        .set_sample_labels(
+            review_id,
+            ReviewActor::AgentAuthor,
+            1,
+            [
+                label("/item/lamp-0", SampleUrlLabel::Product),
+                label("/item/lamp-1", SampleUrlLabel::Product),
+                label("/item/lamp-2", SampleUrlLabel::Product),
+            ]
+            .into_iter()
+            .chain(
+                OTHER_PATHS
+                    .iter()
+                    .map(|path| label(path, SampleUrlLabel::NotProduct)),
+            )
+            .collect(),
+        )
+        .await
+        .unwrap();
+    for url in items.iter().take(3).chain(barometers.iter().take(7)) {
+        repository
+            .record_inspected_page_markup(review_id, &url.parse().unwrap(), true)
+            .await
+            .unwrap();
+    }
+    let narrow = decide(
+        &repository,
+        review_id,
+        ReviewActor::AgentAuthor,
+        labelled,
+        "/item/[^/]+$",
+    )
+    .await;
+
+    let refused = repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(narrow))
+        .await;
+
+    assert!(
+        matches!(
+            failed_checks(refused).as_slice(),
+            [FailedApprovalCheck::PatternTooNarrow {
+                matched: 6,
+                sample_total: 20,
+                product_pages: 10,
+                inspected: 10,
+                ..
+            }]
+        ),
+        "the pattern takes 6 of 20 sample URLs while all 10 inspected pages describe one product"
+    );
+    let structural = decide(
+        &repository,
+        review_id,
+        ReviewActor::AgentAuthor,
+        narrow,
+        "/(item|clocks/barometers)/[^/]+$",
+    )
+    .await;
+    repository
+        .approve_review(review_id, ReviewActor::AgentReviewer, approval(structural))
+        .await
+        .unwrap();
+}
+
 /// In `agent` mode the reviewer agent approves a URL pattern only once it follows the author's
 /// labels, never on what the crawler guesses: the approval classifies the source's URLs by the
 /// pattern alone and keeps the labels it was accepted on.
@@ -1641,6 +1852,7 @@ async fn should_take_the_reviewer_approval_only_of_the_author_version_it_evaluat
         )
         .await;
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
+    record_no_sold_page(&repository, review_id).await;
     repository
         .approve_review(
             review_id,
@@ -1676,6 +1888,10 @@ async fn should_take_the_reviewer_approval_only_of_the_author_version_it_evaluat
             (
                 ReviewActor::AgentAuthor,
                 ReviewEventAction::SchemaFieldEdited
+            ),
+            (
+                ReviewActor::AgentAuthor,
+                ReviewEventAction::NoSoldPageRecorded
             ),
             (ReviewActor::AgentReviewer, ReviewEventAction::Approved),
         ]

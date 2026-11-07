@@ -244,6 +244,7 @@ mod tests {
         let matrix = SchemaMatrix {
             review_id: None,
             removed_page_matches: Vec::new(),
+            page_signals: Vec::new(),
             live_evaluation: None,
             candidates: vec![SchemaCandidateEvaluation {
                 schema_index: 0,
@@ -467,6 +468,7 @@ mod tests {
         let matrix = SchemaMatrix {
             review_id: None,
             removed_page_matches: Vec::new(),
+            page_signals: Vec::new(),
             live_evaluation: None,
             candidates: vec![SchemaCandidateEvaluation {
                 schema_index: 0,
@@ -511,6 +513,7 @@ mod tests {
         let matrix = SchemaMatrix {
             review_id: None,
             removed_page_matches: Vec::new(),
+            page_signals: Vec::new(),
             live_evaluation: None,
             candidates: vec![SchemaCandidateEvaluation {
                 schema_index: 0,

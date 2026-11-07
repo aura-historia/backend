@@ -590,6 +590,31 @@ impl ReviewServer {
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/no-sold-page")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/no-sold-page") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            let payload: NoSoldPagePayload = match serde_json::from_str(request.body) {
+                Ok(value) => value,
+                Err(err) => {
+                    return HttpResponse::json(400, &json!({ "error": err.to_string() }));
+                }
+            };
+            return match self
+                .repository
+                .record_no_sold_page(review_id, actor, payload.urls, &payload.notes)
+                .await
+            {
+                Ok(recorded_urls) => {
+                    HttpResponse::json(200, &json!({ "ok": true, "recorded_urls": recorded_urls }))
+                }
+                Err(err) => review_error(err),
+            };
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/candidate")
         {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/candidate") else {
@@ -904,6 +929,14 @@ struct SampleLabelsPayload {
     labels: Vec<SampleLabelInput>,
 }
 
+/// `POST /api/reviews/{id}/no-sold-page`: the pages the author checked and its account of how.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoSoldPagePayload {
+    urls: Vec<String>,
+    notes: String,
+}
+
 #[derive(Deserialize)]
 struct ReviewPagePayload {
     url: String,
@@ -1047,6 +1080,8 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NoApprovalToRestore(_)
         | ReviewRepositoryError::ApprovalNotRestorable { .. }
         | ReviewRepositoryError::NoRejectionToRevoke(_)
+        | ReviewRepositoryError::NoSoldPageUrlCount
+        | ReviewRepositoryError::InvalidNoSoldPageNote
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
         | ReviewRepositoryError::InvalidSampleLabelReason(_)

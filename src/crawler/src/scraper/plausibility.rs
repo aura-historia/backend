@@ -473,9 +473,14 @@ fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
     let status_label = regex!(
         r"(?i)\b(?:sold|reserved|verkocht|gereserveerd|uitverkocht|verkauft|reserviert|ausverkauft|vendu|vendue|réservé|réservée|épuisé|vendido|reservado|agotado|venduto|riservato|esaurito|available|in stock|out of stock|op voorraad|auf lager|beschikbaar)\b"
     );
-    if status_label.is_match(state) {
-        return None;
-    }
+    (!status_label.is_match(state) && is_price_text(state)).then_some(PlausibilityCheck::PriceText)
+}
+
+/// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
+/// "Sold for £500": the amount detector of the `state` check, which the review's page signals
+/// reuse to tell that a page shows a price. Unlike the `state` check it ignores status labels,
+/// because a price element that says "Sold for £500" still shows a price.
+pub(crate) fn is_price_text(text: &str) -> bool {
     let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
     let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪]");
     let code_before =
@@ -484,12 +489,11 @@ fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
         r"(?i)\d\s*(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?)\b"
     );
     let labelled = regex!(r"(?i)\b(?:price|prijs|preis|prix|precio|prezzo)\b\W{0,3}\d");
-    (symbol_before.is_match(state)
-        || symbol_after.is_match(state)
-        || code_before.is_match(state)
-        || code_or_word_after.is_match(state)
-        || labelled.is_match(state))
-    .then_some(PlausibilityCheck::PriceText)
+    symbol_before.is_match(text)
+        || symbol_after.is_match(text)
+        || code_before.is_match(text)
+        || code_or_word_after.is_match(text)
+        || labelled.is_match(text)
 }
 
 /// Compares the primary candidate of each ordered image candidate group, so the same
