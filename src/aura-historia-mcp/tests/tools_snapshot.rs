@@ -2,7 +2,9 @@
 //! The webapp registers its WebMCP tools from that file instead of listing them at runtime, so
 //! this test renders the production catalogue through the router and fails when the file
 //! differs. See `docs/mcp.md#tool-snapshot`.
-use aura_historia_mcp::{McpDependencies, TransportConfig, mcp_router};
+use aura_historia_mcp::{
+    McpDependencies, SUPPORTED_PROTOCOL_VERSIONS, TransportConfig, mcp_router,
+};
 use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
 use axum::{
     Router,
@@ -13,7 +15,7 @@ use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
 use oauth_core::resource::AuraResourcePolicy;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{path::PathBuf, sync::Arc};
 use tower::ServiceExt;
 
@@ -117,6 +119,24 @@ async fn list_tools(router: &Router, cursor: Option<&str>) -> Value {
     body["result"].clone()
 }
 
+/// Objects with their keys in sorted order, whatever `serde_json` features a build enables.
+fn sorted(value: Value) -> Value {
+    match value {
+        Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key, sorted(value)))
+                    .collect::<Map<_, _>>(),
+            )
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(sorted).collect()),
+        other => other,
+    }
+}
+
 /// Every tool an anonymous client discovers, following `nextCursor` until it is absent.
 async fn render(policy: AuraResourcePolicy) -> String {
     let router = production_router(policy);
@@ -130,11 +150,17 @@ async fn render(policy: AuraResourcePolicy) -> String {
             None => break,
         }
     }
+    let tools = sorted(Value::Array(tools));
     format!("{}\n", serde_json::to_string_pretty(&tools).unwrap())
 }
 
 #[tokio::test]
 async fn should_commit_exactly_the_anonymous_tools_list_of_the_registry() {
+    assert_eq!(
+        PROTOCOL_VERSION,
+        SUPPORTED_PROTOCOL_VERSIONS[0].as_str(),
+        "the snapshot follows the current revision; update this test's request for the new one"
+    );
     let rendered = render(AuraResourcePolicy::production()).await;
     let path = snapshot_path();
     if std::env::var_os(UPDATE).is_some_and(|value| value == "1") {
@@ -170,9 +196,11 @@ async fn should_render_the_same_snapshot_for_every_environment_without_naming_on
             policy.mcp_origin(),
             policy.documentation_origin(),
         ] {
+            // The host alone, so that a URL without a scheme is caught too.
+            let host = origin.split_once("://").unwrap().1;
             assert!(
-                !rendered[0].contains(origin),
-                "a tool names the environment origin {origin}"
+                !rendered[0].contains(host),
+                "a tool names the environment host {host}"
             );
         }
     }
