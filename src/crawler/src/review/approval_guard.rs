@@ -488,7 +488,7 @@ fn pattern_too_narrow(
     (inspected.len() >= MIN_INSPECTED_PAGES
         && narrower_than_half_the_share
         && !unmatched_product_pages.is_empty())
-    .then(|| FailedApprovalCheck::PatternTooNarrow {
+    .then_some(FailedApprovalCheck::PatternTooNarrow {
         matched,
         sample_total: sample.len(),
         product_pages: product_pages.len(),
