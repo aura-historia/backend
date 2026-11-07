@@ -1,5 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 
+use crate::authoring::CrawlerAuthoringMode;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -8,6 +9,7 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
+use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
@@ -31,7 +33,7 @@ use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
 use regex::Regex;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 
 /// Where a product URL's redirect on its own host, bare or `www.`, led, as the redirect
@@ -756,6 +758,7 @@ impl ScraperServiceImpl {
                         extracted = live;
                         continue;
                     }
+                    self.report_missing_required_value(page, &findings).await;
                     return Err(ScraperError::MissingRequiredValue {
                         url: page.url.clone(),
                         findings,
@@ -793,6 +796,48 @@ impl ScraperServiceImpl {
             );
             let selection = self.generate_fresh_schema_for_page(ctx).await?;
             return Ok((extracted, selection));
+        }
+    }
+
+    /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
+    /// ListingSource's `missing_required_value` review for it, so the review agents see the page
+    /// that no human adds. Other modes open none. A failure to open it is logged: the URL still
+    /// records the outcome, and the next scrape tries again.
+    async fn report_missing_required_value(
+        &self,
+        page: FetchedPage<'_>,
+        findings: &PlausibilityFindings,
+    ) {
+        let review = match (self.authoring, &self.review_repository) {
+            (CrawlerAuthoringMode::Agent, Some(repository)) => Some(
+                repository
+                    .open_or_join_review_for_scraped_missing_value_page(
+                        page.listing_source_id,
+                        page.url,
+                        page.html,
+                    )
+                    .await,
+            ),
+            _ => None,
+        };
+        match review {
+            Some(Ok(review_id)) => info!(
+                url = %page.url,
+                review_id = %review_id,
+                findings = %findings,
+                "Page left a required value blank; joined the missing_required_value review"
+            ),
+            Some(Err(error)) => warn!(
+                url = %page.url,
+                findings = %findings,
+                error = %error,
+                "Page left a required value blank; could not open its missing_required_value review"
+            ),
+            None => info!(
+                url = %page.url,
+                findings = %findings,
+                "Page left a required value blank"
+            ),
         }
     }
 
