@@ -435,10 +435,26 @@ pub(crate) fn url_pattern_approval_checks(
     if !taken.is_empty() {
         failed.push(FailedApprovalCheck::NotProductLabelMatched { urls: taken });
     }
-    if let Some(too_narrow) = pattern_too_narrow(pattern.as_ref(), sample) {
+    let not_product_pages: Vec<PageKey> = labelled(SampleUrlLabel::NotProduct)
+        .filter_map(|url| page_key(&url.url))
+        .collect();
+    if let Some(too_narrow) = pattern_too_narrow(pattern.as_ref(), sample, &not_product_pages) {
         failed.push(too_narrow);
     }
     failed
+}
+
+/// A page as the label checks tell pages apart: its crawler page spelling, with or without its
+/// trailing slash, on the crawl host with or without `www.`, on http or https.
+type PageKey = (String, String, Option<String>);
+
+fn page_key(url: &str) -> Option<PageKey> {
+    let page = CrawledUrl::new(Url::parse(url).ok()?).page_spelling();
+    Some((
+        canonical_crawl_host(page.host_str()?),
+        page.path().to_owned(),
+        page.query().map(str::to_owned),
+    ))
 }
 
 /// A URL of a URL-pattern review's sample, with what inspecting its page found, if it was
@@ -458,11 +474,14 @@ const MIN_INSPECTED_PAGES: usize = 8;
 /// inspected pages suggest is product pages, and misses at least one inspected page that describes
 /// one product. The share is a heuristic: inspected pages are not a random draw, and a page's
 /// structured data is a hint, so the check needs [`MIN_INSPECTED_PAGES`] pages, a pattern that
-/// takes under half the product share, and a missed product page as direct evidence. `NO_PATTERN`
-/// takes nothing by design and has no share to compare.
+/// takes under half the product share, and a missed product page as direct evidence. A page
+/// labelled `NOT_PRODUCT` is no product page whatever its markup, such as a gift card a shop marks
+/// up as a `Product`: the label decides, and the decision must not take it. `NO_PATTERN` takes
+/// nothing by design and has no share to compare.
 fn pattern_too_narrow(
     pattern: Option<&Regex>,
     sample: &[SampleUrl],
+    not_product_pages: &[PageKey],
 ) -> Option<FailedApprovalCheck> {
     let pattern = pattern?;
     let takes = |url: &SampleUrl| decision_takes(Some(pattern), &url.url);
@@ -473,7 +492,10 @@ fn pattern_too_narrow(
     let product_pages: Vec<&SampleUrl> = inspected
         .iter()
         .copied()
-        .filter(|url| url.describes_one_product == Some(true))
+        .filter(|url| {
+            url.describes_one_product == Some(true)
+                && page_key(&url.url).is_none_or(|page| !not_product_pages.contains(&page))
+        })
         .collect();
     let unmatched_product_pages: Vec<String> = product_pages
         .iter()
@@ -1467,6 +1489,29 @@ mod tests {
         assert_eq!(check(&narrow, &shop_sample(10, false)), Vec::new());
         // No sample, as on a review nobody inspected.
         assert_eq!(check(&narrow, &[]), Vec::new());
+    }
+
+    /// A page labelled `NOT_PRODUCT` is no missed product page whatever its markup: shops mark up
+    /// gift cards and vouchers as a `Product`, and the decision must leave them out. The label
+    /// counts under any spelling of the page.
+    #[test]
+    fn should_pass_a_pattern_that_leaves_out_inspected_pages_labelled_not_product() {
+        let sample = shop_sample(10, true);
+        let vouchers: Vec<String> = sample
+            .iter()
+            .filter(|url| url.url.contains("/barometers/") && url.describes_one_product.is_some())
+            .map(|url| url.url.replacen("https://", "http://www.", 1) + "/")
+            .collect();
+        let not_products: Vec<&str> = NOT_PRODUCTS
+            .into_iter()
+            .chain(vouchers.iter().map(String::as_str))
+            .collect();
+        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &not_products);
+
+        assert_eq!(
+            url_pattern_approval_checks(&candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample),
+            Vec::new()
+        );
     }
 
     /// `NO_PATTERN` takes no URL, so labelled products always refuse it: a human decides it.
