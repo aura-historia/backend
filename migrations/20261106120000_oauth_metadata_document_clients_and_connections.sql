@@ -1,3 +1,5 @@
+-- Public OAuth clients identified by the HTTPS URL of their Client ID Metadata Document have
+-- no oauth_clients row; their authorization codes and access tokens record that URL instead.
 -- One connection per user and metadata document client groups that client's credentials:
 -- its access tokens and the refresh-token families of its sign-ins. Ending a connection
 -- cascades to all of them. See docs/oauth.md.
@@ -84,13 +86,29 @@ CREATE INDEX oauth_refresh_token_families_connection_idx
 CREATE INDEX oauth_refresh_token_families_expires_at_idx
     ON oauth_refresh_token_families (expires_at);
 
--- Metadata document client tokens issued before connections existed expire within an hour
--- and cannot name a connection; they are revoked instead of migrated.
-DELETE FROM access_tokens WHERE origin = 'OAUTH_METADATA_DOCUMENT';
+ALTER TABLE oauth_authorization_codes
+    ALTER COLUMN client_id DROP NOT NULL,
+    ADD COLUMN metadata_document_client_id text,
+    ADD COLUMN issues_refresh_token boolean NOT NULL DEFAULT false,
+    ADD CONSTRAINT oauth_authorization_codes_one_client_check CHECK (
+        (client_id IS NULL) <> (metadata_document_client_id IS NULL)
+    ),
+    ADD CONSTRAINT oauth_authorization_codes_refresh_token_client_check CHECK (
+        NOT issues_refresh_token OR metadata_document_client_id IS NOT NULL
+    );
+
+CREATE INDEX oauth_authorization_codes_metadata_document_client_idx
+    ON oauth_authorization_codes (user_id, metadata_document_client_id)
+    WHERE metadata_document_client_id IS NOT NULL;
 
 ALTER TABLE access_tokens
+    ADD COLUMN oauth_metadata_document_client_id text,
     ADD COLUMN oauth_connection_id uuid,
+    DROP CONSTRAINT access_tokens_origin_check,
     DROP CONSTRAINT access_tokens_oauth_origin_client_check,
+    ADD CONSTRAINT access_tokens_origin_check CHECK (
+        origin IN ('USER', 'OAUTH', 'OAUTH_METADATA_DOCUMENT')
+    ),
     ADD CONSTRAINT access_tokens_oauth_origin_client_check CHECK (
         (origin = 'USER'
             AND oauth_client_id IS NULL
@@ -105,6 +123,10 @@ ALTER TABLE access_tokens
             AND oauth_metadata_document_client_id IS NOT NULL
             AND oauth_connection_id IS NOT NULL)
     ),
+    -- A public client never holds a non-expiring token.
+    ADD CONSTRAINT access_tokens_oauth_metadata_document_expiry_check CHECK (
+        origin <> 'OAUTH_METADATA_DOCUMENT' OR expires_at IS NOT NULL
+    ),
     -- A token belongs to its connection's user and client and never outlives it.
     ADD CONSTRAINT access_tokens_oauth_connection_fkey
         FOREIGN KEY (oauth_connection_id, user_id, oauth_metadata_document_client_id)
@@ -113,16 +135,6 @@ ALTER TABLE access_tokens
 
 CREATE INDEX access_tokens_oauth_connection_id_idx
     ON access_tokens (oauth_connection_id) WHERE oauth_connection_id IS NOT NULL;
-
-ALTER TABLE oauth_authorization_codes
-    ADD COLUMN issues_refresh_token boolean NOT NULL DEFAULT false,
-    ADD CONSTRAINT oauth_authorization_codes_refresh_token_client_check CHECK (
-        NOT issues_refresh_token OR metadata_document_client_id IS NOT NULL
-    );
-
-CREATE INDEX oauth_authorization_codes_metadata_document_client_idx
-    ON oauth_authorization_codes (user_id, metadata_document_client_id)
-    WHERE metadata_document_client_id IS NOT NULL;
 
 -- The cleanup additionally removes the tokens of expired refresh-token families, then
 -- those families, then connections that hold no credential and no outstanding
