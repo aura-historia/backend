@@ -349,6 +349,7 @@ mod tests {
             "add_review_page",
             "remove_review_page",
             "declare_removed_page",
+            "record_no_sold_page",
             "label_sample_urls",
         ];
         let reviewer = ["approve", "reject"];

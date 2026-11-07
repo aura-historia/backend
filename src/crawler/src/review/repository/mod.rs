@@ -31,6 +31,7 @@ use url::Url;
 mod live_matrix;
 mod mass_removal_confirmation;
 mod missing_value_pages;
+mod no_sold_page;
 mod pending_reviews;
 mod rearm;
 mod rejected_pages;
@@ -62,6 +63,7 @@ use review_events::{
 };
 
 use crate::review::source_url::is_review_source_url;
+use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
 pub(crate) use repair_rounds::agent_repair_rounds;
 use repair_rounds::refuse_agent_while_human_required;
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
@@ -102,6 +104,14 @@ pub enum ReviewRepositoryError {
     AuthorMayNotDecide,
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
+    #[error(
+        "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
+    )]
+    NoSoldPageUrlCount,
+    #[error(
+        "a record that no sold or unavailable page was found needs notes of at most {MAX_NO_SOLD_PAGE_NOTE_CHARS} characters saying how the pages were searched"
+    )]
+    InvalidNoSoldPageNote,
     #[error("review {0} has unsupported artifact type {1}")]
     UnsupportedArtifact(CrawlerReviewId, String),
     #[error("invalid schema field `{0}`")]

@@ -11,6 +11,7 @@ use crate::review::model::{
 };
 use crate::review::page_content_checks::{
     MissingContentRule, missing_content_rules, pages_without_signals,
+    shows_sold_or_unavailable_page,
 };
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
@@ -61,6 +62,9 @@ pub enum FailedApprovalCheck {
     /// Review pages that show a price or a description block while no schema applying to them
     /// has a `price` or a `description` rule.
     ContentRuleMissing { rules: Vec<MissingContentRule> },
+    /// No review page shows a sold or unavailable product, and the review records no search for
+    /// one that found none.
+    NoSoldPageTested,
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
     /// The candidate's sample labels on the review's crawl host mark fewer than `minimum` URLs as
@@ -147,6 +151,10 @@ impl fmt::Display for FailedApprovalCheck {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Self::NoSoldPageTested => write!(
+                formatter,
+                "no review page shows a sold or unavailable product; add one with add_review_page and refresh the matrix, or record the pages you checked with record_no_sold_page when the shop has none"
+            ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
             Self::TooFewLabels {
                 product,
@@ -176,6 +184,9 @@ pub(crate) struct CurrentReview<'a> {
     /// The fingerprint of the product-schema configuration approval would make live now.
     pub configuration_sha256: &'a str,
     pub pages: &'a [CrawlerReviewPage],
+    /// Whether the review's trail records that the author looked for a sold or unavailable page
+    /// of the ListingSource and found none.
+    pub no_sold_page_recorded: bool,
 }
 
 /// The checks an agent approval of a product-schema review fails, none when it may go ahead: the
@@ -237,6 +248,9 @@ pub(crate) fn product_schema_approval_checks(
     let implausible = implausible_pages(matrix);
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
+    }
+    if !review.no_sold_page_recorded && !shows_sold_or_unavailable_page(matrix, &coverages) {
+        failed.push(FailedApprovalCheck::NoSoldPageTested);
     }
     let content_rules = missing_content_rules(matrix, &coverages);
     if !content_rules.is_empty() {
@@ -571,11 +585,23 @@ mod tests {
         checks_of(matrix, pages, 3, CONFIGURATION)
     }
 
+    /// The checks of a review whose trail records that its author found no sold page, so the
+    /// product pages that show "Available" test no sold page without refusing it.
     fn checks_of(
         matrix: Option<&SchemaMatrix>,
         pages: &[CrawlerReviewPage],
         candidate_version: i64,
         configuration_sha256: &str,
+    ) -> Vec<FailedApprovalCheck> {
+        checks_recorded(matrix, pages, candidate_version, configuration_sha256, true)
+    }
+
+    fn checks_recorded(
+        matrix: Option<&SchemaMatrix>,
+        pages: &[CrawlerReviewPage],
+        candidate_version: i64,
+        configuration_sha256: &str,
+        no_sold_page_recorded: bool,
     ) -> Vec<FailedApprovalCheck> {
         product_schema_approval_checks(
             matrix,
@@ -583,6 +609,7 @@ mod tests {
                 candidate_version,
                 configuration_sha256,
                 pages,
+                no_sold_page_recorded,
             },
             OffsetDateTime::now_utc(),
             MAX_AGE,
@@ -982,6 +1009,86 @@ mod tests {
         );
     }
 
+    /// A page whose `state` element holds `state`.
+    fn page_in_state(slug: &str, state: &str) -> (CrawlerReviewPage, String) {
+        let (page, html) = product_page(slug, "h1", slug);
+        (page, html.replace("Available", state))
+    }
+
+    /// An approval needs a review page that shows a sold or unavailable product, or the author's
+    /// record that it found none.
+    #[test]
+    fn should_refuse_a_candidate_tested_on_no_sold_page_unless_the_author_recorded_none() {
+        let pages = [
+            page_in_state("chair", "In stock"),
+            page_in_state("table", "Add to cart"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        let current = review_pages(&pages);
+
+        assert_eq!(
+            checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, false),
+            vec![FailedApprovalCheck::NoSoldPageTested]
+        );
+        assert_eq!(
+            checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, true),
+            Vec::new()
+        );
+    }
+
+    /// The labels the normalization resolves to sold or unavailable count, whichever language or
+    /// schema.org spelling the shop uses; a cart action or an available label does not.
+    #[test]
+    fn should_accept_a_page_whose_state_resolves_to_sold_or_unavailable() {
+        for state in [
+            "Sold",
+            "Verkocht",
+            "https://schema.org/SoldOut",
+            "Out of stock",
+        ] {
+            let pages = [
+                page_in_state("chair", "Available"),
+                page_in_state("table", state),
+            ];
+            let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+            assert_eq!(
+                checks_recorded(
+                    Some(&matrix),
+                    &review_pages(&pages),
+                    3,
+                    CONFIGURATION,
+                    false
+                ),
+                Vec::new(),
+                "{state}"
+            );
+        }
+    }
+
+    /// A page the candidate's removed-page template captures as removed is a sold page too.
+    #[test]
+    fn should_accept_a_page_a_removed_page_template_captures() {
+        let pages = [product_page("chair", "h1", "Chair"), notice_page("sold")];
+        let template = RemovedPageSchema {
+            selector: ".notice".into(),
+            text: Some("no longer available".to_owned()),
+            regex: None,
+        };
+        let matrix = live_matrix(&[schema("h1")], &[template], &pages, Duration::ZERO);
+
+        assert_eq!(
+            checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false
+            ),
+            Vec::new()
+        );
+    }
+
     fn pattern(value: &str) -> UrlPatternDecision {
         UrlPatternDecision::Pattern {
             value: value.to_owned(),
@@ -1237,6 +1344,10 @@ mod tests {
                 "check": "PAGES_NOT_COVERED",
                 "pages": [{ "review_page_id": page.review_page_id, "url": page.url }],
             }))
+        );
+        assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::NoSoldPageTested).ok(),
+            Some(serde_json::json!({ "check": "NO_SOLD_PAGE_TESTED" }))
         );
         assert_eq!(
             serde_json::to_value(FailedApprovalCheck::LiveMatrixMissing).ok(),

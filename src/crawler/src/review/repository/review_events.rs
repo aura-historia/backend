@@ -51,6 +51,13 @@ pub(super) enum ReviewMutation<'a> {
         url: String,
         role: String,
     },
+    /// `POST /api/reviews/{id}/no-sold-page`; the notes are the author's account.
+    NoSoldPageRecorded {
+        #[serde(skip)]
+        notes: &'a str,
+        /// The pages the author checked, in the crawler's spelling.
+        checked_urls: Vec<String>,
+    },
     RepairRequested {
         #[serde(skip)]
         note: &'a str,
@@ -156,6 +163,7 @@ impl ReviewMutation<'_> {
             Self::SchemaFieldEdited { .. } => ReviewEventAction::SchemaFieldEdited,
             Self::PageAdded { .. } => ReviewEventAction::PageAdded,
             Self::PageRemoved { .. } => ReviewEventAction::PageRemoved,
+            Self::NoSoldPageRecorded { .. } => ReviewEventAction::NoSoldPageRecorded,
             Self::RepairRequested { .. } => ReviewEventAction::RepairRequested,
             Self::ProductSchemasApproved { .. } | Self::UrlPatternApproved { .. } => {
                 ReviewEventAction::Approved
@@ -171,6 +179,7 @@ impl ReviewMutation<'_> {
     fn notes(&self) -> Option<&str> {
         match self {
             Self::RepairRequested { note } => Some(note),
+            Self::NoSoldPageRecorded { notes, .. } => Some(notes),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
             | Self::Rejected { notes }
@@ -214,6 +223,21 @@ pub(super) async fn commit_with_event(
     }
     transaction.commit().await?;
     Ok(())
+}
+
+/// Whether the review's trail holds the author's record that it found no sold or unavailable
+/// page of the ListingSource.
+pub(super) async fn has_no_sold_page_record<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    review_id: CrawlerReviewId,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM crawler_review_events WHERE review_id = $1 AND action = $2)",
+    )
+    .bind(review_id.as_uuid())
+    .bind(ReviewEventAction::NoSoldPageRecorded.as_str())
+    .fetch_one(executor)
+    .await
 }
 
 /// The approval event of a review, as a restore reads it.

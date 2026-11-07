@@ -8,6 +8,8 @@ use crate::review::model::{
     CrawlerReviewPage, PageSignals, SchemaMatrix, SchemaPageEvaluation, SchemaPageReference,
 };
 use crate::review::page_coverage::PageCoverage;
+use product_listing_core::listing_availability::ListingAvailability;
+use product_listing_normalization::quick_check_availability;
 use serde::Serialize;
 
 /// An optional field whose rule no schema applying to the pages has, though the pages show it.
@@ -90,4 +92,41 @@ fn any_has_rule(evaluations: &[&SchemaPageEvaluation], field: &str) -> bool {
     evaluations
         .iter()
         .any(|evaluation| evaluation.fields.iter().any(|rule| rule.field == field))
+}
+
+/// Whether a review page shows a sold or unavailable product: a template captures it as removed,
+/// or a candidate schema extracts a `state` that the ProductListing normalization resolves to sold
+/// out, out of stock or unavailable, as a `schema.org/SoldOut` read from JSON-LD or the label
+/// "Sold" does. A `state` the normalization does not recognize, such as an add-to-cart button's
+/// text, says nothing about the page.
+pub(crate) fn shows_sold_or_unavailable_page(
+    matrix: &SchemaMatrix,
+    coverages: &[(&CrawlerReviewPage, PageCoverage)],
+) -> bool {
+    coverages.iter().any(|(page, coverage)| {
+        let reference = SchemaPageReference::Persisted {
+            review_page_id: page.review_page_id,
+        };
+        *coverage == PageCoverage::CapturedAsRemoved
+            || matrix
+                .candidates
+                .iter()
+                .flat_map(|candidate| &candidate.pages)
+                .filter(|evaluation| evaluation.page_reference == reference && evaluation.apply_ok)
+                .filter_map(|evaluation| evaluation.extracted.as_ref())
+                .any(|extracted| state_is_sold_or_unavailable(&extracted.state))
+    })
+}
+
+fn state_is_sold_or_unavailable(state: &str) -> bool {
+    matches!(
+        quick_check_availability(state)
+            .ok()
+            .and_then(|check| check.availability()),
+        Some(
+            ListingAvailability::SoldOut
+                | ListingAvailability::OutOfStock
+                | ListingAvailability::Unavailable
+        )
+    )
 }

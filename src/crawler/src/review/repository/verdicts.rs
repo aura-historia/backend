@@ -11,7 +11,7 @@ use super::rejected_pages::RejectedPages;
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
     LiveUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
-    commit_with_event,
+    commit_with_event, has_no_sold_page_record,
 };
 use super::sample_labels::url_pattern_review_crawl_host;
 use super::schema_payload::ProductSchemaReviewCandidate;
@@ -122,13 +122,15 @@ impl CrawlerReviewRepository {
                 let matrix = stored_schema_matrix(&review.validation_summary).and_then(Result::ok);
                 if guarded {
                     guard_agent_product_schema_approval(
+                        &mut transaction,
                         review_id,
                         &review,
                         &pages,
                         matrix.as_ref(),
                         &going_live.live,
                         self.agent_decisions.limits().max_matrix_age(),
-                    )?;
+                    )
+                    .await?;
                 }
                 let coverage = check_approval_coverage(
                     review_id,
@@ -364,7 +366,8 @@ fn agent_decision_wait(seconds_left: &[f64], limit: NonZeroU32) -> Option<Durati
 /// Refuses a review agent's approval of a product-schema review that fails a check of the
 /// [approval guard](crate::review::approval_guard), against what approval would make live now
 /// and the review's current pages.
-fn guard_agent_product_schema_approval(
+async fn guard_agent_product_schema_approval(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     review: &ReviewUnderVerdict,
     pages: &[CrawlerReviewPage],
@@ -373,6 +376,7 @@ fn guard_agent_product_schema_approval(
     max_matrix_age: Duration,
 ) -> Result<(), ReviewRepositoryError> {
     let configuration_sha256 = going_live.fingerprint()?;
+    let no_sold_page_recorded = has_no_sold_page_record(&mut **transaction, review_id).await?;
     refuse_failed_checks(
         review_id,
         product_schema_approval_checks(
@@ -381,6 +385,7 @@ fn guard_agent_product_schema_approval(
                 candidate_version: review.candidate_version,
                 configuration_sha256: &configuration_sha256,
                 pages,
+                no_sold_page_recorded,
             },
             OffsetDateTime::now_utc(),
             max_matrix_age,
