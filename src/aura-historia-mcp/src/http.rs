@@ -24,6 +24,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{any, get},
 };
+use oauth_core::ordinary_user_scopes::ORDINARY_USER_SCOPES;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
 };
@@ -116,11 +117,14 @@ async fn protected_resource(State(state): State<HttpState>, headers: HeaderMap) 
         return status.into_response();
     }
     let policy = state.config.resource_policy;
+    // The ordinary-user vocabulary, as on REST: a client that signs in without a challenge
+    // requests these, so one approval covers every personal tool.
+    let scopes = ORDINARY_USER_SCOPES.map(user_core::access_token::Scope::as_str);
     axum::Json(json!({
         "resource": policy.mcp_resource(),
         "authorization_servers": [policy.issuer()],
         "bearer_methods_supported": ["header"],
-        "scopes_supported": ["users:read"],
+        "scopes_supported": scopes,
     }))
     .into_response()
 }

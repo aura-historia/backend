@@ -111,9 +111,10 @@ remain the authority for scope, role, partnership and ownership checks.
 
 Both `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-protected-resource/v1` serve credential-free RFC 9728 metadata. They
-identify the exact canonical MCP resource and configured Aura issuer, advertise only header
-bearer credentials and the baseline `users:read` scope. Operation challenges provide the
-required scope set for each protected call. Host/Origin checks and `Cache-Control: no-store`
+identify the exact canonical MCP resource and configured Aura issuer, and advertise only header
+bearer credentials and the ordinary-user scopes, like the REST protected-resource metadata. A
+client that signs in without a challenge requests these, so one approval covers every personal
+tool. Operation challenges still name the required scope set of each protected call. Host/Origin checks and `Cache-Control: no-store`
 apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
 server discovery belongs to [the OAuth contract](oauth.md); the server card and every other
 discovery document belong to [agent discovery](agent-discovery.md).
