@@ -1270,6 +1270,27 @@ async fn lock_review_for_edit(
     agent_decisions: &AgentDecisionPolicy,
     expected_candidate_version: i64,
 ) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
+    let (review, candidate_version) =
+        lock_review_for_change(transaction, review_id, actor, agent_decisions).await?;
+    if candidate_version != expected_candidate_version {
+        return Err(ReviewRepositoryError::StaleCandidateVersion {
+            review_id,
+            expected: expected_candidate_version,
+            current: candidate_version,
+        });
+    }
+    Ok(review)
+}
+
+/// Locks the review for a change by `actor` that does not rest on a candidate version, such as a
+/// record of the author's findings, and reads the review with its current candidate version. The
+/// same actors and review states are refused as for an edit of the candidate.
+async fn lock_review_for_change(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    agent_decisions: &AgentDecisionPolicy,
+) -> Result<(ReviewUnderEdit, i64), ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT listing_source_id, artifact_type, status, candidate_payload, \
                 candidate_version, validation_summary \
@@ -1282,22 +1303,18 @@ async fn lock_review_for_edit(
     let status: String = review.try_get("status")?;
     check_actor_may_change(transaction, review_id, actor, &status, agent_decisions).await?;
     let candidate_version: i64 = review.try_get("candidate_version")?;
-    if candidate_version != expected_candidate_version {
-        return Err(ReviewRepositoryError::StaleCandidateVersion {
-            review_id,
-            expected: expected_candidate_version,
-            current: candidate_version,
-        });
-    }
-    Ok(ReviewUnderEdit {
-        listing_source_id: listing_source_id_from_uuid(
-            review.try_get::<uuid::Uuid, _>("listing_source_id")?,
-        )?,
-        artifact_type: review.try_get("artifact_type")?,
-        status,
-        candidate_payload: review.try_get("candidate_payload")?,
-        validation_summary: review.try_get("validation_summary")?,
-    })
+    Ok((
+        ReviewUnderEdit {
+            listing_source_id: listing_source_id_from_uuid(
+                review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+            )?,
+            artifact_type: review.try_get("artifact_type")?,
+            status,
+            candidate_payload: review.try_get("candidate_payload")?,
+            validation_summary: review.try_get("validation_summary")?,
+        },
+        candidate_version,
+    ))
 }
 
 /// Refuses `actor`'s change of the candidate or pages of the review `review_id` in `status`
