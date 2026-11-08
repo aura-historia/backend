@@ -30,12 +30,8 @@ struct SqlxPublicListingSourceSearchReader<'tx> {
 
 #[derive(Debug, sqlx::FromRow)]
 struct PublicListingSourceSearchRow {
-    listing_source_id: uuid::Uuid,
-    listing_source_slug_id: String,
-    name: String,
-    operator_name: String,
-    url: Option<String>,
-    image: Option<String>,
+    #[sqlx(flatten)]
+    source: PublicListingSourceRow,
     match_tier: i16,
     name_search: String,
 }
@@ -258,19 +254,12 @@ fn map_search_row(
     let position = PublicListingSourceSearchPosition::new(
         match_tier,
         row.name_search,
-        listing_source_core::ListingSourceId::try_from(row.listing_source_id)
+        listing_source_core::ListingSourceId::try_from(row.source.listing_source_id)
             .map_err(|_| PublicListingSourceSearchRowMappingError::MatchTier)?,
     )
     .map_err(PublicListingSourceSearchRowMappingError::Position)?;
-    let summary = map_public_listing_source(PublicListingSourceRow {
-        listing_source_id: row.listing_source_id,
-        listing_source_slug_id: row.listing_source_slug_id,
-        name: row.name,
-        operator_name: row.operator_name,
-        url: row.url,
-        image: row.image,
-    })
-    .map_err(PublicListingSourceSearchRowMappingError::Summary)?;
+    let summary = map_public_listing_source(row.source)
+        .map_err(PublicListingSourceSearchRowMappingError::Summary)?;
 
     Ok((summary, position))
 }
