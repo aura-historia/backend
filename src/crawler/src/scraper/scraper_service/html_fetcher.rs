@@ -646,6 +646,11 @@ async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, Fe
             error: unsafe_fetch_error("HTML response exceeds size limit"),
         });
     }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let mut bytes = Vec::with_capacity(
         response
             .content_length()
@@ -661,7 +666,59 @@ async fn read_bounded_html(mut response: reqwest::Response) -> Result<String, Fe
         }
         bytes.extend_from_slice(&chunk);
     }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(decode_html(&bytes, content_type.as_deref()))
+}
+
+/// How many leading bytes the HTML encoding prescan reads for a `<meta>` charset declaration.
+const META_CHARSET_PRESCAN_BYTES: usize = 1024;
+
+/// Decodes an HTML body into text using the encoding the page declares, so a shop that serves
+/// Shift_JIS, ISO-8859-1 or another legacy encoding keeps its characters instead of having each
+/// undecodable byte replaced with U+FFFD. The encoding is, in order: a byte-order mark, the
+/// `Content-Type` charset, the first `<meta>` charset declaration, then UTF-8. Bytes that are
+/// invalid in the chosen encoding still become U+FFFD.
+fn decode_html(bytes: &[u8], content_type: Option<&str>) -> String {
+    let encoding = content_type
+        .and_then(charset_label)
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .or_else(|| meta_charset(bytes))
+        .unwrap_or(encoding_rs::UTF_8);
+    // A BOM overrides the declared encoding, as in the HTML encoding sniffing algorithm.
+    encoding.decode(bytes).0.into_owned()
+}
+
+/// The `charset` parameter of a `Content-Type` value.
+fn charset_label(content_type: &str) -> Option<&str> {
+    content_type.split(';').skip(1).find_map(|parameter| {
+        let (name, value) = parameter.split_once('=')?;
+        name.trim()
+            .eq_ignore_ascii_case("charset")
+            .then(|| value.trim().trim_matches(['"', '\'']))
+    })
+}
+
+/// The encoding of the first `charset=` declaration in the page's head, such as
+/// `<meta charset="Shift_JIS">` or `<meta http-equiv="Content-Type" content="text/html; charset=…">`.
+/// A declared UTF-16 cannot be right for bytes that are readable as ASCII markup, so it counts as
+/// UTF-8, as in the HTML specification.
+fn meta_charset(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    let head = &bytes[..bytes.len().min(META_CHARSET_PRESCAN_BYTES)];
+    let head = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let after = head.split("charset").nth(1)?;
+    let value = after.trim_start().strip_prefix('=')?.trim_start();
+    let value = value.trim_start_matches(['"', '\'']);
+    let label: String = value
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.'))
+        .collect();
+    let encoding = encoding_rs::Encoding::for_label(label.as_bytes())?;
+    Some(
+        if encoding == encoding_rs::UTF_16LE || encoding == encoding_rs::UTF_16BE {
+            encoding_rs::UTF_8
+        } else {
+            encoding
+        },
+    )
 }
 
 impl ReqwestHtmlFetcher {
@@ -758,6 +815,39 @@ impl HtmlFetcher for ReqwestHtmlFetcher {
 
 #[cfg(test)]
 mod tests {
+    use super::decode_html;
+    #[test]
+    fn decode_html_reads_meta_declared_shift_jis() {
+        let (body, _, _) = encoding_rs::SHIFT_JIS.encode(
+            "<html><head><meta http-equiv=\"Content-Type\" content=\"text/html ; charset=Shift_JIS\"></head><h1>18世紀 薬瓶</h1>",
+        );
+
+        let html = decode_html(&body, Some("text/html"));
+
+        assert!(html.contains("18世紀 薬瓶"), "{html}");
+        assert!(!html.contains('\u{FFFD}'));
+    }
+
+    #[test]
+    fn decode_html_prefers_header_charset_over_meta() {
+        let (body, _, _) = encoding_rs::WINDOWS_1252.encode("<meta charset=\"utf-8\"><p>Café</p>");
+
+        assert!(decode_html(&body, Some("text/html; charset=ISO-8859-1")).contains("Café"));
+    }
+
+    #[test]
+    fn decode_html_defaults_to_utf8_and_replaces_invalid_bytes() {
+        assert!(decode_html("<p>Café 世紀</p>".as_bytes(), None).contains("Café 世紀"));
+        assert!(decode_html(b"<p>bad \xff byte</p>", None).contains('\u{FFFD}'));
+    }
+
+    #[test]
+    fn decode_html_treats_declared_utf16_as_utf8() {
+        let html = decode_html("<meta charset=\"utf-16\"><p>ü</p>".as_bytes(), None);
+
+        assert!(html.contains("<p>ü</p>"), "{html}");
+    }
+
     use super::{FetchError, HtmlFetcher, ReqwestHtmlFetcher, client_fetch_error};
     use crate::network::policy::{CrawlerClientError, NetworkErrorKind, RetryPolicy};
     use crate::network::{CRAWLER_ACCEPT, CRAWLER_USER_AGENT};
