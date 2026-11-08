@@ -119,13 +119,13 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v8",
-            prompt: include_str!("prompts/author.v8.md"),
+            version: "author.v9",
+            prompt: include_str!("prompts/author.v9.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v5",
-            prompt: include_str!("prompts/reviewer.v5.md"),
+            version: "reviewer.v6",
+            prompt: include_str!("prompts/reviewer.v6.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -561,6 +561,14 @@ mod tests {
         assert!(reviewer.contains("field_findings, which the notes need not repeat"));
         assert!(reviewer.contains("because a state is a sentence that names the status"));
         assert!(author.contains("as an additional selector of the same `state` rule"));
+        assert!(
+            author
+                .contains("call mark_page_not_product with a reason that says what the page shows")
+        );
+        assert!(reviewer.contains("not_product_reason"));
+        assert!(
+            reviewer.contains("give NEEDS_REPAIR naming the page when it is a product after all")
+        );
     }
 
     /// Both agents know what `human_required` and the console's refusals of live work mean
@@ -590,7 +598,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v8", "reviewer.v5"]
+            ["author.v9", "reviewer.v6"]
         );
     }
 
