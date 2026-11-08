@@ -178,6 +178,8 @@ pub(super) const NAZI_GERMANY_KEYWORDS: KeywordSet = KeywordSet {
         "gestapo",
         "waffen ss",
     ],
+    word_prefixes: &[],
+    substrings: &[],
 };
 
 #[cfg(test)]

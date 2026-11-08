@@ -2,16 +2,19 @@ use strum::IntoEnumIterator;
 
 mod keywords;
 mod nazi_germany;
+mod nudity;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, strum_macros::EnumIter)]
 pub enum SensitiveContentCategory {
     NaziGermany,
+    Nudity,
 }
 
 impl SensitiveContentCategory {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::NaziGermany => "NAZI_GERMANY",
+            Self::Nudity => "NUDITY",
         }
     }
 
@@ -23,6 +26,7 @@ impl SensitiveContentCategory {
     fn keywords(self) -> &'static keywords::KeywordSet {
         match self {
             Self::NaziGermany => &nazi_germany::NAZI_GERMANY_KEYWORDS,
+            Self::Nudity => &nudity::NUDITY_KEYWORDS,
         }
     }
 }
@@ -109,6 +113,11 @@ mod tests {
             SensitiveContentCategory::from_code("NAZI_GERMANY"),
             Some(SensitiveContentCategory::NaziGermany)
         );
+        assert_eq!(SensitiveContentCategory::Nudity.as_str(), "NUDITY");
+        assert_eq!(
+            SensitiveContentCategory::from_code("NUDITY"),
+            Some(SensitiveContentCategory::Nudity)
+        );
         assert_eq!(SensitiveContentCategory::from_code("nazi_germany"), None);
         assert_eq!(
             SensitiveContentCategory::iter()
@@ -165,6 +174,17 @@ mod tests {
             may_show_product_listing_images(decision, preference),
             visible
         );
+    }
+
+    #[test]
+    fn should_keep_every_keyword_lowercase_trimmed_and_non_empty() {
+        for category in SensitiveContentCategory::iter() {
+            for keyword in category.keywords().keywords() {
+                assert!(!keyword.is_empty(), "{category:?} has an empty keyword");
+                assert_eq!(keyword, keyword.trim(), "{category:?}: {keyword:?}");
+                assert_eq!(keyword, keyword.to_lowercase(), "{category:?}: {keyword:?}");
+            }
+        }
     }
 
     #[test]
