@@ -1900,7 +1900,7 @@ mod tests {
             assert!(product.item.pricing.display.price_estimate_max.is_none());
             assert!(product.item.availability.is_none());
             assert_eq!(
-                "https://aura-historia.com/pricing",
+                "https://aura-historia.com/#pricing",
                 product.item.url.as_str()
             );
             assert_eq!(product.item.url, product.item.view_url);
