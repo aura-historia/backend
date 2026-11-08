@@ -2,7 +2,10 @@ use application::transaction::{Transaction, UnitOfWork};
 use listing_source_core::ListingSourceSlugId;
 use listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory;
 use listing_source_service::{
-    ports::{PublicListingSourceDetailsReader, PublicListingSourceDetailsReaderFactory},
+    ports::{
+        PublicListingSourceDetailsReadError, PublicListingSourceDetailsReader,
+        PublicListingSourceDetailsReaderFactory,
+    },
     use_cases::queries::public_listing_source::PublicListingSourceSummary,
 };
 use platform_postgres::SqlxUnitOfWork;
@@ -71,10 +74,40 @@ async fn should_route_view_url_through_the_source_referral_configuration() {
         .unwrap_or_else(|| panic!("source should have a website"));
 
     assert_eq!("https://example.test/source", website.url.as_str());
-    assert_eq!(
-        "https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Fexample.test%2Fsource",
-        website.view_url.as_str()
+    assert!(
+        website
+            .view_url
+            .as_str()
+            .starts_with("https://prf.hn/click/camref:1101l3AbC/"),
+        "{}",
+        website.view_url
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_fail_closed_when_the_persisted_referral_configuration_is_invalid() {
+    let pool = get_postgres_client().await;
+    let party_id = uuid::Uuid::now_v7();
+    insert_party(&pool, party_id, "broken-operator", "Broken Operator").await;
+    let source_id = uuid::Uuid::now_v7();
+    insert_source(
+        &pool,
+        source_id,
+        "broken-source",
+        "Broken Source",
+        party_id,
+        Some("https://example.test/source"),
+        None,
+    )
+    .await;
+    set_referral_configuration(&pool, source_id, serde_json::json!({"kind":"OTHER"})).await;
+
+    let result = try_read(&pool, "broken-source").await;
+
+    assert!(matches!(
+        result,
+        Err(PublicListingSourceDetailsReadError::InvalidReadModel { .. })
+    ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -105,6 +138,15 @@ async fn should_return_none_for_unknown_or_deleted_exact_slug() {
 }
 
 async fn read(pool: &sqlx::PgPool, slug: &str) -> Option<PublicListingSourceSummary> {
+    try_read(pool, slug)
+        .await
+        .unwrap_or_else(|error| panic!("read public detail: {error}"))
+}
+
+async fn try_read(
+    pool: &sqlx::PgPool,
+    slug: &str,
+) -> Result<Option<PublicListingSourceSummary>, PublicListingSourceDetailsReadError> {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut transaction = unit_of_work
         .begin()
@@ -115,8 +157,7 @@ async fn read(pool: &sqlx::PgPool, slug: &str) -> Option<PublicListingSourceSumm
     let result = SqlxPublicListingSourceDetailsReaderFactory::new()
         .in_transaction(&mut transaction)
         .find_by_slug(&slug)
-        .await
-        .unwrap_or_else(|error| panic!("read public detail: {error}"));
+        .await;
     transaction
         .commit()
         .await

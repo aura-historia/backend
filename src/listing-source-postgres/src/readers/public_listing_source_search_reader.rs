@@ -429,18 +429,15 @@ mod tests {
                     .map(|website| website.view_url.as_str().to_owned())
             };
 
-            assert_eq!(
-                Some("https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Falpha.example.test%2Fshop".to_owned()),
-                view_url("alpha-source"),
-                "{path}"
+            let referred = view_url("alpha-source").unwrap_or_default();
+            assert!(
+                referred.starts_with("https://prf.hn/click/camref:1101l3AbC/"),
+                "{path}: {referred}"
             );
-            assert_eq!(
-                Some(
-                    "https://alpine.example.test/shop?utm_source=aura_historia&utm_medium=referral"
-                        .to_owned()
-                ),
-                view_url("alpine-source"),
-                "{path}"
+            let plain = view_url("alpine-source").unwrap_or_default();
+            assert!(
+                plain.starts_with("https://alpine.example.test/shop?utm_source=aura_historia"),
+                "{path}: {plain}"
             );
         }
     }

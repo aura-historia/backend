@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-08 — `viewUrl` on public ListingSources (#2827)
 
-- `GET /v1/listing-sources` items and `GET /v1/listing-sources/by-slug/{listingSourceSlugId}` carry `viewUrl` next to `url`, and the MCP tools `searchPublicListingSources` and `getPublicListingSourceBySlug` return it too. It is the link to send visitors to, derived from `url` like a ProductListing's `viewUrl`: the source's affiliate link when it has a referral configuration, otherwise `url` with Aura's `utm_source=aura_historia` and `utm_medium=referral` parameters. It is present exactly when `url` is; `url` stays the source's own address. The referral configuration itself is still not exposed.
+- `GET /v1/listing-sources` items and `GET /v1/listing-sources/by-slug/{listingSourceSlugId}` carry `viewUrl` next to `url`, and the MCP tools `searchPublicListingSources` and `getPublicListingSourceBySlug` return it too. It is the link to send visitors to, derived from `url` like a ProductListing's `viewUrl`: the source's affiliate link when it has a referral configuration, otherwise `url` with Aura's `utm_source=aura_historia` and `utm_medium=referral` parameters, unless `url` already carries a `utm_source`. It is present exactly when `url` is; `url` stays the source's own address. The referral configuration itself is still not exposed.
 
 ## 2026-11-07 — The website's WebMCP client metadata document (#2818)
 

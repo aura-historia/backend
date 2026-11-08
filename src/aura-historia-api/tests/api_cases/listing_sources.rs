@@ -50,7 +50,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         "Müller Public Auction",
         "Public Operator",
         "WEB_CRAWL",
-        Some(json!({"kind": "PARTNERIZE", "camref": "privatecampaign"})),
+        Some(json!({"kind": "PARTNERIZE", "camref": "affiliatecampaign"})),
     )
     .await;
     sqlx::query(
@@ -95,7 +95,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
     );
     assert_eq!(
         Some(
-            "https://prf.hn/click/camref:privatecampaign/pubref:aurahistoria/destination:https%3A%2F%2Flisting-source-search.example%2F"
+            "https://prf.hn/click/camref:affiliatecampaign/pubref:aurahistoria/destination:https%3A%2F%2Flisting-source-search.example%2F"
         ),
         item["viewUrl"].as_str()
     );

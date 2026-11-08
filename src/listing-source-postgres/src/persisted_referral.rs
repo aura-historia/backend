@@ -74,7 +74,6 @@ mod tests {
         for value in [
             serde_json::json!({"kind":"OTHER","camref":"campaign123"}),
             serde_json::json!({"kind":"PARTNERIZE"}),
-            serde_json::json!({"kind":"PARTNERIZE","camref":"campaign/ref"}),
         ] {
             assert!(from_json(Some(&value)).is_err(), "{value}");
         }
@@ -87,6 +86,20 @@ mod tests {
 
             assert!(from_json(Some(&persisted)).is_err(), "{camref:?}");
         }
+    }
+
+    #[test]
+    fn should_read_back_what_it_writes() {
+        let camref = PartnerizeCamref::try_from("1101l3AbC")
+            .unwrap_or_else(|error| panic!("test camref: {error}"));
+        let configuration = ReferralConfiguration::Partnerize { camref };
+
+        let written = to_json(Some(&configuration));
+
+        assert!(matches!(
+            from_json(written.as_ref()),
+            Ok(Some(read)) if read == configuration
+        ));
     }
 
     #[test]

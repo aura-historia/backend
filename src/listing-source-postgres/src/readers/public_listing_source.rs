@@ -110,7 +110,7 @@ mod tests {
         serde_json::json!({"kind":"PARTNERIZE","camref":camref})
     }
 
-    fn website(summary: PublicListingSourceSummary) -> PublicListingSourceWebsite {
+    fn website_of(summary: PublicListingSourceSummary) -> PublicListingSourceWebsite {
         summary
             .website
             .unwrap_or_else(|| panic!("source should have a website"))
@@ -131,7 +131,7 @@ mod tests {
         let summary = map_public_listing_source(row(Some("https://example.test/source"), None))
             .unwrap_or_else(|error| panic!("map public source: {error}"));
 
-        let website = website(summary);
+        let website = website_of(summary);
 
         assert_eq!("https://example.test/source", website.url.as_str());
         assert_eq!(
@@ -145,7 +145,7 @@ mod tests {
         let mut referred = row(Some("https://example.test/source"), None);
         referred.referral_configuration = Some(partnerize("1101l3AbC"));
 
-        let website = website(
+        let website = website_of(
             map_public_listing_source(referred)
                 .unwrap_or_else(|error| panic!("map public source: {error}")),
         );
@@ -170,19 +170,13 @@ mod tests {
 
     #[test]
     fn should_reject_invalid_persisted_referral_configuration_even_without_url() {
-        for value in [
-            serde_json::json!({"kind":"OTHER","camref":"campaign123"}),
-            serde_json::json!({"kind":"PARTNERIZE"}),
-            partnerize("campaign/ref"),
-        ] {
-            let mut invalid = row(None, None);
-            invalid.referral_configuration = Some(value);
+        let mut invalid = row(None, None);
+        invalid.referral_configuration = Some(partnerize("campaign/ref"));
 
-            assert!(matches!(
-                map_public_listing_source(invalid),
-                Err(PublicListingSourceMappingError::ReferralConfiguration(_))
-            ));
-        }
+        assert!(matches!(
+            map_public_listing_source(invalid),
+            Err(PublicListingSourceMappingError::ReferralConfiguration(_))
+        ));
     }
 
     #[test]

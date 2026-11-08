@@ -110,10 +110,10 @@ pub struct PublicListingSourceData {
 
 impl From<PublicListingSourceSummary> for PublicListingSourceData {
     fn from(value: PublicListingSourceSummary) -> Self {
-        let (url, view_url) = match value.website {
-            Some(website) => (Some(website.url), Some(website.view_url)),
-            None => (None, None),
-        };
+        let (url, view_url) = value
+            .website
+            .map(|website| (website.url, website.view_url))
+            .unzip();
         Self {
             listing_source_id: value.listing_source_id,
             listing_source_slug_id: value.listing_source_slug_id.to_string(),
