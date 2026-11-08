@@ -28,8 +28,8 @@ use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
-    QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_review,
-    select_reviews, waits_for_human,
+    QueuedReview, ReviewArtifact, hand_to_human, review_events_since, review_queue,
+    reviewer_judged_review, select_reviews, waits_for_human,
 };
 use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
@@ -191,6 +191,7 @@ impl Pass<'_> {
         let concurrency = usize::try_from(self.settings.max_processes.get()).unwrap_or(1);
         let mut running = FuturesUnordered::new();
         let mut started = BTreeSet::new();
+        let mut schema_started = 0;
         let mut refilling = true;
         while refilling || !running.is_empty() {
             let free = concurrency
@@ -198,7 +199,11 @@ impl Pass<'_> {
                 .min(budget.saturating_sub(started.len()));
             if refilling && free > 0 && !self.runner_stop.is_requested() {
                 let first_read = started.is_empty();
-                match self.next_reviews(&started, free, first_read).await {
+                let schema_owed = budget.div_ceil(2).saturating_sub(schema_started);
+                match self
+                    .next_reviews(&started, free, schema_owed, first_read)
+                    .await
+                {
                     Ok(reviews) if reviews.is_empty() => {}
                     Ok(reviews) => match self.stop(OffsetDateTime::now_utc()) {
                         Some(stop) => {
@@ -208,6 +213,9 @@ impl Pass<'_> {
                         None => {
                             for review in reviews {
                                 started.insert(review.review_id);
+                                schema_started += usize::from(
+                                    review.artifact_type == ReviewArtifact::ProductSchema,
+                                );
                                 running.push(self.work_review(review));
                             }
                         }
@@ -235,11 +243,12 @@ impl Pass<'_> {
     }
 
     /// Reads the queue and picks the next `free` workable reviews no process of this run worked
-    /// yet. The first read also tells what the run found in the queue.
+    /// yet, `schema_owed` of them product-schema reviews as far as the queue has them. The first read also tells what the run found in the queue.
     async fn next_reviews(
         &self,
         started: &BTreeSet<CrawlerReviewId>,
         free: usize,
+        schema_owed: usize,
         first_read: bool,
     ) -> Result<Vec<QueuedReview>, PassError> {
         let queue = review_queue(self.console)
@@ -260,6 +269,7 @@ impl Pass<'_> {
             &last_worked,
             OffsetDateTime::now_utc(),
             free,
+            schema_owed,
         );
         if first_read {
             self.with(|shared| {

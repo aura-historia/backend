@@ -266,38 +266,51 @@ pub async fn hand_to_human(
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.
-/// A review whose cooldown has not passed by `now` waits. Product-schema reviews come before
-/// URL-pattern reviews, because a source gets its schema review only after its pattern passed:
-/// approving a schema unlocks a source that cleared its first gate, and the younger schema
-/// reviews would otherwise never win a slot against a large pattern backlog. Within an artifact
-/// type, those no agent process worked within the ledger's window come first, in the console's
-/// order, then those worked longest ago, by `last_worked`: a review the agents hand back and forth with needs-repair
+/// A review whose cooldown has not passed by `now` waits. Of the others, those no agent process
+/// worked within the ledger's window come first, in the console's order, then those worked
+/// longest ago, by `last_worked`: a review the agents hand back and forth with needs-repair
 /// verdicts never keeps the rest of the queue waiting. A review a human handed back after its
 /// last process, such as one that waited for a human at the repair cap, counts as not worked:
 /// the agents answer the human ahead of the reviews they worked since.
+///
+/// `schema_floor` product-schema reviews take slots first, in that order, as far as the queue has
+/// them: a source gets its schema review only after its pattern passed, so the younger schema
+/// reviews would otherwise never win a slot against a large URL-pattern backlog. Slots the floor
+/// leaves unused go to the other reviews in the same order, schema or pattern, so no slot idles.
 pub fn select_reviews(
     queue: Vec<QueuedReview>,
     cooldowns: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
     last_worked: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
     now: OffsetDateTime,
     max: usize,
+    schema_floor: usize,
 ) -> (Vec<QueuedReview>, usize) {
     let (cooling, mut ready): (Vec<_>, Vec<_>) = queue.into_iter().partition(|review| {
         cooldowns
             .get(&review.review_id)
             .is_some_and(|until| *until > now)
     });
-    ready.sort_by_key(|review| {
-        let worked = last_worked
-            .get(&review.review_id)
-            .copied()
-            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked));
-        (
-            review.artifact_type != ReviewArtifact::ProductSchema,
-            worked,
-        )
+    ready.sort_by_key(|review| last_worked_for_order(review, last_worked));
+    let mut owed = schema_floor.min(max);
+    let (mut selected, filler): (Vec<_>, Vec<_>) = ready.into_iter().partition(|review| {
+        let owed_schema = owed > 0 && review.artifact_type == ReviewArtifact::ProductSchema;
+        owed -= usize::from(owed_schema);
+        owed_schema
     });
-    (ready.into_iter().take(max).collect(), cooling.len())
+    selected.extend(filler.into_iter().take(max - selected.len()));
+    (selected, cooling.len())
+}
+
+/// When the agents last worked `review`, `None` for one they have not within the ledger's window
+/// or that a human handed back since: the key of the order [`select_reviews`] works them in.
+fn last_worked_for_order(
+    review: &QueuedReview,
+    last_worked: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
+) -> Option<OffsetDateTime> {
+    last_worked
+        .get(&review.review_id)
+        .copied()
+        .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
 }
 
 /// The most pages of `GET /api/review-events` one digest reads.
@@ -486,7 +499,7 @@ mod tests {
         ]);
 
         let (selected, cooling) =
-            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3);
+            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3, 0);
 
         assert_eq!(
             selected,
@@ -504,7 +517,8 @@ mod tests {
             (queue[1].review_id, now - Duration::hours(5)),
         ]);
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3);
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3, 0);
 
         assert_eq!(
             selected,
@@ -512,20 +526,53 @@ mod tests {
         );
     }
 
-    #[test]
-    fn should_work_product_schema_reviews_before_url_pattern_reviews_when_slots_are_short() {
-        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+    /// A queue of two URL-pattern reviews then two product-schema reviews, in console order.
+    fn patterns_then_schemas() -> Vec<QueuedReview> {
         let mut queue = queued(4);
         queue[0].artifact_type = ReviewArtifact::UrlPattern;
         queue[1].artifact_type = ReviewArtifact::UrlPattern;
-        let last_worked = BTreeMap::from([(queue[2].review_id, now - Duration::hours(5))]);
+        queue
+    }
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3);
+    #[test]
+    fn should_reserve_slots_for_product_schema_reviews_when_the_pattern_backlog_is_older() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &BTreeMap::new(), now, 3, 2);
 
         assert_eq!(
             selected,
-            vec![queue[3].clone(), queue[2].clone(), queue[0].clone()]
+            vec![queue[2].clone(), queue[3].clone(), queue[0].clone()]
         );
+    }
+
+    #[test]
+    fn should_give_unused_schema_slots_to_url_pattern_reviews() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+        let cooldowns = BTreeMap::from([(queue[3].review_id, now + Duration::minutes(1))]);
+
+        let (selected, cooling) =
+            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3, 2);
+
+        assert_eq!(
+            selected,
+            vec![queue[2].clone(), queue[0].clone(), queue[1].clone()]
+        );
+        assert_eq!(cooling, 1);
+    }
+
+    #[test]
+    fn should_not_take_more_schema_reviews_than_the_slots_when_the_floor_exceeds_them() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &BTreeMap::new(), now, 1, 2);
+
+        assert_eq!(selected, vec![queue[2].clone()]);
     }
 
     /// A review a human handed back after its last process counts as not worked, in the
@@ -543,7 +590,8 @@ mod tests {
             (queue[2].review_id, now - Duration::hours(1)),
         ]);
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4);
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4, 0);
 
         assert_eq!(
             selected,
