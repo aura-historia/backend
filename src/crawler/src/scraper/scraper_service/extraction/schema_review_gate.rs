@@ -332,7 +332,8 @@ mod tests {
         let mut other_sold_page = seed_page(PAGE_ROLE_SEED, "other-sold-item", None);
         other_sold_page.raw_html = other_sold_page
             .raw_html
-            .replace("Product other-sold-item", "Sold items - Navarro");
+            .replace("Product other-sold-item", "Sold items - Navarro")
+            .replace(">other-sold-item</span>", ">sold-item</span>");
         let pages = vec![
             seed_page(PAGE_ROLE_PRIMARY, "chair", None),
             sold_page,
@@ -361,11 +362,18 @@ mod tests {
                     "url": "https://example.com/sold-item",
                     "role": PAGE_ROLE_SEED,
                     "plausibility_findings": [{"field": "price", "check": "ALL_ZERO_DIGITS"}],
-                    "cross_page_findings": [{
-                        "field": "title",
-                        "check": "REPEATED_ACROSS_PAGES",
-                        "values": ["Sold items - Navarro"]
-                    }],
+                    "cross_page_findings": [
+                        {
+                            "field": "source_listing_id",
+                            "check": "REPEATED_ACROSS_PAGES",
+                            "values": ["sold-item"]
+                        },
+                        {
+                            "field": "title",
+                            "check": "REPEATED_ACROSS_PAGES",
+                            "values": ["Sold items - Navarro"]
+                        }
+                    ],
                     "identity_agreement_findings": []
                 },
                 {
@@ -374,11 +382,18 @@ mod tests {
                     "url": "https://example.com/other-sold-item",
                     "role": PAGE_ROLE_SEED,
                     "plausibility_findings": [],
-                    "cross_page_findings": [{
-                        "field": "title",
-                        "check": "REPEATED_ACROSS_PAGES",
-                        "values": ["Sold items - Navarro"]
-                    }],
+                    "cross_page_findings": [
+                        {
+                            "field": "source_listing_id",
+                            "check": "REPEATED_ACROSS_PAGES",
+                            "values": ["sold-item"]
+                        },
+                        {
+                            "field": "title",
+                            "check": "REPEATED_ACROSS_PAGES",
+                            "values": ["Sold items - Navarro"]
+                        }
+                    ],
                     "identity_agreement_findings": []
                 }
             ])
