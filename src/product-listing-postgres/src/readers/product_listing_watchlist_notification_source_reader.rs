@@ -8,12 +8,9 @@ use listing_source_core::{ListingSourceName, ListingSourceSlugId, outbound_url};
 
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
-    content_policy::{ContentPolicyDecision, SensitiveContentCategory},
-    listing_lifecycle::ListingLifecycle,
-    product_listing_event::ProductListingEventPayload,
-    product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId,
-    source_listing_id::SourceListingId,
+    content_policy::ContentPolicyDecision, listing_lifecycle::ListingLifecycle,
+    product_listing_event::ProductListingEventPayload, product_listing_id::ProductListingId,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     title::Title,
 };
 use product_listing_service::ports::{
@@ -273,16 +270,18 @@ fn content_policy(
     decision: Option<&str>,
     category: Option<&str>,
 ) -> Result<Option<ContentPolicyDecision>, ProductListingWatchlistNotificationSourceReadError> {
-    match (decision, category) {
-        (None, None) => Ok(None),
-        (Some("ALLOWED"), None) => Ok(Some(ContentPolicyDecision::Allowed)),
-        (Some("REQUIRES_CONSENT"), Some("NAZI_GERMANY")) => Ok(Some(
-            ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany),
-        )),
-        _ => Err(WatchlistNotificationSourceMappingError::invalid(
+    let invalid = || {
+        WatchlistNotificationSourceMappingError::invalid(
             "persisted watchlist notification content assessment is invalid",
         )
-        .into()),
+        .into()
+    };
+    match (decision, category) {
+        (None, None) => Ok(None),
+        (Some(decision), category) => ContentPolicyDecision::from_codes(decision, category)
+            .map(Some)
+            .ok_or_else(invalid),
+        (None, Some(_)) => Err(invalid()),
     }
 }
 

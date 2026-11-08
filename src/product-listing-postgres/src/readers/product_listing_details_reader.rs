@@ -13,7 +13,7 @@ use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 
 use platform_postgres::SqlxTransaction;
-use product_listing_core::content_policy::{ContentPolicyDecision, SensitiveContentCategory};
+use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
@@ -705,11 +705,10 @@ fn content_policy(
 ) -> Result<Option<ContentPolicyDecision>, ()> {
     match (decision, category) {
         (None, None) => Ok(None),
-        (Some("ALLOWED"), None) => Ok(Some(ContentPolicyDecision::Allowed)),
-        (Some("REQUIRES_CONSENT"), Some("NAZI_GERMANY")) => Ok(Some(
-            ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany),
-        )),
-        _ => Err(()),
+        (Some(decision), category) => ContentPolicyDecision::from_codes(decision, category)
+            .map(Some)
+            .ok_or(()),
+        (None, Some(_)) => Err(()),
     }
 }
 

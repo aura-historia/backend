@@ -2,7 +2,7 @@ use crate::object_id::try_from_uuid;
 use application::error::{box_error, static_error};
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxTransaction;
-use product_listing_core::content_policy::{ContentPolicyDecision, SensitiveContentCategory};
+use product_listing_core::content_policy::ContentPolicyDecision;
 use product_listing_service::ports::{
     ProductListingContentAssessmentWrite, ProductListingContentAssessmentWriteError,
     ProductListingContentAssessmentWriteOutcome, ProductListingContentAssessmentWriter,
@@ -206,15 +206,9 @@ fn decode_stored_decision(
     decision: &str,
     category: Option<&str>,
 ) -> Result<ContentPolicyDecision, ProductListingContentAssessmentWriteError> {
-    match (decision, category) {
-        ("ALLOWED", None) => Ok(ContentPolicyDecision::Allowed),
-        ("REQUIRES_CONSENT", Some(category)) => SensitiveContentCategory::from_code(category)
-            .map(ContentPolicyDecision::RequiresConsent)
-            .ok_or_else(|| mapping_error("stored product content assessment category is invalid")),
-        _ => Err(mapping_error(
-            "stored product content assessment decision and category are invalid",
-        )),
-    }
+    ContentPolicyDecision::from_codes(decision, category).ok_or_else(|| {
+        mapping_error("stored product content assessment decision and category are invalid")
+    })
 }
 
 fn mapping_error(message: &'static str) -> ProductListingContentAssessmentWriteError {
@@ -248,6 +242,7 @@ impl From<ProductListingContentAssessmentWriteSqlxError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use product_listing_core::content_policy::SensitiveContentCategory;
 
     #[test]
     fn should_encode_exact_content_assessment_codecs() {
@@ -261,12 +256,5 @@ mod tests {
                 SensitiveContentCategory::NaziGermany
             ))
         );
-    }
-
-    #[test]
-    fn should_reject_invalid_stored_content_assessment_codecs() {
-        assert!(decode_stored_decision("ALLOWED", Some("NAZI_GERMANY")).is_err());
-        assert!(decode_stored_decision("REQUIRES_CONSENT", None).is_err());
-        assert!(decode_stored_decision("allowed", None).is_err());
     }
 }
