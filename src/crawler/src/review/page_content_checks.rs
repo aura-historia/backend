@@ -103,13 +103,58 @@ fn any_has_rule(evaluations: &[&SchemaPageEvaluation], fields: &[&str]) -> bool 
     })
 }
 
-/// What the ProductListing normalization makes of an extracted `state`, as the scraper does at
-/// runtime: `None` for a value that is no whole availability label, which gives the listing no
-/// availability. One function for the approval guard and the matrix view, so they agree.
-pub(crate) fn resolved_availability(state: &str) -> Option<ListingAvailability> {
+/// What the ProductListing normalization makes of an extracted `state`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StateReading {
+    /// What the whole `state` resolves to, as the scraper does at runtime and the only value that
+    /// becomes the listing's availability; `None` for a value that is no whole availability label.
+    pub resolved: Option<ListingAvailability>,
+    /// Sold, out of stock or unavailable, named by a window of one to four words of a `state` that
+    /// does not resolve as a whole, such as a sentence announcing the sale.
+    pub mentioned: Option<ListingAvailability>,
+}
+
+impl StateReading {
+    /// One reading for the approval guard and the matrix view, so they agree.
+    pub(crate) fn of(state: &str) -> Self {
+        let resolved = resolved_availability(state);
+        let mentioned = match resolved {
+            Some(_) => None,
+            None => mentioned_unsold_status(state),
+        };
+        Self {
+            resolved,
+            mentioned,
+        }
+    }
+
+    /// Whether the sold-page check counts the `state` as sold or unavailable: it resolves to such
+    /// an availability or mentions one.
+    pub(crate) fn shows_sold_or_unavailable(self) -> bool {
+        self.mentioned.is_some() || is_sold_or_unavailable(self.resolved)
+    }
+}
+
+fn resolved_availability(state: &str) -> Option<ListingAvailability> {
     quick_check_availability(state)
         .ok()
         .and_then(ListingAvailabilityQuickCheck::availability)
+}
+
+/// The most words of a status label the normalization's tables hold, such as "out of stock".
+const MAX_STATUS_WORDS: usize = 4;
+
+fn mentioned_unsold_status(state: &str) -> Option<ListingAvailability> {
+    let words: Vec<&str> = state
+        .split_whitespace()
+        .map(|word| word.trim_matches(|character: char| !character.is_alphanumeric()))
+        .filter(|word| !word.is_empty())
+        .collect();
+    (1..=MAX_STATUS_WORDS.min(words.len()))
+        .flat_map(|size| words.windows(size))
+        .map(|window| resolved_availability(&window.join(" ")))
+        .find(|availability| is_sold_or_unavailable(*availability))
+        .flatten()
 }
 
 fn is_sold_or_unavailable(availability: Option<ListingAvailability>) -> bool {
@@ -121,6 +166,16 @@ fn is_sold_or_unavailable(availability: Option<ListingAvailability>) -> bool {
                 | ListingAvailability::Unavailable
         )
     )
+}
+
+/// Whether a candidate's `state` rule resolves to sold, out of stock or unavailable on one of the
+/// pages it applies to: a status slot, which shows an amount while the item is for sale.
+pub(crate) fn candidate_has_sold_state(pages: &[SchemaPageEvaluation]) -> bool {
+    pages
+        .iter()
+        .filter(|page| page.apply_ok)
+        .filter_map(|page| page.extracted.as_ref())
+        .any(|extracted| StateReading::of(&extracted.state).shows_sold_or_unavailable())
 }
 
 /// The `state` each candidate schema extracts on `page`, for the schemas that apply to it.
@@ -143,8 +198,8 @@ fn applied_states<'a>(
 /// Whether a review page shows a sold or unavailable product: a template captures it as removed,
 /// or a candidate schema extracts a `state` that the ProductListing normalization resolves to sold
 /// out, out of stock or unavailable, as a `schema.org/SoldOut` read from JSON-LD or the label
-/// "Sold" does. A `state` the normalization does not recognize, such as an add-to-cart button's
-/// text or a sentence announcing the sale, says nothing about the page.
+/// "Sold" does, or a sentence that mentions such a status. A `state` that names none, such as an
+/// add-to-cart button's text, says nothing about the page.
 pub(crate) fn shows_sold_or_unavailable_page(
     matrix: &SchemaMatrix,
     coverages: &[(&CrawlerReviewPage, PageCoverage)],
@@ -152,7 +207,7 @@ pub(crate) fn shows_sold_or_unavailable_page(
     coverages.iter().any(|(page, coverage)| {
         *coverage == PageCoverage::CapturedAsRemoved
             || applied_states(matrix, page)
-                .any(|state| is_sold_or_unavailable(resolved_availability(state)))
+                .any(|state| StateReading::of(state).shows_sold_or_unavailable())
     })
 }
 
@@ -161,8 +216,10 @@ pub(crate) fn shows_sold_or_unavailable_page(
 pub struct SeenState {
     pub url: String,
     pub state: String,
-    /// The availability's catalogue code, `None` for a `state` the normalization does not resolve.
+    /// The availability's catalogue code the whole `state` resolves to, `None` when it does not.
     pub resolves_to: Option<&'static str>,
+    /// The sold, out of stock or unavailable code a word window of an unresolved `state` names.
+    pub mentions: Option<&'static str>,
 }
 
 /// The states the candidate schemas extract on the review pages they apply to, once per page and
@@ -174,10 +231,12 @@ pub(crate) fn states_seen(
     let mut seen: Vec<SeenState> = Vec::new();
     for (page, _) in coverages {
         for state in applied_states(matrix, page) {
+            let reading = StateReading::of(state);
             let entry = SeenState {
                 url: page.url.clone(),
                 state: shortened(state),
-                resolves_to: resolved_availability(state).map(ListingAvailability::as_str),
+                resolves_to: reading.resolved.map(ListingAvailability::as_str),
+                mentions: reading.mentioned.map(ListingAvailability::as_str),
             };
             if !seen.contains(&entry) {
                 seen.push(entry);

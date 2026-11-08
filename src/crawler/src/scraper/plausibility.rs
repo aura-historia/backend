@@ -201,6 +201,15 @@ impl PlausibilityFinding {
         }
     }
 
+    /// Whether the finding is price text in a `state`, which a review agent's approval accepts on
+    /// a status slot (see `PriceTextOnState`).
+    pub fn is_price_text_on_state(&self) -> bool {
+        matches!(
+            (&self.field, self.check),
+            (PlausibilityField::State, PlausibilityCheck::PriceText)
+        )
+    }
+
     /// Whether the finding keeps a schema out of approval, deterministic and a review agent's.
     /// A repeated image does not: capture keeps each image URL once, so a gallery that repeats
     /// its featured photo loses nothing, and no selector can tell that repeat from a gallery

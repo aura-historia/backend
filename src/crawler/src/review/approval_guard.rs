@@ -97,7 +97,8 @@ pub enum FailedApprovalCheck {
     NotProductLabelMatched { urls: Vec<String> },
 }
 
-/// The states of a `NO_SOLD_PAGE_TESTED` refusal, each as `'state' → CODE` or `'state' → unresolved`.
+/// The states of a `NO_SOLD_PAGE_TESTED` refusal, each as `'state' → CODE`, `→ CODE mentioned` or
+/// `→ unresolved`.
 fn describe_states(states: &[SeenState]) -> String {
     if states.is_empty() {
         return "none, no candidate schema applies to a review page".to_owned();
@@ -108,7 +109,11 @@ fn describe_states(states: &[SeenState]) -> String {
             format!(
                 "'{}' → {} on {}",
                 seen.state,
-                seen.resolves_to.unwrap_or("unresolved"),
+                match (seen.resolves_to, seen.mentions) {
+                    (Some(code), _) => code.to_owned(),
+                    (None, Some(code)) => format!("{code} mentioned"),
+                    (None, None) => "unresolved".to_owned(),
+                },
                 seen.url
             )
         })
@@ -921,6 +926,61 @@ mod tests {
         }
     }
 
+    /// A status slot shows "Sold" on sold pages and the amount on live ones: price text in `state`
+    /// is accepted once the same rule resolves to sold on a review page, and then also tests a
+    /// sold page; `auto` approval still refuses it.
+    #[test]
+    fn should_accept_price_text_in_a_state_that_resolves_to_sold_on_another_page() {
+        let pages = [
+            page_in_state("chair", "£ 3,800 plus VAT"),
+            page_in_state("table", "Sold"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        assert_eq!(
+            checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false
+            ),
+            Vec::new()
+        );
+        assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+    }
+
+    /// Without a page on which the slot resolves to sold, price text in `state` stays refused.
+    #[test]
+    fn should_refuse_price_text_in_a_state_that_resolves_on_no_page() {
+        let pages = [
+            page_in_state("chair", "£ 3,800 plus VAT"),
+            page_in_state("table", "POA"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks_recorded(
+            Some(&matrix),
+            &review_pages(&pages),
+            3,
+            CONFIGURATION,
+            false,
+        );
+
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::ImplausibleExtraction { .. })),
+            "{refused:?}"
+        );
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::NoSoldPageTested { .. })),
+            "{refused:?}"
+        );
+    }
+
     /// Two review pages show different products, so a title both extract names the shop or the
     /// category, not the product, even where the schema covers every page.
     #[test]
@@ -1172,11 +1232,13 @@ mod tests {
                         url: "https://shop.example/products/chair".to_owned(),
                         state: "In stock".to_owned(),
                         resolves_to: Some("IN_STOCK"),
+                        mentions: None,
                     },
                     SeenState {
                         url: "https://shop.example/products/table".to_owned(),
                         state: "Add to cart".to_owned(),
                         resolves_to: Some("AVAILABLE"),
+                        mentions: None,
                     },
                 ],
             }]
@@ -1187,14 +1249,13 @@ mod tests {
         );
     }
 
-    /// The refusal names each state seen with what the normalization makes of it, so an agent sees
-    /// why a sentence announcing the sale does not count.
+    /// The refusal names each state seen with what the normalization makes of it.
     #[test]
     fn should_name_the_states_seen_in_the_no_sold_page_message() {
-        let pages = [page_in_state(
-            "chair",
-            "This item has been sold, though you can still email the seller",
-        )];
+        let pages = [
+            page_in_state("chair", "Send a message to Simon Wharton Antiques"),
+            page_in_state("table", "In stock"),
+        ];
         let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
         let current = review_pages(&pages);
 
@@ -1204,11 +1265,41 @@ mod tests {
             .collect::<String>();
 
         assert!(
-            message.contains(
-                "states seen: 'This item has been sold, though you can still email the seller' → unresolved on https://shop.example/products/chair"
-            ),
+            message.contains("'Send a message to Simon Wharton Antiques' → unresolved on https://shop.example/products/chair"),
             "{message}"
         );
+        assert!(
+            message.contains("'In stock' → IN_STOCK on https://shop.example/products/table"),
+            "{message}"
+        );
+    }
+
+    /// A sold notice written as a sentence counts as a sold page when it mentions the status; a
+    /// sentence that names none, or an available label, does not.
+    #[test]
+    fn should_count_a_state_sentence_that_mentions_a_sold_status() {
+        for (state, counts) in [
+            (
+                "This item has been sold, though you can still email the seller if you wish",
+                true,
+            ),
+            ("Deze kaart is reeds verkocht.", true),
+            ("Send a message to Simon Wharton Antiques", false),
+            ("In stock", false),
+        ] {
+            let pages = [page_in_state("chair", state)];
+            let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+            let refused = checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false,
+            );
+
+            assert_eq!(refused.is_empty(), counts, "{state}: {refused:?}");
+        }
     }
 
     /// The labels the normalization resolves to sold or unavailable count, whichever language or
@@ -1619,6 +1710,7 @@ mod tests {
                     url: "https://antiques.example/products/chair".to_owned(),
                     state: "Sold".to_owned(),
                     resolves_to: None,
+                    mentions: Some("SOLD_OUT"),
                 }],
             })
             .ok(),
@@ -1628,6 +1720,7 @@ mod tests {
                     "url": "https://antiques.example/products/chair",
                     "state": "Sold",
                     "resolves_to": null,
+                    "mentions": "SOLD_OUT",
                 }],
             }))
         );

@@ -545,6 +545,9 @@ mod tests {
                 "Enquire by Email",
                 "Add to cart",
                 "Price text is never a state",
+                "status slot",
+                "state_mentions",
+                "PRODUCT_STILL_EXTRACTS",
                 "NOT_PRODUCT",
                 "valuation service",
                 "structural pattern",
@@ -556,6 +559,8 @@ mod tests {
         assert!(author.contains("the summary says why"));
         assert!(reviewer.contains("Do not give NEEDS_REPAIR because a state is a call to action"));
         assert!(reviewer.contains("field_findings, which the notes need not repeat"));
+        assert!(reviewer.contains("because a state is a sentence that names the status"));
+        assert!(author.contains("as an additional selector of the same `state` rule"));
     }
 
     /// Both agents know what `human_required` and the console's refusals of live work mean

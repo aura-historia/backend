@@ -37,13 +37,25 @@ pub struct SchemaPageEvaluation {
     pub fields: Vec<SelectorFieldEvaluation>,
 }
 
+/// Whether price text in a candidate's `state` keeps it out of approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PriceTextOnState {
+    Blocks,
+    /// The candidate's `state` rule reads a status slot: it resolves to sold or unavailable on
+    /// another review page, so the amount it shows while the item is for sale is no defect.
+    Accepted,
+}
+
 impl SchemaPageEvaluation {
     /// Whether a failed per-page, cross-page or identity agreement check keeps the schema out
     /// of approval. A repeated image alone does not
-    /// ([`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)).
-    pub fn blocks_approval(&self) -> bool {
-        self.plausibility_findings.blocks_approval()
-            || !self.cross_page_findings.is_empty()
+    /// ([`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)),
+    /// and price text in `state` does not where `price_text` accepts it.
+    pub fn blocks_approval(&self, price_text: PriceTextOnState) -> bool {
+        self.plausibility_findings.as_slice().iter().any(|finding| {
+            finding.blocks_approval()
+                && !(price_text == PriceTextOnState::Accepted && finding.is_price_text_on_state())
+        }) || !self.cross_page_findings.is_empty()
             || !self.identity_agreement_findings.is_empty()
     }
 }

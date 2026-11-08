@@ -1,9 +1,10 @@
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    CrawlerReviewPage, MatchedRemovedPageTemplate, RemovedPageTemplateMatch,
+    CrawlerReviewPage, MatchedRemovedPageTemplate, PriceTextOnState, RemovedPageTemplateMatch,
     RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
+use crate::review::page_content_checks::candidate_has_sold_state;
 use crate::review::page_signals::page_signals as signals_of_page;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
@@ -298,21 +299,32 @@ fn add_identity_agreement_findings(
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
-        && implausible_page_evaluations(matrix).next().is_none()
+        && implausible_page_evaluations(matrix, PriceTextOnState::Blocks)
+            .next()
+            .is_none()
 }
 
 /// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
-/// checks block approval, each with its candidate's schema index. Deterministic approval refuses a matrix with
-/// any of them, and so does the review agent's [approval
-/// guard](crate::review::approval_guard), so the two refuse the same findings.
+/// checks block approval, each with its candidate's schema index. Deterministic approval refuses a
+/// matrix with any of them, and so does the review agent's [approval
+/// guard](crate::review::approval_guard), except that the guard accepts price text in the `state`
+/// of a candidate whose `state` rule is a status slot (`price_text` is [`Accepted`]
+/// (PriceTextOnState::Accepted)).
 fn implausible_page_evaluations(
     matrix: &SchemaMatrix,
+    price_text: PriceTextOnState,
 ) -> impl Iterator<Item = (usize, &SchemaPageEvaluation)> {
-    matrix.candidates.iter().flat_map(|candidate| {
+    matrix.candidates.iter().flat_map(move |candidate| {
+        let price_text = match price_text {
+            PriceTextOnState::Accepted if candidate_has_sold_state(&candidate.pages) => {
+                PriceTextOnState::Accepted
+            }
+            _ => PriceTextOnState::Blocks,
+        };
         candidate
             .pages
             .iter()
-            .filter(|page| page.blocks_approval())
+            .filter(move |page| page.blocks_approval(price_text))
             .map(move |page| (candidate.schema_index, page))
     })
 }
@@ -330,10 +342,9 @@ pub struct ImplausiblePage {
     pub identity_agreement_findings: IdentityAgreementFindings,
 }
 
-/// The extractions deterministic approval refuses, as [`implausible_page_evaluations`] finds
-/// them.
+/// The extractions the approval guard refuses, as [`implausible_page_evaluations`] finds them.
 pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage> {
-    implausible_page_evaluations(matrix)
+    implausible_page_evaluations(matrix, PriceTextOnState::Accepted)
         .map(|(schema_index, page)| ImplausiblePage {
             schema_index,
             page_reference: page.page_reference.clone(),
