@@ -99,6 +99,38 @@ pub enum FailedApprovalCheck {
 
 /// The states of a `NO_SOLD_PAGE_TESTED` refusal, each as `'state' → CODE`, `→ CODE mentioned` or
 /// `→ unresolved`.
+/// The checks that block `page`, as `title REPEATED_ACROSS_PAGES on <url>`.
+fn describe_blocking_checks(page: &ImplausiblePage) -> String {
+    let checks = page
+        .plausibility_findings
+        .as_slice()
+        .iter()
+        .map(|finding| (&finding.field, check_code(&finding.check)))
+        .chain(
+            page.cross_page_findings
+                .as_slice()
+                .iter()
+                .map(|finding| (&finding.field, check_code(&finding.check))),
+        )
+        .chain(
+            page.identity_agreement_findings
+                .as_slice()
+                .iter()
+                .map(|finding| (&finding.field, check_code(&finding.check))),
+        )
+        .map(|(field, code)| format!("{} {code}", field.as_str()))
+        .collect::<Vec<_>>();
+    format!("{} on {}", checks.join(", "), page.url)
+}
+
+/// The check's persisted `SCREAMING_SNAKE_CASE` code, as the matrix API names it.
+fn check_code(check: &impl serde::Serialize) -> String {
+    match serde_json::to_value(check) {
+        Ok(serde_json::Value::String(code)) => code,
+        _ => "UNKNOWN".to_owned(),
+    }
+}
+
 fn describe_states(states: &[SeenState]) -> String {
     if states.is_empty() {
         return "none, no candidate schema applies to a review page".to_owned();
@@ -178,8 +210,13 @@ impl fmt::Display for FailedApprovalCheck {
             ),
             Self::ImplausibleExtraction { pages } => write!(
                 formatter,
-                "{} extraction(s) fail a plausibility check deterministic approval refuses",
-                pages.len()
+                "{} extraction(s) fail a plausibility check deterministic approval refuses: {}",
+                pages.len(),
+                pages
+                    .iter()
+                    .map(describe_blocking_checks)
+                    .collect::<Vec<_>>()
+                    .join("; ")
             ),
             Self::ContentRuleMissing { rules } => write!(
                 formatter,
@@ -1004,6 +1041,32 @@ mod tests {
                 "{page:?}"
             );
         }
+    }
+
+    /// The exempt price text of a status slot is no reason for the refusal, so the refusal does not
+    /// list it next to the check that blocks.
+    #[test]
+    fn should_list_only_the_blocking_checks_of_an_implausible_page() {
+        let (chair, chair_html) = product_page("chair", "h1", "Antique Shop");
+        let (table, table_html) = product_page("table", "h1", "Antique Shop");
+        let pages = [
+            (chair, chair_html.replace("Available", "£ 3,800 plus VAT")),
+            (table, table_html.replace("Available", "Sold")),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let implausible = implausible_only(&matrix, &review_pages(&pages));
+
+        assert_eq!(implausible.len(), 2, "{implausible:?}");
+        for page in &implausible {
+            assert!(page.plausibility_findings.is_empty(), "{page:?}");
+        }
+        assert_eq!(
+            FailedApprovalCheck::ImplausibleExtraction { pages: implausible }.to_string(),
+            "2 extraction(s) fail a plausibility check deterministic approval refuses: \
+             title REPEATED_ACROSS_PAGES on https://shop.example/products/chair; \
+             title REPEATED_ACROSS_PAGES on https://shop.example/products/table"
+        );
     }
 
     /// An identity other than the one the page's listing was captured under would split the

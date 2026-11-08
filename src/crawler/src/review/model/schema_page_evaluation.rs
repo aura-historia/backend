@@ -52,11 +52,22 @@ impl SchemaPageEvaluation {
     /// ([`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)),
     /// and price text in `state` does not where `price_text` accepts it.
     pub fn blocks_approval(&self, price_text: PriceTextOnState) -> bool {
-        self.plausibility_findings.as_slice().iter().any(|finding| {
+        !self.blocking_plausibility_findings(price_text).is_empty()
+            || !self.cross_page_findings.is_empty()
+            || !self.identity_agreement_findings.is_empty()
+    }
+
+    /// The per-page findings that block approval where `price_text` applies: every finding
+    /// [`blocks_approval`](crate::scraper::plausibility::PlausibilityFinding::blocks_approval)
+    /// keeps, except price text in `state` where `price_text` accepts it.
+    pub fn blocking_plausibility_findings(
+        &self,
+        price_text: PriceTextOnState,
+    ) -> PlausibilityFindings {
+        self.plausibility_findings.retaining(|finding| {
             finding.blocks_approval()
                 && !(price_text == PriceTextOnState::Accepted && finding.is_price_text_on_state())
-        }) || !self.cross_page_findings.is_empty()
-            || !self.identity_agreement_findings.is_empty()
+        })
     }
 }
 

@@ -313,6 +313,17 @@ impl PlausibilityFindings {
         self.0.iter().any(|finding| finding.blocks_approval())
     }
 
+    /// The findings that satisfy `keep`, in their order.
+    pub fn retaining(&self, keep: impl Fn(&PlausibilityFinding) -> bool) -> Self {
+        Self(
+            self.0
+                .iter()
+                .filter(|finding| keep(finding))
+                .cloned()
+                .collect(),
+        )
+    }
+
     /// The number of findings that lower a candidate's rank.
     pub fn rank_penalty(&self) -> usize {
         self.with_impact(PlausibilityImpact::LowersRank).count()

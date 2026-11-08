@@ -305,7 +305,8 @@ pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> 
 }
 
 /// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
-/// checks block approval, each with its candidate's schema index. Deterministic approval refuses a
+/// checks block approval, each with its candidate's schema index and the price text rule that
+/// applied to it. Deterministic approval refuses a
 /// matrix with any of them, and so does the review agent's [approval
 /// guard](crate::review::approval_guard), except that the guard accepts price text in the `state`
 /// of a candidate whose `state` rule is a status slot (`price_text` is [`Accepted`]
@@ -313,7 +314,7 @@ pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> 
 fn implausible_page_evaluations(
     matrix: &SchemaMatrix,
     price_text: PriceTextOnState,
-) -> impl Iterator<Item = (usize, &SchemaPageEvaluation)> {
+) -> impl Iterator<Item = (usize, &SchemaPageEvaluation, PriceTextOnState)> {
     matrix.candidates.iter().flat_map(move |candidate| {
         let price_text = match price_text {
             PriceTextOnState::Accepted if candidate_has_sold_state(&candidate.pages) => {
@@ -325,7 +326,7 @@ fn implausible_page_evaluations(
             .pages
             .iter()
             .filter(move |page| page.blocks_approval(price_text))
-            .map(move |page| (candidate.schema_index, page))
+            .map(move |page| (candidate.schema_index, page, price_text))
     })
 }
 
@@ -337,6 +338,8 @@ pub struct ImplausiblePage {
     pub page_reference: SchemaPageReference,
     pub url: String,
     pub role: String,
+    /// Only the per-page findings that block under the guard's decision: price text in the
+    /// `state` of a status slot is exempt, so it is not listed.
     pub plausibility_findings: PlausibilityFindings,
     pub cross_page_findings: CrossPageFindings,
     pub identity_agreement_findings: IdentityAgreementFindings,
@@ -345,12 +348,12 @@ pub struct ImplausiblePage {
 /// The extractions the approval guard refuses, as [`implausible_page_evaluations`] finds them.
 pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage> {
     implausible_page_evaluations(matrix, PriceTextOnState::Accepted)
-        .map(|(schema_index, page)| ImplausiblePage {
+        .map(|(schema_index, page, price_text)| ImplausiblePage {
             schema_index,
             page_reference: page.page_reference.clone(),
             url: page.url.clone(),
             role: page.role.clone(),
-            plausibility_findings: page.plausibility_findings.clone(),
+            plausibility_findings: page.blocking_plausibility_findings(price_text),
             cross_page_findings: page.cross_page_findings.clone(),
             identity_agreement_findings: page.identity_agreement_findings.clone(),
         })
