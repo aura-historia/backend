@@ -454,6 +454,10 @@ fn personalization_user_id(principal: &Principal) -> Option<UserId> {
     }
 }
 
+/// Where a plan-hidden listing points: the web app's pricing section. The
+/// unlocalized path lets the web app pick the viewer's language.
+pub(crate) const HIDDEN_PRODUCT_LISTING_URL: &str = "https://aura-historia.com/#pricing";
+
 pub fn redact_hidden_product(
     details: &mut ProductListingDetailsView,
 ) -> Result<(), GetProductListingError> {
@@ -462,7 +466,7 @@ pub fn redact_hidden_product(
         .as_ref()
         .map(|title| title.localized.localization)
         .unwrap_or(Language::En);
-    let hidden_url = Url::parse("https://aura-historia.com/pricing")
+    let hidden_url = Url::parse(HIDDEN_PRODUCT_LISTING_URL)
         .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
 
     details.product_listing_title_slug_id = None;

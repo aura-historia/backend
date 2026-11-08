@@ -229,7 +229,7 @@ async fn should_enforce_hidden_and_sensitive_image_policy_independently_of_discl
                         assert!(item["productListingTitleSlugId"].is_null());
                         assert!(item["shipping"].is_null());
                         assert_eq!("Hidden", item["source"]["name"]);
-                        assert_eq!("https://aura-historia.com/pricing", item["url"]);
+                        assert_eq!("https://aura-historia.com/#pricing", item["url"]);
                         assert_eq!(
                             "00000000-0000-0000-0000-000000000000",
                             item["sourceListingId"]
