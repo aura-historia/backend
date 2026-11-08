@@ -27,6 +27,7 @@ use crawler::scraper::css_selector::product_schema_repository::{
 };
 use crawler::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
+use crawler::spider::classification::product_url_pattern::ProductUrlPattern;
 use crawler::spider::classification::url_classifier::UrlClassifier;
 use listing_source_core::ListingSourceId;
 use regex::Regex;
@@ -1175,7 +1176,7 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
             "manual_url_pattern_required",
             UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://example.com/new/1".to_owned()],
-            Some(&Regex::new("/old/").unwrap()),
+            Some(&ProductUrlPattern::parse("/old/").unwrap()),
         )
         .await
         .unwrap();

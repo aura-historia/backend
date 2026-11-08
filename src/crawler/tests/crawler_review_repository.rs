@@ -38,6 +38,7 @@ use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
     SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
 };
+use crawler::spider::classification::product_url_pattern::ProductUrlPattern;
 use crawler::spider::classification::url_classifier::UrlClassifier;
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -2295,8 +2296,10 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "[".to_owned(),
+                    exclude: None,
                 },
                 current_pattern: None,
+                current_exclude: None,
                 sample_labels: None,
             }),
         )
@@ -2497,6 +2500,7 @@ async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refuse
             "url_pattern_generation",
             UrlPatternDecision::Pattern {
                 value: "/product/".to_owned(),
+                exclude: None,
             },
             &["https://refused.example.com/product/chair".to_owned()],
             None,
@@ -2618,7 +2622,7 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://atomic-pattern.example.com/new/1".to_owned()],
-            Some(&Regex::new("/old/").unwrap()),
+            Some(&ProductUrlPattern::parse("/old/").unwrap()),
         )
         .await
         .unwrap();
@@ -2756,7 +2760,7 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
             "url_pattern_generation",
             UrlPatternDecision::NoPattern,
             &["https://no-pattern.example.com/about".to_owned()],
-            Some(&Regex::new("/stale/").unwrap()),
+            Some(&ProductUrlPattern::parse("/stale/").unwrap()),
         )
         .await
         .unwrap();
@@ -2818,8 +2822,10 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
+                    exclude: None,
                 },
                 current_pattern: None,
+                current_exclude: None,
                 sample_labels: None,
             }),
         )
@@ -3886,8 +3892,10 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
+                    exclude: None,
                 },
                 current_pattern: None,
+                current_exclude: None,
                 sample_labels: None,
             }),
         )
@@ -3959,8 +3967,10 @@ async fn should_classify_stored_urls_and_release_waiting_crawl_when_url_pattern_
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
+                    exclude: None,
                 },
                 current_pattern: None,
+                current_exclude: None,
                 sample_labels: None,
             }),
         )
@@ -4003,6 +4013,92 @@ async fn should_classify_stored_urls_and_release_waiting_crawl_when_url_pattern_
         ),
         (1, Some("RateLimited")),
         "earlier failure state is left as it was"
+    );
+}
+
+/// An approved pattern's exclusion goes live with it and takes the URLs it matches out of the
+/// product class the pattern gave them, the way a narrower pattern does.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_the_exclusion_and_reclassify_the_urls_it_takes_when_a_url_pattern_is_approved()
+ {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let url_repository = UrlMetadataRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    set_crawl_root(&pool, listing_source_id, "excluding.example.com").await;
+    sqlx::query(
+        "UPDATE listing_sources SET url_pattern = '/item/', url_pattern_state = 'MATCHED' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let urls = [
+        "https://excluding.example.com/item/ring",
+        "https://excluding.example.com/item/the-ring-gift-card",
+    ]
+    .map(|url| url::Url::parse(url).unwrap());
+    url_repository
+        .upsert_links_batch(
+            &listing_source_id,
+            &discovered(&urls, &[UrlClass::ProductListing; 2]),
+        )
+        .await
+        .unwrap();
+    let review_id = undecided_url_pattern_review(
+        &repository,
+        listing_source_id,
+        &urls.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    )
+    .await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!(UrlPatternReviewCandidate {
+                decision: UrlPatternDecision::Pattern {
+                    value: "/item/".to_owned(),
+                    exclude: Some("gift-card".to_owned()),
+                },
+                current_pattern: Some("/item/".to_owned()),
+                current_exclude: None,
+                sample_labels: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
+
+    let live: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT url_pattern, url_pattern_exclude FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        live,
+        (Some("/item/".to_owned()), Some("gift-card".to_owned()))
+    );
+    assert_eq!(
+        stored_url_classes(&pool, listing_source_id).await,
+        vec![
+            (urls[0].to_string(), "product".to_owned()),
+            (urls[1].to_string(), "other".to_owned()),
+        ],
+        "the exclusion takes the gift card out of the product class"
     );
 }
 
@@ -4162,8 +4258,10 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> CrawlS
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
+                    exclude: None,
                 },
                 current_pattern: None,
+                current_exclude: None,
                 sample_labels: None,
             }),
         )

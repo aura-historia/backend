@@ -8,6 +8,10 @@ use crate::scraper::scraper_service::pipeline::scrape_product::{
 };
 use test_api::IntegrationTestService as _;
 
+fn product_pattern(raw: &str) -> ProductUrlPattern {
+    ProductUrlPattern::parse(raw).unwrap()
+}
+
 #[test]
 fn should_detect_same_host_product_redirect_to_homepage() {
     let original = Url::parse("https://example.com/products/123").unwrap();
@@ -37,7 +41,7 @@ fn should_detect_same_host_product_redirect_to_category_page_when_pattern_does_n
     assert!(is_redirect_to_non_product_page(
         &original,
         &final_url,
-        Some(r"/items/")
+        Some(&product_pattern(r"/items/"))
     ));
 }
 
@@ -49,7 +53,27 @@ fn should_not_detect_redirect_to_another_matching_product_page() {
     assert!(!is_redirect_to_non_product_page(
         &original,
         &final_url,
-        Some(r"/products/")
+        Some(&product_pattern(r"/products/"))
+    ));
+}
+
+#[test]
+fn should_detect_redirect_to_a_page_the_exclusion_takes_out_of_the_pattern() {
+    let original = Url::parse("https://example.com/products/ring").unwrap();
+    let gift_card = Url::parse("https://example.com/products/shop-gift-card").unwrap();
+    let pattern = product_pattern(r"/products/")
+        .with_exclude(Some("gift-card"))
+        .unwrap();
+
+    assert!(is_redirect_to_non_product_page(
+        &original,
+        &gift_card,
+        Some(&pattern)
+    ));
+    assert!(!is_redirect_to_non_product_page(
+        &original,
+        &Url::parse("https://example.com/products/chair").unwrap(),
+        Some(&pattern)
     ));
 }
 
@@ -61,7 +85,7 @@ fn should_not_detect_equivalent_url_normalization_as_homepage_redirect() {
     assert!(!is_redirect_to_non_product_page(
         &original,
         &final_url,
-        Some(r"/products/")
+        Some(&product_pattern(r"/products/"))
     ));
 }
 
@@ -81,12 +105,12 @@ fn should_not_detect_redirect_that_only_adds_or_removes_trailing_slash() {
         let final_url = Url::parse(final_url).unwrap();
 
         for pattern in [
-            Some(r"^https://example\.com/products/\d+$"),
-            Some(r"^https://example\.com/products/\d+/$"),
+            Some(product_pattern(r"^https://example\.com/products/\d+$")),
+            Some(product_pattern(r"^https://example\.com/products/\d+/$")),
             None,
         ] {
             assert!(
-                !is_redirect_to_non_product_page(&original, &final_url, pattern),
+                !is_redirect_to_non_product_page(&original, &final_url, pattern.as_ref()),
                 "{original} -> {final_url} under {pattern:?}"
             );
         }
@@ -101,7 +125,7 @@ fn should_detect_redirect_from_slashed_product_url_to_another_page_outside_patte
     assert!(is_redirect_to_non_product_page(
         &original,
         &final_url,
-        Some(r"/products/\d+$")
+        Some(&product_pattern(r"/products/\d+$"))
     ));
 }
 
@@ -112,18 +136,6 @@ fn should_not_reject_non_homepage_redirect_when_pattern_is_missing() {
 
     assert!(!is_redirect_to_non_product_page(
         &original, &final_url, None
-    ));
-}
-
-#[test]
-fn should_not_reject_non_homepage_redirect_when_pattern_is_invalid() {
-    let original = Url::parse("https://example.com/products/123").unwrap();
-    let final_url = Url::parse("https://example.com/collections/chairs").unwrap();
-
-    assert!(!is_redirect_to_non_product_page(
-        &original,
-        &final_url,
-        Some("[")
     ));
 }
 
@@ -781,12 +793,12 @@ async fn should_move_the_row_to_the_unprefixed_target_when_a_redirect_changes_th
 #[test]
 fn should_store_the_target_spelling_the_pattern_takes_for_a_redirect_that_adds_a_language_segment()
 {
-    let pattern = Some(r"^https://shop\.example/item/");
-    let stored = |original: &str, served: &str, pattern| {
+    let pattern = Some(product_pattern(r"^https://shop\.example/item/"));
+    let stored = |original: &str, served: &str, pattern: &Option<ProductUrlPattern>| {
         Redirect::of(
             &Url::parse(original).unwrap(),
             &Url::parse(served).unwrap(),
-            pattern,
+            pattern.as_ref(),
         )
     };
 
@@ -794,16 +806,16 @@ fn should_store_the_target_spelling_the_pattern_takes_for_a_redirect_that_adds_a
     let moved = stored(
         "https://shop.example/item/1",
         "https://shop.example/en-us/item/2",
-        pattern,
+        &pattern,
     );
     assert_eq!(moved.target, RedirectTarget::ProductPage);
     assert_eq!(moved.url.as_str(), "https://shop.example/item/2");
     // A row stored with its segment keeps the target's own spelling.
-    let prefixed_pattern = Some(r"^https://shop\.example/(en|de)/item/");
+    let prefixed_pattern = Some(product_pattern(r"^https://shop\.example/(en|de)/item/"));
     let kept = stored(
         "https://shop.example/en/item/1",
         "https://shop.example/de/item/2",
-        prefixed_pattern,
+        &prefixed_pattern,
     );
     assert_eq!(kept.target, RedirectTarget::ProductPage);
     assert_eq!(kept.url.as_str(), "https://shop.example/de/item/2");
@@ -812,7 +824,7 @@ fn should_store_the_target_spelling_the_pattern_takes_for_a_redirect_that_adds_a
     let looks_like_language = stored(
         "https://shop.example/item/1",
         "https://shop.example/art/12",
-        pattern,
+        &pattern,
     );
     assert_eq!(
         looks_like_language.target,
@@ -826,7 +838,7 @@ fn should_store_the_target_spelling_the_pattern_takes_for_a_redirect_that_adds_a
     let unjudged = stored(
         "https://shop.example/item/1",
         "https://shop.example/en-us/item/2",
-        None,
+        &None,
     );
     assert_eq!(unjudged.target, RedirectTarget::ProductPage);
     assert_eq!(unjudged.url.as_str(), "https://shop.example/en-us/item/2");

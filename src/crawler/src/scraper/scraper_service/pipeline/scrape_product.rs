@@ -29,11 +29,11 @@ use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_extractions,
 };
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -70,7 +70,7 @@ impl Redirect {
     pub(crate) fn of(
         original_url: &Url,
         final_url: &Url,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
     ) -> Self {
         let original = CrawledUrl::new(original_url.clone());
         let target = CrawledUrl::new(final_url.clone());
@@ -87,7 +87,7 @@ impl Redirect {
         if is_homepage(&target) {
             return stored(target, RedirectTarget::Homepage);
         }
-        let Some(pattern) = product_url_pattern.and_then(|raw| Regex::new(raw).ok()) else {
+        let Some(pattern) = product_url_pattern else {
             return stored(target, RedirectTarget::ProductPage);
         };
         // The recognized language segments are a guess about the path (`/art/12`), so the
@@ -97,10 +97,10 @@ impl Redirect {
             .then(|| without_language_segment(&target))
             .flatten()
             .map(CrawledUrl::new)
-            .filter(|unprefixed| unprefixed.matches_pattern(&pattern));
+            .filter(|unprefixed| unprefixed.matches_pattern(pattern));
         match unprefixed {
             Some(unprefixed) => stored(unprefixed, RedirectTarget::ProductPage),
-            None if target.matches_pattern(&pattern) => stored(target, RedirectTarget::ProductPage),
+            None if target.matches_pattern(pattern) => stored(target, RedirectTarget::ProductPage),
             None => stored(target, RedirectTarget::OutsideProductPattern),
         }
     }
@@ -111,7 +111,7 @@ impl RedirectTarget {
     pub(crate) fn of(
         original_url: &Url,
         final_url: &Url,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
     ) -> Self {
         Redirect::of(original_url, final_url, product_url_pattern).target
     }
@@ -129,7 +129,7 @@ impl RedirectTarget {
 pub(crate) fn is_redirect_to_non_product_page(
     original_url: &Url,
     final_url: &Url,
-    product_url_pattern: Option<&str>,
+    product_url_pattern: Option<&ProductUrlPattern>,
 ) -> bool {
     is_same_logical_host(original_url, final_url)
         && !RedirectTarget::of(original_url, final_url, product_url_pattern).is_product_page()
@@ -355,7 +355,7 @@ impl FetchedProductPage {
     fn locate(
         url: &Url,
         fetched: FetchedHtml,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
         acquired_at: time::OffsetDateTime,
     ) -> Result<Self, ScraperError> {
         if !is_same_logical_host(url, &fetched.final_url) {
@@ -564,7 +564,7 @@ impl ScraperServiceImpl {
         let page = FetchedProductPage::locate(
             url,
             fetched,
-            request.product_url_pattern.as_deref(),
+            request.product_url_pattern.as_ref(),
             time::OffsetDateTime::now_utc(),
         )?;
 
@@ -635,7 +635,7 @@ impl ScraperServiceImpl {
             None => ExtractedSchemaSet::parse_and_extract(
                 self.obtain_schemas(
                     fetched_page,
-                    request.product_url_pattern.as_deref(),
+                    request.product_url_pattern.as_ref(),
                     request.mode,
                 )
                 .await?,
@@ -892,7 +892,9 @@ mod tests {
         RedirectTarget::of(
             &Url::parse(original).unwrap(),
             &Url::parse(served).unwrap(),
-            pattern,
+            pattern
+                .map(|pattern| ProductUrlPattern::parse(pattern).unwrap())
+                .as_ref(),
         )
     }
 

@@ -25,7 +25,7 @@ fn disallowed_redirect_removal(request: &ScrapeRequest, final_url: &Url) -> Opti
         return None;
     }
     let (kind, reason) =
-        match RedirectTarget::of(url, final_url, request.product_url_pattern.as_deref()) {
+        match RedirectTarget::of(url, final_url, request.product_url_pattern.as_ref()) {
             RedirectTarget::Homepage => (RemovalEvidenceKind::RedirectToHomepage, "the homepage"),
             RedirectTarget::OutsideProductPattern => (
                 RemovalEvidenceKind::RedirectToDisallowedPage,

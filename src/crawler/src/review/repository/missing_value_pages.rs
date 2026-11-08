@@ -122,7 +122,7 @@ impl CrawlerReviewRepository {
         let product_url_pattern =
             review_source_url_pattern(&self.pool, uuid::Uuid::from(*listing_source_id), &url)
                 .await?;
-        if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_deref()) {
+        if is_redirect_to_non_product_page(requested_url, &url, product_url_pattern.as_ref()) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
                 url.to_string(),
             ));

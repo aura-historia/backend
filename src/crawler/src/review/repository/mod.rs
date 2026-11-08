@@ -15,10 +15,12 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPattern, ProductUrlPatternError,
+};
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -86,7 +88,7 @@ pub enum ReviewRepositoryError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Regex(#[from] regex::Error),
+    Pattern(#[from] ProductUrlPatternError),
     #[error("review not found: {0}")]
     NotFound(CrawlerReviewId),
     #[error("ListingSource not found: {0}")]
@@ -635,12 +637,12 @@ impl CrawlerReviewRepository {
         reason: &str,
         decision: UrlPatternDecision,
         urls: &[String],
-        current_pattern: Option<&Regex>,
+        current_pattern: Option<&ProductUrlPattern>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_regex = decision
-            .candidate_regex()
+        let candidate_pattern = decision
+            .candidate_pattern()
             .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-        let candidate_pattern = candidate_regex.as_ref();
+        let candidate_pattern = candidate_pattern.as_ref();
         let candidate_payload =
             serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
@@ -923,7 +925,7 @@ impl CrawlerReviewRepository {
         if is_redirect_to_non_product_page(
             requested_url,
             &fetched_url,
-            product_url_pattern.as_deref(),
+            product_url_pattern.as_ref(),
         ) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
                 fetched_url.to_string(),
@@ -933,7 +935,7 @@ impl CrawlerReviewRepository {
         // the redirect only changed the language segment or the trailing slash, and the target
         // without its language segment when the pattern takes that spelling.
         let url = reviewer_page_url(
-            &Redirect::of(requested_url, &fetched_url, product_url_pattern.as_deref()).url,
+            &Redirect::of(requested_url, &fetched_url, product_url_pattern.as_ref()).url,
         );
         if url != fetched_url {
             lock_reviewer_page_target(
@@ -1273,7 +1275,7 @@ fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -
 fn url_pattern_candidate_edit(
     posted: serde_json::Value,
     stored: &serde_json::Value,
-) -> Result<(UrlPatternReviewCandidate, Option<Regex>), ReviewRepositoryError> {
+) -> Result<(UrlPatternReviewCandidate, Option<ProductUrlPattern>), ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::decode_edit(posted)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     if candidate.decision == UrlPatternDecision::Undecided {
@@ -1281,7 +1283,7 @@ fn url_pattern_candidate_edit(
     }
     let pattern = candidate
         .decision
-        .candidate_regex()
+        .candidate_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let stored_labels = serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
         .ok()
@@ -1614,7 +1616,7 @@ async fn lock_reviewer_page_target(
     actor: ReviewActor,
     agent_decisions: &AgentDecisionPolicy,
     url: &Url,
-) -> Result<Option<String>, ReviewRepositoryError> {
+) -> Result<Option<ProductUrlPattern>, ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT listing_source_id, artifact_type, status \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
@@ -1666,29 +1668,35 @@ async fn lock_reviewer_page_target(
     Ok(product_url_pattern)
 }
 
-/// The approved product URL pattern of the ListingSource, `None` without one. A URL a reviewer may
-/// not add, off the ListingSource's crawl host or not an http(s) URL on the default port without
-/// credentials, is refused.
+/// The approved product URL pattern of the ListingSource, `None` without one or when it does not
+/// decode. A URL a reviewer may not add, off the ListingSource's crawl host or not an http(s) URL
+/// on the default port without credentials, is refused.
 async fn review_source_url_pattern<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     listing_source_id: uuid::Uuid,
     url: &Url,
-) -> Result<Option<String>, ReviewRepositoryError> {
-    let (crawl_host, product_url_pattern) = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        "SELECT crawl_host, \
-                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
+) -> Result<Option<ProductUrlPattern>, ReviewRepositoryError> {
+    let (crawl_host, include, exclude) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+            "SELECT crawl_host, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_exclude END \
          FROM listing_sources WHERE listing_source_id = $1",
-    )
-    .bind(listing_source_id)
-    .fetch_optional(executor)
-    .await?
-    .unwrap_or_default();
+        )
+        .bind(listing_source_id)
+        .fetch_optional(executor)
+        .await?
+        .unwrap_or_default();
     if !is_review_source_url(url, crawl_host.as_deref()) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
     }
-    Ok(product_url_pattern)
+    Ok(
+        ProductUrlPattern::from_stored(include.as_deref(), exclude.as_deref())
+            .ok()
+            .flatten(),
+    )
 }
 
 fn log_approved_schema_edit(
