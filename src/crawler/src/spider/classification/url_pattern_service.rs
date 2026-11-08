@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::review::page_coverage::IncompleteCoverage;
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -13,7 +14,6 @@ use crate::spider::classification::url_pattern_repository::{
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 
 use crate::review::model::{ReviewActor, UrlPatternDecision};
-use regex::Regex;
 use thiserror::Error;
 use tracing::{debug, info};
 
@@ -46,7 +46,7 @@ pub enum UrlPatternServiceError {
 /// A ListingSource's completed URL classification: its product URL pattern, or a decided `NO_PATTERN`.
 #[derive(Debug, Clone)]
 pub enum DecidedUrlPattern {
-    Pattern(Regex),
+    Pattern(ProductUrlPattern),
     NoPattern,
 }
 
@@ -60,12 +60,12 @@ pub trait UrlPatternService: Send + Sync {
     async fn load_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-    ) -> Result<Option<Regex>, UrlPatternServiceError>;
+    ) -> Result<Option<ProductUrlPattern>, UrlPatternServiceError>;
 
     async fn store_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        pattern: &Regex,
+        pattern: &ProductUrlPattern,
     ) -> Result<(), UrlPatternServiceError>;
 
     /// Whether classification asks the LLM to infer the pattern from the crawled URLs, which
@@ -86,7 +86,7 @@ pub trait UrlPatternService: Send + Sync {
     async fn decision_stored_during_crawl(
         &self,
         listing_source_id: &ListingSourceId,
-        crawl_pattern: Option<&Regex>,
+        crawl_pattern: Option<&ProductUrlPattern>,
     ) -> Result<Option<DecidedUrlPattern>, UrlPatternServiceError>;
 
     /// Asks the inference client to classify a product URL pattern from `urls`, persists the
@@ -100,9 +100,9 @@ pub trait UrlPatternService: Send + Sync {
         &self,
         listing_source_id: &ListingSourceId,
         crawl_root_url: &str,
-        crawl_pattern: Option<&Regex>,
+        crawl_pattern: Option<&ProductUrlPattern>,
         urls: &[String],
-    ) -> Result<Option<Regex>, UrlPatternServiceError>;
+    ) -> Result<Option<ProductUrlPattern>, UrlPatternServiceError>;
 
     /// Records a full crawl of `root` now, while its ListingSource still has that crawl root.
     async fn mark_as_crawled(
@@ -186,7 +186,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn load_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-    ) -> Result<Option<Regex>, UrlPatternServiceError> {
+    ) -> Result<Option<ProductUrlPattern>, UrlPatternServiceError> {
         let record = self.repository.find_pattern(listing_source_id).await?;
 
         let Some(record) = record else {
@@ -197,17 +197,16 @@ impl UrlPatternService for UrlPatternServiceImpl {
             return Ok(None);
         };
 
-        let pattern = Regex::new(&raw_pattern)?;
-        Ok(Some(pattern))
+        Ok(Some(ProductUrlPattern::parse(&raw_pattern)?))
     }
 
     async fn store_pattern(
         &self,
         listing_source_id: &ListingSourceId,
-        pattern: &Regex,
+        pattern: &ProductUrlPattern,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
-            .save_pattern(listing_source_id, Some(pattern.as_str()))
+            .save_pattern(listing_source_id, Some(pattern.include_source()))
             .await?;
         Ok(())
     }
@@ -225,7 +224,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
     async fn decision_stored_during_crawl(
         &self,
         listing_source_id: &ListingSourceId,
-        crawl_pattern: Option<&Regex>,
+        crawl_pattern: Option<&ProductUrlPattern>,
     ) -> Result<Option<DecidedUrlPattern>, UrlPatternServiceError> {
         let Some(record) = self.repository.find_pattern(listing_source_id).await? else {
             return Ok(None);
@@ -233,9 +232,11 @@ impl UrlPatternService for UrlPatternServiceImpl {
         Ok(match (record.url_pattern_state, record.url_pattern) {
             (UrlPatternState::NoPattern, _) => Some(DecidedUrlPattern::NoPattern),
             (UrlPatternState::Matched, Some(stored))
-                if crawl_pattern.is_none_or(|pattern| pattern.as_str() != stored) =>
+                if crawl_pattern.is_none_or(|pattern| pattern.include_source() != stored) =>
             {
-                Some(DecidedUrlPattern::Pattern(Regex::new(&stored)?))
+                Some(DecidedUrlPattern::Pattern(ProductUrlPattern::parse(
+                    &stored,
+                )?))
             }
             _ => None,
         })
@@ -249,9 +250,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
         &self,
         listing_source_id: &ListingSourceId,
         crawl_root_url: &str,
-        crawl_pattern: Option<&Regex>,
+        crawl_pattern: Option<&ProductUrlPattern>,
         urls: &[String],
-    ) -> Result<Option<Regex>, UrlPatternServiceError> {
+    ) -> Result<Option<ProductUrlPattern>, UrlPatternServiceError> {
         match self
             .decision_stored_during_crawl(listing_source_id, crawl_pattern)
             .await?
@@ -308,9 +309,10 @@ impl UrlPatternService for UrlPatternServiceImpl {
         self.repository
             .increment_listing_source_llm_calls(listing_source_id, 1)
             .await?;
-        let pattern = classification_service
+        let inferred = classification_service
             .find_product_url_pattern(urls)
             .await?;
+        let pattern = inferred.clone().map(ProductUrlPattern::from);
 
         if let Some(review_repository) = review_repository {
             let review_id = self
@@ -318,7 +320,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
                     review_repository,
                     listing_source_id,
                     "url_pattern_generation",
-                    UrlPatternDecision::inferred(pattern.as_ref()),
+                    UrlPatternDecision::inferred(inferred.as_ref()),
                     urls,
                 )
                 .await?;
@@ -378,6 +380,7 @@ mod tests {
     use crate::spider::classification::url_pattern_repository::{
         ListingSourceUrlPatternRecord, MockListingSourceUrlPatternRepository,
     };
+    use regex::Regex;
     use test_api::IntegrationTestService as _;
 
     #[tokio::test]
@@ -477,7 +480,10 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("auto authoring must apply the pattern: {error}"));
 
-        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            pattern.as_ref().map(ProductUrlPattern::include_source),
+            Some("/item/")
+        );
         let (live_pattern, review_status): (Option<String>, String) = sqlx::query_as(
             "SELECT s.url_pattern, r.status FROM listing_sources s \
              JOIN crawler_reviews r ON r.listing_source_id = s.listing_source_id \
@@ -632,7 +638,10 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("stored pattern must be used: {error}"));
 
-        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            pattern.as_ref().map(ProductUrlPattern::include_source),
+            Some("/item/")
+        );
         assert_eq!(
             reviews_and_llm_calls(&pool, &listing_source_id).await,
             (0, 0)
@@ -659,7 +668,10 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("stored pattern must be used: {error}"));
 
-        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            pattern.as_ref().map(ProductUrlPattern::include_source),
+            Some("/item/")
+        );
         assert_eq!(
             reviews_and_llm_calls(&pool, &listing_source_id).await,
             (0, 0)
@@ -678,7 +690,7 @@ mod tests {
             .once()
             .returning(|_| Box::pin(async { Ok(Some(Regex::new("/item/").unwrap())) }));
         let service = auto_service(&pool, &review_repository, classification);
-        let failed_pattern = Regex::new("/product/").unwrap();
+        let failed_pattern = ProductUrlPattern::parse("/product/").unwrap();
 
         let pattern = service
             .classify_and_save(
@@ -690,7 +702,10 @@ mod tests {
             .await
             .unwrap_or_else(|error| panic!("failed pattern must be reclassified: {error}"));
 
-        assert_eq!(pattern.as_ref().map(Regex::as_str), Some("/item/"));
+        assert_eq!(
+            pattern.as_ref().map(ProductUrlPattern::include_source),
+            Some("/item/")
+        );
         assert_eq!(
             reviews_and_llm_calls(&pool, &listing_source_id).await,
             (1, 1)

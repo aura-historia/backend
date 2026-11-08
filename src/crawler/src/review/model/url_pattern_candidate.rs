@@ -1,4 +1,5 @@
 use super::SampleLabels;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -25,10 +26,10 @@ pub enum UrlPatternDecision {
 }
 
 impl UrlPatternDecision {
-    /// The regex of a `PATTERN` decision, `None` for a decision without a pattern.
-    pub fn candidate_regex(&self) -> Result<Option<Regex>, regex::Error> {
+    /// The pattern of a `PATTERN` decision, `None` for a decision without a pattern.
+    pub fn candidate_pattern(&self) -> Result<Option<ProductUrlPattern>, regex::Error> {
         match self {
-            Self::Pattern { value } => Regex::new(value).map(Some),
+            Self::Pattern { value } => ProductUrlPattern::parse(value).map(Some),
             Self::NoPattern | Self::Undecided => Ok(None),
         }
     }
@@ -50,10 +51,10 @@ pub enum UrlPatternCandidateError {
 }
 
 impl UrlPatternReviewCandidate {
-    pub fn new(decision: UrlPatternDecision, current_pattern: Option<&Regex>) -> Self {
+    pub fn new(decision: UrlPatternDecision, current_pattern: Option<&ProductUrlPattern>) -> Self {
         Self {
             decision,
-            current_pattern: current_pattern.map(|pattern| pattern.as_str().to_owned()),
+            current_pattern: current_pattern.map(|pattern| pattern.include_source().to_owned()),
             sample_labels: None,
         }
     }

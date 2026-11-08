@@ -15,10 +15,10 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -627,12 +627,12 @@ impl CrawlerReviewRepository {
         reason: &str,
         decision: UrlPatternDecision,
         urls: &[String],
-        current_pattern: Option<&Regex>,
+        current_pattern: Option<&ProductUrlPattern>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_regex = decision
-            .candidate_regex()
+        let candidate_pattern = decision
+            .candidate_pattern()
             .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-        let candidate_pattern = candidate_regex.as_ref();
+        let candidate_pattern = candidate_pattern.as_ref();
         let candidate_payload =
             serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
@@ -1265,7 +1265,7 @@ fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -
 fn url_pattern_candidate_edit(
     posted: serde_json::Value,
     stored: &serde_json::Value,
-) -> Result<(UrlPatternReviewCandidate, Option<Regex>), ReviewRepositoryError> {
+) -> Result<(UrlPatternReviewCandidate, Option<ProductUrlPattern>), ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::decode_edit(posted)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     if candidate.decision == UrlPatternDecision::Undecided {
@@ -1273,7 +1273,7 @@ fn url_pattern_candidate_edit(
     }
     let pattern = candidate
         .decision
-        .candidate_regex()
+        .candidate_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let stored_labels = serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
         .ok()

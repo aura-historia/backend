@@ -1,5 +1,5 @@
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use listing_source_core::{Domain, InvalidDomain as NoDomainError};
-use regex::Regex;
 use spider::compact_str::CompactString;
 use std::collections::{BTreeMap, HashSet};
 use url_normalize::Options;
@@ -86,18 +86,18 @@ impl CrawledUrl {
     /// Whether `pattern` takes this URL's page: it matches one of its
     /// [spellings](Self::page_spellings), the URL as stored or with or without its trailing
     /// slash, so a pattern written for either spelling takes the page.
-    pub fn matches_pattern(&self, pattern: &Regex) -> bool {
+    pub fn matches_pattern(&self, pattern: &ProductUrlPattern) -> bool {
         self.page_spellings()
             .iter()
-            .any(|spelling| pattern.is_match(spelling.as_str()))
+            .any(|spelling| pattern.takes_spelling(spelling.as_str()))
     }
 
     pub fn classify(
         &self,
-        pattern: Option<&Regex>,
+        pattern: Option<&ProductUrlPattern>,
     ) -> crate::spider::classification::url_metadata::UrlClass {
-        if let Some(regex) = pattern
-            && self.matches_pattern(regex)
+        if let Some(pattern) = pattern
+            && self.matches_pattern(pattern)
         {
             return crate::spider::classification::url_metadata::UrlClass::ProductListing;
         }
@@ -444,8 +444,10 @@ mod tests {
     /// the pages, and a pattern written for the slashed spelling takes the unslashed one.
     #[test]
     fn should_match_pattern_against_url_with_or_without_trailing_slash() {
-        let unslashed = Regex::new(r"^https://shop\.example/product/\d+/[\w%.-]+$").unwrap();
-        let slashed = Regex::new(r"^https://shop\.example/product/\d+/[\w%.-]+/$").unwrap();
+        let unslashed =
+            ProductUrlPattern::parse(r"^https://shop\.example/product/\d+/[\w%.-]+$").unwrap();
+        let slashed =
+            ProductUrlPattern::parse(r"^https://shop\.example/product/\d+/[\w%.-]+/$").unwrap();
 
         for url in [
             "https://shop.example/product/106/tray",

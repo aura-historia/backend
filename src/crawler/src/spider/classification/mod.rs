@@ -1,3 +1,4 @@
+pub mod product_url_pattern;
 pub mod url_classification_service;
 pub mod url_classifier;
 pub mod url_metadata;

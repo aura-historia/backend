@@ -18,8 +18,8 @@ use crate::review::schema_evaluation::{
     ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
 };
 use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
-use regex::Regex;
 use serde::Serialize;
 use std::fmt;
 use std::num::NonZeroU32;
@@ -419,7 +419,7 @@ pub(crate) fn url_pattern_approval_checks(
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
         UrlPatternDecision::NoPattern => None,
-        UrlPatternDecision::Pattern { value } => match Regex::new(value) {
+        UrlPatternDecision::Pattern { value } => match ProductUrlPattern::parse(value) {
             Ok(pattern) => Some(pattern),
             // Approval refuses an invalid pattern on its own.
             Err(_) => return Vec::new(),
@@ -508,7 +508,7 @@ const MIN_INSPECTED_PAGES: usize = 8;
 /// up as a `Product`: the label decides, and the decision must not take it. `NO_PATTERN` takes
 /// nothing by design and has no share to compare.
 fn pattern_too_narrow(
-    pattern: Option<&Regex>,
+    pattern: Option<&ProductUrlPattern>,
     sample: &[SampleUrl],
     not_product_pages: &[PageKey],
 ) -> Option<FailedApprovalCheck> {
@@ -557,7 +557,7 @@ fn is_on_domain(url: &str, domain: &str) -> bool {
 /// Whether the decision's `pattern` takes the labelled `url` as a product page, matched in the
 /// crawler's URL spelling, with or without its trailing slash, as the spider matches it;
 /// `NO_PATTERN` takes none.
-fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
+fn decision_takes(pattern: Option<&ProductUrlPattern>, url: &str) -> bool {
     pattern.is_some_and(|pattern| {
         Url::parse(url).is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
     })
@@ -570,7 +570,7 @@ fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
 /// spider rediscovers the page and which approval classifies as it is stored. A decision that
 /// takes only one of them would otherwise pass a `NOT_PRODUCT` label in another and still take the
 /// page as the crawler stored it.
-fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
+fn decision_takes_any_spelling(pattern: Option<&ProductUrlPattern>, url: &str) -> bool {
     let Some(pattern) = pattern else {
         return false;
     };

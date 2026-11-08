@@ -34,10 +34,10 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use serde::Deserialize;
 use sqlx::Row;
 use std::num::NonZeroU32;
@@ -815,7 +815,7 @@ pub(super) async fn release_work_waiting_on(
 async fn reclassify_source_urls(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
-    pattern: Option<&Regex>,
+    pattern: Option<&ProductUrlPattern>,
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     let stored = sqlx::query_as::<_, (String, String)>(

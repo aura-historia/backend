@@ -10,8 +10,8 @@ use crate::review::model::{
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -128,11 +128,11 @@ pub(super) struct LiveUrlPattern {
 impl LiveUrlPattern {
     /// The pattern that classifies the source's URLs as products: only a `MATCHED` decision has
     /// one.
-    pub(super) fn live_pattern(&self) -> Result<Option<Regex>, regex::Error> {
+    pub(super) fn live_pattern(&self) -> Result<Option<ProductUrlPattern>, regex::Error> {
         self.url_pattern
             .as_deref()
             .filter(|_| self.url_pattern_state == "MATCHED")
-            .map(Regex::new)
+            .map(ProductUrlPattern::parse)
             .transpose()
     }
 }

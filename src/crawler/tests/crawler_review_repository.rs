@@ -38,6 +38,7 @@ use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
     SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
 };
+use crawler::spider::classification::product_url_pattern::ProductUrlPattern;
 use crawler::spider::classification::url_classifier::UrlClassifier;
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -2618,7 +2619,7 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
             "url_pattern_generation",
             UrlPatternDecision::inferred(Some(&Regex::new("/new/").unwrap())),
             &["https://atomic-pattern.example.com/new/1".to_owned()],
-            Some(&Regex::new("/old/").unwrap()),
+            Some(&ProductUrlPattern::parse("/old/").unwrap()),
         )
         .await
         .unwrap();
@@ -2756,7 +2757,7 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
             "url_pattern_generation",
             UrlPatternDecision::NoPattern,
             &["https://no-pattern.example.com/about".to_owned()],
-            Some(&Regex::new("/stale/").unwrap()),
+            Some(&ProductUrlPattern::parse("/stale/").unwrap()),
         )
         .await
         .unwrap();

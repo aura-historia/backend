@@ -29,11 +29,11 @@ use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_extractions,
 };
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -87,7 +87,8 @@ impl Redirect {
         if is_homepage(&target) {
             return stored(target, RedirectTarget::Homepage);
         }
-        let Some(pattern) = product_url_pattern.and_then(|raw| Regex::new(raw).ok()) else {
+        let Some(pattern) = product_url_pattern.and_then(|raw| ProductUrlPattern::parse(raw).ok())
+        else {
             return stored(target, RedirectTarget::ProductPage);
         };
         // The recognized language segments are a guess about the path (`/art/12`), so the

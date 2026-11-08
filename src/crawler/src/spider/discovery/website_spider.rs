@@ -2704,7 +2704,10 @@ mod tests {
     /// fetched (`docs/crawler/networking.md#canonical-product-urls`).
     #[tokio::test]
     async fn should_apply_the_shopify_rule_only_where_robots_txt_allows_the_product_url() {
-        let pattern = regex::Regex::new(r"/products/[^/]+$").unwrap();
+        let pattern = crate::spider::classification::product_url_pattern::ProductUrlPattern::parse(
+            r"/products/[^/]+$",
+        )
+        .unwrap();
         for (robots, expected) in [
             (
                 "User-agent: *\nDisallow: /cart\n",
