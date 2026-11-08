@@ -180,6 +180,7 @@ pub(super) const NAZI_GERMANY_KEYWORDS: KeywordSet = KeywordSet {
     ],
     word_prefixes: &[],
     substrings: &[],
+    exclusions: &[],
 };
 
 #[cfg(test)]
@@ -922,6 +923,16 @@ mod tests {
         fn should_flag_when_keyword_at_end_of_text() {
             assert_eq!(
                 assess_listing_text(Some("Silbernes Abzeichen Drittes Reich"), None),
+                Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany
+                ))
+            );
+        }
+
+        #[test]
+        fn should_flag_when_keyword_is_written_against_cjk_text() {
+            assert_eq!(
+                assess_listing_text(Some("盖世太保gestapo徽章"), None),
                 Some(ContentPolicyDecision::RequiresConsent(
                     SensitiveContentCategory::NaziGermany
                 ))

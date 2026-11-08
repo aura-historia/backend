@@ -8,14 +8,14 @@ use super::keywords::KeywordSet;
 /// count as much as explicit ones. Words that are also common in another sense stay out or only
 /// appear inside phrases: German, Polish and Czech "akt" (act, deed, file), Spanish "nudo"
 /// (knot, as in hand-knotted rugs), French "nu" and Dutch "nu" (now), Swedish "sex" (six),
-/// "naga" (the serpent deity in Asian art) and a bare "裸" (as in "裸钻", a loose diamond).
+/// "naga" (the serpent deity in Asian art), a bare "裸" (as in "裸钻", a loose diamond) and bare
+/// "色情"/"情色" (which span word boundaries, as in "玫瑰金色情侣表"). Exclusions blank out set
+/// phrases that use a keyword in another sense, such as "naked eye" or the "长春宫" reign mark.
 pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
     words: &[
         // ── ENGLISH ───────────────────────────────────────────────────────
         "nude",
         "nudes",
-        "nudie",
-        "nudies",
         "seminude",
         "naked",
         "topless",
@@ -31,42 +31,34 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "kamasutra",
         "kama sutra",
         "striptease",
+        "playboy",
+        "hustler magazine",
+        "hustler magazin",
         // ── GERMAN ── "akt" only in compounds and phrases ─────────────────
-        "frauenakt",
-        "frauenakte",
-        "frauenakten",
-        "frauenakts",
         "damenakt",
         "damenakte",
         "damenakts",
+        "damenaktes",
         "mädchenakt",
         "mädchenakte",
         "mädchenakts",
+        "mädchenaktes",
         "männerakt",
         "männerakte",
         "männerakts",
+        "männeraktes",
         "jünglingsakt",
+        "jünglingsakts",
+        "jünglingsaktes",
         "knabenakt",
-        "rückenakt",
-        "rückenakte",
-        "rückenakts",
-        "halbakt",
-        "halbakte",
-        "halbakts",
-        "weiblicher akt",
-        "weiblichen akt",
-        "männlicher akt",
-        "männlichen akt",
-        "liegender akt",
-        "liegenden akt",
-        "sitzender akt",
-        "sitzenden akt",
-        "stehender akt",
-        "stehenden akt",
-        "kniender akt",
-        "knienden akt",
+        "knabenakts",
+        "knabenaktes",
         "akt einer frau",
         "akt eines mannes",
+        "akt im",
+        "akt am",
+        "akt mit tuch",
+        "akt, öl",
         "splitternackt",
         // ── FRENCH ── "nu" only in phrases ────────────────────────────────
         "nu féminin",
@@ -87,6 +79,12 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "homme nu",
         "hommes nus",
         "seins nus",
+        "baigneuse nue",
+        "baigneuses nues",
+        "nus féminins",
+        "nus masculins",
+        "jeune femme nue",
+        "nu, huile",
         // ── ITALIAN ── "nudo" only in phrases ─────────────────────────────
         "nudo femminile",
         "nudo maschile",
@@ -99,6 +97,9 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "nudo artistico",
         "nudo accademico",
         "studio di nudo",
+        "nudo di schiena",
+        "nudo di ragazza",
+        "nudo, olio",
         "nudi femminili",
         "nudi maschili",
         "donna nuda",
@@ -108,6 +109,9 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "mulheres nuas",
         "figura nua",
         "nudez",
+        "nu artístico",
+        "nu feminino",
+        "nu masculino",
         // ── SWEDISH / NORWEGIAN / DANISH ──────────────────────────────────
         "nakna",
         "naket",
@@ -115,6 +119,8 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "nøgne",
         // ── HUNGARIAN ─────────────────────────────────────────────────────
         "meztelen",
+        "női akt",
+        "férfi akt",
         // ── POLISH ────────────────────────────────────────────────────────
         "nagi",
         "nagie",
@@ -136,6 +142,12 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "mužský akt",
         "akt ženy",
         "akt muže",
+        "ženski akt",
+        "muški akt",
+        // ── GREEK ─────────────────────────────────────────────────────────
+        "γυμνή",
+        "γυμνό",
+        "γυμνές",
         // ── RUSSIAN ───────────────────────────────────────────────────────
         "ню",
         "голая",
@@ -148,6 +160,7 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "порно",
         // ── TURKISH ───────────────────────────────────────────────────────
         "çıplak",
+        "çiplak",
         "nü",
         "müstehcen",
         // ── ARABIC ────────────────────────────────────────────────────────
@@ -182,6 +195,29 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         // ── GERMAN ────────────────────────────────────────────────────────
         "nackt",
         "halbnackt",
+        "frauenakt",
+        "rückenakt",
+        "halbakt",
+        "weibliche akt",
+        "weiblicher akt",
+        "weiblichen akt",
+        "männliche akt",
+        "männlicher akt",
+        "männlichen akt",
+        "liegende akt",
+        "liegender akt",
+        "liegenden akt",
+        "sitzende akt",
+        "sitzender akt",
+        "sitzenden akt",
+        "stehende akt",
+        "stehender akt",
+        "stehenden akt",
+        "kniende akt",
+        "kniender akt",
+        "knienden akt",
+        "akt-studi",
+        "akt-zeichnung",
         "aktstudi",
         "aktzeichnung",
         "aktbild",
@@ -212,6 +248,8 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "обнаженн",
         "эроти",
         "порногр",
+        // ── GREEK ─────────────────────────────────────────────────────────
+        "πορνογρ",
     ],
     substrings: &[
         // ── CHINESE ───────────────────────────────────────────────────────
@@ -222,10 +260,28 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "裸照",
         "人体艺术",
         "人體藝術",
-        "色情",
-        "情色",
-        "春宫",
-        "春宮",
+        "人体油画",
+        "人體油畫",
+        "人体素描",
+        "人體素描",
+        "人体摄影",
+        "人體攝影",
+        "色情图",
+        "色情圖",
+        "色情画",
+        "色情畫",
+        "色情照",
+        "色情片",
+        "色情杂志",
+        "色情雜誌",
+        "情色艺术",
+        "情色藝術",
+        "情色摄影",
+        "情色攝影",
+        "春宫图",
+        "春宫画",
+        "春宮圖",
+        "春宮畫",
         "春画",
         "春畫",
         "秘戏图",
@@ -240,6 +296,37 @@ pub(super) const NUDITY_KEYWORDS: KeywordSet = KeywordSet {
         "ポルノ",
         "わいせつ",
         "猥褻",
+        // ── KOREAN ────────────────────────────────────────────────────────
+        "누드",
+    ],
+    exclusions: &[
+        "naked eye",
+        "naked-eye",
+        "naked lunch",
+        "naked and the dead",
+        "naked ape",
+        "playboy of the western world",
+        "nude-colo",
+        "farbe nude",
+        "farbe: nude",
+        "color: nude",
+        "colour: nude",
+        "nackte holz",
+        "nackten holz",
+        "nacktes holz",
+        "frauenaktion",
+        "halbaktiv",
+        "shi nü",
+        "shi-nü",
+        "ヌードル",
+        "早春画",
+        "早春畫",
+        "新春画",
+        "新春畫",
+        "迎春画",
+        "迎春畫",
+        "游春画",
+        "遊春畫",
     ],
 };
 
@@ -320,6 +407,21 @@ mod tests {
     #[case("裸婦像 油彩", None)]
     #[case("ヌード写真集", None)]
     #[case("江戸時代の春画", None)]
+    // Inflections, compounds and magazines
+    #[case("Darstellung eines weiblichen Aktes", None)]
+    #[case("Liegende Akte, Radierungen", None)]
+    #[case("Akt-Studie, Rötel", None)]
+    #[case("Frauenaktbild in Goldrahmen", None)]
+    #[case("Akt mit Tuch, Bronze", None)]
+    #[case("Nudo di schiena, olio su tela", None)]
+    #[case("Baigneuse nue, bronze", None)]
+    #[case("Nu artístico, fotografia", None)]
+    #[case("Playboy Magazine December 1953", None)]
+    #[case("ÇIPLAK KADIN, yağlı boya", None)]
+    #[case("民国人体油画", None)]
+    #[case("日本昭和nude写真集", None)]
+    #[case("누드 사진집", None)]
+    #[case("Ελαιογραφία, γυμνή γυναίκα", None)]
     fn should_flag_nudity(#[case] title: &str, #[case] description: Option<&str>) {
         assert_eq!(assess_listing_text(Some(title), description), NUDITY);
     }
@@ -352,17 +454,20 @@ mod tests {
     #[case("Heroic bronze statue of Eros")]
     #[case("Naturalistic landscape painting")]
     #[case("Tête de femme, pastel")]
+    #[case("Tiny inclusion, not visible to the naked eye")]
+    #[case("Naked Lunch, William Burroughs, first edition")]
+    #[case("The Playboy of the Western World, Synge, 1907")]
+    #[case("Handtasche Leder, Farbe nude")]
+    #[case("Nudie Jeans, Grim Tim")]
+    #[case("Kommode, bis aufs nackte Holz abgelaugt")]
+    #[case("Plakat der Frauenaktion 1975")]
+    #[case("Famille rose vase painted with shi nü")]
+    #[case("光绪 长春宫制 款 粉彩盘")]
+    #[case("玫瑰金色情侣对表")]
+    #[case("民族风情色彩浓厚的刺绣")]
+    #[case("日清カップヌードル 1971 レトロ")]
+    #[case("早春画卷 立轴")]
     fn should_not_flag_lookalikes(#[case] title: &str) {
         assert_eq!(assess_listing_text(Some(title), None), ALLOWED);
-    }
-
-    #[test]
-    fn should_prefer_the_first_declared_category_when_several_match() {
-        assert_eq!(
-            assess_listing_text(Some("Erotische Postkarte, Drittes Reich"), None),
-            Some(ContentPolicyDecision::RequiresConsent(
-                SensitiveContentCategory::NaziGermany
-            ))
-        );
     }
 }

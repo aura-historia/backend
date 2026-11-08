@@ -1,4 +1,5 @@
 use strum::IntoEnumIterator;
+use unicode_normalization::UnicodeNormalization;
 
 mod keywords;
 mod nazi_germany;
@@ -81,7 +82,7 @@ pub fn assess_listing_text(
         return None;
     }
 
-    let text = parts.join(" ").to_lowercase();
+    let text = normalize(&parts.join(" "));
     Some(
         SensitiveContentCategory::iter()
             .find(|category| category.keywords().matches(&text))
@@ -90,6 +91,17 @@ pub fn assess_listing_text(
                 ContentPolicyDecision::RequiresConsent,
             ),
     )
+}
+
+/// Composes accents and unifies apostrophes so that keywords need one spelling, then lowercases.
+fn normalize(text: &str) -> String {
+    text.nfc()
+        .map(|character| match character {
+            '\u{2019}' | '\u{02BC}' => '\'',
+            other => other,
+        })
+        .collect::<String>()
+        .to_lowercase()
 }
 
 #[cfg(test)]
@@ -185,6 +197,24 @@ mod tests {
                 assert_eq!(keyword, keyword.to_lowercase(), "{category:?}: {keyword:?}");
             }
         }
+    }
+
+    #[test]
+    fn should_prefer_the_first_declared_category_when_several_match() {
+        assert_eq!(
+            assess_listing_text(Some("Erotische Postkarte, Drittes Reich"), None),
+            Some(ContentPolicyDecision::RequiresConsent(
+                SensitiveContentCategory::NaziGermany
+            ))
+        );
+    }
+
+    #[rstest::rstest]
+    #[case("Gravure e\u{301}rotique", "gravure érotique")]
+    #[case("Nu d\u{2019}homme", "nu d'homme")]
+    #[case("FRAUENAKT", "frauenakt")]
+    fn should_normalize_text_before_matching(#[case] text: &str, #[case] expected: &str) {
+        assert_eq!(normalize(text), expected);
     }
 
     #[test]
