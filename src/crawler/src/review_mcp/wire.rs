@@ -4,7 +4,8 @@
 //! [`super::views`]; nothing here reaches an agent as is.
 
 use crate::review::model::{
-    CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, SchemaMatrix, UrlPatternReviewCandidate,
+    CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, SchemaMatrix, SourceProductUrl,
+    UrlPatternReviewCandidate,
 };
 use crate::review::product_markup::JsonLdProductIds;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -19,6 +20,8 @@ pub(super) struct ReviewDetail {
     pub(super) candidate_is_live: bool,
     pub(super) pages: Vec<CrawlerReviewPage>,
     pub(super) urls: Vec<CrawlerReviewUrl>,
+    #[serde(default)]
+    pub(super) source_product_urls: Vec<SourceProductUrl>,
     pub(super) events: Vec<ReviewEvent>,
 }
 

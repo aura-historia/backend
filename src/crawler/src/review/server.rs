@@ -11,17 +11,20 @@ use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
     CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
+    SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
-use crate::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
+use crate::review::readers::{
+    ListingSourceOverviewReader, ReviewQueueReader, SourceProductUrlReader,
+};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::spider::local_lock::LocalLockManager;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use listing_source_core::ListingSourceId;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -61,6 +64,7 @@ pub struct ReviewServer {
     repository: CrawlerReviewRepository,
     review_queue: ReviewQueueReader,
     listing_sources: ListingSourceOverviewReader,
+    source_product_urls: SourceProductUrlReader,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
     /// The console's cap on live matrix refreshes, candidate evaluations and page projections.
@@ -82,6 +86,7 @@ impl ReviewServer {
         Self {
             review_queue: ReviewQueueReader::of(&repository),
             listing_sources: ListingSourceOverviewReader::new(repository.pool().clone()),
+            source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
             repository,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),
@@ -428,7 +433,16 @@ impl ReviewServer {
             return match self.repository.get_review(review_id).await {
                 Ok(detail) => {
                     log_invalid_candidate(&detail);
-                    HttpResponse::json(200, &detail)
+                    match self.source_product_urls.list(review_id).await {
+                        Ok(source_product_urls) => HttpResponse::json(
+                            200,
+                            &ReviewDetailAnswer {
+                                detail: &detail,
+                                source_product_urls,
+                            },
+                        ),
+                        Err(err) => review_error(err.into()),
+                    }
                 }
                 Err(err) => review_error(err),
             };
@@ -1172,6 +1186,15 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
 /// Logs at ERROR, without the candidate itself, why the loaded review's persisted candidate fails
 /// validation. Only the review detail a reviewer loads logs it; the matrix and other reads of the
 /// same review refuse or flag the candidate without logging it again.
+/// `GET /api/reviews/{id}`: the review and the product URLs of its ListingSource that a
+/// product-schema review's author may test the candidate on.
+#[derive(Serialize)]
+struct ReviewDetailAnswer<'a> {
+    #[serde(flatten)]
+    detail: &'a ReviewDetail,
+    source_product_urls: Vec<SourceProductUrl>,
+}
+
 fn log_invalid_candidate(detail: &ReviewDetail) {
     if let Some(failure) = &detail.candidate_error {
         error!(

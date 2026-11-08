@@ -10,8 +10,8 @@ use super::bounds::{keep_first, keep_last, truncated_text};
 use super::wire;
 use crate::review::model::{
     CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, PendingReviewPage, PendingReviewSummary,
-    RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, UrlPatternDecision,
-    UrlPatternReviewCandidate,
+    RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, SourceProductUrl,
+    UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
@@ -127,6 +127,11 @@ pub struct ReviewView {
     /// The `offset` that reads the next page of the sample with `get_review`; null on the last
     /// page.
     pub sample_urls_next_offset: Option<usize>,
+    /// Product URLs of the review's ListingSource that are not review pages, for picking live,
+    /// sold, price-on-application or photo-less pages to test with `evaluate_candidate` or add
+    /// with `add_review_page`; empty on a URL-pattern review. At most 40: those that scraped
+    /// without an error first, the most recently scraped first, then the rest.
+    pub source_product_urls: Vec<SourceProductUrlView>,
     /// The product-schema matrix the console stored for the candidate, if any. A candidate change
     /// drops it; `refresh_matrix` evaluates a new one.
     pub matrix: Option<MatrixView>,
@@ -187,6 +192,16 @@ pub struct ReviewPageView {
     /// `PRIMARY`, `SEED`, `TRIGGERING_GENERATION_PAGE`, `REVIEWER_ADDED` or `WAITING_PAGE`.
     pub role: String,
     pub fetched: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SourceProductUrlView {
+    pub url: String,
+    /// When the scraper last evaluated the page; null before its first scrape.
+    pub last_scraped: Option<String>,
+    /// The error kind of the last scrape, such as `MissingRequiredValue`; null when it scraped
+    /// without one.
+    pub last_error_kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -360,6 +375,7 @@ impl ReviewView {
             candidate_is_live,
             pages,
             urls,
+            source_product_urls,
             events,
         } = detail;
         let mut truncations = Vec::new();
@@ -383,6 +399,10 @@ impl ReviewView {
             human_required: review.human_required,
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
+            source_product_urls: source_product_urls
+                .into_iter()
+                .map(SourceProductUrlView::of)
+                .collect(),
             sample_urls: sample.urls,
             sample_urls_offset: sample.offset,
             sample_urls_total: sample.total,
@@ -507,6 +527,16 @@ impl SamplePage {
             offset,
             total,
             next_offset,
+        }
+    }
+}
+
+impl SourceProductUrlView {
+    fn of(url: SourceProductUrl) -> Self {
+        Self {
+            url: url.url,
+            last_scraped: url.last_scraped.map(timestamp),
+            last_error_kind: url.last_error_kind,
         }
     }
 }
@@ -824,6 +854,30 @@ mod tests {
             ])
         );
         assert_eq!(view["matrix"], Value::Null);
+    }
+
+    #[test]
+    fn should_pass_the_shops_product_urls_through_with_their_scrape_outcome() {
+        let candidate = json!({ "schemas": [] });
+        let mut detail = url_pattern_detail(&candidate, 0, 0);
+        detail.source_product_urls = decoded(json!([
+            { "url": "https://antiques.example/item/1", "last_scraped": "2026-11-01T10:00:00Z", "last_error_kind": null },
+            { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "MissingRequiredValue" },
+        ]));
+
+        let view = ReviewView::of(
+            detail,
+            wire::Candidate::ProductSchema(decoded(candidate)),
+            0,
+        );
+
+        assert_eq!(
+            json!(view)["source_product_urls"],
+            json!([
+                { "url": "https://antiques.example/item/1", "last_scraped": "2026-11-01T10:00:00Z", "last_error_kind": null },
+                { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "MissingRequiredValue" },
+            ])
+        );
     }
 
     fn url_pattern_detail(candidate: &Value, urls: usize, events: usize) -> wire::ReviewDetail {
