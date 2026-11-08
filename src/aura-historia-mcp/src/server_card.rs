@@ -192,6 +192,20 @@ mod tests {
         }
     }
 
+    /// The [registry listing](../server.json) repeats the card's identity for the official
+    /// MCP registry, so the two must agree. The listing version is an independently published
+    /// semantic version, not the deployed release, so it is excluded.
+    #[test]
+    fn should_agree_with_the_published_registry_listing() {
+        let listing: Value = serde_json::from_str(include_str!("../server.json")).unwrap();
+        let card = card(AuraResourcePolicy::production());
+        for field in ["name", "title", "description", "websiteUrl", "icons"] {
+            assert_eq!(card[field], listing[field], "{field} drifted from the card");
+        }
+        assert_eq!(json!("streamable-http"), listing["remotes"][0]["type"]);
+        assert_eq!(card["remotes"][0]["url"], listing["remotes"][0]["url"]);
+    }
+
     /// The schema is vendored from modelcontextprotocol/experimental-ext-server-card at
     /// 526201bbc80231daa40ffcdecfc9da4e54e5dc93, the snapshot SEP-2127 accepted.
     #[test]
