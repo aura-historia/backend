@@ -69,6 +69,20 @@ SEP-2127 recommends `<endpoint>/server-card` and leaves the location free when a
 to it. Aura serves the card at the path that the website's AI catalog links to and that agent
 readiness checks probe. The route keeps the MCP Host allowlist but not its Origin allowlist.
 
+### Registry listing
+
+The [official MCP registry](https://registry.modelcontextprotocol.io) lists the server under the same
+reverse-DNS name as the card, `com.aura-historia/mcp`. The published manifest is
+[`server.json`](../src/aura-historia-mcp/server.json), and a unit test holds its identity fields equal to
+the production card, which stays the source of truth. Its `version` is an independently raised semantic
+version, because the registry orders releases by version while the card reports the deployed release
+commit.
+
+Publishing authenticates over DNS: the apex of `aura-historia.com` carries a `v=MCPv1` TXT record whose
+Ed25519 public key matches the operator's publishing key, which lives outside this repository. A selector
+subdomain is not accepted, and the registry verifies the namespace, never the remote URL. Re-publish with
+a raised `version` whenever the listed identity or endpoint changes.
+
 ### API catalog
 
 The catalog follows [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) in the
@@ -202,7 +216,8 @@ fetch limits, and the `oauth-core` validator accepts it for the `client_id` it w
 
 ## Changing a document
 
-Change the renderer and its tests together with this document. For the API host, also update
+Change the renderer and its tests together with this document. A change to the card's identity or
+endpoint also needs a [registry re-publish](#registry-listing). For the API host, also update
 [OpenAPI](swagger.yaml) and the [changelog](CHANGELOG.md). A new path also needs an exact
 Gateway route, its CloudFront behaviour and a row in the
 [stage verification table](http-api-front-door.md#mcp-deployment-and-stage-verification); a new
