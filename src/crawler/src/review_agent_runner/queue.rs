@@ -266,9 +266,12 @@ pub async fn hand_to_human(
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.
-/// A review whose cooldown has not passed by `now` waits. Of the others, those no agent process
-/// worked within the ledger's window come first, in the console's order, then those worked
-/// longest ago, by `last_worked`: a review the agents hand back and forth with needs-repair
+/// A review whose cooldown has not passed by `now` waits. Product-schema reviews come before
+/// URL-pattern reviews, because a source gets its schema review only after its pattern passed:
+/// approving a schema unlocks a source that cleared its first gate, and the younger schema
+/// reviews would otherwise never win a slot against a large pattern backlog. Within an artifact
+/// type, those no agent process worked within the ledger's window come first, in the console's
+/// order, then those worked longest ago, by `last_worked`: a review the agents hand back and forth with needs-repair
 /// verdicts never keeps the rest of the queue waiting. A review a human handed back after its
 /// last process, such as one that waited for a human at the repair cap, counts as not worked:
 /// the agents answer the human ahead of the reviews they worked since.
@@ -285,10 +288,11 @@ pub fn select_reviews(
             .is_some_and(|until| *until > now)
     });
     ready.sort_by_key(|review| {
-        last_worked
+        let worked = last_worked
             .get(&review.review_id)
             .copied()
-            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
+            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked));
+        (review.artifact_type != ReviewArtifact::ProductSchema, worked)
     });
     (ready.into_iter().take(max).collect(), cooling.len())
 }
@@ -502,6 +506,22 @@ mod tests {
         assert_eq!(
             selected,
             vec![queue[2].clone(), queue[3].clone(), queue[1].clone()]
+        );
+    }
+
+    #[test]
+    fn should_work_product_schema_reviews_before_url_pattern_reviews_when_slots_are_short() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let mut queue = queued(4);
+        queue[0].artifact_type = ReviewArtifact::UrlPattern;
+        queue[1].artifact_type = ReviewArtifact::UrlPattern;
+        let last_worked = BTreeMap::from([(queue[2].review_id, now - Duration::hours(5))]);
+
+        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3);
+
+        assert_eq!(
+            selected,
+            vec![queue[3].clone(), queue[2].clone(), queue[0].clone()]
         );
     }
 
