@@ -313,6 +313,22 @@ Logs are JSON on stdout, stored by the journal (`journalctl -u crawler-server`).
 
 Setting `CRAWLER_CLOUDWATCH_LOG_GROUP` adds CloudWatch Logs export, which needs `logs:CreateLogGroup`, `logs:CreateLogStream` and `logs:PutLogEvents`; `server` creates the group and stream at every start and fails startup if that fails or either name is blank ([`logging.rs`](../../src/crawler/src/logging.rs)). Set `CRAWLER_CLOUDWATCH_LOG_STREAM`: its fallback, `HOSTNAME`, is not set by systemd, so the stream would be `unknown-host`. Credentials and region come from the AWS SDK default chain: an EC2 instance profile, a profile in the service user's `~/.aws` selected with `AWS_PROFILE` (including `credential_process`, for example IAM Roles Anywhere off AWS), or access keys in the environment file. Set `AWS_REGION` unless the profile or instance provides it.
 
+#### Outcome events
+
+Each crawler outcome an operator needs is one INFO (failures WARN) record with a stable `event` field and the top-level fields `listing_source_id`, `listing_source_name` and `domain`, so one query follows a shop through spider, scraper and LLM logs; the `spans` array is context, not the place to filter on a source. The events and their evidence live in the code that logs them; the contract is the name and these fields:
+
+| Event | Answers |
+| --- | --- |
+| `crawler.spider.crawl_completed` | How a crawl ended: truncation, status histogram, product URL count, product pattern, sample match ratio and query-URL share. The spider library's own hard-timeout warning is filtered out; this event carries the truncation. |
+| `crawler.spider.crawl_failed` | Why a run failed, with the diagnostics of its variant, the failure a bot challenge replaced and whether the failure waits for an operator (`needs_operator`). |
+| `crawler.spider.pattern_classified` | Which product URL pattern a classification stage settled on, or, at WARN, that it found none. |
+| `crawler.schema.generated` | The gate's verdict on generated schemas (`gate_result`) and the fields that failed (`failing_fields`). |
+| `crawler.llm.invocation` | Every provider call of a generation, timeouts included, with the wait for the LLM governor. The source fields are absent for work no source scoped. |
+| `crawler.scraper.url_outcome` | What happened to one scraped URL: `outcome` is `captured`, `unchanged`, `removed`, `awaiting_schema_review`, `skipped:<reason>` or `failed:<kind>`, with the page's HTTP status, `fetch_ms`, `process_ms`, the captured schema's index and score, `fields_present`, `image_probes` and `llm_calls`. `captured` means handed to raw capture; whether a product is sold is the worker's normalization to decide. A removal names its evidence in `removal_evidence`. |
+| `crawler.scraper.pass_completed` | A scraper pass: totals, `skip_reasons` and a `by_domain` JSON array with each domain's counts. |
+
+`crawler.raw_capture.batch` logs at INFO only when a batch persisted something or lost something; an idle batch logs at DEBUG.
+
 ### systemd unit
 
 The example unit runs `server` as the unprivileged `crawler` user with `EnvironmentFile=/etc/crawler/crawler.env`, `Restart=on-failure`, `KillSignal=SIGTERM` and `TimeoutStopSec=90s`, a margin above the 60-second graceful-shutdown period before systemd sends SIGKILL. Its working directory is the empty state directory because `server` also loads a `.env` from its working directory or a parent; variables already in the environment take precedence. It starts after `network-online.target` and after `postgresql.service` when Postgres runs on the same host. A database that is still unreachable at start fails startup, and `Restart=on-failure` retries.

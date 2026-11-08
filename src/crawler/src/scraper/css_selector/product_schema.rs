@@ -626,6 +626,33 @@ pub struct RawExtractedProduct {
     pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
+impl RawExtractedProduct {
+    /// How many of the extracted fields the page filled: the identity, title, description,
+    /// price, estimate bounds, state, images and each raw attribute that holds a value.
+    pub fn present_field_count(&self) -> usize {
+        let filled = |text: &str| !text.trim().is_empty();
+        let optional = |value: &Option<String>| value.as_deref().is_some_and(filled);
+        [
+            filled(&self.source_listing_id),
+            filled(&self.title),
+            self.description.iter().any(|part| filled(part)),
+            optional(&self.price),
+            optional(&self.price_estimate_min),
+            optional(&self.price_estimate_max),
+            filled(&self.state),
+            !self.images.is_empty(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count()
+            + self
+                .raw_attributes
+                .values()
+                .filter(|values| values.iter().any(|value| filled(value)))
+                .count()
+    }
+}
+
 /// What [`ProductCssSelectorSchema::extract`] captured from a page.
 #[derive(Debug)]
 pub(crate) struct SchemaExtraction {
@@ -1766,6 +1793,27 @@ mod tests {
                 (tracing::Level::DEBUG, Some("price".to_owned())),
             ]
         );
+    }
+
+    #[test]
+    fn should_count_only_the_extracted_fields_the_page_filled() {
+        let product = RawExtractedProduct {
+            source_listing_id: "SKU-1".to_owned(),
+            title: "Chair".to_owned(),
+            description: vec![String::new(), "  ".to_owned()],
+            price: Some("100 EUR".to_owned()),
+            price_estimate_min: Some(String::new()),
+            price_estimate_max: None,
+            state: "In Stock".to_owned(),
+            images: vec!["/chair.jpg".to_owned()],
+            raw_attributes: BTreeMap::from([
+                ("material".to_owned(), vec!["oak".to_owned()]),
+                ("maker".to_owned(), vec![String::new()]),
+            ]),
+        };
+
+        // Identity, title, price, state, images and the one filled attribute.
+        assert_eq!(product.present_field_count(), 6);
     }
 
     #[test]

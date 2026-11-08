@@ -27,6 +27,7 @@
 //! cargo run --bin dev-spider -p crawler -- https://www.christies.com/en
 //! ```
 
+use crawler::logging::SourceLogContext;
 use listing_source_core::ListingSourceId;
 use std::env;
 use std::fs::File;
@@ -36,7 +37,7 @@ use std::sync::Arc;
 use crawler::CrawlRoot;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, DevDatabase};
-use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
+use crawler::logging::{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ScopedListingSource,
@@ -175,7 +176,11 @@ async fn main() {
 
         match spider
             .run(
-                &listing_source_id,
+                &SourceLogContext {
+                    listing_source_id,
+                    listing_source_name: "spider demo".to_owned(),
+                    domain: crawl_root.host().to_owned(),
+                },
                 crawl_root.url().as_str(),
                 DEFAULT_CLASSIFY_THRESHOLD,
                 CrawlPace::default(),
@@ -287,7 +292,7 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
 
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+        "{raw_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
     ));
 
     tracing_subscriber::fmt()

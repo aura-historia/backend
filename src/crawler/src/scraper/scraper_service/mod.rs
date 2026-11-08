@@ -22,7 +22,7 @@ pub use auto_throttle::{DomainLatencyStats, ScraperAutoThrottle, ScraperAutoThro
 pub use domain::errors::{RemovalEvidence, RemovalEvidenceKind, ScraperError};
 pub use domain::product::{
     DomainFetchHealth, FetchFailureContext, FetchFailureSource, MockScraperService, ScrapeMode,
-    ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
+    ScrapeOutcome, ScrapeRequest, ScrapeTelemetry, ScrapedProduct, ScraperService,
 };
 pub use html_fetcher::{
     DomainFetchStats, FetchError, FetchedHtml, HtmlFetcher, MockHtmlFetcher, ReqwestHtmlFetcher,

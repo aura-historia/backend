@@ -62,7 +62,7 @@ use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use crawler::local_db::local_db_url_from_env;
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
-    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE, cloudwatch_logging_config,
     ensure_cloudwatch_log_destination,
 };
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
@@ -152,7 +152,7 @@ fn build_log_filter() -> EnvFilter {
         .unwrap_or("info")
         .to_string();
     let directives = format!(
-        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
+        "{raw_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
     );
     EnvFilter::new(directives)
 }

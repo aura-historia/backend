@@ -55,7 +55,7 @@ impl Drop for NoWorkSpider {
 impl SpiderService for NoWorkSpider {
     async fn run(
         &self,
-        _: &ListingSourceId,
+        _: &crawler::logging::SourceLogContext,
         _: &str,
         _: usize,
         _: CrawlPace,

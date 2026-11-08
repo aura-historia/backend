@@ -1,4 +1,5 @@
 use crate::CrawlerReviewId;
+use crate::logging::SourceLogContext;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -258,7 +259,7 @@ pub trait SpiderService: Send + Sync {
     /// reached everything, an incremental one never does.
     async fn run(
         &self,
-        listing_source_id: &ListingSourceId,
+        source: &SourceLogContext,
         _crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
@@ -551,9 +552,12 @@ impl SpiderServiceImpl {
                 .unwrap_or(ProductListingPattern::Unknown)
         })?;
 
-        if state.pattern.is_unknown() {
-            warn!(stage, "Found no product URL pattern");
-        }
+        log_pattern_classified(
+            &state.source,
+            stage,
+            &state.pattern,
+            state.inference_sample.len(),
+        );
 
         Ok(())
     }
@@ -761,12 +765,13 @@ impl SpiderServiceImpl {
         &self,
         mut crawl_rx: mpsc::Receiver<CrawledPage>,
         configured_root: &Url,
-        listing_source_id: &ListingSourceId,
+        source: &SourceLogContext,
         crawl_root_url: &str,
         classify_threshold: usize,
     ) -> Result<CrawlRunState, SpiderServiceError> {
+        let listing_source_id = &source.listing_source_id;
         let initial_pattern = self.pattern_service.load_pattern(listing_source_id).await?;
-        let mut state = CrawlRunState::new(initial_pattern);
+        let mut state = CrawlRunState::new(source.clone(), initial_pattern);
 
         if state.pattern_loaded_from_store {
             debug!("Loaded persisted product URL pattern");
@@ -778,6 +783,7 @@ impl SpiderServiceImpl {
                 continue;
             }
             state.total_crawled += 1;
+            state.query_url_pages += usize::from(page.url.as_url().query().is_some());
             state.challenged_pages += usize::from(page.bot_challenge);
             state.shop_platform = state.shop_platform.or(page.identity.platform);
 
@@ -807,19 +813,20 @@ impl SpiderServiceImpl {
         name = "spider_run_crawl",
         skip(self),
         fields(
-            listing_source_id = %listing_source_id,
+            listing_source_id = %source.listing_source_id,
             crawl_root_url = %crawl_root_url,
             classify_threshold
         )
     )]
     async fn run_crawl(
         &self,
-        listing_source_id: &ListingSourceId,
+        source: &SourceLogContext,
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
+        let listing_source_id = &source.listing_source_id;
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
             SpiderServiceError::Discovery(SpiderDiscoveryError::Preflight {
                 kind: CrawlFailureKind::InvalidUrl,
@@ -842,7 +849,7 @@ impl SpiderServiceImpl {
             .consume_pages(
                 crawl.pages,
                 &configured_root,
-                listing_source_id,
+                source,
                 crawl_root_url,
                 classify_threshold,
             )
@@ -1013,7 +1020,7 @@ impl SpiderService for SpiderServiceImpl {
         name = "spider_run",
         skip(self),
         fields(
-            listing_source_id = %listing_source_id,
+            listing_source_id = %source.listing_source_id,
             crawl_root_url = %crawl_root_url,
             classify_threshold,
             pace = ?pace,
@@ -1022,7 +1029,7 @@ impl SpiderService for SpiderServiceImpl {
     )]
     async fn run(
         &self,
-        listing_source_id: &ListingSourceId,
+        source: &SourceLogContext,
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
@@ -1030,14 +1037,8 @@ impl SpiderService for SpiderServiceImpl {
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
 
-        self.run_crawl(
-            listing_source_id,
-            crawl_root_url,
-            classify_threshold,
-            pace,
-            kind,
-        )
-        .await
+        self.run_crawl(source, crawl_root_url, classify_threshold, pace, kind)
+            .await
     }
 }
 
@@ -1081,6 +1082,41 @@ fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> 
         .is_some_and(|regex| pages.iter().any(|page| page.url.matches_pattern(regex)))
 }
 
+pub(crate) const CRAWL_COMPLETED_EVENT: &str = "crawler.spider.crawl_completed";
+pub(crate) const PATTERN_CLASSIFIED_EVENT: &str = "crawler.spider.pattern_classified";
+
+/// The product URL pattern a classification stage settled on, or that it found none. A stage
+/// that found none is a warning: the crawl goes on without product URLs to store.
+fn log_pattern_classified(
+    source: &SourceLogContext,
+    stage: &'static str,
+    pattern: &ProductListingPattern,
+    sample_size: usize,
+) {
+    let product_pattern = pattern.as_pattern().map(ProductUrlPattern::include_source);
+    match product_pattern {
+        Some(_) => info!(
+            event = PATTERN_CLASSIFIED_EVENT,
+            listing_source_id = %source.listing_source_id,
+            listing_source_name = %source.listing_source_name,
+            domain = %source.domain,
+            stage,
+            sample_size,
+            product_pattern,
+            "Classified the product URL pattern"
+        ),
+        None => warn!(
+            event = PATTERN_CLASSIFIED_EVENT,
+            listing_source_id = %source.listing_source_id,
+            listing_source_name = %source.listing_source_name,
+            domain = %source.domain,
+            stage,
+            sample_size,
+            "Found no product URL pattern"
+        ),
+    }
+}
+
 /// Coverage losses on a crawl that delivered pages are only visible here.
 fn log_crawl_outcome(
     state: &CrawlRunState,
@@ -1091,8 +1127,14 @@ fn log_crawl_outcome(
 ) {
     let completion = diagnostics.completion;
     info!(
+        event = CRAWL_COMPLETED_EVENT,
+        listing_source_id = %state.source.listing_source_id,
+        listing_source_name = %state.source.listing_source_name,
+        domain = %state.source.domain,
         completion = %completion,
         kind = %kind,
+        sample_match_ratio = state.sample_match_ratio(),
+        query_url_share = state.query_url_share(),
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
         known_skipped = diagnostics.known_skipped,
@@ -1518,7 +1560,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1563,7 +1609,11 @@ mod service_tests {
 
         service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1653,7 +1703,11 @@ mod service_tests {
 
             let result = service
                 .run(
-                    &listing_source_id,
+                    &crate::logging::SourceLogContext::new(
+                        listing_source_id,
+                        "Test Shop",
+                        "example.com",
+                    ),
                     "https://example.com",
                     20,
                     CrawlPace::default(),
@@ -1695,7 +1749,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1743,7 +1801,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1784,7 +1846,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 20,
                 CrawlPace::default(),
@@ -1838,7 +1904,11 @@ mod service_tests {
 
         service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 25,
                 CrawlPace::default(),
@@ -2039,7 +2109,11 @@ mod service_tests {
 
         let error = service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 5,
                 CrawlPace::default(),
@@ -2105,7 +2179,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 4,
                 CrawlPace::default(),
@@ -2277,7 +2355,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 "https://example.com",
                 25,
                 CrawlPace::default(),
@@ -2340,7 +2422,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2405,7 +2491,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2486,7 +2576,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2551,7 +2645,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2601,7 +2699,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -2686,7 +2788,11 @@ mod service_tests {
 
         let run = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -2787,7 +2893,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -2845,7 +2955,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -2902,7 +3016,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -3027,7 +3145,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -3087,7 +3209,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -3140,7 +3266,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
@@ -3182,7 +3312,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3233,7 +3367,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3353,7 +3491,11 @@ mod service_tests {
 
         let run_result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3436,7 +3578,11 @@ mod service_tests {
 
         service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
@@ -3521,7 +3667,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3570,7 +3720,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3622,7 +3776,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3705,7 +3863,7 @@ mod service_tests {
             no_frontier(),
         )
         .run(
-            &listing_source_id,
+            &crate::logging::SourceLogContext::new(listing_source_id, "Test Shop", "example.com"),
             crawl_root_url,
             100,
             CrawlPace::default(),
@@ -3803,7 +3961,11 @@ mod service_tests {
 
         let error = service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3867,7 +4029,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3925,7 +4091,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -3982,7 +4152,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -4027,7 +4201,11 @@ mod service_tests {
 
         let result = service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
@@ -4100,7 +4278,11 @@ mod service_tests {
 
         service
             .run(
-                &ListingSourceId::new(),
+                &crate::logging::SourceLogContext::new(
+                    ListingSourceId::new(),
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 classify_threshold,
                 CrawlPace::default(),
@@ -4270,7 +4452,11 @@ mod service_tests {
 
         service
             .run(
-                &listing_source_id,
+                &crate::logging::SourceLogContext::new(
+                    listing_source_id,
+                    "Test Shop",
+                    "example.com",
+                ),
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
@@ -4376,4 +4562,70 @@ fn crawl_failure_error(
         total_links,
         diagnostics: Box::new(diagnostics.clone()),
     })
+}
+
+#[cfg(test)]
+mod crawl_event_tests {
+    use super::*;
+    use crate::test_support::logged_events::LoggedEvents;
+
+    fn source() -> SourceLogContext {
+        SourceLogContext::new(ListingSourceId::new(), "Antique Shop", "antique.example")
+    }
+
+    #[test]
+    fn should_log_the_crawl_outcome_with_source_and_discovery_evidence_when_a_crawl_completes() {
+        let (events, _guard) = LoggedEvents::capture();
+        let mut state = CrawlRunState::new(source(), None);
+        state.total_crawled = 4;
+        state.query_url_pages = 1;
+        let diagnostics = CrawlDiagnostics {
+            completion: CrawlCompletion::HardTimeoutTruncated,
+            ..CrawlDiagnostics::default()
+        };
+
+        log_crawl_outcome(&state, &diagnostics, Some("/p/"), CrawlKind::Full, None);
+
+        let completed = events.named(CRAWL_COMPLETED_EVENT);
+        assert_eq!(completed.len(), 1);
+        let completed = &completed[0];
+        assert_eq!(completed.level, tracing::Level::INFO);
+        assert_eq!(completed.field("listing_source_name"), Some("Antique Shop"));
+        assert_eq!(completed.field("domain"), Some("antique.example"));
+        assert_eq!(completed.field("truncated"), Some("true"));
+        assert_eq!(completed.field("query_url_share"), Some("0.25"));
+        assert_eq!(completed.field("product_pattern"), Some("Some(\"/p/\")"));
+        assert!(completed.field("status_counts").is_some());
+    }
+
+    #[test]
+    fn should_warn_that_no_pattern_was_found_when_classification_settles_on_none() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        log_pattern_classified(&source(), "threshold", &ProductListingPattern::Unknown, 12);
+
+        let classified = events.named(PATTERN_CLASSIFIED_EVENT);
+        assert_eq!(classified.len(), 1);
+        assert_eq!(classified[0].level, tracing::Level::WARN);
+        assert_eq!(classified[0].field("stage"), Some("threshold"));
+        assert_eq!(classified[0].field("sample_size"), Some("12"));
+        assert_eq!(classified[0].field("domain"), Some("antique.example"));
+    }
+
+    #[test]
+    fn should_name_the_pattern_at_info_when_classification_settles_on_one() {
+        let (events, _guard) = LoggedEvents::capture();
+        let pattern = ProductListingPattern::Known(
+            ProductUrlPattern::parse(r"/products/\d+$").expect("test pattern must parse"),
+        );
+
+        log_pattern_classified(&source(), "end_of_crawl", &pattern, 30);
+
+        let classified = events.named(PATTERN_CLASSIFIED_EVENT);
+        assert_eq!(classified[0].level, tracing::Level::INFO);
+        assert_eq!(
+            classified[0].field("product_pattern"),
+            Some("/products/\\d+$")
+        );
+    }
 }

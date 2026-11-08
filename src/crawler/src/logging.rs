@@ -2,6 +2,10 @@ use async_trait::async_trait;
 
 pub const CRAWLER_SERVICE_NAME: &str = "crawler";
 pub const HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE: &str = "html5ever::tree_builder=error";
+/// The spider library logs its own crawl hard-timeout warning outside any span and with the
+/// source path of the machine that built it. The crawl's `crawler.spider.crawl_completed` event
+/// carries the truncation with the source, so only the library's errors stay.
+pub const SPIDER_LIBRARY_LOG_DIRECTIVE: &str = "spider=error";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlerComponent {
@@ -38,6 +42,46 @@ pub const COMPONENT_SCRAPER: &str = CrawlerComponent::Scraper.as_str();
 pub const COMPONENT_LISTING_SOURCE_SYNC: &str = CrawlerComponent::ListingSourceSync.as_str();
 pub const COMPONENT_SPIDER: &str = CrawlerComponent::Spider.as_str();
 pub const COMPONENT_STARTUP: &str = CrawlerComponent::Startup.as_str();
+
+/// The source a crawler outcome event is about, logged as the same three top-level fields on
+/// every named event so one query follows a shop through spider, scraper and LLM logs. The span
+/// list also carries source ids, but under keys that differ by span and not at all for some.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceLogContext {
+    pub listing_source_id: listing_source_core::ListingSourceId,
+    pub listing_source_name: String,
+    /// The host the ListingSource is crawled on.
+    pub domain: String,
+}
+
+tokio::task_local! {
+    static CURRENT_SOURCE: SourceLogContext;
+}
+
+impl SourceLogContext {
+    /// Runs `work` for this source: the outcome events of work that has no source parameter,
+    /// such as an LLM invocation, log it through [`SourceLogContext::current`].
+    pub async fn scope<F: std::future::Future>(self, work: F) -> F::Output {
+        CURRENT_SOURCE.scope(self, work).await
+    }
+
+    /// The source the running work belongs to, when a caller scoped one.
+    pub fn current() -> Option<Self> {
+        CURRENT_SOURCE.try_with(Clone::clone).ok()
+    }
+
+    pub fn new(
+        listing_source_id: listing_source_core::ListingSourceId,
+        listing_source_name: impl Into<String>,
+        domain: impl Into<String>,
+    ) -> Self {
+        Self {
+            listing_source_id,
+            listing_source_name: listing_source_name.into(),
+            domain: domain.into(),
+        }
+    }
+}
 
 const DEFAULT_LOG_STREAM_NAME: &str = "unknown-host";
 

@@ -17,8 +17,9 @@ use crate::scraper::scraper_service::domain::errors::{
 };
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
-    begin_transport_observation, current_fetch_failure, current_transport_observation,
-    scrape_health_for_scraper_error, with_scrape_observation,
+    begin_transport_observation, current_fetch_failure, current_scrape_telemetry,
+    current_transport_observation, record_captured_schema, scrape_health_for_scraper_error,
+    with_scrape_observation,
 };
 use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
@@ -313,14 +314,18 @@ fn parse_fetched_page(
 impl ScraperService for ScraperServiceImpl {
     #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
     async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        let (result, observed_scrape_health, fetch_failure) = with_scrape_observation(async {
-            let result = self.scrape_request(&request).await;
-            let observed = current_transport_observation();
-            let fetch_failure = current_fetch_failure();
-            (result, observed, fetch_failure)
-        })
-        .await
-        .0;
+        let scrape_started_at = std::time::Instant::now();
+        let (result, observed_scrape_health, fetch_failure, mut telemetry) =
+            with_scrape_observation(async {
+                let result = self.scrape_request(&request).await;
+                let observed = current_transport_observation();
+                let fetch_failure = current_fetch_failure();
+                (result, observed, fetch_failure, current_scrape_telemetry())
+            })
+            .await
+            .0;
+        let scrape_ms = u64::try_from(scrape_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        telemetry.process_ms = Some(scrape_ms.saturating_sub(telemetry.fetch_ms.unwrap_or(0)));
         let scrape_health = observed_scrape_health.unwrap_or_else(|| match &result {
             Ok(_) => DomainFetchHealth::Responsive,
             Err(error) => scrape_health_for_scraper_error(error),
@@ -329,6 +334,7 @@ impl ScraperService for ScraperServiceImpl {
             result,
             scrape_health,
             fetch_failure,
+            telemetry,
         }
     }
 }
@@ -494,6 +500,12 @@ fn capture_selection(
             .chain(selection.fresh_schema.then_some(Some(&selection.raw))),
     );
     let mut schemas = extracted.into_schemas().product_schemas;
+    record_captured_schema(
+        selection.cached_schema_index.unwrap_or(schemas.len()),
+        selection.score,
+        selection.fresh_schema,
+        selection.raw.present_field_count(),
+    );
     if selection.fresh_schema {
         schemas.push(selection.schema.clone());
     }

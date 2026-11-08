@@ -44,6 +44,12 @@ pub(crate) struct SelectedSchemaCandidate {
     pub(crate) validated_image_urls: Vec<String>,
     pub(crate) schema: ProductCssSelectorSchema,
     pub(crate) fresh_schema: bool,
+    /// The index of `schema` in the ListingSource's ordered schema set; `None` for a fresh
+    /// schema, which takes the next index.
+    pub(crate) cached_schema_index: Option<usize>,
+    /// The ranking score of the cached extraction; `None` for a fresh schema and for a
+    /// title-less extraction, which is not ranked.
+    pub(crate) score: Option<usize>,
     /// The title the URL was last captured with, captured in place of the blank title of
     /// `raw` (see [`CheckedCachedCandidates::untitled`]). `None` captures the extracted title.
     pub(crate) carried_forward_title: Option<String>,
@@ -344,6 +350,8 @@ impl ScraperServiceImpl {
                     validated_image_urls: untitled.validated_image_urls,
                     schema: untitled.schema.clone(),
                     fresh_schema: false,
+                    cached_schema_index: Some(untitled.schema_index),
+                    score: None,
                     carried_forward_title: Some(title.to_owned()),
                 }));
             }
@@ -377,6 +385,8 @@ impl ScraperServiceImpl {
             validated_image_urls: selected.validated_image_urls,
             schema: selected.schema.clone(),
             fresh_schema: false,
+            cached_schema_index: Some(selected.schema_index),
+            score: Some(selected.score.as_usize()),
             carried_forward_title: None,
         }))
     }

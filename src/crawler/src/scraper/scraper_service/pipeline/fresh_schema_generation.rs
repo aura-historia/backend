@@ -138,6 +138,8 @@ impl ScraperServiceImpl {
                     validated_image_urls,
                     schema: generated_schema,
                     fresh_schema: true,
+                    cached_schema_index: None,
+                    score: None,
                     carried_forward_title: None,
                 })
             }
