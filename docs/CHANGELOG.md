@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-08 — Hidden listings link to the website's pricing section (#2824)
+
+- Listings redacted as hidden now carry `url` and `viewUrl` `https://aura-historia.com/#pricing` instead of `https://aura-historia.com/pricing`, a path the website does not serve. The website redirects the unlocalized path to the viewer's language. This applies to REST and MCP listing responses alike.
+
 ## 2026-11-07 — The website's WebMCP client metadata document (#2818)
 
 - Added `GET` and `HEAD /v1/site-discovery/oauth/webmcp-client.json` (`application/json`): the OAuth Client ID Metadata Document of the website's own WebMCP client, which the webapp publishes at `/oauth/webmcp-client.json`. Its `client_id` is that website URL (`https://aura-historia.com/oauth/webmcp-client.json`, on stage `https://stage.aura-historia.com/oauth/webmcp-client.json`). It declares a public client with the `authorization_code` and `refresh_token` grants and the callback `/api/oauth/webmcp/callback` on the website; stage also lists `http://localhost/api/oauth/webmcp/callback` for local development. Like the other website documents, responses allow any origin and anonymous ones are shared at the edge for 300 seconds. The website signs in like any other metadata document client, with no extra privileges. See [OAuth](oauth.md#the-websites-webmcp-client).
