@@ -292,7 +292,7 @@ mod tests {
             operator: PublicListingSourceOperatorSummary {
                 name: PartyName::try_from("Operator")?,
             },
-            url: None,
+            website: None,
             image: None,
         })
     }

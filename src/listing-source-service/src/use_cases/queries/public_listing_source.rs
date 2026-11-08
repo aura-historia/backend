@@ -9,8 +9,17 @@ pub struct PublicListingSourceSummary {
     pub listing_source_slug_id: ListingSourceSlugId,
     pub name: ListingSourceName,
     pub operator: PublicListingSourceOperatorSummary,
-    pub url: Option<Url>,
+    pub website: Option<PublicListingSourceWebsite>,
     pub image: Option<Url>,
+}
+
+/// The source's own website. `view_url` is the link to send visitors to: `url` with the source's
+/// referral or tracking applied, the way a ProductListing's view URL is derived from its URL.
+/// The two travel together so a view URL never exists without the URL it was derived from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicListingSourceWebsite {
+    pub url: Url,
+    pub view_url: Url,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

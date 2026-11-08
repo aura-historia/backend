@@ -17,9 +17,9 @@ use platform_postgres::SqlxTransaction;
 use sqlx::{Postgres, QueryBuilder};
 
 const STATEMENT_TIMEOUT: &str = "150ms";
-const BROWSE_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, 0::smallint AS match_tier, s.name_search FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
-const PREFIX_SQL_AFTER_INPUT: &str = "::text AS prefix_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint ELSE 1::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint ELSE 4::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
-const CONTAINS_SQL_AFTER_INPUT: &str = "::text AS contains_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint WHEN s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 1::smallint ELSE 2::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.contains_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint WHEN p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 4::smallint ELSE 5::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.contains_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
+const BROWSE_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration, 0::smallint AS match_tier, s.name_search FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
+const PREFIX_SQL_AFTER_INPUT: &str = "::text AS prefix_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint ELSE 1::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint ELSE 4::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
+const CONTAINS_SQL_AFTER_INPUT: &str = "::text AS contains_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint WHEN s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 1::smallint ELSE 2::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.contains_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint WHEN p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 4::smallint ELSE 5::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.contains_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPublicListingSourceSearchReaderFactory;
@@ -380,6 +380,69 @@ mod tests {
 
         let short_prefix = search(&pool, request(Some("au"), 21, None)).await;
         assert!(short_prefix.items.is_empty());
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_derive_view_url_from_the_source_referral_on_every_search_path() {
+        let pool = get_postgres_client().await;
+        let operator_id = uuid::Uuid::now_v7();
+        insert_party(&pool, operator_id, "view-operator", "Gallery Operator").await;
+        let referred_id = uuid::Uuid::now_v7();
+        insert_source(
+            &pool,
+            referred_id,
+            "alpha-source",
+            "Alpha Gallery",
+            operator_id,
+        )
+        .await;
+        set_website(
+            &pool,
+            referred_id,
+            "https://alpha.example.test/shop",
+            Some(serde_json::json!({"kind":"PARTNERIZE","camref":"1101l3AbC"})),
+        )
+        .await;
+        let plain_id = uuid::Uuid::now_v7();
+        insert_source(
+            &pool,
+            plain_id,
+            "alpine-source",
+            "Alpine Gallery",
+            operator_id,
+        )
+        .await;
+        set_website(&pool, plain_id, "https://alpine.example.test/shop", None).await;
+
+        for (path, query) in [
+            ("browse", None),
+            ("prefix", Some("al")),
+            ("contains", Some("alp")),
+        ] {
+            let result = search(&pool, request(query, 21, None)).await;
+            let view_url = |slug: &str| {
+                result
+                    .items
+                    .iter()
+                    .find(|item| item.listing_source_slug_id.as_ref() == slug)
+                    .and_then(|item| item.website.as_ref())
+                    .map(|website| website.view_url.as_str().to_owned())
+            };
+
+            assert_eq!(
+                Some("https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Falpha.example.test%2Fshop".to_owned()),
+                view_url("alpha-source"),
+                "{path}"
+            );
+            assert_eq!(
+                Some(
+                    "https://alpine.example.test/shop?utm_source=aura_historia&utm_medium=referral"
+                        .to_owned()
+                ),
+                view_url("alpine-source"),
+                "{path}"
+            );
+        }
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -917,6 +980,21 @@ mod tests {
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert test party: {error}"));
+    }
+
+    async fn set_website(
+        pool: &sqlx::PgPool,
+        id: uuid::Uuid,
+        url: &str,
+        referral_configuration: Option<serde_json::Value>,
+    ) {
+        sqlx::query("UPDATE listing_sources SET url = $2, referral_configuration = $3 WHERE listing_source_id = $1")
+            .bind(id)
+            .bind(url)
+            .bind(referral_configuration)
+            .execute(pool)
+            .await
+            .unwrap_or_else(|error| panic!("set test source website: {error}"));
     }
 
     async fn insert_source(

@@ -36,9 +36,45 @@ async fn should_find_exact_slug_with_public_projection() {
                 && summary.listing_source_slug_id.as_ref() == "detail-source"
                 && summary.name.as_ref() == "Detail Source"
                 && summary.operator.name.as_ref() == "Detail Operator"
-                && summary.url.as_ref().is_some_and(|url| url.as_str() == "https://example.test/source")
+                && summary.website.as_ref().is_some_and(|website| website.url.as_str() == "https://example.test/source"
+                    && website.view_url.as_str() == "https://example.test/source?utm_source=aura_historia&utm_medium=referral")
                 && summary.image.is_none()
     ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_route_view_url_through_the_source_referral_configuration() {
+    let pool = get_postgres_client().await;
+    let party_id = uuid::Uuid::now_v7();
+    insert_party(&pool, party_id, "referral-operator", "Referral Operator").await;
+    let source_id = uuid::Uuid::now_v7();
+    insert_source(
+        &pool,
+        source_id,
+        "referral-source",
+        "Referral Source",
+        party_id,
+        Some("https://example.test/source"),
+        None,
+    )
+    .await;
+    set_referral_configuration(
+        &pool,
+        source_id,
+        serde_json::json!({"kind":"PARTNERIZE","camref":"1101l3AbC"}),
+    )
+    .await;
+
+    let website = read(&pool, "referral-source")
+        .await
+        .and_then(|summary| summary.website)
+        .unwrap_or_else(|| panic!("source should have a website"));
+
+    assert_eq!("https://example.test/source", website.url.as_str());
+    assert_eq!(
+        "https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Fexample.test%2Fsource",
+        website.view_url.as_str()
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -117,4 +153,19 @@ async fn insert_source(
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert test source: {error}"));
+}
+
+async fn set_referral_configuration(
+    pool: &sqlx::PgPool,
+    id: uuid::Uuid,
+    referral_configuration: serde_json::Value,
+) {
+    sqlx::query(
+        "UPDATE listing_sources SET referral_configuration = $2 WHERE listing_source_id = $1",
+    )
+    .bind(id)
+    .bind(referral_configuration)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("set test source referral configuration: {error}"));
 }

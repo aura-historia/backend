@@ -333,7 +333,12 @@ fn public_source() -> PublicListingSourceSummary {
         operator: PublicListingSourceOperatorSummary {
             name: PartyName::try_from("Source Operator").unwrap(),
         },
-        url: Some("https://source.example.test".parse().unwrap()),
+        website: Some(PublicListingSourceWebsite {
+            url: "https://source.example.test".parse().unwrap(),
+            view_url: "https://source.example.test/?utm_source=aura_historia&utm_medium=referral"
+                .parse()
+                .unwrap(),
+        }),
         image: None,
     }
 }
