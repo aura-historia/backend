@@ -33,6 +33,7 @@ mod live_matrix;
 mod mass_removal_confirmation;
 mod missing_value_pages;
 mod no_sold_page;
+mod not_product_pages;
 mod pending_reviews;
 mod rearm;
 mod rejected_pages;
@@ -65,6 +66,7 @@ use review_events::{
 
 use crate::review::source_url::is_review_source_url;
 use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
+use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
 pub(crate) use repair_rounds::agent_repair_rounds;
 use repair_rounds::refuse_agent_while_human_required;
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
@@ -209,6 +211,12 @@ pub enum ReviewRepositoryError {
     ReviewPageLimitReached(CrawlerReviewId),
     #[error("URL redirected to `{0}`, which is not a product page")]
     RedirectedToNonProductPage(String),
+    #[error(
+        "the reason a review page is no product page needs 1 to {MAX_NOT_PRODUCT_REASON_CHARS} characters saying what the page shows"
+    )]
+    InvalidNotProductReason,
+    #[error("review page {0} is not marked as no product page")]
+    ReviewPageNotMarkedNotProduct(CrawlerReviewPageId),
     #[error("review page not found: {0}")]
     ReviewPageNotFound(CrawlerReviewPageId),
     #[error("review page {0} is a seed or triggering page of the review and cannot be removed")]
@@ -610,7 +618,7 @@ impl CrawlerReviewRepository {
         review_page_id: CrawlerReviewPageId,
     ) -> Result<Option<CrawlerReviewPage>, sqlx::Error> {
         sqlx::query(
-            "SELECT review_page_id, review_id, url, role, html_hash, fetched
+            "SELECT review_page_id, review_id, url, role, html_hash, fetched, not_product_reason
              FROM crawler_review_pages
              WHERE review_page_id = $1",
         )
@@ -940,7 +948,7 @@ impl CrawlerReviewRepository {
         let page = sqlx::query(
             "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
              VALUES ($1, $2, $3, $4, $5) \
-             RETURNING review_page_id, review_id, url, role, html_hash, fetched",
+             RETURNING review_page_id, review_id, url, role, html_hash, fetched, not_product_reason",
         )
         .bind(CrawlerReviewPageId::new().as_uuid())
         .bind(review_id.as_uuid())
@@ -1557,7 +1565,7 @@ async fn fetch_review_pages<'e>(
     review_id: CrawlerReviewId,
 ) -> Result<Vec<CrawlerReviewPage>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT review_page_id, review_id, url, role, html_hash, fetched
+        "SELECT review_page_id, review_id, url, role, html_hash, fetched, not_product_reason
          FROM crawler_review_pages
          WHERE review_id = $1
          ORDER BY
@@ -1783,6 +1791,7 @@ fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Er
         role: row.try_get("role")?,
         html_hash: row.try_get("html_hash")?,
         fetched: row.try_get("fetched")?,
+        not_product_reason: row.try_get("not_product_reason")?,
     })
 }
 

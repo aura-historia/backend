@@ -1118,7 +1118,8 @@ function pageRoleLabel(role) {
 }
 
 function reviewPageLabel(page) {
-    return `${pageRoleLabel(page.role)} · ${urlPath(page.url)}`;
+    const label = `${pageRoleLabel(page.role)} · ${urlPath(page.url)}`;
+    return page.not_product_reason ? `${label} · no product` : label;
 }
 
 function isWaitingForRepair(review) {
@@ -1163,6 +1164,8 @@ const REVIEW_EVENT_LABELS = {
     SCHEMA_FIELD_EDITED: 'Field edited',
     PAGE_ADDED: 'Page added',
     PAGE_REMOVED: 'Page removed',
+    PAGE_MARKED_NOT_PRODUCT: 'Page marked as no product',
+    PAGE_NOT_PRODUCT_CLEARED: 'No-product mark cleared',
     NO_SOLD_PAGE_RECORDED: 'No sold page found',
     REPAIR_REQUESTED: 'Repair requested',
     HANDED_TO_HUMAN: 'Handed to a human',
@@ -1242,7 +1245,10 @@ function reviewEventSummary(event) {
             return [`${schemaLabel(Number(details.schema_index) || 0)}: ${details.field || ''}`, live].filter(Boolean).join('; ');
         case 'PAGE_ADDED':
         case 'PAGE_REMOVED':
+        case 'PAGE_NOT_PRODUCT_CLEARED':
             return details.url || '';
+        case 'PAGE_MARKED_NOT_PRODUCT':
+            return [details.url, details.reason].filter(Boolean).join(': ');
         case 'NO_SOLD_PAGE_RECORDED': {
             const checked = (details.checked_urls || []).length;
             return `${checked} page${checked === 1 ? '' : 's'} checked`;
@@ -1826,6 +1832,7 @@ function renderSchemaWorkbench(detail, matrix) {
             <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the source and adds it to the review pages" type="button">Add to review</button>
           </div>
         </div>
+        ${page?.not_product_reason ? `<div class="small muted">Marked as no product page: ${escapeHtml(page.not_product_reason)}</div>` : ''}
         ${renderPreviewFrame(page, previewUrl)}
       </div>
       <div class="card inspector">
@@ -2386,14 +2393,15 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
-// The review pages the candidate resolves, out of every review page, counted as the server
+// The review pages the candidate resolves, out of the review's product pages (those not marked as
+// no product page, which the matrix leaves out), counted as the server
 // counts them on approval: a page the removed-page templates capture as removed, or else one at
 // least one schema applies to. A review page the matrix did not evaluate is not covered until the
 // next evaluation, and without a matrix no page is evaluated.
 function reviewPageCoverage(detail, matrix) {
     const evaluatedPages = matrix?.candidates?.[0]?.pages || [];
     const coverage = {covered: 0, removed: 0, total: 0, notEvaluated: 0};
-    for (const page of detail?.pages || []) {
+    for (const page of (detail?.pages || []).filter(page => !page.not_product_reason)) {
         coverage.total += 1;
         const evaluation = evaluatedPages.find(evaluated => evaluatesReviewPage(evaluated, page));
         if (!evaluation) {
@@ -2768,7 +2776,7 @@ function unevaluatedReviewPages(detail, matrix) {
     const candidate = (matrix.candidates || [])[0];
     if (!candidate || !isLiveMatrixCandidate(candidate)) return [];
     const evaluated = new Set(candidate.pages.map(page => pageReferenceKey(page.page_reference)));
-    return (detail.pages || []).filter(page => !evaluated.has(`persisted:${page.review_page_id}`));
+    return (detail.pages || []).filter(page => !page.not_product_reason && !evaluated.has(`persisted:${page.review_page_id}`));
 }
 
 function selectedCandidate(matrix) {

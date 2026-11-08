@@ -8,8 +8,8 @@ use super::{
 use crate::review::model::CrawlerReviewPage;
 use crate::review_mcp::errors::ToolError;
 use crate::review_mcp::views::{
-    CandidateChanged, MatrixAnswer, MatrixView, NoSoldPageRecorded, PageAdded, PageRemoved,
-    SampleLabelKind,
+    CandidateChanged, MatrixAnswer, MatrixView, NoSoldPageRecorded, PageAdded,
+    PageMarkedNotProduct, PageRemoved, SampleLabelKind,
 };
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -30,6 +30,8 @@ const UPDATE_SCHEMA_FIELD: &str = "Change one rule of one schema of a pending pr
 const ADD_REVIEW_PAGE: &str = "Add a page of the review's ListingSource to a pending product-schema review, so every later matrix evaluates the candidate on it too: use it for sold, price-on-application or photo-less product pages the candidate must cover. url must be an http(s) URL on the crawl host of the review's ListingSource (otherwise URL_OUTSIDE_REVIEW_SOURCE, before anything is fetched). The console fetches the page now; a redirect to a page that is no product page, a page already on the review, and more than four added pages are refused with INVALID_REQUEST or CONFLICT. A page the shop answers with a bot challenge is not added: the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE; retry later. Answers the new review_page_id. Drops the stored matrix: refresh_matrix afterwards.";
 
 const REMOVE_REVIEW_PAGE: &str = "Remove a page that was added to the review, or that waits on it, from a pending product-schema review, for example once the shop deleted the page and every matrix refresh fails on it. Seed and triggering pages cannot be removed (INVALID_REQUEST). review_page_id must be a page of the given review. Drops the stored matrix: refresh_matrix afterwards.";
+
+const MARK_PAGE_NOT_PRODUCT: &str = "Mark a review page of a pending product-schema review as no product page: the dealer's profile, a category or article page, a gift card, anything the URL pattern takes that is no product of the catalogue. Mark it instead of bending the schema to extract it or guessing at the page; the reviewer judges your reason and gives NEEDS_REPAIR when the page is a product after all. reason, 1 to 500 characters, says what the page shows. A marked page is left out of the matrix and of the review's coverage, so no schema has to resolve it, and once the review is approved its URL stops being scraped and stays a non-product page. review_page_id must be a page of the given review, a seed or triggering page included. Drops the stored matrix: refresh_matrix afterwards. A review with human_required true is refused with CONFLICT and reason HUMAN_REQUIRED.";
 
 const DECLARE_REMOVED_PAGE: &str = "Declare a kind of review page removed instead of authoring a schema for it: for a sold or withdrawn item the shop still serves with HTTP 200, a removal notice and no product. Adds one removed-page template to the pending product-schema candidate: selector selects the element holding the notice, and exactly one of text (the notice's text) or regex (a regex the notice's text matches; one that matches any text is refused). Declare a page removed only where the page itself shows a removal notice. The matrix then lists the pages the template matches and whether a schema still extracts a product from them (PRODUCT_STILL_EXTRACTS, a template too broad for that page). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT. Answers the new candidate_version; refresh_matrix afterwards.";
 
@@ -127,6 +129,19 @@ pub(super) struct RemoveReviewPageArguments {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(super) struct MarkPageNotProductArguments {
+    /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
+    #[schemars(with = "String")]
+    review_id: CrawlerReviewId,
+    /// A page of the review, as get_review names it.
+    #[schemars(with = "String")]
+    review_page_id: CrawlerReviewPageId,
+    /// What the page shows instead of a product, 1 to 500 characters.
+    reason: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(super) struct DeclareRemovedPageArguments {
     /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
     #[schemars(with = "String")]
@@ -208,6 +223,12 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             REMOVE_REVIEW_PAGE,
             Effect::Changes,
             remove_review_page,
+        )?,
+        ToolDefinition::new(
+            "mark_page_not_product",
+            MARK_PAGE_NOT_PRODUCT,
+            Effect::Changes,
+            mark_page_not_product,
         )?,
         ToolDefinition::new(
             "declare_removed_page",
@@ -393,6 +414,28 @@ async fn remove_review_page(
     Ok(PageRemoved {
         review_id: review_id.to_string(),
         review_page_id: page_id.to_string(),
+    })
+}
+
+async fn mark_page_not_product(
+    arguments: MarkPageNotProductArguments,
+    context: Arc<ToolContext>,
+) -> Result<PageMarkedNotProduct, ToolError> {
+    let review_id = arguments.review_id;
+    let page_id = arguments.review_page_id;
+    let page: CrawlerReviewPage = context
+        .console
+        .post(
+            &format!("/api/reviews/{review_id}/pages/{page_id}/not-product"),
+            &json!({ "reason": arguments.reason }),
+        )
+        .await?
+        .decode()?;
+    Ok(PageMarkedNotProduct {
+        review_id: review_id.to_string(),
+        review_page_id: page.review_page_id.to_string(),
+        url: page.url,
+        reason: page.not_product_reason.unwrap_or_default(),
     })
 }
 

@@ -192,6 +192,9 @@ pub struct ReviewPageView {
     /// `PRIMARY`, `SEED`, `TRIGGERING_GENERATION_PAGE`, `REVIEWER_ADDED` or `WAITING_PAGE`.
     pub role: String,
     pub fetched: String,
+    /// Why the page was marked as no product page; null for a page the candidate resolves. A
+    /// marked page is left out of the matrix and of the coverage.
+    pub not_product_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -283,6 +286,16 @@ pub struct PageAdded {
 pub struct PageRemoved {
     pub review_id: String,
     pub review_page_id: String,
+}
+
+/// A review page marked as no product page.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PageMarkedNotProduct {
+    pub review_id: String,
+    pub review_page_id: String,
+    pub url: String,
+    /// The reason the console stored.
+    pub reason: String,
 }
 
 /// A verdict the console took.
@@ -486,6 +499,7 @@ impl ReviewPageView {
             url: page.url,
             role: page.role,
             fetched: timestamp(page.fetched),
+            not_product_reason: page.not_product_reason.as_deref().map(note),
         }
     }
 }

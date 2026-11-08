@@ -439,6 +439,8 @@ mod tests {
             ReviewEventAction::NoSoldPageRecorded,
             ReviewEventAction::PageAdded,
             ReviewEventAction::PageRemoved,
+            ReviewEventAction::PageMarkedNotProduct,
+            ReviewEventAction::PageNotProductCleared,
         ] {
             let trail = [verdict(), trail_event(ReviewActor::AgentAuthor, change, 2)];
             assert!(!judged_by_reviewer(&trail, &[], 2), "{change:?}");

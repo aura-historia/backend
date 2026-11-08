@@ -352,6 +352,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
+            "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
             "label_sample_urls",
@@ -524,6 +525,57 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .await
         .unwrap();
     assert_eq!(staged["candidate_version"], 2);
+
+    // The author adds a page of the shop that is no product and marks it instead of bending the
+    // schema; get_review shows the reason, the marked page is left out of the matrix, and a
+    // URL-pattern review takes no mark.
+    let added = author
+        .call(
+            "add_review_page",
+            json!({ "review_id": product_schema.to_string(), "url": format!("{SHOP}/item/table") }),
+        )
+        .await
+        .unwrap();
+    let marked = author
+        .call(
+            "mark_page_not_product",
+            json!({
+                "review_id": product_schema.to_string(),
+                "review_page_id": added["review_page_id"],
+                "reason": "the dealer's own profile",
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(marked["reason"], "the dealer's own profile");
+    let blank = author
+        .call(
+            "mark_page_not_product",
+            json!({
+                "review_id": product_schema.to_string(),
+                "review_page_id": added["review_page_id"],
+                "reason": " ",
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(blank["kind"], "INVALID_REQUEST", "{blank}");
+    let marked_pages = author
+        .call(
+            "get_review",
+            json!({ "review_id": product_schema.to_string() }),
+        )
+        .await
+        .unwrap()["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|page| page["not_product_reason"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        marked_pages,
+        [Value::Null, json!("the dealer's own profile")]
+    );
     let stale = author
         .call(
             "update_schema_field",

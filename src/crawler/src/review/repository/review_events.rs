@@ -10,7 +10,7 @@ use crate::review::model::{
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::{CrawlerReviewEventId, CrawlerReviewId};
+use crate::{CrawlerReviewEventId, CrawlerReviewId, CrawlerReviewPageId};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -51,6 +51,17 @@ pub(super) enum ReviewMutation<'a> {
         url: String,
         role: String,
     },
+    /// `POST /api/reviews/{id}/pages/{review_page_id}/not-product`.
+    PageMarkedNotProduct {
+        review_page_id: CrawlerReviewPageId,
+        url: &'a str,
+        reason: &'a str,
+    },
+    /// `DELETE /api/reviews/{id}/pages/{review_page_id}/not-product`.
+    PageNotProductCleared {
+        review_page_id: CrawlerReviewPageId,
+        url: &'a str,
+    },
     /// `POST /api/reviews/{id}/no-sold-page`; the notes are the author's account.
     NoSoldPageRecorded {
         #[serde(skip)]
@@ -76,6 +87,10 @@ pub(super) enum ReviewMutation<'a> {
         /// one.
         #[serde(skip_serializing_if = "Option::is_none")]
         live_evaluation: Option<LiveMatrixEvaluation>,
+        /// The URLs of the review pages marked as no product page, which the approval retired as
+        /// product URLs of the ListingSource.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        retired_not_product_urls: Vec<String>,
         #[serde(flatten)]
         configuration: ProductSchemaApprovalRecord,
     },
@@ -168,6 +183,8 @@ impl ReviewMutation<'_> {
             Self::SchemaFieldEdited { .. } => ReviewEventAction::SchemaFieldEdited,
             Self::PageAdded { .. } => ReviewEventAction::PageAdded,
             Self::PageRemoved { .. } => ReviewEventAction::PageRemoved,
+            Self::PageMarkedNotProduct { .. } => ReviewEventAction::PageMarkedNotProduct,
+            Self::PageNotProductCleared { .. } => ReviewEventAction::PageNotProductCleared,
             Self::NoSoldPageRecorded { .. } => ReviewEventAction::NoSoldPageRecorded,
             Self::RepairRequested { .. } => ReviewEventAction::RepairRequested,
             Self::HandedToHuman { .. } => ReviewEventAction::HandedToHuman,
@@ -196,7 +213,9 @@ impl ReviewMutation<'_> {
             | Self::SampleLabelsEdited { .. }
             | Self::SchemaFieldEdited { .. }
             | Self::PageAdded { .. }
-            | Self::PageRemoved { .. } => None,
+            | Self::PageRemoved { .. }
+            | Self::PageMarkedNotProduct { .. }
+            | Self::PageNotProductCleared { .. } => None,
         }
     }
 }
@@ -507,6 +526,7 @@ mod tests {
                     notes: Some("covers the shop"),
                     coverage,
                     live_evaluation: None,
+                    retired_not_product_urls: vec![],
                     configuration: ProductSchemaApprovalRecord {
                         replaced_product_schemas: None,
                         replaced_removed_page_schemas: vec![],
@@ -616,6 +636,7 @@ mod tests {
                 not_evaluated: 0,
             },
             live_evaluation: None,
+            retired_not_product_urls: vec![],
             configuration: configuration.clone(),
         };
 

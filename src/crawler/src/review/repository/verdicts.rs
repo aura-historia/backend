@@ -6,6 +6,7 @@
 //! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
 //! without them.
 
+use super::not_product_pages::retire_marked_pages;
 use super::rearm::rearm_pages_for_new_configuration;
 use super::rejected_pages::RejectedPages;
 use super::repair_rounds::refuse_agent_while_human_required;
@@ -154,10 +155,14 @@ impl CrawlerReviewRepository {
                     &configuration.approved_removed_page_schemas,
                 )
                 .await?;
+                let retired_not_product_urls =
+                    retire_marked_pages(&mut transaction, review_id, &review.listing_source_id)
+                        .await?;
                 ReviewMutation::ProductSchemasApproved {
                     notes: approval.notes,
                     coverage,
                     live_evaluation: matrix.and_then(|matrix| matrix.live_evaluation),
+                    retired_not_product_urls,
                     configuration,
                 }
             }

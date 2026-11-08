@@ -278,7 +278,8 @@ pub(crate) struct CurrentReview<'a> {
 
 /// The checks an agent approval of a product-schema review fails, none when it may go ahead: the
 /// review's stored `matrix` is a live evaluation of exactly what approval would make live, of
-/// exactly the review's current pages, fetched within `max_age` of `now`; every review page is
+/// exactly the review's current product pages (a page marked as no product page is no page of the
+/// guard: the matrix leaves it out and no check reads it), fetched within `max_age` of `now`; every review page is
 /// covered by a schema or captured as removed; no schema leaves a required field empty on a
 /// product page; no rule matches nothing on every page its schema applies to; no extraction fails
 /// a plausibility check that deterministic approval refuses, so the guard is never less strict
@@ -378,7 +379,7 @@ fn outdated_reason(
         SchemaPageReference::Persisted { review_page_id } => review
             .pages
             .iter()
-            .any(|page| page.review_page_id == *review_page_id),
+            .any(|page| page.review_page_id == *review_page_id && !page.is_marked_not_product()),
         SchemaPageReference::Input { .. } => false,
     };
     let evaluated_pages = matrix
@@ -700,6 +701,7 @@ mod tests {
                 role: PAGE_ROLE_PRIMARY.to_owned(),
                 html_hash: String::new(),
                 fetched: OffsetDateTime::now_utc(),
+                not_product_reason: None,
             },
             format!(
                 "<html><body><span id=\"product-id\">{slug}</span><{title_tag}>{title}</{title_tag}><span id=\"state\">Available</span><img src=\"{slug}.jpg\"></body></html>"
@@ -906,6 +908,102 @@ mod tests {
                     pages: vec![guarded(&evaluated[1].0)],
                 },
             ]
+        );
+    }
+
+    /// The dealer's profile can be a review's primary page: marked as no product page, it needs no
+    /// schema, is not evaluated and no check counts it.
+    #[test]
+    fn should_not_refuse_a_marked_primary_page_as_not_covered() {
+        let product = product_page("chair", "h1", "Chair");
+        let (mut profile, _) = product_page("profile", "h1", "Chair");
+        let profile_html = "<html><body><h1>Simon Wharton Antiques</h1></body></html>".to_owned();
+        let unmarked = [product.clone(), (profile.clone(), profile_html.clone())];
+        profile.not_product_reason = Some("the dealer's profile".to_owned());
+        let marked = [product, (profile, profile_html)];
+
+        let refused = checks(
+            Some(&live_matrix(
+                &[schema("h1")],
+                &[],
+                &unmarked,
+                Duration::ZERO,
+            )),
+            &review_pages(&unmarked),
+        );
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::PagesNotCovered { .. })),
+            "{refused:?}"
+        );
+        let matrix = live_matrix(&[schema("h1")], &[], &marked, Duration::ZERO);
+        assert_eq!(matrix.candidates[0].pages.len(), 1);
+        assert_eq!(checks(Some(&matrix), &review_pages(&marked)), Vec::new());
+    }
+
+    #[test]
+    fn should_not_count_a_marked_page_as_the_sold_page() {
+        let (sold, sold_html) = product_page("sold", "h1", "Sold chair");
+        let mut sold = sold;
+        sold.not_product_reason = Some("a gift card".to_owned());
+        let pages = [
+            product_page("chair", "h1", "Chair"),
+            (sold, sold_html.replace("Available", "Sold")),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks_recorded(
+            Some(&matrix),
+            &review_pages(&pages),
+            3,
+            CONFIGURATION,
+            false,
+        );
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::NoSoldPageTested { .. }]
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// A marked page shows no product, so a title it shares with a product page is no repetition.
+    #[test]
+    fn should_not_compare_a_marked_page_with_the_product_pages() {
+        let (mut profile, profile_html) = product_page("profile", "h1", "Antique Shop");
+        profile.not_product_reason = Some("the dealer's profile".to_owned());
+        let pages = [
+            product_page("chair", "h1", "Antique Shop"),
+            (profile, profile_html),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        assert_eq!(checks(Some(&matrix), &review_pages(&pages)), Vec::new());
+    }
+
+    /// A matrix that evaluated a page marked since is outdated; marking drops the stored matrix, so
+    /// only a matrix stored in a race can show it.
+    #[test]
+    fn should_refuse_a_live_matrix_that_evaluated_a_page_marked_since() {
+        let pages = [
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        let mut current = review_pages(&pages);
+        current[1].not_product_reason = Some("a category page".to_owned());
+
+        let refused = checks(Some(&matrix), &current);
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::LiveMatrixOutdated { .. }]
+            ),
+            "{refused:?}"
         );
     }
 

@@ -4,7 +4,7 @@
 //! a new review. The review stays rejected and keeps its history; the revocation joins its event
 //! trail.
 
-use super::rejected_pages::RejectedPages;
+use super::rejected_pages::{RejectedPages, store_url_classes_clearing_retry};
 use super::review_events::{LiveUrlPattern, ReviewMutation, commit_with_event};
 use super::reviewer_page_url::ReviewPageIdentity;
 use super::{
@@ -165,16 +165,6 @@ async fn classify_rejected_pages_again(
     if urls.is_empty() {
         return Ok(urls);
     }
-    sqlx::query(
-        "UPDATE listing_source_urls AS u \
-         SET url_class = input.url_class, next_retry_at = NULL, updated = NOW() \
-         FROM UNNEST($1::text[], $2::text[]) AS input(url, url_class) \
-         WHERE u.url = input.url AND u.listing_source_id = $3",
-    )
-    .bind(&urls)
-    .bind(&classes)
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .execute(&mut **transaction)
-    .await?;
+    store_url_classes_clearing_retry(transaction, listing_source_id, &urls, &classes).await?;
     Ok(urls)
 }

@@ -40,7 +40,8 @@ fn parse_page(raw_html: &str) -> Html {
 
 /// Evaluates the schemas and removed-page templates on the live review pages and on the live
 /// `url_pages` of the review's ListingSource that are no review pages, which the matrix refers to
-/// as inputs by their position. `captured_identities` maps a page URL to the source listing id its
+/// as inputs by their position. A review page marked as no product page is left out, so no check
+/// of the matrix counts it or compares it with the product pages. `captured_identities` maps a page URL to the source listing id its
 /// listing was captured under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
@@ -50,15 +51,18 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     url_pages: &[SchemaReviewPageInput],
     captured_identities: &HashMap<String, String>,
 ) -> SchemaMatrix {
-    let review_pages = pages.iter().map(|(page, raw_html)| MatrixPage {
-        page_reference: SchemaPageReference::Persisted {
-            review_page_id: page.review_page_id,
-        },
-        url: &page.url,
-        role: &page.role,
-        raw_html,
-        captured_identity: captured_identities.get(&page.url).map(String::as_str),
-    });
+    let review_pages = pages
+        .iter()
+        .filter(|(page, _)| !page.is_marked_not_product())
+        .map(|(page, raw_html)| MatrixPage {
+            page_reference: SchemaPageReference::Persisted {
+                review_page_id: page.review_page_id,
+            },
+            url: &page.url,
+            role: &page.role,
+            raw_html,
+            captured_identity: captured_identities.get(&page.url).map(String::as_str),
+        });
     let url_pages = url_pages
         .iter()
         .enumerate()
@@ -742,6 +746,7 @@ mod tests {
             role: page.role.clone(),
             html_hash: String::new(),
             fetched: time::OffsetDateTime::now_utc(),
+            not_product_reason: None,
         };
         (review_page, page.raw_html.clone())
     }
@@ -2242,6 +2247,7 @@ mod tests {
                 role: PAGE_ROLE_PRIMARY.to_owned(),
                 html_hash: String::new(),
                 fetched: time::OffsetDateTime::now_utc(),
+                not_product_reason: None,
             };
             let captured = HashMap::from([(SOLD_URL.to_owned(), "53036".to_owned())]);
 

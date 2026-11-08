@@ -348,6 +348,7 @@ mod tests {
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
+            "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
             "label_sample_urls",

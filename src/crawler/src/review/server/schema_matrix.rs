@@ -109,12 +109,17 @@ impl ReviewServer {
         Ok(detail)
     }
 
-    /// Fetches each of the review's `pages` live within a deadline sized for the shop's pacing.
+    /// Fetches each of the review's `pages` that is no marked non-product page live within a
+    /// deadline sized for the shop's pacing.
     async fn live_review_pages(
         &self,
         review_id: CrawlerReviewId,
         pages: Vec<CrawlerReviewPage>,
     ) -> Result<Vec<(CrawlerReviewPage, String)>, HttpResponse> {
+        let pages: Vec<CrawlerReviewPage> = pages
+            .into_iter()
+            .filter(|page| !page.is_marked_not_product())
+            .collect();
         let deadline = matrix_refresh_deadline(pages.len());
         tokio::time::timeout(deadline, self.fetch_review_pages(pages))
             .await
