@@ -23,6 +23,8 @@ pub enum AuthorAction {
     NothingToStage,
     /// The author could not work the review.
     Skipped,
+    /// The review needs a human's decision, such as `NO_PATTERN`, which no agent approves.
+    NeedsHuman,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

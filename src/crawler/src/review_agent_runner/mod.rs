@@ -1204,7 +1204,7 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v9");
+        assert_eq!(ledger[0]["prompt_version"], "author.v10");
         assert_eq!(ledger[1]["prompt_version"], "reviewer.v6");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
@@ -1356,6 +1356,36 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(
             handovers[0].starts_with(&judged_id.to_string())
                 && handovers[0].contains("Author's reasoning: Staged and tested on /item/1."),
+            "{handovers:?}"
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// `NO_PATTERN` is a human decision no agent approves: an author that reports `NEEDS_HUMAN`
+    /// hands the review over at once, without a reviewer process or a cooldown, whether or not the
+    /// reviewer judged the candidate before.
+    #[tokio::test]
+    async fn should_hand_a_review_to_a_human_when_the_author_reports_needs_human() {
+        let unjudged = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![unjudged.clone()]).await;
+        fixture
+            .claude
+            .answer("author", author_envelope("NEEDS_HUMAN", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.handed_to_human), (1, 1));
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {}", unjudged.review_id),
+                format!("end author {}", unjudged.review_id),
+            ]
+        );
+        let handovers = fixture.claude.handovers();
+        assert!(
+            handovers.len() == 1 && handovers[0].contains("reported NEEDS_HUMAN"),
             "{handovers:?}"
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));

@@ -292,7 +292,10 @@ pub fn select_reviews(
             .get(&review.review_id)
             .copied()
             .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked));
-        (review.artifact_type != ReviewArtifact::ProductSchema, worked)
+        (
+            review.artifact_type != ReviewArtifact::ProductSchema,
+            worked,
+        )
     });
     (ready.into_iter().take(max).collect(), cooling.len())
 }

@@ -9,8 +9,8 @@
     },
     "action": {
       "type": "string",
-      "enum": ["STAGED", "NOTHING_TO_STAGE", "SKIPPED"],
-      "description": "STAGED: you staged a candidate for the reviewer. NOTHING_TO_STAGE: the current candidate already holds, or no candidate can work. SKIPPED: you could not work the review."
+      "enum": ["STAGED", "NOTHING_TO_STAGE", "SKIPPED", "NEEDS_HUMAN"],
+      "description": "STAGED: you staged a candidate for the reviewer. NOTHING_TO_STAGE: the current candidate already holds, or no candidate can work. SKIPPED: you could not work the review. NEEDS_HUMAN: only a human can decide the review, such as a ListingSource without product pages (NO_PATTERN); you staged nothing and the summary holds your evidence."
     },
     "candidate_version": {
       "type": "integer",
