@@ -119,13 +119,13 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v5",
-            prompt: include_str!("prompts/author.v5.md"),
+            version: "author.v9",
+            prompt: include_str!("prompts/author.v9.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v3",
-            prompt: include_str!("prompts/reviewer.v3.md"),
+            version: "reviewer.v6",
+            prompt: include_str!("prompts/reviewer.v6.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -530,6 +530,47 @@ mod tests {
         }
     }
 
+    /// Both agents judge `state` against the contract: an availability label, or a cart or enquiry
+    /// action when the page shows none, never price text; the author tests a sold page first and
+    /// reads URL patterns structurally, and the reviewer keeps its note short.
+    #[test]
+    fn should_state_the_state_contract_and_the_sold_page_and_url_pattern_rules() {
+        let author = role_contract(AgentRole::Author).prompt(&review(), &AgentLimits::default());
+        let reviewer =
+            role_contract(AgentRole::Reviewer).prompt(&review(), &AgentLimits::default());
+        for (role, prompt) in [("author", &author), ("reviewer", &reviewer)] {
+            for term in [
+                "schema.org availability",
+                "verkocht",
+                "Enquire by Email",
+                "Add to cart",
+                "Price text is never a state",
+                "status slot",
+                "state_mentions",
+                "PRODUCT_STILL_EXTRACTS",
+                "NOT_PRODUCT",
+                "valuation service",
+                "structural pattern",
+            ] {
+                assert!(prompt.contains(term), "{role}: {term}");
+            }
+        }
+        assert!(author.contains("sold or unavailable product page"));
+        assert!(author.contains("the summary says why"));
+        assert!(reviewer.contains("Do not give NEEDS_REPAIR because a state is a call to action"));
+        assert!(reviewer.contains("field_findings, which the notes need not repeat"));
+        assert!(reviewer.contains("because a state is a sentence that names the status"));
+        assert!(author.contains("as an additional selector of the same `state` rule"));
+        assert!(
+            author
+                .contains("call mark_page_not_product with a reason that says what the page shows")
+        );
+        assert!(reviewer.contains("not_product_reason"));
+        assert!(
+            reviewer.contains("give NEEDS_REPAIR naming the page when it is a product after all")
+        );
+    }
+
     /// Both agents know what `human_required` and the console's refusals of live work mean
     /// (`HUMAN_REQUIRED`, `LIVE_JOBS_BUSY`, `NO_MATRIX`), and the reviewer what a rejection does
     /// to a product-schema review's pages.
@@ -557,7 +598,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v5", "reviewer.v3"]
+            ["author.v9", "reviewer.v6"]
         );
     }
 

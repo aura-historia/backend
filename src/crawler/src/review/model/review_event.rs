@@ -122,7 +122,19 @@ pub enum ReviewEventAction {
     PageAdded,
     /// `DELETE /api/review-pages/{id}`.
     PageRemoved,
+    /// `POST /api/reviews/{id}/pages/{review_page_id}/not-product`: the author or a human marked a
+    /// review page as no product page. It changes the review's pages, so it counts as a change of
+    /// what the review approves.
+    PageMarkedNotProduct,
+    /// `DELETE /api/reviews/{id}/pages/{review_page_id}/not-product`: the mark was cleared.
+    PageNotProductCleared,
+    /// `POST /api/reviews/{id}/no-sold-page`: the author looked for a sold or unavailable page of
+    /// the ListingSource and found none. It changes no candidate.
+    NoSoldPageRecorded,
     RepairRequested,
+    /// `POST /api/reviews/{id}/hand-to-human`: a review agent made the review wait for a human
+    /// without a further needs-repair round, saying why in the event's notes.
+    HandedToHuman,
     Approved,
     Rejected,
     /// `POST /api/reviews/{id}/restore`: a human brought back what the review's approval replaced.
@@ -133,12 +145,16 @@ pub enum ReviewEventAction {
 }
 
 impl ReviewEventAction {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 13] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
         Self::PageRemoved,
+        Self::PageMarkedNotProduct,
+        Self::PageNotProductCleared,
+        Self::NoSoldPageRecorded,
         Self::RepairRequested,
+        Self::HandedToHuman,
         Self::Approved,
         Self::Rejected,
         Self::Restored,
@@ -152,7 +168,11 @@ impl ReviewEventAction {
             Self::SchemaFieldEdited => "SCHEMA_FIELD_EDITED",
             Self::PageAdded => "PAGE_ADDED",
             Self::PageRemoved => "PAGE_REMOVED",
+            Self::PageMarkedNotProduct => "PAGE_MARKED_NOT_PRODUCT",
+            Self::PageNotProductCleared => "PAGE_NOT_PRODUCT_CLEARED",
+            Self::NoSoldPageRecorded => "NO_SOLD_PAGE_RECORDED",
             Self::RepairRequested => "REPAIR_REQUESTED",
+            Self::HandedToHuman => "HANDED_TO_HUMAN",
             Self::Approved => "APPROVED",
             Self::Rejected => "REJECTED",
             Self::Restored => "RESTORED",
@@ -169,11 +189,13 @@ impl ReviewEventAction {
 
     /// The actions that change what a review approves: its candidate, removed-page declarations
     /// included, and its pages. An agent that made one of them on a review never approves it.
-    pub const CHANGES_CANDIDATE: [Self; 4] = [
+    pub const CHANGES_CANDIDATE: [Self; 6] = [
         Self::CandidateEdited,
         Self::SchemaFieldEdited,
         Self::PageAdded,
         Self::PageRemoved,
+        Self::PageMarkedNotProduct,
+        Self::PageNotProductCleared,
     ];
 }
 
@@ -250,6 +272,23 @@ mod tests {
         assert_eq!(actor.may_change_candidates(), changes_candidates);
         assert_eq!(actor.may_decide(), decides);
         assert_eq!(actor.is_agent(), ReviewActor::AGENTS.contains(&actor));
+    }
+
+    /// Marking a page and clearing the mark change what a review approves, as adding a page does.
+    #[test]
+    fn should_count_marking_a_page_as_no_product_as_a_change_of_what_the_review_approves() {
+        for action in [
+            ReviewEventAction::PageMarkedNotProduct,
+            ReviewEventAction::PageNotProductCleared,
+        ] {
+            assert!(
+                ReviewEventAction::CHANGES_CANDIDATE.contains(&action),
+                "{action:?}"
+            );
+        }
+        assert!(
+            !ReviewEventAction::CHANGES_CANDIDATE.contains(&ReviewEventAction::NoSoldPageRecorded)
+        );
     }
 
     #[test]

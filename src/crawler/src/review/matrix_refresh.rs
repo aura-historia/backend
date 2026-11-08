@@ -267,6 +267,7 @@ mod tests {
                 review_id: None,
                 candidates: Vec::new(),
                 removed_page_matches: Vec::new(),
+                page_signals: Vec::new(),
                 live_evaluation: None,
             },
             &[],

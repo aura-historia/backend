@@ -7,13 +7,15 @@
 //! other review across the page boundary. The contract is in `docs/crawler/operations.md` (review
 //! service).
 
-use super::repair_rounds::{agent_round_binds, agent_rounds_of_review};
+use super::repair_rounds::{
+    after_last_human_event, agent_handed_review_to_human, agent_round_binds, agent_rounds_of_review,
+};
 use super::{
     ReviewRepositoryError, crawler_review_id_from_uuid, listing_source_id_from_uuid,
     row_to_repair_request,
 };
 use crate::CrawlerReviewId;
-use crate::review::agent_decisions::AgentDecisionPolicy;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::model::{
     PendingReviewPage, PendingReviewSummary, PendingReviewTotals, STATUS_PENDING_REVIEW,
 };
@@ -73,7 +75,7 @@ impl Default for PendingReviewQuery {
 /// review.
 const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
-         SELECT q.*, (q.agent_rounds >= $4::bigint) IS TRUE AS waits_for_human \
+         SELECT q.*, ($4::bigint IS NOT NULL AND (q.agent_rounds >= $4::bigint OR q.handed_to_human)) AS waits_for_human \
          FROM ( \
              SELECT r.review_id, r.listing_source_id, s.listing_source_name, \
                     r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
@@ -81,7 +83,9 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
                     (SELECT MAX(h.created) FROM crawler_review_events h \
                      WHERE h.review_id = r.review_id AND h.actor = $3) AS handed_back, ",
     agent_rounds_of_review!(),
-    " AS agent_rounds \
+    " AS agent_rounds, ",
+    agent_handed_review_to_human!(),
+    " AS handed_to_human \
              FROM crawler_reviews r \
              JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
              WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
@@ -180,7 +184,10 @@ fn row_to_summary(
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<PendingReviewSummary, sqlx::Error> {
     // A count beyond `u32` is past any cap, so saturating keeps the review with a human.
-    let agent_rounds = u32::try_from(row.try_get::<i64, _>("agent_rounds")?).unwrap_or(u32::MAX);
+    let rounds = AgentRounds {
+        needs_repair: u32::try_from(row.try_get::<i64, _>("agent_rounds")?).unwrap_or(u32::MAX),
+        handed_to_human: row.try_get("handed_to_human")?,
+    };
     Ok(PendingReviewSummary {
         review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
         listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
@@ -189,8 +196,8 @@ fn row_to_summary(
         reason: row.try_get("reason")?,
         candidate_version: row.try_get("candidate_version")?,
         repair_request: row_to_repair_request(row)?,
-        agent_rounds,
-        human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, agent_rounds),
+        agent_rounds: rounds.needs_repair,
+        human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, rounds),
         handed_back: row.try_get("handed_back")?,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,

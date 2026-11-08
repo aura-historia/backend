@@ -972,7 +972,7 @@ function renderDetail(detail, matrix) {
       <div id="actionPanel">${renderActionPanel()}</div>
       <div id="editMessages">${renderEditMessages()}</div>
       ${renderCandidateError(detail)}
-      ${renderHumanRequired(review)}
+      ${renderHumanRequired(detail)}
       ${renderRepairRequest(review)}
       ${matrix ? renderMatrixNotice(detail, matrix) : ''}
       ${renderAutoSchemaEvaluation(review)}
@@ -1118,7 +1118,8 @@ function pageRoleLabel(role) {
 }
 
 function reviewPageLabel(page) {
-    return `${pageRoleLabel(page.role)} · ${urlPath(page.url)}`;
+    const label = `${pageRoleLabel(page.role)} · ${urlPath(page.url)}`;
+    return page.not_product_reason ? `${label} · no product` : label;
 }
 
 function isWaitingForRepair(review) {
@@ -1132,10 +1133,23 @@ function repairBadge(review) {
     return isWaitingForRepair(review) ? badge('Waiting for repair', 'warn') : '';
 }
 
-function renderHumanRequired(review) {
+// The agent's hand-over since a human last acted on the review, which makes it wait for a human
+// whatever its rounds.
+function handOverSinceHuman(detail) {
+    const events = detail?.events || [];
+    const lastHuman = events.map(event => event.actor).lastIndexOf('HUMAN');
+    return events.slice(lastHuman + 1).reverse().find(event => event.action === 'HANDED_TO_HUMAN');
+}
+
+function renderHumanRequired(detail) {
+    const review = detail?.review;
     if (!review?.human_required) return '';
     const rounds = Number(review.agent_rounds) || 0;
-    return notice('bad', 'Needs a human', `The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last touched this review and stopped. Edit it, change its pages or labels, or give needs-repair with instructions to hand it back; or approve or reject it.`);
+    const handOver = handOverSinceHuman(detail);
+    const why = handOver
+        ? `This review was handed to a human by ${escapeHtml(actorWord(handOver.actor))} since a human last touched it; its reasoning is in the history.`
+        : `The review agents gave ${escapeHtml(rounds)} needs-repair verdict${rounds === 1 ? '' : 's'} since a human last touched this review and stopped.`;
+    return notice('bad', 'Needs a human', `${why} Edit it, change its pages or labels, or give needs-repair with instructions to hand it back; or approve or reject it.`);
 }
 
 function renderRepairRequest(review) {
@@ -1150,7 +1164,11 @@ const REVIEW_EVENT_LABELS = {
     SCHEMA_FIELD_EDITED: 'Field edited',
     PAGE_ADDED: 'Page added',
     PAGE_REMOVED: 'Page removed',
+    PAGE_MARKED_NOT_PRODUCT: 'Page marked as no product',
+    PAGE_NOT_PRODUCT_CLEARED: 'No-product mark cleared',
+    NO_SOLD_PAGE_RECORDED: 'No sold page found',
     REPAIR_REQUESTED: 'Repair requested',
+    HANDED_TO_HUMAN: 'Handed to a human',
     APPROVED: 'Approved',
     REJECTED: 'Rejected',
     RESTORED: 'Restored',
@@ -1227,7 +1245,14 @@ function reviewEventSummary(event) {
             return [`${schemaLabel(Number(details.schema_index) || 0)}: ${details.field || ''}`, live].filter(Boolean).join('; ');
         case 'PAGE_ADDED':
         case 'PAGE_REMOVED':
+        case 'PAGE_NOT_PRODUCT_CLEARED':
             return details.url || '';
+        case 'PAGE_MARKED_NOT_PRODUCT':
+            return [details.url, details.reason].filter(Boolean).join(': ');
+        case 'NO_SOLD_PAGE_RECORDED': {
+            const checked = (details.checked_urls || []).length;
+            return `${checked} page${checked === 1 ? '' : 's'} checked`;
+        }
         case 'APPROVED': {
             const coverage = details.coverage;
             if (coverage) return coverageText({...coverage, notEvaluated: coverage.not_evaluated});
@@ -1309,6 +1334,24 @@ function decisionPattern(decision) {
     return decision?.type === 'PATTERN' ? decision.value : '';
 }
 
+// The exclusion of a PATTERN decision, a regex for the non-items that share the product URL shape;
+// the console shows it and keeps it across a save of the pattern, and the agent or the API sets it.
+function decisionExclude(decision) {
+    return decision?.type === 'PATTERN' ? (decision.exclude || '') : '';
+}
+
+// The browser's regex of the decision's exclusion; none without one or when the browser cannot
+// compile it.
+function decisionExcludeRegex(decision) {
+    const exclude = decisionExclude(decision);
+    if (!exclude) return null;
+    try {
+        return new RegExp(exclude);
+    } catch (_) {
+        return null;
+    }
+}
+
 function savedPatternValue(review) {
     return decisionPattern(urlPatternDecision(review));
 }
@@ -1376,7 +1419,9 @@ function urlPatternView(review, urls, pattern) {
     const preview = urlPatternPreview(pattern, decisionPattern(urlPatternEditOf(review).stored));
     const origin = sampleOrigin(urls);
     const rows = urls.map((u, index) => {
-        const candidateMatch = preview.active ? regexTakesUrl(preview.regex, u.url) : u.candidate_pattern_match;
+        const candidateMatch = preview.active
+            ? regexTakesUrl(preview.regex, u.url, decisionExcludeRegex(urlPatternEditOf(review).stored))
+            : u.candidate_pattern_match;
         const currentProduct = u.current_pattern_match === true;
         const candidateProduct = candidateMatch === true;
         return {
@@ -1458,10 +1503,13 @@ function urlPatternStatsText(counts) {
 function renderUrlPatternDecisionSection(review, view) {
     const decision = urlPatternEditOf(review).stored;
     const currentPattern = review.candidate_payload?.current_pattern;
+    const currentExclude = review.candidate_payload?.current_exclude;
+    const exclude = decisionExclude(decision);
     const editable = urlPatternEditable(review);
     return `<div class="section">
       <div class="section-head"><h3>Decision</h3>${renderUrlPatternDecision(decision)}</div>
-      <div class="small muted">${currentPattern ? `Current pattern: <code>${escapeHtml(currentPattern)}</code>` : 'Current pattern: none'}</div>
+      <div class="small muted">${currentPattern ? `Current pattern: <code>${escapeHtml(currentPattern)}</code>${currentExclude ? ` excluding <code>${escapeHtml(currentExclude)}</code>` : ''}` : 'Current pattern: none'}</div>
+      ${exclude ? `<div class="small muted">Exclusion (a URL it matches is no product URL): <code>${escapeHtml(exclude)}</code></div>` : ''}
       ${editable ? `<label class="field">Product URL regex
           <input id="urlPatternInput" class="mono" value="${escapeHtmlAttr(urlPatternInputValue(review))}" placeholder="e.g. /product/" oninput="markDirty(); previewUrlPattern()">
         </label>
@@ -1475,7 +1523,7 @@ function renderUrlPatternDecisionSection(review, view) {
 }
 
 function renderUrlPatternDecision(decision) {
-    if (decision.type === 'PATTERN') return `<span>${badge('Pattern', 'ok')} <code>${escapeHtml(decision.value)}</code></span>`;
+    if (decision.type === 'PATTERN') return `<span>${badge('Pattern', 'ok')} <code>${escapeHtml(decision.value)}</code>${decision.exclude ? ` ${badge('Excluding')} <code>${escapeHtml(decision.exclude)}</code>` : ''}</span>`;
     if (decision.type === 'NO_PATTERN') return badge('No pattern');
     return badge('Undecided', 'warn');
 }
@@ -1499,9 +1547,12 @@ function urlRowShown(row) {
 }
 
 // Whether `regex` takes the page of `url` as the crawler matches a URL pattern: the URL as stored,
-// or its path with or without the trailing slash (docs/crawler/networking.md#stored-urls).
-function regexTakesUrl(regex, url) {
-    return pageSpellings(url).some(spelling => regex.test(spelling));
+// or its path with or without the trailing slash (docs/crawler/networking.md#stored-urls), and the
+// exclusion, when there is one, matches none of those spellings.
+function regexTakesUrl(regex, url, excludeRegex = null) {
+    const spellings = pageSpellings(url);
+    return spellings.some(spelling => regex.test(spelling))
+        && !(excludeRegex && spellings.some(spelling => excludeRegex.test(spelling)));
 }
 
 function pageSpellings(url) {
@@ -1562,14 +1613,19 @@ function rerenderUrlPatternView() {
 }
 
 async function saveUrlPatternDecision(decision) {
-    const currentPattern = selectedDetail.review?.candidate_payload?.current_pattern ?? null;
-    await saveCandidatePayload({decision, current_pattern: currentPattern});
+    const payload = selectedDetail.review?.candidate_payload;
+    await saveCandidatePayload({
+        decision,
+        current_pattern: payload?.current_pattern ?? null,
+        ...(payload?.current_exclude ? {current_exclude: payload.current_exclude} : {})
+    });
 }
 
 async function saveUrlPattern() {
     const value = document.getElementById('urlPatternInput').value.trim();
     if (!value) return;
-    await saveUrlPatternDecision({type: 'PATTERN', value});
+    const exclude = decisionExclude(urlPatternEditOf(selectedDetail.review).stored);
+    await saveUrlPatternDecision({type: 'PATTERN', value, ...(exclude ? {exclude} : {})});
 }
 
 async function saveNoUrlPattern() {
@@ -1655,7 +1711,7 @@ function decisionPreviewTakes(url) {
     const pattern = urlPatternInputValue(review).trim() || decisionPattern(urlPatternEditOf(review).stored);
     if (!pattern) return null;
     try {
-        return regexTakesUrl(new RegExp(pattern), url);
+        return regexTakesUrl(new RegExp(pattern), url, decisionExcludeRegex(urlPatternEditOf(review).stored));
     } catch (_) {
         return null;
     }
@@ -1807,6 +1863,7 @@ function renderSchemaWorkbench(detail, matrix) {
             <button ${reviewPagesEditable(detail.review) ? '' : 'disabled'} onclick="addReviewPage()" title="Fetches this URL of the source and adds it to the review pages" type="button">Add to review</button>
           </div>
         </div>
+        ${page?.not_product_reason ? `<div class="small muted">Marked as no product page: ${escapeHtml(page.not_product_reason)}</div>` : ''}
         ${renderPreviewFrame(page, previewUrl)}
       </div>
       <div class="card inspector">
@@ -2367,14 +2424,15 @@ function renderJsonPanel(detail) {
     </div>`;
 }
 
-// The review pages the candidate resolves, out of every review page, counted as the server
+// The review pages the candidate resolves, out of the review's product pages (those not marked as
+// no product page, which the matrix leaves out), counted as the server
 // counts them on approval: a page the removed-page templates capture as removed, or else one at
 // least one schema applies to. A review page the matrix did not evaluate is not covered until the
 // next evaluation, and without a matrix no page is evaluated.
 function reviewPageCoverage(detail, matrix) {
     const evaluatedPages = matrix?.candidates?.[0]?.pages || [];
     const coverage = {covered: 0, removed: 0, total: 0, notEvaluated: 0};
-    for (const page of detail?.pages || []) {
+    for (const page of (detail?.pages || []).filter(page => !page.not_product_reason)) {
         coverage.total += 1;
         const evaluation = evaluatedPages.find(evaluated => evaluatesReviewPage(evaluated, page));
         if (!evaluation) {
@@ -2483,6 +2541,7 @@ const plausibilityCheckDescriptions = {
     DUPLICATE_VALUES: 'repeats a value',
     INVALID_IDENTIFIER: 'is not a valid source listing id',
     WORD_LIST: 'is a list of words, not an identifier',
+    PRICE_TEXT: 'is a price, not an availability label',
     REPEATED_ACROSS_PAGES: 'repeats a value of another product page',
     NO_IMAGE_ON_ANY_PAGE: 'yields no capturable image on any review page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'differs from the identity another schema derives from this page',
@@ -2516,6 +2575,7 @@ const CHECK_LABELS = {
     DUPLICATE_VALUES: 'Duplicate',
     INVALID_IDENTIFIER: 'Invalid ID',
     WORD_LIST: 'Word list',
+    PRICE_TEXT: 'Price text',
     REPEATED_ACROSS_PAGES: 'Repeated across pages',
     NO_IMAGE_ON_ANY_PAGE: 'No image on any page',
     DIFFERS_FROM_OTHER_SCHEMAS: 'Differs from other schema',
@@ -2747,7 +2807,7 @@ function unevaluatedReviewPages(detail, matrix) {
     const candidate = (matrix.candidates || [])[0];
     if (!candidate || !isLiveMatrixCandidate(candidate)) return [];
     const evaluated = new Set(candidate.pages.map(page => pageReferenceKey(page.page_reference)));
-    return (detail.pages || []).filter(page => !evaluated.has(`persisted:${page.review_page_id}`));
+    return (detail.pages || []).filter(page => !page.not_product_reason && !evaluated.has(`persisted:${page.review_page_id}`));
 }
 
 function selectedCandidate(matrix) {

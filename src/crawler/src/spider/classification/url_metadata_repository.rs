@@ -333,6 +333,46 @@ impl UrlMetadataRepositoryImpl {
         Ok(links)
     }
 
+    /// Collapses the ListingSource's product rows stored under a spelling the crawler no longer
+    /// produces onto the spelling it does (`docs/crawler/networking.md#stored-urls`): a row whose
+    /// URL differs from its own [`CrawledUrl`] spelling, such as one stored before a query
+    /// parameter counted as presentation, is a duplicate of that spelling. It moves there while
+    /// no row has the spelling and is retired as `DUPLICATE` otherwise, as
+    /// [`Self::collapse_duplicate_rows`] does for a canonicalized page. One query reads the
+    /// source's rows, so the spider calls it once per pass of the source, not per URL.
+    pub async fn collapse_unnormalized_product_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        let mut transaction = self.pool.begin().await.map_err(database_error)?;
+        Self::locked_crawl_host(&mut transaction, *listing_source_id).await?;
+        let stored = sqlx::query_scalar::<_, String>(
+            "SELECT url FROM listing_source_urls \
+             WHERE listing_source_id = $1 AND url_class = $2 \
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD') \
+             ORDER BY url COLLATE \"C\"",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(UrlClass::ProductListing.as_str())
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(database_error)?;
+        let mut unnormalized = Vec::new();
+        for stored in stored {
+            let url = url::Url::parse(&stored)
+                .map_err(|error| database_error(sqlx::Error::Decode(Box::new(error))))?;
+            let normalized = CrawledUrl::new(url.clone()).as_url().clone();
+            if normalized != url {
+                unnormalized.push(DuplicateRows {
+                    spellings: vec![url],
+                    canonical: normalized,
+                });
+            }
+        }
+        Self::collapse_duplicate_rows(&mut transaction, *listing_source_id, &unnormalized).await?;
+        transaction.commit().await.map_err(database_error)
+    }
+
     /// Moves or retires the rows a canonicalized page was stored under before
     /// (`docs/crawler/networking.md#canonical-product-urls`). While no spelling of the canonical
     /// URL has a row, the first such row moves there and keeps its scrape state and raw-capture
@@ -385,14 +425,12 @@ impl UrlMetadataRepositoryImpl {
 
         let mut moves = Vec::<(String, String)>::new();
         let mut retired = Vec::<String>::new();
+        let mut handled = HashSet::<String>::new();
         for duplicate in duplicates {
             let target_page = CrawledUrl::new(duplicate.canonical.clone()).page_spelling();
             for spelling in &duplicate.spellings {
                 let spelling = spelling.to_string();
-                if !stored_duplicates.contains(&spelling)
-                    || moves.iter().any(|(source, _)| *source == spelling)
-                    || retired.contains(&spelling)
-                {
+                if !stored_duplicates.contains(&spelling) || !handled.insert(spelling.clone()) {
                     continue;
                 }
                 if stored_targets.insert(target_page.clone()) {

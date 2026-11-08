@@ -16,7 +16,8 @@ use crate::spider::crawled_root::CrawlOutcomeWrite;
 use crate::spider::discovery::frontier::CrawlKind;
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlCooldownProfile, CrawlFailureKind, CrawlPace, SpiderDiscoveryError,
+    CrawlCompletion, CrawlCooldownProfile, CrawlFailureKind, CrawlPace, RobotsUnreachable,
+    SpiderDiscoveryError,
 };
 use crate::spider::local_lock::{WorkLock, WorkLockScope};
 use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
@@ -698,6 +699,11 @@ fn log_spider_failure(
                 error_kind,
                 failure_count,
                 reason,
+                robots_url = preflight.robots_unreachable().map(RobotsUnreachable::url),
+                robots_status = preflight.robots_unreachable().and_then(RobotsUnreachable::status),
+                robots_transport_error = preflight
+                    .robots_unreachable()
+                    .and_then(RobotsUnreachable::transport_error),
                 redirect_url = ?preflight.redirect_target(),
                 root_reroot = ?preflight.root_reroot(),
                 source = ?source,

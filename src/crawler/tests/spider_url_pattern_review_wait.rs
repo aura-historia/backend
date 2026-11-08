@@ -265,8 +265,10 @@ async fn stage_pattern(
             json!(UrlPatternReviewCandidate {
                 decision: UrlPatternDecision::Pattern {
                     value: pattern.to_owned(),
+                    exclude: None,
                 },
                 current_pattern: None,
+                current_exclude: None,
                 sample_labels: None,
             }),
         )

@@ -11,17 +11,20 @@ use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
     CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
+    SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
-use crate::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
+use crate::review::readers::{
+    ListingSourceOverviewReader, ReviewQueueReader, SourceProductUrlReader,
+};
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml, HtmlFetcher};
 use crate::spider::local_lock::LocalLockManager;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use listing_source_core::ListingSourceId;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -61,6 +64,7 @@ pub struct ReviewServer {
     repository: CrawlerReviewRepository,
     review_queue: ReviewQueueReader,
     listing_sources: ListingSourceOverviewReader,
+    source_product_urls: SourceProductUrlReader,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
     /// The console's cap on live matrix refreshes, candidate evaluations and page projections.
@@ -82,6 +86,7 @@ impl ReviewServer {
         Self {
             review_queue: ReviewQueueReader::of(&repository),
             listing_sources: ListingSourceOverviewReader::new(repository.pool().clone()),
+            source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
             repository,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
             access: ReviewAccess::new(config),
@@ -380,6 +385,14 @@ impl ReviewServer {
             };
         }
 
+        if request.path.starts_with("/api/reviews/") && request.path.ends_with("/not-product") {
+            match request.method.as_str() {
+                "POST" => return self.mark_page_not_product(&request, actor).await,
+                "DELETE" => return self.clear_page_not_product(&request, actor).await,
+                _ => {}
+            }
+        }
+
         if request.method == "DELETE" && request.path.starts_with("/api/review-pages/") {
             let Some(page_id) = parse_page_id_with_suffix(request.path, "") else {
                 return HttpResponse::json(400, &json!({ "error": "invalid page id" }));
@@ -428,7 +441,16 @@ impl ReviewServer {
             return match self.repository.get_review(review_id).await {
                 Ok(detail) => {
                     log_invalid_candidate(&detail);
-                    HttpResponse::json(200, &detail)
+                    match self.source_product_urls.list(review_id).await {
+                        Ok(source_product_urls) => HttpResponse::json(
+                            200,
+                            &ReviewDetailAnswer {
+                                detail: &detail,
+                                source_product_urls,
+                            },
+                        ),
+                        Err(err) => review_error(err.into()),
+                    }
                 }
                 Err(err) => review_error(err),
             };
@@ -515,6 +537,22 @@ impl ReviewServer {
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/hand-to-human")
+        {
+            let (review_id, payload) =
+                match verdict_request::<ActionPayload>(&request, "/hand-to-human") {
+                    Ok(verdict) => verdict,
+                    Err(response) => return response,
+                };
+            return verdict_answer(
+                self.repository
+                    .hand_to_human(review_id, actor, payload.notes.as_deref())
+                    .await,
+            );
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/schema-field")
         {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/schema-field") else {
@@ -574,6 +612,31 @@ impl ReviewServer {
 
         if request.method == "POST"
             && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/no-sold-page")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/no-sold-page") else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            let payload: NoSoldPagePayload = match serde_json::from_str(request.body) {
+                Ok(value) => value,
+                Err(err) => {
+                    return HttpResponse::json(400, &json!({ "error": err.to_string() }));
+                }
+            };
+            return match self
+                .repository
+                .record_no_sold_page(review_id, actor, payload.urls, &payload.notes)
+                .await
+            {
+                Ok(recorded_urls) => {
+                    HttpResponse::json(200, &json!({ "ok": true, "recorded_urls": recorded_urls }))
+                }
+                Err(err) => review_error(err),
+            };
+        }
+
+        if request.method == "POST"
+            && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/candidate")
         {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/candidate") else {
@@ -621,6 +684,50 @@ impl ReviewServer {
             .add_reviewer_page(review_id, actor, &url, &fetched.final_url, &fetched.html)
             .await
             .map_err(review_error)
+    }
+
+    /// `POST /api/reviews/{id}/pages/{review_page_id}/not-product`: marks the review page as no
+    /// product page, saying why, and answers with the page.
+    async fn mark_page_not_product(
+        &self,
+        request: &ParsedRequest<'_>,
+        actor: ReviewActor,
+    ) -> HttpResponse {
+        let Some((review_id, page_id)) = parse_not_product_path(request.path) else {
+            return HttpResponse::json(400, &json!({ "error": "invalid review or page id" }));
+        };
+        let payload: NotProductPayload = match serde_json::from_str(request.body) {
+            Ok(payload) => payload,
+            Err(error) => return HttpResponse::json(400, &json!({ "error": error.to_string() })),
+        };
+        match self
+            .repository
+            .mark_page_not_product(review_id, page_id, actor, &payload.reason)
+            .await
+        {
+            Ok(page) => HttpResponse::json(200, &page),
+            Err(error) => review_error(error),
+        }
+    }
+
+    /// `DELETE /api/reviews/{id}/pages/{review_page_id}/not-product`: clears the mark, and answers
+    /// with the page.
+    async fn clear_page_not_product(
+        &self,
+        request: &ParsedRequest<'_>,
+        actor: ReviewActor,
+    ) -> HttpResponse {
+        let Some((review_id, page_id)) = parse_not_product_path(request.path) else {
+            return HttpResponse::json(400, &json!({ "error": "invalid review or page id" }));
+        };
+        match self
+            .repository
+            .clear_page_not_product(review_id, page_id, actor)
+            .await
+        {
+            Ok(page) => HttpResponse::json(200, &page),
+            Err(error) => review_error(error),
+        }
     }
 
     /// Fetches a page a reviewer adds to a review, after its target was checked.
@@ -888,6 +995,22 @@ struct SampleLabelsPayload {
     labels: Vec<SampleLabelInput>,
 }
 
+/// `POST /api/reviews/{id}/no-sold-page`: the pages the author checked and its account of how.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoSoldPagePayload {
+    urls: Vec<String>,
+    notes: String,
+}
+
+/// `POST /api/reviews/{id}/pages/{review_page_id}/not-product`: what the page shows instead of a
+/// product.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NotProductPayload {
+    reason: String,
+}
+
 #[derive(Deserialize)]
 struct ReviewPagePayload {
     url: String,
@@ -929,6 +1052,15 @@ fn parse_review_id(path: &str) -> Option<CrawlerReviewId> {
 fn parse_review_id_with_suffix(path: &str, suffix: &str) -> Option<CrawlerReviewId> {
     let without_suffix = path.strip_suffix(suffix)?;
     parse_review_id(without_suffix)
+}
+
+/// The review and review page ids of `/api/reviews/{id}/pages/{review_page_id}/not-product`.
+fn parse_not_product_path(path: &str) -> Option<(CrawlerReviewId, CrawlerReviewPageId)> {
+    let (review, page) = path
+        .strip_suffix("/not-product")?
+        .strip_prefix("/api/reviews/")?
+        .split_once("/pages/")?;
+    Some((review.parse().ok()?, page.parse().ok()?))
 }
 
 fn parse_listing_source_id_with_suffix(path: &str, suffix: &str) -> Option<ListingSourceId> {
@@ -1001,9 +1133,10 @@ fn candidate_edited(candidate_version: i64) -> HttpResponse {
 /// technical failure. A 409 for a request based on an older candidate carries the review's
 /// current `candidate_version`, one for an approval of incomplete coverage, unacknowledged or
 /// acknowledged at other counts, carries the review's current `coverage`, one for an agent
-/// approval the approval guard refuses lists its `failed_checks`, and one for an agent request on
-/// a review that waits for a human carries `reason` `HUMAN_REQUIRED`, the agents' `agent_rounds`
-/// and the cap as `limit`.
+/// approval the approval guard refuses lists its `failed_checks`, one for an agent's no-sold-page
+/// record naming pages no agent inspected carries `reason` `PAGES_NOT_INSPECTED`, and one for an
+/// agent request on a review that waits for a human carries `reason` `HUMAN_REQUIRED`, the agents'
+/// `agent_rounds` and the cap as `limit`.
 fn review_error(error: ReviewRepositoryError) -> HttpResponse {
     match error {
         ReviewRepositoryError::NotFound(_)
@@ -1013,6 +1146,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::NotPending(_)
         | ReviewRepositoryError::MissingRepairNote
+        | ReviewRepositoryError::MissingHandoverNote
         | ReviewRepositoryError::MissingRejectionNote
         | ReviewRepositoryError::UnsupportedArtifact(_, _)
         | ReviewRepositoryError::InvalidSchemaField(_)
@@ -1030,6 +1164,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NoApprovalToRestore(_)
         | ReviewRepositoryError::ApprovalNotRestorable { .. }
         | ReviewRepositoryError::NoRejectionToRevoke(_)
+        | ReviewRepositoryError::NoSoldPageUrlCount
+        | ReviewRepositoryError::InvalidNoSoldPageNote
+        | ReviewRepositoryError::InvalidNotProductReason
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
         | ReviewRepositoryError::InvalidSampleLabelReason(_)
@@ -1044,6 +1181,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "REVIEWER_CANNOT_CHANGE_CANDIDATES")
         }
         ReviewRepositoryError::AuthorMayNotDecide => forbidden(&error, "AUTHOR_CANNOT_DECIDE"),
+        ReviewRepositoryError::OnlyAgentsHandOver => forbidden(&error, "HAND_OVER_NEEDS_AGENT"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")
         }
@@ -1060,12 +1198,17 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NoLiveProductSchemas(_)
         | ReviewRepositoryError::ApprovedRemovedPageTemplatesChanged(_)
         | ReviewRepositoryError::DuplicateReviewPage(_)
+        | ReviewRepositoryError::ReviewPageNotMarkedNotProduct(_)
         | ReviewRepositoryError::ApprovalAlreadyRestored(_)
         | ReviewRepositoryError::RejectionAlreadyRevoked(_)
         | ReviewRepositoryError::LiveConfigurationChangedSinceApproval(_)
         | ReviewRepositoryError::UrlPatternReviewSourceNotCrawled(_) => {
             HttpResponse::json(409, &json!({ "error": error.to_string() }))
         }
+        ReviewRepositoryError::NoSoldPageUrlsNotInspected(_) => HttpResponse::json(
+            409,
+            &json!({ "error": error.to_string(), "reason": "PAGES_NOT_INSPECTED" }),
+        ),
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
         | ReviewRepositoryError::StaleCoverageAcknowledgement { coverage, .. } => {
             HttpResponse::json(
@@ -1106,7 +1249,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
-        | ReviewRepositoryError::Regex(_)
+        | ReviewRepositoryError::Pattern(_)
         | ReviewRepositoryError::MatrixEvaluationStopped { .. } => internal_error(error),
     }
 }
@@ -1114,6 +1257,15 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
 /// Logs at ERROR, without the candidate itself, why the loaded review's persisted candidate fails
 /// validation. Only the review detail a reviewer loads logs it; the matrix and other reads of the
 /// same review refuse or flag the candidate without logging it again.
+/// `GET /api/reviews/{id}`: the review and the product URLs of its ListingSource that a
+/// product-schema review's author may test the candidate on.
+#[derive(Serialize)]
+struct ReviewDetailAnswer<'a> {
+    #[serde(flatten)]
+    detail: &'a ReviewDetail,
+    source_product_urls: Vec<SourceProductUrl>,
+}
+
 fn log_invalid_candidate(detail: &ReviewDetail) {
     if let Some(failure) = &detail.candidate_error {
         error!(
@@ -2003,6 +2155,7 @@ Origin: http://127.0.0.1:7878/x
         let (head, body) = answer(ReviewRepositoryError::HumanRequired {
             review_id: CrawlerReviewId::new(),
             agent_rounds: 3,
+            handed_to_human: false,
             max_repair_rounds: 3,
         });
         assert!(head.starts_with("HTTP/1.1 409 Conflict"), "{head}");
@@ -3920,6 +4073,75 @@ Origin: http://127.0.0.1:7878/x
         use super::schema_editing::pending_review_server;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
+
+        /// The author marks a review page as no product page and clears the mark, a human does the
+        /// same, the reviewer is refused, and a bad id or reason is a 400 that records nothing.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_let_the_author_and_humans_mark_a_page_as_no_product_and_refuse_the_reviewer()
+         {
+            let (server, review_id) = pending_review_server().await;
+            let page_id = crate::CrawlerReviewPageId::new();
+            sqlx::query(
+                "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
+                 VALUES ($1, $2, 'https://edited.example/10897-profile/item', 'PRIMARY', 'hash')",
+            )
+            .bind(page_id.as_uuid())
+            .bind(review_id.as_uuid())
+            .execute(&test_api::get_postgres_client().await)
+            .await
+            .unwrap_or_else(|error| panic!("insert review page: {error}"));
+            let route = format!("/api/reviews/{review_id}/pages/{page_id}/not-product");
+            let reason = json!({ "reason": "the dealer's profile" }).to_string();
+
+            let (status, refused) =
+                send_as(&server, REVIEWER_TOKEN, &format!("POST {route}"), &reason).await;
+            assert!(
+                status.starts_with("HTTP/1.1 403 Forbidden"),
+                "{status} {refused}"
+            );
+            assert_eq!(refused["reason"], "REVIEWER_CANNOT_CHANGE_CANDIDATES");
+            for (request, body) in [
+                (
+                    format!("POST {route}"),
+                    json!({ "reason": " " }).to_string(),
+                ),
+                (
+                    format!("POST {route}"),
+                    json!({ "note": "profile" }).to_string(),
+                ),
+                (
+                    format!("POST /api/reviews/{review_id}/pages/not-a-page/not-product"),
+                    reason.clone(),
+                ),
+            ] {
+                let (status, refused) = send_as(&server, AUTHOR_TOKEN, &request, &body).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{request}: {status} {refused}"
+                );
+            }
+
+            let (status, marked) =
+                send_as(&server, AUTHOR_TOKEN, &format!("POST {route}"), &reason).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {marked}");
+            assert_eq!(marked["not_product_reason"], "the dealer's profile");
+            let (_, detail) =
+                send_as(&server, TOKEN, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert_eq!(
+                detail["pages"][0]["not_product_reason"],
+                "the dealer's profile"
+            );
+            assert_eq!(
+                detail["events"].as_array().unwrap().last().unwrap()["action"],
+                "PAGE_MARKED_NOT_PRODUCT"
+            );
+
+            let (status, cleared) = send_as(&server, TOKEN, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {cleared}");
+            assert!(cleared["not_product_reason"].is_null(), "{cleared}");
+            let (status, again) = send_as(&server, TOKEN, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {again}");
+        }
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_refuse_each_role_what_the_other_role_does_with_its_reason() {

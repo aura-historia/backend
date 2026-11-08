@@ -352,7 +352,9 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
+            "mark_page_not_product",
             "declare_removed_page",
+            "record_no_sold_page",
             "label_sample_urls",
         ]
     );
@@ -478,6 +480,10 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             json!({ "review_id": product_schema.to_string(), "schemas": [schema("h1")], "urls": ["https://elsewhere.example/item/table"] }),
         ),
         (
+            "record_no_sold_page",
+            json!({ "review_id": product_schema.to_string(), "urls": [format!("{SHOP}/item/a"), format!("{SHOP}/item/b"), "https://elsewhere.example/item/c"], "notes": "searched" }),
+        ),
+        (
             "label_sample_urls",
             json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": 1, "labels": [{ "url": "https://elsewhere.example/", "label": "PRODUCT", "reason": "x" }] }),
         ),
@@ -519,6 +525,57 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .await
         .unwrap();
     assert_eq!(staged["candidate_version"], 2);
+
+    // The author adds a page of the shop that is no product and marks it instead of bending the
+    // schema; get_review shows the reason, the marked page is left out of the matrix, and a
+    // URL-pattern review takes no mark.
+    let added = author
+        .call(
+            "add_review_page",
+            json!({ "review_id": product_schema.to_string(), "url": format!("{SHOP}/item/table") }),
+        )
+        .await
+        .unwrap();
+    let marked = author
+        .call(
+            "mark_page_not_product",
+            json!({
+                "review_id": product_schema.to_string(),
+                "review_page_id": added["review_page_id"],
+                "reason": "the dealer's own profile",
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(marked["reason"], "the dealer's own profile");
+    let blank = author
+        .call(
+            "mark_page_not_product",
+            json!({
+                "review_id": product_schema.to_string(),
+                "review_page_id": added["review_page_id"],
+                "reason": " ",
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(blank["kind"], "INVALID_REQUEST", "{blank}");
+    let marked_pages = author
+        .call(
+            "get_review",
+            json!({ "review_id": product_schema.to_string() }),
+        )
+        .await
+        .unwrap()["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|page| page["not_product_reason"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        marked_pages,
+        [Value::Null, json!("the dealer's own profile")]
+    );
     let stale = author
         .call(
             "update_schema_field",
@@ -536,6 +593,46 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (stale["kind"].clone(), stale["candidate_version"].clone()),
         (json!("CONFLICT"), json!(2))
     );
+
+    // The shop shows no sold page: the author records the pages it inspected, which the approval
+    // guard needs next to the matrix. A page it did not inspect is refused.
+    let checked = ["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"));
+    let uninspected = author
+        .call(
+            "record_no_sold_page",
+            json!({
+                "review_id": product_schema.to_string(),
+                "urls": checked,
+                "notes": "searched the listing and its sold section",
+            }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (uninspected["kind"].clone(), uninspected["reason"].clone()),
+        (json!("CONFLICT"), json!("PAGES_NOT_INSPECTED"))
+    );
+    for url in &checked {
+        author
+            .call(
+                "inspect_page",
+                json!({ "review_id": product_schema.to_string(), "url": url }),
+            )
+            .await
+            .unwrap();
+    }
+    let recorded = author
+        .call(
+            "record_no_sold_page",
+            json!({
+                "review_id": product_schema.to_string(),
+                "urls": (["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"))),
+                "notes": "searched the listing and its sold section",
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(recorded["recorded_urls"], 3);
 
     // The reviewer's approval is the console's to take: refused without a live matrix of the
     // staged version, taken once the matrix is refreshed.
@@ -591,8 +688,31 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         )
         .await
         .unwrap();
+    let excluded = author
+        .call(
+            "update_candidate",
+            json!({
+                "review_id": url_pattern.to_string(),
+                "expected_candidate_version": pattern["candidate_version"],
+                "candidate": { "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" } },
+            }),
+        )
+        .await
+        .unwrap();
+    let staged = author
+        .call(
+            "get_review",
+            json!({ "review_id": url_pattern.to_string() }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        staged["candidate"]["decision"],
+        json!({ "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" }),
+        "{staged}"
+    );
     let too_few = reviewer
-        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": pattern["candidate_version"] }))
+        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": excluded["candidate_version"] }))
         .await
         .unwrap_err();
     assert_eq!(
@@ -613,7 +733,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "label_sample_urls",
             json!({
                 "review_id": url_pattern.to_string(),
-                "expected_candidate_version": pattern["candidate_version"],
+                "expected_candidate_version": excluded["candidate_version"],
                 "labels": labels(&["/item/chair", "/item/table", "/item/lamp"], &["/shop/chairs", "/about", "/impressum"]),
             }),
         )
@@ -640,6 +760,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
     assert_eq!(
         trail,
         [
+            (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),

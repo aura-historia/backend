@@ -9,13 +9,17 @@ use crate::review::model::{
     CrawlerReviewPage, LabelledSampleUrl, LiveMatrixEvaluation, SampleUrlLabel, SchemaMatrix,
     SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
 };
+use crate::review::page_content_checks::{
+    MissingContentRule, SeenState, missing_content_rules, pages_without_signals,
+    shows_sold_or_unavailable_page, states_seen,
+};
 use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
     ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
 };
 use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
-use regex::Regex;
 use serde::Serialize;
 use std::fmt;
 use std::num::NonZeroU32;
@@ -55,8 +59,29 @@ pub enum FailedApprovalCheck {
     /// Candidate extractions that fail a per-page, cross-page or identity agreement plausibility
     /// check, which deterministic approval in `auto` mode refuses too, on any page.
     ImplausibleExtraction { pages: Vec<ImplausiblePage> },
+    /// Review pages that show a price or a description block while no schema applying to them
+    /// has a `price` or a `description` rule.
+    ContentRuleMissing { rules: Vec<MissingContentRule> },
+    /// No review page shows a sold or unavailable product, and the review records no search for
+    /// one that found none. `states_seen` lists what the candidate schemas extract as `state` on
+    /// the pages they apply to, and what the normalization resolves each to.
+    NoSoldPageTested { states_seen: Vec<SeenState> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
+    /// The decision takes clearly fewer of the sample's URLs than the share of inspected pages
+    /// that describe one product suggests: a pattern too narrow for the shop's product URLs, such
+    /// as one that lists category slugs one by one.
+    PatternTooNarrow {
+        /// The sample URLs the decision takes, out of `sample_total`.
+        matched: usize,
+        sample_total: usize,
+        /// The sample URLs whose inspection found a page describing exactly one product, out of
+        /// those inspected.
+        product_pages: usize,
+        inspected: usize,
+        /// Some of the inspected product pages the decision does not take.
+        unmatched_product_pages: Vec<String>,
+    },
     /// The candidate's sample labels on the review's crawl host mark fewer than `minimum` URLs as
     /// products or fewer than `minimum` as no products, so they cannot show that the decision
     /// takes the ListingSource's product pages and leaves the rest.
@@ -70,6 +95,62 @@ pub enum FailedApprovalCheck {
     /// URLs labelled `NOT_PRODUCT` that the decision classifies as product pages under a spelling
     /// the crawler may store them under.
     NotProductLabelMatched { urls: Vec<String> },
+}
+
+/// The states of a `NO_SOLD_PAGE_TESTED` refusal, each as `'state' → CODE`, `→ CODE mentioned` or
+/// `→ unresolved`.
+/// The checks that block `page`, as `title REPEATED_ACROSS_PAGES on <url>`.
+fn describe_blocking_checks(page: &ImplausiblePage) -> String {
+    let checks = page
+        .plausibility_findings
+        .as_slice()
+        .iter()
+        .map(|finding| (&finding.field, check_code(&finding.check)))
+        .chain(
+            page.cross_page_findings
+                .as_slice()
+                .iter()
+                .map(|finding| (&finding.field, check_code(&finding.check))),
+        )
+        .chain(
+            page.identity_agreement_findings
+                .as_slice()
+                .iter()
+                .map(|finding| (&finding.field, check_code(&finding.check))),
+        )
+        .map(|(field, code)| format!("{} {code}", field.as_str()))
+        .collect::<Vec<_>>();
+    format!("{} on {}", checks.join(", "), page.url)
+}
+
+/// The check's persisted `SCREAMING_SNAKE_CASE` code, as the matrix API names it.
+fn check_code(check: &impl serde::Serialize) -> String {
+    match serde_json::to_value(check) {
+        Ok(serde_json::Value::String(code)) => code,
+        _ => "UNKNOWN".to_owned(),
+    }
+}
+
+fn describe_states(states: &[SeenState]) -> String {
+    if states.is_empty() {
+        return "none, no candidate schema applies to a review page".to_owned();
+    }
+    states
+        .iter()
+        .map(|seen| {
+            format!(
+                "'{}' → {} on {}",
+                seen.state,
+                match (seen.resolves_to, seen.mentions) {
+                    (Some(code), _) => code.to_owned(),
+                    (None, Some(code)) => format!("{code} mentioned"),
+                    (None, None) => "unresolved".to_owned(),
+                },
+                seen.url
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A review page a check names.
@@ -129,8 +210,27 @@ impl fmt::Display for FailedApprovalCheck {
             ),
             Self::ImplausibleExtraction { pages } => write!(
                 formatter,
-                "{} extraction(s) fail a plausibility check deterministic approval refuses",
-                pages.len()
+                "{} extraction(s) fail a plausibility check deterministic approval refuses: {}",
+                pages.len(),
+                pages
+                    .iter()
+                    .map(describe_blocking_checks)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            Self::ContentRuleMissing { rules } => write!(
+                formatter,
+                "the review pages show content no rule captures: {}; add the rule, or the page shows none",
+                rules
+                    .iter()
+                    .map(|rule| format!("{} on {} page(s)", rule.field, rule.pages.len()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::NoSoldPageTested { states_seen } => write!(
+                formatter,
+                "no review page's state resolves to sold or unavailable; states seen: {}; add a sold page with add_review_page and refresh the matrix, or record the pages you checked with record_no_sold_page when the shop has none",
+                describe_states(states_seen)
             ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
             Self::TooFewLabels {
@@ -140,6 +240,16 @@ impl fmt::Display for FailedApprovalCheck {
             } => write!(
                 formatter,
                 "the sample labels mark {product} URL(s) on the review's crawl host PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
+            ),
+            Self::PatternTooNarrow {
+                matched,
+                sample_total,
+                product_pages,
+                inspected,
+                ..
+            } => write!(
+                formatter,
+                "the decision takes {matched} of the sample's {sample_total} URLs, but {product_pages} of the {inspected} pages inspected describe one product: it is narrower than the shop's product URLs, so use a structural pattern instead of listed categories and check the product pages it misses"
             ),
             Self::ProductLabelNotMatched { urls } => write!(
                 formatter,
@@ -161,15 +271,20 @@ pub(crate) struct CurrentReview<'a> {
     /// The fingerprint of the product-schema configuration approval would make live now.
     pub configuration_sha256: &'a str,
     pub pages: &'a [CrawlerReviewPage],
+    /// Whether the review's trail records that the author looked for a sold or unavailable page
+    /// of the ListingSource and found none.
+    pub no_sold_page_recorded: bool,
 }
 
 /// The checks an agent approval of a product-schema review fails, none when it may go ahead: the
 /// review's stored `matrix` is a live evaluation of exactly what approval would make live, of
-/// exactly the review's current pages, fetched within `max_age` of `now`; every review page is
+/// exactly the review's current product pages (a page marked as no product page is no page of the
+/// guard: the matrix leaves it out and no check reads it), fetched within `max_age` of `now`; every review page is
 /// covered by a schema or captured as removed; no schema leaves a required field empty on a
-/// product page; no rule matches nothing on every page its schema applies to; and no extraction
-/// fails a plausibility check that deterministic approval refuses, so the guard is never less
-/// strict than the `auto` gate.
+/// product page; no rule matches nothing on every page its schema applies to; no extraction fails
+/// a plausibility check that deterministic approval refuses, so the guard is never less strict
+/// than the `auto` gate; a review page shows a sold or unavailable product, or the review records
+/// that its author found none; and no page shows a price or a description no rule captures.
 pub(crate) fn product_schema_approval_checks(
     matrix: Option<&SchemaMatrix>,
     review: &CurrentReview<'_>,
@@ -223,6 +338,17 @@ pub(crate) fn product_schema_approval_checks(
     if !implausible.is_empty() {
         failed.push(FailedApprovalCheck::ImplausibleExtraction { pages: implausible });
     }
+    if !review.no_sold_page_recorded && !shows_sold_or_unavailable_page(matrix, &coverages) {
+        failed.push(FailedApprovalCheck::NoSoldPageTested {
+            states_seen: states_seen(matrix, &coverages),
+        });
+    }
+    let content_rules = missing_content_rules(matrix, &coverages);
+    if !content_rules.is_empty() {
+        failed.push(FailedApprovalCheck::ContentRuleMissing {
+            rules: content_rules,
+        });
+    }
     failed
 }
 
@@ -244,11 +370,16 @@ fn outdated_reason(
                 .to_owned(),
         );
     }
+    if pages_without_signals(matrix) {
+        return Some(
+            "it predates the page signals the guard reads; evaluate the matrix again".to_owned(),
+        );
+    }
     let evaluates_a_review_page = |reference: &SchemaPageReference| match reference {
         SchemaPageReference::Persisted { review_page_id } => review
             .pages
             .iter()
-            .any(|page| page.review_page_id == *review_page_id),
+            .any(|page| page.review_page_id == *review_page_id && !page.is_marked_not_product()),
         SchemaPageReference::Input { .. } => false,
     };
     let evaluated_pages = matrix
@@ -315,17 +446,18 @@ fn empty_required_fields(
 /// product page and no `NOT_PRODUCT` URL. Labels belong to the candidate, so the approved candidate
 /// version names the labels it is judged on, and they do not expire. No URL is classified by
 /// keywords or by its page's markup here: Claude decides what a product page is, and the crawler
-/// only checks that the decision follows its labels.
+/// only checks that the decision follows its labels and, from the review's `sample` of the
+/// crawled URLs, that it is not clearly narrower than the product pages inspected suggest.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
     domain: &str,
     min_labelled_urls: NonZeroU32,
+    sample: &[SampleUrl],
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
-        UrlPatternDecision::NoPattern => None,
-        UrlPatternDecision::Pattern { value } => match Regex::new(value) {
-            Ok(pattern) => Some(pattern),
+        decision => match decision.candidate_pattern() {
+            Ok(pattern) => pattern,
             // Approval refuses an invalid pattern on its own.
             Err(_) => return Vec::new(),
         },
@@ -369,7 +501,88 @@ pub(crate) fn url_pattern_approval_checks(
     if !taken.is_empty() {
         failed.push(FailedApprovalCheck::NotProductLabelMatched { urls: taken });
     }
+    let not_product_pages: Vec<PageKey> = labelled(SampleUrlLabel::NotProduct)
+        .filter_map(|url| page_key(&url.url))
+        .collect();
+    if let Some(too_narrow) = pattern_too_narrow(pattern.as_ref(), sample, &not_product_pages) {
+        failed.push(too_narrow);
+    }
     failed
+}
+
+/// A page as the label checks tell pages apart: its crawler page spelling, with or without its
+/// trailing slash, on the crawl host with or without `www.`, on http or https.
+type PageKey = (String, String, Option<String>);
+
+fn page_key(url: &str) -> Option<PageKey> {
+    let page = CrawledUrl::new(Url::parse(url).ok()?).page_spelling();
+    Some((
+        canonical_crawl_host(page.host_str()?),
+        page.path().to_owned(),
+        page.query().map(str::to_owned),
+    ))
+}
+
+/// A URL of a URL-pattern review's sample, with what inspecting its page found, if it was
+/// inspected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SampleUrl {
+    pub url: String,
+    /// Whether the inspected page's structured data describes exactly one schema.org `Product`;
+    /// `None` for a URL nobody inspected.
+    pub describes_one_product: Option<bool>,
+}
+
+/// The fewest inspected sample pages the share of product pages rests on.
+const MIN_INSPECTED_PAGES: usize = 8;
+
+/// The refusal of a `pattern` that takes less than half of the share of the sample that the
+/// inspected pages suggest is product pages, and misses at least one inspected page that describes
+/// one product. The share is a heuristic: inspected pages are not a random draw, and a page's
+/// structured data is a hint, so the check needs [`MIN_INSPECTED_PAGES`] pages, a pattern that
+/// takes under half the product share, and a missed product page as direct evidence. A page
+/// labelled `NOT_PRODUCT` is no product page whatever its markup, such as a gift card a shop marks
+/// up as a `Product`: the label decides, and the decision must not take it. `NO_PATTERN` takes
+/// nothing by design and has no share to compare.
+fn pattern_too_narrow(
+    pattern: Option<&ProductUrlPattern>,
+    sample: &[SampleUrl],
+    not_product_pages: &[PageKey],
+) -> Option<FailedApprovalCheck> {
+    let pattern = pattern?;
+    let takes = |url: &SampleUrl| decision_takes(Some(pattern), &url.url);
+    let inspected: Vec<&SampleUrl> = sample
+        .iter()
+        .filter(|url| url.describes_one_product.is_some())
+        .collect();
+    let product_pages: Vec<&SampleUrl> = inspected
+        .iter()
+        .copied()
+        .filter(|url| {
+            url.describes_one_product == Some(true)
+                && page_key(&url.url).is_none_or(|page| !not_product_pages.contains(&page))
+        })
+        .collect();
+    let unmatched_product_pages: Vec<String> = product_pages
+        .iter()
+        .filter(|url| !takes(url))
+        .map(|url| url.url.clone())
+        .take(10)
+        .collect();
+    let matched = sample.iter().filter(|url| takes(url)).count();
+    // matched / sample < product_pages / inspected / 2, in whole numbers.
+    let narrower_than_half_the_share =
+        matched * inspected.len() * 2 < product_pages.len() * sample.len();
+    (inspected.len() >= MIN_INSPECTED_PAGES
+        && narrower_than_half_the_share
+        && !unmatched_product_pages.is_empty())
+    .then_some(FailedApprovalCheck::PatternTooNarrow {
+        matched,
+        sample_total: sample.len(),
+        product_pages: product_pages.len(),
+        inspected: inspected.len(),
+        unmatched_product_pages,
+    })
 }
 
 /// Whether the labelled `url` is on `domain`, under the crawler's host identity, which treats
@@ -381,7 +594,7 @@ fn is_on_domain(url: &str, domain: &str) -> bool {
 /// Whether the decision's `pattern` takes the labelled `url` as a product page, matched in the
 /// crawler's URL spelling, with or without its trailing slash, as the spider matches it;
 /// `NO_PATTERN` takes none.
-fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
+fn decision_takes(pattern: Option<&ProductUrlPattern>, url: &str) -> bool {
     pattern.is_some_and(|pattern| {
         Url::parse(url).is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
     })
@@ -394,7 +607,7 @@ fn decision_takes(pattern: Option<&Regex>, url: &str) -> bool {
 /// spider rediscovers the page and which approval classifies as it is stored. A decision that
 /// takes only one of them would otherwise pass a `NOT_PRODUCT` label in another and still take the
 /// page as the crawler stored it.
-fn decision_takes_any_spelling(pattern: Option<&Regex>, url: &str) -> bool {
+fn decision_takes_any_spelling(pattern: Option<&ProductUrlPattern>, url: &str) -> bool {
     let Some(pattern) = pattern else {
         return false;
     };
@@ -487,6 +700,7 @@ mod tests {
                 role: PAGE_ROLE_PRIMARY.to_owned(),
                 html_hash: String::new(),
                 fetched: OffsetDateTime::now_utc(),
+                not_product_reason: None,
             },
             format!(
                 "<html><body><span id=\"product-id\">{slug}</span><{title_tag}>{title}</{title_tag}><span id=\"state\">Available</span><img src=\"{slug}.jpg\"></body></html>"
@@ -545,11 +759,23 @@ mod tests {
         checks_of(matrix, pages, 3, CONFIGURATION)
     }
 
+    /// The checks of a review whose trail records that its author found no sold page, so the
+    /// product pages that show "Available" test no sold page without refusing it.
     fn checks_of(
         matrix: Option<&SchemaMatrix>,
         pages: &[CrawlerReviewPage],
         candidate_version: i64,
         configuration_sha256: &str,
+    ) -> Vec<FailedApprovalCheck> {
+        checks_recorded(matrix, pages, candidate_version, configuration_sha256, true)
+    }
+
+    fn checks_recorded(
+        matrix: Option<&SchemaMatrix>,
+        pages: &[CrawlerReviewPage],
+        candidate_version: i64,
+        configuration_sha256: &str,
+        no_sold_page_recorded: bool,
     ) -> Vec<FailedApprovalCheck> {
         product_schema_approval_checks(
             matrix,
@@ -557,6 +783,7 @@ mod tests {
                 candidate_version,
                 configuration_sha256,
                 pages,
+                no_sold_page_recorded,
             },
             OffsetDateTime::now_utc(),
             MAX_AGE,
@@ -683,6 +910,102 @@ mod tests {
         );
     }
 
+    /// The dealer's profile can be a review's primary page: marked as no product page, it needs no
+    /// schema, is not evaluated and no check counts it.
+    #[test]
+    fn should_not_refuse_a_marked_primary_page_as_not_covered() {
+        let product = product_page("chair", "h1", "Chair");
+        let (mut profile, _) = product_page("profile", "h1", "Chair");
+        let profile_html = "<html><body><h1>Simon Wharton Antiques</h1></body></html>".to_owned();
+        let unmarked = [product.clone(), (profile.clone(), profile_html.clone())];
+        profile.not_product_reason = Some("the dealer's profile".to_owned());
+        let marked = [product, (profile, profile_html)];
+
+        let refused = checks(
+            Some(&live_matrix(
+                &[schema("h1")],
+                &[],
+                &unmarked,
+                Duration::ZERO,
+            )),
+            &review_pages(&unmarked),
+        );
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::PagesNotCovered { .. })),
+            "{refused:?}"
+        );
+        let matrix = live_matrix(&[schema("h1")], &[], &marked, Duration::ZERO);
+        assert_eq!(matrix.candidates[0].pages.len(), 1);
+        assert_eq!(checks(Some(&matrix), &review_pages(&marked)), Vec::new());
+    }
+
+    #[test]
+    fn should_not_count_a_marked_page_as_the_sold_page() {
+        let (sold, sold_html) = product_page("sold", "h1", "Sold chair");
+        let mut sold = sold;
+        sold.not_product_reason = Some("a gift card".to_owned());
+        let pages = [
+            product_page("chair", "h1", "Chair"),
+            (sold, sold_html.replace("Available", "Sold")),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks_recorded(
+            Some(&matrix),
+            &review_pages(&pages),
+            3,
+            CONFIGURATION,
+            false,
+        );
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::NoSoldPageTested { .. }]
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// A marked page shows no product, so a title it shares with a product page is no repetition.
+    #[test]
+    fn should_not_compare_a_marked_page_with_the_product_pages() {
+        let (mut profile, profile_html) = product_page("profile", "h1", "Antique Shop");
+        profile.not_product_reason = Some("the dealer's profile".to_owned());
+        let pages = [
+            product_page("chair", "h1", "Antique Shop"),
+            (profile, profile_html),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        assert_eq!(checks(Some(&matrix), &review_pages(&pages)), Vec::new());
+    }
+
+    /// A matrix that evaluated a page marked since is outdated; marking drops the stored matrix, so
+    /// only a matrix stored in a race can show it.
+    #[test]
+    fn should_refuse_a_live_matrix_that_evaluated_a_page_marked_since() {
+        let pages = [
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        let mut current = review_pages(&pages);
+        current[1].not_product_reason = Some("a category page".to_owned());
+
+        let refused = checks(Some(&matrix), &current);
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::LiveMatrixOutdated { .. }]
+            ),
+            "{refused:?}"
+        );
+    }
+
     /// A schema that finds the title element but no text in it leaves the product untitled; the
     /// blank title is also a plausibility finding the `auto` gate refuses.
     #[test]
@@ -737,6 +1060,61 @@ mod tests {
         }
     }
 
+    /// A status slot shows "Sold" on sold pages and the amount on live ones: price text in `state`
+    /// is accepted once the same rule resolves to sold on a review page, and then also tests a
+    /// sold page; `auto` approval still refuses it.
+    #[test]
+    fn should_accept_price_text_in_a_state_that_resolves_to_sold_on_another_page() {
+        let pages = [
+            page_in_state("chair", "£ 3,800 plus VAT"),
+            page_in_state("table", "Sold"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        assert_eq!(
+            checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false
+            ),
+            Vec::new()
+        );
+        assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+    }
+
+    /// Without a page on which the slot resolves to sold, price text in `state` stays refused.
+    #[test]
+    fn should_refuse_price_text_in_a_state_that_resolves_on_no_page() {
+        let pages = [
+            page_in_state("chair", "£ 3,800 plus VAT"),
+            page_in_state("table", "POA"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks_recorded(
+            Some(&matrix),
+            &review_pages(&pages),
+            3,
+            CONFIGURATION,
+            false,
+        );
+
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::ImplausibleExtraction { .. })),
+            "{refused:?}"
+        );
+        assert!(
+            refused
+                .iter()
+                .any(|check| matches!(check, FailedApprovalCheck::NoSoldPageTested { .. })),
+            "{refused:?}"
+        );
+    }
+
     /// Two review pages show different products, so a title both extract names the shop or the
     /// category, not the product, even where the schema covers every page.
     #[test]
@@ -760,6 +1138,32 @@ mod tests {
                 "{page:?}"
             );
         }
+    }
+
+    /// The exempt price text of a status slot is no reason for the refusal, so the refusal does not
+    /// list it next to the check that blocks.
+    #[test]
+    fn should_list_only_the_blocking_checks_of_an_implausible_page() {
+        let (chair, chair_html) = product_page("chair", "h1", "Antique Shop");
+        let (table, table_html) = product_page("table", "h1", "Antique Shop");
+        let pages = [
+            (chair, chair_html.replace("Available", "£ 3,800 plus VAT")),
+            (table, table_html.replace("Available", "Sold")),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let implausible = implausible_only(&matrix, &review_pages(&pages));
+
+        assert_eq!(implausible.len(), 2, "{implausible:?}");
+        for page in &implausible {
+            assert!(page.plausibility_findings.is_empty(), "{page:?}");
+        }
+        assert_eq!(
+            FailedApprovalCheck::ImplausibleExtraction { pages: implausible }.to_string(),
+            "2 extraction(s) fail a plausibility check deterministic approval refuses: \
+             title REPEATED_ACROSS_PAGES on https://shop.example/products/chair; \
+             title REPEATED_ACROSS_PAGES on https://shop.example/products/table"
+        );
     }
 
     /// An identity other than the one the page's listing was captured under would split the
@@ -876,9 +1280,252 @@ mod tests {
         );
     }
 
+    const PROSE: &str = "A Georgian oak chest of drawers with original brass handles, restored in 2019 and in very good condition.";
+
+    /// `pages` whose HTML also shows a price and a description block.
+    fn with_price_and_description(
+        pages: [(CrawlerReviewPage, String); 2],
+    ) -> [(CrawlerReviewPage, String); 2] {
+        pages.map(|(page, html)| {
+            let content = format!(
+                "<span class=\"price\">Price £113</span><div class=\"description\">{PROSE}</div></body>"
+            );
+            (page, html.replace("</body>", &content))
+        })
+    }
+
+    #[test]
+    fn should_name_the_pages_that_show_a_price_and_a_description_no_rule_captures() {
+        let pages = with_price_and_description([
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ]);
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert_eq!(
+            refused,
+            vec![FailedApprovalCheck::ContentRuleMissing {
+                rules: vec![
+                    MissingContentRule {
+                        field: "price",
+                        pages: pages.iter().map(|(page, _)| guarded(page)).collect(),
+                    },
+                    MissingContentRule {
+                        field: "description",
+                        pages: pages.iter().map(|(page, _)| guarded(page)).collect(),
+                    },
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn should_pass_rules_for_what_the_pages_show_and_pages_that_show_nothing_to_capture() {
+        let shown = with_price_and_description([
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ]);
+        let mut captured = schema("h1");
+        captured.price = Some(rule(".price", ExtractionKind::Text));
+        captured.description = Some(rule(".description", ExtractionKind::Text));
+        let matrix = live_matrix(&[captured], &[], &shown, Duration::ZERO);
+        assert_eq!(checks(Some(&matrix), &review_pages(&shown)), Vec::new());
+
+        // An auction-style shop shows its estimate in the price element.
+        let mut estimated = schema("h1");
+        estimated.price_estimate_min = Some(rule(".price", ExtractionKind::Text));
+        estimated.description = Some(rule(".description", ExtractionKind::Text));
+        let matrix = live_matrix(&[estimated], &[], &shown, Duration::ZERO);
+        assert_eq!(checks(Some(&matrix), &review_pages(&shown)), Vec::new());
+
+        let bare = [
+            product_page("chair", "h1", "Chair"),
+            product_page("table", "h1", "Table"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &bare, Duration::ZERO);
+        assert_eq!(checks(Some(&matrix), &review_pages(&bare)), Vec::new());
+    }
+
+    /// A matrix stored before the page signals cannot show what the pages hold, so it is outdated
+    /// rather than passing the content check unseen.
+    #[test]
+    fn should_treat_a_live_matrix_without_page_signals_as_outdated() {
+        let pages = [product_page("chair", "h1", "Chair")];
+        let mut matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        matrix.page_signals.clear();
+
+        let refused = checks(Some(&matrix), &review_pages(&pages));
+
+        assert!(
+            matches!(
+                refused.as_slice(),
+                [FailedApprovalCheck::LiveMatrixOutdated { .. }]
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// A page whose `state` element holds `state`.
+    fn page_in_state(slug: &str, state: &str) -> (CrawlerReviewPage, String) {
+        let (page, html) = product_page(slug, "h1", slug);
+        (page, html.replace("Available", state))
+    }
+
+    /// An approval needs a review page that shows a sold or unavailable product, or the author's
+    /// record that it found none.
+    #[test]
+    fn should_refuse_a_candidate_tested_on_no_sold_page_unless_the_author_recorded_none() {
+        let pages = [
+            page_in_state("chair", "In stock"),
+            page_in_state("table", "Add to cart"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        let current = review_pages(&pages);
+
+        assert_eq!(
+            checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, false),
+            vec![FailedApprovalCheck::NoSoldPageTested {
+                states_seen: vec![
+                    SeenState {
+                        url: "https://shop.example/products/chair".to_owned(),
+                        state: "In stock".to_owned(),
+                        resolves_to: Some("IN_STOCK"),
+                        mentions: None,
+                    },
+                    SeenState {
+                        url: "https://shop.example/products/table".to_owned(),
+                        state: "Add to cart".to_owned(),
+                        resolves_to: Some("AVAILABLE"),
+                        mentions: None,
+                    },
+                ],
+            }]
+        );
+        assert_eq!(
+            checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, true),
+            Vec::new()
+        );
+    }
+
+    /// The refusal names each state seen with what the normalization makes of it.
+    #[test]
+    fn should_name_the_states_seen_in_the_no_sold_page_message() {
+        let pages = [
+            page_in_state("chair", "Send a message to Simon Wharton Antiques"),
+            page_in_state("table", "In stock"),
+        ];
+        let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+        let current = review_pages(&pages);
+
+        let message = checks_recorded(Some(&matrix), &current, 3, CONFIGURATION, false)
+            .iter()
+            .map(ToString::to_string)
+            .collect::<String>();
+
+        assert!(
+            message.contains("'Send a message to Simon Wharton Antiques' → unresolved on https://shop.example/products/chair"),
+            "{message}"
+        );
+        assert!(
+            message.contains("'In stock' → IN_STOCK on https://shop.example/products/table"),
+            "{message}"
+        );
+    }
+
+    /// A sold notice written as a sentence counts as a sold page when it mentions the status; a
+    /// sentence that names none, or an available label, does not.
+    #[test]
+    fn should_count_a_state_sentence_that_mentions_a_sold_status() {
+        for (state, counts) in [
+            (
+                "This item has been sold, though you can still email the seller if you wish",
+                true,
+            ),
+            ("Deze kaart is reeds verkocht.", true),
+            ("Send a message to Simon Wharton Antiques", false),
+            ("In stock", false),
+        ] {
+            let pages = [page_in_state("chair", state)];
+            let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+            let refused = checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false,
+            );
+
+            assert_eq!(refused.is_empty(), counts, "{state}: {refused:?}");
+        }
+    }
+
+    /// The labels the normalization resolves to sold or unavailable count, whichever language or
+    /// schema.org spelling the shop uses; a cart action or an available label does not.
+    #[test]
+    fn should_accept_a_page_whose_state_resolves_to_sold_or_unavailable() {
+        for state in [
+            "Sold",
+            "Verkocht",
+            "https://schema.org/SoldOut",
+            "Out of stock",
+        ] {
+            let pages = [
+                page_in_state("chair", "Available"),
+                page_in_state("table", state),
+            ];
+            let matrix = live_matrix(&[schema("h1")], &[], &pages, Duration::ZERO);
+
+            assert_eq!(
+                checks_recorded(
+                    Some(&matrix),
+                    &review_pages(&pages),
+                    3,
+                    CONFIGURATION,
+                    false
+                ),
+                Vec::new(),
+                "{state}"
+            );
+        }
+    }
+
+    /// A page the candidate's removed-page template captures as removed is a sold page too.
+    #[test]
+    fn should_accept_a_page_a_removed_page_template_captures() {
+        let pages = [product_page("chair", "h1", "Chair"), notice_page("sold")];
+        let template = RemovedPageSchema {
+            selector: ".notice".into(),
+            text: Some("no longer available".to_owned()),
+            regex: None,
+        };
+        let matrix = live_matrix(&[schema("h1")], &[template], &pages, Duration::ZERO);
+
+        assert_eq!(
+            checks_recorded(
+                Some(&matrix),
+                &review_pages(&pages),
+                3,
+                CONFIGURATION,
+                false
+            ),
+            Vec::new()
+        );
+    }
+
     fn pattern(value: &str) -> UrlPatternDecision {
         UrlPatternDecision::Pattern {
             value: value.to_owned(),
+            exclude: None,
+        }
+    }
+
+    fn excluding(value: &str, exclude: &str) -> UrlPatternDecision {
+        UrlPatternDecision::Pattern {
+            value: value.to_owned(),
+            exclude: Some(exclude.to_owned()),
         }
     }
 
@@ -926,7 +1573,7 @@ mod tests {
     }
 
     fn url_checks(candidate: &UrlPatternReviewCandidate) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS)
+        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &[])
     }
 
     /// A decision that takes every URL labelled `PRODUCT`, in the crawler's spelling of it, and no
@@ -1101,6 +1748,177 @@ mod tests {
         );
     }
 
+    /// Sample URLs of a shop whose products sit under `/item/` and under category paths a pattern
+    /// may list one by one, `inspected` of them with what their inspection found.
+    fn shop_sample(inspected: usize, describes_one_product: bool) -> Vec<SampleUrl> {
+        let url = |index: usize| {
+            if index < 6 {
+                format!("https://antique-shop.example/item/lamp-{index}")
+            } else {
+                format!("https://antique-shop.example/clocks/barometers/barometer-{index}")
+            }
+        };
+        (0..20)
+            .map(|index| SampleUrl {
+                url: url(index),
+                describes_one_product: (index % 2 == 0 && index / 2 < inspected)
+                    .then_some(describes_one_product),
+            })
+            .collect()
+    }
+
+    /// A pattern that takes 6 of 20 sample URLs while every inspected page describes one product,
+    /// some of them under a path it misses, is narrower than the shop's product URLs.
+    #[test]
+    fn should_refuse_a_pattern_that_takes_clearly_fewer_urls_than_the_product_share_suggests() {
+        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
+
+        let refused = url_pattern_approval_checks(
+            &candidate,
+            REVIEW_CRAWL_HOST,
+            MIN_LABELLED_URLS,
+            &shop_sample(10, true),
+        );
+
+        assert_eq!(
+            refused,
+            vec![FailedApprovalCheck::PatternTooNarrow {
+                matched: 6,
+                sample_total: 20,
+                product_pages: 10,
+                inspected: 10,
+                unmatched_product_pages: [6, 8, 10, 12, 14, 16, 18]
+                    .map(|index| format!(
+                        "https://antique-shop.example/clocks/barometers/barometer-{index}"
+                    ))
+                    .to_vec(),
+            }]
+        );
+    }
+
+    #[test]
+    fn should_pass_a_structural_pattern_and_a_sample_too_thin_or_without_missed_products() {
+        let narrow = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
+        let structural = labelled(
+            pattern("/(item|clocks/barometers)/[^/]+$"),
+            &PRODUCTS,
+            &NOT_PRODUCTS,
+        );
+        let check = |candidate: &UrlPatternReviewCandidate, sample: &[SampleUrl]| {
+            url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, sample)
+        };
+
+        // The pattern takes every product page the inspection found.
+        assert_eq!(check(&structural, &shop_sample(10, true)), Vec::new());
+        // Too few pages were inspected to say what share of the shop is products.
+        assert_eq!(check(&narrow, &shop_sample(7, true)), Vec::new());
+        // The inspected pages are no products, so the pattern misses none.
+        assert_eq!(check(&narrow, &shop_sample(10, false)), Vec::new());
+        // No sample, as on a review nobody inspected.
+        assert_eq!(check(&narrow, &[]), Vec::new());
+    }
+
+    /// A page labelled `NOT_PRODUCT` is no missed product page whatever its markup: shops mark up
+    /// gift cards and vouchers as a `Product`, and the decision must leave them out. The label
+    /// counts under any spelling of the page.
+    #[test]
+    fn should_pass_a_pattern_that_leaves_out_inspected_pages_labelled_not_product() {
+        let sample = shop_sample(10, true);
+        let vouchers: Vec<String> = sample
+            .iter()
+            .filter(|url| url.url.contains("/barometers/") && url.describes_one_product.is_some())
+            .map(|url| url.url.replacen("https://", "http://www.", 1) + "/")
+            .collect();
+        let not_products: Vec<&str> = NOT_PRODUCTS
+            .into_iter()
+            .chain(vouchers.iter().map(String::as_str))
+            .collect();
+        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &not_products);
+
+        assert_eq!(
+            url_pattern_approval_checks(&candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample),
+            Vec::new()
+        );
+    }
+
+    const GIFT_CARD: &str = "https://antique-shop.example/item/the-antique-shop-gift-card";
+
+    /// A gift card has the product URL shape: the pattern alone takes it, and the exclusion that
+    /// takes it out of the pattern lets the decision follow its `NOT_PRODUCT` label.
+    #[test]
+    fn should_pass_a_not_product_url_the_exclusion_takes_and_refuse_it_without_the_exclusion() {
+        let not_products = [NOT_PRODUCTS[0], NOT_PRODUCTS[1], GIFT_CARD];
+
+        assert_eq!(
+            url_checks(&labelled(pattern("/item/[^/]+$"), &PRODUCTS, &not_products)),
+            vec![FailedApprovalCheck::NotProductLabelMatched {
+                urls: vec![GIFT_CARD.to_owned()],
+            }]
+        );
+        assert_eq!(
+            url_checks(&labelled(
+                excluding("/item/[^/]+$", "gift-card"),
+                &PRODUCTS,
+                &not_products
+            )),
+            Vec::new()
+        );
+    }
+
+    /// The exclusion is matched in the crawler's spelling of the URL, with or without the
+    /// trailing slash, as the pattern is.
+    #[test]
+    fn should_match_the_exclusion_in_either_trailing_slash_spelling() {
+        let not_products = [NOT_PRODUCTS[0], NOT_PRODUCTS[1], GIFT_CARD];
+
+        assert_eq!(
+            url_checks(&labelled(
+                excluding("/item/[^/]+$", "gift-card/$"),
+                &PRODUCTS,
+                &not_products
+            )),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn should_refuse_an_exclusion_that_takes_a_url_labelled_product() {
+        let candidate = labelled(
+            excluding("/item/[^/]+$", "oak-chair|pine-table"),
+            &PRODUCTS,
+            &NOT_PRODUCTS,
+        );
+
+        assert_eq!(
+            url_checks(&candidate),
+            vec![FailedApprovalCheck::ProductLabelNotMatched {
+                urls: PRODUCTS[..2].iter().map(|url| (*url).to_owned()).collect(),
+            }]
+        );
+    }
+
+    /// A page the exclusion takes is not one the pattern takes: an exclusion that removes the
+    /// shop's product URLs leaves the pattern as narrow as one that never matched them.
+    #[test]
+    fn should_count_only_the_urls_the_pattern_takes_and_the_exclusion_does_not_as_taken() {
+        let narrow = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
+        let excluded = labelled(
+            excluding("/(item|clocks/barometers)/[^/]+$", "/barometers/"),
+            &PRODUCTS,
+            &NOT_PRODUCTS,
+        );
+        let sample = shop_sample(10, true);
+        let checks = |candidate| {
+            url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample)
+        };
+
+        assert!(matches!(
+            checks(&excluded).as_slice(),
+            [FailedApprovalCheck::PatternTooNarrow { matched: 6, .. }]
+        ));
+        assert_eq!(checks(&excluded), checks(&narrow));
+    }
+
     /// `NO_PATTERN` takes no URL, so labelled products always refuse it: a human decides it.
     #[test]
     fn should_refuse_no_pattern_against_urls_labelled_product() {
@@ -1133,6 +1951,26 @@ mod tests {
             }))
         );
         assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::NoSoldPageTested {
+                states_seen: vec![SeenState {
+                    url: "https://antiques.example/products/chair".to_owned(),
+                    state: "Sold".to_owned(),
+                    resolves_to: None,
+                    mentions: Some("SOLD_OUT"),
+                }],
+            })
+            .ok(),
+            Some(serde_json::json!({
+                "check": "NO_SOLD_PAGE_TESTED",
+                "states_seen": [{
+                    "url": "https://antiques.example/products/chair",
+                    "state": "Sold",
+                    "resolves_to": null,
+                    "mentions": "SOLD_OUT",
+                }],
+            }))
+        );
+        assert_eq!(
             serde_json::to_value(FailedApprovalCheck::LiveMatrixMissing).ok(),
             Some(serde_json::json!({ "check": "LIVE_MATRIX_MISSING" }))
         );
@@ -1152,6 +1990,24 @@ mod tests {
                 "product": 1,
                 "not_product": 0,
                 "minimum": 3,
+            }))
+        );
+        assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::PatternTooNarrow {
+                matched: 6,
+                sample_total: 20,
+                product_pages: 10,
+                inspected: 10,
+                unmatched_product_pages: vec!["https://antiques.example/b/1".to_owned()],
+            })
+            .ok(),
+            Some(serde_json::json!({
+                "check": "PATTERN_TOO_NARROW",
+                "matched": 6,
+                "sample_total": 20,
+                "product_pages": 10,
+                "inspected": 10,
+                "unmatched_product_pages": ["https://antiques.example/b/1"],
             }))
         );
         assert_eq!(

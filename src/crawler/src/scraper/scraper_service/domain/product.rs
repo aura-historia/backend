@@ -1,6 +1,7 @@
 use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
 use crate::scraper::scraper_service::domain::errors::ScraperError;
 use crate::scraper::scraper_service::html_fetcher::DomainFetchStats;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use listing_source_core::ListingSourceId;
 use product_listing_normalization::ProductListingNormalizationInput;
 use std::cell::RefCell;
@@ -71,7 +72,7 @@ pub struct ScrapeRequest {
     /// Title captured by the last successful scrape of this URL, when known. It stands in for
     /// a title the page later leaves blank, so the change the page still shows is captured.
     pub last_captured_title: Option<String>,
-    pub product_url_pattern: Option<String>,
+    pub product_url_pattern: Option<ProductUrlPattern>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,

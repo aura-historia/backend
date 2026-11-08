@@ -5,7 +5,8 @@ use crawler::review::model::{
 };
 use crawler::review::readers::ListingSourceOverviewReader;
 use crawler::review::repository::{
-    CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
+    CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewPlacement,
+    ReviewRepositoryError,
 };
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
@@ -1495,6 +1496,56 @@ async fn should_add_a_missing_value_page_to_the_pending_review_and_need_live_sch
             .unwrap_err(),
         ReviewRepositoryError::NotMissingValuePage(_)
     ));
+}
+
+/// The first page of a ListingSource that left a value blank opens the `missing_required_value`
+/// review; the next one joins it, so the scraper's log line says which of the two happened.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_tell_whether_a_scraped_missing_value_page_opened_or_joined_the_review() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, earlier) = pending_schema_review(&pool).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET status = 'REJECTED', reviewed = NOW() WHERE review_id = $1",
+    )
+    .bind(earlier.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(json!([schema()]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let first = repository
+        .open_or_join_review_for_scraped_missing_value_page(
+            &listing_source_id,
+            &url("https://www.example.com/products/untitled-1"),
+            PRODUCT_HTML,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let second = repository
+        .open_or_join_review_for_scraped_missing_value_page(
+            &listing_source_id,
+            &url("https://www.example.com/products/untitled-2"),
+            PRODUCT_HTML,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let ReviewPlacement::Opened(opened) = first else {
+        panic!("the first page opens the review: {first:?}");
+    };
+    assert_eq!(second, ReviewPlacement::Joined(opened));
+    assert_ne!(opened, earlier);
 }
 
 /// The overview counts exactly the pages the console lists: a URL retired as `DUPLICATE` keeps

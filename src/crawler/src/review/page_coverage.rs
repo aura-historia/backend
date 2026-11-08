@@ -21,7 +21,8 @@ pub enum IncompleteCoverage {
     Acknowledged(ReviewPageCoverage),
 }
 
-/// The review pages the candidate resolves, out of all the review's pages: a page is covered when
+/// The review pages the candidate resolves, out of the review's product pages (those not marked as
+/// no product page): a page is covered when
 /// the candidate's removed-page templates capture it as removed, or else when at least one
 /// candidate schema applies to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,15 +38,16 @@ pub struct ReviewPageCoverage {
 
 impl ReviewPageCoverage {
     /// The coverage of the review's `pages` by its stored `matrix`, `None` when it stores none
-    /// that decodes. Only the review's current pages count, each once.
+    /// that decodes. Only the review's current product pages count, each once.
     pub fn of(matrix: Option<&SchemaMatrix>, pages: &[CrawlerReviewPage]) -> Self {
+        let coverages = page_coverages(matrix, pages);
         let mut coverage = Self {
             covered: 0,
             removed: 0,
-            total: pages.len(),
+            total: coverages.len(),
             not_evaluated: 0,
         };
-        for (_, page_coverage) in page_coverages(matrix, pages) {
+        for (_, page_coverage) in coverages {
             match page_coverage {
                 PageCoverage::NotEvaluated => coverage.not_evaluated += 1,
                 PageCoverage::CapturedAsRemoved => {
@@ -111,14 +113,16 @@ pub enum PageCoverage {
     NotCovered,
 }
 
-/// Each of the review's `pages` with what its stored `matrix` shows for it, in page order;
-/// every page is [`PageCoverage::NotEvaluated`] without a matrix.
+/// Each of the review's product `pages` with what its stored `matrix` shows for it, in page order;
+/// every page is [`PageCoverage::NotEvaluated`] without a matrix. A page marked as no product page
+/// is no page of the coverage: the matrix does not evaluate it and approval never needs it covered.
 pub fn page_coverages<'a>(
     matrix: Option<&SchemaMatrix>,
     pages: &'a [CrawlerReviewPage],
 ) -> Vec<(&'a CrawlerReviewPage, PageCoverage)> {
     pages
         .iter()
+        .filter(|page| !page.is_marked_not_product())
         .map(|page| (page, page_coverage(matrix, page)))
         .collect()
 }
@@ -242,6 +246,7 @@ mod tests {
             role: page.role.clone(),
             html_hash: String::new(),
             fetched: time::OffsetDateTime::now_utc(),
+            not_product_reason: None,
         }
     }
 

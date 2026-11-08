@@ -1,9 +1,11 @@
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    CrawlerReviewPage, MatchedRemovedPageTemplate, RemovedPageTemplateMatch,
+    CrawlerReviewPage, MatchedRemovedPageTemplate, PriceTextOnState, RemovedPageTemplateMatch,
     RemovedPageTemplateOutcome, SchemaCandidateEvaluation, SchemaMatrix, SchemaPageEvaluation,
     SchemaPageReference, SchemaReviewPageInput, SelectorFieldEvaluation,
 };
+use crate::review::page_content_checks::candidate_has_sold_state;
+use crate::review::page_signals::page_signals as signals_of_page;
 use crate::scraper::css_selector::product_schema::{
     ApplySchemaError, ProductCssSelectorSchema, RawExtractedProduct, SchemaExtraction,
 };
@@ -38,7 +40,8 @@ fn parse_page(raw_html: &str) -> Html {
 
 /// Evaluates the schemas and removed-page templates on the live review pages and on the live
 /// `url_pages` of the review's ListingSource that are no review pages, which the matrix refers to
-/// as inputs by their position. `captured_identities` maps a page URL to the source listing id its
+/// as inputs by their position. A review page marked as no product page is left out, so no check
+/// of the matrix counts it or compares it with the product pages. `captured_identities` maps a page URL to the source listing id its
 /// listing was captured under.
 pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     review_id: CrawlerReviewId,
@@ -48,15 +51,18 @@ pub(crate) fn evaluate_schema_matrix_for_live_review_pages(
     url_pages: &[SchemaReviewPageInput],
     captured_identities: &HashMap<String, String>,
 ) -> SchemaMatrix {
-    let review_pages = pages.iter().map(|(page, raw_html)| MatrixPage {
-        page_reference: SchemaPageReference::Persisted {
-            review_page_id: page.review_page_id,
-        },
-        url: &page.url,
-        role: &page.role,
-        raw_html,
-        captured_identity: captured_identities.get(&page.url).map(String::as_str),
-    });
+    let review_pages = pages
+        .iter()
+        .filter(|(page, _)| !page.is_marked_not_product())
+        .map(|(page, raw_html)| MatrixPage {
+            page_reference: SchemaPageReference::Persisted {
+                review_page_id: page.review_page_id,
+            },
+            url: &page.url,
+            role: &page.role,
+            raw_html,
+            captured_identity: captured_identities.get(&page.url).map(String::as_str),
+        });
     let url_pages = url_pages
         .iter()
         .enumerate()
@@ -108,8 +114,14 @@ fn evaluate_matrix(
         })
         .collect();
     let mut removed_page_matches = Vec::new();
+    let mut page_signals = Vec::with_capacity(pages.len());
     for page in pages {
         let html = parse_page(page.raw_html);
+        page_signals.push(signals_of_page(
+            page.page_reference.clone(),
+            page.url,
+            &html,
+        ));
         let mut page_evaluations: Vec<SchemaPageEvaluation> = schemas
             .iter()
             .map(|schema| evaluate_schema_page(schema, page, &html))
@@ -129,6 +141,7 @@ fn evaluate_matrix(
         review_id,
         candidates,
         removed_page_matches,
+        page_signals,
         live_evaluation: None,
     };
     evaluate_cross_page_findings(&mut matrix);
@@ -290,22 +303,34 @@ fn add_identity_agreement_findings(
 pub(crate) fn schema_matrix_deterministic_approval_ok(matrix: &SchemaMatrix) -> bool {
     schema_matrix_has_required_coverage(matrix)
         && optional_rules_missing_on_every_page(matrix).is_empty()
-        && implausible_page_evaluations(matrix).next().is_none()
+        && implausible_page_evaluations(matrix, PriceTextOnState::Blocks)
+            .next()
+            .is_none()
 }
 
 /// Every candidate's page evaluations whose failed per-page, cross-page or identity agreement
-/// checks block approval, each with its candidate's schema index. Deterministic approval refuses a matrix with
-/// any of them, and so does the review agent's [approval
-/// guard](crate::review::approval_guard), so the two refuse the same findings.
+/// checks block approval, each with its candidate's schema index and the price text rule that
+/// applied to it. Deterministic approval refuses a
+/// matrix with any of them, and so does the review agent's [approval
+/// guard](crate::review::approval_guard), except that the guard accepts price text in the `state`
+/// of a candidate whose `state` rule is a status slot (`price_text` is [`Accepted`]
+/// (PriceTextOnState::Accepted)).
 fn implausible_page_evaluations(
     matrix: &SchemaMatrix,
-) -> impl Iterator<Item = (usize, &SchemaPageEvaluation)> {
-    matrix.candidates.iter().flat_map(|candidate| {
+    price_text: PriceTextOnState,
+) -> impl Iterator<Item = (usize, &SchemaPageEvaluation, PriceTextOnState)> {
+    matrix.candidates.iter().flat_map(move |candidate| {
+        let price_text = match price_text {
+            PriceTextOnState::Accepted if candidate_has_sold_state(&candidate.pages) => {
+                PriceTextOnState::Accepted
+            }
+            _ => PriceTextOnState::Blocks,
+        };
         candidate
             .pages
             .iter()
-            .filter(|page| page.blocks_approval())
-            .map(move |page| (candidate.schema_index, page))
+            .filter(move |page| page.blocks_approval(price_text))
+            .map(move |page| (candidate.schema_index, page, price_text))
     })
 }
 
@@ -317,21 +342,22 @@ pub struct ImplausiblePage {
     pub page_reference: SchemaPageReference,
     pub url: String,
     pub role: String,
+    /// Only the per-page findings that block under the guard's decision: price text in the
+    /// `state` of a status slot is exempt, so it is not listed.
     pub plausibility_findings: PlausibilityFindings,
     pub cross_page_findings: CrossPageFindings,
     pub identity_agreement_findings: IdentityAgreementFindings,
 }
 
-/// The extractions deterministic approval refuses, as [`implausible_page_evaluations`] finds
-/// them.
+/// The extractions the approval guard refuses, as [`implausible_page_evaluations`] finds them.
 pub(crate) fn implausible_pages(matrix: &SchemaMatrix) -> Vec<ImplausiblePage> {
-    implausible_page_evaluations(matrix)
-        .map(|(schema_index, page)| ImplausiblePage {
+    implausible_page_evaluations(matrix, PriceTextOnState::Accepted)
+        .map(|(schema_index, page, price_text)| ImplausiblePage {
             schema_index,
             page_reference: page.page_reference.clone(),
             url: page.url.clone(),
             role: page.role.clone(),
-            plausibility_findings: page.plausibility_findings.clone(),
+            plausibility_findings: page.blocking_plausibility_findings(price_text),
             cross_page_findings: page.cross_page_findings.clone(),
             identity_agreement_findings: page.identity_agreement_findings.clone(),
         })
@@ -720,6 +746,7 @@ mod tests {
             role: page.role.clone(),
             html_hash: String::new(),
             fetched: time::OffsetDateTime::now_utc(),
+            not_product_reason: None,
         };
         (review_page, page.raw_html.clone())
     }
@@ -2220,6 +2247,7 @@ mod tests {
                 role: PAGE_ROLE_PRIMARY.to_owned(),
                 html_hash: String::new(),
                 fetched: time::OffsetDateTime::now_utc(),
+                not_product_reason: None,
             };
             let captured = HashMap::from([(SOLD_URL.to_owned(), "53036".to_owned())]);
 

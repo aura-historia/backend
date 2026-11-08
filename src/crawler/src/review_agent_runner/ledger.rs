@@ -6,7 +6,7 @@
 //! at the start of a run.
 
 use super::envelope::{ProcessLimit, TokenUsage, UsageLimitKind};
-use super::reports::AgentReport;
+use super::reports::{AgentReport, TrailVerdict};
 use crate::CrawlerReviewId;
 use crate::review_mcp::AgentRole;
 use serde::{Deserialize, Serialize};
@@ -92,6 +92,12 @@ pub struct ProcessRecord {
     pub cost_charged: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<AgentReport>,
+    /// What the event trail recorded of a reviewer process, which the runner reads after it; what
+    /// happened to the verdict, where the report only claims the server's answer. `None` for an
+    /// author process, for a reviewer process whose trail the runner could not read, and for a
+    /// record written before the runner read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trail_verdict: Option<TrailVerdict>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -337,6 +343,7 @@ pub(super) mod tests {
             total_cost_usd: cost,
             cost_charged: false,
             report: None,
+            trail_verdict: None,
         }
     }
 

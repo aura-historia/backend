@@ -6,15 +6,17 @@
 //! no agent verdict is taken on a review that waits for a human, so no caller decides for an agent
 //! without them.
 
+use super::not_product_pages::retire_marked_pages;
 use super::rearm::rearm_pages_for_new_configuration;
 use super::rejected_pages::RejectedPages;
 use super::repair_rounds::refuse_agent_while_human_required;
 use super::review_events::{
     LiveUrlPattern, ProductSchemaApprovalRecord, ReviewMutation, UrlPatternApprovalRecord,
-    commit_with_event,
+    commit_with_event, has_no_sold_page_record,
 };
 use super::sample_labels::url_pattern_review_crawl_host;
 use super::schema_payload::ProductSchemaReviewCandidate;
+use super::url_pattern_sample::fetch_sample_urls;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages,
     listing_source_id_from_uuid, lock_live_product_schemas, persist_product_schemas,
@@ -33,10 +35,10 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use serde::Deserialize;
 use sqlx::Row;
 use std::num::NonZeroU32;
@@ -93,12 +95,14 @@ impl CrawlerReviewRepository {
                 if guarded {
                     let crawl_host =
                         url_pattern_review_crawl_host(&mut transaction, review_id).await?;
+                    let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
                         url_pattern_approval_checks(
                             &candidate,
                             &crawl_host,
                             self.agent_decisions.limits().min_labelled_urls,
+                            &sample,
                         ),
                     )?;
                 }
@@ -122,13 +126,15 @@ impl CrawlerReviewRepository {
                 let matrix = stored_schema_matrix(&review.validation_summary).and_then(Result::ok);
                 if guarded {
                     guard_agent_product_schema_approval(
+                        &mut transaction,
                         review_id,
                         &review,
                         &pages,
                         matrix.as_ref(),
                         &going_live.live,
                         self.agent_decisions.limits().max_matrix_age(),
-                    )?;
+                    )
+                    .await?;
                 }
                 let coverage = check_approval_coverage(
                     review_id,
@@ -149,10 +155,14 @@ impl CrawlerReviewRepository {
                     &configuration.approved_removed_page_schemas,
                 )
                 .await?;
+                let retired_not_product_urls =
+                    retire_marked_pages(&mut transaction, review_id, &review.listing_source_id)
+                        .await?;
                 ReviewMutation::ProductSchemasApproved {
                     notes: approval.notes,
                     coverage,
                     live_evaluation: matrix.and_then(|matrix| matrix.live_evaluation),
+                    retired_not_product_urls,
                     configuration,
                 }
             }
@@ -250,6 +260,44 @@ impl CrawlerReviewRepository {
         )
         .await?;
         info!(review_id = %review_id, actor = %actor, "Reviewer asked for a review to be repaired");
+        Ok(())
+    }
+}
+
+impl CrawlerReviewRepository {
+    /// Hands a pending review to a human at once: a review agent that cannot take the review
+    /// further, such as an author that has nothing to change on a candidate the reviewer already
+    /// judged, says why in `note`. The event trail keeps the note, and from then on the review
+    /// waits for a human exactly as one at the repair-round cap does, until a human changes or
+    /// judges it. It counts no needs-repair round, replaces no repair request and changes no
+    /// candidate.
+    pub async fn hand_to_human(
+        &self,
+        review_id: CrawlerReviewId,
+        actor: ReviewActor,
+        note: Option<&str>,
+    ) -> Result<(), ReviewRepositoryError> {
+        if !actor.is_agent() {
+            return Err(ReviewRepositoryError::OnlyAgentsHandOver);
+        }
+        let note = note
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .ok_or(ReviewRepositoryError::MissingHandoverNote)?;
+        let mut transaction = self.pool.begin().await?;
+        lock_review_for_verdict(&mut transaction, review_id, actor, &self.agent_decisions).await?;
+        sqlx::query("UPDATE crawler_reviews SET updated = NOW() WHERE review_id = $1")
+            .bind(review_id.as_uuid())
+            .execute(&mut *transaction)
+            .await?;
+        commit_with_event(
+            transaction,
+            review_id,
+            actor,
+            ReviewMutation::HandedToHuman { note },
+        )
+        .await?;
+        info!(review_id = %review_id, actor = %actor, "Review agent handed a review to a human");
         Ok(())
     }
 }
@@ -364,7 +412,8 @@ fn agent_decision_wait(seconds_left: &[f64], limit: NonZeroU32) -> Option<Durati
 /// Refuses a review agent's approval of a product-schema review that fails a check of the
 /// [approval guard](crate::review::approval_guard), against what approval would make live now
 /// and the review's current pages.
-fn guard_agent_product_schema_approval(
+async fn guard_agent_product_schema_approval(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     review: &ReviewUnderVerdict,
     pages: &[CrawlerReviewPage],
@@ -373,6 +422,7 @@ fn guard_agent_product_schema_approval(
     max_matrix_age: Duration,
 ) -> Result<(), ReviewRepositoryError> {
     let configuration_sha256 = going_live.fingerprint()?;
+    let no_sold_page_recorded = has_no_sold_page_record(&mut **transaction, review_id).await?;
     refuse_failed_checks(
         review_id,
         product_schema_approval_checks(
@@ -381,6 +431,7 @@ fn guard_agent_product_schema_approval(
                 candidate_version: review.candidate_version,
                 configuration_sha256: &configuration_sha256,
                 pages,
+                no_sold_page_recorded,
             },
             OffsetDateTime::now_utc(),
             max_matrix_age,
@@ -451,7 +502,13 @@ async fn make_reviewed_url_pattern_live(
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let replaced = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
     let approved = LiveUrlPattern {
-        url_pattern: pattern.map(str::to_owned),
+        url_pattern: pattern
+            .as_ref()
+            .map(|pattern| pattern.include_source().to_owned()),
+        url_pattern_exclude: pattern
+            .as_ref()
+            .and_then(|pattern| pattern.exclude_source())
+            .map(str::to_owned),
         url_pattern_state: if pattern.is_some() {
             "MATCHED"
         } else {
@@ -483,15 +540,17 @@ pub(super) async fn lock_live_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<LiveUrlPattern, ReviewRepositoryError> {
-    let (url_pattern, url_pattern_state) = sqlx::query_as::<_, (Option<String>, String)>(
-        "SELECT url_pattern, url_pattern_state FROM listing_sources \
+    let (url_pattern, url_pattern_exclude, url_pattern_state) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+            "SELECT url_pattern, url_pattern_exclude, url_pattern_state FROM listing_sources \
          WHERE listing_source_id = $1 FOR UPDATE",
-    )
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .fetch_one(&mut **transaction)
-    .await?;
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_one(&mut **transaction)
+        .await?;
     Ok(LiveUrlPattern {
         url_pattern,
+        url_pattern_exclude,
         url_pattern_state,
     })
 }
@@ -506,11 +565,13 @@ pub(super) async fn make_url_pattern_live(
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = $2, url_pattern_state = $3 \
+        "UPDATE listing_sources \
+         SET url_pattern = $2, url_pattern_exclude = $3, url_pattern_state = $4 \
          WHERE listing_source_id = $1",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(decision.url_pattern.as_deref())
+    .bind(decision.url_pattern_exclude.as_deref())
     .bind(&decision.url_pattern_state)
     .execute(&mut **transaction)
     .await?;
@@ -769,7 +830,7 @@ pub(super) async fn release_work_waiting_on(
 async fn reclassify_source_urls(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
-    pattern: Option<&Regex>,
+    pattern: Option<&ProductUrlPattern>,
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     let stored = sqlx::query_as::<_, (String, String)>(

@@ -9,6 +9,7 @@ use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
 use product_listing_core::source_listing_id::SourceListingId;
+use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashSet;
@@ -123,12 +124,15 @@ pub enum PlausibilityCheck {
     InvalidIdentifier,
     /// A list of names, such as a class attribute or a phrase, rather than one identifier.
     WordList,
+    /// An amount with a currency, where a label of availability or a cart or enquiry action is
+    /// expected: a `state` rule that reads a price element.
+    PriceText,
 }
 
 impl PlausibilityCheck {
     /// Every check, so tests can pin how the review console names each code.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Blank,
         Self::TooLong,
         Self::AllZeroDigits,
@@ -136,6 +140,7 @@ impl PlausibilityCheck {
         Self::DuplicateValues,
         Self::InvalidIdentifier,
         Self::WordList,
+        Self::PriceText,
     ];
 
     /// How the reason of a rejection and the review console describe the check.
@@ -148,6 +153,7 @@ impl PlausibilityCheck {
             Self::DuplicateValues => "repeats a value",
             Self::InvalidIdentifier => "is not a valid source listing id",
             Self::WordList => "is a list of words, not an identifier",
+            Self::PriceText => "is a price, not an availability label",
         }
     }
 }
@@ -182,6 +188,9 @@ impl PlausibilityFinding {
             SourceListingId, State, Title,
         };
         match (&self.field, self.check) {
+            // Live schemas that read a price element keep capturing; the matrix shows the finding
+            // and `blocks_approval` keeps such a candidate out of approval.
+            (State, PlausibilityCheck::PriceText) => PlausibilityImpact::ReportOnly,
             (_, MarkupTokens) | (Title | State, _) | (SourceListingId, InvalidIdentifier) => {
                 PlausibilityImpact::RejectsCandidate
             }
@@ -190,6 +199,15 @@ impl PlausibilityFinding {
             }
             (SourceListingId | Description | RawAttribute(_), _) => PlausibilityImpact::ReportOnly,
         }
+    }
+
+    /// Whether the finding is price text in a `state`, which a review agent's approval accepts on
+    /// a status slot (see `PriceTextOnState`).
+    pub fn is_price_text_on_state(&self) -> bool {
+        matches!(
+            (&self.field, self.check),
+            (PlausibilityField::State, PlausibilityCheck::PriceText)
+        )
     }
 
     /// Whether the finding keeps a schema out of approval, deterministic and a review agent's.
@@ -293,6 +311,17 @@ impl PlausibilityFindings {
     /// [`PlausibilityFinding::blocks_approval`] decides.
     pub fn blocks_approval(&self) -> bool {
         self.0.iter().any(|finding| finding.blocks_approval())
+    }
+
+    /// The findings that satisfy `keep`, in their order.
+    pub fn retaining(&self, keep: impl Fn(&PlausibilityFinding) -> bool) -> Self {
+        Self(
+            self.0
+                .iter()
+                .filter(|finding| keep(finding))
+                .cloned()
+                .collect(),
+        )
     }
 
     /// The number of findings that lower a candidate's rank.
@@ -447,10 +476,67 @@ fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
     if state.trim().is_empty() {
         return vec![PlausibilityCheck::Blank];
     }
-    [length_check(state), markup_check(state)]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        length_check(state),
+        markup_check(state),
+        price_text_check(state),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// A `state` that names an amount with its currency, such as "£ 1,800 plus VAT" or "Price £113".
+/// Availability labels carry no currency marker, and a bare quantity such as "2 in stock" or
+/// "Only 1 left" has none either. A value that also carries a status label, such as "Sold for
+/// £500", is a status, and one that carries a cart or enquiry action, such as a button that reads
+/// "Add to cart £45", is the action the `state` contract allows where a page shows no label: a
+/// selector cannot take the action's words without the amount the shop prints beside them.
+fn price_text_check(state: &str) -> Option<PlausibilityCheck> {
+    let cart_or_enquiry_action = regex!(
+        r"(?i)\b(?:add to (?:cart|basket|bag)|buy|enquire|inquire|make an offer|in (?:den )?warenkorb|in (?:de )?winkel(?:wagen|mand)|ajouter au panier)\b"
+    );
+    (is_price_text(state)
+        && !cart_or_enquiry_action.is_match(state)
+        && !is_status_label_beside_amount(state))
+    .then_some(PlausibilityCheck::PriceText)
+}
+
+/// Whether the ProductListing normalization resolves `state`, or what is left of it once the
+/// amount and its connectors are taken away ("Sold for £500" leaves "Sold"), to an availability.
+/// The labels are the normalization's, so the exemption cannot drift from what it resolves;
+/// the cart and enquiry actions it does not resolve stay with the caller.
+fn is_status_label_beside_amount(state: &str) -> bool {
+    let amount_and_connectors = regex!(
+        r"(?i)[£€$¥₹₩₽₺₪]|\b\d[\d.,]*\b|\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?|for|at|from)\b|[()\-–—:]"
+    );
+    let resolves = |text: &str| {
+        quick_check_availability(text)
+            .ok()
+            .and_then(ListingAvailabilityQuickCheck::availability)
+            .is_some()
+    };
+    resolves(state) || resolves(&amount_and_connectors.replace_all(state, " "))
+}
+
+/// Whether `text` names an amount with its currency, such as "£ 1,800 plus VAT", "Price £113" or
+/// "Sold for £500": the amount detector of the `state` check, which the review's page signals
+/// reuse to tell that a page shows a price. Unlike the `state` check it ignores status labels,
+/// because a price element that says "Sold for £500" still shows a price.
+pub(crate) fn is_price_text(text: &str) -> bool {
+    let symbol_before = regex!(r"[£€$¥₹₩₽₺₪]\s*\d");
+    let symbol_after = regex!(r"\d\s*[£€$¥₹₩₽₺₪]");
+    let code_before =
+        regex!(r"(?i)\b(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron)\s*\d");
+    let code_or_word_after = regex!(
+        r"(?i)\d\s*(?:eur|gbp|usd|chf|jpy|cad|aud|nzd|sek|nok|dkk|pln|czk|huf|ron|euros?|pounds?|dollars?)\b"
+    );
+    let labelled = regex!(r"(?i)\b(?:price|prijs|preis|prix|precio|prezzo)\b\W{0,3}\d");
+    symbol_before.is_match(text)
+        || symbol_after.is_match(text)
+        || code_before.is_match(text)
+        || code_or_word_after.is_match(text)
+        || labelled.is_match(text)
 }
 
 /// Compares the primary candidate of each ordered image candidate group, so the same
@@ -562,7 +648,8 @@ fn skip_identifier(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::PlausibilityCheck::{
-        AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, TooLong, WordList,
+        AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, PriceText, TooLong,
+        WordList,
     };
     use super::PlausibilityField::{
         Description, Images, Price, PriceEstimateMax, RawAttribute, SourceListingId, State, Title,
@@ -781,6 +868,85 @@ mod tests {
 
             assert_eq!(findings.as_slice(), [finding(State, TooLong)]);
             assert!(findings.rejects_candidate());
+        }
+
+        #[test]
+        fn should_report_a_state_that_reads_a_price() {
+            for price in [
+                "£ 1,800 plus VAT",
+                "€ 75",
+                "Price £113",
+                "$4,800",
+                "1.250,00 EUR",
+                "GBP 265",
+                "75 euro",
+                "Prijs: 95",
+            ] {
+                let mut raw = plausible();
+                raw.state = price.to_owned();
+
+                let findings = PlausibilityFindings::of(&raw);
+
+                assert_eq!(findings.as_slice(), [finding(State, PriceText)], "{price}");
+            }
+        }
+
+        #[test]
+        fn should_take_a_status_label_or_a_cart_action_next_to_a_price_for_a_state() {
+            for state in [
+                "Sold for £500",
+                "In stock £45",
+                "Verkocht - € 75",
+                "Reserved £1,200",
+                "Gereserveerd € 450",
+                "Vendu 300 EUR",
+                "Add to cart £45.00",
+                "Buy now - £1,800",
+                "Enquire about this item (£450)",
+                "In winkelwagen € 95",
+            ] {
+                let mut raw = plausible();
+                raw.state = state.to_owned();
+
+                assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
+            }
+        }
+
+        #[test]
+        fn should_report_price_text_in_a_state_without_rejecting_the_candidate() {
+            let mut raw = plausible();
+            raw.state = "Price: £795".to_owned();
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(findings.as_slice(), [finding(State, PriceText)]);
+            assert!(!findings.rejects_candidate());
+            assert!(findings.blocks_approval());
+        }
+
+        #[test]
+        fn should_accept_availability_labels_quantities_and_cart_or_enquiry_actions_as_state() {
+            for state in [
+                "Sold",
+                "POA",
+                "Price on application",
+                "Reserved",
+                "In stock",
+                "Only 1 left",
+                "2 in stock",
+                "Verkocht",
+                "https://schema.org/InStock",
+                "Add to cart",
+                "Buy this piece",
+                "Enquire by Email",
+                "I'd like to buy this",
+                "Enquire or Make an Offer",
+            ] {
+                let mut raw = plausible();
+                raw.state = state.to_owned();
+
+                assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
+            }
         }
 
         #[test]

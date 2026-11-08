@@ -5,6 +5,7 @@
 //! observe a later removal or restock. Page and schema hashes avoid needless extraction; the shared raw
 //! normalization-input hash avoids needless operational raw captures.
 
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
@@ -32,7 +33,7 @@ pub struct ScraperCandidate {
     /// The host the ListingSource is crawled on (`docs/crawler/README.md#listingsource-scope`).
     pub crawl_host: String,
     pub listing_source_name: String,
-    pub url_pattern: Option<String>,
+    pub url_pattern: Option<ProductUrlPattern>,
     pub url: Url,
     /// Stable raw-stream identity retained when the crawler URL moves.
     pub source_record_key: String,
@@ -604,6 +605,7 @@ struct ScraperCandidateRow {
     listing_source_name: String,
 
     url_pattern: Option<String>,
+    url_pattern_exclude: Option<String>,
     url: String,
     source_record_key: String,
     last_scraped_hash: Option<String>,
@@ -681,7 +683,7 @@ macro_rules! eligible_scraper_urls_cte {
     WITH eligible_urls AS (
         SELECT
             su.listing_source_id, s.crawl_host,
-            s.listing_source_name, s.url_pattern, su.url,
+            s.listing_source_name, s.url_pattern, s.url_pattern_exclude, su.url,
             su.raw_source_record_key AS source_record_key,
             su.last_scraped,
             su.last_scraped_hash,
@@ -745,7 +747,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
     )
     SELECT
         listing_source_id, crawl_host, listing_source_name,
-        url_pattern, url,
+        url_pattern, url_pattern_exclude, url,
         source_record_key,
         last_scraped_hash,
         last_scraped_schema_fingerprint,
@@ -830,7 +832,12 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
                 crawl_host: row.crawl_host,
                 listing_source_name: row.listing_source_name,
-                url_pattern: row.url_pattern,
+                url_pattern: ProductUrlPattern::from_stored(
+                    row.url_pattern.as_deref(),
+                    row.url_pattern_exclude.as_deref(),
+                )
+                .ok()
+                .flatten(),
                 url,
                 source_record_key: row.source_record_key,
                 last_scraped_hash: row.last_scraped_hash,

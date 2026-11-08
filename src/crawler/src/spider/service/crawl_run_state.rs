@@ -1,4 +1,4 @@
-use regex::Regex;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use std::collections::HashSet;
 
 use crate::CrawlerReviewId;
@@ -46,7 +46,7 @@ impl CrawlRunState {
         self.challenged_pages > self.total_crawled.saturating_sub(self.challenged_pages)
     }
 
-    pub fn new(pattern: Option<Regex>) -> Self {
+    pub fn new(pattern: Option<ProductUrlPattern>) -> Self {
         let pattern = pattern
             .map(ProductListingPattern::from)
             .unwrap_or(ProductListingPattern::Unknown);

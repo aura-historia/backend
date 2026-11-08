@@ -3,9 +3,9 @@
 //! with the classifier the authoring mode selects.
 
 use crate::authoring::CrawlerAuthoringMode;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_metadata::UrlClass;
 use crate::spider::utils::url::CrawledUrl;
-use regex::Regex;
 use url::Url;
 
 /// How the crawler classifies a URL: by the ListingSource's product pattern and, for the URLs it
@@ -36,7 +36,7 @@ impl UrlClassifier {
 
     /// The class of the stored URL `raw_url` under the ListingSource's product `pattern`, or
     /// `other` for a URL that does not parse.
-    pub fn classify(self, raw_url: &str, pattern: Option<&Regex>) -> UrlClass {
+    pub fn classify(self, raw_url: &str, pattern: Option<&ProductUrlPattern>) -> UrlClass {
         let Ok(url) = Url::parse(raw_url) else {
             return UrlClass::Other;
         };
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn should_classify_product_when_pattern_matches_for_type() {
-        let pattern = Regex::new(r"/product/").unwrap();
+        let pattern = ProductUrlPattern::parse(r"/product/").unwrap();
 
         let class = KEYWORDS.classify("https://example.com/product/42", Some(&pattern));
 
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn should_classify_other_when_url_does_not_parse() {
-        let pattern = Regex::new(r"/product/").unwrap();
+        let pattern = ProductUrlPattern::parse(r"/product/").unwrap();
 
         for classifier in [
             UrlClassifier::PatternAndKeywords,
@@ -107,7 +107,7 @@ mod tests {
     /// reads as nothing until a pattern is approved, and then only as products and the rest.
     #[test]
     fn should_leave_every_url_the_pattern_does_not_take_unclassified_by_the_pattern_alone() {
-        let pattern = Regex::new(r"/item/[^/]+$").unwrap();
+        let pattern = ProductUrlPattern::parse(r"/item/[^/]+$").unwrap();
         let urls = [
             "https://antique-shop.example/item/oak-chair",
             "https://antique-shop.example/category/chairs",
@@ -139,6 +139,41 @@ mod tests {
             UrlClass::Category,
             "the keywords read the shop's domain as a category"
         );
+    }
+
+    /// A gift card or a service has the product URL shape: the exclusion takes it out of the
+    /// pattern, and it is classified as it would be with no pattern match, by either classifier.
+    #[test]
+    fn should_classify_a_url_the_exclusion_takes_as_one_the_pattern_does_not_match() {
+        let pattern = ProductUrlPattern::parse(r"/products/[^/]+$")
+            .and_then(|pattern| pattern.with_exclude(Some("gift-card|-service$")))
+            .unwrap();
+        let classify = |classifier: UrlClassifier, url: &str| {
+            (
+                classifier.classify(url, Some(&pattern)),
+                classifier.classify(url, None),
+            )
+        };
+
+        for classifier in [
+            UrlClassifier::PatternAndKeywords,
+            UrlClassifier::PatternOnly,
+        ] {
+            for url in [
+                "https://shop.example/products/the-antique-ring-shop-gift-card",
+                "https://shop.example/products/ring-re-size-service",
+                "https://shop.example/products/ring-re-size-service/",
+            ] {
+                let (excluded, unmatched) = classify(classifier, url);
+                assert_eq!(excluded, unmatched, "{classifier:?} {url}");
+                assert_ne!(excluded, UrlClass::ProductListing, "{classifier:?} {url}");
+            }
+            assert_eq!(
+                classify(classifier, "https://shop.example/products/antique-ring").0,
+                UrlClass::ProductListing,
+                "{classifier:?}"
+            );
+        }
     }
 
     #[test]
