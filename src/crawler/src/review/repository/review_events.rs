@@ -10,7 +10,9 @@ use crate::review::model::{
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPattern, ProductUrlPatternError,
+};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -122,18 +124,21 @@ pub(super) enum ReviewMutation<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct LiveUrlPattern {
     pub(super) url_pattern: Option<String>,
+    /// The exclusion of the pattern, kept out of the event when the pattern has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) url_pattern_exclude: Option<String>,
     pub(super) url_pattern_state: String,
 }
 
 impl LiveUrlPattern {
     /// The pattern that classifies the source's URLs as products: only a `MATCHED` decision has
     /// one.
-    pub(super) fn live_pattern(&self) -> Result<Option<ProductUrlPattern>, regex::Error> {
-        self.url_pattern
-            .as_deref()
-            .filter(|_| self.url_pattern_state == "MATCHED")
-            .map(ProductUrlPattern::parse)
-            .transpose()
+    pub(super) fn live_pattern(&self) -> Result<Option<ProductUrlPattern>, ProductUrlPatternError> {
+        let matched = self.url_pattern_state == "MATCHED";
+        ProductUrlPattern::from_stored(
+            self.url_pattern.as_deref().filter(|_| matched),
+            self.url_pattern_exclude.as_deref(),
+        )
     }
 }
 
@@ -411,10 +416,12 @@ mod tests {
         UrlPatternApprovalRecord {
             replaced_url_pattern: LiveUrlPattern {
                 url_pattern: None,
+                url_pattern_exclude: None,
                 url_pattern_state: "UNKNOWN".to_owned(),
             },
             approved_url_pattern: LiveUrlPattern {
                 url_pattern: Some("/item/".to_owned()),
+                url_pattern_exclude: None,
                 url_pattern_state: "MATCHED".to_owned(),
             },
         }
@@ -564,6 +571,7 @@ mod tests {
                     restored_event_id: event_id,
                     replaced_url_pattern: LiveUrlPattern {
                         url_pattern: Some("/item/".to_owned()),
+                        url_pattern_exclude: None,
                         url_pattern_state: "MATCHED".to_owned(),
                     },
                 },

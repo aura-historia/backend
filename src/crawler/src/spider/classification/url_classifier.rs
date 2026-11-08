@@ -141,6 +141,41 @@ mod tests {
         );
     }
 
+    /// A gift card or a service has the product URL shape: the exclusion takes it out of the
+    /// pattern, and it is classified as it would be with no pattern match, by either classifier.
+    #[test]
+    fn should_classify_a_url_the_exclusion_takes_as_one_the_pattern_does_not_match() {
+        let pattern = ProductUrlPattern::parse(r"/products/[^/]+$")
+            .and_then(|pattern| pattern.with_exclude(Some("gift-card|-service$")))
+            .unwrap();
+        let classify = |classifier: UrlClassifier, url: &str| {
+            (
+                classifier.classify(url, Some(&pattern)),
+                classifier.classify(url, None),
+            )
+        };
+
+        for classifier in [
+            UrlClassifier::PatternAndKeywords,
+            UrlClassifier::PatternOnly,
+        ] {
+            for url in [
+                "https://shop.example/products/the-antique-ring-shop-gift-card",
+                "https://shop.example/products/ring-re-size-service",
+                "https://shop.example/products/ring-re-size-service/",
+            ] {
+                let (excluded, unmatched) = classify(classifier, url);
+                assert_eq!(excluded, unmatched, "{classifier:?} {url}");
+                assert_ne!(excluded, UrlClass::ProductListing, "{classifier:?} {url}");
+            }
+            assert_eq!(
+                classify(classifier, "https://shop.example/products/antique-ring").0,
+                UrlClass::ProductListing,
+                "{classifier:?}"
+            );
+        }
+    }
+
     #[test]
     fn should_classify_by_the_pattern_alone_only_in_agent_mode() {
         for mode in CrawlerAuthoringMode::ALL {

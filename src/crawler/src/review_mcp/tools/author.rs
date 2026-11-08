@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 const EVALUATE_CANDIDATE: &str = "Test a product-schema candidate before you stage it, without storing anything: the console fetches the review's pages and up to four further `urls` of the review's ListingSource live, at the shop's crawl delay, and evaluates on them what approving this candidate would make live. The answer has the matrix refresh_matrix answers; pages from `urls` are named by input_index, their position in `urls`. Use it to test every candidate on sold, price-on-application and photo-less pages of the shop before update_candidate. schemas is the whole schema list; removed_page_schemas, when given, replaces the candidate's removed-page templates, otherwise the stored ones are evaluated. The candidate is checked like an edit (INVALID_REQUEST names what is wrong), a URL off the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE, and on a review with human_required true the evaluation is refused with CONFLICT and reason HUMAN_REQUIRED before anything is fetched. An evaluation is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. Waits while the console fetches and answers STILL_RUNNING after 15 minutes. When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is.";
 
-const UPDATE_CANDIDATE: &str = "Stage a whole candidate on a pending review, replacing the current one. For a PRODUCT_SCHEMA review give kind PRODUCT_SCHEMA with the whole `schemas` list (add, change, reorder or drop schemas here; every core field rule needs selector and type, raw attributes only with keys of the raw attribute registry) and optionally `removed_page_schemas`, which replaces the removed-page templates (left out, they stay; an empty list retires them all). For a URL_PATTERN review give kind URL_PATTERN with the decision: type PATTERN with a regex `value` that matches every URL labelled PRODUCT and no URL labelled NOT_PRODUCT (the spider matches it anywhere in the URL, with or without the URL's trailing slash, so anchor it as needed), or type NO_PATTERN for a ListingSource without product pages; its sample labels stay as label_sample_urls set them. expected_candidate_version is the candidate_version you read; when the review changed since, the edit is refused with CONFLICT and the current candidate_version: read the review again and redo the edit on its current candidate. Answers the new candidate_version. Any change drops the stored matrix: refresh_matrix afterwards.";
+const UPDATE_CANDIDATE: &str = "Stage a whole candidate on a pending review, replacing the current one. For a PRODUCT_SCHEMA review give kind PRODUCT_SCHEMA with the whole `schemas` list (add, change, reorder or drop schemas here; every core field rule needs selector and type, raw attributes only with keys of the raw attribute registry) and optionally `removed_page_schemas`, which replaces the removed-page templates (left out, they stay; an empty list retires them all). For a URL_PATTERN review give kind URL_PATTERN with the decision: type PATTERN with a regex `value` that matches every URL labelled PRODUCT and no URL labelled NOT_PRODUCT (the spider matches it anywhere in the URL, with or without the URL's trailing slash, so anchor it as needed), and optionally a regex `exclude` for the few non-items that share the product URL shape, such as gift cards, vouchers, services or the dealer's own profile page: a URL is a product URL when it matches `value` and does not match `exclude`, which is matched anywhere in the URL like `value` (the regex engine has no lookahead, so exclude them here instead of writing slug-prefix tricks into `value`; `exclude` must not match any URL labelled PRODUCT and must match or be missed by `value` for every URL labelled NOT_PRODUCT), or type NO_PATTERN for a ListingSource without product pages; its sample labels stay as label_sample_urls set them. expected_candidate_version is the candidate_version you read; when the review changed since, the edit is refused with CONFLICT and the current candidate_version: read the review again and redo the edit on its current candidate. Answers the new candidate_version. Any change drops the stored matrix: refresh_matrix afterwards.";
 
 const UPDATE_SCHEMA_FIELD: &str = "Change one rule of one schema of a pending product-schema review's candidate. schema_index is the schema's position in the candidate's schemas; field is a core field (source_listing_id, title, description, price, price_estimate_min, price_estimate_max, state, images) or `raw_attributes.<key>` with a key of the raw attribute registry; rule is the whole new rule, or null to delete an optional rule (title, state and images cannot be deleted). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT and the current candidate_version. Answers the new candidate_version. The change drops the stored matrix: refresh_matrix afterwards.";
 
@@ -81,10 +81,18 @@ pub(super) enum CandidateArgument {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 pub(super) enum UrlPatternDecisionArgument {
-    /// A regex; a URL it matches anywhere is a product URL.
-    Pattern { value: String },
-    /// The ListingSource has no product pages.
-    NoPattern,
+    /// A regex `value`: a URL it matches anywhere is a product URL unless the optional regex
+    /// `exclude` matches it anywhere too.
+    Pattern {
+        value: String,
+        /// Takes the non-items that share the product URL shape (gift cards, vouchers, services,
+        /// the dealer's own profile page) out of `value`'s matches; left out, none is taken out.
+        #[serde(default)]
+        exclude: Option<String>,
+    },
+    /// The ListingSource has no product pages. A struct variant, so a stray key such as an
+    /// `exclude` is refused instead of ignored.
+    NoPattern {},
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -298,25 +306,33 @@ async fn update_candidate(
         }
         CandidateArgument::UrlPattern { decision } => {
             // The ListingSource's pattern when the review opened stays as the review stores it.
-            let current_pattern = match candidate_of(&review_detail(&context, review_id).await?)? {
-                wire::Candidate::UrlPattern(candidate) => candidate.current_pattern,
-                wire::Candidate::ProductSchema(_) => {
-                    return Err(ToolError::NotApplicable(
-                        "the review is a product-schema review; give kind PRODUCT_SCHEMA"
-                            .to_owned(),
-                    ));
-                }
-            };
+            let (current_pattern, current_exclude) =
+                match candidate_of(&review_detail(&context, review_id).await?)? {
+                    wire::Candidate::UrlPattern(candidate) => {
+                        (candidate.current_pattern, candidate.current_exclude)
+                    }
+                    wire::Candidate::ProductSchema(_) => {
+                        return Err(ToolError::NotApplicable(
+                            "the review is a product-schema review; give kind PRODUCT_SCHEMA"
+                                .to_owned(),
+                        ));
+                    }
+                };
             edit.insert(
                 "decision".to_owned(),
                 match decision {
-                    UrlPatternDecisionArgument::Pattern { value } => {
-                        json!({ "type": "PATTERN", "value": value })
+                    UrlPatternDecisionArgument::Pattern { value, exclude } => {
+                        let mut decision = json!({ "type": "PATTERN", "value": value });
+                        if let Some(exclude) = exclude {
+                            decision["exclude"] = json!(exclude);
+                        }
+                        decision
                     }
-                    UrlPatternDecisionArgument::NoPattern => json!({ "type": "NO_PATTERN" }),
+                    UrlPatternDecisionArgument::NoPattern {} => json!({ "type": "NO_PATTERN" }),
                 },
             );
             edit.insert("current_pattern".to_owned(), json!(current_pattern));
+            edit.insert("current_exclude".to_owned(), json!(current_exclude));
         }
     }
     candidate_changed(
@@ -585,6 +601,7 @@ mod tests {
         };
 
         assert!(update(json!({ "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/" } })).is_ok());
+        assert!(update(json!({ "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/", "exclude": "gift-card" } })).is_ok());
         assert!(
             update(json!({ "kind": "URL_PATTERN", "decision": { "type": "NO_PATTERN" } })).is_ok()
         );
@@ -592,6 +609,8 @@ mod tests {
         for candidate in [
             json!({ "kind": "URL_PATTERN", "decision": { "type": "UNDECIDED" } }),
             json!({ "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/" }, "sample_labels": [] }),
+            json!({ "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/", "excluding": "gift-card" } }),
+            json!({ "kind": "URL_PATTERN", "decision": { "type": "NO_PATTERN", "exclude": "gift-card" } }),
             json!({ "schemas": [] }),
         ] {
             assert!(update(candidate.clone()).is_err(), "{candidate}");

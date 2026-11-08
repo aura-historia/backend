@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use crate::review::page_coverage::IncompleteCoverage;
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPattern, ProductUrlPatternError,
+};
 use crate::spider::classification::url_classification_service::{
     UrlClassificationError, UrlClassificationService,
 };
@@ -26,7 +28,7 @@ pub enum UrlPatternServiceError {
     Repository(#[from] sqlx::Error),
 
     #[error(transparent)]
-    Regex(#[from] regex::Error),
+    Pattern(#[from] ProductUrlPatternError),
 
     #[error(transparent)]
     Classification(#[from] UrlClassificationError),
@@ -206,7 +208,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
         pattern: &ProductUrlPattern,
     ) -> Result<(), UrlPatternServiceError> {
         self.repository
-            .save_pattern(listing_source_id, Some(pattern.include_source()))
+            .save_pattern(listing_source_id, Some(pattern))
             .await?;
         Ok(())
     }
@@ -229,17 +231,19 @@ impl UrlPatternService for UrlPatternServiceImpl {
         let Some(record) = self.repository.find_pattern(listing_source_id).await? else {
             return Ok(None);
         };
-        Ok(match (record.url_pattern_state, record.url_pattern) {
-            (UrlPatternState::NoPattern, _) => Some(DecidedUrlPattern::NoPattern),
-            (UrlPatternState::Matched, Some(stored))
-                if crawl_pattern.is_none_or(|pattern| pattern.include_source() != stored) =>
-            {
-                Some(DecidedUrlPattern::Pattern(ProductUrlPattern::parse(
-                    &stored,
-                )?))
-            }
+        if record.url_pattern_state == UrlPatternState::NoPattern {
+            return Ok(Some(DecidedUrlPattern::NoPattern));
+        }
+        let stored = match record.url_pattern_state {
+            UrlPatternState::Matched => ProductUrlPattern::from_stored(
+                record.url_pattern.as_deref(),
+                record.url_pattern_exclude.as_deref(),
+            )?,
             _ => None,
-        })
+        };
+        Ok(stored
+            .filter(|stored| crawl_pattern.is_none_or(|pattern| !pattern.same_regexes(stored)))
+            .map(DecidedUrlPattern::Pattern))
     }
 
     #[tracing::instrument(
@@ -383,6 +387,54 @@ mod tests {
     use regex::Regex;
     use test_api::IntegrationTestService as _;
 
+    /// A stored pattern that differs from the crawl's only by its exclusion is a decision made
+    /// while the crawl ran.
+    #[tokio::test]
+    async fn should_read_a_changed_exclusion_as_a_decision_stored_during_the_crawl() {
+        let listing_source_id = ListingSourceId::new();
+        let mut repository = MockListingSourceUrlPatternRepository::new();
+        repository.expect_find_pattern().returning(move |_| {
+            Box::pin(async move {
+                Ok(Some(ListingSourceUrlPatternRecord {
+                    listing_source_id,
+                    url_pattern: Some("/item/".to_owned()),
+                    url_pattern_exclude: Some("gift-card".to_owned()),
+                    url_pattern_state: UrlPatternState::Matched,
+                    last_crawled: None,
+                }))
+            })
+        });
+        let service = UrlPatternServiceImpl::new(
+            Arc::new(repository),
+            UrlPatternAuthoring::Inferred {
+                classification_service: Box::new(MockUrlClassificationService::new()),
+                review_repository: None,
+                apply_directly: false,
+            },
+        );
+        let without_exclusion = ProductUrlPattern::parse("/item/").unwrap();
+        let with_exclusion = without_exclusion
+            .clone()
+            .with_exclude(Some("gift-card"))
+            .unwrap();
+
+        let changed = service
+            .decision_stored_during_crawl(&listing_source_id, Some(&without_exclusion))
+            .await
+            .unwrap();
+        let unchanged = service
+            .decision_stored_during_crawl(&listing_source_id, Some(&with_exclusion))
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            changed,
+            Some(DecidedUrlPattern::Pattern(pattern))
+                if pattern.exclude_source() == Some("gift-card")
+        ));
+        assert!(unchanged.is_none());
+    }
+
     #[tokio::test]
     async fn should_not_reclassify_a_completed_no_pattern_source_until_reset() {
         let listing_source_id = ListingSourceId::new();
@@ -395,6 +447,7 @@ mod tests {
                     Ok(Some(ListingSourceUrlPatternRecord {
                         listing_source_id,
                         url_pattern: None,
+                        url_pattern_exclude: None,
                         url_pattern_state: UrlPatternState::NoPattern,
                         last_crawled: None,
                     }))
@@ -594,7 +647,10 @@ mod tests {
         pattern: &str,
     ) {
         ListingSourceUrlPatternRepositoryImpl::new(pool.clone())
-            .save_pattern(listing_source_id, Some(pattern))
+            .save_pattern(
+                listing_source_id,
+                Some(&ProductUrlPattern::parse(pattern).unwrap()),
+            )
             .await
             .unwrap_or_else(|error| panic!("store approved pattern: {error}"));
     }

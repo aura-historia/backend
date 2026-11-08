@@ -1,5 +1,7 @@
 use super::SampleLabels;
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPattern, ProductUrlPatternError,
+};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub struct UrlPatternReviewCandidate {
     pub decision: UrlPatternDecision,
     pub current_pattern: Option<String>,
+    /// The exclusion of the live pattern, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_exclude: Option<String>,
     /// Which URLs on the crawl host of the review's ListingSource, its sample's among them, are
     /// product pages, as the author agent or a human labelled them; set only through the review's
     /// sample labels.
@@ -17,8 +22,12 @@ pub struct UrlPatternReviewCandidate {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UrlPatternDecision {
+    /// A URL on the crawl host is a product URL when it matches `value` and does not match
+    /// `exclude`, which takes the non-items that share the product URL shape.
     Pattern {
         value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exclude: Option<String>,
     },
     NoPattern,
     /// No pattern proposed yet: an operator must enter one before the review can be approved.
@@ -27,9 +36,11 @@ pub enum UrlPatternDecision {
 
 impl UrlPatternDecision {
     /// The pattern of a `PATTERN` decision, `None` for a decision without a pattern.
-    pub fn candidate_pattern(&self) -> Result<Option<ProductUrlPattern>, regex::Error> {
+    pub fn candidate_pattern(&self) -> Result<Option<ProductUrlPattern>, ProductUrlPatternError> {
         match self {
-            Self::Pattern { value } => ProductUrlPattern::parse(value).map(Some),
+            Self::Pattern { value, exclude } => ProductUrlPattern::parse(value)
+                .and_then(|pattern| pattern.with_exclude(exclude.as_deref()))
+                .map(Some),
             Self::NoPattern | Self::Undecided => Ok(None),
         }
     }
@@ -38,6 +49,7 @@ impl UrlPatternDecision {
     pub fn inferred(pattern: Option<&Regex>) -> Self {
         pattern.map_or(Self::NoPattern, |pattern| Self::Pattern {
             value: pattern.as_str().to_owned(),
+            exclude: None,
         })
     }
 }
@@ -46,8 +58,8 @@ impl UrlPatternDecision {
 pub enum UrlPatternCandidateError {
     #[error("URL pattern review has no decision yet")]
     Undecided,
-    #[error("invalid URL pattern: {0}")]
-    InvalidRegex(#[from] regex::Error),
+    #[error(transparent)]
+    InvalidPattern(#[from] ProductUrlPatternError),
 }
 
 impl UrlPatternReviewCandidate {
@@ -55,6 +67,9 @@ impl UrlPatternReviewCandidate {
         Self {
             decision,
             current_pattern: current_pattern.map(|pattern| pattern.include_source().to_owned()),
+            current_exclude: current_pattern
+                .and_then(|pattern| pattern.exclude_source())
+                .map(str::to_owned),
             sample_labels: None,
         }
     }
@@ -74,27 +89,23 @@ impl UrlPatternReviewCandidate {
     }
 
     /// Why the stored candidate `payload` is invalid: it does not decode, or it proposes a pattern
-    /// that is no regex. An undecided candidate is valid, it only waits for a decision. `None`
+    /// that is no regex, or an exclusion that is blank or no regex. An undecided candidate is valid, it only waits for a decision. `None`
     /// once it is valid.
     pub fn validation_failure(payload: &serde_json::Value) -> Option<String> {
         match serde_json::from_value::<Self>(payload.clone()) {
             Err(error) => Some(format!("the candidate does not decode: {error}")),
             Ok(candidate) => match candidate.validated_pattern() {
-                Err(error @ UrlPatternCandidateError::InvalidRegex(_)) => Some(error.to_string()),
+                Err(error @ UrlPatternCandidateError::InvalidPattern(_)) => Some(error.to_string()),
                 _ => None,
             },
         }
     }
 
-    /// The pattern approval would store: `Some` regex, or `None` for a decided `NO_PATTERN`.
-    pub fn validated_pattern(&self) -> Result<Option<&str>, UrlPatternCandidateError> {
+    /// The pattern approval would store: `Some` pattern, or `None` for a decided `NO_PATTERN`.
+    pub fn validated_pattern(&self) -> Result<Option<ProductUrlPattern>, UrlPatternCandidateError> {
         match &self.decision {
-            UrlPatternDecision::Pattern { value } => {
-                Regex::new(value)?;
-                Ok(Some(value))
-            }
-            UrlPatternDecision::NoPattern => Ok(None),
             UrlPatternDecision::Undecided => Err(UrlPatternCandidateError::Undecided),
+            decision => Ok(decision.candidate_pattern()?),
         }
     }
 }
@@ -106,6 +117,8 @@ struct PostedUrlPatternReviewCandidate {
     decision: PostedUrlPatternDecision,
     current_pattern: Option<String>,
     #[serde(default)]
+    current_exclude: Option<String>,
+    #[serde(default)]
     sample_labels: Option<SampleLabels>,
 }
 
@@ -114,11 +127,13 @@ impl From<PostedUrlPatternReviewCandidate> for UrlPatternReviewCandidate {
         let PostedUrlPatternReviewCandidate {
             decision,
             current_pattern,
+            current_exclude,
             sample_labels,
         } = posted;
         Self {
             decision: decision.into(),
             current_pattern,
+            current_exclude,
             sample_labels,
         }
     }
@@ -130,7 +145,11 @@ impl From<PostedUrlPatternReviewCandidate> for UrlPatternReviewCandidate {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum PostedUrlPatternDecision {
-    Pattern { value: String },
+    Pattern {
+        value: String,
+        #[serde(default)]
+        exclude: Option<String>,
+    },
     NoPattern {},
     Undecided {},
 }
@@ -138,7 +157,9 @@ enum PostedUrlPatternDecision {
 impl From<PostedUrlPatternDecision> for UrlPatternDecision {
     fn from(posted: PostedUrlPatternDecision) -> Self {
         match posted {
-            PostedUrlPatternDecision::Pattern { value } => Self::Pattern { value },
+            PostedUrlPatternDecision::Pattern { value, exclude } => {
+                Self::Pattern { value, exclude }
+            }
             PostedUrlPatternDecision::NoPattern {} => Self::NoPattern,
             PostedUrlPatternDecision::Undecided {} => Self::Undecided,
         }
@@ -176,13 +197,82 @@ mod tests {
         let pattern = UrlPatternReviewCandidate::new(
             UrlPatternDecision::Pattern {
                 value: "/product/".to_owned(),
+                exclude: None,
             },
             None,
         );
         let no_pattern = UrlPatternReviewCandidate::new(UrlPatternDecision::NoPattern, None);
 
-        assert_eq!(pattern.validated_pattern().ok(), Some(Some("/product/")));
-        assert_eq!(no_pattern.validated_pattern().ok(), Some(None));
+        assert_eq!(
+            pattern
+                .validated_pattern()
+                .ok()
+                .flatten()
+                .map(|pattern| pattern.include_source().to_owned()),
+            Some("/product/".to_owned())
+        );
+        assert!(matches!(no_pattern.validated_pattern(), Ok(None)));
+    }
+
+    /// A stored candidate without an exclusion, every candidate stored before the exclusion
+    /// existed, decodes and stores unchanged; one with an exclusion keeps it through both decoders.
+    #[test]
+    fn should_keep_an_absent_exclusion_absent_and_a_present_one_through_serde() {
+        let without = serde_json::json!({
+            "decision": { "type": "PATTERN", "value": "/products/" },
+            "current_pattern": "/p/",
+        });
+        let with = serde_json::json!({
+            "decision": { "type": "PATTERN", "value": "/products/", "exclude": "gift-card" },
+            "current_pattern": "/p/",
+            "current_exclude": "voucher",
+        });
+
+        for payload in [without, with] {
+            let stored: UrlPatternReviewCandidate = serde_json::from_value(payload.clone())
+                .unwrap_or_else(|error| panic!("{payload}: {error}"));
+            let posted = UrlPatternReviewCandidate::decode_edit(payload.clone())
+                .unwrap_or_else(|error| panic!("{payload}: {error}"));
+
+            assert_eq!(serde_json::to_value(&stored).ok(), Some(payload.clone()));
+            assert_eq!(stored, posted, "{payload}");
+        }
+    }
+
+    #[test]
+    fn should_validate_the_exclusion_as_a_regex_that_is_not_blank() {
+        let candidate = |exclude: &str| {
+            UrlPatternReviewCandidate::new(
+                UrlPatternDecision::Pattern {
+                    value: "/products/".to_owned(),
+                    exclude: Some(exclude.to_owned()),
+                },
+                None,
+            )
+        };
+
+        let valid = candidate("gift-card|voucher")
+            .validated_pattern()
+            .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(
+            valid.and_then(|pattern| pattern.exclude_source().map(str::to_owned)),
+            Some("gift-card|voucher".to_owned())
+        );
+        for invalid in ["(", "", "  "] {
+            let failure = UrlPatternReviewCandidate::validation_failure(
+                &serde_json::to_value(candidate(invalid)).unwrap(),
+            );
+            assert!(
+                failure.is_some_and(|failure| failure.starts_with("invalid URL pattern")
+                    || failure.contains("exclusion is blank")),
+                "{invalid:?}"
+            );
+            assert!(
+                candidate(invalid).validated_pattern().is_err(),
+                "{invalid:?}"
+            );
+        }
     }
 
     /// A posted candidate is decoded with exactly the candidate's keys, so an unknown key is

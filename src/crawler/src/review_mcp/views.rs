@@ -155,6 +155,9 @@ pub enum CandidateView {
         decision: UrlPatternDecisionView,
         /// The ListingSource's pattern when the review opened.
         current_pattern: Option<String>,
+        /// The exclusion of the ListingSource's pattern when the review opened, when it had one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_exclude: Option<String>,
         sample_labels: Vec<SampleLabelView>,
         labelled_at: Option<String>,
     },
@@ -163,8 +166,13 @@ pub enum CandidateView {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UrlPatternDecisionView {
-    /// A regex; a URL it matches anywhere is a product URL.
-    Pattern { value: String },
+    /// A regex; a URL it matches anywhere is a product URL unless the exclusion, a regex matched
+    /// anywhere too, takes it.
+    Pattern {
+        value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclude: Option<String>,
+    },
     /// The ListingSource has no product URLs.
     NoPattern,
     /// No decision staged yet.
@@ -444,6 +452,7 @@ impl CandidateView {
         let UrlPatternReviewCandidate {
             decision,
             current_pattern,
+            current_exclude,
             sample_labels,
         } = candidate;
         let (sample_labels, labelled_at) = match sample_labels {
@@ -468,11 +477,14 @@ impl CandidateView {
         };
         Self::UrlPattern {
             decision: match decision {
-                UrlPatternDecision::Pattern { value } => UrlPatternDecisionView::Pattern { value },
+                UrlPatternDecision::Pattern { value, exclude } => {
+                    UrlPatternDecisionView::Pattern { value, exclude }
+                }
                 UrlPatternDecision::NoPattern => UrlPatternDecisionView::NoPattern,
                 UrlPatternDecision::Undecided => UrlPatternDecisionView::Undecided,
             },
             current_pattern,
+            current_exclude,
             sample_labels,
             labelled_at,
         }
@@ -812,6 +824,38 @@ mod tests {
             .as_str()
             .unwrap_or_default();
         assert!(note.contains("[truncated: 1000 of "), "{note}");
+    }
+
+    /// The exclusion of the decision and of the live pattern is shown when there is one and left
+    /// out when there is none.
+    #[test]
+    fn should_show_the_exclusion_of_the_decision_and_of_the_current_pattern() {
+        let view = |candidate: Value| {
+            json!(CandidateView::of(wire::Candidate::UrlPattern(decoded(
+                candidate
+            ))))
+        };
+
+        let excluding = view(json!({
+            "decision": { "type": "PATTERN", "value": "/item/", "exclude": "gift-card" },
+            "current_pattern": "/item/",
+            "current_exclude": "voucher",
+        }));
+        let plain = view(json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": "/item/",
+        }));
+
+        assert_eq!(
+            excluding["decision"],
+            json!({ "type": "PATTERN", "value": "/item/", "exclude": "gift-card" })
+        );
+        assert_eq!(excluding["current_exclude"], "voucher");
+        assert_eq!(
+            plain["decision"],
+            json!({ "type": "PATTERN", "value": "/item/" })
+        );
+        assert!(plain.get("current_exclude").is_none(), "{plain}");
     }
 
     #[test]

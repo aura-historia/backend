@@ -7,6 +7,7 @@ use crate::scraper::scraper_service::domain::product::{
 use crate::scraper::scraper_service::html_fetcher::{DomainFetchStats, FetchError};
 use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_non_product_page;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use listing_source_core::ListingSourceId;
 use tracing::{debug, warn};
 use url::Url;
@@ -29,7 +30,7 @@ impl ScraperServiceImpl {
         &self,
         listing_source_id: &ListingSourceId,
         url: &Url,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
         primary_html: &str,
         mode: ScrapeMode,
     ) -> Result<Vec<SchemaSeedPage>, ScraperError> {

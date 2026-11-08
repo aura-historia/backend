@@ -418,9 +418,8 @@ pub(crate) fn url_pattern_approval_checks(
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
-        UrlPatternDecision::NoPattern => None,
-        UrlPatternDecision::Pattern { value } => match ProductUrlPattern::parse(value) {
-            Ok(pattern) => Some(pattern),
+        decision => match decision.candidate_pattern() {
+            Ok(pattern) => pattern,
             // Approval refuses an invalid pattern on its own.
             Err(_) => return Vec::new(),
         },
@@ -1358,6 +1357,14 @@ mod tests {
     fn pattern(value: &str) -> UrlPatternDecision {
         UrlPatternDecision::Pattern {
             value: value.to_owned(),
+            exclude: None,
+        }
+    }
+
+    fn excluding(value: &str, exclude: &str) -> UrlPatternDecision {
+        UrlPatternDecision::Pattern {
+            value: value.to_owned(),
+            exclude: Some(exclude.to_owned()),
         }
     }
 
@@ -1671,6 +1678,84 @@ mod tests {
             url_pattern_approval_checks(&candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample),
             Vec::new()
         );
+    }
+
+    const GIFT_CARD: &str = "https://antique-shop.example/item/the-antique-shop-gift-card";
+
+    /// A gift card has the product URL shape: the pattern alone takes it, and the exclusion that
+    /// takes it out of the pattern lets the decision follow its `NOT_PRODUCT` label.
+    #[test]
+    fn should_pass_a_not_product_url_the_exclusion_takes_and_refuse_it_without_the_exclusion() {
+        let not_products = [NOT_PRODUCTS[0], NOT_PRODUCTS[1], GIFT_CARD];
+
+        assert_eq!(
+            url_checks(&labelled(pattern("/item/[^/]+$"), &PRODUCTS, &not_products)),
+            vec![FailedApprovalCheck::NotProductLabelMatched {
+                urls: vec![GIFT_CARD.to_owned()],
+            }]
+        );
+        assert_eq!(
+            url_checks(&labelled(
+                excluding("/item/[^/]+$", "gift-card"),
+                &PRODUCTS,
+                &not_products
+            )),
+            Vec::new()
+        );
+    }
+
+    /// The exclusion is matched in the crawler's spelling of the URL, with or without the
+    /// trailing slash, as the pattern is.
+    #[test]
+    fn should_match_the_exclusion_in_either_trailing_slash_spelling() {
+        let not_products = [NOT_PRODUCTS[0], NOT_PRODUCTS[1], GIFT_CARD];
+
+        assert_eq!(
+            url_checks(&labelled(
+                excluding("/item/[^/]+$", "gift-card/$"),
+                &PRODUCTS,
+                &not_products
+            )),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn should_refuse_an_exclusion_that_takes_a_url_labelled_product() {
+        let candidate = labelled(
+            excluding("/item/[^/]+$", "oak-chair|pine-table"),
+            &PRODUCTS,
+            &NOT_PRODUCTS,
+        );
+
+        assert_eq!(
+            url_checks(&candidate),
+            vec![FailedApprovalCheck::ProductLabelNotMatched {
+                urls: PRODUCTS[..2].iter().map(|url| (*url).to_owned()).collect(),
+            }]
+        );
+    }
+
+    /// A page the exclusion takes is not one the pattern takes: an exclusion that removes the
+    /// shop's product URLs leaves the pattern as narrow as one that never matched them.
+    #[test]
+    fn should_count_only_the_urls_the_pattern_takes_and_the_exclusion_does_not_as_taken() {
+        let narrow = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
+        let excluded = labelled(
+            excluding("/(item|clocks/barometers)/[^/]+$", "/barometers/"),
+            &PRODUCTS,
+            &NOT_PRODUCTS,
+        );
+        let sample = shop_sample(10, true);
+        let checks = |candidate| {
+            url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample)
+        };
+
+        assert!(matches!(
+            checks(&excluded).as_slice(),
+            [FailedApprovalCheck::PatternTooNarrow { matched: 6, .. }]
+        ));
+        assert_eq!(checks(&excluded), checks(&narrow));
     }
 
     /// `NO_PATTERN` takes no URL, so labelled products always refuse it: a human decides it.

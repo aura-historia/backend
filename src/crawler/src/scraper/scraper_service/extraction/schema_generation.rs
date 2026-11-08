@@ -10,6 +10,7 @@ use crate::scraper::scraper_service::domain::product::ScrapeMode;
 use crate::scraper::scraper_service::extraction::schema_review_gate::GeneratedSchemaReviewOutcome;
 use crate::scraper::scraper_service::pipeline::scrape_product::FetchedPage;
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use serde_json::json;
 use tracing::debug;
 
@@ -45,7 +46,7 @@ impl ScraperServiceImpl {
     pub(crate) async fn obtain_schemas(
         &self,
         page: FetchedPage<'_>,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
         mode: ScrapeMode,
     ) -> Result<ListingSourceProductSchema, ScraperError> {
         let FetchedPage {

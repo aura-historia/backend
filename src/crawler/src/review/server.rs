@@ -1178,7 +1178,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         }
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
-        | ReviewRepositoryError::Regex(_)
+        | ReviewRepositoryError::Pattern(_)
         | ReviewRepositoryError::MatrixEvaluationStopped { .. } => internal_error(error),
     }
 }

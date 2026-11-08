@@ -85,11 +85,11 @@ impl CrawledUrl {
 
     /// Whether `pattern` takes this URL's page: it matches one of its
     /// [spellings](Self::page_spellings), the URL as stored or with or without its trailing
-    /// slash, so a pattern written for either spelling takes the page.
+    /// slash, so a pattern written for either spelling takes the page, and its exclusion matches
+    /// none of them.
     pub fn matches_pattern(&self, pattern: &ProductUrlPattern) -> bool {
-        self.page_spellings()
-            .iter()
-            .any(|spelling| pattern.takes_spelling(spelling.as_str()))
+        let spellings = self.page_spellings();
+        pattern.takes_page(spellings.iter().map(url::Url::as_str))
     }
 
     pub fn classify(

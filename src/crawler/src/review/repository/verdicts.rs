@@ -497,7 +497,13 @@ async fn make_reviewed_url_pattern_live(
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let replaced = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
     let approved = LiveUrlPattern {
-        url_pattern: pattern.map(str::to_owned),
+        url_pattern: pattern
+            .as_ref()
+            .map(|pattern| pattern.include_source().to_owned()),
+        url_pattern_exclude: pattern
+            .as_ref()
+            .and_then(|pattern| pattern.exclude_source())
+            .map(str::to_owned),
         url_pattern_state: if pattern.is_some() {
             "MATCHED"
         } else {
@@ -529,15 +535,17 @@ pub(super) async fn lock_live_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<LiveUrlPattern, ReviewRepositoryError> {
-    let (url_pattern, url_pattern_state) = sqlx::query_as::<_, (Option<String>, String)>(
-        "SELECT url_pattern, url_pattern_state FROM listing_sources \
+    let (url_pattern, url_pattern_exclude, url_pattern_state) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+            "SELECT url_pattern, url_pattern_exclude, url_pattern_state FROM listing_sources \
          WHERE listing_source_id = $1 FOR UPDATE",
-    )
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .fetch_one(&mut **transaction)
-    .await?;
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_one(&mut **transaction)
+        .await?;
     Ok(LiveUrlPattern {
         url_pattern,
+        url_pattern_exclude,
         url_pattern_state,
     })
 }
@@ -552,11 +560,13 @@ pub(super) async fn make_url_pattern_live(
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = $2, url_pattern_state = $3 \
+        "UPDATE listing_sources \
+         SET url_pattern = $2, url_pattern_exclude = $3, url_pattern_state = $4 \
          WHERE listing_source_id = $1",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(decision.url_pattern.as_deref())
+    .bind(decision.url_pattern_exclude.as_deref())
     .bind(&decision.url_pattern_state)
     .execute(&mut **transaction)
     .await?;

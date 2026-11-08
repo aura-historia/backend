@@ -636,8 +636,31 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         )
         .await
         .unwrap();
+    let excluded = author
+        .call(
+            "update_candidate",
+            json!({
+                "review_id": url_pattern.to_string(),
+                "expected_candidate_version": pattern["candidate_version"],
+                "candidate": { "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" } },
+            }),
+        )
+        .await
+        .unwrap();
+    let staged = author
+        .call(
+            "get_review",
+            json!({ "review_id": url_pattern.to_string() }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        staged["candidate"]["decision"],
+        json!({ "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" }),
+        "{staged}"
+    );
     let too_few = reviewer
-        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": pattern["candidate_version"] }))
+        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": excluded["candidate_version"] }))
         .await
         .unwrap_err();
     assert_eq!(
@@ -658,7 +681,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "label_sample_urls",
             json!({
                 "review_id": url_pattern.to_string(),
-                "expected_candidate_version": pattern["candidate_version"],
+                "expected_candidate_version": excluded["candidate_version"],
                 "labels": labels(&["/item/chair", "/item/table", "/item/lamp"], &["/shop/chairs", "/about", "/impressum"]),
             }),
         )
@@ -685,6 +708,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
     assert_eq!(
         trail,
         [
+            (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
