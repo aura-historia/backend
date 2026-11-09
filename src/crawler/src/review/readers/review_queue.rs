@@ -119,12 +119,12 @@ impl ReviewQueueReader {
             .items
             .into_iter()
             .map(|review| {
-                let (candidate_is_live, last_actor) =
-                    context.remove(&review.review_id).unwrap_or_default();
+                let context = context.remove(&review.review_id).unwrap_or_default();
                 SourceReviewEntry {
                     review,
-                    candidate_is_live,
-                    last_actor,
+                    candidate_is_live: context.candidate_is_live,
+                    last_actor: context.last_actor,
+                    rejection_revoked: context.rejection_revoked,
                 }
             })
             .collect();
@@ -137,11 +137,11 @@ impl ReviewQueueReader {
     }
 
     /// Whether each of `review_ids` is the latest approved review of its ListingSource and
-    /// artifact type, and the actor of its latest event.
+    /// artifact type, the actor of its latest event and whether its rejection was revoked.
     async fn source_review_context(
         &self,
         review_ids: &[uuid::Uuid],
-    ) -> Result<HashMap<CrawlerReviewId, (bool, Option<ReviewActor>)>, sqlx::Error> {
+    ) -> Result<HashMap<CrawlerReviewId, SourceReviewContext>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT r.review_id,
                     r.status = 'APPROVED'
@@ -155,7 +155,10 @@ impl ReviewQueueReader {
                     (SELECT e.actor FROM crawler_review_events e
                      WHERE e.review_id = r.review_id
                      ORDER BY e.created DESC, e.event_id DESC
-                     LIMIT 1) AS last_actor
+                     LIMIT 1) AS last_actor,
+                    EXISTS (SELECT 1 FROM crawler_review_events e
+                            WHERE e.review_id = r.review_id
+                              AND e.action = 'REJECTION_REVOKED') AS rejection_revoked
              FROM crawler_reviews r
              WHERE r.review_id = ANY($1)",
         )
@@ -174,11 +177,23 @@ impl ReviewQueueReader {
                     .transpose()?;
                 Ok((
                     crawler_review_id_from_uuid(row.try_get("review_id")?)?,
-                    (row.try_get("candidate_is_live")?, actor),
+                    SourceReviewContext {
+                        candidate_is_live: row.try_get("candidate_is_live")?,
+                        last_actor: actor,
+                        rejection_revoked: row.try_get("rejection_revoked")?,
+                    },
                 ))
             })
             .collect()
     }
+}
+
+/// What a ListingSource's review list says about a review beyond the queue entry.
+#[derive(Default)]
+struct SourceReviewContext {
+    candidate_is_live: bool,
+    last_actor: Option<ReviewActor>,
+    rejection_revoked: bool,
 }
 
 fn waiting_name(waiting: ReviewWaiting) -> &'static str {

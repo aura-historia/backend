@@ -3938,12 +3938,10 @@ Origin: http://127.0.0.1:7878/x
                         .find(|listed| listed["review_id"] == review_id.to_string())
                 })
                 .unwrap_or_else(|| panic!("review not listed: {list}"));
-            assert_eq!(
-                (&listed["agent_rounds"], &listed["human_required"]),
-                (&json!(1), &json!(true))
-            );
+            assert_eq!(listed["human_required"], true);
             let (_, detail) = send_as(&server, TOKEN, &review, "").await;
             assert_eq!(detail["review"]["human_required"], true);
+            assert_eq!(detail["review"]["agent_rounds"], 1);
             let version = detail["review"]["candidate_version"].clone();
 
             for (token, request, body) in [

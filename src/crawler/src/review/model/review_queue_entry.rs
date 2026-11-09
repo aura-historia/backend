@@ -50,6 +50,8 @@ pub struct SourceReviewEntry {
     pub candidate_is_live: bool,
     /// The actor of the review's latest event; `None` for a review without events.
     pub last_actor: Option<ReviewActor>,
+    /// Whether a human lifted the non-product verdict the review's rejection gave its pages.
+    pub rejection_revoked: bool,
 }
 
 /// The outcome of the crawler's LLM evaluation of a generated schema, as the review's validation

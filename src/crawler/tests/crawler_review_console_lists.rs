@@ -777,6 +777,7 @@ async fn should_list_the_reviews_of_a_listing_source_with_their_live_flag_and_la
             (old_approved, false, None),
         ]
     );
+    assert!(all.items.iter().all(|entry| !entry.rejection_revoked));
     assert_eq!(approved_only.total, 2);
     assert_eq!(approved_only.items[0].review.review_id, old_approved);
 }
