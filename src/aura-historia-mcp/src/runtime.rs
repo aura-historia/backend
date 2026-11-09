@@ -199,11 +199,25 @@ mod tests {
         }
     }
 
-    /// The Claude and ChatGPT directories require a display title and explicit hints.
+    /// The Claude and ChatGPT directories require a display title and explicit hints, and Claude
+    /// rejects arguments whose schema is a reference without a `type`.
     fn assert_directory_metadata(tools: &[rmcp::model::Tool]) {
         let mut titles = std::collections::BTreeSet::new();
         for tool in tools {
             let published = serde_json::to_value(tool).unwrap();
+            for (name, argument) in published["inputSchema"]["properties"]
+                .as_object()
+                .into_iter()
+                .flatten()
+            {
+                let is_reference =
+                    argument.get("$ref").is_some() || argument.get("allOf").is_some();
+                assert!(
+                    !is_reference || argument.get("type").is_some(),
+                    "{}.{name}: reference argument without a type",
+                    tool.name
+                );
+            }
             let title = published["title"].as_str().unwrap_or_default();
             assert!(!title.is_empty(), "{}: missing title", tool.name);
             assert!(
