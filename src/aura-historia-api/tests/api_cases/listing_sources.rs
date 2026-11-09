@@ -50,7 +50,7 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         "Müller Public Auction",
         "Public Operator",
         "WEB_CRAWL",
-        Some(json!({"partnerize": {"campaign": "private"}})),
+        Some(json!({"kind": "PARTNERIZE", "camref": "affiliatecampaign"})),
     )
     .await;
     sqlx::query(
@@ -89,6 +89,16 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         .unwrap_or_else(|| panic!("public collection must contain seeded ListingSource"));
     assert_eq!(Some("Müller Public Auction"), item["name"].as_str());
     assert_eq!(Some("Public Operator"), item["operator"]["name"].as_str());
+    assert_eq!(
+        Some("https://listing-source-search.example/"),
+        item["url"].as_str()
+    );
+    assert_eq!(
+        Some(
+            "https://prf.hn/click/camref:affiliatecampaign/pubref:aurahistoria/destination:https%3A%2F%2Flisting-source-search.example%2F"
+        ),
+        item["viewUrl"].as_str()
+    );
     assert!(item.get("referralConfiguration").is_none());
     assert!(item.get("ingestionMethods").is_none());
     assert!(item.get("platformTechnology").is_none());

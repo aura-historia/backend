@@ -2,8 +2,8 @@
 
 use super::shared::encoded;
 use super::{
-    Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail, review_path,
-    review_source_crawl_host, review_source_url, review_source_urls, settled,
+    Artifact, Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail,
+    review_path, review_source_crawl_host, review_source_url, review_source_urls, settled,
 };
 use crate::review::model::CrawlerReviewPage;
 use crate::review_mcp::errors::ToolError;
@@ -21,11 +21,11 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
-const EVALUATE_CANDIDATE: &str = "Test a product-schema candidate before you stage it, without storing anything: the console fetches the review's pages and up to four further `urls` of the review's ListingSource live, at the shop's crawl delay, and evaluates on them what approving this candidate would make live. The answer has the matrix refresh_matrix answers; pages from `urls` are named by input_index, their position in `urls`. Use it to test every candidate on sold, price-on-application and photo-less pages of the shop before update_candidate. schemas is the whole schema list; removed_page_schemas, when given, replaces the candidate's removed-page templates, otherwise the stored ones are evaluated. The candidate is checked like an edit (INVALID_REQUEST names what is wrong), a URL off the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE, and on a review with human_required true the evaluation is refused with CONFLICT and reason HUMAN_REQUIRED before anything is fetched. An evaluation is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. Waits while the console fetches and answers STILL_RUNNING after 15 minutes. When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is.";
+const EVALUATE_CANDIDATE: &str = "Test a product-schema candidate before you stage it, without storing anything; schemas and removed_page_schemas take the shape update_candidate documents: the console fetches the review's pages and up to four further `urls` of the review's ListingSource live, at the shop's crawl delay, and evaluates on them what approving this candidate would make live. The answer has the matrix refresh_matrix answers; pages from `urls` are named by input_index, their position in `urls`. Use it to test every candidate on sold, price-on-application and photo-less pages of the shop before update_candidate. schemas is the whole schema list; removed_page_schemas, when given, replaces the candidate's removed-page templates, otherwise the stored ones are evaluated. The candidate is checked like an edit (INVALID_REQUEST names what is wrong), a URL off the review's ListingSource is refused with URL_OUTSIDE_REVIEW_SOURCE, and on a review with human_required true the evaluation is refused with CONFLICT and reason HUMAN_REQUIRED before anything is fetched. An evaluation is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. Waits while the console fetches and answers STILL_RUNNING after 15 minutes. When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is.";
 
 const UPDATE_CANDIDATE: &str = "Stage a whole candidate on a pending review, replacing the current one. For a PRODUCT_SCHEMA review give kind PRODUCT_SCHEMA with the whole `schemas` list (add, change, reorder or drop schemas here; every core field rule needs selector and type, raw attributes only with keys of the raw attribute registry) and optionally `removed_page_schemas`, which replaces the removed-page templates (left out, they stay; an empty list retires them all). For a URL_PATTERN review give kind URL_PATTERN with the decision: type PATTERN with a regex `value` that matches every URL labelled PRODUCT and no URL labelled NOT_PRODUCT (the spider matches it anywhere in the URL, with or without the URL's trailing slash, so anchor it as needed), and optionally a regex `exclude` for the few non-items that share the product URL shape, such as gift cards, vouchers, services or the dealer's own profile page: a URL is a product URL when it matches `value` and does not match `exclude`, which is matched anywhere in the URL like `value` (the regex engine has no lookahead, so exclude them here instead of writing slug-prefix tricks into `value`; `exclude` must not match any URL labelled PRODUCT and must match or be missed by `value` for every URL labelled NOT_PRODUCT), or type NO_PATTERN for a ListingSource without product pages; its sample labels stay as label_sample_urls set them. expected_candidate_version is the candidate_version you read; when the review changed since, the edit is refused with CONFLICT and the current candidate_version: read the review again and redo the edit on its current candidate. Answers the new candidate_version. Any change drops the stored matrix: refresh_matrix afterwards.";
 
-const UPDATE_SCHEMA_FIELD: &str = "Change one rule of one schema of a pending product-schema review's candidate. schema_index is the schema's position in the candidate's schemas; field is a core field (source_listing_id, title, description, price, price_estimate_min, price_estimate_max, state, images) or `raw_attributes.<key>` with a key of the raw attribute registry; rule is the whole new rule, or null to delete an optional rule (title, state and images cannot be deleted). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT and the current candidate_version. Answers the new candidate_version. The change drops the stored matrix: refresh_matrix afterwards.";
+const UPDATE_SCHEMA_FIELD: &str = "Change one rule of one schema of a pending product-schema review's candidate; a rule takes the shape update_candidate documents. schema_index is the schema's position in the candidate's schemas; field is a core field (source_listing_id, title, description, price, price_estimate_min, price_estimate_max, state, images) or `raw_attributes.<key>` with a key of the raw attribute registry; rule is the whole new rule, or null to delete an optional rule (title, state and images cannot be deleted). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT and the current candidate_version. Answers the new candidate_version. The change drops the stored matrix: refresh_matrix afterwards.";
 
 const ADD_REVIEW_PAGE: &str = "Add a page of the review's ListingSource to a pending product-schema review, so every later matrix evaluates the candidate on it too: use it for sold, price-on-application or photo-less product pages the candidate must cover. url must be an http(s) URL on the crawl host of the review's ListingSource (otherwise URL_OUTSIDE_REVIEW_SOURCE, before anything is fetched). The console fetches the page now; a redirect to a page that is no product page, a page already on the review, and more than four added pages are refused with INVALID_REQUEST or CONFLICT. A page the shop answers with a bot challenge is not added: the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE; retry later. Answers the new review_page_id. Drops the stored matrix: refresh_matrix afterwards.";
 
@@ -202,12 +202,16 @@ pub(super) struct SampleLabelArgument {
 
 pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
     Ok(vec![
+        // update_candidate documents the schema rules; the tools taking the same rules carry
+        // their structure only, since every definition is in the agent's context on every turn.
         ToolDefinition::new(
             "evaluate_candidate",
             EVALUATE_CANDIDATE,
             Effect::Reads,
             evaluate_candidate,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema)
+        .without_nested_descriptions(),
         ToolDefinition::new(
             "update_candidate",
             UPDATE_CANDIDATE,
@@ -219,43 +223,51 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             UPDATE_SCHEMA_FIELD,
             Effect::Changes,
             update_schema_field,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema)
+        .without_nested_descriptions(),
         ToolDefinition::new(
             "add_review_page",
             ADD_REVIEW_PAGE,
             Effect::Changes,
             add_review_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "remove_review_page",
             REMOVE_REVIEW_PAGE,
             Effect::Changes,
             remove_review_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "mark_page_not_product",
             MARK_PAGE_NOT_PRODUCT,
             Effect::Changes,
             mark_page_not_product,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "declare_removed_page",
             DECLARE_REMOVED_PAGE,
             Effect::Changes,
             declare_removed_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "record_no_sold_page",
             RECORD_NO_SOLD_PAGE,
             Effect::Changes,
             record_no_sold_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "label_sample_urls",
             LABEL_SAMPLE_URLS,
             Effect::ChangesIdempotently,
             label_sample_urls,
-        )?,
+        )?
+        .only_for(Artifact::UrlPattern),
     ])
 }
 

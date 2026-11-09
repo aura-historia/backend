@@ -183,7 +183,7 @@ fn token_usage(usage: Option<&Value>) -> TokenUsage {
 
 /// A `subtype`, `terminal_reason` or model name as the runner records it: an identifier of the
 /// CLI, never free text.
-fn bounded_reason(value: &str) -> String {
+pub(super) fn bounded_reason(value: &str) -> String {
     value
         .chars()
         .filter(|character| character.is_ascii_alphanumeric() || "_-.[]:".contains(*character))

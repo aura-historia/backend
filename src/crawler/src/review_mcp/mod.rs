@@ -24,11 +24,13 @@ pub use settings::{
     ReviewConsoleAccess, ReviewMcpSettings, ReviewMcpSettingsError, ReviewScope,
 };
 pub use token_file::{RoleTokenFile, TokenFileError};
-pub use tools::{Polling, ToolContext, ToolSchemaError, tools_for};
+pub use tools::{
+    Polling, ToolContext, ToolSchemaError, review_artifact_type, tools_for, tools_for_artifact,
+};
 
 use rmcp::ServiceExt;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReviewMcpError {
@@ -62,15 +64,28 @@ where
         token_file,
     } = settings;
     let console = ConsoleClient::new(&console_url, RoleTokenFile::new(token_file.clone(), role))?;
-    let server = ReviewMcpServer::new(
-        role,
-        scope,
-        tools_for(role)?,
-        ToolContext::new(console, polling),
-    );
+    let context = ToolContext::new(console, polling);
+    let (artifact_type, tools) = match scope {
+        ReviewScope::Only(review_id) => match review_artifact_type(&context, review_id).await {
+            Ok(artifact_type) => {
+                let tools = tools_for_artifact(role, &artifact_type)?;
+                (Some(artifact_type), tools)
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    "Cannot read the review's artifact type at startup; serving every tool of the role"
+                );
+                (None, tools_for(role)?)
+            }
+        },
+        ReviewScope::AnyReview => (None, tools_for(role)?),
+    };
+    let server = ReviewMcpServer::new(role, scope, tools, context);
     info!(
         role = role.as_str(),
         scope = ?scope,
+        artifact_type = artifact_type.as_deref().unwrap_or(""),
         console_url = %console_url,
         token_file = %token_file.display(),
         tools = server.tools().len(),

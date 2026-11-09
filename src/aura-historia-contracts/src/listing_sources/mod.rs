@@ -102,11 +102,18 @@ pub struct PublicListingSourceData {
     url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    view_url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "crate::wire::schema::optional_url")]
     image: Option<Url>,
 }
 
 impl From<PublicListingSourceSummary> for PublicListingSourceData {
     fn from(value: PublicListingSourceSummary) -> Self {
+        let (url, view_url) = value
+            .website
+            .map(|website| (website.url, website.view_url))
+            .unzip();
         Self {
             listing_source_id: value.listing_source_id,
             listing_source_slug_id: value.listing_source_slug_id.to_string(),
@@ -114,7 +121,8 @@ impl From<PublicListingSourceSummary> for PublicListingSourceData {
             operator: PublicListingSourceOperatorData {
                 name: value.operator.name.to_string(),
             },
-            url: value.url,
+            url,
+            view_url,
             image: value.image,
         }
     }

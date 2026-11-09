@@ -1,3 +1,4 @@
+mod persisted_referral;
 mod readers;
 mod repositories;
 mod repository_factory;
