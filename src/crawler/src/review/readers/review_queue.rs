@@ -58,7 +58,8 @@ impl ReviewQueueReader {
         &self,
         query: &ReviewQuery,
     ) -> Result<ListPage<ReviewQueueEntry>, sqlx::Error> {
-        let (agents, repair_requested, human) = agent_round_binds();
+        let (agents, repair_requested, human, window_days) =
+            agent_round_binds(&self.agent_decisions);
         let rows = sqlx::query(sqlx::AssertSqlSafe(review_page_sql(
             query.sort,
             query.direction,
@@ -66,6 +67,7 @@ impl ReviewQueueReader {
         .bind(agents)
         .bind(repair_requested)
         .bind(human)
+        .bind(window_days)
         .bind(
             self.agent_decisions
                 .repair_rounds_cap()
@@ -234,11 +236,11 @@ fn queue_entry(row: &PgRow) -> Result<ReviewQueueEntry, sqlx::Error> {
     })
 }
 
-/// The window query of the reviews in the order of `sort`. Binds `$1` to `$3` of
-/// [`agent_rounds_of_review`], `$4`, the repair-round cap or null, `$5`, the ListingSource or null,
-/// `$6`, the status or null, `$7`, the artifact type or null, `$8`, the `ILIKE` pattern of the
-/// ListingSource name or null, `$9`, what the review waits for or null, `$10`, the rows to skip,
-/// and `$11`, the most rows to answer. Every row carries the total; an empty window is one row
+/// The window query of the reviews in the order of `sort`. Binds `$1` to `$4` of
+/// [`agent_rounds_of_review`], `$5`, the repair-round cap or null, `$6`, the ListingSource or null,
+/// `$7`, the status or null, `$8`, the artifact type or null, `$9`, the `ILIKE` pattern of the
+/// ListingSource name or null, `$10`, what the review waits for or null, `$11`, the rows to skip,
+/// and `$12`, the most rows to answer. Every row carries the total; an empty window is one row
 /// with the total and no review. Only a pending review's agent rounds are counted.
 ///
 /// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
@@ -258,26 +260,26 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
                         AS handed_to_human
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
-             WHERE ($5::uuid IS NULL OR r.listing_source_id = $5)
-               AND ($6::text IS NULL OR r.status = $6)
-               AND ($7::text IS NULL OR r.artifact_type = $7)
-               AND ($8::text IS NULL OR s.listing_source_name ILIKE $8)
+             WHERE ($6::uuid IS NULL OR r.listing_source_id = $6)
+               AND ($7::text IS NULL OR r.status = $7)
+               AND ($8::text IS NULL OR r.artifact_type = $8)
+               AND ($9::text IS NULL OR s.listing_source_name ILIKE $9)
          ), scored AS (
-             SELECT *, $4::bigint IS NOT NULL AND status = 'PENDING_REVIEW'
-                           AND (agent_rounds >= $4 OR handed_to_human) AS human_required
+             SELECT *, $5::bigint IS NOT NULL AND status = 'PENDING_REVIEW'
+                           AND (agent_rounds >= $5 OR handed_to_human) AS human_required
              FROM candidates
          ), matching AS (
              SELECT * FROM scored
-             WHERE $9::text IS NULL
-                OR ($9 = 'human' AND human_required)
-                OR ($9 = 'repair' AND status = 'PENDING_REVIEW'
+             WHERE $10::text IS NULL
+                OR ($10 = 'human' AND human_required)
+                OR ($10 = 'repair' AND status = 'PENDING_REVIEW'
                     AND repair_requested IS NOT NULL AND NOT human_required)
          ), ranked AS (
              SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
          )
          SELECT t.total, p.*
          FROM (SELECT COUNT(*) AS total FROM matching) t
-         LEFT JOIN (SELECT * FROM ranked WHERE position > $10 AND position <= $10 + $11) p ON TRUE
+         LEFT JOIN (SELECT * FROM ranked WHERE position > $11 AND position <= $11 + $12) p ON TRUE
          ORDER BY p.position",
         rounds = agent_rounds_of_review!(),
         handed = agent_handed_review_to_human!(),

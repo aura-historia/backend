@@ -11,8 +11,10 @@
 //! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
 //! as a review no agent worked ([`select_reviews`]).
 //! An author that reports `NOTHING_TO_STAGE` on a candidate the reviewer already judged, with no
-//! page joined since, gives the reviewer nothing new: the pass hands the review to a human at once, with the author's
-//! reasoning as the note of the console's hand-over event, instead of one more needs-repair round.
+//! page joined since, gives the reviewer nothing new, and one that reports `NEEDS_HUMAN` cannot
+//! decide the review from what it can read: the pass hands the review to a human at once,
+//! with the author's reasoning as the note of the console's hand-over event, instead of one more
+//! needs-repair round.
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
@@ -27,8 +29,8 @@ use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
-    QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_review,
-    select_reviews, waits_for_human,
+    QueuedReview, ReviewArtifact, approval_failures, hand_to_human, review_events_since,
+    review_queue, reviewer_judged_review, select_reviews, waits_for_human,
 };
 use super::reports::{AgentReport, AuthorAction, AuthorReport, ReviewerDecision, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
@@ -70,6 +72,9 @@ pub struct PassSummary {
     /// Reviews this pass worked whose reviewer process did not start because the reviewers pause
     /// after the agents' decision cap.
     pub reviewers_held_back: usize,
+    /// URL-pattern reviews whose reviewer process did not start because the approval guard
+    /// already refuses the candidate the author left: the reviewer could only refuse it again.
+    pub guard_blocked: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -194,6 +199,7 @@ impl Pass<'_> {
         let concurrency = usize::try_from(self.settings.max_processes.get()).unwrap_or(1);
         let mut running = FuturesUnordered::new();
         let mut started = BTreeSet::new();
+        let mut schema_started = 0;
         let mut refilling = true;
         while refilling || !running.is_empty() {
             let free = concurrency
@@ -201,7 +207,11 @@ impl Pass<'_> {
                 .min(budget.saturating_sub(started.len()));
             if refilling && free > 0 && !self.runner_stop.is_requested() {
                 let first_read = started.is_empty();
-                match self.next_reviews(&started, free, first_read).await {
+                let schema_owed = budget.div_ceil(2).saturating_sub(schema_started);
+                match self
+                    .next_reviews(&started, free, schema_owed, first_read)
+                    .await
+                {
                     Ok(reviews) if reviews.is_empty() => {}
                     Ok(reviews) => match self.stop(OffsetDateTime::now_utc()) {
                         Some(stop) => {
@@ -211,6 +221,9 @@ impl Pass<'_> {
                         None => {
                             for review in reviews {
                                 started.insert(review.review_id);
+                                schema_started += usize::from(
+                                    review.artifact_type == ReviewArtifact::ProductSchema,
+                                );
                                 running.push(self.work_review(review));
                             }
                         }
@@ -238,11 +251,12 @@ impl Pass<'_> {
     }
 
     /// Reads the queue and picks the next `free` workable reviews no process of this run worked
-    /// yet. The first read also tells what the run found in the queue.
+    /// yet, `schema_owed` of them product-schema reviews as far as the queue has them. The first read also tells what the run found in the queue.
     async fn next_reviews(
         &self,
         started: &BTreeSet<CrawlerReviewId>,
         free: usize,
+        schema_owed: usize,
         first_read: bool,
     ) -> Result<Vec<QueuedReview>, PassError> {
         let queue = review_queue(self.console)
@@ -263,6 +277,7 @@ impl Pass<'_> {
             &last_worked,
             OffsetDateTime::now_utc(),
             free,
+            schema_owed,
         );
         if first_read {
             self.with(|shared| {
@@ -299,6 +314,12 @@ impl Pass<'_> {
             return;
         }
         if let Some(AgentReport::Author(report)) = &author_report
+            && report.action == AuthorAction::NeedsHuman
+        {
+            self.hand_over_to_human(&review, report).await;
+            return;
+        }
+        if let Some(AgentReport::Author(report)) = &author_report
             && report.action == AuthorAction::NothingToStage
             && self.reviewer_judged_review(&review).await
         {
@@ -306,6 +327,11 @@ impl Pass<'_> {
             return;
         }
         if !leaves_a_candidate_to_decide(author_report.as_ref()) {
+            self.cool_down(&review);
+            return;
+        }
+        if self.guard_refuses(&review).await {
+            self.with(|shared| shared.summary.guard_blocked += 1);
             self.cool_down(&review);
             return;
         }
@@ -324,6 +350,36 @@ impl Pass<'_> {
             Step::NoDecision => {
                 self.finish_reviewer_pass(&review, processed.trail_verdict)
                     .await;
+            }
+        }
+    }
+
+    /// Whether the approval guard refuses the URL-pattern candidate the author left, so a reviewer
+    /// process could only be refused, as the `TOO_FEW_LABELS` loops of #2822 were: a needs-repair
+    /// round spent on what the author can read with `check_approval` itself. A product-schema
+    /// review, and a review whose checks cannot be read, gets its reviewer as before.
+    async fn guard_refuses(&self, review: &QueuedReview) -> bool {
+        if review.artifact_type != ReviewArtifact::UrlPattern {
+            return false;
+        }
+        match approval_failures(self.console, review.review_id).await {
+            Ok(Some(failed)) if !failed.is_empty() => {
+                info!(
+                    review_id = %review.review_id,
+                    failed_checks = ?failed,
+                    "The approval guard refuses the candidate the author left; no reviewer process starts and the review cools down"
+                );
+                true
+            }
+            Ok(_) => false,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read the approval guard's checks of the candidate; the reviewer runs"
+                );
+                false
             }
         }
     }
@@ -348,8 +404,8 @@ impl Pass<'_> {
     }
 
     /// Hands the review to a human at once with the author's reasoning, which the console records
-    /// as an event of the review's trail, instead of starting a reviewer process that would repeat
-    /// its verdict on the unchanged candidate. A hand-over the console does not take cools the
+    /// as an event of the review's trail, instead of starting a reviewer process: one that would
+    /// repeat its verdict on the unchanged candidate, or one on a review the author left undecided. A hand-over the console does not take cools the
     /// review down unless it waits for a human anyway.
     async fn hand_over_to_human(&self, review: &QueuedReview, report: &AuthorReport) {
         match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
@@ -360,7 +416,7 @@ impl Pass<'_> {
                     listing_source_id = %review.listing_source_id,
                     listing_source_name = review.listing_source_name.as_deref(),
                     artifact_type = %review.artifact_type,
-                    "The author found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
+                    "The author could not decide the review or found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
                 );
                 self.with(|shared| shared.summary.handed_to_human += 1);
             }
@@ -881,10 +937,15 @@ fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
 
 /// The note of the hand-over to a human: why no reviewer runs, then the author's own reasoning.
 fn handover_note(report: &AuthorReport) -> String {
-    format!(
-        "The author agent reported NOTHING_TO_STAGE on a candidate the reviewer agent had already judged, so no further reviewer round runs. Author's reasoning: {}",
-        report.summary
-    )
+    let why = match report.action {
+        AuthorAction::NeedsHuman => {
+            "The author agent reported NEEDS_HUMAN: it cannot decide this review from what it can read, so no reviewer round runs."
+        }
+        _ => {
+            "The author agent reported NOTHING_TO_STAGE on a candidate the reviewer agent had already judged, so no further reviewer round runs."
+        }
+    };
+    format!("{why} Author's reasoning: {}", report.summary)
 }
 
 impl ProcessRecord {
@@ -893,6 +954,7 @@ impl ProcessRecord {
             finished: OffsetDateTime::now_utc(),
             review_id: review.review_id,
             role: role.into(),
+            artifact_type: Some(review.artifact_type.as_str().to_owned()),
             prompt_version: prompt_version.to_owned(),
             end: ProcessEnd::Failed,
             limit: None,
@@ -953,6 +1015,7 @@ fn decision_name(report: &AgentReport) -> &'static str {
             AuthorAction::Staged => "staged",
             AuthorAction::NothingToStage => "nothing_to_stage",
             AuthorAction::Skipped => "skipped",
+            AuthorAction::NeedsHuman => "needs_human",
         },
         AgentReport::Reviewer(report) => match report.decision {
             ReviewerDecision::Approve => "approved",

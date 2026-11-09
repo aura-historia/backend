@@ -48,14 +48,14 @@ impl Default for PendingReviewQuery {
 /// agent rounds reach the policy's [repair-round cap](AgentDecisionPolicy::repair_rounds_cap), as
 /// [`AgentDecisionPolicy::waits_for_human`] decides, so with no cap, outside `agent` mode, none
 /// does. Each review also carries the time of its latest `HUMAN` event, which handed it back to the
-/// agents. Binds `$1` to `$3` of [`agent_rounds_of_review`], `$3` also as the human actor of that
-/// event, `$4`, the repair-round cap or null, `$5`, the `human_required` filter or null, `$6` and
-/// `$7`, the creation time and id of the review the page starts after or null, and `$8`, the most
+/// agents. Binds `$1` to `$4` of [`agent_rounds_of_review`], `$3` also as the human actor of that
+/// event, `$5`, the repair-round cap or null, `$6`, the `human_required` filter or null, `$7` and
+/// `$8`, the creation time and id of the review the page starts after or null, and `$9`, the most
 /// rows to answer. Every row carries the totals; an empty page is one row with the totals and no
 /// review.
 const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
-         SELECT q.*, ($4::bigint IS NOT NULL AND (q.agent_rounds >= $4::bigint OR q.handed_to_human)) AS waits_for_human \
+         SELECT q.*, ($5::bigint IS NOT NULL AND (q.agent_rounds >= $5::bigint OR q.handed_to_human)) AS waits_for_human \
          FROM ( \
              SELECT r.review_id, r.listing_source_id, s.listing_source_name, \
                     r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
@@ -78,10 +78,10 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
      ), \
      page AS ( \
          SELECT * FROM queue \
-         WHERE ($5::boolean IS NULL OR waits_for_human = $5) \
-           AND ($6::timestamptz IS NULL OR (created, review_id) > ($6, $7::uuid)) \
+         WHERE ($6::boolean IS NULL OR waits_for_human = $6) \
+           AND ($7::timestamptz IS NULL OR (created, review_id) > ($7, $8::uuid)) \
          ORDER BY created, review_id \
-         LIMIT $8 \
+         LIMIT $9 \
      ) \
      SELECT t.workable, t.waiting_for_human, p.* \
      FROM totals t LEFT JOIN page p ON TRUE \
@@ -101,11 +101,12 @@ pub(super) async fn fetch_pending_review_page(
         None => None,
     };
     let page_size = query.page_size.get();
-    let (agents, repair_requested, human) = agent_round_binds();
+    let (agents, repair_requested, human, window_days) = agent_round_binds(agent_decisions);
     let rows = sqlx::query(PENDING_REVIEW_PAGE_QUERY)
         .bind(agents)
         .bind(repair_requested)
         .bind(human)
+        .bind(window_days)
         .bind(
             agent_decisions
                 .repair_rounds_cap()

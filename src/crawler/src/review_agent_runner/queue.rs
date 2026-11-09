@@ -54,6 +54,8 @@ pub struct QueuedReview {
     pub listing_source_name: Option<String>,
     /// When a human last changed or judged the review, which handed it back to the agents.
     pub handed_back: Option<OffsetDateTime>,
+    /// When the review opened, from which the digest tells how long it waits.
+    pub created: OffsetDateTime,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -150,6 +152,7 @@ impl ReviewQueue {
                         listing_source_id: review.listing_source_id,
                         listing_source_name: Some(review.listing_source_name),
                         handed_back: review.handed_back,
+                        created: review.created,
                     })
                 })
                 .collect(),
@@ -252,6 +255,30 @@ fn judged_by_reviewer(
     })
 }
 
+/// The approval-guard checks an agent approval of the URL-pattern review `review_id`'s current
+/// candidate would fail now, by their codes, read with the author agent's token; `None` for a
+/// product-schema review, whose checks rest on a live matrix the reviewer refreshes.
+pub async fn approval_failures(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<Option<Vec<String>>, ConsoleError> {
+    #[derive(Deserialize)]
+    struct Answer {
+        failed_checks: Option<Vec<FailedCheck>>,
+    }
+    #[derive(Deserialize)]
+    struct FailedCheck {
+        check: String,
+    }
+    let answer: Answer = console
+        .get(&format!("/api/reviews/{review_id}/approval-checks"))
+        .await?
+        .decode()?;
+    Ok(answer
+        .failed_checks
+        .map(|checks| checks.into_iter().map(|check| check.check).collect()))
+}
+
 /// Hands `review_id` to a human at once with the author agent's token, `reasoning` as the note
 /// of the event that records it.
 pub async fn hand_to_human(
@@ -275,25 +302,45 @@ pub async fn hand_to_human(
 /// verdicts never keeps the rest of the queue waiting. A review a human handed back after its
 /// last process, such as one that waited for a human at the repair cap, counts as not worked:
 /// the agents answer the human ahead of the reviews they worked since.
+///
+/// `schema_floor` product-schema reviews take slots first, in that order, as far as the queue has
+/// them: a source gets its schema review only after its pattern passed, so the younger schema
+/// reviews would otherwise never win a slot against a large URL-pattern backlog. Slots the floor
+/// leaves unused go to the other reviews in the same order, schema or pattern, so no slot idles.
 pub fn select_reviews(
     queue: Vec<QueuedReview>,
     cooldowns: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
     last_worked: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
     now: OffsetDateTime,
     max: usize,
+    schema_floor: usize,
 ) -> (Vec<QueuedReview>, usize) {
     let (cooling, mut ready): (Vec<_>, Vec<_>) = queue.into_iter().partition(|review| {
         cooldowns
             .get(&review.review_id)
             .is_some_and(|until| *until > now)
     });
-    ready.sort_by_key(|review| {
-        last_worked
-            .get(&review.review_id)
-            .copied()
-            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
+    ready.sort_by_key(|review| last_worked_for_order(review, last_worked));
+    let mut owed = schema_floor.min(max);
+    let (mut selected, filler): (Vec<_>, Vec<_>) = ready.into_iter().partition(|review| {
+        let owed_schema = owed > 0 && review.artifact_type == ReviewArtifact::ProductSchema;
+        owed -= usize::from(owed_schema);
+        owed_schema
     });
-    (ready.into_iter().take(max).collect(), cooling.len())
+    selected.extend(filler.into_iter().take(max - selected.len()));
+    (selected, cooling.len())
+}
+
+/// When the agents last worked `review`, `None` for one they have not within the ledger's window
+/// or that a human handed back since: the key of the order [`select_reviews`] works them in.
+fn last_worked_for_order(
+    review: &QueuedReview,
+    last_worked: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
+) -> Option<OffsetDateTime> {
+    last_worked
+        .get(&review.review_id)
+        .copied()
+        .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
 }
 
 /// The most pages of `GET /api/review-events` one digest reads.
@@ -320,6 +367,9 @@ pub struct ReviewEventEntry {
     pub action: String,
     pub candidate_version: i64,
     pub notes: Option<String>,
+    /// The URL-pattern state an approval of a URL-pattern review made live, such as `NO_PATTERN`.
+    #[serde(default)]
+    pub approved_url_pattern_state: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
@@ -397,6 +447,7 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 listing_source_name: None,
                 handed_back: None,
+                created: OffsetDateTime::UNIX_EPOCH,
             })
             .collect()
     }
@@ -483,7 +534,7 @@ mod tests {
         ]);
 
         let (selected, cooling) =
-            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3);
+            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3, 0);
 
         assert_eq!(
             selected,
@@ -501,12 +552,62 @@ mod tests {
             (queue[1].review_id, now - Duration::hours(5)),
         ]);
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3);
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3, 0);
 
         assert_eq!(
             selected,
             vec![queue[2].clone(), queue[3].clone(), queue[1].clone()]
         );
+    }
+
+    /// A queue of two URL-pattern reviews then two product-schema reviews, in console order.
+    fn patterns_then_schemas() -> Vec<QueuedReview> {
+        let mut queue = queued(4);
+        queue[0].artifact_type = ReviewArtifact::UrlPattern;
+        queue[1].artifact_type = ReviewArtifact::UrlPattern;
+        queue
+    }
+
+    #[test]
+    fn should_reserve_slots_for_product_schema_reviews_when_the_pattern_backlog_is_older() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &BTreeMap::new(), now, 3, 2);
+
+        assert_eq!(
+            selected,
+            vec![queue[2].clone(), queue[3].clone(), queue[0].clone()]
+        );
+    }
+
+    #[test]
+    fn should_give_unused_schema_slots_to_url_pattern_reviews() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+        let cooldowns = BTreeMap::from([(queue[3].review_id, now + Duration::minutes(1))]);
+
+        let (selected, cooling) =
+            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3, 2);
+
+        assert_eq!(
+            selected,
+            vec![queue[2].clone(), queue[0].clone(), queue[1].clone()]
+        );
+        assert_eq!(cooling, 1);
+    }
+
+    #[test]
+    fn should_not_take_more_schema_reviews_than_the_slots_when_the_floor_exceeds_them() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &BTreeMap::new(), now, 1, 2);
+
+        assert_eq!(selected, vec![queue[2].clone()]);
     }
 
     /// A review a human handed back after its last process counts as not worked, in the
@@ -524,7 +625,8 @@ mod tests {
             (queue[2].review_id, now - Duration::hours(1)),
         ]);
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4);
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4, 0);
 
         assert_eq!(
             selected,
@@ -675,6 +777,7 @@ mod tests {
             action: "APPROVED".to_owned(),
             candidate_version: 2,
             notes: None,
+            approved_url_pattern_state: None,
             created,
         }
     }

@@ -114,6 +114,7 @@ mod tests {
             action: action.as_str().to_owned(),
             candidate_version: 1,
             notes: None,
+            approved_url_pattern_state: None,
             created: NOW - Duration::minutes(minutes_ago),
         }
     }

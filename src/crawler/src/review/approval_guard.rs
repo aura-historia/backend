@@ -90,6 +90,12 @@ pub enum FailedApprovalCheck {
         not_product: usize,
         minimum: u32,
     },
+    /// A `NO_PATTERN` decision for a sample whose inspected pages include ones that describe one
+    /// product and that no label marks `NOT_PRODUCT`: the shop has product pages.
+    NoPatternContradicted { product_pages: Vec<String> },
+    /// A `NO_PATTERN` decision with fewer inspected sample pages than `required`: labels alone,
+    /// which any shop's legal and cart pages satisfy, show no absence of product pages.
+    NoPatternTooFewInspected { inspected: usize, required: usize },
     /// URLs labelled `PRODUCT` that the decision does not classify as product pages.
     ProductLabelNotMatched { urls: Vec<String> },
     /// URLs labelled `NOT_PRODUCT` that the decision classifies as product pages under a spelling
@@ -250,6 +256,18 @@ impl fmt::Display for FailedApprovalCheck {
             } => write!(
                 formatter,
                 "the decision takes {matched} of the sample's {sample_total} URLs, but {product_pages} of the {inspected} pages inspected describe one product: it is narrower than the shop's product URLs, so use a structural pattern instead of listed categories and check the product pages it misses"
+            ),
+            Self::NoPatternContradicted { product_pages } => write!(
+                formatter,
+                "NO_PATTERN is contradicted by {} inspected sample page(s) that describe one product and are not labelled NOT_PRODUCT: label each NOT_PRODUCT after you read it, or decide a pattern",
+                product_pages.len()
+            ),
+            Self::NoPatternTooFewInspected {
+                inspected,
+                required,
+            } => write!(
+                formatter,
+                "NO_PATTERN rests on {inspected} inspected sample page(s); it needs {required}: inspect pages of every path shape in the sample with inspect_page first"
             ),
             Self::ProductLabelNotMatched { urls } => write!(
                 formatter,
@@ -480,7 +498,14 @@ pub(crate) fn url_pattern_approval_checks(
         labelled(SampleUrlLabel::Product).count(),
         labelled(SampleUrlLabel::NotProduct).count(),
     );
-    if product.min(not_product) < usize::try_from(minimum).unwrap_or(usize::MAX) {
+    // A `NO_PATTERN` decision takes no product URL, so only the labels of non-products show it:
+    // any `PRODUCT` label is refused below as one the decision does not take.
+    let shown = if pattern.is_none() {
+        not_product
+    } else {
+        product.min(not_product)
+    };
+    if shown < usize::try_from(minimum).unwrap_or(usize::MAX) {
         failed.push(FailedApprovalCheck::TooFewLabels {
             product,
             not_product,
@@ -506,6 +531,9 @@ pub(crate) fn url_pattern_approval_checks(
         .collect();
     if let Some(too_narrow) = pattern_too_narrow(pattern.as_ref(), sample, &not_product_pages) {
         failed.push(too_narrow);
+    }
+    if pattern.is_none() {
+        failed.extend(no_pattern_checks(sample, &not_product_pages));
     }
     failed
 }
@@ -583,6 +611,42 @@ fn pattern_too_narrow(
         inspected: inspected.len(),
         unmatched_product_pages,
     })
+}
+
+/// The refusals of a `NO_PATTERN` decision. Absence of product pages cannot be proven from a
+/// sample, so it must rest on inspected sample pages, at least [`MIN_INSPECTED_PAGES`] or the
+/// whole sample when it is smaller, and never fewer than one, so an empty sample shows nothing;
+/// and one inspected page that describes one product without a `NOT_PRODUCT` label refuses it,
+/// unlike the share a pattern is compared with.
+fn no_pattern_checks(
+    sample: &[SampleUrl],
+    not_product_pages: &[PageKey],
+) -> Vec<FailedApprovalCheck> {
+    let mut failed = Vec::new();
+    let inspected = sample
+        .iter()
+        .filter(|url| url.describes_one_product.is_some())
+        .count();
+    let required = MIN_INSPECTED_PAGES.min(sample.len()).max(1);
+    if inspected < required {
+        failed.push(FailedApprovalCheck::NoPatternTooFewInspected {
+            inspected,
+            required,
+        });
+    }
+    let product_pages: Vec<String> = sample
+        .iter()
+        .filter(|url| {
+            url.describes_one_product == Some(true)
+                && page_key(&url.url).is_none_or(|page| !not_product_pages.contains(&page))
+        })
+        .map(|url| url.url.clone())
+        .take(10)
+        .collect();
+    if !product_pages.is_empty() {
+        failed.push(FailedApprovalCheck::NoPatternContradicted { product_pages });
+    }
+    failed
 }
 
 /// Whether the labelled `url` is on `domain`, under the crawler's host identity, which treats
@@ -1919,13 +1983,118 @@ mod tests {
         assert_eq!(checks(&excluded), checks(&narrow));
     }
 
-    /// `NO_PATTERN` takes no URL, so labelled products always refuse it: a human decides it.
+    /// A sample URL of the review's crawl host whose inspection found `describes_one_product`.
+    fn sampled(path: &str, describes_one_product: Option<bool>) -> SampleUrl {
+        SampleUrl {
+            url: format!("https://{REVIEW_CRAWL_HOST}{path}"),
+            describes_one_product,
+        }
+    }
+
+    /// `count` sample pages inspected and found to describe no single product.
+    fn inspected_non_products(count: usize) -> Vec<SampleUrl> {
+        (0..count)
+            .map(|index| sampled(&format!("/blog/{index}"), Some(false)))
+            .collect()
+    }
+
+    fn no_pattern_checks_on(
+        candidate: &UrlPatternReviewCandidate,
+        sample: &[SampleUrl],
+    ) -> Vec<FailedApprovalCheck> {
+        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, sample)
+    }
+
+    /// `NO_PATTERN` takes no product URL, so the labels of non-products show it with the pages
+    /// inspected: no `PRODUCT` label is needed, and the minimum counts `NOT_PRODUCT` URLs only.
+    #[test]
+    fn should_pass_no_pattern_on_enough_not_product_labels_and_inspected_pages() {
+        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS);
+
+        assert_eq!(
+            no_pattern_checks_on(&candidate, &inspected_non_products(MIN_INSPECTED_PAGES)),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn should_refuse_no_pattern_on_too_few_not_product_labels() {
+        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS[..2]);
+
+        assert_eq!(
+            no_pattern_checks_on(&candidate, &inspected_non_products(MIN_INSPECTED_PAGES)),
+            vec![FailedApprovalCheck::TooFewLabels {
+                product: 0,
+                not_product: 2,
+                minimum: 3,
+            }]
+        );
+    }
+
+    /// Labels alone, which any shop's legal and cart pages satisfy, show no absence of products:
+    /// `NO_PATTERN` needs the minimum of inspected sample pages, the whole sample when it is
+    /// smaller, and at least one, so an empty sample never shows it.
+    #[test]
+    fn should_refuse_no_pattern_resting_on_too_few_inspected_pages() {
+        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS);
+        let mut sample = inspected_non_products(MIN_INSPECTED_PAGES - 1);
+        sample.push(sampled("/about", None));
+
+        assert_eq!(
+            no_pattern_checks_on(&candidate, &sample),
+            vec![FailedApprovalCheck::NoPatternTooFewInspected {
+                inspected: MIN_INSPECTED_PAGES - 1,
+                required: MIN_INSPECTED_PAGES,
+            }]
+        );
+        assert_eq!(
+            no_pattern_checks_on(&candidate, &inspected_non_products(2)),
+            Vec::new()
+        );
+        assert_eq!(
+            no_pattern_checks_on(&candidate, &[]),
+            vec![FailedApprovalCheck::NoPatternTooFewInspected {
+                inspected: 0,
+                required: 1,
+            }]
+        );
+    }
+
+    /// A page that describes one product contradicts `NO_PATTERN` unless the label marks it
+    /// `NOT_PRODUCT`: absence of product pages is not provable from a sample, so one is enough.
+    #[test]
+    fn should_refuse_no_pattern_when_an_unlabelled_inspected_page_describes_a_product() {
+        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS);
+        let with = |page: SampleUrl| {
+            let mut sample = inspected_non_products(MIN_INSPECTED_PAGES);
+            sample.push(page);
+            no_pattern_checks_on(&candidate, &sample)
+        };
+        let product = sampled("/item/oak-chair", Some(true));
+
+        assert_eq!(
+            with(product.clone()),
+            vec![FailedApprovalCheck::NoPatternContradicted {
+                product_pages: vec![product.url.clone()],
+            }]
+        );
+        assert_eq!(with(sampled("/item/oak-chair", None)), Vec::new());
+        assert_eq!(
+            with(SampleUrl {
+                url: NOT_PRODUCTS[0].to_owned(),
+                describes_one_product: Some(true),
+            }),
+            Vec::new()
+        );
+    }
+
+    /// Labelled products still refuse `NO_PATTERN`: the decision takes none of them.
     #[test]
     fn should_refuse_no_pattern_against_urls_labelled_product() {
         let candidate = labelled(UrlPatternDecision::NoPattern, &PRODUCTS, &NOT_PRODUCTS);
 
         assert_eq!(
-            url_checks(&candidate),
+            no_pattern_checks_on(&candidate, &inspected_non_products(MIN_INSPECTED_PAGES)),
             vec![FailedApprovalCheck::ProductLabelNotMatched {
                 urls: PRODUCTS.map(str::to_owned).to_vec(),
             }]
@@ -2008,6 +2177,28 @@ mod tests {
                 "product_pages": 10,
                 "inspected": 10,
                 "unmatched_product_pages": ["https://antiques.example/b/1"],
+            }))
+        );
+        assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::NoPatternContradicted {
+                product_pages: vec!["https://antiques.example/a/1".to_owned()],
+            })
+            .ok(),
+            Some(serde_json::json!({
+                "check": "NO_PATTERN_CONTRADICTED",
+                "product_pages": ["https://antiques.example/a/1"],
+            }))
+        );
+        assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::NoPatternTooFewInspected {
+                inspected: 2,
+                required: 8,
+            })
+            .ok(),
+            Some(serde_json::json!({
+                "check": "NO_PATTERN_TOO_FEW_INSPECTED",
+                "inspected": 2,
+                "required": 8,
             }))
         );
         assert_eq!(

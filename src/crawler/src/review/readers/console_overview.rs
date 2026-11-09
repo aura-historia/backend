@@ -52,11 +52,13 @@ impl ConsoleOverviewReader {
     }
 
     async fn review_counts(&self) -> Result<ReviewCounts, sqlx::Error> {
-        let (agents, repair_requested, human) = agent_round_binds();
+        let (agents, repair_requested, human, window_days) =
+            agent_round_binds(&self.agent_decisions);
         let row = sqlx::query(REVIEW_COUNTS_SQL)
             .bind(agents)
             .bind(repair_requested)
             .bind(human)
+            .bind(window_days)
             .bind(
                 self.agent_decisions
                     .repair_rounds_cap()
@@ -76,14 +78,14 @@ impl ConsoleOverviewReader {
     }
 }
 
-/// The pending review counts. Binds `$1` to `$3` of [`agent_rounds_of_review`] and `$4`, the
+/// The pending review counts. Binds `$1` to `$4` of [`agent_rounds_of_review`] and `$5`, the
 /// repair-round cap or null.
 const REVIEW_COUNTS_SQL: &str = concat!(
     "WITH pending AS (
          SELECT r.artifact_type, COALESCE(s.crawl_enabled, FALSE) AS crawl_enabled,
-                $4::bigint IS NOT NULL AND (",
+                $5::bigint IS NOT NULL AND (",
     agent_rounds_of_review!(),
-    " >= $4 OR ",
+    " >= $5 OR ",
     agent_handed_review_to_human!(),
     ") AS waits_for_human
          FROM crawler_reviews r

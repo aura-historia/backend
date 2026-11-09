@@ -23,6 +23,9 @@ pub enum AuthorAction {
     NothingToStage,
     /// The author could not work the review.
     Skipped,
+    /// The author cannot decide the review from what it can read, such as a sample behind a login
+    /// wall or bot challenge.
+    NeedsHuman,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

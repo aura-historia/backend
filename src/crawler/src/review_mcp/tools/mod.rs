@@ -513,6 +513,7 @@ mod tests {
             "get_review",
             "inspect_page",
             "refresh_matrix",
+            "check_approval",
             "mark_needs_repair",
         ];
         let author = [
@@ -642,6 +643,7 @@ mod tests {
                 "list_pending_reviews",
                 "get_review",
                 "inspect_page",
+                "check_approval",
                 "mark_needs_repair",
                 "update_candidate",
                 "label_sample_urls",
@@ -671,6 +673,7 @@ mod tests {
                 "list_pending_reviews",
                 "get_review",
                 "inspect_page",
+                "check_approval",
                 "mark_needs_repair",
                 "approve",
                 "reject",

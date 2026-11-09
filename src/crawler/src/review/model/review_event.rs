@@ -35,6 +35,9 @@ pub struct ReviewEventSummary {
     pub action: ReviewEventAction,
     pub candidate_version: i64,
     pub notes: Option<String>,
+    /// The URL-pattern state an `APPROVED` event of a URL-pattern review made live, such as
+    /// `NO_PATTERN`; `None` for every other event.
+    pub approved_url_pattern_state: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }

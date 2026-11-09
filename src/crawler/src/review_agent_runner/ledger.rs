@@ -61,6 +61,10 @@ pub struct ProcessRecord {
     pub finished: OffsetDateTime,
     pub review_id: CrawlerReviewId,
     pub role: ProcessRole,
+    /// What the review asked for, such as `URL_PATTERN`, so the digest sums the tokens per role
+    /// and review type; `None` in a record written before the runner recorded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_type: Option<String>,
     /// The prompt and report schema version, such as `author.v2`.
     pub prompt_version: String,
     pub end: ProcessEnd,
@@ -335,6 +339,7 @@ pub(super) mod tests {
         ProcessRecord {
             finished,
             review_id: CrawlerReviewId::new(),
+            artifact_type: None,
             role: ProcessRole::Author,
             prompt_version: "author.v1".to_owned(),
             end: ProcessEnd::Reported,
