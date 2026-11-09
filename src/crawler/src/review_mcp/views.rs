@@ -217,14 +217,21 @@ pub struct SourceProductUrlView {
     pub last_error_kind: Option<String>,
 }
 
+/// One URL of a URL-pattern review's sample. A field that is unknown, such as every pattern match
+/// before the ListingSource has a pattern, is left out rather than answered as null: a sample page
+/// lists up to [`MAX_SAMPLE_URLS`] of them, and each answer stays in the agent's context.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SampleUrlView {
     pub url: String,
     /// How the ListingSource's current pattern classified the URL before the review.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_pattern_match: Option<bool>,
     /// Whether the candidate's pattern matches the URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_pattern_match: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_class: Option<String>,
 }
 
@@ -904,6 +911,15 @@ mod tests {
         assert_eq!(
             view["sample_urls"].as_array().map(Vec::len),
             Some(MAX_SAMPLE_URLS)
+        );
+        assert_eq!(
+            view["sample_urls"][0],
+            json!({
+                "url": "https://antiques.example/item/0",
+                "candidate_pattern_match": true,
+                "candidate_class": "product",
+            }),
+            "the matches unknown before the ListingSource has a pattern are left out"
         );
         assert_eq!(view["sample_urls_total"], 200);
         assert_eq!(view["events"][0]["candidate_version"], 10);
