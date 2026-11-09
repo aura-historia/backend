@@ -165,12 +165,12 @@ where
                 fetch_failure: None,
                 telemetry: ScrapeTelemetry::default(),
             }),
-            async {
+            crate::logging::count_llm_calls_in(async {
                 let result = future.await;
                 let observation =
                     SCRAPE_OBSERVATION.with(|state| state.borrow().transport_health.clone());
                 (result, observation)
-            },
+            }),
         )
         .await
 }
@@ -197,9 +197,11 @@ pub(crate) fn current_fetch_failure() -> Option<FetchFailureContext> {
 
 /// The telemetry the running scrape collected so far; empty outside a scrape.
 pub(crate) fn current_scrape_telemetry() -> ScrapeTelemetry {
-    SCRAPE_OBSERVATION
+    let mut telemetry = SCRAPE_OBSERVATION
         .try_with(|state| state.borrow().telemetry.clone())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    telemetry.llm_calls = crate::logging::llm_calls_counted();
+    telemetry
 }
 
 fn update_scrape_telemetry(update: impl FnOnce(&mut ScrapeTelemetry)) {
@@ -229,10 +231,6 @@ pub(crate) fn record_captured_schema(
 
 pub(crate) fn count_image_probe() {
     update_scrape_telemetry(|telemetry| telemetry.image_probes += 1);
-}
-
-pub(crate) fn count_llm_call() {
-    update_scrape_telemetry(|telemetry| telemetry.llm_calls += 1);
 }
 
 pub(crate) fn record_transport_observation(health: DomainFetchHealth) {

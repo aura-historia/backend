@@ -5,7 +5,6 @@ use crate::CrawlerReviewId;
 use crate::logging::SourceLogContext;
 use crate::spider::discovery::website_spider::CrawledPage;
 use crate::spider::service::product_pattern::ProductListingPattern;
-#[cfg(doc)]
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::ShopPlatform;
 
@@ -61,7 +60,12 @@ impl CrawlRunState {
         let taken = self
             .inference_sample
             .iter()
-            .filter(|url| pattern.takes_page([url.as_str()]))
+            .filter(|sample| {
+                // As the classification matches: by the page's spellings, with or without its
+                // trailing slash.
+                url::Url::parse(sample)
+                    .is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
+            })
             .count();
         Some(taken as f64 / self.inference_sample.len() as f64)
     }
@@ -155,6 +159,17 @@ mod tests {
             "https://antique.example/products/2".to_owned(),
             "https://antique.example/about".to_owned(),
             "https://antique.example/contact".to_owned(),
+        ];
+
+        assert_eq!(state.sample_match_ratio(), Some(0.5));
+    }
+
+    #[test]
+    fn should_count_a_trailing_slash_variant_of_a_page_the_pattern_takes() {
+        let mut state = state_with_pattern(Some(r"/products/\d+/$"));
+        state.inference_sample = vec![
+            "https://antique.example/products/1".to_owned(),
+            "https://antique.example/about".to_owned(),
         ];
 
         assert_eq!(state.sample_match_ratio(), Some(0.5));

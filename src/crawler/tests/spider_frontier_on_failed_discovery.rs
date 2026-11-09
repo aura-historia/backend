@@ -226,11 +226,9 @@ async fn failing_runs_on_a_deep_shop_should_reach_further_each_time() {
     let shop = DeepShop::spawn().await;
     let service = spider_service(&pool, &shop);
     let frontier = CrawlFrontierRepositoryImpl::new(pool.clone());
-    let source =
-        crawler::logging::SourceLogContext::new(listing_source_id, "Test Shop", "example.com");
     let crawl = || {
         service.run(
-            &source,
+            &listing_source_id,
             CRAWL_ROOT_URL,
             400,
             CrawlPace::default(),

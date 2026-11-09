@@ -254,11 +254,11 @@ pub(super) async fn commit_with_event(
         return Err(ReviewRepositoryError::NotFound(review_id));
     }
     let logs = prepare_review_logs(
-        &mut *transaction,
+        &mut transaction,
         review_id,
         ReviewLogEntry::of_mutation(actor, &mutation),
     )
-    .await?;
+    .await;
     transaction.commit().await?;
     emit_all(logs);
     Ok(())

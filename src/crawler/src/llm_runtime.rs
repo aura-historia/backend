@@ -1,5 +1,6 @@
 use crate::logging::SourceLogContext;
-use crate::scraper::scraper_service::domain::product::count_llm_call;
+use crate::logging::count_llm_call;
+use crate::logging::warn_in_source;
 use application::error::static_error;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, LargeLanguageModelRetryAdvice,
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore, SemaphorePermit};
 use tokio::time::{Instant, sleep};
-use tracing::{info, warn};
+use tracing::info;
 
 const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 1;
 const DEFAULT_MIN_REQUEST_INTERVAL: Duration = Duration::from_secs(2);
@@ -237,7 +238,7 @@ where
             Err(error) if should_retry(&error) && attempt < max_attempts => {
                 let advice = retry_advice(&error);
                 let delay = retry_delay(&policy, attempt, advice, &request);
-                warn!(
+                warn_in_source!(
                     operation = ?request.operation,
                     attempt,
                     max_attempts,
@@ -293,7 +294,7 @@ where
                     Some(StructuredResponseFailureKind::MaxTokens) => {
                         let previous_limit = request.options.max_output_tokens;
                         request = max_tokens_retry_request(&request);
-                        warn!(
+                        warn_in_source!(
                             operation = ?base_request.operation,
                             validation_attempt = attempt,
                             max_validation_attempts = max_attempts,
@@ -319,7 +320,7 @@ where
                         let correction_feedback = error
                             .response_correction_feedback()
                             .unwrap_or_else(|| feedback_code.to_owned());
-                        warn!(
+                        warn_in_source!(
                             operation = ?base_request.operation,
                             validation_attempt = attempt,
                             max_validation_attempts = max_attempts,
@@ -339,7 +340,7 @@ where
             Ok(output) => return Ok(output),
             Err(error) if attempt < max_attempts => {
                 let feedback_code = feedback(&error);
-                warn!(
+                warn_in_source!(
                     operation = ?base_request.operation,
                     validation_attempt = attempt,
                     max_validation_attempts = max_attempts,

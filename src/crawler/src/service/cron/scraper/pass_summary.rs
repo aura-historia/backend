@@ -24,6 +24,16 @@ struct DomainSummary {
     deferred_reasons: BTreeMap<&'static str, usize>,
 }
 
+/// The most domains one pass summary lists, so a pass over every ListingSource stays one record
+/// of bounded size.
+const MAX_LOGGED_DOMAINS: usize = 50;
+
+impl DomainSummary {
+    fn total(&self) -> usize {
+        self.succeeded + self.failed + self.awaiting_schema_review + self.skipped + self.deferred
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct PassSummary {
     domains: Vec<DomainSummary>,
@@ -74,9 +84,27 @@ impl PassSummary {
     }
 
     /// The domains that ran, as the JSON array the event carries them in: a log field cannot
-    /// nest, and the domains differ in number from pass to pass.
+    /// nest, and the domains differ in number from pass to pass. A pass over many ListingSources
+    /// lists the [`MAX_LOGGED_DOMAINS`] with the most URLs, and
+    /// [`PassSummary::domains_left_out`] counts the rest.
     pub(super) fn by_domain_json(&self) -> String {
-        serde_json::to_string(&self.domains).unwrap_or_else(|_| "[]".to_owned())
+        let mut busiest: Vec<&DomainSummary> = self.domains.iter().collect();
+        busiest.sort_by(|a, b| {
+            b.total()
+                .cmp(&a.total())
+                .then_with(|| a.domain.cmp(&b.domain))
+        });
+        busiest.truncate(MAX_LOGGED_DOMAINS);
+        serde_json::to_string(&busiest).unwrap_or_else(|_| "[]".to_owned())
+    }
+
+    pub(super) fn domains_left_out(&self) -> usize {
+        self.domains.len().saturating_sub(MAX_LOGGED_DOMAINS)
+    }
+
+    /// `reasons` as the JSON object the event carries it in.
+    pub(super) fn reasons_json(reasons: &BTreeMap<&'static str, usize>) -> String {
+        serde_json::to_string(reasons).unwrap_or_else(|_| "{}".to_owned())
     }
 }
 
@@ -129,6 +157,25 @@ mod tests {
             .unwrap_or_else(|error| panic!("the breakdown is JSON: {error}"));
         assert_eq!(json[0]["unchanged"], 2);
         assert_eq!(json[0]["deferred"], 5);
+    }
+
+    #[test]
+    fn should_list_the_busiest_domains_only_when_a_pass_ran_over_many() {
+        let mut summary = PassSummary::default();
+        for index in 0..60 {
+            let outcome = ScrapeBatchOutcome {
+                succeeded: index,
+                ..Default::default()
+            };
+            summary.observe_batch(&format!("shop-{index:02}.example"), "Shop", &outcome);
+        }
+
+        let json: Vec<serde_json::Value> = serde_json::from_str(&summary.by_domain_json())
+            .unwrap_or_else(|error| panic!("the breakdown is JSON: {error}"));
+
+        assert_eq!(json.len(), MAX_LOGGED_DOMAINS);
+        assert_eq!(json[0]["domain"], "shop-59.example");
+        assert_eq!(summary.domains_left_out(), 10);
     }
 
     #[test]

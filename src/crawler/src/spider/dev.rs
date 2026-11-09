@@ -174,18 +174,21 @@ async fn main() {
                 }
             };
 
-        match spider
-            .run(
-                &SourceLogContext {
-                    listing_source_id,
-                    listing_source_name: "spider demo".to_owned(),
-                    domain: crawl_root.host().to_owned(),
-                },
+        // The demo ListingSource is registered from its crawl root alone, so it has no name of
+        // its own to log.
+        let source = SourceLogContext {
+            listing_source_id,
+            listing_source_name: "spider demo".to_owned(),
+            domain: crawl_root.host().to_owned(),
+        };
+        match source
+            .scope(spider.run(
+                &listing_source_id,
                 crawl_root.url().as_str(),
                 DEFAULT_CLASSIFY_THRESHOLD,
                 CrawlPace::default(),
                 CrawlKind::Full,
-            )
+            ))
             .await
         {
             Ok(result) => {

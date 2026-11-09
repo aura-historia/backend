@@ -2200,7 +2200,8 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(fixture.claude.calls().is_empty());
     }
 
-    /// An idle runner passes every interval: INFO carries only the passes that worked a review.
+    /// An idle runner passes every interval: INFO carries only the completion of a pass that worked a
+    /// review.
     #[tokio::test]
     async fn should_log_an_idle_pass_at_debug_and_a_working_pass_at_info() {
         use crate::test_support::logged_events::LoggedEvents;
@@ -2228,7 +2229,7 @@ echo "end $role $review" >> "$dir/order.log"
         run_with(&working.settings(&["--once"], &[])).await;
         assert_eq!(
             idle_levels("crawler.review_agent.pass_started"),
-            [tracing::Level::DEBUG, tracing::Level::INFO]
+            [tracing::Level::DEBUG, tracing::Level::DEBUG]
         );
         assert_eq!(
             idle_levels("crawler.review_agent.pass_completed"),
@@ -2243,8 +2244,8 @@ echo "end $role $review" >> "$dir/order.log"
         );
         assert_eq!(finished[0].field("listing_source_name"), Some("Antiques"));
         assert!(finished[0].field("listing_source_id").is_some());
-        assert_eq!(finished[0].field("decision"), Some("STAGED"));
-        assert_eq!(finished[1].field("decision"), Some("APPROVE"));
+        assert_eq!(finished[0].field("decision"), Some("staged"));
+        assert_eq!(finished[1].field("decision"), Some("approved"));
         for field in [
             "report",
             "summary",

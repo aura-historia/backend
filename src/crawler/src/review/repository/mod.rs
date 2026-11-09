@@ -66,7 +66,7 @@ pub use verdicts::Approval;
 use review_events::{
     ReviewMutation, commit_with_event, fetch_review_events, fetch_review_events_since,
 };
-use review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
+use review_log::{ReviewLogEntry, log_committed_review};
 
 use crate::review::source_url::is_review_source_url;
 use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
@@ -712,19 +712,10 @@ impl CrawlerReviewRepository {
                 .await?;
             }
         }
-        let opened = match is_new {
-            true => {
-                prepare_review_logs(
-                    &mut *transaction,
-                    review_id,
-                    vec![ReviewLogEntry::opened(reason)],
-                )
-                .await?
-            }
-            false => Vec::new(),
-        };
         transaction.commit().await?;
-        emit_all(opened);
+        if is_new {
+            log_committed_review(&self.pool, review_id, vec![ReviewLogEntry::opened(reason)]).await;
+        }
         Ok(review_id)
     }
 
@@ -849,20 +840,16 @@ impl CrawlerReviewRepository {
                 .await?;
             }
         }
-        // A review created already decided is not opened: its decision is its only event.
-        let opened = match is_new && status == STATUS_PENDING_REVIEW {
-            true => {
-                prepare_review_logs(
-                    &mut *transaction,
-                    review_id,
-                    vec![ReviewLogEntry::opened(reason)],
-                )
-                .await?
-            }
-            false => Vec::new(),
-        };
         transaction.commit().await?;
-        emit_all(opened);
+        if is_new {
+            // A review created already decided is not opened: its decision is its only event.
+            let entries = if status == STATUS_PENDING_REVIEW {
+                vec![ReviewLogEntry::opened(reason)]
+            } else {
+                ReviewLogEntry::born_decided(status).into_iter().collect()
+            };
+            log_committed_review(&self.pool, review_id, entries).await;
+        }
         Ok(if is_new {
             ReviewPlacement::Opened(review_id)
         } else {

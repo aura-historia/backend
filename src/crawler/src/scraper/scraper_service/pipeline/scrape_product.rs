@@ -1,6 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::authoring::CrawlerAuthoringMode;
+use crate::logging::warn_in_source;
 use crate::review::repository::ReviewPlacement;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
@@ -195,7 +196,7 @@ impl ScraperServiceImpl {
                 );
             }
             Err(error) => {
-                warn!(error = %error, "Failed to mark URL as other");
+                warn_in_source!(error = %error, "Failed to mark URL as other");
             }
         }
     }
@@ -227,7 +228,7 @@ impl ScraperServiceImpl {
                 debug!("Skipped stale page/schema fast-path completion");
             }
             Err(error) => {
-                warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
+                warn_in_source!(error = %error, "Failed to touch URL after page/schema fast-path skip");
             }
         }
     }
@@ -500,12 +501,12 @@ fn capture_selection(
             .chain(selection.fresh_schema.then_some(Some(&selection.raw))),
     );
     let mut schemas = extracted.into_schemas().product_schemas;
-    record_captured_schema(
-        selection.cached_schema_index.unwrap_or(schemas.len()),
-        selection.score,
-        selection.fresh_schema,
-        selection.raw.present_field_count(),
-    );
+    let schema_index = selection.cached_schema_index.unwrap_or(schemas.len());
+    // A carried-forward title stands in for the blank one the extraction found.
+    let fields_present = selection.raw.present_field_count()
+        + usize::from(
+            selection.carried_forward_title.is_some() && selection.raw.title.trim().is_empty(),
+        );
     if selection.fresh_schema {
         schemas.push(selection.schema.clone());
     }
@@ -526,6 +527,13 @@ fn capture_selection(
         .map_err(ScraperError::RawNormalizationInput)?
         .as_bytes()
         .to_vec();
+    // Only a capture that succeeded reports its schema.
+    record_captured_schema(
+        schema_index,
+        selection.score,
+        selection.fresh_schema,
+        fields_present,
+    );
     Ok(ScrapedProduct {
         acquired_at: page.acquired_at,
         raw_input,
@@ -855,14 +863,14 @@ impl ScraperServiceImpl {
                 findings = %findings,
                 "Page left a required value blank; a rejected missing_required_value review already judged it under the live schemas"
             ),
-            Some(Err(error)) => warn!(
+            Some(Err(error)) => warn_in_source!(
                 url = %page.url,
                 findings = %findings,
                 error = %error,
                 cause = ?std::error::Error::source(&error),
                 "Page left a required value blank; could not open its missing_required_value review"
             ),
-            None => warn!(
+            None => warn_in_source!(
                 url = %page.url,
                 findings = %findings,
                 "Page left a required value blank"

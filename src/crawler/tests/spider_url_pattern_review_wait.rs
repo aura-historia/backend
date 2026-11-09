@@ -162,11 +162,7 @@ impl ManualCrawlFixture {
         let crawl = tokio::spawn(async move {
             service
                 .run(
-                    &crawler::logging::SourceLogContext::new(
-                        listing_source_id,
-                        "Test Shop",
-                        "example.com",
-                    ),
+                    &listing_source_id,
                     CRAWL_ROOT_URL,
                     THRESHOLD,
                     CrawlPace::default(),

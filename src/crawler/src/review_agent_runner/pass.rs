@@ -29,7 +29,7 @@ use super::queue::{
     QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_review,
     select_reviews, waits_for_human,
 };
-use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
+use super::reports::{AgentReport, AuthorAction, AuthorReport, ReviewerDecision, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
@@ -268,27 +268,17 @@ impl Pass<'_> {
                 shared.summary.waiting_for_human = waiting_for_human;
                 shared.summary.cooling_down = cooling_down;
             });
-            // A pass that selected no review is a heartbeat: INFO carries only passes that work.
-            macro_rules! log_pass_started {
-                ($level:expr, $event:expr) => {
-                    tracing::event!(
-                        $level,
-                        event = $event,
-                        pending,
-                        waiting_for_human,
-                        cooling_down,
-                        selected = selected.len(),
-                        max_reviews_per_run = self.settings.max_reviews_per_run.get(),
-                        max_processes = self.settings.max_processes.get(),
-                        "Review agents pass started"
-                    )
-                };
-            }
-            if selected.is_empty() {
-                log_pass_started!(tracing::Level::DEBUG, PASS_STARTED_EVENT);
-            } else {
-                log_pass_started!(tracing::Level::INFO, PASS_STARTED_EVENT);
-            }
+            // The completion record carries the pass's counts at INFO once it worked a review.
+            debug!(
+                event = PASS_STARTED_EVENT,
+                pending,
+                waiting_for_human,
+                cooling_down,
+                selected = selected.len(),
+                max_reviews_per_run = self.settings.max_reviews_per_run.get(),
+                max_processes = self.settings.max_processes.get(),
+                "Review agents pass started"
+            );
         }
         Ok(selected)
     }
@@ -920,11 +910,21 @@ impl PassStop {
 }
 
 /// The one word of a report the process log keeps: the author's action or the reviewer's
-/// decision. The report itself is in the ledger and the decision in the console's event trail.
-fn decision_name(report: &AgentReport) -> String {
+/// decision, in the vocabulary of `crawler.review.decided`. The report itself is in the ledger and
+/// the decision in the console's event trail.
+fn decision_name(report: &AgentReport) -> &'static str {
     match report {
-        AgentReport::Author(report) => name(Some(report.action)),
-        AgentReport::Reviewer(report) => name(Some(report.decision)),
+        AgentReport::Author(report) => match report.action {
+            AuthorAction::Staged => "staged",
+            AuthorAction::NothingToStage => "nothing_to_stage",
+            AuthorAction::Skipped => "skipped",
+        },
+        AgentReport::Reviewer(report) => match report.decision {
+            ReviewerDecision::Approve => "approved",
+            ReviewerDecision::Reject => "rejected",
+            ReviewerDecision::NeedsRepair => "needs_repair",
+            ReviewerDecision::Skip => "skipped",
+        },
     }
 }
 

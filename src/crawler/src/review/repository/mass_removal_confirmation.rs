@@ -2,7 +2,7 @@
 //! the scraper's mass-removal guard honours until it ends, and its revocation
 //! (`docs/crawler/scheduling-and-retries.md`, mass-removal guard).
 
-use super::review_log::{ReviewLogEntry, prepare_source_log};
+use super::review_log::{ReviewLogEntry, log_committed_source};
 use super::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::review::model::ReviewActor;
 use crate::scraper::removal_guard::{MASS_REMOVAL_HELD_ERROR_KIND, MassRemovalConfirmationHours};
@@ -60,15 +60,18 @@ impl CrawlerReviewRepository {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
-        let log = prepare_source_log(
-            &mut *transaction,
-            listing_source_id,
-            ReviewLogEntry::mass_removal_confirmed(actor)
-                .with_affected_urls(usize::try_from(rearmed_held_urls).unwrap_or(usize::MAX)),
-        )
-        .await?;
         transaction.commit().await?;
-        log.into_iter().for_each(|log| log.emit());
+        log_committed_source(
+            &self.pool,
+            listing_source_id,
+            ReviewLogEntry::mass_removal_confirmed(
+                actor,
+                hours.get(),
+                confirmed_until,
+                rearmed_held_urls,
+            ),
+        )
+        .await;
         Ok(MassRemovalConfirmation {
             mass_removal_confirmed_until: confirmed_until,
             mass_removal_confirmed_by: actor,
@@ -96,13 +99,12 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::ListingSourceNotFound(
             *listing_source_id,
         ))?;
-        let log = prepare_source_log(
+        log_committed_source(
             &self.pool,
             listing_source_id,
             ReviewLogEntry::mass_removal_revoked(actor),
         )
-        .await?;
-        log.into_iter().for_each(|log| log.emit());
+        .await;
         Ok(())
     }
 }

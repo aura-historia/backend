@@ -90,6 +90,9 @@ impl CrawlerReviewRepository {
         .await?;
         debug!(
             review_id = %review_id,
+            actor = %actor,
+            product_labels = counts.product,
+            not_product_labels = counts.not_product,
             candidate_version,
             "Sample labels of a URL-pattern review set"
         );

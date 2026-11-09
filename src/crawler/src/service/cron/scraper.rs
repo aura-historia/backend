@@ -2,7 +2,7 @@ use super::job::CrawlerCronJob;
 use super::metrics::emit_pass_duration;
 use super::stop::CronStop;
 use crate::CrawlerReviewId;
-use crate::logging::SourceLogContext;
+use crate::logging::{SourceLogContext, error_in_source, warn_in_source};
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
     DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
@@ -670,10 +670,7 @@ async fn handle_verified_removal(
         .await;
         return ScrapeCandidateOutcome {
             removal: Some(CandidateRemoval::Rechecked),
-            named_outcome: refreshed
-                .named_outcome
-                .clone()
-                .or(Some(UrlOutcome::removed(&removal))),
+            named_outcome: refreshed.named_outcome.clone(),
             ..refreshed
         };
     }
@@ -708,7 +705,7 @@ async fn capture_new_removal(
         removal,
         input,
         raw_input_sha256,
-        telemetry,
+        telemetry: _,
     } = new_removal;
     let candidate = &candidate;
     let provenance = match crawler_provenance(None, None) {
@@ -736,19 +733,15 @@ async fn capture_new_removal(
             return skipped_outcome(SkipReason::StaleWrite);
         }
         Err(error) => {
-            warn!(error = %error, "Failed to forget the last capture before a verified removal");
+            warn_in_source!(error = %error, "Failed to forget the last capture before a verified removal");
             return errored_outcome("RemovalCapturePreparation");
         }
     }
 
     log_verified_removal(candidate, &removal);
-    log_url_outcome(
-        &ctx.source_log_context(),
-        candidate,
-        &UrlOutcome::removed(&removal),
-        &telemetry,
-    );
+    let named_outcome = Some(UrlOutcome::removed(&removal));
     ScrapeCandidateOutcome {
+        named_outcome,
         capture: Some(removal_capture_request(
             candidate,
             input,
@@ -767,7 +760,8 @@ fn log_verified_removal(candidate: &ScraperCandidate, removal: &ListingRemoval) 
     debug!(
         event = "crawler.scraper.verified_removal",
         listing_source_id = %candidate.listing_source_id,
-        crawl_host = %candidate.crawl_host,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_host,
         url = %candidate.url,
         evidence = evidence.kind.as_str(),
         status = evidence.status,
@@ -795,7 +789,7 @@ async fn refresh_repeated_removal(
         )
         .await
     {
-        Ok(CrawlerUrlWriteOutcome::Applied) => ScrapeCandidateOutcome::default(),
+        Ok(CrawlerUrlWriteOutcome::Applied) => unchanged_page_outcome(),
         Ok(CrawlerUrlWriteOutcome::NoopStale) => {
             debug!(
                 crawler_url_write_outcome = "stale_noop",
@@ -804,7 +798,7 @@ async fn refresh_repeated_removal(
             skipped_outcome(SkipReason::StaleWrite)
         }
         Err(error) => {
-            warn!(error = %error, "Failed to persist repeated removal scrape metadata");
+            warn_in_source!(error = %error, "Failed to persist repeated removal scrape metadata");
             errored_outcome("RemovalPersistence")
         }
     }
@@ -1205,7 +1199,7 @@ async fn handle_successful_scrape(
             })
             .await
         {
-            Ok(CrawlerUrlWriteOutcome::Applied) => ScrapeCandidateOutcome::default(),
+            Ok(CrawlerUrlWriteOutcome::Applied) => unchanged_page_outcome(),
             Ok(CrawlerUrlWriteOutcome::NoopStale) => {
                 debug!(
                     listing_source_id = %meta.listing_source_id,
@@ -1216,7 +1210,7 @@ async fn handle_successful_scrape(
                 skipped_outcome(SkipReason::StaleWrite)
             }
             Err(error) => {
-                warn!(error = %error, url = %meta.original_url, "Failed to persist unchanged raw scrape metadata");
+                warn_in_source!(error = %error, url = %meta.original_url, "Failed to persist unchanged raw scrape metadata");
                 errored_outcome("UnchangedPersistence")
             }
         };
@@ -1251,6 +1245,8 @@ async fn reject_identity_conflict(
     warn!(
         event = "crawler.product_url_move_rejected_identity_conflict",
         listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_host,
         url = %candidate.url,
         captured_identity = %captured_identity,
         source_identity = %scraped.source_listing_id,
@@ -1443,7 +1439,9 @@ async fn record_scrape_failure(
     match &persisted {
         Ok(Some(snapshot)) => debug!(
             event = "crawler.scraper.scrape_failure_recorded",
-            crawl_host = %candidate.crawl_host,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
             status_code = ?status_code,
             failure_streak = snapshot.scrape_failure_streak,
@@ -1451,14 +1449,18 @@ async fn record_scrape_failure(
         ),
         Ok(None) => debug!(
             event = "crawler.scraper.scrape_failure_record_stale",
-            crawl_host = %candidate.crawl_host,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
             "Skipped stale scrape failure record"
         ),
         Err(error) => warn!(
             event = "crawler.scraper.scrape_failure_record_failed",
             error = %error,
-            crawl_host = %candidate.crawl_host,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
             "Failed to persist scrape failure"
         ),
@@ -1494,7 +1496,9 @@ async fn open_scrape_circuit(
     match &persisted {
         Ok(Some(snapshot)) => warn!(
             event = "crawler.scraper.scrape_circuit_opened",
-            crawl_host = %candidate.crawl_host,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
             status_code = ?status_code,
             failure_streak = snapshot.scrape_failure_streak,
@@ -1520,14 +1524,18 @@ async fn open_scrape_circuit(
         ),
         Ok(None) => debug!(
             event = "crawler.scraper.scrape_circuit_open_stale",
-            crawl_host = %candidate.crawl_host,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
             "Skipped stale scrape circuit opening"
         ),
         Err(error) => warn!(
             event = "crawler.scraper.scrape_circuit_open_failed",
             error = %error,
-            crawl_host = %candidate.crawl_host,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
             "Failed to persist scrape circuit opening"
         ),
@@ -1600,7 +1608,7 @@ async fn persist_url_failure(ctx: &ScrapeBatchContext, request: FetchFailureRequ
             crawler_url_write_outcome = "stale_noop",
             "Skipped stale crawler fetch failure metadata"
         ),
-        Err(error) => warn!(
+        Err(error) => warn_in_source!(
             error = %error,
             url = %url,
             "Failed to persist scraper fetch failure metadata"
@@ -1694,7 +1702,7 @@ async fn persist_scraped_without_capture(
             crawler_url_write_outcome = "stale_noop",
             "Skipped stale crawler scrape outcome"
         ),
-        Err(error) => warn!(error = %error, "Failed to persist scraper outcome"),
+        Err(error) => warn_in_source!(error = %error, "Failed to persist scraper outcome"),
     }
 }
 
@@ -1765,7 +1773,7 @@ async fn persist_schema_review_wait(
             crawler_url_write_outcome = "stale_noop",
             "Skipped stale crawler schema review wait"
         ),
-        Err(error) => warn!(
+        Err(error) => warn_in_source!(
             error = %error,
             url = %candidate.url,
             "Failed to persist crawler schema review wait"
@@ -1809,7 +1817,7 @@ async fn persist_scraper_failure(
             crawler_url_write_outcome = "stale_noop",
             "Skipped stale crawler failure metadata"
         ),
-        Err(error) => warn!(error = %error, "Failed to persist scraper failure metadata"),
+        Err(error) => warn_in_source!(error = %error, "Failed to persist scraper failure metadata"),
     }
 }
 
@@ -1841,7 +1849,7 @@ async fn record_batch_error_state(ctx: &ScrapeBatchContext, error: &ScraperError
     {
         debug!(error = %error, "Scraper run failed");
     } else {
-        warn!(error = %error, "Scraper run failed");
+        warn_in_source!(error = %error, "Scraper run failed");
     }
 }
 
@@ -2014,6 +2022,9 @@ async fn scrape_batch_candidates(
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
             warn!(
                 event = "crawler.scraper.scrape_circuit_batch_stopped",
+                listing_source_id = %ctx.listing_source_id,
+                listing_source_name = %ctx.listing_source_name,
+                domain = %ctx.crawl_host,
                 attempted_urls = candidate_index + 1,
                 skipped_urls = remaining,
                 "Stopping remaining scraper URLs after a scrape circuit failure"
@@ -2035,6 +2046,9 @@ async fn scrape_batch_candidates(
                 Ok(CrawlerUrlWriteOutcome::Applied) => {
                     info!(
                         event = "crawler.scraper.scrape_circuit_closed",
+                        listing_source_id = %ctx.listing_source_id,
+                        listing_source_name = %ctx.listing_source_name,
+                        domain = %ctx.crawl_host,
                         previous_failure_streak = scrape_health.scrape_failure_streak,
                         last_error_kind = ?scrape_health.last_scrape_error_kind,
                         circuit_was_open = scrape_health.next_scrape_at.is_some(),
@@ -2046,7 +2060,7 @@ async fn scrape_batch_candidates(
                     event = "crawler.scraper.scrape_circuit_close_stale",
                     "Skipped stale scrape circuit close"
                 ),
-                Err(error) => warn!(
+                Err(error) => warn_in_source!(
                     error = %error,
                     "Failed to close scrape circuit"
                 ),
@@ -2121,7 +2135,8 @@ async fn settle_new_removals(
         info!(
             event = "crawler.scraper.mass_removal_confirmed",
             listing_source_id = %ctx.listing_source_id,
-            crawl_host = %ctx.crawl_host,
+            listing_source_name = %ctx.listing_source_name,
+            domain = %ctx.crawl_host,
             confirmed_until = %confirmed_until,
             removals = mass_removal.removals(),
             scraped_urls = mass_removal.scraped_urls(),
@@ -2130,7 +2145,15 @@ async fn settle_new_removals(
         );
     }
     for removal in removals {
+        let (candidate, telemetry) = (removal.candidate.clone(), removal.telemetry.clone());
         let capture = capture_new_removal(ctx, removal).await;
+        // One record per URL, whatever the removal's capture came to.
+        log_url_outcome(
+            &ctx.source_log_context(),
+            &candidate,
+            &capture.url_outcome(),
+            &telemetry,
+        );
         if capture.errored {
             outcome.failed += 1;
         } else if let Some(request) = capture.capture {
@@ -2168,8 +2191,9 @@ async fn hold_mass_removal(
         .join(" ");
     warn!(
         event = "crawler.scraper.mass_removal_held",
-        listing_source_id = %removals[0].candidate.listing_source_id,
-        crawl_host = %ctx.crawl_host,
+        listing_source_id = %ctx.listing_source_id,
+        listing_source_name = %ctx.listing_source_name,
+        domain = %ctx.crawl_host,
         removals = mass_removal.removals(),
         scraped_urls = mass_removal.scraped_urls(),
         share = mass_removal.share(),
@@ -2212,7 +2236,7 @@ async fn enqueue_candidate_capture(
             outcome.succeeded += 1;
 
             if queue_wait >= Duration::from_millis(10) {
-                warn!(
+                warn_in_source!(
                     event = "crawler.raw_capture.enqueue_wait",
                     queue_wait_ms = queue_wait.as_millis(),
                     "Raw ProductListing capture queue applied backpressure"
@@ -2220,7 +2244,7 @@ async fn enqueue_candidate_capture(
             }
         }
         Err(_) => {
-            error!("Command channel closed while scraper worker is running");
+            error_in_source!("Command channel closed while scraper worker is running");
             outcome.failed += 1;
         }
     }
@@ -2400,7 +2424,10 @@ impl CrawlerCronJob {
                                 listing_source_id,
                                 listing_source_name: scheduled_name,
                                 domain: scheduled_domain,
-                                outcome: scrape_batch_candidates(candidates, ctx).await,
+                                outcome: ctx
+                                    .source_log_context()
+                                    .scope(scrape_batch_candidates(candidates, ctx))
+                                    .await,
                             }
                         }
                         .instrument(span),
@@ -2532,9 +2559,10 @@ impl CrawlerCronJob {
                     deferred_urls,
                     deferred_batches,
                     duration_ms,
-                    skip_reasons = ?pass_summary.skip_reasons(),
-                    deferred_reasons = ?pass_summary.deferred_reasons(),
+                    skip_reasons = %PassSummary::reasons_json(&pass_summary.skip_reasons()),
+                    deferred_reasons = %PassSummary::reasons_json(&pass_summary.deferred_reasons()),
                     by_domain = %pass_summary.by_domain_json(),
+                    by_domain_truncated = pass_summary.domains_left_out(),
                     "Scraper scheduler pass complete"
                 )
             };
@@ -2883,53 +2911,45 @@ mod tests {
         assert_eq!(batches[0].field("persisted_count"), Some("1"));
     }
 
+    /// The batch's counters decide what a URL's one outcome log says.
     #[test]
-    fn should_name_a_default_outcome_unchanged_when_nothing_was_captured_or_failed() {
-        assert_eq!(
-            ScrapeCandidateOutcome::default().url_outcome(),
-            UrlOutcome::Unchanged
-        );
-    }
-
-    #[test]
-    fn should_name_the_failure_kind_when_an_outcome_errored() {
-        let recorded = ScrapeCandidateOutcome {
+    fn should_name_each_candidate_outcome_by_the_counters_that_describe_it() {
+        let waiting = ScrapeCandidateOutcome {
+            awaited_schema_review: Some(CrawlerReviewId::new()),
+            ..Default::default()
+        };
+        let errored = ScrapeCandidateOutcome {
             errored: true,
             failure_kind: Some("HttpError".to_owned()),
             ..Default::default()
         };
 
-        assert_eq!(recorded.url_outcome(), UrlOutcome::failed("HttpError"));
-        assert_eq!(
-            errored_outcome("RemovalInput").url_outcome(),
-            UrlOutcome::failed("RemovalInput")
-        );
-    }
+        let named = [
+            (ScrapeCandidateOutcome::default(), "unchanged"),
+            (unchanged_page_outcome(), "unchanged"),
+            (
+                skipped_outcome(SkipReason::DuplicateUrl),
+                "skipped:duplicate_url",
+            ),
+            (errored, "failed:HttpError"),
+            (errored_outcome("RemovalInput"), "failed:RemovalInput"),
+            (waiting, "awaiting_schema_review"),
+        ]
+        .map(|(outcome, label)| (outcome.url_outcome().label(), label));
 
-    #[test]
-    fn should_name_the_skip_reason_when_an_outcome_was_skipped() {
-        let outcome = skipped_outcome(SkipReason::DuplicateUrl);
-
-        assert_eq!(outcome.url_outcome().label(), "skipped:duplicate_url");
-        assert_eq!(outcome.url_outcome().skip_label(), "duplicate_url");
+        for (actual, expected) in named {
+            assert_eq!(actual, expected);
+        }
         assert_eq!(
-            unchanged_page_outcome().url_outcome(),
-            UrlOutcome::Unchanged
+            skipped_outcome(SkipReason::DuplicateUrl)
+                .url_outcome()
+                .skip_label(),
+            "duplicate_url"
         );
         assert_eq!(
             unchanged_page_outcome().url_outcome().skip_label(),
             "unchanged_page"
         );
-    }
-
-    #[test]
-    fn should_name_a_capture_and_a_schema_review_wait() {
-        let waiting = ScrapeCandidateOutcome {
-            awaited_schema_review: Some(CrawlerReviewId::new()),
-            ..Default::default()
-        };
-
-        assert_eq!(waiting.url_outcome(), UrlOutcome::AwaitingSchemaReview);
     }
 
     #[tokio::test]
@@ -3904,7 +3924,7 @@ mod tests {
 
         assert!(outcome.capture.is_none());
         assert!(!outcome.errored);
-        assert!(!outcome.skipped);
+        assert_eq!(outcome.url_outcome(), UrlOutcome::Unchanged);
     }
 
     #[tokio::test]
@@ -4253,7 +4273,11 @@ mod tests {
                 "the raw delete is already the URL's last capture"
             );
             assert!(!outcome.errored);
-            assert!(!outcome.skipped);
+            assert_eq!(
+                outcome.url_outcome(),
+                UrlOutcome::Unchanged,
+                "a recheck is no news: it logs at DEBUG"
+            );
         }
 
         #[tokio::test]
@@ -5621,6 +5645,104 @@ mod tests {
             assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
         }
 
+        fn outcome_labels(
+            events: &crate::test_support::logged_events::LoggedEvents,
+        ) -> Vec<String> {
+            events
+                .named(URL_OUTCOME_EVENT_NAME)
+                .iter()
+                .filter_map(|logged| logged.field("outcome").map(str::to_owned))
+                .collect()
+        }
+
+        const URL_OUTCOME_EVENT_NAME: &str = "crawler.scraper.url_outcome";
+
+        #[tokio::test]
+        async fn should_log_one_url_outcome_per_removal_whether_it_was_held_or_captured() {
+            let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+            let (candidates, listing_source_id) = source_batch(HOST, 20);
+            let (ctx, _command_rx) = batch_context(
+                forgetting(10),
+                shop_removing_the_first(10),
+                listing_source_id,
+            );
+            scrape_batch_candidates(candidates, ctx).await;
+            let captured = outcome_labels(&events);
+            assert_eq!(
+                captured.iter().filter(|label| *label == "removed").count(),
+                10
+            );
+            assert_eq!(captured.len(), 20, "{captured:?}");
+            events.take();
+
+            let (candidates, listing_source_id) = source_batch(HOST, 12);
+            let mut held = MockScraperCandidateService::new();
+            held.expect_mark_scraped_without_capture()
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let (ctx, _command_rx) = batch_context(
+                confirmed_until(held, None),
+                shop_removing_the_first(12),
+                listing_source_id,
+            );
+            scrape_batch_candidates(candidates, ctx).await;
+
+            assert_eq!(
+                outcome_labels(&events),
+                vec!["skipped:mass_removal_held"; 12]
+            );
+        }
+
+        #[tokio::test]
+        async fn should_log_one_outcome_when_a_removal_cannot_be_prepared_for_capture() {
+            let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+            let (candidates, listing_source_id) = source_batch(HOST, 20);
+            let mut failing = MockScraperCandidateService::new();
+            failing
+                .expect_forget_capture_before_removal()
+                .times(5)
+                .returning(|_, _, _| Box::pin(async { Err(sqlx::Error::PoolClosed) }));
+            let (ctx, _command_rx) =
+                batch_context(failing, shop_removing_the_first(5), listing_source_id);
+
+            scrape_batch_candidates(candidates, ctx).await;
+
+            let labels = outcome_labels(&events);
+            assert_eq!(
+                labels
+                    .iter()
+                    .filter(|label| *label == "failed:RemovalCapturePreparation")
+                    .count(),
+                5,
+                "{labels:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn should_log_one_outcome_when_another_writer_changed_a_removed_url() {
+            let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+            let (candidates, listing_source_id) = source_batch(HOST, 20);
+            let mut stale = MockScraperCandidateService::new();
+            stale
+                .expect_forget_capture_before_removal()
+                .times(5)
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::NoopStale) }));
+            let (ctx, _command_rx) =
+                batch_context(stale, shop_removing_the_first(5), listing_source_id);
+
+            scrape_batch_candidates(candidates, ctx).await;
+
+            let labels = outcome_labels(&events);
+            assert_eq!(
+                labels
+                    .iter()
+                    .filter(|label| *label == "skipped:stale_write")
+                    .count(),
+                5,
+                "{labels:?}"
+            );
+            assert_eq!(labels.len(), 20);
+        }
+
         /// A shop accumulates pages whose removal is already captured; their rechecks are no live
         /// pages, so they do not dilute a batch whose remaining pages would all be removed.
         #[tokio::test]
@@ -5650,7 +5772,11 @@ mod tests {
             let outcome = scrape_batch_candidates(candidates, ctx).await;
 
             assert_eq!(queued_removals(&mut command_rx), 0);
-            assert_eq!((outcome.succeeded, outcome.skipped), (20, 10));
+            assert_eq!(
+                (outcome.succeeded, outcome.skipped, outcome.unchanged),
+                (0, 30, 20),
+                "the rechecked removals are unchanged pages"
+            );
         }
     }
 
