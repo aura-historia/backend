@@ -16,7 +16,7 @@ use crawler::review::model::{
     SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
-use crawler::review::readers::ReviewQueueReader;
+use crawler::review::readers::{ReviewQuery, ReviewQueueReader};
 use crawler::review::repository::{
     Approval, CrawlerReviewRepository, PendingReviewQuery, ReviewRepositoryError,
 };
@@ -2102,9 +2102,10 @@ async fn agent_rounds(
         .map(|event| event.created);
     let detail = detail.review;
     let listed = ReviewQueueReader::of(repository)
-        .list_reviews(200)
+        .list_reviews(&ReviewQuery::default())
         .await
         .unwrap()
+        .reviews
         .into_iter()
         .find(|review| review.review_id == review_id)
         .unwrap_or_else(|| panic!("review {review_id} is not listed"));

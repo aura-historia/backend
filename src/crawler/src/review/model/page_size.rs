@@ -22,6 +22,12 @@ impl PageSize {
     }
 }
 
+impl Default for PageSize {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

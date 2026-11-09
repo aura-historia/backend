@@ -23,7 +23,7 @@ macro_rules! after_last_human_event {
             '-infinity'::timestamptz)"
     };
 }
-pub(super) use after_last_human_event;
+pub(crate) use after_last_human_event;
 
 /// The agents' needs-repair rounds of the review aliased `r`: its agent `REPAIR_REQUESTED` events
 /// after its latest `HUMAN` event, or after its first event when no human acted on it. A review's
@@ -41,7 +41,7 @@ macro_rules! agent_rounds_of_review {
         )
     };
 }
-pub(super) use agent_rounds_of_review;
+pub(crate) use agent_rounds_of_review;
 
 /// Whether an agent handed the review aliased `r` to a human since a human last acted on it: it
 /// waits for a human whatever its rounds. Binds `$1` and `$3` as [`agent_rounds_of_review`].
@@ -56,11 +56,11 @@ macro_rules! agent_handed_review_to_human {
         )
     };
 }
-pub(super) use agent_handed_review_to_human;
+pub(crate) use agent_handed_review_to_human;
 
 /// The values of `$1` to `$3` of [`agent_rounds_of_review`]: the agent actors, the needs-repair
 /// action and the human actor.
-pub(super) fn agent_round_binds() -> ([&'static str; 2], &'static str, &'static str) {
+pub(crate) fn agent_round_binds() -> ([&'static str; 2], &'static str, &'static str) {
     (
         ReviewActor::AGENTS.map(ReviewActor::as_str),
         ReviewEventAction::RepairRequested.as_str(),

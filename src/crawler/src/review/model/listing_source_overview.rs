@@ -7,7 +7,12 @@ use serde::Serialize;
 pub struct ListingSourceOverview {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
+    pub listing_source_slug: String,
     pub crawl_enabled: bool,
+    /// Whether the ListingSource is crawl-enabled and needs a look: its crawl waits for an
+    /// operator, URLs are blocked on a pending review, its scrapes keep failing or the
+    /// mass-removal guard holds removals back.
+    pub needs_attention: bool,
     pub llm_calls_count: i64,
     /// Where the source's crawl starts, derived from its presentation URL; `None` while the scope
     /// gives it no crawl root (`docs/crawler/README.md#listingsource-scope`).
@@ -65,6 +70,16 @@ pub struct ListingSourceOverview {
     pub crawl_state: CrawlStateOverview,
 }
 
+/// One page of the ListingSource overview in the order the query asked for, and how many
+/// ListingSources match the query in all, whatever page was asked for.
+#[derive(Debug, Serialize)]
+pub struct ListingSourcePage {
+    pub listing_sources: Vec<ListingSourceOverview>,
+    pub total: i64,
+    /// The ListingSource to read on after, as `after`, when ListingSources follow this page.
+    pub next_after: Option<ListingSourceId>,
+}
+
 /// How many product URLs of a ListingSource last ended with one error kind.
 #[derive(Debug, Serialize)]
 pub struct UrlErrorKindCount {
@@ -106,7 +121,9 @@ mod tests {
             listing_source_id: ListingSourceId::try_from(uuid::Uuid::now_v7())
                 .expect("v7 uuid is a valid listing source id"),
             listing_source_name: None,
+            listing_source_slug: "antiques".to_owned(),
             crawl_enabled: true,
+            needs_attention: true,
             llm_calls_count: 0,
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,

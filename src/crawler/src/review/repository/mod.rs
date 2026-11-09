@@ -69,8 +69,11 @@ use review_events::{
 use crate::review::source_url::is_review_source_url;
 use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
 use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
-pub(crate) use repair_rounds::agent_repair_rounds;
 use repair_rounds::refuse_agent_while_human_required;
+pub(crate) use repair_rounds::{
+    after_last_human_event, agent_handed_review_to_human, agent_repair_rounds, agent_round_binds,
+    agent_rounds_of_review,
+};
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,

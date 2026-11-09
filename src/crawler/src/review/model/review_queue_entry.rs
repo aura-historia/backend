@@ -45,6 +45,16 @@ pub struct ReviewQueueEntry {
     pub reviewed: Option<OffsetDateTime>,
 }
 
+/// One page of the console's review queue, newest or oldest first, and how many reviews match the
+/// query in all, whatever page was asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ReviewQueuePage {
+    pub reviews: Vec<ReviewQueueEntry>,
+    pub total: i64,
+    /// The review to read on after, as `after`, when reviews follow this page.
+    pub next_after: Option<CrawlerReviewId>,
+}
+
 /// The outcome of the crawler's LLM evaluation of a generated schema, as the review's validation
 /// summary keeps it under `auto_schema_evaluation`, without the model's summary and risks, which
 /// the review detail shows.

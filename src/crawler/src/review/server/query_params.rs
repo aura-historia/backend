@@ -2,7 +2,9 @@
 //! not accepted is refused with what is accepted, so a request that cannot be read as asked is
 //! answered with `400` instead of a different page.
 
-use crate::review::model::PageSize;
+use crate::review::model::{
+    MAX_SEARCH_TERM_CHARS, PageSize, QueryValue, SearchTerm, SortDirection,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -45,5 +47,120 @@ pub(super) fn page_size(query: &HashMap<String, String>) -> Result<PageSize, Str
                 PageSize::MAX.get()
             )
         }),
+    }
+}
+
+/// Refuses a parameter of `query` that is not one of `accepted`, so a misspelt filter is not
+/// taken for no filter.
+pub(super) fn reject_unknown(
+    query: &HashMap<String, String>,
+    accepted: &[&str],
+) -> Result<(), String> {
+    match query.keys().find(|name| !accepted.contains(&name.as_str())) {
+        None => Ok(()),
+        Some(name) => Err(format!(
+            "unknown parameter {name}; accepted: {}",
+            accepted.join(", ")
+        )),
+    }
+}
+
+/// The parameter `name` as the value of `T` it names, or `None` when it is not given.
+pub(super) fn named<T: QueryValue>(
+    query: &HashMap<String, String>,
+    name: &str,
+) -> Result<Option<T>, String> {
+    query
+        .get(name)
+        .map(|value| {
+            T::parse(value).ok_or_else(|| format!("{name} must be one of {}", T::accepted()))
+        })
+        .transpose()
+}
+
+/// The parameter `name` as the id of type `T`, or `None` when it is not given. `what` names the
+/// id in the refusal, such as "a ListingSource id".
+pub(super) fn id_param<T: FromStr>(
+    query: &HashMap<String, String>,
+    name: &str,
+    what: &str,
+) -> Result<Option<T>, String> {
+    query
+        .get(name)
+        .map(|value| {
+            value
+                .parse::<T>()
+                .map_err(|_| format!("{name} must be {what}"))
+        })
+        .transpose()
+}
+
+/// The search text `q`, or `None` when it is not given or blank.
+pub(super) fn search_term(query: &HashMap<String, String>) -> Result<Option<SearchTerm>, String> {
+    match query.get("q") {
+        Some(text) if !text.trim().is_empty() => SearchTerm::new(text).map(Some).ok_or_else(|| {
+            format!(
+                "q must be at most {MAX_SEARCH_TERM_CHARS} characters without control characters"
+            )
+        }),
+        _ => Ok(None),
+    }
+}
+
+/// The sort direction `order`, or `default` when it is not given.
+pub(super) fn sort_direction(
+    query: &HashMap<String, String>,
+    default: SortDirection,
+) -> Result<SortDirection, String> {
+    Ok(named::<SortDirection>(query, "order")?.unwrap_or(default))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn query_of(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn should_refuse_a_parameter_that_is_not_accepted() {
+        let query = query_of(&[("humen_required", "true")]);
+
+        let error = reject_unknown(&query, &["human_required", "limit"]).unwrap_err();
+
+        assert_eq!(
+            error,
+            "unknown parameter humen_required; accepted: human_required, limit"
+        );
+        assert_eq!(reject_unknown(&query_of(&[]), &["limit"]), Ok(()));
+    }
+
+    #[test]
+    fn should_name_what_a_named_parameter_accepts() {
+        assert_eq!(
+            named::<SortDirection>(&query_of(&[("order", "up")]), "order"),
+            Err("order must be one of asc, desc".to_owned())
+        );
+        assert_eq!(
+            named::<SortDirection>(&query_of(&[("order", "asc")]), "order"),
+            Ok(Some(SortDirection::Ascending))
+        );
+        assert_eq!(named::<SortDirection>(&query_of(&[]), "order"), Ok(None));
+    }
+
+    #[test]
+    fn should_take_a_blank_search_for_no_search_and_refuse_one_that_is_too_long() {
+        assert_eq!(search_term(&query_of(&[("q", "  ")])), Ok(None));
+        assert_eq!(search_term(&query_of(&[])), Ok(None));
+        assert_eq!(
+            search_term(&query_of(&[("q", " Antik ")]))
+                .map(|term| term.map(|t| t.as_str().to_owned())),
+            Ok(Some("Antik".to_owned()))
+        );
+        assert!(search_term(&query_of(&[("q", &"a".repeat(101))])).is_err());
     }
 }
