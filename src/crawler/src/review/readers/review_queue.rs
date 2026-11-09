@@ -61,7 +61,8 @@ impl ReviewQueueReader {
             .iter()
             .map(|row| crawler_review_id_from_uuid(row.try_get("review_id")?))
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
-        let agent_rounds = agent_repair_rounds(&self.pool, &review_ids).await?;
+        let agent_rounds =
+            agent_repair_rounds(&self.pool, &self.agent_decisions, &review_ids).await?;
         rows.into_iter()
             .map(|row| self.queue_entry(row, &agent_rounds))
             .collect()

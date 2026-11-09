@@ -2991,3 +2991,135 @@ async fn should_count_every_pending_review_as_workable_outside_agent_mode() {
     );
     assert_eq!(agent_rounds(&in_agent_mode, in_order[0]).await, (2, true));
 }
+
+/// Records an agent event `action` on `review_id`, written `days_ago` days before now.
+async fn agent_event_days_ago(
+    pool: &PgPool,
+    review_id: CrawlerReviewId,
+    action: &str,
+    days_ago: i32,
+) {
+    sqlx::query(
+        "INSERT INTO crawler_review_events \
+         (event_id, review_id, actor, action, candidate_version, details, created) \
+         VALUES ($1, $2, 'AGENT_REVIEWER', $3, 1, '{}', NOW() - make_interval(days => $4))",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(review_id.as_uuid())
+    .bind(action)
+    .bind(days_ago)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Needs-repair verdicts and hand-overs older than the round window no longer count: a review no
+/// human answered within it returns to the agents in the detail, the list and the agents' queue
+/// alike, while the rounds within it still hand it to a human.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_return_a_review_to_the_agents_once_its_rounds_leave_the_window() {
+    let pool = get_postgres_client().await;
+    let repository = capped(&pool, 3);
+    let listing_source_id = listing_source(&pool).await;
+    let aged = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    let recent = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("table")],
+    )
+    .await;
+    for _ in 0..3 {
+        agent_event_days_ago(&pool, aged, "REPAIR_REQUESTED", 8).await;
+        agent_event_days_ago(&pool, recent, "REPAIR_REQUESTED", 1).await;
+    }
+    agent_event_days_ago(&pool, aged, "HANDED_TO_HUMAN", 8).await;
+
+    assert_eq!(agent_rounds(&repository, aged).await, (0, false));
+    assert_eq!(agent_rounds(&repository, recent).await, (3, true));
+}
+
+/// The ListingSource's live `NO_PATTERN` from a URL-pattern approval by `actor` made `days_ago`
+/// days before now.
+async fn no_pattern_approved_days_ago(
+    pool: &PgPool,
+    actor: ReviewActor,
+    days_ago: i32,
+) -> ListingSourceId {
+    let listing_source_id =
+        listing_source_on(pool, &format!("{}.example", uuid::Uuid::now_v7())).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let review_id = repository
+        .create_url_pattern_review(
+            &listing_source_id,
+            "manual_url_pattern_required",
+            UrlPatternDecision::NoPattern,
+            &["https://example.com/about".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+    let version = repository.candidate_version(review_id).await.unwrap();
+    repository
+        .approve_review(review_id, ReviewActor::Human, approval(version))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE crawler_review_events \
+         SET actor = $2, created = NOW() - make_interval(days => $3) \
+         WHERE review_id = $1 AND action = 'APPROVED'",
+    )
+    .bind(review_id.as_uuid())
+    .bind(actor.as_str())
+    .bind(days_ago)
+    .execute(pool)
+    .await
+    .unwrap();
+    listing_source_id
+}
+
+/// An agent's `NO_PATTERN` expires after the agents' `NO_PATTERN` age; a younger one, a human's
+/// and every decision outside `agent` mode hold.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_expire_only_an_agent_no_pattern_older_than_its_age() {
+    let pool = get_postgres_client().await;
+    let in_agent_mode = guarded(&pool, 20);
+    let in_manual_mode = CrawlerReviewRepository::new(pool.clone());
+
+    let old_agent = no_pattern_approved_days_ago(&pool, ReviewActor::AgentReviewer, 31).await;
+    let young_agent = no_pattern_approved_days_ago(&pool, ReviewActor::AgentReviewer, 29).await;
+    let old_human = no_pattern_approved_days_ago(&pool, ReviewActor::Human, 31).await;
+
+    assert!(
+        in_agent_mode
+            .agent_no_pattern_expired(&old_agent)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !in_agent_mode
+            .agent_no_pattern_expired(&young_agent)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !in_agent_mode
+            .agent_no_pattern_expired(&old_human)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !in_manual_mode
+            .agent_no_pattern_expired(&old_agent)
+            .await
+            .unwrap()
+    );
+}

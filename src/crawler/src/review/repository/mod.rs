@@ -478,6 +478,38 @@ impl CrawlerReviewRepository {
         .await
     }
 
+    /// Whether the ListingSource's live URL-pattern decision, which the caller read as
+    /// `NO_PATTERN`, comes from an agent approval older than the agents' `NO_PATTERN` age: its
+    /// latest URL-pattern approval or restore is an `AGENT_REVIEWER` approval made more than
+    /// [`AgentDecisionPolicy::no_pattern_max_age_days`] ago. A human's decision, and every
+    /// decision outside `agent` mode, never expires.
+    pub async fn agent_no_pattern_expired(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<bool, sqlx::Error> {
+        let Some(max_age_days) = self.agent_decisions.no_pattern_max_age_days() else {
+            return Ok(false);
+        };
+        sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(( \
+                 SELECT e.actor = $2 AND e.action = $3 \
+                        AND e.created < NOW() - make_interval(days => $5::int) \
+                 FROM crawler_review_events e \
+                 JOIN crawler_reviews r ON r.review_id = e.review_id \
+                 WHERE r.listing_source_id = $1 AND r.artifact_type = 'URL_PATTERN' \
+                   AND e.action IN ($3, $4) \
+                 ORDER BY e.created DESC LIMIT 1 \
+             ), FALSE)",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(ReviewActor::AgentReviewer.as_str())
+        .bind(ReviewEventAction::Approved.as_str())
+        .bind(ReviewEventAction::Restored.as_str())
+        .bind(max_age_days)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn latest_pending_url_pattern_review_id(
         &self,
         listing_source_id: &ListingSourceId,
@@ -543,7 +575,8 @@ impl CrawlerReviewRepository {
             .await?
             .ok_or(ReviewRepositoryError::NotFound(review_id))?;
 
-        let agent_rounds = agent_repair_rounds(&self.pool, &[review_id]).await?;
+        let agent_rounds =
+            agent_repair_rounds(&self.pool, &self.agent_decisions, &[review_id]).await?;
         let review = row_to_review(row, &agent_rounds, &self.agent_decisions)?;
         let candidate_is_live = self.approved_candidate_is_live(&review).await?;
         let candidate_error = changeable_candidate_error(&review, candidate_is_live);

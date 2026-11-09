@@ -157,6 +157,20 @@ impl UrlPatternServiceImpl {
         }
     }
 
+    /// Whether the ListingSource's `NO_PATTERN` is an agent decision that expired, so the crawl
+    /// decides the source again instead of keeping it out of product crawling for good.
+    async fn no_pattern_expired(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<bool, UrlPatternServiceError> {
+        match self.authoring.review_repository() {
+            Some(review_repository) => Ok(review_repository
+                .agent_no_pattern_expired(listing_source_id)
+                .await?),
+            None => Ok(false),
+        }
+    }
+
     async fn open_review(
         &self,
         review_repository: &CrawlerReviewRepository,
@@ -261,7 +275,18 @@ impl UrlPatternService for UrlPatternServiceImpl {
             .decision_stored_during_crawl(listing_source_id, crawl_pattern)
             .await?
         {
-            Some(DecidedUrlPattern::NoPattern) => return Ok(None),
+            Some(DecidedUrlPattern::NoPattern)
+                if !self.no_pattern_expired(listing_source_id).await? =>
+            {
+                return Ok(None);
+            }
+            Some(DecidedUrlPattern::NoPattern) => {
+                info!(
+                    crawl_root_url,
+                    "The agents' NO_PATTERN decision expired; classification decides the ListingSource again"
+                );
+                self.reset_pattern_classification(listing_source_id).await?;
+            }
             Some(DecidedUrlPattern::Pattern(stored)) => {
                 debug!(
                     crawl_root_url,
