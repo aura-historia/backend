@@ -16,6 +16,7 @@
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
+use super::context_use::ContextUse;
 use super::decision_cap::{
     CLOCK_MARGIN, DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended,
     report_shows_decision_cap,
@@ -33,6 +34,7 @@ use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
+use super::usage_pacing::UsageWindows;
 use super::wire_name as name;
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
@@ -629,6 +631,8 @@ impl Pass<'_> {
             }
         };
         let envelope = ResultEnvelope::parse(&output.stdout);
+        record.context = ContextUse::parse(&output.stdout);
+        self.pace(&UsageWindows::parse(&output.stdout));
         if let Some(stop) = output.stopped {
             if let Some(envelope) = &envelope {
                 record.take_accounting(envelope);
@@ -746,6 +750,13 @@ impl Pass<'_> {
             cache_creation_input_tokens = record.usage.cache_creation_input_tokens,
             total_cost_usd = record.total_cost_usd,
             cost_charged = record.cost_charged,
+            opening_tokens = record.context.opening_tokens,
+            tool_answer_chars = record
+                .context
+                .tool_answers
+                .values()
+                .map(|answers| answers.chars)
+                .sum::<u64>(),
             report = %report,
             "Review agent process finished"
         );
@@ -793,6 +804,28 @@ impl Pass<'_> {
     fn pause(&self, limit: UsageLimit, now: OffsetDateTime) {
         let until = limit.paused_until(now);
         log_pause(&limit, until);
+        self.pause_until(&limit, until, false);
+    }
+
+    /// Pauses before the agents take more than their share of the login's usage windows, as a
+    /// process's stream last reported them ([`super::usage_pacing`]); running processes finish.
+    fn pace(&self, windows: &UsageWindows) {
+        let now = OffsetDateTime::now_utc();
+        let Some(limit) = self.settings.pacing.pause(windows, now) else {
+            return;
+        };
+        let until = limit.paused_until(now);
+        info!(
+            limit = name(Some(limit.kind)),
+            five_hour_utilization = windows.five_hour.map(|window| window.utilization),
+            seven_day_utilization = windows.seven_day.map(|window| window.utilization),
+            until = %timestamp(until),
+            "The agents took their share of the login's usage window; they pause until it allows more"
+        );
+        self.pause_until(&limit, until, true);
+    }
+
+    fn pause_until(&self, limit: &UsageLimit, until: OffsetDateTime, paced: bool) {
         self.with(|shared| {
             let later = shared.state.paused.is_none_or(|pause| pause.until < until);
             if later {
@@ -800,6 +833,7 @@ impl Pass<'_> {
                     until,
                     limit: limit.kind,
                     reported_reset: limit.resets_at.is_some(),
+                    paced,
                 });
                 self.keep_state(&shared.state);
             }
@@ -860,6 +894,7 @@ impl ProcessRecord {
             usage: Default::default(),
             total_cost_usd: 0.0,
             cost_charged: false,
+            context: Default::default(),
             report: None,
             trail_verdict: None,
         }

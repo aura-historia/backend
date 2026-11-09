@@ -24,6 +24,10 @@ pub struct Pause {
     pub limit: UsageLimitKind,
     /// Whether `until` is the reset time the CLI reported, not a guess.
     pub reported_reset: bool,
+    /// Whether the runner paused before the limit, at the agents' share of the window, rather
+    /// than after the CLI ran into it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paced: bool,
 }
 
 /// The runner's pause of its reviewer processes after the console's cap on the agents' decisions;
@@ -178,6 +182,7 @@ mod tests {
                 until: NOW + Duration::hours(2),
                 limit: UsageLimitKind::Weekly,
                 reported_reset: true,
+                paced: false,
             }),
             reviewer_paused: Some(ReviewerPause {
                 until: NOW + Duration::minutes(45),

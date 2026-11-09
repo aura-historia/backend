@@ -35,12 +35,14 @@ const MAX_EVENTS: usize = 40;
 const MAX_NOTE_CHARS: usize = 1_000;
 /// The longest extracted value a matrix answer carries, in characters.
 pub(super) const MAX_VALUE_CHARS: usize = 300;
-/// The most characters of a page projection an answer carries.
-pub(super) const MAX_PROJECTION_CHARS: usize = 36_000;
+/// The most characters of a page projection an answer carries. Every answer stays in the agent's
+/// context for the rest of its run, so a window holds what a product page's outline usually
+/// needs, and `offset` reads on.
+pub(super) const MAX_PROJECTION_CHARS: usize = 24_000;
 /// The most bytes those characters take as a JSON string, so a window of non-Latin or
 /// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
 /// read on from, instead of being cut by it.
-const MAX_PROJECTION_JSON_BYTES: usize = 40 * 1024;
+const MAX_PROJECTION_JSON_BYTES: usize = 28 * 1024;
 
 /// One page of the pending reviews the agents can work.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -215,14 +217,21 @@ pub struct SourceProductUrlView {
     pub last_error_kind: Option<String>,
 }
 
+/// One URL of a URL-pattern review's sample. A field that is unknown, such as every pattern match
+/// before the ListingSource has a pattern, is left out rather than answered as null: a sample page
+/// lists up to [`MAX_SAMPLE_URLS`] of them, and each answer stays in the agent's context.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SampleUrlView {
     pub url: String,
     /// How the ListingSource's current pattern classified the URL before the review.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_pattern_match: Option<bool>,
     /// Whether the candidate's pattern matches the URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_pattern_match: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_class: Option<String>,
 }
 
@@ -251,8 +260,10 @@ pub struct PageProjectionView {
     /// reads, each cut to [`MAX_VALUE_CHARS`] so the projection window keeps its share of the answer
     /// bound. The projection strips the script they are in, so they show nowhere else.
     pub json_ld_product_ids: JsonLdProductIds,
-    /// The page as YAML: the elements, attributes and text the schema generation prompt shows,
-    /// without scripts, styles, navigation, header and footer.
+    /// The page's outline: one element per line in CSS notation, indented by depth, with its
+    /// text after ` | `; the elements, attributes and text the schema generation prompt shows,
+    /// without scripts, styles, navigation, header and footer, and runs of same-structure
+    /// siblings counted.
     pub projection: String,
     /// The character of the whole projection this answer starts at.
     pub projection_offset: usize,
@@ -901,6 +912,15 @@ mod tests {
             view["sample_urls"].as_array().map(Vec::len),
             Some(MAX_SAMPLE_URLS)
         );
+        assert_eq!(
+            view["sample_urls"][0],
+            json!({
+                "url": "https://antiques.example/item/0",
+                "candidate_pattern_match": true,
+                "candidate_class": "product",
+            }),
+            "the matches unknown before the ListingSource has a pattern are left out"
+        );
         assert_eq!(view["sample_urls_total"], 200);
         assert_eq!(view["events"][0]["candidate_version"], 10);
         assert_eq!(view["events_total"], 50);
@@ -1050,7 +1070,7 @@ mod tests {
 
     #[test]
     fn should_answer_a_long_projection_in_marked_windows() {
-        let projection = format!("page_dsl:\n{}", "  - tag: p\n".repeat(5_000));
+        let projection = format!("main\n{}", " p | text\n".repeat(4_000));
         let page = |offset| {
             PageProjectionView::of(
                 wire::PageProjection {
@@ -1072,7 +1092,7 @@ mod tests {
 
         assert!(first.projection_truncated);
         assert_eq!(first.projection_chars, total);
-        assert!(first.projection.starts_with("page_dsl:"));
+        assert!(first.projection.starts_with("main\n"));
         assert!(
             first.projection.ends_with(&format!(
                 "more characters; call inspect_page with offset {MAX_PROJECTION_CHARS} to read on]\n"
