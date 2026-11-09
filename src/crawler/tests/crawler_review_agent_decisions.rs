@@ -3020,10 +3020,10 @@ async fn agent_event_days_ago(
 async fn should_return_a_review_to_the_agents_once_its_rounds_leave_the_window() {
     let pool = get_postgres_client().await;
     let repository = capped(&pool, 3);
-    let listing_source_id = listing_source(&pool).await;
+    // One pending schema review per ListingSource: a second one would join the first.
     let aged = pending_review(
         &repository,
-        &listing_source_id,
+        &listing_source_on(&pool, "aged.example").await,
         "manual_schema_required",
         &[schema("h1")],
         vec![page("chair")],
@@ -3031,7 +3031,7 @@ async fn should_return_a_review_to_the_agents_once_its_rounds_leave_the_window()
     .await;
     let recent = pending_review(
         &repository,
-        &listing_source_id,
+        &listing_source_on(&pool, "recent.example").await,
         "manual_schema_required",
         &[schema("h1")],
         vec![page("table")],
@@ -3047,8 +3047,9 @@ async fn should_return_a_review_to_the_agents_once_its_rounds_leave_the_window()
     assert_eq!(agent_rounds(&repository, recent).await, (3, true));
 }
 
-/// The ListingSource's live `NO_PATTERN` from a URL-pattern approval by `actor` made `days_ago`
-/// days before now.
+/// A ListingSource whose latest URL-pattern approval is one by `actor` made `days_ago` days before
+/// now. The trail is append-only, so the approval is recorded as an event of its own with that
+/// time; the live state is the `NO_PATTERN` the caller reads it as.
 async fn no_pattern_approved_days_ago(
     pool: &PgPool,
     actor: ReviewActor,
@@ -3056,8 +3057,7 @@ async fn no_pattern_approved_days_ago(
 ) -> ListingSourceId {
     let listing_source_id =
         listing_source_on(pool, &format!("{}.example", uuid::Uuid::now_v7())).await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
-    let review_id = repository
+    let review_id = CrawlerReviewRepository::new(pool.clone())
         .create_url_pattern_review(
             &listing_source_id,
             "manual_url_pattern_required",
@@ -3067,16 +3067,12 @@ async fn no_pattern_approved_days_ago(
         )
         .await
         .unwrap();
-    let version = repository.candidate_version(review_id).await.unwrap();
-    repository
-        .approve_review(review_id, ReviewActor::Human, approval(version))
-        .await
-        .unwrap();
     sqlx::query(
-        "UPDATE crawler_review_events \
-         SET actor = $2, created = NOW() - make_interval(days => $3) \
-         WHERE review_id = $1 AND action = 'APPROVED'",
+        "INSERT INTO crawler_review_events \
+         (event_id, review_id, actor, action, candidate_version, details, created) \
+         VALUES ($1, $2, $3, 'APPROVED', 1, '{}', NOW() - make_interval(days => $4))",
     )
+    .bind(uuid::Uuid::now_v7())
     .bind(review_id.as_uuid())
     .bind(actor.as_str())
     .bind(days_ago)
