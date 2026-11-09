@@ -1,10 +1,12 @@
-//! Saved-search match previews for REST. They read the same classifier deployment settings as
-//! scheduled matching, so a preview accepts what a scheduled run would accept. MCP does not
-//! expose previews.
+//! Saved-search match previews for REST. They read the classifier model and acceptance
+//! threshold deployed for scheduled matching, so a preview accepts what a scheduled run would
+//! accept. Previews always classify single candidates, so scheduled matching's batch size does
+//! not apply. MCP does not expose previews.
 
 use crate::ProductListingDependencies;
 use classifier_model::{
     ClassifierModel, CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel,
+    Probability,
 };
 use fxrate_postgres::SqlxFxRateSnapshotReader;
 use platform_postgres::SqlxUnitOfWork;
@@ -16,11 +18,12 @@ use product_listing_postgres::{
 use product_listing_service::shipping::ShippingEnrichment;
 use product_listing_service::use_cases::ProductListingSearchPresentation;
 use search_filter_service::match_classification::{
-    MatchClassificationSettings, MatchClassificationSettingsError,
+    MatchClassificationSettingsError, should_show_threshold,
 };
 use search_filter_service::use_cases::{
     PreviewSearchFilterMatchesHandler, PreviewSearchFilterMatchesUseCase,
-    SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE, SearchFilterMatchPreviewPolicy,
+    SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE,
+    SEARCH_FILTER_MATCH_PREVIEW_IMAGE_FETCH_DEADLINE, SearchFilterMatchPreviewPolicy,
 };
 use sqlx::PgPool;
 use std::str::FromStr;
@@ -32,16 +35,14 @@ pub const CLOUDFLARE_ACCOUNT_ID_ENV: &str = "CLOUDFLARE_ACCOUNT_ID";
 pub const CLOUDFLARE_API_TOKEN_ENV: &str = "CLOUDFLARE_API_TOKEN";
 pub const SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV: &str =
     "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS";
-pub const SEARCH_FILTER_MATCH_BATCH_CANDIDATES_ENV: &str = "SEARCH_FILTER_MATCH_BATCH_CANDIDATES";
 const CLOUDFLARE_PROVIDER: &str = "cloudflare";
 const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
-const DEFAULT_BATCH_CANDIDATES: usize = 1;
 
 /// Deliberately not `Debug`: it holds the classifier API token.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SavedSearchPreviewConfig {
     classifier: CloudflareClassifierConfig,
-    classification: MatchClassificationSettings,
+    should_show_threshold: Probability,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -60,8 +61,8 @@ pub enum SavedSearchPreviewConfigError {
         #[source]
         source: std::num::ParseIntError,
     },
-    #[error("invalid saved-search classification settings")]
-    InvalidClassificationSettings(#[source] MatchClassificationSettingsError),
+    #[error("invalid saved-search acceptance threshold")]
+    InvalidThreshold(#[source] MatchClassificationSettingsError),
 }
 
 impl SavedSearchPreviewConfig {
@@ -91,45 +92,30 @@ impl SavedSearchPreviewConfig {
         let api_token = required(CLOUDFLARE_API_TOKEN_ENV)?;
         let classifier = CloudflareClassifierConfig::new(account_id, api_token, model)
             .map_err(|_| SavedSearchPreviewConfigError::InvalidClassifierCredentials)?;
-        let threshold_basis_points = number(
-            &mut value,
-            SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
-            DEFAULT_SHOULD_SHOW_THRESHOLD_BPS,
-        )?;
-        let batch_candidates = number(
-            &mut value,
-            SEARCH_FILTER_MATCH_BATCH_CANDIDATES_ENV,
-            DEFAULT_BATCH_CANDIDATES,
-        )?;
-        let classification =
-            MatchClassificationSettings::new(threshold_basis_points, batch_candidates)
-                .map_err(SavedSearchPreviewConfigError::InvalidClassificationSettings)?;
+        let threshold_basis_points = match value(SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV)
+        {
+            Some(raw) => {
+                raw.parse()
+                    .map_err(|source| SavedSearchPreviewConfigError::InvalidNumber {
+                        name: SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
+                        source,
+                    })?
+            }
+            None => DEFAULT_SHOULD_SHOW_THRESHOLD_BPS,
+        };
+        let should_show_threshold = should_show_threshold(threshold_basis_points)
+            .map_err(SavedSearchPreviewConfigError::InvalidThreshold)?;
         Ok(Self {
             classifier,
-            classification,
+            should_show_threshold,
         })
     }
-}
-
-fn number<T, F>(
-    value: &mut F,
-    name: &'static str,
-    default: T,
-) -> Result<T, SavedSearchPreviewConfigError>
-where
-    T: FromStr<Err = std::num::ParseIntError>,
-    F: FnMut(&'static str) -> Option<String>,
-{
-    value(name).map_or(Ok(default), |raw| {
-        raw.parse()
-            .map_err(|source| SavedSearchPreviewConfigError::InvalidNumber { name, source })
-    })
 }
 
 /// Providers built once per process from [`SavedSearchPreviewConfig`].
 pub struct SavedSearchPreviewDependencies {
     pub classifier: Arc<dyn ClassifierModel>,
-    pub classification: MatchClassificationSettings,
+    pub should_show_threshold: Probability,
 }
 
 impl SavedSearchPreviewDependencies {
@@ -137,10 +123,11 @@ impl SavedSearchPreviewDependencies {
         config: &SavedSearchPreviewConfig,
     ) -> Result<Self, SavedSearchPreviewConfigError> {
         let classifier = CloudflareClassifierModel::new(config.classifier.clone())
-            .map_err(|_| SavedSearchPreviewConfigError::InvalidClassifierCredentials)?;
+            .map_err(|_| SavedSearchPreviewConfigError::InvalidClassifierCredentials)?
+            .with_image_fetch_deadline(SEARCH_FILTER_MATCH_PREVIEW_IMAGE_FETCH_DEADLINE);
         Ok(Self {
             classifier: Arc::new(classifier),
-            classification: config.classification,
+            should_show_threshold: config.should_show_threshold,
         })
     }
 }
@@ -175,7 +162,7 @@ impl SavedSearchPreviews {
                 dependencies.classifier,
                 presentation,
                 SearchFilterMatchPreviewPolicy {
-                    classification: dependencies.classification,
+                    should_show_threshold: dependencies.should_show_threshold,
                     classification_deadline: SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE,
                 },
             )),
@@ -211,14 +198,11 @@ mod tests {
         let config = config(&[]).unwrap();
 
         assert_eq!(CloudflareModel::ClefFlash, config.classifier.model());
-        assert_eq!(
-            MatchClassificationSettings::new(5_000, 1).unwrap(),
-            config.classification
-        );
+        assert_eq!(0.5, config.should_show_threshold.get());
     }
 
     #[test]
-    fn should_read_the_deployed_model_threshold_and_batch_size() {
+    fn should_read_the_deployed_model_and_threshold() {
         let config = config(&[
             (CLASSIFIER_MODEL_PROVIDER_ENV, Some("cloudflare")),
             (CLASSIFIER_MODEL_ENV, Some(" clef ")),
@@ -226,15 +210,11 @@ mod tests {
                 SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
                 Some("6500"),
             ),
-            (SEARCH_FILTER_MATCH_BATCH_CANDIDATES_ENV, Some("8")),
         ])
         .unwrap();
 
         assert_eq!(CloudflareModel::Clef, config.classifier.model());
-        assert_eq!(
-            MatchClassificationSettings::new(6_500, 8).unwrap(),
-            config.classification
-        );
+        assert_eq!(0.65, config.should_show_threshold.get());
     }
 
     #[test]
@@ -252,18 +232,17 @@ mod tests {
                 "credentials",
             ),
             (
-                vec![(SEARCH_FILTER_MATCH_BATCH_CANDIDATES_ENV, Some("51"))],
-                "settings",
-            ),
-            (
                 vec![(
                     SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
                     Some("10001"),
                 )],
-                "settings",
+                "threshold",
             ),
             (
-                vec![(SEARCH_FILTER_MATCH_BATCH_CANDIDATES_ENV, Some("1.5"))],
+                vec![(
+                    SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
+                    Some("0.5"),
+                )],
                 "number",
             ),
         ] {
@@ -272,7 +251,7 @@ mod tests {
                 Err(SavedSearchPreviewConfigError::UnsupportedClassifierProvider) => "provider",
                 Err(SavedSearchPreviewConfigError::UnsupportedClassifierModel) => "model",
                 Err(SavedSearchPreviewConfigError::InvalidClassifierCredentials) => "credentials",
-                Err(SavedSearchPreviewConfigError::InvalidClassificationSettings(_)) => "settings",
+                Err(SavedSearchPreviewConfigError::InvalidThreshold(_)) => "threshold",
                 Err(SavedSearchPreviewConfigError::InvalidNumber { .. }) => "number",
                 Ok(_) => "accepted",
             };

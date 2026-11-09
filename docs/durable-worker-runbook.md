@@ -372,6 +372,10 @@ current response terms may already reflect a change. Never generate a canonical 
 availability event to force discovery, or reset saved destination snapshots after an
 address/preference change. See [shipping search](shipping.md#shipping-search-and-saved-destinations).
 
+The API's search-filter previews use the same Workers AI account. A classifier outage or rate
+limit also fails previews with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`, logged by the API as
+`search_filter.preview.failed`; preview traffic counts against the same provider limits as runs.
+
 Match INSERTs normally wake generation through healthy CDC/router/notification workers;
 [digest recovery](#saved-search-digest-recovery-and-cutover) owns unfinished selection
 and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
@@ -380,9 +384,9 @@ historical mail.
 
 ### Saved-search batching quality gate
 
-`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` to the matcher and
-`SEARCH_FILTER_MATCH_BATCH_CANDIDATES` to the API's search-filter previews (integer 1–50 for Clef Flash);
-the classifier model and threshold parameters likewise feed both, so previews decide as runs do.
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50 for Clef Flash).
+Search-filter previews in the API always send single candidates; they share only the model,
+threshold and Workers AI token with the matcher.
 The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
 text requests for one filter, with one independently keyed `should_show` question per
 listing. Fifty candidates can share a request only when every provider question, text,

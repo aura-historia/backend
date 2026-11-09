@@ -1,11 +1,13 @@
 //! A preview of the listings a search filter's criteria match now, decided exactly as
 //! scheduled matching decides them, but over the whole catalogue instead of recent changes.
+//!
+//! Each candidate is classified on its own: the singleton decision is scheduled matching's
+//! default and the reference its optional shared requests are measured against.
 
 use crate::match_candidates::{
     CandidateEligibility, candidate_eligibility, has_semantic_intent, retrieve_candidates,
     retrieves_with_embedding,
 };
-use crate::match_classification::MatchClassificationSettings;
 use crate::product_match_evaluator::{
     ProductListingMatchEvaluationOutcome, ProductListingMatchEvaluationRequest,
     evaluate_product_matches,
@@ -17,8 +19,9 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use application::transaction::{Transaction, UnitOfWork};
-use classifier_model::{ClassificationError, ClassifierModel};
+use classifier_model::{ClassificationError, ClassifierModel, Probability};
 use embedding::{EmbeddingError, EmbeddingGenerator};
+use futures::StreamExt;
 use fxrate_core::FxRateSnapshot;
 use fxrate_service::ports::{FxRateSnapshotReadError, FxRateSnapshotReader};
 use product_listing_core::product_listing_search::ProductListingSearch;
@@ -48,8 +51,15 @@ use user_service::ports::{
 pub const SEARCH_FILTER_MATCH_PREVIEW_LIMIT: usize = 4;
 /// Classification of one preview gives up after this long and fails as unavailable.
 pub const SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE: Duration = Duration::from_secs(5);
+/// Interactive bound on fetching one candidate image; a slower image is omitted, as any failed
+/// fetch is, instead of using up the classification deadline.
+pub const SEARCH_FILTER_MATCH_PREVIEW_IMAGE_FETCH_DEADLINE: Duration = Duration::from_secs(1);
 /// The most candidates one preview sends to the classifier.
 const PREVIEW_EVALUATION_LIMIT: usize = 16;
+/// Candidates classified at once; results are still consumed in rank order.
+const PREVIEW_CLASSIFICATION_CONCURRENCY: usize = SEARCH_FILTER_MATCH_PREVIEW_LIMIT;
+/// Waits before retrying an undecided candidate, as scheduled matching retries a filter.
+const PREVIEW_RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(250), Duration::from_secs(1)];
 /// Retrieval headroom so skipped candidates rarely leave the evaluation budget unused.
 const PREVIEW_SCAN_LIMIT: NonZeroUsize = NonZeroUsize::new(32).unwrap();
 
@@ -70,7 +80,7 @@ pub struct SearchFilterMatchPreview {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchFilterMatchPreviewPolicy {
-    pub classification: MatchClassificationSettings,
+    pub should_show_threshold: Probability,
     pub classification_deadline: Duration,
 }
 
@@ -144,6 +154,19 @@ pub enum PreviewSearchFilterMatchesError {
     BeginTransactionFailed(#[source] BoxError),
     #[error("failed to commit search filter preview transaction")]
     CommitTransactionFailed(#[source] BoxError),
+}
+
+impl PreviewSearchFilterMatchesError {
+    /// Rejections of the caller's request, as opposed to failures the service must report.
+    fn is_caller_error(&self) -> bool {
+        matches!(
+            self,
+            Self::AuthenticatedActorRequired
+                | Self::ActorMayNotManageSearchFilter
+                | Self::UserNotFound
+                | Self::SearchFilterFeatureRestricted { .. }
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -230,6 +253,36 @@ where
         )
     )]
     async fn execute(
+        &self,
+        context: &OperationContext,
+        command: PreviewSearchFilterMatchesCommand,
+    ) -> Result<SearchFilterMatchPreview, PreviewSearchFilterMatchesError> {
+        let result = self.preview(context, command).await;
+        if let Err(error) = &result
+            && !error.is_caller_error()
+        {
+            tracing::warn!(
+                error = %error,
+                cause = std::error::Error::source(error).map(tracing::field::display),
+                "search_filter.preview.failed"
+            );
+        }
+        result
+    }
+}
+
+impl<U, T, E, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R>
+where
+    U: UnitOfWork,
+    T: UserTierEntitlementsFactory<U::Tx>,
+    E: EmbeddingGenerator,
+    F: FxRateSnapshotReader,
+    P: ProductListingSearchReader,
+    S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
+    C: ClassifierModel,
+    R: ProductListingSearchPresenter,
+{
+    async fn preview(
         &self,
         context: &OperationContext,
         command: PreviewSearchFilterMatchesCommand,
@@ -410,7 +463,9 @@ where
             .collect())
     }
 
-    /// Indexes of the accepted candidates, in rank order.
+    /// Indexes of the first accepted candidates, in rank order. A few candidates are classified
+    /// at a time but consumed in rank order; once the preview is full, classifications still in
+    /// flight are dropped.
     async fn classify_until_full(
         &self,
         context: &OperationContext,
@@ -418,52 +473,76 @@ where
         evidence_policy: MatchingEvidencePolicy,
         candidates: &[EligibleCandidate<'_>],
     ) -> Result<Vec<usize>, PreviewSearchFilterMatchesError> {
-        let mut accepted = Vec::new();
-        for (wave, chunk) in candidates
-            .chunks(SEARCH_FILTER_MATCH_PREVIEW_LIMIT)
+        let decisions = candidates
+            .iter()
             .enumerate()
-        {
-            let first = wave * SEARCH_FILTER_MATCH_PREVIEW_LIMIT;
-            let requests = chunk
-                .iter()
-                .enumerate()
-                .map(|(offset, candidate)| ProductListingMatchEvaluationRequest {
-                    key: first + offset,
-                    product: candidate.source,
-                    search,
-                    evidence_policy,
-                    correlation_id: Some(format!(
-                        "preview:{}:{}:{}",
-                        context.request_id,
-                        candidate.item.product_listing_id,
-                        candidate.item.event_id
-                    )),
-                })
-                .collect::<Vec<_>>();
-            let concurrency = NonZeroUsize::new(requests.len()).unwrap_or(NonZeroUsize::MIN);
-            let results = evaluate_product_matches(
-                &self.classifier,
-                requests,
-                concurrency,
-                self.policy.classification.batch_candidates(),
-                self.policy.classification.should_show_threshold(),
-            )
-            .await;
-            for result in results {
-                match result.outcome {
-                    ProductListingMatchEvaluationOutcome::Matched => accepted.push(result.key),
-                    ProductListingMatchEvaluationOutcome::Rejected
-                    | ProductListingMatchEvaluationOutcome::PermanentFailure(_) => {}
-                    ProductListingMatchEvaluationOutcome::RetryableFailure(source) => {
-                        return Err(undecided_candidate_error(source));
-                    }
-                }
-                if accepted.len() == SEARCH_FILTER_MATCH_PREVIEW_LIMIT {
-                    return Ok(accepted);
-                }
+            .map(|(index, candidate)| {
+                let decision = self.decide(context, search, evidence_policy, candidate);
+                async move { decision.await.map(|accepted| accepted.then_some(index)) }
+            })
+            .collect::<Vec<_>>();
+        let mut decisions =
+            futures::stream::iter(decisions).buffered(PREVIEW_CLASSIFICATION_CONCURRENCY);
+        let mut accepted = Vec::new();
+        while let Some(decision) = decisions.next().await {
+            if let Some(index) = decision? {
+                accepted.push(index);
+            }
+            if accepted.len() == SEARCH_FILTER_MATCH_PREVIEW_LIMIT {
+                break;
             }
         }
         Ok(accepted)
+    }
+
+    /// Whether scheduled matching would accept `candidate`. An undecided candidate is retried
+    /// with scheduled matching's filter backoff; a classifier configuration failure is not.
+    async fn decide(
+        &self,
+        context: &OperationContext,
+        search: &ProductListingSearch,
+        evidence_policy: MatchingEvidencePolicy,
+        candidate: &EligibleCandidate<'_>,
+    ) -> Result<bool, PreviewSearchFilterMatchesError> {
+        let mut retry_delays = PREVIEW_RETRY_DELAYS.iter();
+        loop {
+            let request = ProductListingMatchEvaluationRequest {
+                key: (),
+                product: candidate.source,
+                search,
+                evidence_policy,
+                correlation_id: Some(format!(
+                    "preview:{}:{}:{}",
+                    context.request_id, candidate.item.product_listing_id, candidate.item.event_id
+                )),
+            };
+            let outcome = evaluate_product_matches(
+                &self.classifier,
+                vec![request],
+                NonZeroUsize::MIN,
+                NonZeroUsize::MIN,
+                self.policy.should_show_threshold,
+            )
+            .await
+            .pop()
+            .map(|result| result.outcome);
+            let source = match outcome {
+                Some(ProductListingMatchEvaluationOutcome::Matched) => return Ok(true),
+                Some(
+                    ProductListingMatchEvaluationOutcome::Rejected
+                    | ProductListingMatchEvaluationOutcome::PermanentFailure(_),
+                ) => return Ok(false),
+                Some(ProductListingMatchEvaluationOutcome::RetryableFailure(source)) => source,
+                None => ClassificationError::InvalidResponse,
+            };
+            let error = undecided_candidate_error(source);
+            match (&error, retry_delays.next()) {
+                (PreviewSearchFilterMatchesError::ClassifierUnavailable { .. }, Some(delay)) => {
+                    tokio::time::sleep(*delay).await;
+                }
+                _ => return Err(error),
+            }
+        }
     }
 }
 
@@ -674,8 +753,9 @@ mod tests {
             ProductListingSearchFilterMatchSourceRef,
             ProductListingSearchFilterMatchSource,
         >,
-        decisions: HashMap<String, Decision>,
-        classifier_delay: Duration,
+        /// Decisions per candidate title, one per call; the last repeats.
+        decisions: HashMap<String, Vec<Decision>>,
+        delays: HashMap<String, Duration>,
         classified: Vec<ClassificationRequest>,
         searches: Vec<RecordedSearch>,
         embedded: Vec<String>,
@@ -691,7 +771,7 @@ mod tests {
             result: ProductListingSearchReadResult::default(),
             sources: HashMap::new(),
             decisions: HashMap::new(),
-            classifier_delay: Duration::ZERO,
+            delays: HashMap::new(),
             classified: Vec::new(),
             searches: Vec::new(),
             embedded: Vec::new(),
@@ -745,11 +825,31 @@ mod tests {
     }
 
     fn decide(world: &Shared, rank: usize, decision: Decision) {
+        decide_in_turn(world, rank, vec![decision]);
+    }
+
+    fn decide_in_turn(world: &Shared, rank: usize, decisions: Vec<Decision>) {
         world
             .lock()
             .unwrap()
             .decisions
-            .insert(format!("Candidate {rank}"), decision);
+            .insert(format!("Candidate {rank}"), decisions);
+    }
+
+    fn delay(world: &Shared, rank: usize, delay: Duration) {
+        world
+            .lock()
+            .unwrap()
+            .delays
+            .insert(format!("Candidate {rank}"), delay);
+    }
+
+    fn classifications_of(world: &Shared, rank: usize) -> usize {
+        let title = format!("Candidate {rank}");
+        classified_ranks(world)
+            .iter()
+            .filter(|classified| **classified == title)
+            .count()
     }
 
     fn classified_ranks(world: &Shared) -> Vec<String> {
@@ -814,7 +914,7 @@ mod tests {
             FakeClassifier(Arc::clone(world)),
             FakePresenter(Arc::clone(world)),
             SearchFilterMatchPreviewPolicy {
-                classification: MatchClassificationSettings::new(5_000, 1).unwrap(),
+                should_show_threshold: Probability::new(0.5).unwrap(),
                 classification_deadline,
             },
         )
@@ -846,7 +946,33 @@ mod tests {
         let preview = preview(&world, text_search()).await.unwrap();
 
         assert!(!preview.candidate_limit_reached);
-        assert_eq!(4, classified_ranks(&world).len());
+        assert!(classified_ranks(&world).len() < 4 + PREVIEW_CLASSIFICATION_CONCURRENCY);
+        assert_eq!(Some(ids[..4].to_vec()), presented(&world));
+    }
+
+    #[tokio::test]
+    async fn should_answer_once_four_matches_are_known_without_waiting_for_later_candidates() {
+        let world = world(UserTier::Pro);
+        let ids = seed(&world, 8);
+        for rank in 0..8 {
+            decide(&world, rank, Decision::Accept);
+            if rank >= 4 {
+                delay(&world, rank, Duration::from_secs(60));
+            }
+        }
+
+        let preview = handler(&world, Duration::from_millis(500))
+            .execute(
+                &context(Principal::User(owner(&world))),
+                PreviewSearchFilterMatchesCommand {
+                    user_id: owner(&world),
+                    search: text_search(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(!preview.candidate_limit_reached);
         assert_eq!(Some(ids[..4].to_vec()), presented(&world));
     }
 
@@ -870,7 +996,9 @@ mod tests {
         let preview = preview(&world, text_search()).await.unwrap();
 
         assert!(!preview.candidate_limit_reached);
-        assert_eq!(16, classified_ranks(&world).len());
+        let classified = classified_ranks(&world);
+        assert!((0..=12).all(|rank| classified.contains(&format!("Candidate {rank}"))));
+        assert!(classified.len() <= PREVIEW_EVALUATION_LIMIT);
         assert_eq!(
             Some(vec![ids[2], ids[5], ids[9], ids[12]]),
             presented(&world)
@@ -920,7 +1048,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_as_unavailable_when_a_ranked_decision_is_unknown() {
+    async fn should_fail_as_unavailable_when_a_ranked_decision_stays_unknown_after_retries() {
         let world = world(UserTier::Pro);
         seed(&world, 6);
         decide(&world, 0, Decision::Accept);
@@ -941,7 +1069,73 @@ mod tests {
                 source: ClassificationError::RateLimited { .. }
             }
         ));
+        assert_eq!(
+            PREVIEW_RETRY_DELAYS.len() + 1,
+            classifications_of(&world, 1)
+        );
         assert_eq!(None, presented(&world));
+    }
+
+    #[tokio::test]
+    async fn should_retry_an_undecided_candidate_before_deciding_it() {
+        let world = world(UserTier::Pro);
+        let ids = seed(&world, 1);
+        decide_in_turn(
+            &world,
+            0,
+            vec![
+                Decision::Fail(ClassificationError::Transient),
+                Decision::Accept,
+            ],
+        );
+
+        preview(&world, text_search()).await.unwrap();
+
+        assert_eq!(2, classifications_of(&world, 0));
+        assert_eq!(Some(vec![ids[0]]), presented(&world));
+    }
+
+    #[tokio::test]
+    async fn should_fail_without_retrying_when_the_classifier_rejects_its_configuration() {
+        let world = world(UserTier::Pro);
+        seed(&world, 1);
+        decide(
+            &world,
+            0,
+            Decision::Fail(ClassificationError::Authentication),
+        );
+
+        let error = preview(&world, text_search()).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            PreviewSearchFilterMatchesError::ClassifierMisconfigured {
+                source: ClassificationError::Authentication
+            }
+        ));
+        assert_eq!(1, classifications_of(&world, 0));
+    }
+
+    #[tokio::test]
+    async fn should_report_a_candidate_limit_when_retrieval_reaches_its_scan_limit() {
+        let world = world(UserTier::Pro);
+        let ids = seed(&world, PREVIEW_SCAN_LIMIT.get());
+        {
+            let mut world = world.lock().unwrap();
+            for source in world.sources.values_mut() {
+                if ids[..20].contains(&source.product_listing_id) {
+                    source.current_event_id = domain_primitives::event_id::EventId::new();
+                }
+            }
+        }
+        for rank in 20..PREVIEW_SCAN_LIMIT.get() {
+            decide(&world, rank, Decision::Reject);
+        }
+
+        let preview = preview(&world, text_search()).await.unwrap();
+
+        assert!(preview.candidate_limit_reached);
+        assert_eq!(12, classified_ranks(&world).len());
     }
 
     #[tokio::test]
@@ -965,7 +1159,7 @@ mod tests {
         let world = world(UserTier::Pro);
         seed(&world, 1);
         decide(&world, 0, Decision::Accept);
-        world.lock().unwrap().classifier_delay = Duration::from_millis(200);
+        delay(&world, 0, Duration::from_millis(200));
 
         let error = handler(&world, Duration::from_millis(10))
             .execute(
@@ -988,9 +1182,22 @@ mod tests {
 
     #[tokio::test]
     async fn should_classify_with_the_evidence_policy_of_the_users_tier() {
-        for tier in UserTier::iter() {
+        for (tier, expected_policy, expected_images) in [
+            (UserTier::Free, "TEXT_ONLY", 0),
+            (UserTier::Pro, "TEXT_AND_ONE_IMAGE", 1),
+            (UserTier::Ultimate, "ENHANCED_TEXT_AND_FOUR_IMAGES", 4),
+        ] {
             let world = world(tier);
             seed(&world, 1);
+            for source in world.lock().unwrap().sources.values_mut() {
+                source.images = (0..6)
+                    .map(|index| {
+                        product_listing_core::product_listing_image::ProductListingImage::new(
+                            url::Url::parse(&format!("https://example.test/{index}.jpg")).unwrap(),
+                        )
+                    })
+                    .collect();
+            }
             decide(&world, 0, Decision::Accept);
             let search = if tier == UserTier::Ultimate {
                 enhanced_search()
@@ -1001,9 +1208,15 @@ mod tests {
             preview(&world, search).await.unwrap();
 
             let world = world.lock().unwrap();
+            let request = &world.classified[0];
             assert_eq!(
-                matching_evidence_policy(tier).as_str(),
-                world.classified[0].state["evaluation_context"]["evidence_policy"]
+                expected_policy,
+                request.state["evaluation_context"]["evidence_policy"]
+            );
+            assert_eq!(expected_images, request.image_urls.len());
+            assert_eq!(
+                tier == UserTier::Ultimate,
+                request.state["search_intent"]["enhanced_description"].is_string()
             );
         }
     }
@@ -1374,7 +1587,14 @@ mod tests {
             let (delay, decision) = {
                 let mut world = self.0.lock().unwrap();
                 world.classified.push(request);
-                (world.classifier_delay, world.decisions[&title].clone())
+                let delay = world.delays.get(&title).copied().unwrap_or_default();
+                let decisions = world.decisions.get_mut(&title).unwrap();
+                let decision = if decisions.len() > 1 {
+                    decisions.remove(0)
+                } else {
+                    decisions[0].clone()
+                };
+                (delay, decision)
             };
             tokio::time::sleep(delay).await;
             let score = match decision {

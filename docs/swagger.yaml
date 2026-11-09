@@ -4622,7 +4622,8 @@ paths:
         classifier with the same acceptance threshold, and the evidence the user's tier allows (`FREE` text only,
         `PRO` text and one image, `ULTIMATE` the enhanced description and up to four images). Criteria without
         `productQuery` or `enhancedSearchDescription` match on retrieval alone. Unlike scheduled matching, which only
-        considers listings that changed since the last run, the preview considers the whole catalogue.
+        considers listings that changed since the last run, the preview considers the whole catalogue. A listing image
+        that cannot be fetched within a short interactive budget is left out of the evidence, as a failed fetch is.
 
 
         The preview classifies at most sixteen of the most relevant candidates and stops as soon as four match.
@@ -4631,8 +4632,9 @@ paths:
         paging.
 
 
-        If the classifier cannot decide a candidate, the preview fails with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`
-        instead of showing results that scheduled matching might not produce; retry later.
+        If the classifier still cannot decide a candidate after retrying, the preview fails with
+        `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` instead of showing results that scheduled matching might not
+        produce; retry later. A classifier configuration failure returns `500 SEARCH_FILTER_INTERNAL_ERROR`.
 
 
         Requires a Cognito JWT or an Aura access token with `search-filters:write`. Search fields are restricted by

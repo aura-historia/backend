@@ -8036,6 +8036,7 @@ dependencies = [
  "classifier-model",
  "domain-primitives",
  "embedding",
+ "futures",
  "fxrate-core",
  "fxrate-service",
  "geo",

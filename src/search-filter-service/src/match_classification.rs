@@ -1,4 +1,4 @@
-//! Classifier decision settings that every saved-search match decision must share.
+//! Classifier decision settings deployed for saved-search matching.
 
 use classifier_model::Probability;
 use std::num::NonZeroUsize;
@@ -6,9 +6,8 @@ use std::num::NonZeroUsize;
 const MAX_BASIS_POINTS: u16 = 10_000;
 const MAX_BATCH_CANDIDATES: usize = 50;
 
-/// The inclusive `should_show` acceptance threshold and the largest number of text candidates
-/// one classifier request may carry. Scheduled matching and previews read the same deployment
-/// values, so both accept the same candidates.
+/// Scheduled matching's inclusive `should_show` acceptance threshold and the largest number of
+/// text candidates one classifier request may carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchClassificationSettings {
     should_show_threshold: Probability,
@@ -23,18 +22,23 @@ pub enum MatchClassificationSettingsError {
     BatchCandidatesOutOfRange,
 }
 
+/// The inclusive `should_show` acceptance threshold from its deployed basis points.
+pub fn should_show_threshold(
+    basis_points: u16,
+) -> Result<Probability, MatchClassificationSettingsError> {
+    if basis_points > MAX_BASIS_POINTS {
+        return Err(MatchClassificationSettingsError::ThresholdOutOfRange);
+    }
+    Probability::new(f64::from(basis_points) / f64::from(MAX_BASIS_POINTS))
+        .map_err(|_| MatchClassificationSettingsError::ThresholdOutOfRange)
+}
+
 impl MatchClassificationSettings {
     pub fn new(
         should_show_threshold_basis_points: u16,
         batch_candidates: usize,
     ) -> Result<Self, MatchClassificationSettingsError> {
-        if should_show_threshold_basis_points > MAX_BASIS_POINTS {
-            return Err(MatchClassificationSettingsError::ThresholdOutOfRange);
-        }
-        let should_show_threshold = Probability::new(
-            f64::from(should_show_threshold_basis_points) / f64::from(MAX_BASIS_POINTS),
-        )
-        .map_err(|_| MatchClassificationSettingsError::ThresholdOutOfRange)?;
+        let should_show_threshold = should_show_threshold(should_show_threshold_basis_points)?;
         let batch_candidates = NonZeroUsize::new(batch_candidates)
             .filter(|value| value.get() <= MAX_BATCH_CANDIDATES)
             .ok_or(MatchClassificationSettingsError::BatchCandidatesOutOfRange)?;

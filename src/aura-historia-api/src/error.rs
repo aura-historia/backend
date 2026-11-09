@@ -863,7 +863,10 @@ impl From<PreviewSearchFilterMatchesError> for ApiError {
                     ),
                 )
             }
-            PreviewSearchFilterMatchesError::Presentation(error) => error.into(),
+            // Shipping keeps its own codes, as on the other search-filter listing routes.
+            PreviewSearchFilterMatchesError::Presentation(SearchProductListingsError::Shipping(
+                error,
+            )) => error.into(),
             error @ (PreviewSearchFilterMatchesError::ClassifierUnavailable { .. }
             | PreviewSearchFilterMatchesError::UserTierReadFailed { .. }
             | PreviewSearchFilterMatchesError::EmbeddingGenerationFailed { .. }
@@ -872,7 +875,12 @@ impl From<PreviewSearchFilterMatchesError> for ApiError {
             | PreviewSearchFilterMatchesError::ProductListingSearchFailed { .. }
             | PreviewSearchFilterMatchesError::ProductListingSourceReadFailed { .. }
             | PreviewSearchFilterMatchesError::BeginTransactionFailed(_)
-            | PreviewSearchFilterMatchesError::CommitTransactionFailed(_)) => {
+            | PreviewSearchFilterMatchesError::CommitTransactionFailed(_)
+            | PreviewSearchFilterMatchesError::Presentation(
+                SearchProductListingsError::ListingSourceSummaryQueryFailed { .. }
+                | SearchProductListingsError::ProductListingUserStateQueryFailed { .. }
+                | SearchProductListingsError::ContentAssessmentQueryFailed { .. },
+            )) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter preview is temporarily unavailable.")
                     .with_cause(Box::new(error))
@@ -881,7 +889,8 @@ impl From<PreviewSearchFilterMatchesError> for ApiError {
             | PreviewSearchFilterMatchesError::FxRateSnapshotInvalid { .. }
             | PreviewSearchFilterMatchesError::ProductListingSearchResultInvalid { .. }
             | PreviewSearchFilterMatchesError::ProductListingSourceStateInvalid { .. }
-            | PreviewSearchFilterMatchesError::ProductListingSourceMismatch) => {
+            | PreviewSearchFilterMatchesError::ProductListingSourceMismatch
+            | PreviewSearchFilterMatchesError::Presentation(_)) => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter preview failed internally.")
                     .with_cause(Box::new(error))
@@ -3429,6 +3438,66 @@ mod tests {
                 ApiError::internal_server_error(ADDRESS_BOOK_INTERNAL_ERROR),
             );
         }
+    }
+
+    #[test]
+    fn should_map_preview_failures_to_search_filter_problems_with_their_causes() {
+        use application::error::static_error;
+        use classifier_model::ClassificationError;
+
+        let cause = || static_error("private preview dependency failure");
+        let root_cause = |error: &ApiError| {
+            let mut cause: &dyn Error = error.source().expect("technical preview cause");
+            while let Some(source) = cause.source() {
+                cause = source;
+            }
+            cause.to_string()
+        };
+        for error in [
+            PreviewSearchFilterMatchesError::ProductListingSearchFailed { source: cause() },
+            PreviewSearchFilterMatchesError::Presentation(
+                SearchProductListingsError::ContentAssessmentQueryFailed { source: cause() },
+            ),
+        ] {
+            let actual = ApiError::from(error);
+            assert_eq!(StatusCode::SERVICE_UNAVAILABLE, actual.status_code());
+            assert_eq!(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE, actual.code());
+            assert_eq!("private preview dependency failure", root_cause(&actual));
+        }
+        for error in [
+            PreviewSearchFilterMatchesError::ProductListingSourceStateInvalid { source: cause() },
+            PreviewSearchFilterMatchesError::Presentation(
+                SearchProductListingsError::ListingSourceSummaryReadModelInvalid {
+                    source: cause(),
+                },
+            ),
+        ] {
+            let actual = ApiError::from(error);
+            assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, actual.status_code());
+            assert_eq!(SEARCH_FILTER_INTERNAL_ERROR, actual.code());
+            assert_eq!("private preview dependency failure", root_cause(&actual));
+        }
+        let unavailable = ApiError::from(PreviewSearchFilterMatchesError::ClassifierUnavailable {
+            source: ClassificationError::RateLimited { retry_after: None },
+        });
+        assert_eq!(StatusCode::SERVICE_UNAVAILABLE, unavailable.status_code());
+        assert_eq!(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE, unavailable.code());
+        let misconfigured =
+            ApiError::from(PreviewSearchFilterMatchesError::ClassifierMisconfigured {
+                source: ClassificationError::Authentication,
+            });
+        assert_eq!(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            misconfigured.status_code()
+        );
+        assert_eq!(SEARCH_FILTER_INTERNAL_ERROR, misconfigured.code());
+        let restricted = ApiError::from(
+            PreviewSearchFilterMatchesError::SearchFilterFeatureRestricted {
+                feature: "shipping",
+            },
+        );
+        assert_eq!(StatusCode::UNPROCESSABLE_ENTITY, restricted.status_code());
+        assert_eq!(SEARCH_FILTER_RESTRICTED_FEATURE, restricted.code());
     }
 
     fn assert_account_problem(actual: ApiError, expected: ApiError) {

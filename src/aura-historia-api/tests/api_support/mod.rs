@@ -179,7 +179,6 @@ use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
     SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
-use search_filter_service::match_classification::MatchClassificationSettings;
 use search_filter_service::use_cases::{
     CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
     ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler,
@@ -1837,8 +1836,8 @@ async fn test_state(
                 shipping.clone(),
             ),
             SearchFilterMatchPreviewPolicy {
-                classification: MatchClassificationSettings::new(5_000, 1)
-                    .unwrap_or_else(|error| panic!("invalid preview settings: {error}")),
+                should_show_threshold: classifier_model::Probability::new(0.5)
+                    .unwrap_or_else(|error| panic!("invalid preview threshold: {error}")),
                 classification_deadline: SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE,
             },
         )),

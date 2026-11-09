@@ -52,9 +52,9 @@ pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
 pub use saved_search_previews::{
     CLASSIFIER_MODEL_ENV, CLASSIFIER_MODEL_PROVIDER_ENV, CLOUDFLARE_ACCOUNT_ID_ENV,
-    CLOUDFLARE_API_TOKEN_ENV, SEARCH_FILTER_MATCH_BATCH_CANDIDATES_ENV,
-    SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV, SavedSearchPreviewConfig,
-    SavedSearchPreviewConfigError, SavedSearchPreviewDependencies, SavedSearchPreviews,
+    CLOUDFLARE_API_TOKEN_ENV, SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
+    SavedSearchPreviewConfig, SavedSearchPreviewConfigError, SavedSearchPreviewDependencies,
+    SavedSearchPreviews,
 };
 pub use saved_searches::SavedSearches;
 pub use shipping_management::ShippingManagement;

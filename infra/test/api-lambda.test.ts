@@ -90,7 +90,6 @@ function expectedApiEnvironmentKeys(): string[] {
     "CLASSIFIER_MODEL_PROVIDER",
     "CLOUDFLARE_ACCOUNT_ID",
     "CLOUDFLARE_API_TOKEN",
-    "SEARCH_FILTER_MATCH_BATCH_CANDIDATES",
     "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS",
   ];
 
@@ -158,11 +157,10 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET)
       .toEqual(credentialReference(credentialSecrets(stage).loops, "webhookSigningSecret"));
     expect(environment.Variables.STRIPE_API_KEY).toEqual(credentialReference(credentialSecrets(stage).stripe, "apiKey"));
-    // Previews must classify exactly as the periodic matcher does: same parameters, same token.
+    // Previews must decide as the periodic matcher does: same model, threshold and token.
     expect(environment.Variables).toMatchObject({
       CLASSIFIER_MODEL_PROVIDER: stageConfig(stage).searchFilterClassifier.provider,
       CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
-      SEARCH_FILTER_MATCH_BATCH_CANDIDATES: { Ref: "SearchFilterMatchBatchCandidates" },
       SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: { Ref: "SearchFilterMatchShouldShowThresholdBps" },
       CLOUDFLARE_ACCOUNT_ID: `{{resolve:ssm:/cloudflare/${stage}/account-id}}`,
       CLOUDFLARE_API_TOKEN: credentialReference(credentialSecrets(stage).cloudflare, "workersAiApiToken"),

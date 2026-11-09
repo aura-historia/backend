@@ -185,8 +185,9 @@ impl ImageFetcher {
         self
     }
 
-    #[cfg(test)]
-    fn with_total_timeout(mut self, total_timeout: Duration) -> Self {
+    /// Bounds all attempts for one image, for interactive callers that would rather omit a
+    /// slow image than wait the default budget.
+    pub fn with_total_timeout(mut self, total_timeout: Duration) -> Self {
         self.total_timeout = total_timeout;
         self
     }

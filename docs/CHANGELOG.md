@@ -6,7 +6,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - New `POST /v1/me/search-filters/preview` takes `{ "search": ... }` with the same criteria as `POST /v1/me/search-filters` and returns `{ "items": [...], "candidateLimitReached": boolean }` without saving anything. Items have the `GET /v1/product-listings` item shape, at most four, most relevant first, with no paging. It requires `search-filters:write` and applies the same tier field restrictions as creating a filter.
 - Matches are decided as scheduled matching decides them, with the same classifier, acceptance threshold and tier evidence, but over the whole catalogue. Use this instead of `GET /v1/product-listings` to show what a filter would match: plain search results include listings the classifier would reject.
-- The preview classifies at most sixteen candidates and stops at four matches; `candidateLimitReached` is `true` when it stopped before finding four. If the classifier cannot decide a candidate, the request fails with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` rather than returning an inaccurate preview.
+- The preview classifies at most sixteen candidates and stops at four matches; `candidateLimitReached` is `true` when it stopped before finding four. If the classifier cannot decide a candidate after retrying, the request fails with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` rather than returning an inaccurate preview, or with `500 SEARCH_FILTER_INTERNAL_ERROR` when the classifier rejects the deployment's configuration.
 
 ## 2026-11-09 — Sender names on emails (#2846)
 
