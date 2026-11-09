@@ -244,7 +244,7 @@ pub(super) mod tests {
         );
     }
 
-    /// The console's live-job limit defaults to four; a value that is set but not a whole number
+    /// The console's live-job limit defaults to twenty; a value that is set but not a whole number
     /// of at least 1 fails startup with the variable and the value.
     #[test]
     #[serial_test::serial]
@@ -261,8 +261,8 @@ pub(super) mod tests {
                 .unwrap_or_else(|error| panic!("{value:?}: {error}"))
         };
 
-        assert_eq!(limit(None), 4);
-        assert_eq!(limit(Some(" ")), 4);
+        assert_eq!(limit(None), 20);
+        assert_eq!(limit(Some(" ")), 20);
         assert_eq!(limit(Some(" 2 ")), 2);
         for refused in ["0", "-1", "two"] {
             assert_eq!(

@@ -277,10 +277,7 @@ mod tests {
             .iter()
             .map(|logged| logged.level)
             .collect();
-        assert_eq!(
-            levels,
-            [tracing::Level::DEBUG; 5]
-        );
+        assert_eq!(levels, [tracing::Level::DEBUG; 5]);
     }
 
     #[test]
