@@ -105,3 +105,36 @@ pub(super) const JA: LanguagePhrases = LanguagePhrases {
         "条件付き",
     ],
 };
+
+pub(super) const KO: LanguagePhrases = LanguagePhrases {
+    language: Language::Ko,
+    prohibited: "이 상품은 배송이 불가능합니다\n\
+        이 상품은 배송되지 않습니다\n\
+        이 상품은 직접 수령만 가능합니다\n\
+        이 상품은 방문 수령만 가능합니다",
+    collection_only: "직접 수령만 가능\n\
+        방문 수령만 가능\n\
+        방문수령만 가능",
+    worldwide: "이 상품은 전 세계 배송이 가능합니다\n\
+        이 상품은 전 세계로 배송할 수 있습니다",
+    on_request: "이 상품의 전 세계 배송비는 문의해 주세요\n\
+        이 상품의 전 세계 배송비는 문의 바랍니다",
+    calculated: "이 상품의 전 세계 배송비는 결제 시 계산됩니다\n\
+        이 상품의 전 세계 배송비는 주문 시 계산됩니다",
+    dispatch_prefix: r"(?:이 상품은|본 상품은)\s+(?:영업일|근무일) 기준\s*",
+    range_separator: "-|~",
+    dispatch_suffix: r"\s*일\s*(?:이내에|이내)\s*발송됩니다",
+    delivery_words: &[],
+    delivery_markers: &["배송", "발송", "택배", "수령", "픽업", "운송", "영업일"],
+    conditions: &[],
+    condition_markers: &[
+        "다만",
+        "단,",
+        "제외",
+        "예외",
+        "경우",
+        "조건",
+        "그러나",
+        "하지만",
+    ],
+};

@@ -115,7 +115,12 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
             limit: MAX_SHIPPING_TEXT_BYTES,
         });
     }
-    if fragments.iter().any(|s| s.contains(['\0', '?', '？', '؟'])) {
+    // Greek writes its question mark as ';', which is also a clause separator, so only the
+    // dedicated U+037E can veto a question there.
+    if fragments
+        .iter()
+        .any(|s| s.contains(['\0', '?', '？', '؟', '\u{37e}']))
+    {
         return ShippingQuickCheck::Unsupported(Reason::UnsupportedCharacter);
     }
     let Ok(dispatch) = DISPATCH.as_ref() else {
@@ -126,7 +131,8 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
     let mut found = false;
     for (index, fragment) in fragments.iter().enumerate() {
         let normalized = normalize_text(fragment);
-        for clause in normalized.split(['.', '!', ';', '\n', '\r', '。', '！', '；', '؛']) {
+        for clause in normalized.split(['.', '!', ';', '\n', '\r', '。', '！', '；', '؛', '।', '॥'])
+        {
             let clause = clause.split_whitespace().collect::<Vec<_>>().join(" ");
             if clause.is_empty() {
                 continue;
@@ -197,6 +203,10 @@ fn contradictory(assertions: &ItemShippingAssertions, collection_label: bool) ->
 /// Case and layout only. Digits have the same decimal value in these scripts. Never
 /// strip accents, translate, change geographic scope, or interpret other numeral systems.
 fn normalize_text(text: &str) -> String {
+    restore_greek_final_sigma(lowercase_and_unify_layout(text))
+}
+
+fn lowercase_and_unify_layout(text: &str) -> String {
     text.chars()
         // Map Turkish dotted capital I before generic lowercasing, preserving unrelated
         // combining accents (including Polish dotted letters) in the original text.
@@ -210,6 +220,29 @@ fn normalize_text(text: &str) -> String {
             '０'..='９' => char::from_u32(u32::from(c) - u32::from('０') + u32::from('0')),
             '\u{200e}' | '\u{200f}' => None,
             _ => Some(c),
+        })
+        .collect()
+}
+
+/// Lowercasing one character at a time turns every capital sigma into `σ`, but Greek spells
+/// the last letter of a word `ς`. Restoring it keeps all-capitals text equal to its lowercase form.
+fn restore_greek_final_sigma(text: String) -> String {
+    if !text.contains('σ') {
+        return text;
+    }
+    let characters: Vec<char> = text.chars().collect();
+    characters
+        .iter()
+        .enumerate()
+        .map(|(index, &character)| {
+            let ends_word = index > 0
+                && characters[index - 1].is_alphabetic()
+                && !characters.get(index + 1).is_some_and(|c| c.is_alphabetic());
+            if character == 'σ' && ends_word {
+                'ς'
+            } else {
+                character
+            }
         })
         .collect()
 }
@@ -313,6 +346,17 @@ fn conditional(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn greek_final_sigma_is_restored_only_at_the_end_of_a_word() {
+        assert_eq!(
+            "κόσμος σε κόσμο",
+            normalize_text("ΚΌΣΜΟΣ ΣΕ ΚΌΣΜΟ"),
+            "capitals lowercase to the same spelling as typed lowercase text"
+        );
+        assert_eq!("κόσμος", normalize_text("κόσμος"));
+        assert_eq!("σ", normalize_text("Σ"), "a lone sigma ends no word");
+    }
 
     #[test]
     fn supported_english_and_german_item_prohibitions() {
@@ -850,7 +894,7 @@ mod multilingual_tests {
     #[test]
     fn unicode_questions_range_errors_and_missing_dispatch_verbs_fail_closed() {
         for fixture in fixtures() {
-            for question in ["?", "？", "؟"] {
+            for question in ["?", "？", "؟", "\u{37e}"] {
                 let question = format!("{}{}", fixture.prohibited, question);
                 assert_unsupported!(quick_check_shipping(&[&question]), "{}", fixture.language);
             }

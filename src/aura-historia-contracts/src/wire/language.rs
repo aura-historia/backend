@@ -31,6 +31,9 @@ const LOCALE_ALIASES: &[(&str, Language)] = &[
     ("it-CH", Language::It),
     ("zh-CN", Language::Zh),
     ("zh-Hans", Language::Zh),
+    ("zh-TW", Language::Zh),
+    ("zh-Hant", Language::Zh),
+    ("zh-HK", Language::Zh),
     ("pt-PT", Language::Pt),
     ("pt-BR", Language::Pt),
     ("pl-PL", Language::Pl),
@@ -43,6 +46,11 @@ const LOCALE_ALIASES: &[(&str, Language)] = &[
     ("ar-SA", Language::Ar),
     ("ar-EG", Language::Ar),
     ("ar-AE", Language::Ar),
+    ("ko-KR", Language::Ko),
+    ("el-GR", Language::El),
+    ("he-IL", Language::He),
+    ("th-TH", Language::Th),
+    ("hi-IN", Language::Hi),
 ];
 
 /// Decode the public canonical codes and existing locale compatibility aliases.
@@ -99,5 +107,33 @@ pub mod patch {
         deserializer: D,
     ) -> Result<crate::patch_value::PatchValue<Language>, D::Error> {
         super::super::deserialize_patch_code(deserializer, parse)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_map_traditional_chinese_and_new_source_language_locales_to_their_language() {
+        for (locale, expected) in [
+            ("zh-TW", Language::Zh),
+            ("zh-Hant", Language::Zh),
+            ("zh-HK", Language::Zh),
+            ("ko-KR", Language::Ko),
+            ("el-GR", Language::El),
+            ("he-IL", Language::He),
+            ("th-TH", Language::Th),
+            ("hi-IN", Language::Hi),
+        ] {
+            assert_eq!(Some(expected), parse(locale), "{locale}");
+        }
+    }
+
+    #[test]
+    fn should_not_accept_a_locale_the_wire_contract_does_not_advertise() {
+        for locale in ["zh-SG", "KO", "ko_KR", "iw-IL"] {
+            assert_eq!(None, parse(locale), "{locale}");
+        }
     }
 }

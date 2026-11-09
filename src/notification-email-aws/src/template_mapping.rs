@@ -39,7 +39,12 @@ impl EmailLanguage {
             | Language::Cs
             | Language::Ja
             | Language::Ru
-            | Language::Ar => Self::En,
+            | Language::Ar
+            | Language::Ko
+            | Language::El
+            | Language::He
+            | Language::Th
+            | Language::Hi => Self::En,
         }
     }
 
@@ -723,6 +728,11 @@ mod tests {
     #[case(Language::Ja, EmailLanguage::En)]
     #[case(Language::Ru, EmailLanguage::En)]
     #[case(Language::Ar, EmailLanguage::En)]
+    #[case(Language::Ko, EmailLanguage::En)]
+    #[case(Language::El, EmailLanguage::En)]
+    #[case(Language::He, EmailLanguage::En)]
+    #[case(Language::Th, EmailLanguage::En)]
+    #[case(Language::Hi, EmailLanguage::En)]
     fn should_resolve_profile_language_to_deployed_email_language(
         #[case] profile_language: Language,
         #[case] expected_email_language: EmailLanguage,

@@ -75,3 +75,150 @@ pub(super) const AR: LanguagePhrases = LanguagePhrases {
     ],
     condition_markers: &["إذا", "إلا", "باستثناء", "بشرط"],
 };
+
+/// Greek is written with its orthographic final sigma: `normalize_text` restores `ς` at the end
+/// of a word, so spelling `σ` there would never match.
+pub(super) const EL: LanguagePhrases = LanguagePhrases {
+    language: Language::El,
+    prohibited: "δεν υπάρχει αποστολή για αυτό το προϊόν\n\
+        αυτό το προϊόν δεν μπορεί να αποσταλεί\n\
+        αυτό το προϊόν διατίθεται μόνο για παραλαβή από το κατάστημα\n\
+        αυτό το προϊόν διατίθεται μόνο για παραλαβή",
+    collection_only: "μόνο παραλαβή από το κατάστημα\n\
+        μόνο παραλαβή",
+    worldwide: "αυτό το προϊόν μπορεί να αποσταλεί σε όλο τον κόσμο\n\
+        η αποστολή σε όλο τον κόσμο είναι διαθέσιμη για αυτό το προϊόν",
+    on_request: "τα έξοδα αποστολής για αυτό το προϊόν σε όλο τον κόσμο κατόπιν αιτήματος\n\
+        τα μεταφορικά για αυτό το προϊόν σε όλο τον κόσμο κατόπιν αιτήματος",
+    calculated: "τα έξοδα αποστολής για αυτό το προϊόν σε όλο τον κόσμο υπολογίζονται κατά την ολοκλήρωση της αγοράς\n\
+        τα έξοδα αποστολής για αυτό το προϊόν σε όλο τον κόσμο υπολογίζονται στο ταμείο",
+    dispatch_prefix: r"(?:αποστολή(?: αυτού του προϊόντος)? εντός|αυτό το προϊόν θα αποσταλεί εντός)\s+",
+    range_separator: "-|έως",
+    dispatch_suffix: r"\s+(?:εργάσιμων ημερών|εργάσιμης ημέρας)",
+    delivery_words: &[
+        "αποστ",
+        "παράδοσ",
+        "παραδ",
+        "παραλαβ",
+        "μεταφορ",
+        "ταχυδρομ",
+        "εργάσιμ",
+    ],
+    delivery_markers: &[],
+    conditions: &[
+        "αν",
+        "εάν",
+        "εκτός",
+        "εκτός εάν",
+        "όμως",
+        "αλλά",
+        "ωστόσο",
+        "υπό την προϋπόθεση",
+        "με την επιφύλαξη",
+    ],
+    condition_markers: &[],
+};
+
+pub(super) const HE: LanguagePhrases = LanguagePhrases {
+    language: Language::He,
+    prohibited: "אין משלוח עבור פריט זה\n\
+        לא ניתן לשלוח פריט זה\n\
+        פריט זה זמין לאיסוף עצמי בלבד\n\
+        פריט זה זמין לאיסוף בלבד",
+    collection_only: "איסוף עצמי בלבד\n\
+        איסוף בלבד",
+    worldwide: "ניתן לשלוח פריט זה לכל העולם\n\
+        משלוח לכל העולם זמין עבור פריט זה",
+    on_request: "עלות המשלוח לכל העולם עבור פריט זה לפי בקשה\n\
+        עלויות המשלוח לכל העולם עבור פריט זה בהתאם לבקשה",
+    calculated: "עלות המשלוח לכל העולם עבור פריט זה מחושבת בקופה\n\
+        עלות המשלוח לכל העולם עבור פריט זה מחושבת בעת התשלום",
+    dispatch_prefix: r"(?:פריט זה (?:יישלח|ישלח) תוך|משלוח תוך)\s+",
+    range_separator: "-|עד",
+    dispatch_suffix: r"\s+(?:ימי עסקים|יום עסקים|ימי עבודה|יום עבודה)",
+    delivery_words: &[],
+    // Hebrew attaches prepositions and the article to a word, so only substrings can recognise
+    // delivery wording. "שולחן" (table) must not match, hence no bare "שלח" or "שולח".
+    delivery_markers: &[
+        "משלוח",
+        "שליחה",
+        "לשלוח",
+        "נשלח",
+        "ישלח",
+        "שולחים",
+        "איסוף",
+        "אספקה",
+        "מסירה",
+        "דואר",
+    ],
+    conditions: &["אם", "ואם", "אלא", "אך", "אבל"],
+    condition_markers: &["אלא אם", "למעט", "בכפוף", "בתנאי", "פרט ל"],
+};
+
+pub(super) const TH: LanguagePhrases = LanguagePhrases {
+    language: Language::Th,
+    prohibited: "สินค้านี้ไม่สามารถจัดส่งได้\n\
+        ไม่มีการจัดส่งสำหรับสินค้านี้\n\
+        สินค้านี้รับได้ที่ร้านเท่านั้น\n\
+        สินค้านี้รับเองเท่านั้น",
+    collection_only: "รับสินค้าที่ร้านเท่านั้น\n\
+        รับเองเท่านั้น",
+    worldwide: "สินค้านี้สามารถจัดส่งทั่วโลกได้\n\
+        มีบริการจัดส่งสินค้านี้ไปทั่วโลก",
+    on_request: "ค่าจัดส่งสินค้านี้ไปทั่วโลกโปรดสอบถาม\n\
+        ค่าจัดส่งสินค้านี้ไปทั่วโลกตามคำขอ",
+    calculated: "ค่าจัดส่งสินค้านี้ไปทั่วโลกคำนวณเมื่อชำระเงิน\n\
+        ค่าจัดส่งสินค้านี้ไปทั่วโลกจะคำนวณตอนชำระเงิน",
+    dispatch_prefix: r"(?:สินค้านี้จะจัดส่งภายใน|จัดส่งภายใน)\s*",
+    range_separator: "-|ถึง",
+    dispatch_suffix: r"\s*วันทำการ",
+    delivery_words: &[],
+    // Thai has no word separators. A bare "แต่" (but) is not a marker: it is inside "ตกแต่ง"
+    // (decorated), which antiques descriptions use constantly.
+    delivery_markers: &[
+        "จัดส่ง",
+        "ค่าส่ง",
+        "ขนส่ง",
+        "รับสินค้า",
+        "รับเอง",
+        "วันทำการ",
+        "พัสดุ",
+        "ไปรษณีย์",
+    ],
+    conditions: &[],
+    condition_markers: &[
+        "ยกเว้น",
+        "เว้นแต่",
+        "ถ้า",
+        "หาก",
+        "ทั้งนี้",
+        "ภายใต้เงื่อนไข",
+        "เฉพาะกรณี",
+    ],
+};
+
+pub(super) const HI: LanguagePhrases = LanguagePhrases {
+    language: Language::Hi,
+    prohibited: "इस वस्तु को भेजा नहीं जा सकता\n\
+        इस वस्तु की शिपिंग उपलब्ध नहीं है\n\
+        यह वस्तु केवल स्वयं लेने के लिए उपलब्ध है\n\
+        यह वस्तु केवल स्टोर से पिकअप के लिए उपलब्ध है",
+    collection_only: "केवल पिकअप\n\
+        केवल स्टोर से पिकअप\n\
+        केवल स्वयं लेना",
+    worldwide: "इस वस्तु को दुनिया भर में भेजा जा सकता है\n\
+        इस वस्तु के लिए दुनिया भर में शिपिंग उपलब्ध है",
+    on_request: "इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क अनुरोध पर\n\
+        इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क अनुरोध पर उपलब्ध है",
+    calculated: "इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क की गणना चेकआउट पर की जाती है\n\
+        इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क की गणना भुगतान के समय की जाती है",
+    dispatch_prefix: r"(?:यह वस्तु|यह उत्पाद)\s+",
+    range_separator: "-|से",
+    dispatch_suffix: r"\s+कार्य दिवस(?:ों)? में भेजी जाएगी",
+    delivery_words: &[],
+    // Virama and several other combining marks are not alphabetic, which breaks the word
+    // splitting that `delivery_words` relies on, so substrings recognise delivery wording.
+    delivery_markers: &["शिपिंग", "डिलीवर", "भेज", "पिकअप", "कार्य दिवस", "वितरण"],
+    conditions: &["यदि", "अगर", "सिवाय", "लेकिन", "परंतु", "किंतु", "बशर्ते"],
+    condition_markers: &[],
+};

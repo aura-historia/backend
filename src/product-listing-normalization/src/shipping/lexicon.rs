@@ -43,4 +43,9 @@ pub(super) const LANGUAGES: &[LanguagePhrases] = &[
     east_asian::JA,
     other_scripts::RU,
     other_scripts::AR,
+    east_asian::KO,
+    other_scripts::EL,
+    other_scripts::HE,
+    other_scripts::TH,
+    other_scripts::HI,
 ];

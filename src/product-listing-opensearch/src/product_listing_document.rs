@@ -74,6 +74,11 @@ pub(crate) mod language {
             Language::Ja => "JA",
             Language::Ru => "RU",
             Language::Ar => "AR",
+            Language::Ko => "KO",
+            Language::El => "EL",
+            Language::He => "HE",
+            Language::Th => "TH",
+            Language::Hi => "HI",
         }
     }
 
