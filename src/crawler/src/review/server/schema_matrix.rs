@@ -25,16 +25,27 @@ use tracing::warn;
 const MATRIX_REFRESH_PAGE_BUDGET: Duration =
     MAX_CRAWL_DELAY.saturating_add(Duration::from_secs(30));
 
+/// How a plain matrix read answers a review that holds no matrix of its current candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NoMatrixAnswer {
+    /// `404` with `reason` `NO_MATRIX`: what the review agents' reader expects.
+    NotFound,
+    /// `200` with `status` `none`, for the console, which asks (`probe=true`) before it offers to
+    /// evaluate, so its devtools log no failed request for a state that is normal.
+    Status,
+}
+
 impl ReviewServer {
     /// `GET /api/reviews/{id}/matrix`: the running refresh, the last refresh's failure as `actor`
     /// learns it, or the stored matrix. An agent's own refresh refused with `HUMAN_REQUIRED` is
     /// answered only while the review still waits for that human. A plain read never fetches the
-    /// shop: without a stored matrix it answers `404` with `reason` `NO_MATRIX`, and the reader
-    /// asks for a refresh.
+    /// shop: without a stored matrix it answers as `absent` says, and the reader asks for a
+    /// refresh.
     pub(super) async fn read_schema_matrix(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
+        absent: NoMatrixAnswer,
     ) -> HttpResponse {
         let refusal = match self.matrix_refreshes.status(review_id, actor) {
             MatrixRefreshStatus::Running => return matrix_refreshing(review_id),
@@ -53,7 +64,7 @@ impl ReviewServer {
         }
         match cached_schema_matrix(&detail) {
             Some(matrix) => HttpResponse::json(200, &ReviewSchemaMatrix::of(matrix, &detail.pages)),
-            None => no_matrix_yet(review_id),
+            None => no_matrix_yet(review_id, absent),
         }
     }
 
@@ -211,7 +222,13 @@ fn cached_schema_matrix(detail: &ReviewDetail) -> Option<SchemaMatrix> {
 
 /// Answers a plain matrix read of a review that holds no matrix of its current candidate: the
 /// reader asks for a refresh when it wants the shop's pages fetched.
-fn no_matrix_yet(review_id: CrawlerReviewId) -> HttpResponse {
+fn no_matrix_yet(review_id: CrawlerReviewId, absent: NoMatrixAnswer) -> HttpResponse {
+    if absent == NoMatrixAnswer::Status {
+        return HttpResponse::json(
+            200,
+            &json!({ "status": "none", "reason": "NO_MATRIX", "review_id": review_id }),
+        );
+    }
     HttpResponse::json(
         404,
         &json!({

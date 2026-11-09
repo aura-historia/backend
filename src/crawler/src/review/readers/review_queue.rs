@@ -306,8 +306,8 @@ fn review_order(sort: ReviewSort, direction: &str) -> String {
 /// crawler writes.
 #[derive(Debug, thiserror::Error)]
 #[error("review {review_id} keeps an unreadable LLM schema evaluation")]
-struct UnreadableAutoSchemaEvaluation {
-    review_id: CrawlerReviewId,
+pub(super) struct UnreadableAutoSchemaEvaluation {
+    pub(super) review_id: CrawlerReviewId,
     #[source]
     source: serde_json::Error,
 }

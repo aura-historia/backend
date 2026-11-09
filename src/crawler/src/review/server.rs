@@ -16,7 +16,7 @@ use crate::review::model::{
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
-    ReviewQueueReader, SourceProductUrlReader,
+    ReviewQueueReader, SourceEventReader, SourceProductUrlReader, persisted_row_failure,
 };
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -48,10 +48,8 @@ const LIVE_FETCH_DEADLINE: Duration = Duration::from_secs(25);
 /// refreshing, leaving room within [`REQUEST_DEADLINE`].
 const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
-/// The most events one answer of `GET /api/review-events` holds; a client reads on from the last
-/// event's time, as the review agents' daily digest does.
-const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
+mod activity;
 mod listing_source_list;
 mod mass_removal_confirmation;
 mod missing_value_pages;
@@ -61,6 +59,7 @@ mod review_list;
 mod schema_matrix;
 mod source_pages;
 
+use schema_matrix::NoMatrixAnswer;
 use source_pages::{EvaluationPayload, parse_review_evaluation_id};
 
 #[derive(Clone)]
@@ -70,6 +69,7 @@ pub struct ReviewServer {
     listing_sources: ListingSourceOverviewReader,
     listing_source_details: ListingSourceDetailReader,
     overview: ConsoleOverviewReader,
+    source_events: SourceEventReader,
     source_product_urls: SourceProductUrlReader,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
@@ -94,6 +94,7 @@ impl ReviewServer {
         Self {
             listing_source_details: ListingSourceDetailReader::new(listing_sources.clone()),
             overview: ConsoleOverviewReader::new(&repository, listing_sources.clone()),
+            source_events: SourceEventReader::new(repository.pool().clone()),
             review_queue,
             listing_sources,
             source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
@@ -242,30 +243,8 @@ impl ReviewServer {
             ("GET", "/api/reviews") => self.review_list(&parsed).await,
             ("GET", "/api/pending-reviews") => self.pending_reviews(&parsed).await,
             ("GET", "/api/review-events") => self.review_events_since(&parsed).await,
+            ("GET", "/api/source-events") => self.source_events_since(&parsed).await,
             _ => self.route_dynamic(parsed, actor).await,
-        }
-    }
-
-    /// `GET /api/review-events?since=<RFC 3339 time>`: the events of all reviews since then,
-    /// oldest first and without their details, and whether later ones were left out.
-    async fn review_events_since(&self, request: &ParsedRequest<'_>) -> HttpResponse {
-        let Some(since) = request.query.get("since").and_then(|since| {
-            time::OffsetDateTime::parse(since, &time::format_description::well_known::Rfc3339).ok()
-        }) else {
-            return HttpResponse::json(
-                400,
-                &json!({ "error": "since must be an RFC 3339 time, such as 2026-10-28T06:00:00Z" }),
-            );
-        };
-        match self
-            .repository
-            .list_review_events_since(since, MAX_LISTED_REVIEW_EVENTS)
-            .await
-        {
-            Ok((events, truncated)) => {
-                HttpResponse::json(200, &json!({ "events": events, "truncated": truncated }))
-            }
-            Err(err) => internal_error(err),
         }
     }
 
@@ -359,10 +338,19 @@ impl ReviewServer {
                 .query
                 .get("refresh")
                 .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
+            let absent = if request
+                .query
+                .get("probe")
+                .is_some_and(|value| value == "true")
+            {
+                NoMatrixAnswer::Status
+            } else {
+                NoMatrixAnswer::NotFound
+            };
             return if refresh {
                 self.refresh_schema_matrix(review_id, actor).await
             } else {
-                self.read_schema_matrix(review_id, actor).await
+                self.read_schema_matrix(review_id, actor, absent).await
             };
         }
 
@@ -1314,6 +1302,36 @@ fn live_jobs_busy(busy: LiveJobsBusy) -> HttpResponse {
         }),
     )
     .with_header("Retry-After", retry_after_secs.to_string())
+}
+
+/// The answer to a read that failed. A read fails closed on a stored row it cannot decode, and says
+/// so with `reason` `INVALID_PERSISTED_ROW`, the kind of the object and its identifier when the
+/// failure names one, so the operator knows which row to fix; the log has the detail. Any other
+/// failure is a plain `500`.
+fn read_error(error: sqlx::Error) -> HttpResponse {
+    let Some(failure) = persisted_row_failure(&error) else {
+        return internal_error(error);
+    };
+    error!(error = ?error, object = failure.object, row = ?failure.id, "Review console read an unreadable stored row");
+    let message = match &failure.id {
+        Some(id) => format!(
+            "a stored {} cannot be read ({id}); see the server log",
+            failure.object
+        ),
+        None => format!(
+            "a stored {} cannot be read; see the server log",
+            failure.object
+        ),
+    };
+    HttpResponse::json(
+        500,
+        &json!({
+            "error": message,
+            "reason": "INVALID_PERSISTED_ROW",
+            "object": failure.object,
+            "id": failure.id,
+        }),
+    )
 }
 
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
@@ -5565,6 +5583,80 @@ Origin: http://127.0.0.1:7878/x
                 assert!(
                     status.starts_with("HTTP/1.1 404"),
                     "{missing}: {status} {body}"
+                );
+            }
+        }
+
+        /// A stored row the console cannot decode fails the read that reaches it closed, saying
+        /// which kind of object it is and its identifier, while the other reads keep working; a
+        /// plain matrix read can ask for a status instead of a failed request.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_name_an_unreadable_stored_review_and_answer_the_rest() {
+            let (server, review_id) = pending_review_server().await;
+            let pool = test_api::get_postgres_client().await;
+            let (_, listed) = send(&server, "GET /api/reviews", "").await;
+            let invalid = uuid::Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
+                 SELECT $1, listing_source_id, 'URL_PATTERN', 'APPROVED', 'corrupt', '{}'::jsonb \
+                 FROM listing_sources LIMIT 1",
+            )
+            .bind(invalid)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert corrupt review: {error}"));
+
+            let (status, broken) = send(&server, "GET /api/reviews", "").await;
+            assert!(status.starts_with("HTTP/1.1 500"), "{status} {broken}");
+            assert_eq!(broken["reason"], "INVALID_PERSISTED_ROW");
+            assert_eq!(broken["object"], "review");
+            assert_eq!(broken["id"], invalid.to_string());
+            let (status, counts) = send(&server, "GET /api/overview", "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {counts}");
+            let (status, detail) =
+                send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
+
+            let (status, probed) = send(
+                &server,
+                &format!("GET /api/reviews/{review_id}/matrix?probe=true"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {probed}");
+            assert_eq!(probed["status"], "none");
+            let (status, plain) =
+                send(&server, &format!("GET /api/reviews/{review_id}/matrix"), "").await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {plain}");
+            assert_eq!(plain["reason"], "NO_MATRIX");
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_the_activity_feeds_of_the_console() {
+            let (server, _) = pending_review_server().await;
+            let since = "since=2020-01-01T00:00:00Z";
+
+            let (status, reviews) = send(
+                &server,
+                &format!("GET /api/review-events?{since}&dir=desc&limit=5"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {reviews}");
+            assert_eq!(reviews["truncated"], false);
+            let (status, sources) =
+                send(&server, &format!("GET /api/source-events?{since}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {sources}");
+            assert_eq!(sources["events"], json!([]));
+            for refused in [
+                "GET /api/source-events".to_owned(),
+                format!("GET /api/source-events?{since}&limit=0"),
+                format!("GET /api/review-events?{since}&dir=up"),
+            ] {
+                let (status, body) = send(&server, &refused, "").await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused}: {status} {body}"
                 );
             }
         }

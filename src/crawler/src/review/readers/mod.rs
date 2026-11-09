@@ -7,11 +7,15 @@
 mod console_overview;
 mod listing_source_detail;
 mod listing_source_overview;
+mod persisted_row;
 mod review_queue;
+mod source_events;
 mod source_product_urls;
 
 pub use console_overview::ConsoleOverviewReader;
 pub use listing_source_detail::ListingSourceDetailReader;
 pub use listing_source_overview::{HealthCounts, ListingSourceOverviewReader, ListingSourceQuery};
+pub use persisted_row::{PersistedRowFailure, persisted_row_failure};
 pub use review_queue::{ReviewQuery, ReviewQueueReader};
+pub use source_events::SourceEventReader;
 pub use source_product_urls::{MAX_SOURCE_PRODUCT_URLS, SourceProductUrlReader};

@@ -507,14 +507,15 @@ impl CrawlerReviewRepository {
         pending_reviews::fetch_pending_review_page(&self.pool, &self.agent_decisions, query).await
     }
 
-    /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and
-    /// whether later events were left out.
+    /// The events of all reviews created at or after `since`, in `direction` of their time, at most
+    /// `limit`, and whether events beyond the limit, later ones when oldest first, were left out.
     pub async fn list_review_events_since(
         &self,
         since: OffsetDateTime,
         limit: usize,
+        direction: SortDirection,
     ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
-        fetch_review_events_since(&self.pool, since, limit).await
+        fetch_review_events_since(&self.pool, since, limit, direction).await
     }
 
     /// Adds the URLs the crawl stored since the review opened to the sample of the pending
@@ -1820,9 +1821,9 @@ fn row_to_review_url(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewUrl, sql
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid persisted {object_type} UUID `{value}`")]
-struct PersistedObjectIdError {
-    object_type: &'static str,
-    value: uuid::Uuid,
+pub(crate) struct PersistedObjectIdError {
+    pub(crate) object_type: &'static str,
+    pub(crate) value: uuid::Uuid,
     #[source]
     source: domain_primitives::object_id::ObjectIdError,
 }

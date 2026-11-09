@@ -4,7 +4,7 @@
 //! is in `docs/crawler/operations.md` (review service).
 
 use super::query_params::{list_window, named, reject_unknown, search_term, sort_direction};
-use super::{ReviewServer, internal_error};
+use super::{ReviewServer, read_error};
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{SourceActivity, SourceSort, SourceStatus};
 use crate::review::readers::ListingSourceQuery;
@@ -25,7 +25,7 @@ impl ReviewServer {
         };
         match self.listing_sources.list_listing_sources(&query).await {
             Ok(page) => HttpResponse::json(200, &page),
-            Err(error) => internal_error(error),
+            Err(error) => read_error(error),
         }
     }
 
@@ -67,7 +67,7 @@ impl ReviewServer {
         {
             Ok(Some(detail)) => HttpResponse::json(200, &detail),
             Ok(None) => source_not_found(listing_source_id),
-            Err(error) => internal_error(error),
+            Err(error) => read_error(error),
         }
     }
 
@@ -75,7 +75,7 @@ impl ReviewServer {
     pub(super) async fn console_overview(&self) -> HttpResponse {
         match self.overview.overview().await {
             Ok(overview) => HttpResponse::json(200, &overview),
-            Err(error) => internal_error(error),
+            Err(error) => read_error(error),
         }
     }
 }

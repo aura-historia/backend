@@ -9,11 +9,11 @@ use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
     ArtifactType, ListPage, ListWindow, ListingSourceOverview, PAGE_ROLE_PRIMARY, ReviewActor,
     ReviewQueueEntry, ReviewSort, ReviewStatus, ReviewWaiting, SchemaReviewPageInput, SearchTerm,
-    SortDirection, SourceActivity, SourceSort, SourceStatus, UrlPatternDecision,
+    SortDirection, SourceActivity, SourceEventKind, SourceSort, SourceStatus, UrlPatternDecision,
 };
 use crawler::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
-    ListingSourceQuery, ReviewQuery, ReviewQueueReader,
+    ListingSourceQuery, ReviewQuery, ReviewQueueReader, SourceEventReader,
 };
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -27,6 +27,7 @@ use sqlx::PgPool;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use test_api::*;
+use time::OffsetDateTime;
 
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 
@@ -840,4 +841,95 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
             "agent_mode": true
         })
     );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_what_the_crawler_did_to_listing_sources_newest_first() {
+    let pool = get_postgres_client().await;
+    let failing = source(&pool, "Failing", "failing.example.com", true).await;
+    let crawled = source(&pool, "Crawled", "crawled.example.com", true).await;
+    let old = source(&pool, "Old", "old.example.com", true).await;
+    let disabled = source(&pool, "Disabled", "disabled.example.com", false).await;
+    for (id, set) in [
+        (
+            failing,
+            "scrape_failure_streak = 14, last_scrape_error_kind = 'TIMEOUT', scrape_failing_since = NOW() - INTERVAL '1 hour'",
+        ),
+        (
+            crawled,
+            "last_crawl_outcome = 'COMPLETED', last_crawl_run_at = NOW() - INTERVAL '2 hours'",
+        ),
+        (
+            old,
+            "last_crawl_outcome = 'COMPLETED', last_crawl_run_at = NOW() - INTERVAL '3 days'",
+        ),
+        (
+            disabled,
+            "last_crawl_outcome = 'FAILED', last_crawl_run_at = NOW() - INTERVAL '1 hour'",
+        ),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let reader = SourceEventReader::new(pool.clone());
+    let since = OffsetDateTime::now_utc() - time::Duration::days(1);
+
+    let (events, truncated) = reader.list_source_events(since, 10).await.unwrap();
+    let (first, more) = reader.list_source_events(since, 1).await.unwrap();
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| (event.kind, event.listing_source_id))
+            .collect::<Vec<_>>(),
+        vec![
+            (SourceEventKind::ScrapeFailing, failing),
+            (SourceEventKind::CrawlFinished, crawled)
+        ],
+        "newest first; a crawl older than the window and a disabled source are not listed"
+    );
+    assert!(!truncated);
+    assert_eq!(events[0].count, 14);
+    assert_eq!(events[0].error_kind.as_deref(), Some("TIMEOUT"));
+    assert_eq!(events[1].outcome.as_deref(), Some("COMPLETED"));
+    assert_eq!((first.len(), more), (1, true));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_review_events_newest_first_when_asked() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 5);
+    let shop = source(&pool, "Shop", "shop.example.com", true).await;
+    let review = pending_schema_review(&repository, shop).await;
+    for note in ["first", "second", "third"] {
+        repository
+            .request_repair(review, ReviewActor::AgentReviewer, Some(note))
+            .await
+            .unwrap();
+    }
+    let since = OffsetDateTime::now_utc() - time::Duration::hours(1);
+
+    let (oldest_first, _) = repository
+        .list_review_events_since(since, 10, SortDirection::Ascending)
+        .await
+        .unwrap();
+    let (newest_first, truncated) = repository
+        .list_review_events_since(since, 2, SortDirection::Descending)
+        .await
+        .unwrap();
+
+    let notes = |events: &[crawler::review::model::ReviewEventSummary]| {
+        events
+            .iter()
+            .map(|event| event.notes.clone().unwrap_or_default())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(notes(&oldest_first), ["first", "second", "third"]);
+    assert_eq!(notes(&newest_first), ["third", "second"]);
+    assert!(truncated);
 }

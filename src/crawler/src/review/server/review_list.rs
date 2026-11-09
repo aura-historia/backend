@@ -5,7 +5,7 @@
 use super::query_params::{
     id_param, list_window, named, reject_unknown, search_term, sort_direction,
 };
-use super::{ReviewServer, internal_error};
+use super::{ReviewServer, read_error};
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{ArtifactType, ReviewSort, ReviewStatus, ReviewWaiting};
 use crate::review::readers::ReviewQuery;
@@ -35,7 +35,7 @@ impl ReviewServer {
         };
         match self.review_queue.list_reviews(&query).await {
             Ok(page) => HttpResponse::json(200, &page),
-            Err(error) => internal_error(error),
+            Err(error) => read_error(error),
         }
     }
 
@@ -57,7 +57,7 @@ impl ReviewServer {
         {
             Ok(Some(_)) => {}
             Ok(None) => return super::listing_source_list::source_not_found(listing_source_id),
-            Err(error) => return internal_error(error),
+            Err(error) => return read_error(error),
         }
         match self
             .review_queue
@@ -65,7 +65,7 @@ impl ReviewServer {
             .await
         {
             Ok(page) => HttpResponse::json(200, &page),
-            Err(error) => internal_error(error),
+            Err(error) => read_error(error),
         }
     }
 }
