@@ -23,7 +23,8 @@ pub enum AuthorAction {
     NothingToStage,
     /// The author could not work the review.
     Skipped,
-    /// The review needs a human's decision, such as `NO_PATTERN`, which no agent approves.
+    /// The author cannot decide the review from what it can read, such as a sample behind a login
+    /// wall or bot challenge.
     NeedsHuman,
 }
 

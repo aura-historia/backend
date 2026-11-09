@@ -124,8 +124,8 @@ pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v6",
-            prompt: include_str!("prompts/reviewer.v6.md"),
+            version: "reviewer.v7",
+            prompt: include_str!("prompts/reviewer.v7.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -598,7 +598,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v10", "reviewer.v6"]
+            ["author.v10", "reviewer.v7"]
         );
     }
 

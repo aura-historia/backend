@@ -1205,7 +1205,7 @@ echo "end $role $review" >> "$dir/order.log"
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
         assert_eq!(ledger[0]["prompt_version"], "author.v10");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v6");
+        assert_eq!(ledger[1]["prompt_version"], "reviewer.v7");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);
@@ -1362,7 +1362,7 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(state.cooldowns.is_empty(), "{state:?}");
     }
 
-    /// `NO_PATTERN` is a human decision no agent approves: an author that reports `NEEDS_HUMAN`
+    /// An author that cannot decide a review and reports `NEEDS_HUMAN`
     /// hands the review over at once, without a reviewer process or a cooldown, whether or not the
     /// reviewer judged the candidate before.
     #[tokio::test]

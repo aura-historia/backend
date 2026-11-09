@@ -11,8 +11,8 @@
 //! brought it to the cap. Once a human hands it back it is workable at once, and the pass picks it
 //! as a review no agent worked ([`select_reviews`]).
 //! An author that reports `NOTHING_TO_STAGE` on a candidate the reviewer already judged, with no
-//! page joined since, gives the reviewer nothing new, and one that reports `NEEDS_HUMAN` leaves a
-//! decision no agent takes, such as `NO_PATTERN`: the pass hands the review to a human at once,
+//! page joined since, gives the reviewer nothing new, and one that reports `NEEDS_HUMAN` cannot
+//! decide the review from what it can read: the pass hands the review to a human at once,
 //! with the author's reasoning as the note of the console's hand-over event, instead of one more
 //! needs-repair round.
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
@@ -360,14 +360,14 @@ impl Pass<'_> {
 
     /// Hands the review to a human at once with the author's reasoning, which the console records
     /// as an event of the review's trail, instead of starting a reviewer process: one that would
-    /// repeat its verdict on the unchanged candidate, or one on a review no agent approves. A hand-over the console does not take cools the
+    /// repeat its verdict on the unchanged candidate, or one on a review the author left undecided. A hand-over the console does not take cools the
     /// review down unless it waits for a human anyway.
     async fn hand_over_to_human(&self, review: &QueuedReview, report: &AuthorReport) {
         match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
             Ok(()) => {
                 info!(
                     review_id = %review.review_id,
-                    "The author left the review to a human decision or found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
+                    "The author could not decide the review or found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
                 );
                 self.with(|shared| shared.summary.handed_to_human += 1);
             }
@@ -854,7 +854,7 @@ fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
 fn handover_note(report: &AuthorReport) -> String {
     let why = match report.action {
         AuthorAction::NeedsHuman => {
-            "The author agent reported NEEDS_HUMAN: only a human decides this review, so no reviewer round runs."
+            "The author agent reported NEEDS_HUMAN: it cannot decide this review from what it can read, so no reviewer round runs."
         }
         _ => {
             "The author agent reported NOTHING_TO_STAGE on a candidate the reviewer agent had already judged, so no further reviewer round runs."
