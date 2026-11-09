@@ -6,6 +6,7 @@
 //! refusals by failed check, each process's outcome), and each review's tokens and cost. It is
 //! written to a Markdown file in the state directory's `digests/` and summarised in one log line.
 
+use super::context_use::ContextUseSummary;
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
 use super::queue::{HumanRequiredReview, ReviewEventEntry, ReviewEventsSince};
@@ -76,6 +77,7 @@ pub struct Digest {
     pub usage: TokenUsage,
     pub cost_usd: f64,
     pub reviews: BTreeMap<CrawlerReviewId, ReviewWork>,
+    context_use: ContextUseSummary,
     reports: Vec<ProcessRecord>,
     rolling: RollingCost,
 }
@@ -146,6 +148,7 @@ impl Digest {
             usage: TokenUsage::default(),
             cost_usd: 0.0,
             reviews: BTreeMap::new(),
+            context_use: ContextUseSummary::default(),
             reports: Vec::new(),
             rolling,
         };
@@ -165,6 +168,8 @@ impl Digest {
             .or_default() += 1;
         self.usage.add(record.usage);
         self.cost_usd += record.total_cost_usd;
+        self.context_use
+            .add(role_name(record.role), &record.context);
         if let Some(AgentReport::Reviewer(report)) = &record.report
             && report.server_answer.outcome == ServerOutcome::Refused
         {
@@ -203,6 +208,7 @@ impl Digest {
         self.write_decisions(&mut out);
         self.write_refusals(&mut out);
         self.write_processes(&mut out);
+        self.context_use.write_markdown(&mut out);
         self.write_reports(&mut out);
         self.write_rolling_cost(&mut out);
         out
@@ -456,12 +462,16 @@ fn end_name(end: ProcessEnd) -> &'static str {
     }
 }
 
-/// One process in a review's row: its role and how it ended.
-fn process_line(record: &ProcessRecord) -> String {
-    let role = match record.role {
+fn role_name(role: ProcessRole) -> &'static str {
+    match role {
         ProcessRole::Author => "author",
         ProcessRole::Reviewer => "reviewer",
-    };
+    }
+}
+
+/// One process in a review's row: its role and how it ended.
+fn process_line(record: &ProcessRecord) -> String {
+    let role = role_name(record.role);
     let detail = match (&record.report, record.limit, &record.failure) {
         (Some(AgentReport::Author(report)), _, _) => wire_name(Some(report.action)),
         (Some(AgentReport::Reviewer(report)), _, _) => format!(

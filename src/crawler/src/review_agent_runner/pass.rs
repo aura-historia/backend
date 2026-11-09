@@ -16,6 +16,7 @@
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
+use super::context_use::ContextUse;
 use super::decision_cap::{
     CLOCK_MARGIN, DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended,
     report_shows_decision_cap,
@@ -629,6 +630,7 @@ impl Pass<'_> {
             }
         };
         let envelope = ResultEnvelope::parse(&output.stdout);
+        record.context = ContextUse::parse(&output.stdout);
         if let Some(stop) = output.stopped {
             if let Some(envelope) = &envelope {
                 record.take_accounting(envelope);
@@ -746,6 +748,13 @@ impl Pass<'_> {
             cache_creation_input_tokens = record.usage.cache_creation_input_tokens,
             total_cost_usd = record.total_cost_usd,
             cost_charged = record.cost_charged,
+            opening_tokens = record.context.opening_tokens,
+            tool_answer_chars = record
+                .context
+                .tool_answers
+                .values()
+                .map(|answers| answers.chars)
+                .sum::<u64>(),
             report = %report,
             "Review agent process finished"
         );
@@ -860,6 +869,7 @@ impl ProcessRecord {
             usage: Default::default(),
             total_cost_usd: 0.0,
             cost_charged: false,
+            context: Default::default(),
             report: None,
             trail_verdict: None,
         }

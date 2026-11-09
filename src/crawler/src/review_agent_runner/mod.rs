@@ -14,6 +14,7 @@
 //! `docs/crawler/operations.md` (review agent runner).
 
 mod child;
+mod context_use;
 mod decision_cap;
 mod digest;
 mod envelope;
