@@ -8,7 +8,9 @@
 
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
-use super::queue::{HumanRequiredReview, ReviewEventEntry, ReviewEventsSince};
+use super::queue::{
+    HumanRequiredReview, ReviewArtifact, ReviewEventEntry, ReviewEventsSince, ReviewQueue,
+};
 use super::reports::{AgentReport, ServerOutcome, TrailVerdict};
 use super::wire_name;
 use crate::CrawlerReviewId;
@@ -38,6 +40,30 @@ pub struct ReviewWork {
     pub cost_usd: f64,
 }
 
+/// The product-schema reviews the agents can work at the digest's time and since when the oldest
+/// of them waits: a source gets its schema review only after its pattern passed, and approving it
+/// is what lets the source's products in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SchemaReviewWait {
+    pub workable: usize,
+    pub oldest_since: Option<OffsetDateTime>,
+}
+
+impl SchemaReviewWait {
+    fn of(queue: &ReviewQueue) -> Self {
+        let schema = || {
+            queue
+                .workable
+                .iter()
+                .filter(|review| review.artifact_type == ReviewArtifact::ProductSchema)
+        };
+        Self {
+            workable: schema().count(),
+            oldest_since: schema().map(|review| review.created).min(),
+        }
+    }
+}
+
 /// The rolling cost sums and the pause at the digest's time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RollingCost {
@@ -65,6 +91,10 @@ pub struct Digest {
     pub revoked_rejections: usize,
     /// The pending reviews that wait for a human at the digest's time.
     pub needs_a_human: Vec<HumanRequiredReview>,
+    /// The agents' approvals of `NO_PATTERN` in the window, each of which keeps a ListingSource out
+    /// of product crawling until it expires: the decisions a human spot-checks.
+    pub agent_no_patterns: Vec<ReviewEventEntry>,
+    pub schema_wait: SchemaReviewWait,
     decisions: Vec<ReviewEventEntry>,
     events_truncated: bool,
     /// The server's refusals of the reviewer's decisions by failed check, as the reports name them:
@@ -82,13 +112,13 @@ pub struct Digest {
 
 impl Digest {
     /// The digest of `[from, to]` from the console's `events` since `from`, the ledger's
-    /// `records` of the window and the reviews `needs_a_human` that wait for a human at `to`.
+    /// `records` of the window and the agents' `queue` at `to`.
     pub fn of(
         from: OffsetDateTime,
         to: OffsetDateTime,
         events: ReviewEventsSince,
         records: Vec<ProcessRecord>,
-        needs_a_human: Vec<HumanRequiredReview>,
+        queue: ReviewQueue,
         rolling: RollingCost,
     ) -> Self {
         let decisions: Vec<ReviewEventEntry> = events
@@ -121,6 +151,16 @@ impl Digest {
                     count
                 })
         };
+        let agent_no_patterns = decisions
+            .iter()
+            .filter(|event| {
+                event.action == "APPROVED"
+                    && AGENT_ACTORS.contains(&event.actor.as_str())
+                    && event.approved_url_pattern_state.as_deref() == Some("NO_PATTERN")
+            })
+            .cloned()
+            .collect();
+        let schema_wait = SchemaReviewWait::of(&queue);
         let total = |action: &str| {
             decisions
                 .iter()
@@ -137,7 +177,9 @@ impl Digest {
             no_sold_page_recorded: count("NO_SOLD_PAGE_RECORDED"),
             restored: total("RESTORED"),
             revoked_rejections: total("REJECTION_REVOKED"),
-            needs_a_human,
+            needs_a_human: queue.waiting_for_human,
+            agent_no_patterns,
+            schema_wait,
             decisions,
             events_truncated: events.truncated,
             refusals_by_check: BTreeMap::new(),
@@ -200,6 +242,8 @@ impl Digest {
             timestamp(self.to)
         );
         self.write_needs_a_human(&mut out);
+        self.write_agent_no_patterns(&mut out);
+        self.write_schema_wait(&mut out);
         self.write_decisions(&mut out);
         self.write_refusals(&mut out);
         self.write_processes(&mut out);
@@ -242,6 +286,53 @@ impl Digest {
             );
         }
         out.push('\n');
+    }
+
+    fn write_agent_no_patterns(&self, out: &mut String) {
+        let _ = writeln!(out, "## Agent NO_PATTERN decisions to spot-check\n");
+        if self.agent_no_patterns.is_empty() {
+            let _ = writeln!(out, "None.\n");
+            return;
+        }
+        let _ = writeln!(
+            out,
+            "Each keeps a ListingSource out of product crawling until it expires. Open a few in the review console and restore or change any that is wrong.\n"
+        );
+        for event in &self.agent_no_patterns {
+            let _ = writeln!(
+                out,
+                "- {} · {} · {}{}",
+                timestamp(event.created),
+                event.review_id,
+                event
+                    .listing_source_name
+                    .as_deref()
+                    .unwrap_or("(unnamed source)"),
+                event
+                    .notes
+                    .as_deref()
+                    .map(|notes| format!(": {}", short(notes)))
+                    .unwrap_or_default()
+            );
+        }
+        out.push('\n');
+    }
+
+    fn write_schema_wait(&self, out: &mut String) {
+        let _ = writeln!(out, "## Product-schema reviews waiting\n");
+        let _ = writeln!(
+            out,
+            "{} product-schema review(s) the agents can work{}.\n",
+            self.schema_wait.workable,
+            self.schema_wait
+                .oldest_since
+                .map(|since| format!(
+                    "; the oldest waits since {} ({} hours)",
+                    timestamp(since),
+                    (self.to - since).whole_hours()
+                ))
+                .unwrap_or_default()
+        );
     }
 
     /// The latest hand-over of `review_id` in the window: who handed it over, when, and why.
@@ -534,7 +625,7 @@ mod tests {
     use super::*;
     use crate::review::model::RepairRequest;
     use crate::review_agent_runner::ledger::tests::record;
-    use crate::review_agent_runner::queue::ReviewArtifact;
+    use crate::review_agent_runner::queue::{QueuedReview, ReviewArtifact};
     use crate::review_agent_runner::reports::{
         AuthorAction, AuthorReport, Confidence, ReviewerDecision, ReviewerReport, ServerAnswer,
         TrailVerdict,
@@ -555,6 +646,7 @@ mod tests {
             action: action.to_owned(),
             candidate_version: 3,
             notes: Some("price | empty on\n/item/2".to_owned()),
+            approved_url_pattern_state: None,
             created: TO - Duration::hours(hours_before),
         }
     }
@@ -584,6 +676,65 @@ mod tests {
         })
     }
 
+    /// The agents' `NO_PATTERN` approvals are listed for a spot check, a human's or a pattern's
+    /// are not; and the digest tells how many product-schema reviews the agents can work and since
+    /// when the oldest waits, leaving URL-pattern reviews out.
+    #[test]
+    fn should_list_agent_no_patterns_and_the_schema_review_wait() {
+        let approval = |actor: &str, state: Option<&str>| ReviewEventEntry {
+            artifact_type: "URL_PATTERN".to_owned(),
+            approved_url_pattern_state: state.map(str::to_owned),
+            ..event(actor, "APPROVED", 2)
+        };
+        let agent_no_pattern = approval("AGENT_REVIEWER", Some("NO_PATTERN"));
+        let queued = |artifact_type, hours_before| QueuedReview {
+            review_id: CrawlerReviewId::new(),
+            artifact_type,
+            listing_source_name: None,
+            handed_back: None,
+            created: TO - Duration::hours(hours_before),
+        };
+        let queue = ReviewQueue {
+            workable: vec![
+                queued(ReviewArtifact::UrlPattern, 100),
+                queued(ReviewArtifact::ProductSchema, 30),
+                queued(ReviewArtifact::ProductSchema, 5),
+            ],
+            waiting_for_human: vec![],
+        };
+
+        let digest = Digest::of(
+            FROM,
+            TO,
+            ReviewEventsSince {
+                events: vec![
+                    agent_no_pattern.clone(),
+                    approval("HUMAN", Some("NO_PATTERN")),
+                    approval("AGENT_REVIEWER", Some("MATCHED")),
+                ],
+                truncated: false,
+            },
+            vec![],
+            queue,
+            rolling_cost(),
+        );
+
+        assert_eq!(digest.agent_no_patterns, vec![agent_no_pattern.clone()]);
+        assert_eq!(
+            digest.schema_wait,
+            SchemaReviewWait {
+                workable: 2,
+                oldest_since: Some(TO - Duration::hours(30)),
+            }
+        );
+        let markdown = digest.markdown();
+        assert!(
+            markdown.contains(&agent_no_pattern.review_id.to_string())
+                && markdown.contains("2 product-schema review(s) the agents can work; the oldest waits since 2026-10-27T00:00:00Z (30 hours)"),
+            "{markdown}"
+        );
+    }
+
     fn rolling_cost() -> RollingCost {
         RollingCost {
             five_hour_cost_usd: 1.5,
@@ -610,7 +761,14 @@ mod tests {
             truncated: false,
         };
 
-        let digest = Digest::of(FROM, TO, events, vec![], vec![], rolling_cost());
+        let digest = Digest::of(
+            FROM,
+            TO,
+            events,
+            vec![],
+            ReviewQueue::default(),
+            rolling_cost(),
+        );
 
         assert_eq!(
             digest.approved,
@@ -683,7 +841,7 @@ mod tests {
                 truncated: true,
             },
             vec![author, refused, limited, outside],
-            vec![],
+            ReviewQueue::default(),
             rolling_cost(),
         );
 
@@ -741,7 +899,7 @@ mod tests {
                 truncated: false,
             },
             vec![contradicted.clone(), legacy.clone()],
-            vec![],
+            ReviewQueue::default(),
             rolling_cost(),
         );
 
@@ -784,7 +942,10 @@ mod tests {
                 truncated: false,
             },
             vec![],
-            vec![waiting],
+            ReviewQueue {
+                workable: vec![],
+                waiting_for_human: vec![waiting],
+            },
             rolling_cost(),
         );
 
@@ -818,7 +979,7 @@ mod tests {
                 truncated: false,
             },
             vec![],
-            vec![],
+            ReviewQueue::default(),
             rolling_cost(),
         );
 
@@ -864,7 +1025,7 @@ mod tests {
                 truncated: false,
             },
             vec![],
-            vec![],
+            ReviewQueue::default(),
             rolling_cost(),
         );
 
@@ -876,7 +1037,10 @@ mod tests {
                 truncated: false,
             },
             vec![],
-            vec![waiting],
+            ReviewQueue {
+                workable: vec![],
+                waiting_for_human: vec![waiting],
+            },
             rolling_cost(),
         );
 
@@ -909,7 +1073,7 @@ mod tests {
                 truncated: false,
             },
             vec![],
-            vec![],
+            ReviewQueue::default(),
             rolling_cost(),
         );
 

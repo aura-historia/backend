@@ -52,6 +52,8 @@ pub struct QueuedReview {
     pub listing_source_name: Option<String>,
     /// When a human last changed or judged the review, which handed it back to the agents.
     pub handed_back: Option<OffsetDateTime>,
+    /// When the review opened, from which the digest tells how long it waits.
+    pub created: OffsetDateTime,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -147,6 +149,7 @@ impl ReviewQueue {
                         artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
                         listing_source_name: Some(review.listing_source_name),
                         handed_back: review.handed_back,
+                        created: review.created,
                     })
                 })
                 .collect(),
@@ -337,6 +340,9 @@ pub struct ReviewEventEntry {
     pub action: String,
     pub candidate_version: i64,
     pub notes: Option<String>,
+    /// The URL-pattern state an approval of a URL-pattern review made live, such as `NO_PATTERN`.
+    #[serde(default)]
+    pub approved_url_pattern_state: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
@@ -413,6 +419,7 @@ mod tests {
                 artifact_type: ReviewArtifact::ProductSchema,
                 listing_source_name: None,
                 handed_back: None,
+                created: OffsetDateTime::UNIX_EPOCH,
             })
             .collect()
     }
@@ -742,6 +749,7 @@ mod tests {
             action: "APPROVED".to_owned(),
             candidate_version: 2,
             notes: None,
+            approved_url_pattern_state: None,
             created,
         }
     }

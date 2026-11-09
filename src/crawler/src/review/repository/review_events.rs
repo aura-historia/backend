@@ -341,8 +341,8 @@ pub(super) async fn fetch_review_events<'e>(
 }
 
 /// The events of all reviews created at or after `since`, oldest first, at most `limit`, each
-/// with its review's artifact type and ListingSource and without its details, and whether later
-/// events were left out.
+/// with its review's artifact type and ListingSource and, of its details, only the URL-pattern
+/// state an approval made live, and whether later events were left out.
 pub(super) async fn fetch_review_events_since<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     since: time::OffsetDateTime,
@@ -350,7 +350,10 @@ pub(super) async fn fetch_review_events_since<'e>(
 ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
     let rows = sqlx::query(
         "SELECT e.event_id, e.review_id, r.artifact_type, r.listing_source_id, \
-                s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, e.created \
+                s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, \
+                CASE WHEN e.action = 'APPROVED' \
+                     THEN e.details -> 'approved_url_pattern' ->> 'url_pattern_state' \
+                END AS approved_url_pattern_state, e.created \
          FROM crawler_review_events e \
          JOIN crawler_reviews r ON r.review_id = e.review_id \
          LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
@@ -384,6 +387,7 @@ pub(super) async fn fetch_review_events_since<'e>(
                 action: persisted_action(&action)?,
                 candidate_version: row.try_get("candidate_version")?,
                 notes: row.try_get("notes")?,
+                approved_url_pattern_state: row.try_get("approved_url_pattern_state")?,
                 created: row.try_get("created")?,
             })
         })

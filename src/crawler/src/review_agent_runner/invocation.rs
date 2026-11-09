@@ -268,6 +268,7 @@ mod tests {
             artifact_type: ReviewArtifact::UrlPattern,
             listing_source_name: Some("Antiques".to_owned()),
             handed_back: None,
+            created: time::OffsetDateTime::UNIX_EPOCH,
         }
     }
 

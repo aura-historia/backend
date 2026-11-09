@@ -40,7 +40,7 @@ use digest::{Digest, RollingCost};
 use ledger::{FIVE_HOURS, LEDGER_RETENTION, ONE_WEEK, ProcessLedger};
 use login::{LoginError, probe_login};
 use pass::{PassError, usage_limit_name, work_pending_reviews};
-use queue::{HumanRequiredReview, ReviewEventsSince, review_events_since, review_queue};
+use queue::{ReviewEventsSince, ReviewQueue, review_events_since, review_queue};
 use state::{RunnerLock, RunnerState, StateError, load_state, save_state};
 
 use crate::review::agent_decisions::{AGENT_LIMITS_ROUTE, AgentLimits};
@@ -253,7 +253,7 @@ async fn write_digest(
             None => now - DIGEST_INTERVAL,
         },
     };
-    let (events, waiting_for_human) = match digest_reads(console, from).await {
+    let (events, queue) = match digest_reads(console, from).await {
         Ok(read) => read,
         Err(error) => {
             warn!(
@@ -277,7 +277,7 @@ async fn write_digest(
         now,
         events,
         ledger.since(from).cloned().collect(),
-        waiting_for_human,
+        queue,
         rolling,
     );
     match digest.write(&settings.state_dir) {
@@ -298,6 +298,8 @@ async fn write_digest(
                 restored = digest.restored,
                 revoked_rejections = digest.revoked_rejections,
                 needs_a_human = digest.needs_a_human.len(),
+                agent_no_patterns = digest.agent_no_patterns.len(),
+                workable_schema_reviews = digest.schema_wait.workable,
                 refusals_by_failed_check = ?digest.refusals_by_check,
                 refusals_by_kind = ?digest.refusals_by_kind,
                 processes = ?digest.processes_by_end,
@@ -326,10 +328,10 @@ async fn write_digest(
 async fn digest_reads(
     console: &ConsoleClient,
     from: OffsetDateTime,
-) -> Result<(ReviewEventsSince, Vec<HumanRequiredReview>), ConsoleError> {
+) -> Result<(ReviewEventsSince, ReviewQueue), ConsoleError> {
     Ok((
         review_events_since(console, from).await?,
-        review_queue(console).await?.waiting_for_human,
+        review_queue(console).await?,
     ))
 }
 
