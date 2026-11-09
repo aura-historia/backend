@@ -966,41 +966,11 @@ pub fn usage_limit_name(kind: UsageLimitKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt::Write as _;
-    use std::sync::Arc;
-    use tracing::field::{Field, Visit};
-    use tracing_subscriber::layer::{Context, SubscriberExt};
-
-    /// The events logged while it is the default subscriber: each one's level and fields.
-    #[derive(Clone, Default)]
-    struct LoggedEvents(Arc<Mutex<Vec<(tracing::Level, String)>>>);
-
-    struct Fields(String);
-
-    impl Visit for Fields {
-        fn record_str(&mut self, field: &Field, value: &str) {
-            let _ = write!(self.0, "{}={value} ", field.name());
-        }
-
-        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-            let _ = write!(self.0, "{}={value:?} ", field.name());
-        }
-    }
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
-        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-            let mut fields = Fields(String::new());
-            event.record(&mut fields);
-            self.0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push((*event.metadata().level(), fields.0));
-        }
-    }
+    use crate::test_support::logged_events::LoggedEvents;
 
     #[test]
     fn should_log_the_limit_message_at_warn_when_its_reset_time_cannot_be_read() {
-        let logged = LoggedEvents::default();
+        let (logged, _guard) = LoggedEvents::capture();
         let now = OffsetDateTime::now_utc();
         let unreadable = UsageLimit {
             kind: UsageLimitKind::Weekly,
@@ -1012,28 +982,20 @@ mod tests {
             ..unreadable.clone()
         };
 
-        tracing::subscriber::with_default(
-            tracing_subscriber::registry().with(logged.clone()),
-            || {
-                tracing::callsite::rebuild_interest_cache();
-                log_pause(&unreadable, unreadable.paused_until(now));
-                log_pause(&readable, readable.paused_until(now));
-            },
-        );
+        log_pause(&unreadable, unreadable.paused_until(now));
+        log_pause(&readable, readable.paused_until(now));
 
-        let events = logged.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let events = logged.all();
         assert_eq!(events.len(), 2, "{events:?}");
         assert!(
             events
                 .iter()
-                .all(|(level, _)| *level == tracing::Level::WARN)
+                .all(|logged| logged.level == tracing::Level::WARN)
         );
-        assert!(
-            events[0]
-                .1
-                .contains("limit_message=You've hit your weekly limit · resets in a while"),
-            "{events:?}"
+        assert_eq!(
+            events[0].field("limit_message"),
+            Some("You've hit your weekly limit · resets in a while")
         );
-        assert!(!events[1].1.contains("limit_message"), "{events:?}");
+        assert!(events[1].field("limit_message").is_none(), "{events:?}");
     }
 }

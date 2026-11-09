@@ -104,6 +104,11 @@ pub(crate) mod logged_events {
             (events, guard)
         }
 
+        /// The events recorded so far, which are forgotten.
+        pub(crate) fn take(&self) -> Vec<LoggedEvent> {
+            std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()))
+        }
+
         pub(crate) fn all(&self) -> Vec<LoggedEvent> {
             self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
         }

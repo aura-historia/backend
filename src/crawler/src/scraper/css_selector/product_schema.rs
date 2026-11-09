@@ -1718,53 +1718,6 @@ mod tests {
         );
     }
 
-    type LoggedEvent = (tracing::Level, BTreeMap<String, String>);
-
-    /// The level and fields of each event logged while it is the default subscriber.
-    #[derive(Clone, Default)]
-    struct LoggedEvents(std::sync::Arc<std::sync::Mutex<Vec<LoggedEvent>>>);
-
-    impl LoggedEvents {
-        fn record(&self, run: impl FnOnce()) -> Vec<LoggedEvent> {
-            use tracing_subscriber::layer::SubscriberExt;
-            tracing::subscriber::with_default(
-                tracing_subscriber::registry().with(self.clone()),
-                || {
-                    tracing::callsite::rebuild_interest_cache();
-                    run();
-                },
-            );
-            self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
-        }
-    }
-
-    struct EventFields(BTreeMap<String, String>);
-
-    impl tracing::field::Visit for EventFields {
-        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-
-        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-    }
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
-        fn on_event(
-            &self,
-            event: &tracing::Event<'_>,
-            _: tracing_subscriber::layer::Context<'_, S>,
-        ) {
-            let mut fields = EventFields(BTreeMap::new());
-            event.record(&mut fields);
-            self.0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push((*event.metadata().level(), fields.0));
-        }
-    }
-
     /// A sold page leaves its price out, and many listings their description: neither miss is
     /// a warning.
     #[test]
@@ -1776,15 +1729,15 @@ mod tests {
             ..required_only_schema()
         };
 
-        let events = LoggedEvents::default().record(|| {
-            schema
-                .extract(&html)
-                .unwrap_or_else(|err| panic!("optional misses must not fail the page: {err}"));
-        });
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        schema
+            .extract(&html)
+            .unwrap_or_else(|err| panic!("optional misses must not fail the page: {err}"));
 
         let misses = events
+            .all()
             .iter()
-            .map(|(level, fields)| (*level, fields.get("field").cloned()))
+            .map(|logged| (logged.level, logged.field("field").map(str::to_owned)))
             .collect::<Vec<_>>();
         assert_eq!(
             misses,
@@ -1827,19 +1780,17 @@ mod tests {
             ..required_only_schema()
         };
 
-        let events = LoggedEvents::default().record(|| {
-            let application = schema.extract_keeping_misses(&html);
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        let application = schema.extract_keeping_misses(&html);
 
-            let err = application.outcome.unwrap_err();
-            assert_eq!(err.field(), "title");
-            assert_eq!(
-                application.optional_misses.to_string(),
-                "description: no element matched selector `p.desc` (or any additional selectors); \
-                 price: no element matched selector `span.price` (or any additional selectors)"
-            );
-        });
-
-        assert!(events.is_empty(), "the caller logs the kept misses");
+        let err = application.outcome.unwrap_err();
+        assert_eq!(err.field(), "title");
+        assert_eq!(
+            application.optional_misses.to_string(),
+            "description: no element matched selector `p.desc` (or any additional selectors); \
+             price: no element matched selector `span.price` (or any additional selectors)"
+        );
+        assert!(events.all().is_empty(), "the caller logs the kept misses");
     }
 
     // -------------------------------------------------------------------------
