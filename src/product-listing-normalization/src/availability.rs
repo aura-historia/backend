@@ -13,6 +13,8 @@ const AVAILABLE_REGEX_PATTERNS: &[&str] = &[
     r"\b[1-9][0-9]*\s+(verfügbar|vorrätig|auf lager|en stock|disponibles?|disponibili|en existencia|en existencias|em estoque|em stock|op voorraad|i lager|på lager|varastossa|w magazynie|skladem|na sklade|în stoc|raktáron)\b",
     r"\b[1-9][0-9]*\s+(в наличии|на складе|в наявності|на складі|在庫あり|在庫有り|재고 있음|有货|有庫存)\b",
     r"\b(quedan|restan|rimangono|resten|bleiben|verbleibend|осталось|залишилось)\s+[1-9][0-9]*\b",
+    // A purchase action that repeats the display price (`Buy now — £195`).
+    r"\b(buy now|add to cart|add to basket|add to bag)\s+[£$€]?\s?[0-9][0-9.,]*(\s?[£$€])?",
 ];
 
 const OUT_OF_STOCK_REGEX_PATTERNS: &[&str] = &[
@@ -118,13 +120,12 @@ fn quick_check_availability_with_regex_sets(
         return Ok(result);
     }
 
-    let value = normalize_availability_text(raw_value);
-    if let Some(result) = exact_availability(value.as_str()) {
+    let normalized = normalize_availability_text(raw_value);
+    let value = strip_status_label(strip_enclosing_brackets(normalized.as_str()));
+    if let Some(result) = exact_availability(value) {
         return Ok(result);
     }
-    if let Some(result) =
-        regex_availability(value.as_str(), available_regex_set, out_of_stock_regex_set)
-    {
+    if let Some(result) = regex_availability(value, available_regex_set, out_of_stock_regex_set) {
         return Ok(result);
     }
 
@@ -133,8 +134,9 @@ fn quick_check_availability_with_regex_sets(
     ))
 }
 
-/// Scraped labels commonly contain non-breaking whitespace and decorative separators.
-/// Normalize only layout and case; words, accents, and scripts remain intact.
+/// Scraped labels commonly contain non-breaking whitespace, decorative separators and icon-font
+/// glyphs (Unicode private use area). Normalize only layout and case; words, accents, and
+/// scripts remain intact.
 fn normalize_availability_text(raw: &str) -> String {
     let mut normalized = String::with_capacity(raw.len());
     let mut needs_space = false;
@@ -143,7 +145,19 @@ fn normalize_availability_text(raw: &str) -> String {
         if character.is_whitespace()
             || matches!(
                 character,
-                '-' | '_' | '/' | '\\' | '‐' | '‑' | '‒' | '–' | '—' | '−'
+                '-' | '_'
+                    | '/'
+                    | '\\'
+                    | '‐'
+                    | '‑'
+                    | '‒'
+                    | '–'
+                    | '—'
+                    | '−'
+                    | '→'
+                    | '›'
+                    | '»'
+                    | '\u{e000}'..='\u{f8ff}'
             )
         {
             needs_space = !normalized.is_empty();
@@ -160,6 +174,45 @@ fn normalize_availability_text(raw: &str) -> String {
     }
 
     normalized
+}
+
+/// `[在庫なし]` and `(sold)` carry the same label as their bracketed content.
+fn strip_enclosing_brackets(value: &str) -> &str {
+    for (open, close) in [('[', ']'), ('(', ')'), ('【', '】'), ('「', '」')] {
+        if let Some(inner) = value
+            .strip_prefix(open)
+            .and_then(|rest| rest.strip_suffix(close))
+        {
+            return inner.trim();
+        }
+    }
+    value
+}
+
+/// Field captions that precede the status label (`Disponibilité : vendu`).
+const STATUS_LABEL_CAPTIONS: &[&str] = &[
+    "availability",
+    "stock status",
+    "verfügbarkeit",
+    "lieferstatus",
+    "disponibilité",
+    "disponibilidad",
+    "disponibilità",
+    "beschikbaarheid",
+];
+
+fn strip_status_label(value: &str) -> &str {
+    STATUS_LABEL_CAPTIONS
+        .iter()
+        .find_map(|caption| {
+            value
+                .strip_prefix(caption)?
+                .trim_start()
+                .strip_prefix(':')
+                .map(str::trim_start)
+                .filter(|label| !label.is_empty())
+        })
+        .unwrap_or(value)
 }
 
 fn schema_org_availability(value: &str) -> Option<ListingAvailabilityQuickCheck> {
@@ -236,6 +289,14 @@ const AVAILABLE: &[&str] = &[
     "add to trolley",
     "add to shopping cart",
     "in den warenkorb",
+    "in den warenkorb legen",
+    "in warenkorb",
+    "bestellen",
+    "ajouter au panier",
+    "in winkelwagen",
+    "カートに入れる",
+    "カゴに入れる",
+    "かごに入れる",
     "verfügbar",
     "lieferbar",
     "disponible",
@@ -528,6 +589,7 @@ const PRE_ORDER: &[&str] = &[
     "предварителна поръчка",
     "予約注文",
     "予約販売",
+    "入荷予約",
     "사전 주문",
     "예약 구매",
     "طلب مسبق",
@@ -665,6 +727,7 @@ const RESERVED: &[&str] = &[
     "резервирано",
     "予約済み",
     "取り置き",
+    "キャンセル待ち",
     "예약됨",
     "예약 완료",
     "محجوز",
@@ -740,10 +803,15 @@ const SOLD_OUT: &[&str] = &[
     "soldout",
     "all sold",
     "fully sold",
+    "this item has been sold",
+    "this item is sold",
     "gone",
     "verkauft",
     "ausverkauft",
     "vergriffen",
+    "leider verkauft",
+    "leider ausverkauft",
+    "leider vergriffen",
     "épuisé",
     "epuise",
     "vendu",
@@ -819,6 +887,12 @@ const NO_ASSERTION: &[&str] = &[
     "descatalogado",
     "fuori catalogo",
     "uit assortiment",
+    // Enquiry actions invite contact without stating availability.
+    "enquire",
+    "make enquiry",
+    "make an enquiry",
+    "anfragen",
+    "cet objet vous intéresse ?",
 ];
 
 fn regex_availability(
@@ -902,6 +976,72 @@ mod tests {
             ("품절", ListingAvailability::SoldOut),
         ] {
             assert_eq!(quick_check_availability(raw), resolved(expected), "{raw}");
+        }
+    }
+
+    #[test]
+    fn should_resolve_purchase_actions_and_status_labels_observed_in_shops() {
+        for (raw, expected) in [
+            ("Bestellen", ListingAvailability::Available),
+            ("in Warenkorb", ListingAvailability::Available),
+            ("In den Warenkorb legen", ListingAvailability::Available),
+            ("Ajouter au panier", ListingAvailability::Available),
+            ("In winkelwagen", ListingAvailability::Available),
+            ("カートに入れる", ListingAvailability::Available),
+            ("カゴに入れる", ListingAvailability::Available),
+            ("Buy Now — £195", ListingAvailability::Available),
+            ("Buy Now — £4,000", ListingAvailability::Available),
+            ("入荷予約", ListingAvailability::PreOrder),
+            ("キャンセル待ち", ListingAvailability::Reserved),
+            ("[在庫なし]", ListingAvailability::OutOfStock),
+            ("\u{e5ca}\nIn Stock", ListingAvailability::InStock),
+            ("This item has been sold", ListingAvailability::SoldOut),
+            ("Leider vergriffen", ListingAvailability::SoldOut),
+            ("Disponibilité : vendu", ListingAvailability::SoldOut),
+            ("Availability: In stock", ListingAvailability::InStock),
+        ] {
+            assert_eq!(quick_check_availability(raw), resolved(expected), "{raw}");
+        }
+        for raw in [
+            "Enquire",
+            "Make enquiry →",
+            "Anfragen",
+            "Cet objet vous intéresse ?",
+        ] {
+            assert_eq!(
+                quick_check_availability(raw),
+                Ok(ListingAvailabilityQuickCheck::NoAssertion),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_not_resolve_qualified_purchase_actions_or_bare_captions() {
+        for (raw, reason) in [
+            (
+                "Buy now £195 from March",
+                AvailabilityUnsupportedReason::QualifiedQuantity,
+            ),
+            (
+                "Disponibilité : En stock, livraison en 48h",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "Availability:",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "[sold] 1970",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            ("1", AvailabilityUnsupportedReason::UnrecognizedLabel),
+        ] {
+            assert_eq!(
+                quick_check_availability(raw),
+                Ok(ListingAvailabilityQuickCheck::Unsupported(reason)),
+                "{raw}"
+            );
         }
     }
 

@@ -1,6 +1,7 @@
 use money::{Currency, HasMinorUnitExponent, MonetaryAmount, Price};
 use product_listing_core::product_listing_price::ProductListingPrice;
 use regex::regex;
+use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
 // ---------------------------------------------------------------------------
@@ -57,8 +58,9 @@ pub fn detect_currency(raw: &str) -> Option<Currency> {
 ///
 /// If no amount is adjacent to a currency marker, the optional `fallback_currency` is used
 /// (e.g. inferred from the ListingSource domain TLD). Ambiguous explicit currency-and-amount
-/// pairs fail closed. If neither currency source is present, [`PriceError::UnknownCurrency`] is
-/// returned.
+/// pairs fail closed, except a dual-currency display (`€ 35.00 CHF 33.00`) whose fallback
+/// currency selects exactly one amount. If neither currency source is present,
+/// [`PriceError::UnknownCurrency`] is returned.
 pub fn parse_price(
     raw: &str,
     fallback_currency: Option<Currency>,
@@ -67,7 +69,13 @@ pub fn parse_price(
     let (number, currency) = if let Some(first_pair) = pairs.first() {
         let currency = first_pair.currency;
         if pairs.iter().any(|pair| pair.currency != currency) {
-            return Err(PriceError::ParseFailure);
+            let currency = fallback_currency.ok_or(PriceError::ParseFailure)?;
+            let number =
+                dual_currency_display_amount(raw, currency).ok_or(PriceError::ParseFailure)?;
+            if has_negative_sign(raw, &number) {
+                return Err(PriceError::NegativeAmount);
+            }
+            return Ok((parse_price_number(&number.value, &currency)?, currency));
         }
 
         let mut candidates = Vec::new();
@@ -452,6 +460,58 @@ fn price_currency_pairs(raw: &str) -> Vec<PriceCurrencyPair> {
     pairs
 }
 
+/// The amount shown for `currency` in a display such as `€ 35.00 CHF 33.00` or
+/// `35.00 € 33.00 CHF`: every marker sits on the same side of its own distinct amount and every
+/// currency is shown once. Any other layout is ambiguous.
+fn dual_currency_display_amount(raw: &str, currency: Currency) -> Option<PriceNumberCandidate> {
+    let markers = currency_markers(raw);
+    let candidates = extract_price_number_candidates(raw);
+    let layouts = [true, false]
+        .into_iter()
+        .filter_map(|marker_first| {
+            markers
+                .iter()
+                .map(|marker| {
+                    candidates
+                        .iter()
+                        .find(|candidate| {
+                            let ordered = if marker_first {
+                                marker.end <= candidate.start
+                            } else {
+                                candidate.end <= marker.start
+                            };
+                            ordered
+                                && has_benign_currency_amount_gap(
+                                    raw,
+                                    (candidate.start, candidate.end),
+                                    (marker.start, marker.end),
+                                )
+                        })
+                        .map(|candidate| (marker.currency, candidate))
+                })
+                .collect::<Option<Vec<_>>>()
+        })
+        .collect::<Vec<_>>();
+    let [pairs] = layouts.as_slice() else {
+        return None;
+    };
+    let currencies = pairs
+        .iter()
+        .map(|(currency, _)| *currency)
+        .collect::<HashSet<_>>();
+    let amounts = pairs
+        .iter()
+        .map(|(_, amount)| amount.start)
+        .collect::<HashSet<_>>();
+    if pairs.len() < 2 || currencies.len() != pairs.len() || amounts.len() != pairs.len() {
+        return None;
+    }
+    pairs
+        .iter()
+        .find(|(marker_currency, _)| *marker_currency == currency)
+        .map(|(_, candidate)| (*candidate).clone())
+}
+
 fn select_price_number_candidate(
     raw: &str,
     candidates: Vec<ParsedPriceNumberCandidate>,
@@ -569,7 +629,7 @@ fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
     currency_marker_spans(raw).into_iter().next()
 }
 
-// Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility.
+// Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility. `円` is only JPY.
 const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Eur, "€"),
     (Currency::Gbp, "£"),
@@ -592,6 +652,7 @@ const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Twd, "NT$"),
     (Currency::Mxn, "MX$"),
     (Currency::Thb, "฿"),
+    (Currency::Jpy, "円"),
 ];
 
 #[derive(Clone, Copy)]
@@ -931,6 +992,48 @@ mod tests {
         assert_eq!(
             Err(PriceError::ParseFailure),
             parse_price("USD 100 / EUR 90", None)
+        );
+    }
+
+    #[rstest]
+    #[case("Preis € 35.00 CHF 33.00", Currency::Chf, 3300)]
+    #[case("Preis € 35.00 CHF 33.00", Currency::Eur, 3500)]
+    #[case("Preis € 2,266.00 CHF 2,130.00", Currency::Chf, 213000)]
+    #[case("35,00 € 33,00 CHF", Currency::Chf, 3300)]
+    fn should_select_the_fallback_currency_amount_of_a_dual_currency_display(
+        #[case] raw: &str,
+        #[case] fallback: Currency,
+        #[case] expected_amount: u64,
+    ) {
+        assert_eq!(
+            Ok((MonetaryAmount::from(expected_amount), fallback)),
+            parse_price(raw, Some(fallback))
+        );
+    }
+
+    #[rstest]
+    #[case("Preis € 35.00 CHF 33.00", Currency::Usd)]
+    #[case("€ 35.00 € 36.00 CHF 33.00", Currency::Chf)]
+    #[case("€ 35.00 CHF", Currency::Chf)]
+    #[case("€ 35.00 33.00 CHF", Currency::Chf)]
+    fn should_fail_closed_when_a_dual_currency_display_is_ambiguous(
+        #[case] raw: &str,
+        #[case] fallback: Currency,
+    ) {
+        assert_eq!(
+            Err(PriceError::ParseFailure),
+            parse_price(raw, Some(fallback))
+        );
+    }
+
+    #[rstest]
+    #[case("700円", 700)]
+    #[case("2,160 円", 2160)]
+    #[case("110,000 円", 110_000)]
+    fn should_parse_yen_kanji_suffix_as_jpy(#[case] raw: &str, #[case] expected_amount: u64) {
+        assert_eq!(
+            Ok((MonetaryAmount::from(expected_amount), Currency::Jpy)),
+            parse_price(raw, None)
         );
     }
 
