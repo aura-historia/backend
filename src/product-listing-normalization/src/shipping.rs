@@ -115,11 +115,9 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
             limit: MAX_SHIPPING_TEXT_BYTES,
         });
     }
-    // Greek writes its question mark as ';', which is also a clause separator, so only the
-    // dedicated U+037E can veto a question there.
     if fragments
         .iter()
-        .any(|s| s.contains(['\0', '?', '？', '؟', '\u{37e}']))
+        .any(|s| s.contains(['\0', '?', '？', '؟']) || has_greek_question(s))
     {
         return ShippingQuickCheck::Unsupported(Reason::UnsupportedCharacter);
     }
@@ -190,6 +188,23 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
     } else {
         ShippingQuickCheck::NoAssertion
     }
+}
+
+/// Greek writes its question mark as `;` (U+037E, or the ASCII semicolon on a Greek keyboard) and
+/// has no semicolon of its own, so a `;` that follows Greek text is a question. Elsewhere `;`
+/// stays a clause separator.
+fn has_greek_question(text: &str) -> bool {
+    let is_greek = |c: char| matches!(c, '\u{370}'..='\u{3ff}' | '\u{1f00}'..='\u{1fff}');
+    let mut previous = None;
+    for c in text.chars() {
+        if c == '\u{37e}' || (c == ';' && previous.is_some_and(is_greek)) {
+            return true;
+        }
+        if !c.is_whitespace() {
+            previous = Some(c);
+        }
+    }
+    false
 }
 
 fn contradictory(assertions: &ItemShippingAssertions, collection_label: bool) -> bool {
@@ -356,6 +371,35 @@ mod tests {
         );
         assert_eq!("κόσμος", normalize_text("κόσμος"));
         assert_eq!("σ", normalize_text("Σ"), "a lone sigma ends no word");
+    }
+
+    #[test]
+    fn a_greek_semicolon_is_a_question_while_other_semicolons_separate_clauses() {
+        for question in [
+            "Αυτό το προϊόν μπορεί να αποσταλεί σε όλο τον κόσμο;",
+            "Αυτό το προϊόν μπορεί να αποσταλεί σε όλο τον κόσμο \u{37e}",
+            "Αυτό το προϊόν δεν μπορεί να αποσταλεί ;  ",
+        ] {
+            assert!(
+                matches!(
+                    quick_check_shipping(&[question]),
+                    ShippingQuickCheck::Unsupported(
+                        ShippingUnsupportedReason::UnsupportedCharacter
+                    )
+                ),
+                "{question}"
+            );
+        }
+        for statement in [
+            "Shipping is not available for this item;",
+            "Shipping is not available for this item; collection only",
+            "Αυτό το προϊόν δεν μπορεί να αποσταλεί. Shipping is not available for this item;",
+        ] {
+            assert!(
+                matches!(quick_check_shipping(&[statement]), ShippingQuickCheck::Resolved(a) if a.prohibited),
+                "{statement}"
+            );
+        }
     }
 
     #[test]
@@ -891,10 +935,72 @@ mod multilingual_tests {
         }
     }
 
+    fn offered(code: &str) -> String {
+        fixtures()
+            .into_iter()
+            .find(|fixture| fixture.language == code)
+            .unwrap_or_else(|| panic!("fixture for {code}"))
+            .offered
+    }
+
+    /// Wording that restricts or conditions delivery must abstain next to a worldwide statement,
+    /// while ordinary antiques prose that merely resembles a marker must not.
+    #[test]
+    fn script_aware_markers_veto_delivery_wording_but_not_ordinary_antiques_prose() {
+        for (code, restriction) in [
+            ("el", "Στέλνουμε μόνο εντός Ελλάδας"),
+            ("ko", "해외 출고 불가"),
+            ("th", "เราส่งเฉพาะในประเทศไทย"),
+            ("hi", "केवल भारत में शिप किया जाएगा"),
+            ("he", "הובלה לישראל בלבד"),
+        ] {
+            assert_unsupported!(
+                quick_check_shipping_with_context(&[&offered(code)], &[restriction]),
+                "{code}: {restriction}"
+            );
+        }
+        for (code, prose) in [
+            ("el", "Παραδοσιακό ελληνικό κέντημα"),
+            ("el", "Εικόνα των Αποστόλων"),
+            ("ko", "상단, 하단에 약간의 흠집이 있습니다"),
+            ("ko", "수령 200년 느티나무 서랍장"),
+            ("th", "พระมหากษัตริย์ทรงใช้เก้าอี้ตัวนี้"),
+            ("th", "เก้าอี้ตกแต่งด้วยลายทอง"),
+            ("hi", "उत्कृष्ट क्राफ्टमैनशिप वाला पुराना संदूक"),
+            ("he", "שולחן אוכל מעץ אגוז בסגנון אדוארדיאני"),
+        ] {
+            assert!(
+                matches!(
+                    quick_check_shipping_with_context(&[&offered(code)], &[prose]),
+                    ShippingQuickCheck::Resolved(_)
+                ),
+                "ordinary prose must not hide a valid assertion in {code}: {prose}"
+            );
+        }
+    }
+
+    #[test]
+    fn natural_dispatch_wording_of_the_new_languages_is_handling_not_delivery_time() {
+        let business_days = TimeRange::new(10, 15, TimeUnit::Days, Some(TimeBasis::Business), None)
+            .expect("business-day range");
+        for text in [
+            "영업일 기준 10일~15일 이내에 출고됩니다",
+            "영업일 기준 10~15일 이내에 발송합니다",
+            "यह उत्पाद 10 से 15 कार्य दिवसों में भेजा जाएगा",
+            "यह आइटम 10 से 15 कार्यदिवस के भीतर भेजी जाएगी",
+            "จัดส่งภายใน 10-15 วันทำงาน",
+            "שליחה תוך 10 עד 15 ימי עסקים",
+        ] {
+            assert_eq!(Some(business_days), resolved(text).handling, "{text}");
+        }
+        // Israeli shops use "משלוח תוך" for the delivery lead time, which is not handling time.
+        assert_unsupported!(quick_check_shipping(&["משלוח תוך 10 עד 15 ימי עסקים"]));
+    }
+
     #[test]
     fn unicode_questions_range_errors_and_missing_dispatch_verbs_fail_closed() {
         for fixture in fixtures() {
-            for question in ["?", "？", "؟", "\u{37e}"] {
+            for question in ["?", "？", "؟"] {
                 let question = format!("{}{}", fixture.prohibited, question);
                 assert_unsupported!(quick_check_shipping(&[&question]), "{}", fixture.language);
             }

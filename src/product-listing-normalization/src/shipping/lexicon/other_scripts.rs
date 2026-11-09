@@ -82,11 +82,13 @@ pub(super) const EL: LanguagePhrases = LanguagePhrases {
     language: Language::El,
     prohibited: "δεν υπάρχει αποστολή για αυτό το προϊόν\n\
         αυτό το προϊόν δεν μπορεί να αποσταλεί\n\
+        αυτό το αντικείμενο δεν μπορεί να αποσταλεί\n\
         αυτό το προϊόν διατίθεται μόνο για παραλαβή από το κατάστημα\n\
         αυτό το προϊόν διατίθεται μόνο για παραλαβή",
     collection_only: "μόνο παραλαβή από το κατάστημα\n\
         μόνο παραλαβή",
     worldwide: "αυτό το προϊόν μπορεί να αποσταλεί σε όλο τον κόσμο\n\
+        αυτό το αντικείμενο μπορεί να αποσταλεί σε όλο τον κόσμο\n\
         η αποστολή σε όλο τον κόσμο είναι διαθέσιμη για αυτό το προϊόν",
     on_request: "τα έξοδα αποστολής για αυτό το προϊόν σε όλο τον κόσμο κατόπιν αιτήματος\n\
         τα μεταφορικά για αυτό το προϊόν σε όλο τον κόσμο κατόπιν αιτήματος",
@@ -95,21 +97,45 @@ pub(super) const EL: LanguagePhrases = LanguagePhrases {
     dispatch_prefix: r"(?:αποστολή(?: αυτού του προϊόντος)? εντός|αυτό το προϊόν θα αποσταλεί εντός)\s+",
     range_separator: "-|έως",
     dispatch_suffix: r"\s+(?:εργάσιμων ημερών|εργάσιμης ημέρας)",
+    // Prefixes are specific on purpose: "παραδ" would match "παραδοσιακό" (traditional) and
+    // "αποστ" the apostles ("Αποστόλου"), both ubiquitous in antiques descriptions.
     delivery_words: &[
-        "αποστ",
+        "αποστολ",
+        "αποστέλ",
+        "αποστελ",
+        "αποστείλ",
+        "αποστειλ",
+        "αποσταλ",
+        "απεστάλ",
+        "απεσταλ",
+        "στέλν",
+        "στείλ",
+        "σταλεί",
+        "σταλούν",
         "παράδοσ",
-        "παραδ",
+        "παραδοση",
+        "παραδοσε",
+        "παραδίδ",
+        "παραδιδ",
+        "παραδώσ",
+        "παραδοθ",
         "παραλαβ",
         "μεταφορ",
         "ταχυδρομ",
         "εργάσιμ",
+        "εργασιμ",
     ],
     delivery_markers: &[],
+    // "εξαιρ" is not a prefix: it would match "εξαιρετικός" (excellent).
     conditions: &[
         "αν",
         "εάν",
+        "εφόσον",
         "εκτός",
         "εκτός εάν",
+        "εξαιρούνται",
+        "εξαιρείται",
+        "σε περίπτωση",
         "όμως",
         "αλλά",
         "ωστόσο",
@@ -130,17 +156,21 @@ pub(super) const HE: LanguagePhrases = LanguagePhrases {
     worldwide: "ניתן לשלוח פריט זה לכל העולם\n\
         משלוח לכל העולם זמין עבור פריט זה",
     on_request: "עלות המשלוח לכל העולם עבור פריט זה לפי בקשה\n\
-        עלויות המשלוח לכל העולם עבור פריט זה בהתאם לבקשה",
+        עלויות המשלוח לכל העולם עבור פריט זה בהתאם לפנייה",
     calculated: "עלות המשלוח לכל העולם עבור פריט זה מחושבת בקופה\n\
         עלות המשלוח לכל העולם עבור פריט זה מחושבת בעת התשלום",
-    dispatch_prefix: r"(?:פריט זה (?:יישלח|ישלח) תוך|משלוח תוך)\s+",
+    // "משלוח תוך N ימי עסקים" is the delivery lead time in Israeli shops, so only "שליחה" and
+    // "יישלח" (sent) state the handling time.
+    dispatch_prefix: r"(?:(?:פריט זה|הפריט) (?:יישלח|ישלח)|שליחה) תוך\s+",
     range_separator: "-|עד",
     dispatch_suffix: r"\s+(?:ימי עסקים|יום עסקים|ימי עבודה|יום עבודה)",
     delivery_words: &[],
     // Hebrew attaches prepositions and the article to a word, so only substrings can recognise
-    // delivery wording. "שולחן" (table) must not match, hence no bare "שלח" or "שולח".
+    // delivery wording. "שולחן" (table) must not match, hence no bare "שלח" or "שולח", and a
+    // bare "דואר" would match "אדוארדיאני" (Edwardian) and "בודואר" (boudoir).
     delivery_markers: &[
         "משלוח",
+        "הובלה",
         "שליחה",
         "לשלוח",
         "נשלח",
@@ -149,10 +179,14 @@ pub(super) const HE: LanguagePhrases = LanguagePhrases {
         "איסוף",
         "אספקה",
         "מסירה",
-        "דואר",
+        "בדואר",
+        "דואר ישראל",
+        "דואר רשום",
+        "ימי עסקים",
+        "ימי עבודה",
     ],
-    conditions: &["אם", "ואם", "אלא", "אך", "אבל"],
-    condition_markers: &["אלא אם", "למעט", "בכפוף", "בתנאי", "פרט ל"],
+    conditions: &["אם", "ואם", "אלא", "אך", "אבל", "מלבד", "אולם"],
+    condition_markers: &["אלא אם", "למעט", "חוץ מ", "בכפוף", "בתנאי", "פרט ל"],
 };
 
 pub(super) const TH: LanguagePhrases = LanguagePhrases {
@@ -166,34 +200,53 @@ pub(super) const TH: LanguagePhrases = LanguagePhrases {
     worldwide: "สินค้านี้สามารถจัดส่งทั่วโลกได้\n\
         มีบริการจัดส่งสินค้านี้ไปทั่วโลก",
     on_request: "ค่าจัดส่งสินค้านี้ไปทั่วโลกโปรดสอบถาม\n\
-        ค่าจัดส่งสินค้านี้ไปทั่วโลกตามคำขอ",
+        ค่าจัดส่งสินค้านี้ไปทั่วโลกสอบถามเพิ่มเติม",
     calculated: "ค่าจัดส่งสินค้านี้ไปทั่วโลกคำนวณเมื่อชำระเงิน\n\
         ค่าจัดส่งสินค้านี้ไปทั่วโลกจะคำนวณตอนชำระเงิน",
     dispatch_prefix: r"(?:สินค้านี้จะจัดส่งภายใน|จัดส่งภายใน)\s*",
     range_separator: "-|ถึง",
-    dispatch_suffix: r"\s*วันทำการ",
+    dispatch_suffix: r"\s*(?:วันทำการ|วันทำงาน)",
     delivery_words: &[],
-    // Thai has no word separators. A bare "แต่" (but) is not a marker: it is inside "ตกแต่ง"
-    // (decorated), which antiques descriptions use constantly.
+    // Thai has no word separators, so only substrings can recognise delivery wording. A bare
+    // "ส่ง" is not a marker: it is inside "ส่งต่อ", "ส่งเสริม" and "ส่งผล".
     delivery_markers: &[
         "จัดส่ง",
         "ค่าส่ง",
+        "ส่งสินค้า",
+        "ส่งฟรี",
+        "ส่งทั่ว",
+        "ส่งด่วน",
+        "ส่งต่างประเทศ",
+        "ส่งเฉพาะ",
+        "ส่งออก",
+        "ส่งมอบ",
+        "ส่งถึง",
         "ขนส่ง",
         "รับสินค้า",
         "รับเอง",
         "วันทำการ",
+        "วันทำงาน",
         "พัสดุ",
         "ไปรษณีย์",
     ],
+    // Neither a bare "แต่" (inside "ตกแต่ง", decorated) nor a bare "หาก" (inside
+    // "พระมหากษัตริย์", "มหากุศล") is a marker.
     conditions: &[],
     condition_markers: &[
         "ยกเว้น",
         "เว้นแต่",
         "ถ้า",
-        "หาก",
+        "หากไม่",
+        "หากมี",
+        "หากต้องการ",
+        "หากเป็น",
+        "หากคุณ",
+        "หากท่าน",
         "ทั้งนี้",
-        "ภายใต้เงื่อนไข",
+        "เงื่อนไข",
         "เฉพาะกรณี",
+        "อย่างไรก็ตาม",
+        "แต่ไม่",
     ],
 };
 
@@ -205,20 +258,47 @@ pub(super) const HI: LanguagePhrases = LanguagePhrases {
         यह वस्तु केवल स्टोर से पिकअप के लिए उपलब्ध है",
     collection_only: "केवल पिकअप\n\
         केवल स्टोर से पिकअप\n\
-        केवल स्वयं लेना",
+        केवल स्वयं पिकअप",
     worldwide: "इस वस्तु को दुनिया भर में भेजा जा सकता है\n\
         इस वस्तु के लिए दुनिया भर में शिपिंग उपलब्ध है",
     on_request: "इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क अनुरोध पर\n\
         इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क अनुरोध पर उपलब्ध है",
     calculated: "इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क की गणना चेकआउट पर की जाती है\n\
         इस वस्तु के लिए दुनिया भर में शिपिंग शुल्क की गणना भुगतान के समय की जाती है",
-    dispatch_prefix: r"(?:यह वस्तु|यह उत्पाद)\s+",
+    dispatch_prefix: r"(?:यह वस्तु|यह उत्पाद|यह आइटम)\s+",
     range_separator: "-|से",
-    dispatch_suffix: r"\s+कार्य दिवस(?:ों)? में भेजी जाएगी",
+    dispatch_suffix: r"\s+कार्य ?दिवस(?:ों)? (?:में|के भीतर|के अंदर) भेज(?:ी जाएगी|ा जाएगा)",
     delivery_words: &[],
     // Virama and several other combining marks are not alphabetic, which breaks the word
-    // splitting that `delivery_words` relies on, so substrings recognise delivery wording.
-    delivery_markers: &["शिपिंग", "डिलीवर", "भेज", "पिकअप", "कार्य दिवस", "वितरण"],
-    conditions: &["यदि", "अगर", "सिवाय", "लेकिन", "परंतु", "किंतु", "बशर्ते"],
-    condition_markers: &[],
+    // splitting that `delivery_words` relies on, so substrings recognise delivery wording. A bare
+    // "शिप" is not a marker: it is inside "क्राफ्टमैनशिप".
+    delivery_markers: &[
+        "शिपिंग",
+        "शिप्पिंग",
+        "शिप कर",
+        "शिप कि",
+        "डिलीवर",
+        "डिलिवर",
+        "कूरियर",
+        "भेज",
+        "पिकअप",
+        "पिक अप",
+        "पिक-अप",
+        "कार्य दिवस",
+        "कार्यदिवस",
+        "वितरण",
+    ],
+    conditions: &[
+        "यदि",
+        "अगर",
+        "सिवाय",
+        "लेकिन",
+        "परंतु",
+        "परन्तु",
+        "किंतु",
+        "किन्तु",
+        "बशर्ते",
+    ],
+    // Spelled with the decomposed nukta (U+0921 U+093C), the NFC form of "ड़".
+    condition_markers: &["छो\u{921}\u{93c}कर"],
 };

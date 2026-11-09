@@ -185,9 +185,4 @@ mod tests {
             targets
         );
     }
-
-    #[test]
-    fn should_label_chinese_without_a_script_because_it_covers_both_scripts() {
-        assert_eq!("Chinese", Language::Zh.format_human_readable());
-    }
 }

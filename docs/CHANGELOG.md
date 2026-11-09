@@ -5,7 +5,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 ## 2026-11-09 — Korean, Greek, Hebrew, Thai and Hindi catalogue languages, Traditional Chinese tags (#2842)
 
 - `LanguageData` accepts and returns `ko`, `el`, `he`, `th` and `hi`. Listings whose title or description is in one of these languages are no longer rejected as an unknown language: they are stored and searchable in their original language and return that `language` in `original` listing text. Clients that validate `language` against a closed list must accept the new values.
-- Like `zh`, `ja` and `ar`, they are source-only languages: a user can set one as their profile language, but the backend never translates into them, and notifications for such a profile are sent in English.
+- Like `zh`, `ja` and `ar`, they are source-only languages: a user can set one as their profile language, but the backend never translates into them, and notifications for such a profile are sent in English. A new account whose sign-up locale is one of them (for example `ko-KR`) starts with that profile language instead of none.
 - Input also accepts the locale tags `ko-KR`, `el-GR`, `he-IL`, `th-TH`, `hi-IN` and, for Traditional Chinese, `zh-TW`, `zh-Hant` and `zh-HK`. They resolve to `ko`, `el`, `he`, `th`, `hi` and `zh`; responses always return the canonical code. `zh` now covers Simplified and Traditional Chinese.
 
 ## 2026-11-08 — `viewUrl` on public ListingSources (#2827)

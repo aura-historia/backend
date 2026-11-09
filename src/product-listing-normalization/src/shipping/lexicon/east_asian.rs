@@ -111,7 +111,8 @@ pub(super) const KO: LanguagePhrases = LanguagePhrases {
     prohibited: "이 상품은 배송이 불가능합니다\n\
         이 상품은 배송되지 않습니다\n\
         이 상품은 직접 수령만 가능합니다\n\
-        이 상품은 방문 수령만 가능합니다",
+        이 상품은 방문 수령만 가능합니다\n\
+        이 상품은 방문수령만 가능합니다",
     collection_only: "직접 수령만 가능\n\
         방문 수령만 가능\n\
         방문수령만 가능",
@@ -121,20 +122,28 @@ pub(super) const KO: LanguagePhrases = LanguagePhrases {
         이 상품의 전 세계 배송비는 문의 바랍니다",
     calculated: "이 상품의 전 세계 배송비는 결제 시 계산됩니다\n\
         이 상품의 전 세계 배송비는 주문 시 계산됩니다",
-    dispatch_prefix: r"(?:이 상품은|본 상품은)\s+(?:영업일|근무일) 기준\s*",
-    range_separator: "-|~",
-    dispatch_suffix: r"\s*일\s*(?:이내에|이내)\s*발송됩니다",
+    dispatch_prefix: r"(?:(?:이 상품은|본 상품은)\s+)?(?:영업일|근무일) 기준\s*",
+    range_separator: r"-|~|일\s*-|일\s*~",
+    dispatch_suffix: r"\s*일\s*(?:이내에|이내)\s*(?:발송|출고)(?:됩니다|합니다)",
     delivery_words: &[],
-    delivery_markers: &["배송", "발송", "택배", "수령", "픽업", "운송", "영업일"],
-    conditions: &[],
-    condition_markers: &[
-        "다만",
-        "단,",
-        "제외",
-        "예외",
-        "경우",
-        "조건",
-        "그러나",
-        "하지만",
+    // A bare "수령" is not a marker: it is also the age of a tree ("수령 200년 느티나무").
+    delivery_markers: &[
+        "배송",
+        "발송",
+        "출고",
+        "배달",
+        "택배",
+        "방문수령",
+        "방문 수령",
+        "직접수령",
+        "직접 수령",
+        "수령 후",
+        "수령일",
+        "픽업",
+        "운송",
+        "영업일",
     ],
+    // "단," is word-bounded: as a substring it would veto "상단,", "계단," and "중단,".
+    conditions: &["단,"],
+    condition_markers: &["다만", "제외", "예외", "경우", "조건", "그러나", "하지만"],
 };
