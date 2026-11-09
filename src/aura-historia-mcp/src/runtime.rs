@@ -200,7 +200,7 @@ mod tests {
     }
 
     /// The Claude and ChatGPT directories require a display title and explicit hints, and Claude
-    /// rejects arguments whose schema is a reference without a `type`.
+    /// flags an argument without a `type`; a nullable `anyOf` union passes its review.
     fn assert_directory_metadata(tools: &[rmcp::model::Tool]) {
         let mut titles = std::collections::BTreeSet::new();
         for tool in tools {
@@ -210,11 +210,9 @@ mod tests {
                 .into_iter()
                 .flatten()
             {
-                let is_reference =
-                    argument.get("$ref").is_some() || argument.get("allOf").is_some();
                 assert!(
-                    !is_reference || argument.get("type").is_some(),
-                    "{}.{name}: reference argument without a type",
+                    argument.get("type").is_some() || argument.get("anyOf").is_some(),
+                    "{}.{name}: argument without a type: {argument}",
                     tool.name
                 );
             }

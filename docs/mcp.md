@@ -144,12 +144,14 @@ there are no per-directory variants. Check new or changed tools against the
   as continuation, background matching, conflicts or non-idempotent creation, stated as facts
   about the tool. They give the model no behavioural instructions, promote nothing and name no
   other tool to call.
-- **Argument types.** The Claude review rejects an argument whose schema has no `type`. Schemars
-  leaves it out when the argument's type is a shared definition, so the registry repeats the
-  type that definition declares next to the `$ref` (or `allOf`) when it builds a tool's input
-  schema. This never narrows what an argument accepts, and a new tool needs no annotation. The
-  [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on a reference
-  argument without a `type`.
+- **Argument types.** The Claude review flags an argument that is a bare `$ref` (or an `allOf`)
+  without a `type`, which is how schemars describes an argument whose type is a shared
+  definition. When it builds a tool's input schema, the registry repeats the type that definition
+  declares next to the reference. This never narrows what an argument accepts. An argument whose
+  type cannot be derived, such as a definition whose variants have different types, stays as
+  generated; give its field an explicit schema. The
+  [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on any argument that
+  has neither a `type` nor an `anyOf`.
 - **Server identity.** `initialize` and `server/discover` report the name `aura-historia-mcp`,
   the title `Aura Historia`, a description, the environment's website as `websiteUrl` and its
   PNG icons. `version` is the deployed release's source commit (`COMMIT_SHA`), or `unreleased`
@@ -163,12 +165,13 @@ there are no per-directory variants. Check new or changed tools against the
   [infrastructure configuration](../infra/src/config.ts) once OpenAI's portal issues it.
   Synthesis rejects a token the server would refuse at startup.
 
-Apart from those argument types, schemas stay as generated. Models load at most each tool's name, title, description and input
-schema: the tool definitions of the Claude and OpenAI model APIs have no output schema, and
-OpenAI uses `outputSchema` to check `structuredContent`. Output schemas already share their
-types through `$defs` and `$ref`; the remaining repetition is the same types in several tools,
-which MCP cannot share because each tool's schema is self-contained. Their descriptions document
-the result for clients, so they stay. Input schemas are the complete shared request contracts.
+Apart from those argument types, schemas stay as generated. Models load at most each tool's name,
+title, description and input schema: the tool definitions of the Claude and OpenAI model APIs
+have no output schema, and OpenAI uses `outputSchema` to check `structuredContent`. Output
+schemas already share their types through `$defs` and `$ref`; the remaining repetition is the
+same types in several tools, which MCP cannot share because each tool's schema is
+self-contained. Their descriptions document the result for clients, so they stay. Input schemas
+are the complete shared request contracts.
 
 ## Tool snapshot
 

@@ -247,14 +247,16 @@ fn has_only_object_variants(schema: &JsonObject) -> bool {
         })
 }
 
-/// Longest `$ref` / `allOf` / `oneOf` chain followed to find a definition's type; a cycle ends here.
+/// Longest `$ref` / `allOf` / `oneOf` chain followed to find a definition's type. Generated
+/// schemas nest only a few levels; the bound exists to end a reference cycle.
 const MAX_TYPE_LOOKUP_DEPTH: usize = 8;
 
 /// Schemars describes an argument whose type is a shared definition as a bare `$ref`, or as an
-/// `allOf` that refines one, and leaves out its `type`. The Claude connector review rejects such
+/// `allOf` that refines one, and leaves out its `type`. The Claude connector review flags such
 /// arguments, so the type the definition already declares is repeated next to the reference. It
-/// never narrows what the argument accepts. An argument whose type cannot be derived stays as
-/// generated.
+/// never narrows what the argument accepts. Only the tool's own arguments are completed, not the
+/// properties inside shared definitions. An argument whose type cannot be derived stays as
+/// generated, and the production registry test reports it.
 fn declare_referenced_property_types(schema: &mut JsonObject) {
     let Some(Value::Object(properties)) = schema.get("properties") else {
         return;
@@ -295,6 +297,7 @@ fn declared_type(schema: &JsonObject, root: &JsonObject, depth: usize) -> Option
         return declared_type(target, root, depth + 1);
     }
     if let Some(members) = schema.get("allOf").and_then(Value::as_array) {
+        // Every member applies, so the type of any one of them already holds for the whole.
         return members
             .iter()
             .filter_map(Value::as_object)
@@ -410,16 +413,22 @@ mod tests {
 
     #[test]
     fn should_declare_the_type_every_variant_of_a_referenced_definition_shares() {
-        let schema = declare(json!({
-            "type": "object",
-            "properties": {"destination": {"$ref": "#/$defs/Destination"}},
-            "$defs": {"Destination": {"oneOf": [
-                {"type": "object", "properties": {"kind": {"const": "NONE"}}},
-                {"type": "object", "properties": {"kind": {"const": "COUNTRY"}}}
-            ]}}
-        }));
+        for keyword in ["oneOf", "anyOf"] {
+            let schema = declare(json!({
+                "type": "object",
+                "properties": {"destination": {"$ref": "#/$defs/Destination"}},
+                "$defs": {"Destination": {(keyword): [
+                    {"type": "object", "properties": {"kind": {"const": "NONE"}}},
+                    {"type": "object", "properties": {"kind": {"const": "COUNTRY"}}}
+                ]}}
+            }));
 
-        assert_eq!(json!("object"), schema["properties"]["destination"]["type"]);
+            assert_eq!(
+                json!("object"),
+                schema["properties"]["destination"]["type"],
+                "{keyword}"
+            );
+        }
     }
 
     #[test]
@@ -444,6 +453,7 @@ mod tests {
                 "declared": {"$ref": "#/$defs/Range", "type": "object"},
                 "nullable": {"anyOf": [{"$ref": "#/$defs/Range"}, {"type": "null"}]},
                 "mixed": {"$ref": "#/$defs/Mixed"},
+                "mostly": {"$ref": "#/$defs/Mostly"},
                 "missing": {"$ref": "#/$defs/Missing"},
                 "foreign": {"$ref": "https://example.test/schema.json"},
                 "loop": {"$ref": "#/$defs/Loop"}
@@ -451,6 +461,7 @@ mod tests {
             "$defs": {
                 "Range": {"type": "object"},
                 "Mixed": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                "Mostly": {"oneOf": [{"type": "object"}, {"type": "object"}, {"type": "string"}]},
                 "Loop": {"$ref": "#/$defs/Loop"}
             }
         });
