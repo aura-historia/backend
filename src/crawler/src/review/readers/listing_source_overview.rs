@@ -34,6 +34,7 @@ pub struct ListingSourceQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HealthCounts {
     pub needs_attention: i64,
+    pub crawl_failing: i64,
     pub crawl_needs_operator: i64,
     pub blocked_by_review: i64,
     pub failing_to_scrape: i64,
@@ -80,10 +81,12 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
         s.last_crawl_outcome,
+        s.last_crawl_outcome IS NOT DISTINCT FROM 'FAILED' AS crawl_failed,
         s.last_crawl_error_kind,
         s.crawl_failure_count,
         s.next_crawl_at,
         s.scrape_failure_streak,
+        s.last_scrape_status_code,
         s.last_scrape_error_kind,
         s.scrape_failing_since,
         s.next_scrape_at AS scrape_paused_until,
@@ -228,6 +231,7 @@ impl ListingSourceOverviewReader {
             "{OVERVIEW_CTES}
              ), ranked AS ({RANKED_SELECT})
              SELECT COUNT(*) FILTER (WHERE needs_attention) AS needs_attention,
+                    COUNT(*) FILTER (WHERE crawl_enabled AND crawl_failed) AS crawl_failing,
                     COUNT(*) FILTER (WHERE crawl_enabled AND needs_operator) AS crawl_needs_operator,
                     COUNT(*) FILTER (WHERE crawl_enabled AND blocked_urls > 0) AS blocked_by_review,
                     COUNT(*) FILTER (WHERE crawl_enabled AND scrape_failure_streak > 0)
@@ -242,6 +246,7 @@ impl ListingSourceOverviewReader {
         .await?;
         Ok(HealthCounts {
             needs_attention: row.try_get("needs_attention")?,
+            crawl_failing: row.try_get("crawl_failing")?,
             crawl_needs_operator: row.try_get("crawl_needs_operator")?,
             blocked_by_review: row.try_get("blocked_by_review")?,
             failing_to_scrape: row.try_get("failing_to_scrape")?,
@@ -343,6 +348,7 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::NeedsAttention => "needs_attention",
         SourceStatus::Healthy => "healthy",
         SourceStatus::Disabled => "disabled",
+        SourceStatus::CrawlFailing => "crawl_failing",
         SourceStatus::CrawlNeedsOperator => "crawl_needs_operator",
         SourceStatus::Blocked => "blocked",
         SourceStatus::Failing => "failing",
@@ -350,10 +356,11 @@ fn status_name(status: SourceStatus) -> &'static str {
     }
 }
 
-/// The overview rows with whether each needs attention: a crawl-enabled ListingSource whose crawl
-/// waits for an operator, with blocked URLs, a scrape failure streak or held removals.
+/// The overview rows with whether each needs attention: a crawl-enabled ListingSource whose last
+/// crawl failed or waits for an operator, with blocked URLs, a scrape failure streak or held
+/// removals.
 const RANKED_SELECT: &str = "SELECT overview.*,
-                    crawl_enabled AND (needs_operator OR blocked_urls > 0
+                    crawl_enabled AND (crawl_failed OR needs_operator OR blocked_urls > 0
                                        OR scrape_failure_streak > 0
                                        OR held_removal_urls > 0) AS needs_attention
              FROM overview";
@@ -385,6 +392,7 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'needs_attention' AND needs_attention)
                     OR ($8 = 'healthy' AND crawl_enabled AND NOT needs_attention)
                     OR ($8 = 'disabled' AND NOT crawl_enabled)
+                    OR ($8 = 'crawl_failing' AND crawl_enabled AND crawl_failed)
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
                     OR ($8 = 'failing' AND crawl_enabled AND scrape_failure_streak > 0)
@@ -402,13 +410,14 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
 
 /// The `ORDER BY` list of `sort` in `direction`: every key in that direction, nulls last, the
 /// ListingSource id last. `Attention` ranks crawl-enabled sources first, then those whose crawl
-/// waits for an operator, those with blocked URLs, the longest scrape failure streaks, those with
+/// waits for an operator, those whose last crawl failed, those with blocked URLs, the longest scrape failure streaks, those with
 /// held removals, the most pending reviews and the most recently updated.
 fn order_by(sort: SourceSort, direction: SortDirection) -> String {
     let keys: &[&str] = match sort {
         SourceSort::Attention => &[
             "crawl_enabled",
             "needs_operator",
+            "crawl_failed",
             "(blocked_urls > 0)",
             "scrape_failure_streak",
             "(held_removal_urls > 0)",
@@ -465,6 +474,7 @@ fn overview_of_row(
             crawl_failure_count: row.try_get("crawl_failure_count")?,
             next_crawl_at: row.try_get("next_crawl_at")?,
             scrape_failure_streak: row.try_get("scrape_failure_streak")?,
+            last_scrape_status_code: row.try_get("last_scrape_status_code")?,
             last_scrape_error_kind: row.try_get("last_scrape_error_kind")?,
             scrape_failing_since: row.try_get("scrape_failing_since")?,
             scrape_paused_until: row.try_get("scrape_paused_until")?,
@@ -497,4 +507,18 @@ fn confirming_actor(name: Option<String>) -> Result<Option<ReviewActor>, sqlx::E
         })
     })
     .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spider::candidate_service::FAILED_CRAWL_OUTCOME;
+
+    #[test]
+    fn should_select_failed_crawls_by_the_persisted_failed_outcome() {
+        assert!(
+            OVERVIEW_CTES.contains(&format!("IS NOT DISTINCT FROM '{FAILED_CRAWL_OUTCOME}'")),
+            "the overview SQL names the failed outcome as a literal"
+        );
+    }
 }

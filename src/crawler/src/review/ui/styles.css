@@ -241,6 +241,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .status-line .badge { margin-top: 1px; }
 .status-line-text { color: var(--ink-2); }
 .status-line-text strong { color: var(--ink); font-weight: 600; }
+.status-line-detail { margin-top: 2px; color: var(--muted); }
+.failing-urls { display: grid; gap: var(--s-2); font-size: var(--fs-sm); }
+.failing-urls-title { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.failing-urls ul { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.failing-urls li { display: grid; gap: 1px; min-width: 0; }
+.failing-url-kind { color: var(--ink-2); }
+.failing-url-message { color: var(--muted); overflow-wrap: anywhere; }
 
 /* ───────────────────────────── 8. Stat tiles ───────────────────────────── */
 /* Tiles are links or filter buttons: the number, a worded label, and a tone dot. `aria-pressed` marks an active filter tile. */

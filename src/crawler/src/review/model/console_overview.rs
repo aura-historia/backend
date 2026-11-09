@@ -12,7 +12,7 @@ pub struct ConsoleOverview {
     pub agent_mode: bool,
 }
 
-/// How the ListingSources stand. The four conditions overlap, and `needs_attention` counts a
+/// How the ListingSources stand. The five conditions overlap, and `needs_attention` counts a
 /// source once whichever of them it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SourceCounts {
@@ -21,6 +21,8 @@ pub struct SourceCounts {
     /// ListingSources this process is scraping right now.
     pub scraping_now: i64,
     pub needs_attention: i64,
+    /// Sources whose last crawl failed and that the schedule retries.
+    pub crawl_failing: i64,
     pub crawl_needs_operator: i64,
     pub blocked_by_review: i64,
     pub failing_to_scrape: i64,
@@ -59,6 +61,7 @@ mod tests {
                 crawling_now: 4,
                 scraping_now: 11,
                 needs_attention: 23,
+                crawl_failing: 2,
                 crawl_needs_operator: 6,
                 blocked_by_review: 9,
                 failing_to_scrape: 7,
@@ -81,7 +84,7 @@ mod tests {
             json!({
                 "sources": {
                     "crawling_now": 4, "scraping_now": 11, "needs_attention": 23,
-                    "crawl_needs_operator": 6, "blocked_by_review": 9,
+                    "crawl_failing": 2, "crawl_needs_operator": 6, "blocked_by_review": 9,
                     "failing_to_scrape": 7, "held_removals": 1
                 },
                 "reviews": {

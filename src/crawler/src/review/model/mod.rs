@@ -34,7 +34,10 @@ pub mod url_pattern_candidate;
 pub use artifact::*;
 pub use console_overview::{ConsoleOverview, PendingByArtifact, ReviewCounts, SourceCounts};
 pub use list_window::{ListPage, ListWindow};
-pub use listing_source_detail::{ListingSourceDetail, UrlPatternOverview};
+pub use listing_source_detail::{
+    FAILING_URL_EXAMPLES, FAILING_URL_MESSAGE_CHARS, FailingUrl, ListingSourceDetail,
+    UrlPatternOverview,
+};
 pub use listing_source_filter::{SourceActivity, SourceSort, SourceStatus};
 pub use listing_source_overview::{CrawlStateOverview, ListingSourceOverview, UrlErrorKindCount};
 pub use page_role::*;

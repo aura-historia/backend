@@ -23,12 +23,14 @@ impl QueryValue for SourceActivity {
 /// How a ListingSource stands. Only a crawl-enabled one can need attention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceStatus {
-    /// Any of the four conditions below.
+    /// Any of the five conditions below.
     NeedsAttention,
     /// Crawl-enabled and none of the conditions.
     Healthy,
     /// Crawling is switched off.
     Disabled,
+    /// Its last crawl failed and is retried by the schedule.
+    CrawlFailing,
     /// Its crawl waits for an operator.
     CrawlNeedsOperator,
     /// URLs wait on a pending product-schema review.
@@ -44,6 +46,7 @@ impl QueryValue for SourceStatus {
         ("needs_attention", Self::NeedsAttention),
         ("healthy", Self::Healthy),
         ("disabled", Self::Disabled),
+        ("crawl_failing", Self::CrawlFailing),
         ("crawl_needs_operator", Self::CrawlNeedsOperator),
         ("blocked", Self::Blocked),
         ("failing", Self::Failing),

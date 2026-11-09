@@ -262,7 +262,7 @@ const TONES = {
     PENDING_REVIEW: 'warn', APPROVED: 'ok', REJECTED: 'bad', SUPERSEDED: 'neutral',
     human_required: 'bad', waiting_for_repair: 'warn', live: 'ok', rejection_revoked: 'neutral', source_disabled: 'neutral',
     rejected_by_model: 'bad',
-    crawl_needs_operator: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
+    crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral',
     crawling: 'info', scraping: 'info',
     HUMAN: 'info', AGENT_AUTHOR: 'neutral', AGENT_REVIEWER: 'neutral', SYSTEM: 'neutral',
@@ -540,7 +540,7 @@ function overviewTilesHtml() {
     // The breakdown of the sources that need a human is a link per condition, which a tile that is
     // itself a link cannot hold, so this tile's number and label link and its breakdown does apart.
     const breakdown = sources ? [
-        ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl`], ['blocked', `${sources.blocked_by_review} blocked`],
+        ['crawl_failing', `${sources.crawl_failing} crawl failing`], ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl stuck`], ['blocked', `${sources.blocked_by_review} blocked`],
         ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`]
     ].map(([status, text]) => `<a href="#sources&status=${status}">${escapeHtml(text)}</a>`).join(' · ') : '';
     const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need you')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
@@ -632,11 +632,11 @@ function reviewFeedText(event) {
 function sourceFeedText(event) {
     const link = feedLink(sourceHash(event.listing_source_id), event.listing_source_name);
     if (event.kind === 'SCRAPE_FAILING') {
-        return `${link} <span class="badge badge-bad">failing to scrape</span> · ${escapeHtml(errorKindLabel(event.error_kind))}, ${formatCount(event.count)} in a row`;
+        return `${link} <span class="badge badge-bad">failing to scrape</span> · ${escapeHtml(describeFailure(event.error_kind).label)}, ${formatCount(event.count)} in a row`;
     }
     const failed = event.outcome === 'FAILED' || event.outcome === 'NEEDS_OPERATOR';
     const outcome = reasonWord(event.outcome);
-    return `Crawl of ${link} ${failed ? `<span class="badge badge-bad">${escapeHtml(outcome)}</span>` : `finished · ${escapeHtml(outcome)}`}${event.error_kind ? ` · ${escapeHtml(errorKindLabel(event.error_kind))}` : ''}`;
+    return `Crawl of ${link} ${failed ? `<span class="badge badge-bad">${escapeHtml(outcome)}</span>` : `finished · ${escapeHtml(outcome)}`}${event.error_kind ? ` · ${escapeHtml(describeFailure(event.error_kind).label)}` : ''}`;
 }
 
 // ───────────────────────────── Lists ─────────────────────────────
@@ -974,10 +974,21 @@ function sourceConditions(source) {
     if (!source.crawl_enabled) return [];
     const conditions = [];
     if (source.last_crawl_outcome === 'NEEDS_OPERATOR') {
+        const failure = describeFailure(source.last_crawl_error_kind);
         conditions.push({
             key: 'crawl_needs_operator', text: 'Crawl needs operator',
-            more: `${errorKindLabel(source.last_crawl_error_kind)} · ${pluralize(Number(source.crawl_failure_count) || 0, 'failed crawl', 'failed crawls')}`,
+            more: `${failure.label} · ${pluralize(Number(source.crawl_failure_count) || 0, 'failed crawl', 'failed crawls')}`,
+            detail: failure.cause,
             title: 'The crawl is not retried until the presentation URL changes in the admin API or crawling is disabled'
+        });
+    }
+    if (source.last_crawl_outcome === 'FAILED') {
+        const failure = describeFailure(source.last_crawl_error_kind);
+        const retry = source.next_crawl_at ? ` · retry ${untilText(source.next_crawl_at)}` : '';
+        conditions.push({
+            key: 'crawl_failing', text: 'Crawl failing',
+            more: `${failure.label} · ${pluralize(Number(source.crawl_failure_count) || 0, 'failed crawl', 'failed crawls')}${retry}`,
+            detail: failureDetail(failure), title: failureDetail(failure)
         });
     }
     const streak = Number(source.scrape_failure_streak) || 0;
@@ -985,9 +996,11 @@ function sourceConditions(source) {
         const paused = source.scrape_paused_until
             ? ` · retries ${Date.parse(source.scrape_paused_until) <= Date.now() ? 'now' : untilText(source.scrape_paused_until)}`
             : '';
+        const failure = describeFailure(source.last_scrape_error_kind, source.last_scrape_status_code);
         conditions.push({
             key: 'failing_to_scrape', text: 'Failing to scrape',
-            more: `${streak} in a row · ${errorKindLabel(source.last_scrape_error_kind)}${paused}`,
+            more: `${failure.label} · ${streak} in a row${paused}`,
+            detail: failureDetail(failure), title: failureDetail(failure),
             since: source.scrape_failing_since, sinceLabel: 'Failing since'
         });
     }
@@ -1040,19 +1053,84 @@ function activityBadges(source) {
     ].filter(Boolean).join(' ');
 }
 
-function errorKindLabel(kind) {
+// Why a crawl, a scrape or a page failed, in words an operator can act on. The keys are the kinds
+// the crawler persists (crawl kinds, scrape-circuit kinds and per-page kinds); `profile` says what
+// happens next. A test keeps the crawl and circuit kinds in step with the crawler.
+const FAILURE_NEXT = {
+    transient: 'Retried automatically; the delay grows with each failure.',
+    recoverable: 'Retried with a growing delay; after five failures in a row it waits for an operator.',
+    durable: 'Retried rarely, with long delays; the shop has to let the crawler in.',
+    internal: 'Retried automatically; the delay doubles up to 24 hours.',
+    circuit: 'The scraper pauses this source, then probes one page and resumes once the shop answers.',
+    page: 'The page is retried after its cooldown.'
+};
+const FAILURES = {
+    EmptyCrawl: {label: 'Empty crawl', cause: 'The crawl found no pages at all.', profile: 'transient'},
+    TinyCrawl: {label: 'Too few pages', cause: 'The crawl reached only a handful of pages, too few to trust.', profile: 'transient'},
+    NoAcceptedPages: {label: 'No pages accepted', cause: 'Every page the crawl fetched was rejected.', profile: 'transient'},
+    RobotsBlocked: {label: 'Blocked by robots.txt', cause: "The shop's robots.txt forbids crawling its start page.", profile: 'recoverable'},
+    RateLimited: {label: 'Rate limited', cause: 'The shop asked the crawler to slow down.', profile: 'transient'},
+    AccessDenied: {label: 'Access denied', cause: 'The shop refuses the crawler with a 401 or 403.', profile: 'durable'},
+    CloudflareChallenge: {label: 'Cloudflare challenge', cause: 'A Cloudflare check stops the crawler before it reaches the shop.', profile: 'transient'},
+    BotProtection: {label: 'Bot protection', cause: "The shop's bot protection blocks the request.", profile: 'transient'},
+    TlsError: {label: 'TLS error', cause: "The shop's certificate or secure connection is broken.", profile: 'recoverable'},
+    ConnectError: {label: 'Connection failed', cause: 'The crawler could not connect to the shop.', profile: 'transient'},
+    ServerError: {label: 'Server error', cause: 'The shop answered with a server error (5xx).', profile: 'transient'},
+    RedirectProblem: {label: 'Redirect problem', cause: 'The start page redirects somewhere the crawler does not follow, such as another host.', profile: 'recoverable'},
+    InvalidUrl: {label: 'Invalid URL', cause: 'The start URL cannot be crawled.', profile: 'recoverable'},
+    JavascriptRequired: {label: 'JavaScript required', cause: 'The shop shows nothing without JavaScript, which the crawler does not run.', profile: 'durable'},
+    InsufficientInferenceSample: {label: 'Too few pages to classify', cause: 'The crawl found too few pages to tell which URLs are products.', profile: 'recoverable'},
+    NoProductUrls: {label: 'No product URLs', cause: 'The crawl found no URL that looks like a product page.', profile: 'recoverable'},
+    NoUrlPattern: {label: 'No URL pattern', cause: 'No URL pattern separates the shop\'s product pages.', profile: 'recoverable'},
+    PendingUrlPatternReview: {label: 'URL pattern in review', cause: 'The crawl waits for the URL-pattern review.', profile: 'recoverable'},
+    spider_run_error: {label: 'Crawler error', cause: 'The crawl failed on an internal or configuration fault.', profile: 'internal'},
+    TIMEOUT: {label: 'Timeouts', cause: 'Pages of the shop do not answer in time.', profile: 'circuit'},
+    CONNECT: {label: 'Connection failures', cause: 'The shop does not accept connections.', profile: 'circuit'},
+    DNS_TIMEOUT: {label: 'DNS timeouts', cause: "The shop's address does not resolve in time.", profile: 'circuit'},
+    DNS_RESOLUTION: {label: 'DNS failure', cause: "The shop's address does not resolve.", profile: 'circuit'},
+    HTTP_408: {label: 'Request timeouts (408)', cause: 'The shop answers 408: it gave up waiting for the request.', profile: 'circuit'},
+    HTTP_429: {label: 'Rate limited (429)', cause: 'The shop answers 429: it asks the scraper to slow down.', profile: 'circuit'},
+    HTTP_503: {label: 'Unavailable (503)', cause: 'The shop answers 503: it reports it is unavailable.', profile: 'circuit'},
+    HTTP_504: {label: 'Gateway timeout (504)', cause: 'The shop answers 504: its gateway timed out.', profile: 'circuit'},
+    HTTP_5XX_BURST: {label: 'Server errors (5xx)', cause: 'Several pages in a row answered with a server error.', profile: 'circuit'},
+    HTTP_STATUS_BURST: {label: 'Rejected by the shop', cause: 'Several pages in a row answered with the same status, which means the shop rejects the scraper.', profile: 'circuit'},
+    HttpError: {label: 'HTTP error', cause: 'The page answered with an error status.', profile: 'page'},
+    RobotsDisallowed: {label: 'Disallowed by robots.txt', cause: "The shop's robots.txt forbids this page.", profile: 'page'},
+    Timeout: {label: 'Timeout', cause: 'The page did not answer in time.', profile: 'page'},
+    RawCaptureFailed: {label: 'Capture failed', cause: "The page's content could not be stored.", profile: 'page'},
+    SourceListingIdConflict: {label: 'Identity conflict', cause: 'Two pages claim the same listing identity.', profile: 'page'},
+    FreshSchemaNormalizationFailed: {label: 'New schema failed', cause: 'A freshly generated schema extracts values that fail the plausibility checks.', profile: 'page'},
+    SchemaGenerationValidationFailed: {label: 'Schema generation failed', cause: 'The generated schemas did not pass the checks.', profile: 'page'}
+};
+
+// What an HTTP status says when no table entry does.
+function statusCause(code) {
+    if (code >= 500) return `The shop failed to answer (HTTP ${code}).`;
+    if (code >= 400) return `The shop rejected the request (HTTP ${code}).`;
+    if (code >= 300) return `The shop answered with an unexpected redirect (HTTP ${code}).`;
+    return `The shop answered HTTP ${code}.`;
+}
+
+// The label, the cause and what happens next of a persisted failure `kind`, with the HTTP status
+// the failure recorded, if any. A kind this table does not know shows as persisted.
+function describeFailure(kind, statusCode = null) {
     const text = String(kind || '');
-    const known = {
-        HttpError: 'HTTP error',
-        RawCaptureFailed: 'capture failed',
-        Timeout: 'timeout',
-        BotProtection: 'bot protection',
-        SourceListingIdConflict: 'identity conflict',
-        NoUrlPattern: 'no URL pattern'
+    const code = Number(statusCode) || Number((/^HTTP_(\d{3})$/.exec(text) || [])[1]) || 0;
+    const entry = Object.hasOwn(FAILURES, text) ? FAILURES[text] : null;
+    if (!entry) {
+        if (code) return {label: `HTTP ${code}`, cause: statusCause(code), next: ''};
+        return {label: text || 'Unknown failure', cause: '', next: ''};
+    }
+    const label = code && !entry.label.includes(String(code)) ? `${entry.label} (${code})` : entry.label;
+    return {
+        label,
+        cause: text === 'HttpError' && code ? statusCause(code) : entry.cause,
+        next: FAILURE_NEXT[entry.profile]
     };
-    if (known[text]) return known[text];
-    if (/^HTTP_/i.test(text)) return text.replace(/_/g, ' ');
-    return text ? displayName(text).toLowerCase() : 'unknown failure';
+}
+
+function failureDetail(failure) {
+    return [failure.cause, failure.next].filter(Boolean).join(' ');
 }
 
 function nextCrawlText(source) {
@@ -1075,14 +1153,14 @@ function sourceColumns() {
 // The ListingSource rows. In the attention order, with no filter, a heading row names each
 // condition the rows share, with how many sources have it.
 const SOURCE_GROUP_LABELS = {
-    crawl_needs_operator: 'Crawl needs operator', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
+    crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
     removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled'
 };
 
 function sourceGroupCount(key) {
     const sources = overviewCounts?.sources;
     const counts = {
-        crawl_needs_operator: sources?.crawl_needs_operator, failing_to_scrape: sources?.failing_to_scrape,
+        crawl_needs_operator: sources?.crawl_needs_operator, crawl_failing: sources?.crawl_failing, failing_to_scrape: sources?.failing_to_scrape,
         blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals
     };
     return counts[key];
@@ -1278,7 +1356,8 @@ function sourcePageHtml() {
 
 function conditionLine(condition, {text = escapeHtml(condition.more), trail = ''} = {}) {
     const since = condition.since ? ` · since ${timeBadge(condition.since, condition.sinceLabel, true)}` : '';
-    return `<div class="status-line"><span class="badge badge-${TONES[condition.key] || 'neutral'}">${escapeHtml(condition.text)}</span><div class="status-line-text">${text}${since}${trail}</div></div>`;
+    const detail = condition.detail ? `<div class="status-line-detail">${escapeHtml(condition.detail)}</div>` : '';
+    return `<div class="status-line"><span class="badge badge-${TONES[condition.key] || 'neutral'}">${escapeHtml(condition.text)}</span><div class="status-line-text">${text}${since}${trail}${detail}</div></div>`;
 }
 
 // One line per condition of the source, with the actions that resolve it inline.
@@ -1298,6 +1377,22 @@ function conditionLines(source) {
         return conditionLine(condition, {trail: ` · <button class="btn-link" aria-expanded="${open}" onclick="toggleMassRemovalConfirmation('${id}')" type="button">Confirm bulk removal</button>`})
             + (open ? renderMassRemovalConfirmation(source.listing_source_id) : '');
     });
+}
+
+// Up to three product pages whose last scrape failed, as examples of why the source fails: the
+// path, what failed, the status and the shop's message as the page's row stores it.
+function renderFailingUrls(source) {
+    const urls = source.crawl_enabled ? source.failing_urls || [] : [];
+    if (!urls.length) return '';
+    const items = urls.map(item => {
+        const failure = describeFailure(item.error_kind, item.status_code);
+        const message = item.error_message ? `<span class="failing-url-message">${escapeHtml(item.error_message)}${item.error_message.length >= 200 ? '…' : ''}</span>` : '';
+        const retry = item.next_retry_at ? ` · retry ${escapeHtml(untilText(item.next_retry_at))}` : '';
+        const path = relativeToOrigin(item.url, urlOrigin(item.url));
+        const target = isHttpUrl(item.url) ? `<a class="mono" href="${escapeHtmlAttr(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(path)}</a>` : `<span class="mono">${escapeHtml(path)}</span>`;
+        return `<li>${target}<span class="failing-url-kind">${escapeHtml(failure.label)} · ${pluralize(Number(item.failure_count) || 0, 'failure', 'failures')}${retry}</span>${message}</li>`;
+    }).join('');
+    return `<div class="failing-urls"><div class="failing-urls-title">Failing pages</div><ul>${items}</ul></div>`;
 }
 
 function renderSourceHealth(source) {
@@ -1325,10 +1420,11 @@ function renderSourceHealth(source) {
       <div class="card-head"><h2>Health</h2></div>
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
+        ${renderFailingUrls(source)}
         <dl class="kv">
           <dt>Crawl</dt><dd>${crawl} · next ${nextCrawlText(source)}</dd>
           <dt>Scrape</dt><dd>${scrape}</dd>
-          ${errors.length ? `<dt>Errors</dt><dd>${errors.map(entry => `${formatCount(entry.count)} ${escapeHtml(errorKindLabel(entry.kind))}`).join(' · ')}</dd>` : ''}
+          ${errors.length ? `<dt>Errors</dt><dd>${errors.map(entry => `${formatCount(entry.count)} ${escapeHtml(describeFailure(entry.kind).label)}`).join(' · ')}</dd>` : ''}
         </dl>
       </div>
     </div>`;
@@ -1599,7 +1695,7 @@ function watchSourceStatus(source) {
     sourceStatusWatch = status.key;
 }
 
-const SOURCE_CONDITION_KEYS = new Set(['crawl_needs_operator', 'failing_to_scrape', 'blocked_by_review', 'removals_held']);
+const SOURCE_CONDITION_KEYS = new Set(['crawl_needs_operator', 'crawl_failing', 'failing_to_scrape', 'blocked_by_review', 'removals_held']);
 
 function renderSourceChange() {
     if (!sourceChange) return '';

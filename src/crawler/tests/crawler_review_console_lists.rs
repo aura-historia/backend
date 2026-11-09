@@ -829,7 +829,7 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         json!({
             "sources": {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
-                "crawl_needs_operator": 1, "blocked_by_review": 0,
+                "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
                 "failing_to_scrape": 1, "held_removals": 0
             },
             "reviews": {
@@ -932,4 +932,156 @@ async fn should_list_review_events_newest_first_when_asked() {
     assert_eq!(notes(&oldest_first), ["first", "second", "third"]);
     assert_eq!(notes(&newest_first), ["third", "second"]);
     assert!(truncated);
+}
+
+async fn insert_product_url(
+    pool: &PgPool,
+    listing_source_id: ListingSourceId,
+    path: &str,
+    failure: (&str, Option<i32>, i32, Option<&str>),
+) {
+    let (kind, status_code, failures, message) = failure;
+    sqlx::query(
+        "INSERT INTO listing_source_urls
+         (listing_source_id, url, url_class, raw_source_record_key, failure_count,
+          last_error_kind, last_status_code, last_error_message)
+         VALUES ($1, $2, 'product', $2, $3, $4, $5, $6)",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(format!("https://shop.example.com{path}"))
+    .bind(failures)
+    .bind(kind)
+    .bind(status_code)
+    .bind(message)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_count_a_failed_crawl_as_needing_attention_and_say_why_a_source_fails() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 1);
+    let crawl_failing = source(&pool, "Crawl failing", "crawl-failing.example.com", true).await;
+    let scrape_failing = source(&pool, "Scrape failing", "scrape-failing.example.com", true).await;
+    let healthy = source(&pool, "Healthy", "healthy.example.com", true).await;
+    let disabled = source(&pool, "Disabled", "disabled.example.com", false).await;
+    for (id, set) in [
+        (
+            crawl_failing,
+            "last_crawl_outcome = 'FAILED', last_crawl_error_kind = 'CloudflareChallenge', crawl_failure_count = 1",
+        ),
+        (
+            scrape_failing,
+            "scrape_failure_streak = 4, last_scrape_error_kind = 'HTTP_STATUS_BURST', last_scrape_status_code = 403",
+        ),
+        (disabled, "last_crawl_outcome = 'FAILED'"),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE listing_sources SET {set} WHERE listing_source_id = $1"
+        )))
+        .bind(id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    let long_message = "x".repeat(500);
+    for (path, failure) in [
+        (
+            "/a",
+            ("HttpError", Some(403), 5, Some(long_message.as_str())),
+        ),
+        ("/b", ("Timeout", None, 2, None)),
+        ("/c", ("HttpError", Some(500), 1, Some("boom"))),
+        ("/d", ("HttpError", Some(502), 1, Some("bad gateway"))),
+        ("/waits", ("PendingSchemaReview", None, 9, None)),
+        ("/held", ("MassRemovalHeld", None, 9, None)),
+        ("/missing", ("MissingRequiredValue", None, 9, None)),
+    ] {
+        insert_product_url(&pool, scrape_failing, path, failure).await;
+    }
+    let overviews = ListingSourceOverviewReader::new(pool.clone());
+
+    let counts = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap();
+    let failing = list_sources(
+        &pool,
+        ListingSourceQuery {
+            status: Some(SourceStatus::CrawlFailing),
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
+    let attention = list_sources(
+        &pool,
+        ListingSourceQuery {
+            status: Some(SourceStatus::NeedsAttention),
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
+    let healthy_sources = list_sources(
+        &pool,
+        ListingSourceQuery {
+            status: Some(SourceStatus::Healthy),
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
+    let detail = ListingSourceDetailReader::new(overviews.clone())
+        .find_listing_source(scrape_failing)
+        .await
+        .unwrap()
+        .expect("the source exists");
+
+    assert_eq!(
+        counts.sources.crawl_failing, 1,
+        "a disabled source is not counted"
+    );
+    assert_eq!(counts.sources.needs_attention, 2);
+    assert_eq!(source_ids(&failing), vec![crawl_failing]);
+    assert_eq!(
+        sorted(&source_ids(&attention)),
+        sorted(&[crawl_failing, scrape_failing])
+    );
+    assert_eq!(source_ids(&healthy_sources), vec![healthy]);
+    assert_eq!(
+        attention.items[0]
+            .crawl_state
+            .last_crawl_error_kind
+            .as_deref(),
+        Some("CloudflareChallenge"),
+        "a failed crawl ranks ahead of a scrape failure"
+    );
+    let scrape_state = &detail.overview.crawl_state;
+    assert_eq!(scrape_state.last_scrape_status_code, Some(403));
+    let urls = detail
+        .failing_urls
+        .iter()
+        .map(|url| (url.url.as_str(), url.error_kind.as_str(), url.status_code))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        urls,
+        vec![
+            ("https://shop.example.com/a", "HttpError", Some(403)),
+            ("https://shop.example.com/b", "Timeout", None),
+            ("https://shop.example.com/d", "HttpError", Some(502)),
+        ],
+        "the most repeated failures first, at most three, without the waits and holds"
+    );
+    assert_eq!(
+        detail.failing_urls[0]
+            .error_message
+            .as_ref()
+            .map(String::len),
+        Some(200)
+    );
+    let healthy_detail = ListingSourceDetailReader::new(overviews)
+        .find_listing_source(healthy)
+        .await
+        .unwrap()
+        .expect("the source exists");
+    assert!(healthy_detail.failing_urls.is_empty());
 }

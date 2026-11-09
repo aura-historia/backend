@@ -40,6 +40,7 @@ impl ConsoleOverviewReader {
                 crawling_now: self.sources.running_count(WorkLockScope::Spider),
                 scraping_now: self.sources.running_count(WorkLockScope::Scraper),
                 needs_attention: health.needs_attention,
+                crawl_failing: health.crawl_failing,
                 crawl_needs_operator: health.crawl_needs_operator,
                 blocked_by_review: health.blocked_by_review,
                 failing_to_scrape: health.failing_to_scrape,

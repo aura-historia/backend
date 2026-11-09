@@ -27,6 +27,29 @@ pub struct ListingSourceDetail {
     /// When the live schemas were last stored; `None` while none are.
     #[serde(with = "time::serde::rfc3339::option")]
     pub live_schemas_since: Option<OffsetDateTime>,
+    /// Product URLs whose last scrape failed, the most repeated failures first, as examples of
+    /// why the source fails to scrape; at most [`FAILING_URL_EXAMPLES`].
+    pub failing_urls: Vec<FailingUrl>,
+}
+
+/// How many failing product URLs the page shows as examples.
+pub const FAILING_URL_EXAMPLES: i64 = 3;
+
+/// The longest error message the page carries, in characters.
+pub const FAILING_URL_MESSAGE_CHARS: i32 = 200;
+
+/// A product URL whose last scrape failed, as the URL's row records it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FailingUrl {
+    pub url: String,
+    pub error_kind: String,
+    pub status_code: Option<i32>,
+    /// Failed scrapes in a row.
+    pub failure_count: i32,
+    /// The stored error message, cut to [`FAILING_URL_MESSAGE_CHARS`] characters.
+    pub error_message: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub next_retry_at: Option<OffsetDateTime>,
 }
 
 /// The live URL pattern of a ListingSource: what the spider classifies product URLs by.

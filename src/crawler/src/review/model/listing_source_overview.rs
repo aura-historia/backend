@@ -84,6 +84,9 @@ pub struct CrawlStateOverview {
     /// The source's consecutive scrape failures of one kind, as its scraper circuit records them;
     /// 0 once a fetch of it succeeds again.
     pub scrape_failure_streak: i32,
+    /// The status code the scrape circuit last recorded with its failure kind, such as the 403 an
+    /// HTTP-status burst answered; `None` for a failure without a status.
+    pub last_scrape_status_code: Option<i32>,
     /// The kind of those failures, such as `TIMEOUT` or `HTTP_503`; `None` without a streak.
     pub last_scrape_error_kind: Option<String>,
     /// When the current same-kind scrape failure streak began; `None` while
@@ -130,6 +133,7 @@ mod tests {
                 crawl_failure_count: 5,
                 next_crawl_at: None,
                 scrape_failure_streak: 3,
+                last_scrape_status_code: Some(503),
                 last_scrape_error_kind: Some("HTTP_503".to_owned()),
                 scrape_failing_since: None,
                 scrape_paused_until: None,
@@ -190,6 +194,7 @@ mod tests {
 
         assert_eq!(json["scrape_failure_streak"], 3);
         assert_eq!(json["last_scrape_error_kind"], "HTTP_503");
+        assert_eq!(json["last_scrape_status_code"], 503);
     }
 
     #[test]
