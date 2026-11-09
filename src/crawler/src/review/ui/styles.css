@@ -58,6 +58,7 @@
     /* layout */
     --header-h: 48px;
     --rail-w: 280px;
+    --rail-strip-w: 40px;
     --control-h: 32px;
     --control-h-sm: 26px;
     --preview-bar-h: 80px; /* two 26px control rows, gaps and padding */
@@ -378,8 +379,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 /* ───────────────────────────── 15. Review detail ───────────────────────────── */
 /* Two columns: a collapsible source rail (this source's reviews, every status) and the review. */
 .review-layout { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); gap: var(--s-4); align-items: start; }
-.review-layout.rail-collapsed { grid-template-columns: minmax(0, 1fr); }
-.review-layout.rail-collapsed .rail { display: none; }
+.review-layout.rail-collapsed { grid-template-columns: var(--rail-strip-w) minmax(0, 1fr); }
+.rail.rail-strip { justify-items: center; padding: var(--s-1); overflow: visible; }
 .rail { position: sticky; top: calc(var(--header-h) + var(--s-4)); display: grid; gap: 0; max-height: calc(100vh - var(--header-h) - var(--s-6)); overflow: auto; }
 .rail .card-head { padding: var(--s-2) var(--s-3); }
 .rail-group { padding: var(--s-2) var(--s-2); }
@@ -392,7 +393,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .rail-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-meta { color: var(--muted); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-foot { padding: var(--s-2) var(--s-3); border-top: 1px solid var(--line); font-size: var(--fs-sm); }
-.rail-collapsed-toggle { display: inline-flex; }
 
 .review { display: grid; gap: var(--s-4); min-width: 0; }
 .action-panel { border-left: 3px solid var(--accent); }
@@ -485,7 +485,8 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
     .workbench { grid-template-columns: minmax(0, 1fr); }
     .preview { position: static; }
     .preview iframe, .preview .frame-placeholder { height: 70vh; min-height: 420px; }
-    .review-layout { grid-template-columns: minmax(0, 1fr); }
+    .review-layout, .review-layout.rail-collapsed { grid-template-columns: minmax(0, 1fr); }
+    .rail.rail-strip { justify-items: start; }
     .rail { position: static; max-height: none; }
     .rail .rail-body { display: none; }
     .rail[open] .rail-body, .rail.open .rail-body { display: block; }

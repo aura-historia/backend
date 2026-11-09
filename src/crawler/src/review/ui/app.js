@@ -1620,8 +1620,6 @@ async function refreshChrome() {
 function updateRail() {
     const container = document.getElementById('sourceRail');
     if (container) container.innerHTML = renderRailContent();
-    const count = document.getElementById('railCount');
-    if (count) count.textContent = rail.items ? `This source's reviews (${rail.total})` : "This source's reviews";
 }
 
 function renderRailItem(review, meta, badgeHtml) {
@@ -1629,10 +1627,15 @@ function renderRailItem(review, meta, badgeHtml) {
     return `<a class="rail-item" ${current ? 'aria-current="true" ' : ''}href="${reviewHash(review.review_id)}"><span class="rail-row"><span class="rail-title">${escapeHtml(artifactLabel(review.artifact_type))}</span>${badgeHtml}</span><span class="rail-meta">${meta}</span></a>`;
 }
 
+const CHEVRON_ICON = direction => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${direction === 'left' ? 'M10 4l-4 4 4 4' : 'M6 4l4 4-4 4'}"/></svg>`;
+
 function renderRailContent() {
+    if (railHidden()) {
+        return `<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(false)" aria-label="Show this source's reviews" title="Show this source's reviews" aria-expanded="false" type="button">${CHEVRON_ICON('right')}</button>`;
+    }
     const name = selectedDetail?.review.listing_source_name || 'This source';
     const head = `<div class="card-head"><h3><a href="${sourceHash(rail.listingSourceId || '')}" style="color:inherit">${escapeHtml(name)}</a></h3>
-      ${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4l-4 4 4 4"/></svg></button></div>`;
+      ${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" aria-expanded="true" type="button">${CHEVRON_ICON('left')}</button></div>`;
     if (rail.items === undefined) {
         return `${head}<div class="rail-body">${rail.failure ? stateBlock('error', 'Reviews unavailable', rail.failure) : stateBlock('loading', 'Loading')}</div>`;
     }
@@ -1650,7 +1653,7 @@ function renderRailContent() {
         `${review.rejection_revoked ? 'revoked · ' : ''}${timeBadge(review.updated, 'Closed')}`, statusBadge(review.status)));
     const more = closed.length > shownClosed.length || rail.total > rail.items.length
         ? `<div class="rail-foot"><a href="${sourceHash(rail.listingSourceId)}">All ${formatCount(rail.total)} reviews →</a></div>` : '';
-    return `${head}<div class="rail-body">${group('Open', openItems)}${group('Live', liveItems)}${group('Closed', closedItems)}${more || `<div class="rail-foot"><a href="${sourceHash(rail.listingSourceId)}">Source page →</a></div>`}</div>`;
+    return `${head}<div class="rail-body">${group('Open', openItems)}${group('Live', liveItems)}${group('Closed', closedItems)}${more}</div>`;
 }
 
 function setRailCollapsed(collapsed) {
@@ -1664,15 +1667,22 @@ function setRailCollapsed(collapsed) {
     if (collapsed) params.set('rail', '0');
     else params.delete('rail');
     route = {name: route.name, params};
-    document.getElementById('reviewLayout')?.classList.toggle('rail-collapsed', collapsed);
+    applyRailState();
     recordSelectionInUrl();
-    updateCrumbs();
+    document.querySelector('#sourceRail button')?.focus();
+}
+
+// The layout, the rail's width class and its content follow the collapsed state.
+function applyRailState() {
+    const hidden = railHidden();
+    document.getElementById('reviewLayout')?.classList.toggle('rail-collapsed', hidden);
+    document.getElementById('sourceRail')?.classList.toggle('rail-strip', hidden);
+    updateRail();
 }
 
 function renderCrumbs(review) {
     const name = escapeHtml(review.listing_source_name || 'Source');
-    return `<a href="${escapeHtmlAttr(lastReviewsHash)}">Reviews</a><span class="sep">/</span><a href="${sourceHash(review.listing_source_id)}">${name}</a><span class="sep">/</span><span>${escapeHtml(artifactLabel(review.artifact_type))}</span>${
-        railHidden() ? `<span class="sep">·</span><button class="btn-link small" id="railCount" onclick="setRailCollapsed(false)" type="button">${rail.items ? `This source's reviews (${rail.total})` : "This source's reviews"}</button>` : ''}`;
+    return `<a href="${escapeHtmlAttr(lastReviewsHash)}">Reviews</a><span class="sep">/</span><a href="${sourceHash(review.listing_source_id)}">${name}</a><span class="sep">/</span><span>${escapeHtml(artifactLabel(review.artifact_type))}</span>`;
 }
 
 function updateCrumbs() {
@@ -2077,7 +2087,7 @@ function renderDetail(detail, matrix) {
       <nav class="crumbs" id="reviewCrumbs" aria-label="Breadcrumb">${renderCrumbs(review)}</nav>
       <div id="queueBar">${queueBarHtml()}</div>
       <div class="review-layout${railHidden() ? ' rail-collapsed' : ''}" id="reviewLayout">
-        <aside class="card rail" id="sourceRail" aria-label="This source">${renderRailContent()}</aside>
+        <aside class="card rail${railHidden() ? ' rail-strip' : ''}" id="sourceRail" aria-label="This source">${renderRailContent()}</aside>
         <div class="review">
           <div class="page-head">
             <div>
@@ -5274,7 +5284,7 @@ function applyRouteFromUrl() {
             schemaIndex: /^\d+$/.test(requested.params.get('schema') || '') ? Number(requested.params.get('schema')) : null
         });
         updateCrumbs();
-        document.getElementById('reviewLayout')?.classList.toggle('rail-collapsed', railHidden());
+        applyRailState();
         return;
     }
     if (!dirty || !selectedId) return openRoute(requested);
