@@ -68,7 +68,10 @@ pub use aura_historia_runtime::product_listing_config::{
     PRODUCT_LISTING_SEARCH_SOURCE_CACHE_TTL_SECONDS_ENV, VERTEX_AI_LOCATION_ENV,
     VERTEX_AI_PROJECT_ID_ENV,
 };
-use aura_historia_runtime::{ProductListingConfig, ProductListingDependencies, Runtime};
+use aura_historia_runtime::{
+    ProductListingConfig, ProductListingDependencies, Runtime, SavedSearchPreviewConfig,
+    SavedSearchPreviewDependencies,
+};
 use aws_config::BehaviorVersion;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -269,6 +272,7 @@ pub struct ApiConfig {
     oauth_metadata_document_client_token_lifetimes: MetadataDocumentClientTokenLifetimes,
     cognito_user_pool_id: String,
     product_listings: ProductListingConfig,
+    saved_search_previews: SavedSearchPreviewConfig,
     stripe_billing: StripeBillingConfig,
     billing_prices: BillingPriceIds,
     loops: LoopsNewsletterConfig,
@@ -331,6 +335,8 @@ impl ApiConfig {
         };
 
         let product_listings = ProductListingConfig::from_getter(&mut get)?;
+        let saved_search_previews = SavedSearchPreviewConfig::from_getter(&mut get)
+            .map_err(ApiConfigError::SavedSearchPreviews)?;
         let public_listing_source_read_max_in_flight = optional_bounded_usize_config(
             &mut get,
             PUBLIC_LISTING_SOURCE_READ_MAX_IN_FLIGHT_ENV,
@@ -380,6 +386,7 @@ impl ApiConfig {
             oauth_metadata_document_client_token_lifetimes,
             cognito_user_pool_id,
             product_listings,
+            saved_search_previews,
             stripe_billing,
             billing_prices,
             loops,
@@ -421,6 +428,10 @@ impl ApiConfig {
 
     pub fn vertex_ai_embedding(&self) -> &VertexAiEmbeddingConfig {
         self.product_listings.vertex_ai_embedding()
+    }
+
+    fn saved_search_previews(&self) -> &SavedSearchPreviewConfig {
+        &self.saved_search_previews
     }
 
     fn stripe_billing(&self) -> &StripeBillingConfig {
@@ -619,6 +630,8 @@ pub enum ApiConfigError {
     ProductListings(
         #[from] aura_historia_runtime::product_listing_config::ProductListingConfigError,
     ),
+    #[error("invalid saved-search preview configuration")]
+    SavedSearchPreviews(#[source] aura_historia_runtime::SavedSearchPreviewConfigError),
     #[error("invalid Loops newsletter configuration")]
     LoopsConfig(#[source] user_loops::LoopsNewsletterConfigError),
     #[error("invalid newsletter confirmation email configuration")]
@@ -1280,6 +1293,11 @@ async fn app_state_from_config_and_runtime(
     let listing_dependencies = ProductListingDependencies::from_env(&config.product_listings)?;
     let opensearch_client = listing_dependencies.opensearch.clone();
     let embeddings = Arc::clone(&listing_dependencies.embeddings);
+    let saved_search_previews = runtime.saved_search_previews(
+        &listing_dependencies,
+        SavedSearchPreviewDependencies::from_config(config.saved_search_previews())
+            .map_err(ApiConfigError::SavedSearchPreviews)?,
+    );
 
     let get_admin_overview = GetAdminOverviewHandler::new(
         unit_of_work.clone(),
@@ -1839,6 +1857,7 @@ async fn app_state_from_config_and_runtime(
         Arc::clone(&saved_searches.delete),
         Arc::clone(&saved_searches.matches),
         Arc::clone(&saved_searches.feedback),
+        Arc::clone(&saved_search_previews.preview),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );
     let watchlist = runtime.watchlist();
@@ -2180,6 +2199,14 @@ mod tests {
             ),
             (COGNITO_APP_CLIENT_IDS_ENV, "api-client".to_owned()),
             (COGNITO_USER_POOL_ID_ENV, "test-pool".to_owned()),
+            (
+                aura_historia_runtime::CLOUDFLARE_ACCOUNT_ID_ENV,
+                "test-account".to_owned(),
+            ),
+            (
+                aura_historia_runtime::CLOUDFLARE_API_TOKEN_ENV,
+                "test-classifier-token".to_owned(),
+            ),
             (STRIPE_API_KEY_ENV, "test-stripe-key".to_owned()),
             (
                 STRIPE_CHECKOUT_SUCCESS_URL_ENV,

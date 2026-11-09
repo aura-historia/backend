@@ -62,8 +62,8 @@ use product_listing_service::use_cases::{
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterError, DeleteOwnedSearchFilterError, GetOwnedSearchFilterError,
-    ListOwnedSearchFiltersError, ListSearchFilterMatchesError, UpdateOwnedSearchFilterError,
-    UpdateSearchFilterMatchFeedbackError,
+    ListOwnedSearchFiltersError, ListSearchFilterMatchesError, PreviewSearchFilterMatchesError,
+    UpdateOwnedSearchFilterError, UpdateSearchFilterMatchFeedbackError,
 };
 use serde::Serialize;
 use woocommerce_service::WoocommerceWebhookIntakeError;
@@ -837,6 +837,54 @@ impl From<CreateSearchFilterError> for ApiError {
             | CreateSearchFilterError::CommitTransactionFailed(_) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter could not be created right now.")
+            }
+        }
+    }
+}
+
+impl From<PreviewSearchFilterMatchesError> for ApiError {
+    fn from(error: PreviewSearchFilterMatchesError) -> Self {
+        match error {
+            PreviewSearchFilterMatchesError::AuthenticatedActorRequired => {
+                ApiError::unauthorized(INVALID_CREDENTIALS)
+                    .with_header_field("Authorization")
+                    .with_detail("Bearer token is required.")
+            }
+            PreviewSearchFilterMatchesError::ActorMayNotManageSearchFilter => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            PreviewSearchFilterMatchesError::UserNotFound => {
+                ApiError::not_found(USER_NOT_FOUND).with_detail("User was not found.")
+            }
+            PreviewSearchFilterMatchesError::SearchFilterFeatureRestricted { feature } => {
+                ApiError::unprocessable_content(SEARCH_FILTER_RESTRICTED_FEATURE).with_detail(
+                    format!(
+                        "Search filter contains forbidden search field '{feature}' which requires a higher user tier."
+                    ),
+                )
+            }
+            PreviewSearchFilterMatchesError::Presentation(error) => error.into(),
+            error @ (PreviewSearchFilterMatchesError::ClassifierUnavailable { .. }
+            | PreviewSearchFilterMatchesError::UserTierReadFailed { .. }
+            | PreviewSearchFilterMatchesError::EmbeddingGenerationFailed { .. }
+            | PreviewSearchFilterMatchesError::FxRateSnapshotReadFailed { .. }
+            | PreviewSearchFilterMatchesError::FxRateSnapshotMissing
+            | PreviewSearchFilterMatchesError::ProductListingSearchFailed { .. }
+            | PreviewSearchFilterMatchesError::ProductListingSourceReadFailed { .. }
+            | PreviewSearchFilterMatchesError::BeginTransactionFailed(_)
+            | PreviewSearchFilterMatchesError::CommitTransactionFailed(_)) => {
+                ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Search filter preview is temporarily unavailable.")
+                    .with_cause(Box::new(error))
+            }
+            error @ (PreviewSearchFilterMatchesError::ClassifierMisconfigured { .. }
+            | PreviewSearchFilterMatchesError::FxRateSnapshotInvalid { .. }
+            | PreviewSearchFilterMatchesError::ProductListingSearchResultInvalid { .. }
+            | PreviewSearchFilterMatchesError::ProductListingSourceStateInvalid { .. }
+            | PreviewSearchFilterMatchesError::ProductListingSourceMismatch) => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter preview failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }

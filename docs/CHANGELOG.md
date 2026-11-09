@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-09 — Search-filter match previews (#2849)
+
+- New `POST /v1/me/search-filters/preview` takes `{ "search": ... }` with the same criteria as `POST /v1/me/search-filters` and returns `{ "items": [...], "candidateLimitReached": boolean }` without saving anything. Items have the `GET /v1/product-listings` item shape, at most four, most relevant first, with no paging. It requires `search-filters:write` and applies the same tier field restrictions as creating a filter.
+- Matches are decided as scheduled matching decides them, with the same classifier, acceptance threshold and tier evidence, but over the whole catalogue. Use this instead of `GET /v1/product-listings` to show what a filter would match: plain search results include listings the classifier would reject.
+- The preview classifies at most sixteen candidates and stops at four matches; `candidateLimitReached` is `true` when it stopped before finding four. If the classifier cannot decide a candidate, the request fails with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` rather than returning an inaccurate preview.
+
 ## 2026-11-09 — Sender names on emails (#2846)
 
 - Notification and newsletter-confirmation emails now show a sender name that says why they were sent, in the pattern `<Reason> | Aura Historia`: `Watchlist Notification | Aura Historia` (price and availability changes), `Search Filter Notification | Aura Historia`, `Saved Search Digest | Aura Historia`, `Partnership Application | Aura Historia` (approval and rejection) and `Newsletter | Aura Historia` (newsletter confirmation). Sender addresses are unchanged.

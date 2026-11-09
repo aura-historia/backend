@@ -3,6 +3,7 @@ mod delete;
 mod get;
 mod list;
 mod list_matches;
+mod preview;
 mod types;
 mod update;
 mod update_match_feedback;
@@ -10,13 +11,17 @@ mod util;
 
 use crate::state::SearchFiltersState;
 use axum::Router;
-use axum::routing::{get, patch};
+use axum::routing::{get, patch, post};
 
 pub fn router(state: SearchFiltersState) -> Router {
     Router::new()
         .route(
             "/v1/me/search-filters",
             get(list::list_search_filters).post(create::create_search_filter),
+        )
+        .route(
+            "/v1/me/search-filters/preview",
+            post(preview::preview_search_filter_matches),
         )
         .route(
             "/v1/me/search-filters/{user_search_filter_id}",

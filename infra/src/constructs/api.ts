@@ -158,6 +158,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist/{product_listing_id}", ["PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/preview", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}", ["GET", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches/{product_listing_id}", ["PATCH"]),

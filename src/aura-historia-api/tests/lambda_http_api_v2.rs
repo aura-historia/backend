@@ -587,6 +587,14 @@ fn unavailable_dependency_api_config() -> Result<ApiConfig, aura_historia_api::A
             aura_historia_api::COGNITO_USER_POOL_ID_ENV,
             "lambda-test-pool",
         ),
+        (
+            aura_historia_runtime::CLOUDFLARE_ACCOUNT_ID_ENV,
+            "lambda-test-account",
+        ),
+        (
+            aura_historia_runtime::CLOUDFLARE_API_TOKEN_ENV,
+            "lambda-test-classifier-token",
+        ),
         (aura_historia_api::STRIPE_API_KEY_ENV, "sk_test_lambda"),
         (
             aura_historia_api::STRIPE_CHECKOUT_SUCCESS_URL_ENV,

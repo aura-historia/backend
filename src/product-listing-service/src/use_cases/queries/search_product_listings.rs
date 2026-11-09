@@ -4,7 +4,9 @@ use crate::ports::{
     ProductListingPriceFilterPlan, ProductListingSearchMode, ProductListingSearchReadError,
     ProductListingSearchReadRequest, ProductListingSearchReader, ProductListingUserStateReader,
 };
-use crate::use_cases::queries::product_listing_search_presentation::ProductListingSearchPresentation;
+use crate::use_cases::queries::product_listing_search_presentation::{
+    ProductListingSearchPresentation, ProductListingSearchPresenter,
+};
 use crate::use_cases::queries::product_listing_summary_personalization::{
     ProductListingSummaryPersonalizationError, listing_source_ids,
 };

@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { createApplicationStacks } from "../src/application-stack";
-import { STAGES, type StageName } from "../src/config";
+import { STAGES, stageConfig, type StageName } from "../src/config";
 import { consentEvidenceLogGroupNames } from "../src/constructs/lambdas";
 import { credentialSecrets } from "../src/credentials";
 import { credentialReference, releaseVersionDescription } from "./credential-reference";
@@ -86,6 +86,12 @@ function expectedApiEnvironmentKeys(): string[] {
     "LOOPS_API_KEY",
     "LOOPS_NEWSLETTER_LIST_ID",
     "LOOPS_WEBHOOK_SIGNING_SECRET",
+    "CLASSIFIER_MODEL",
+    "CLASSIFIER_MODEL_PROVIDER",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_API_TOKEN",
+    "SEARCH_FILTER_MATCH_BATCH_CANDIDATES",
+    "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS",
   ];
 
   keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_PASSWORD", "POSTGRES_USERNAME");
@@ -152,6 +158,15 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET)
       .toEqual(credentialReference(credentialSecrets(stage).loops, "webhookSigningSecret"));
     expect(environment.Variables.STRIPE_API_KEY).toEqual(credentialReference(credentialSecrets(stage).stripe, "apiKey"));
+    // Previews must classify exactly as the periodic matcher does: same parameters, same token.
+    expect(environment.Variables).toMatchObject({
+      CLASSIFIER_MODEL_PROVIDER: stageConfig(stage).searchFilterClassifier.provider,
+      CLASSIFIER_MODEL: { Ref: "SearchFilterClassifierModel" },
+      SEARCH_FILTER_MATCH_BATCH_CANDIDATES: { Ref: "SearchFilterMatchBatchCandidates" },
+      SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: { Ref: "SearchFilterMatchShouldShowThresholdBps" },
+      CLOUDFLARE_ACCOUNT_ID: `{{resolve:ssm:/cloudflare/${stage}/account-id}}`,
+      CLOUDFLARE_API_TOKEN: credentialReference(credentialSecrets(stage).cloudflare, "workersAiApiToken"),
+    });
     expect(JSON.stringify(functionResource.Properties).toLowerCase()).not.toContain("zoho");
     expect(environment.Variables.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
   });
@@ -213,7 +228,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(alias.Properties).toMatchObject({ Name: "live", FunctionName: { Ref: functionId } });
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
     expect(version.Properties.Description)
-      .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
+      .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).cloudflare, credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
     expect(code.S3Key).toEqual({ Ref: "AuraHistoriaApiArtifactKey" });
     expect((apiFunction(template, stage).Properties.Code as Record<string, unknown>).S3ObjectVersion)
       .toEqual({ Ref: "AuraHistoriaApiArtifactVersion" });
@@ -351,7 +366,7 @@ test("configuration-only API updates still change the currentVersion target", ()
   expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [after, "Version"] });
   const stage = "dev";
   expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description)
-    .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
+    .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).cloudflare, credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
 });
 
 test("grants only API session-revocation actions against the Cognito user pool", () => {

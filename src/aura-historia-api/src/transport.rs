@@ -40,6 +40,17 @@ const _: () = assert!(
         * 2
         <= LAMBDA_REQUEST_TIMEOUT.as_millis()
 );
+// A search-filter preview waits for the query embedding, one search and the classifier in
+// turn; together they must leave time for the PostgreSQL reads, presentation and response.
+const SEARCH_FILTER_PREVIEW_HEADROOM: Duration = Duration::from_secs(2);
+const _: () = assert!(
+    embedding::SEARCH_QUERY_EMBEDDING_DEADLINE.as_millis()
+        + aura_historia_runtime::PRODUCT_LISTING_OPENSEARCH_TIMEOUT.as_millis()
+        + search_filter_service::use_cases::SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE
+            .as_millis()
+        + SEARCH_FILTER_PREVIEW_HEADROOM.as_millis()
+        <= LAMBDA_REQUEST_TIMEOUT.as_millis()
+);
 
 pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duration) -> Router {
     router

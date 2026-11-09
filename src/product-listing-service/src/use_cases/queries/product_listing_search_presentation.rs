@@ -23,6 +23,21 @@ use fxrate_core::FxRateSnapshot;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use std::time::Instant;
 
+/// Presents ranked search items exactly as listing search does, for use cases outside listing
+/// search that rank or filter the items themselves.
+#[async_trait::async_trait]
+pub trait ProductListingSearchPresenter: Send + Sync {
+    /// Presents `items` in their given order. `search` and `snapshot` are the ones that
+    /// retrieved them, so shipping and distance use the requested currency and origin.
+    async fn present(
+        &self,
+        context: &OperationContext,
+        items: Vec<ProductListingSearchItem>,
+        search: &ProductListingSearch,
+        snapshot: &FxRateSnapshot,
+    ) -> Result<Vec<PersonalizedProductListingSummary>, SearchProductListingsError>;
+}
+
 pub struct ProductListingSearchPresentation<L, U, A> {
     listing_sources: L,
     user_states: U,
@@ -60,15 +75,14 @@ impl<L, U, A> ProductListingSearchPresentation<L, U, A> {
     }
 }
 
-impl<L, U, A> ProductListingSearchPresentation<L, U, A>
+#[async_trait::async_trait]
+impl<L, U, A> ProductListingSearchPresenter for ProductListingSearchPresentation<L, U, A>
 where
     L: ListingSourceSummaryReader,
     U: ProductListingUserStateReader,
     A: ProductListingContentAssessmentReader,
 {
-    /// Presents `items` in their given order. `search` and `snapshot` are the ones that
-    /// retrieved them, so shipping and distance use the requested currency and origin.
-    pub async fn present(
+    async fn present(
         &self,
         context: &OperationContext,
         items: Vec<ProductListingSearchItem>,
@@ -97,7 +111,14 @@ where
             })
             .collect())
     }
+}
 
+impl<L, U, A> ProductListingSearchPresentation<L, U, A>
+where
+    L: ListingSourceSummaryReader,
+    U: ProductListingUserStateReader,
+    A: ProductListingContentAssessmentReader,
+{
     async fn enrich(
         &self,
         principal: &Principal,

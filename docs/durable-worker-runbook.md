@@ -380,7 +380,9 @@ historical mail.
 
 ### Saved-search batching quality gate
 
-`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` (integer 1–50 for Clef Flash).
+`SearchFilterMatchBatchCandidates` deploys `PERIODIC_MATCH_BATCH_CANDIDATES` to the matcher and
+`SEARCH_FILTER_MATCH_BATCH_CANDIDATES` to the API's search-filter previews (integer 1–50 for Clef Flash);
+the classifier model and threshold parameters likewise feed both, so previews decide as runs do.
 The default, 1, is the singleton fallback switch. Larger values enable budgeted shared
 text requests for one filter, with one independently keyed `should_show` question per
 listing. Fifty candidates can share a request only when every provider question, text,

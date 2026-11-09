@@ -5,11 +5,19 @@ import type { Search } from "./opensearch";
 import type { QueueCatalog } from "./queues";
 import type { PostgresConnectionSettings } from "./storage";
 
+/** Deployment parameters that saved-search classification shares across every runtime. */
+export interface SearchFilterClassifierParameters {
+  readonly model: string;
+  readonly batchCandidates: string;
+  readonly shouldShowThresholdBps: string;
+}
+
 export interface LambdaEnvironmentContext {
   readonly config: StageConfig;
   readonly emailConfigurationSet: ses.IConfigurationSet;
   readonly commitSha: string;
   readonly mailTemplatePrefix: string;
+  readonly searchFilterClassifier: SearchFilterClassifierParameters;
   readonly postgres: PostgresConnectionSettings;
   readonly search: Search;
   readonly queues: QueueCatalog;
@@ -117,9 +125,23 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
   return {
     ...environment,
     ...listingProviderEnvironment(context),
+    ...searchFilterPreviewEnvironment(context),
     STRIPE_API_KEY: context.credential(secrets.stripe, "apiKey"),
     ...loopsNewsletterEnvironment(context),
     LOOPS_WEBHOOK_SIGNING_SECRET: context.credential(secrets.loops, "webhookSigningSecret"),
+  };
+}
+
+/** Search-filter previews classify with the periodic matcher's model, threshold and batch size. */
+function searchFilterPreviewEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  const { config, searchFilterClassifier } = context;
+  return {
+    CLASSIFIER_MODEL_PROVIDER: config.searchFilterClassifier.provider,
+    CLASSIFIER_MODEL: searchFilterClassifier.model,
+    SEARCH_FILTER_MATCH_BATCH_CANDIDATES: searchFilterClassifier.batchCandidates,
+    SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: searchFilterClassifier.shouldShowThresholdBps,
+    CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${config.stage}/account-id`),
+    CLOUDFLARE_API_TOKEN: context.credential(credentialSecrets(config.stage).cloudflare, "workersAiApiToken"),
   };
 }
 

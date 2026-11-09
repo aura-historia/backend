@@ -879,6 +879,106 @@ async fn should_reject_noncanonical_object_ids_in_search_filter_body() {
     }
 }
 
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_preview_search_filter_criteria_without_saving_them() {
+    let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+
+    let response = preview_search_filter(
+        &client,
+        &token,
+        serde_json::json!({ "search": search_filter_body()["search"].clone() }),
+    )
+    .await;
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let (status, body) = json_response(response).await;
+    let saved = client
+        .get(format!("{}/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list search filters after preview: {error}"));
+    let (_, saved) = json_response(saved).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(Some("no-store"), cache_control.as_deref());
+    assert_eq!(
+        serde_json::json!({ "items": [], "candidateLimitReached": false }),
+        body
+    );
+    assert_eq!(serde_json::json!([]), saved["items"]);
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_reject_preview_criteria_the_users_tier_may_not_save() {
+    let user_id = seed_user_with_tier("USER", UserTier::Free).await;
+    let token = search_filters_token(user_id).await;
+
+    let response = preview_search_filter(
+        &reqwest::Client::new(),
+        &token,
+        serde_json::json!({
+            "search": {
+                "language": "en",
+                "currency": "EUR",
+                "productQuery": ["desk"],
+                "enhancedSearchDescription": "Only oak desks"
+            }
+        }),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(
+        status,
+        &body,
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        "SEARCH_FILTER_RESTRICTED_FEATURE",
+    );
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_require_search_filter_write_scope_to_preview() {
+    let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
+    let token = seed_access_token_for(
+        user_id,
+        std::collections::HashSet::from([Scope::SearchFiltersRead]),
+    )
+    .await;
+
+    let response = preview_search_filter(
+        &reqwest::Client::new(),
+        &token,
+        serde_json::json!({ "search": search_filter_body()["search"].clone() }),
+    )
+    .await;
+    let (status, body) = json_response(response).await;
+
+    assert_problem(status, &body, reqwest::StatusCode::FORBIDDEN, "FORBIDDEN");
+}
+
+async fn preview_search_filter(
+    client: &reqwest::Client,
+    token: &RawAccessToken,
+    body: serde_json::Value,
+) -> reqwest::Response {
+    client
+        .post(format!(
+            "{}/v1/me/search-filters/preview",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to preview search filter: {error}"))
+}
+
 async fn search_filters_token(user_id: user_core::user_id::UserId) -> RawAccessToken {
     seed_access_token_for(
         user_id,
