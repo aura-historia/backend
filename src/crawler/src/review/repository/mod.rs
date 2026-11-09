@@ -55,7 +55,7 @@ pub use mass_removal_confirmation::MassRemovalConfirmation;
 pub use missing_value_pages::{
     MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
 };
-pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
+pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};

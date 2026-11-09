@@ -11,15 +11,14 @@ use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
-    PAGE_ROLE_PRIMARY, PendingReviewSummary, PendingReviewTotals, ReviewActor, ReviewEventAction,
-    STATUS_APPROVED, STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel,
+    PAGE_ROLE_PRIMARY, PageSize, PendingReviewSummary, PendingReviewTotals, ReviewActor,
+    ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel,
     SchemaReviewPageInput, UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
 use crawler::review::readers::ReviewQueueReader;
 use crawler::review::repository::{
-    Approval, CrawlerReviewRepository, PendingReviewPageSize, PendingReviewQuery,
-    ReviewRepositoryError,
+    Approval, CrawlerReviewRepository, PendingReviewQuery, ReviewRepositoryError,
 };
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::product_schema_repository::{
@@ -2143,7 +2142,7 @@ async fn queued_review(
             .list_pending_reviews(PendingReviewQuery {
                 human_required: Some(human_required),
                 after: None,
-                page_size: PendingReviewPageSize::MAX,
+                page_size: PageSize::MAX,
             })
             .await
             .unwrap();
@@ -2791,7 +2790,7 @@ async fn every_page(
     human_required: Option<bool>,
     page_size: usize,
 ) -> (Vec<PendingReviewSummary>, Vec<PendingReviewTotals>) {
-    let page_size = PendingReviewPageSize::new(page_size).unwrap();
+    let page_size = PageSize::new(page_size).unwrap();
     let (mut reviews, mut totals) = (Vec::new(), Vec::new());
     let mut after = None;
     loop {
@@ -2889,7 +2888,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         .list_pending_reviews(PendingReviewQuery {
             human_required: Some(false),
             after: None,
-            page_size: PendingReviewPageSize::new(100).unwrap(),
+            page_size: PageSize::new(100).unwrap(),
         })
         .await
         .unwrap();
@@ -2906,7 +2905,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         .list_pending_reviews(PendingReviewQuery {
             human_required: Some(false),
             after: first.next_after,
-            page_size: PendingReviewPageSize::new(100).unwrap(),
+            page_size: PageSize::new(100).unwrap(),
         })
         .await
         .unwrap();
@@ -2923,7 +2922,7 @@ async fn should_list_every_pending_review_page_by_page_and_keep_those_for_a_huma
         .list_pending_reviews(PendingReviewQuery {
             human_required: Some(false),
             after: second.next_after,
-            page_size: PendingReviewPageSize::new(100).unwrap(),
+            page_size: PageSize::new(100).unwrap(),
         })
         .await
         .unwrap();

@@ -54,6 +54,7 @@ const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 mod mass_removal_confirmation;
 mod missing_value_pages;
 mod pending_reviews;
+mod query_params;
 mod schema_matrix;
 mod source_pages;
 
