@@ -229,12 +229,26 @@ function routeHash(name, params, id = '') {
     return `#${id ? `${name}=${encodeURIComponent(id)}` : name}${text ? `&${text}` : ''}`;
 }
 
-function reviewHash(reviewId) {
-    return `#review=${encodeURIComponent(reviewId)}`;
+// A review's fragment. `queue` ({key, index}) says which list it was opened from and at which
+// place, so the review can offer the next one; `key` is that list's fragment without its offset.
+function reviewHash(reviewId, queue = null) {
+    const params = new URLSearchParams({review: reviewId});
+    if (queue) {
+        params.set('queue', queue.key);
+        params.set('i', String(queue.index));
+    }
+    return `#${params}`;
 }
 
 function sourceHash(listingSourceId) {
     return `#source=${encodeURIComponent(listingSourceId)}`;
+}
+
+// The fragment of the list a review was opened from, without its offset: the queue it belongs to.
+function queueKeyOfList() {
+    const params = new URLSearchParams(route.params);
+    params.delete('offset');
+    return routeHash('reviews', params).slice(1);
 }
 
 function listRouteKind() {
@@ -348,6 +362,58 @@ function showPage(html) {
     replaceKeepingFocus(detail, html);
 }
 
+// ───────────────────────────── Refresh state ─────────────────────────────
+// What the header says about the console's own refresh: when it last succeeded, that it pauses
+// while the tab is hidden, and what failed. The failures are per read, so one that recovers does
+// not hide another that has not.
+const refreshFailures = new Map();
+let lastRefreshAt = null;
+
+function noteRefresh(read, failure = null) {
+    if (failure) {
+        refreshFailures.set(read, failure);
+    } else {
+        refreshFailures.delete(read);
+        lastRefreshAt = Date.now();
+    }
+    updateRefreshState();
+}
+
+function clockText(time) {
+    return new Date(time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false});
+}
+
+function updateRefreshState() {
+    const element = document.getElementById('refreshState');
+    if (!element) return;
+    let html;
+    let paused = false;
+    if (document.hidden) {
+        html = 'paused — tab hidden';
+        paused = true;
+    } else if (refreshFailures.size) {
+        html = `⚠ not refreshed${lastRefreshAt ? ` since ${clockText(lastRefreshAt)}` : ''} (${escapeHtml([...refreshFailures.values()][0])})`;
+        paused = true;
+    } else if (lastRefreshAt) {
+        const seconds = Math.floor((Date.now() - lastRefreshAt) / 1000);
+        html = `<span class="dot dot-info dot-live"></span>refreshed ${seconds < 45 ? 'just now' : `${elapsedTime(lastRefreshAt)}`}`;
+    } else {
+        html = '';
+    }
+    const title = `Lists and counts refresh every 15 s while this tab is visible${lastRefreshAt ? `; last refresh ${new Date(lastRefreshAt).toLocaleTimeString()}` : ''}`;
+    if (element.innerHTML !== html) element.innerHTML = html;
+    element.classList.toggle('paused', paused);
+    element.title = title;
+    document.getElementById('detail')?.toggleAttribute('data-stale', refreshFailures.size > 0);
+}
+
+let tickCount = 0;
+setInterval(() => {
+    updateRefreshState();
+    tickCount += 1;
+    if (tickCount % 6 === 0) retickTimes();
+}, 5000);
+
 // ───────────────────────────── Header ─────────────────────────────
 // `undefined` until the first answer, `null` when the counts could not be read.
 let overviewCounts;
@@ -357,9 +423,12 @@ async function loadOverview() {
     try {
         overviewCounts = await api('/api/overview');
         overviewFailure = '';
+        noteRefresh('overview');
     } catch (error) {
-        overviewCounts = null;
         overviewFailure = apiErrorMessage(error);
+        // The counts shown stay, dimmed, until a read answers; the tiles say so only before one has.
+        if (overviewCounts === undefined) overviewCounts = null;
+        noteRefresh('overview', overviewFailure);
     }
     updateNav();
     if (route.name === 'overview') renderOverviewTiles();
@@ -399,32 +468,175 @@ function renderOverviewTiles() {
     if (tiles) tiles.innerHTML = overviewTilesHtml();
 }
 
+// The counts at the reviewer's previous visit, kept in this browser, so a tile can say how it
+// moved since they last looked. A visit ends when the tab is hidden; coming back after ten minutes
+// starts a new one.
+const VISIT_KEY = 'crawlerReviewVisit';
+const NEW_VISIT_AFTER_MS = 10 * 60 * 1000;
+let visitBaseline = readVisit();
+let hiddenAt = null;
+
+function readVisit() {
+    try {
+        return JSON.parse(localStorage.getItem(VISIT_KEY) || 'null');
+    } catch (_) {
+        return null;
+    }
+}
+
+function countsSnapshot() {
+    if (!overviewCounts) return null;
+    return {
+        at: Date.now(),
+        needs_attention: overviewCounts.sources.needs_attention,
+        pending: pendingReviewCount(),
+        waiting_for_human: overviewCounts.reviews.waiting_for_human
+    };
+}
+
+function storeVisit() {
+    const snapshot = countsSnapshot();
+    if (!snapshot) return;
+    try {
+        localStorage.setItem(VISIT_KEY, JSON.stringify(snapshot));
+    } catch (_) {
+        // Nothing to keep.
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        hiddenAt = Date.now();
+        storeVisit();
+    } else if (hiddenAt && Date.now() - hiddenAt > NEW_VISIT_AFTER_MS) {
+        visitBaseline = readVisit();
+    }
+    updateRefreshState();
+});
+window.addEventListener('pagehide', storeVisit);
+
+// How `count` moved since the previous visit, as a small mark on the tile.
+function tileDelta(count, key) {
+    if (!visitBaseline || typeof visitBaseline[key] !== 'number' || count === undefined) return '';
+    const delta = count - visitBaseline[key];
+    if (!delta) return '';
+    const title = `${delta > 0 ? '+' : '−'}${formatCount(Math.abs(delta))} since you last looked at ${clockText(visitBaseline.at)}`;
+    return `<span class="tile-delta${delta < 0 ? ' down' : ''}" title="${escapeHtmlAttr(title)}">${delta > 0 ? '+' : '−'}${formatCount(Math.abs(delta))}</span>`;
+}
+
 function overviewTilesHtml() {
     const failure = overviewCounts === null
         ? `<div class="banner banner-bad" role="alert"><span class="banner-kind">Counts unavailable</span><div class="banner-body">${escapeHtml(overviewFailure)} · retried every 15 s</div></div>`
         : '';
     const sources = overviewCounts?.sources;
     const reviews = overviewCounts?.reviews;
-    const value = (count) => {
+    const value = (count, deltaKey) => {
         if (!sources) return '<span class="tile-value">—</span>';
-        return `<span class="tile-value${count === 0 ? ' zero' : ''}">${formatCount(count)}</span>`;
+        return `<span class="tile-value${count === 0 ? ' zero' : ''}">${formatCount(count)}${deltaKey ? tileDelta(count, deltaKey) : ''}</span>`;
     };
-    const tile = (tone, href, count, label, sub = '', live = false) =>
-        `<a class="tile tile-${tone}" href="${escapeHtmlAttr(href)}">${value(count)}<span class="tile-label"><span class="dot dot-${tone}${live ? ' dot-live' : ''}"></span>${escapeHtml(label)}</span>${sub ? `<span class="tile-sub">${escapeHtml(sub)}</span>` : ''}</a>`;
-    const parts = [];
-    if (sources) {
-        parts.push(`${sources.crawl_needs_operator} crawl`, `${sources.blocked_by_review} blocked`,
-            `${sources.failing_to_scrape} failing`, `${sources.held_removals} held`);
-    }
+    const label = (tone, text, live) => `<span class="tile-label"><span class="dot dot-${tone}${live ? ' dot-live' : ''}"></span>${escapeHtml(text)}</span>`;
+    const tile = (tone, href, count, text, {sub = '', live = false, delta = ''} = {}) =>
+        `<a class="tile tile-${tone}" href="${escapeHtmlAttr(href)}">${value(count, delta)}${label(tone, text, live)}${sub ? `<span class="tile-sub">${escapeHtml(sub)}</span>` : ''}</a>`;
+    // The breakdown of the sources that need a human is a link per condition, which a tile that is
+    // itself a link cannot hold, so this tile's number and label link and its breakdown does apart.
+    const breakdown = sources ? [
+        ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl`], ['blocked', `${sources.blocked_by_review} blocked`],
+        ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`]
+    ].map(([status, text]) => `<a href="#sources&status=${status}">${escapeHtml(text)}</a>`).join(' · ') : '';
+    const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need you')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
     const byType = reviews?.pending_by_artifact;
+    const pending = pendingReviewCount();
+    const disabled = reviews?.pending_disabled_sources || 0;
+    const pendingSub = !byType ? '' : disabled
+        ? `${formatCount(reviews.pending_total)} in all · ${formatCount(disabled)} of disabled sources`
+        : `${formatCount(byType.PRODUCT_SCHEMA)} product schemas · ${formatCount(byType.URL_PATTERN)} URL patterns`;
     return `${failure}<div class="tiles" role="group" aria-label="Right now">
-      ${tile('info', '#sources&activity=crawling', sources?.crawling_now, 'Crawling now', '', true)}
-      ${tile('info', '#sources&activity=scraping', sources?.scraping_now, 'Scraping now', '', true)}
-      ${tile('bad', '#sources&status=needs_attention', sources?.needs_attention, 'Sources need you', parts.join(' · '))}
-      ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews?.pending_total, 'Pending reviews',
-          byType ? `${formatCount(byType.PRODUCT_SCHEMA)} product schemas · ${formatCount(byType.URL_PATTERN)} URL patterns` : '')}
-      ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', 'the agents stopped on these') : ''}
+      ${tile('info', '#sources&activity=crawling', sources?.crawling_now, 'Crawling now', {live: true})}
+      ${tile('info', '#sources&activity=scraping', sources?.scraping_now, 'Scraping now', {live: true})}
+      ${needing}
+      ${tile('warn', '#reviews&status=PENDING_REVIEW', reviews ? pending : undefined, 'Pending reviews', {sub: pendingSub, delta: 'pending'})}
+      ${overviewCounts?.agent_mode ? tile('bad', '#reviews&waiting=human', reviews.waiting_for_human, 'Waiting for a human', {sub: 'the agents stopped on these', delta: 'waiting_for_human'}) : ''}
     </div>`;
+}
+
+// ───────────────────────────── Recent activity ─────────────────────────────
+// The Overview's feed of what happened in the last day: the decisions and hand-overs of the review
+// trail and what the crawler did to sources, newest first, those since the reviewer's previous
+// visit marked. Each of its two reads fails on its own.
+const FEED_WINDOW_MS = 24 * 60 * 60 * 1000;
+const FEED_LIMIT = 100;
+const FEED_SHOWN = 40;
+let activity = {items: undefined, failures: []};
+
+const REVIEW_FEED_ACTIONS = {
+    APPROVED: ['approved', 'ok'], REJECTED: ['rejected', 'bad'], REPAIR_REQUESTED: ['asked for a repair of', 'warn'],
+    HANDED_TO_HUMAN: ['handed to a human', 'bad'], RESTORED: ['restored what an approval replaced on', 'neutral'],
+    REJECTION_REVOKED: ['revoked the rejection of', 'neutral']
+};
+
+async function loadActivity() {
+    const since = encodeURIComponent(new Date(Date.now() - FEED_WINDOW_MS).toISOString());
+    const [reviewEvents, sourceEvents] = await Promise.allSettled([
+        api(`/api/review-events?since=${since}&dir=desc&limit=${FEED_LIMIT}`),
+        api(`/api/source-events?since=${since}&limit=${FEED_LIMIT}`)
+    ]);
+    const failures = [reviewEvents, sourceEvents].filter(result => result.status === 'rejected')
+        .map(result => apiErrorMessage(result.reason));
+    const items = [
+        ...(reviewEvents.status === 'fulfilled' ? reviewEvents.value.events : []).filter(event => REVIEW_FEED_ACTIONS[event.action]).map(event => ({when: event.created, review: event})),
+        ...(sourceEvents.status === 'fulfilled' ? sourceEvents.value.events : []).map(event => ({when: event.occurred, source: event}))
+    ].sort((a, b) => Date.parse(b.when) - Date.parse(a.when));
+    activity = {items, failures};
+    noteRefresh('activity', failures.length === 2 ? failures[0] : null);
+    renderActivity();
+}
+
+function renderActivity() {
+    const feed = document.getElementById('activityFeed');
+    if (feed) feed.innerHTML = activityHtml();
+}
+
+function activityHtml() {
+    const head = '<div class="card-head"><h2>Recent activity</h2><span class="small muted">agents, humans and the crawler · last 24 h</span></div>';
+    if (activity.items === undefined) return `${head}${stateBlock('loading', 'Loading')}`;
+    const problems = activity.failures.map(message => `<div class="banner banner-bad" role="alert"><span class="banner-kind">Not read</span><div class="banner-body">${escapeHtml(message)}</div></div>`).join('');
+    if (!activity.items.length) {
+        return `${head}${problems}${activity.failures.length ? '' : stateBlock('empty', 'Nothing happened in the last day')}`;
+    }
+    const since = visitBaseline?.at || null;
+    const shown = activity.items.slice(0, FEED_SHOWN);
+    const fresh = shown.filter(item => since && Date.parse(item.when) > since);
+    const rows = (items, isNew) => items.map(item => renderFeedItem(item, isNew)).join('');
+    const earlier = shown.filter(item => !fresh.includes(item));
+    return `${head}${problems}<div class="feed">${fresh.length ? `<div class="feed-day">Since you last looked · ${clockText(since)}</div>${rows(fresh, true)}` : ''}${earlier.length ? `<div class="feed-day">${fresh.length ? 'Earlier' : 'Last 24 hours'}</div>${rows(earlier, false)}` : ''}</div>`;
+}
+
+function feedLink(href, text) {
+    return `<a href="${escapeHtmlAttr(href)}">${escapeHtml(text || 'Unnamed source')}</a>`;
+}
+
+function renderFeedItem(item, isNew) {
+    const time = `<span class="feed-time" title="${escapeHtmlAttr(formatDate(item.when))}">${clockText(item.when)}</span>`;
+    return `<div class="feed-item${isNew ? ' new' : ''}">${time}<span class="feed-text">${item.review ? reviewFeedText(item.review) : sourceFeedText(item.source)}</span></div>`;
+}
+
+function reviewFeedText(event) {
+    const [verb, tone] = REVIEW_FEED_ACTIONS[event.action];
+    const actor = {HUMAN: 'A human', AGENT_AUTHOR: 'The author agent', AGENT_REVIEWER: 'The reviewer agent', SYSTEM: 'The crawler'}[event.actor] || 'Someone';
+    const target = `the ${artifactLabel(event.artifact_type).toLowerCase().replace('url', 'URL')} of ${feedLink(reviewHash(event.review_id), event.listing_source_name)}`;
+    const note = event.notes ? ` · “${escapeHtml(event.notes.length > 90 ? `${event.notes.slice(0, 90)}…` : event.notes)}”` : '';
+    const handed = event.action === 'HANDED_TO_HUMAN';
+    return `${escapeHtml(actor)} <span class="badge badge-${tone}">${escapeHtml(handed ? 'handed to a human' : verb)}</span> ${handed ? feedLink(reviewHash(event.review_id), event.listing_source_name) : target}${note}`;
+}
+
+function sourceFeedText(event) {
+    const link = feedLink(sourceHash(event.listing_source_id), event.listing_source_name);
+    if (event.kind === 'SCRAPE_FAILING') {
+        return `${link} <span class="badge badge-bad">failing to scrape</span> · ${escapeHtml(errorKindLabel(event.error_kind))}, ${formatCount(event.count)} in a row`;
+    }
+    const failed = event.outcome === 'FAILED' || event.outcome === 'NEEDS_OPERATOR';
+    const outcome = reasonWord(event.outcome);
+    return `Crawl of ${link} ${failed ? `<span class="badge badge-bad">${escapeHtml(outcome)}</span>` : `finished · ${escapeHtml(outcome)}`}${event.error_kind ? ` · ${escapeHtml(errorKindLabel(event.error_kind))}` : ''}`;
 }
 
 // ───────────────────────────── Lists ─────────────────────────────
@@ -447,22 +659,27 @@ function listParameter(name) {
     return route.params.get(name) || '';
 }
 
-// The query a list's API route is asked, as the fragment names it.
-function listApiPath(kind) {
+// The filters and order of a list as its API route takes them, from the fragment's `params`.
+function listApiQuery(kind, params) {
     const query = new URLSearchParams();
-    const copy = (from, to = from) => {
-        const value = listParameter(from);
-        if (value) query.set(to, value);
+    const copy = name => {
+        if (params.get(name)) query.set(name, params.get(name));
     };
-    ['q', 'status', 'sort', 'dir'].forEach(name => copy(name));
+    ['q', 'status', 'sort', 'dir'].forEach(copy);
     if (kind === 'sources') {
         copy('activity');
     } else {
         copy('artifact');
         copy('waiting');
-        const source = listParameter('listing_source');
+        const source = params.get('listing_source') || '';
         if (REVIEW_ID_PATTERN.test(source)) query.set('listing_source', source);
     }
+    return query;
+}
+
+// The query a list's API route is asked for the page the fragment names.
+function listApiPath(kind) {
+    const query = listApiQuery(kind, route.params);
     const offset = Number(listParameter('offset'));
     query.set('limit', String(PAGE_SIZE));
     if (Number.isInteger(offset) && offset > 0) query.set('offset', String(offset));
@@ -484,27 +701,77 @@ async function loadList() {
     try {
         const answer = await api(listApiPath(kind));
         if (sequence !== list.sequence) return;
+        list.changes = listChanges(list, answer.items);
         list.items = answer.items;
         list.total = answer.total;
         list.failure = '';
         if (!listFiltersActive(kind)) list.unfilteredTotal = answer.total;
+        noteRefresh(kind);
     } catch (error) {
         if (sequence !== list.sequence) return;
         list.failure = apiErrorMessage(error);
+        noteRefresh(kind, list.failure);
     }
     list.loading = false;
     renderListBody(kind);
 }
 
+// What a refresh changed in the rows of the list the reviewer has open: how many rows left it and
+// which are new, said for one cycle, so a list that changes under the reviewer says so.
+function listChanges(list, items) {
+    const key = routeHash(route.name, route.params);
+    let changes = null;
+    if (list.shownKey === key && list.items) {
+        const before = new Set(list.items.map(rowKey));
+        const now = new Set(items.map(rowKey));
+        const left = [...before].filter(id => !now.has(id)).length;
+        const added = new Set(items.map(rowKey).filter(id => !before.has(id)));
+        if (left || added.size) changes = {left, added};
+    }
+    list.shownKey = key;
+    return changes;
+}
+
+// Where the reviewer was in a list when they opened a row, and which row it was, so coming back
+// finds the list at the same place with that row marked.
+let listReturn = null;
+let leftList = null;
+
+function rememberListReturn(next) {
+    if (!listRouteKind() || next.name === 'overview' || next.name === 'sources' || next.name === 'reviews') return;
+    leftList = {
+        hash: routeHash(route.name, route.params),
+        scrollY: window.scrollY,
+        id: next.name === 'review' ? next.params.get('review') : next.params.get('source')
+    };
+}
+
+function listReturnId() {
+    return listReturn?.id || null;
+}
+
+// The list's rows are on screen: a list the reviewer returned to scrolls back, once.
+function restoreListScroll() {
+    if (!listReturn || listReturn.restored) return;
+    listReturn.restored = true;
+    window.scrollTo(0, listReturn.scrollY);
+}
+
+function rowKey(item) {
+    return item.review_id || item.listing_source_id;
+}
+
 function renderListPage() {
     const kind = listRouteKind();
-    showPage(`${route.name === 'overview' ? '<div id="overviewTiles">' + overviewTilesHtml() + '</div>' : ''}
-      <div class="card table-card">
-        <div class="filters" id="listFilters" role="search">${renderListFilters(kind)}</div>
+    const table = `<div class="card table-card">
+        <div class="filters" id="listFilters" role="search">${renderListFilters(kind)}<div class="pager-buttons" id="listPagerTop" hidden></div></div>
         <div id="listBanner"></div>
         <table class="data-table" id="listTable"></table>
         <div class="pager" id="listPager" hidden></div>
-      </div>`);
+      </div>`;
+    showPage(route.name === 'overview'
+        ? `<div id="overviewTiles">${overviewTilesHtml()}</div><div class="overview-grid">${table}<div class="card" id="activityFeed">${activityHtml()}</div></div>`
+        : table);
     renderListBody(kind);
 }
 
@@ -521,7 +788,9 @@ function setListParams(changes, {filters = true} = {}) {
     history.replaceState(null, '', routeHash(route.name, route.params));
     if (route.name === 'reviews') lastReviewsHash = location.hash;
     const container = document.getElementById('listFilters');
-    if (container && filters) container.innerHTML = renderListFilters(listRouteKind());
+    if (container && filters) {
+        container.innerHTML = `${renderListFilters(listRouteKind())}<div class="pager-buttons" id="listPagerTop" hidden></div>`;
+    }
     container?.querySelector('.reset')?.toggleAttribute('hidden', !listFiltersActive(listRouteKind()));
     loadList();
 }
@@ -576,7 +845,10 @@ function reviewSourceName(listingSourceId) {
         api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}`).then(detail => {
             sourceNames.set(listingSourceId, listingSourceName(detail));
             const container = document.getElementById('listFilters');
-            if (container && route.name === 'reviews') container.innerHTML = renderListFilters('reviews');
+            if (container && route.name === 'reviews') {
+                container.innerHTML = `${renderListFilters('reviews')}<div class="pager-buttons" id="listPagerTop" hidden></div>`;
+                renderListBody('reviews');
+            }
         }).catch(() => {});
     }
     return sourceNames.get(listingSourceId);
@@ -598,7 +870,7 @@ function renderListBody(kind) {
         rows = `<tr><td colspan="${span}" class="state-cell">${stateBlock('empty', kind === 'sources' ? 'No source matches' : 'No review matches',
             '', listFiltersActive(kind) ? `<a class="btn btn-sm" href="#${route.name}">Clear filters</a>` : '')}</td></tr>`;
     } else {
-        rows = list.items.map(kind === 'sources' ? renderSourceRow : renderReviewRow).join('');
+        rows = kind === 'sources' ? renderSourceRows(list) : list.items.map((review, index) => renderReviewRow(review, index)).join('');
     }
     const failure = list.items !== undefined && list.failure
         ? `<div class="banner banner-bad" role="alert"><span class="banner-kind">Not refreshed</span><div class="banner-body">${escapeHtml(list.failure)} · retried every 15 s</div></div>` : '';
@@ -608,6 +880,13 @@ function renderListBody(kind) {
     const pager = document.getElementById('listPager');
     pager.innerHTML = renderPager(kind);
     pager.hidden = !pager.innerHTML;
+    if (list.items !== undefined) restoreListScroll();
+    const top = document.getElementById('listPagerTop');
+    if (top) {
+        const buttons = pager.querySelector('.pager-buttons');
+        top.innerHTML = buttons ? buttons.innerHTML : '';
+        top.hidden = !buttons;
+    }
 }
 
 // A header cell that sorts, or one that only names its column. `key` is the sort the API knows.
@@ -641,9 +920,28 @@ function sortList(key) {
     setListParams({sort: key, dir}, {filters: false});
 }
 
+// What the last refresh changed in the rows, as a note the pager line carries.
+function listChangeNote(kind) {
+    const changes = lists[kind].changes;
+    if (!changes) return '';
+    const noun = kind === 'sources' ? ['source', 'sources'] : ['review', 'reviews'];
+    const parts = [];
+    if (changes.left) parts.push(`${pluralize(changes.left, noun[0], noun[1])} left this list since you opened it`);
+    if (changes.added.size) parts.push(`${formatCount(changes.added.size)} new`);
+    return `<span class="pager-note">${parts.join(' · ')}</span>`;
+}
+
 function renderPager(kind) {
     const list = lists[kind];
     if (list.items === undefined) return '';
+    const note = listChangeNote(kind);
+    const html = renderPagerCounts(kind);
+    if (!note) return html;
+    return html ? html.replace('</div>', ` ${note}</div>`) : `<div class="pager-count">${note}</div>`;
+}
+
+function renderPagerCounts(kind) {
+    const list = lists[kind];
     const noun = kind === 'sources' ? ['source', 'sources'] : ['review', 'reviews'];
     const offset = Math.max(0, Number(listParameter('offset')) || 0);
     const total = list.total;
@@ -760,8 +1058,7 @@ function errorKindLabel(kind) {
 function nextCrawlText(source) {
     const next = source.next_crawl_at;
     if (!next) return '<span class="muted">—</span>';
-    const text = Date.parse(next) <= Date.now() ? 'due' : untilText(next);
-    return `<span class="time" title="${escapeHtmlAttr(`Next crawl: ${formatDate(next)}`)}">${escapeHtml(text)}</span>`;
+    return timeSpan(next, 'due', `Next crawl: ${formatDate(next)}`);
 }
 
 // ───────────────────────────── Sources table ─────────────────────────────
@@ -769,24 +1066,72 @@ function sourceColumns() {
     return [
         {label: 'Source', key: 'name'},
         {label: 'Status', key: 'attention'},
-        {label: 'Now', className: 'col-sm', sortable: false},
         {label: 'Pending', key: 'pending_reviews', className: 'num'},
         {label: 'Last scrape', key: 'last_successful_scrape', className: 'col-md'},
         {label: 'Next crawl', key: 'next_crawl_at', className: 'col-md'}
     ];
 }
 
+// The ListingSource rows. In the attention order, with no filter, a heading row names each
+// condition the rows share, with how many sources have it.
+const SOURCE_GROUP_LABELS = {
+    crawl_needs_operator: 'Crawl needs operator', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
+    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled'
+};
+
+function sourceGroupCount(key) {
+    const sources = overviewCounts?.sources;
+    const counts = {
+        crawl_needs_operator: sources?.crawl_needs_operator, failing_to_scrape: sources?.failing_to_scrape,
+        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals
+    };
+    return counts[key];
+}
+
+function renderSourceRows(list) {
+    const grouped = currentSort().key === 'attention' && currentSort().dir === 'desc' && !listFiltersActive('sources');
+    let group = null;
+    return list.items.map(source => {
+        const key = primaryStatus(source).key;
+        let heading = '';
+        if (grouped && key !== group) {
+            const count = sourceGroupCount(key);
+            heading = `<tr class="group-head"><th colspan="${visibleSourceColumns()}" scope="colgroup">${escapeHtml(SOURCE_GROUP_LABELS[key])}${count !== undefined ? ` · ${formatCount(count)}` : ''}</th></tr>`;
+        }
+        group = key;
+        return heading + renderSourceRow(source);
+    }).join('');
+}
+
+// How many of the sources table's columns show at this width: the last two hide below 1100 px.
+function visibleSourceColumns() {
+    return window.innerWidth < 1100 ? 3 : 5;
+}
+
+let sourceColumnsShown = visibleSourceColumns();
+window.addEventListener('resize', () => {
+    const shown = visibleSourceColumns();
+    if (shown !== sourceColumnsShown) {
+        sourceColumnsShown = shown;
+        if (listRouteKind() === 'sources') renderListBody('sources');
+    }
+});
+
+function rowClasses(...classes) {
+    const text = classes.filter(Boolean).join(' ');
+    return text ? ` class="${text}"` : '';
+}
+
 function renderSourceRow(source) {
     const status = primaryStatus(source);
     const pending = Number(source.pending_reviews) || 0;
     const blocking = REVIEW_ID_PATTERN.test(source.blocking_review_id || '') ? source.blocking_review_id : null;
-    const pendingHref = blocking
-        ? reviewHash(blocking)
-        : `#reviews&listing_source=${encodeURIComponent(source.listing_source_id)}&status=PENDING_REVIEW`;
-    return `<tr${source.crawl_enabled ? '' : ' class="dim"'}>
+    const pendingHref = `#reviews&listing_source=${encodeURIComponent(source.listing_source_id)}&status=PENDING_REVIEW`;
+    const blockingLink = status.key === 'blocked_by_review' && blocking
+        ? ` · <a href="${reviewHash(blocking)}">its review →</a>` : '';
+    return `<tr${rowClasses(source.crawl_enabled ? '' : 'dim', listReturnId() === source.listing_source_id ? 'selected' : '', lists.sources.changes?.added.has(source.listing_source_id) ? 'changed' : '')}>
       <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span><span class="cell-sub">${escapeHtml(sourceHost(source))}</span></a></td>
-      <td>${statusKeyBadge(status)}${status.more ? ` <span class="more">${escapeHtml(status.more)}</span>` : ''}</td>
-      <td class="col-sm">${activityBadges(source) || '<span class="muted">—</span>'}</td>
+      <td>${statusKeyBadge(status)}${status.more ? ` <span class="more">${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}</td>
       <td class="num">${pending ? `<a href="${escapeHtmlAttr(pendingHref)}">${formatCount(pending)}</a>` : '<span class="muted">0</span>'}</td>
       <td class="col-md">${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
       <td class="col-md">${nextCrawlText(source)}</td>
@@ -803,11 +1148,13 @@ function reviewColumns() {
     ];
 }
 
-function renderReviewRow(review) {
+function renderReviewRow(review, index) {
     const closed = review.status !== 'PENDING_REVIEW';
     const dim = closed || review.listing_source_crawl_enabled === false;
-    return `<tr${dim ? ' class="dim"' : ''}>
-      <td><a class="row-link" href="${reviewHash(review.review_id)}"><span class="cell-main">${escapeHtml(review.listing_source_name || 'Unnamed source')}</span><span class="cell-sub">${escapeHtml(`${artifactLabel(review.artifact_type)} · ${reasonWord(review.reason)}`)}</span></a></td>
+    const offset = Math.max(0, Number(listParameter('offset')) || 0);
+    const queue = {key: queueKeyOfList(), index: offset + index};
+    return `<tr${rowClasses(dim ? 'dim' : '', listReturnId() === review.review_id ? 'selected' : '', lists.reviews.changes?.added.has(review.review_id) ? 'changed' : '')}>
+      <td><a class="row-link" href="${reviewHash(review.review_id, queue)}"><span class="cell-main">${escapeHtml(review.listing_source_name || 'Unnamed source')}</span><span class="cell-sub">${escapeHtml(`${artifactLabel(review.artifact_type)} · ${reasonWord(review.reason)}`)}</span></a></td>
       <td>${statusBadge(review.status)} ${reviewFlags(review)}</td>
       <td>${timeBadge(review.created, 'Opened')}</td>
       <td class="col-sm">${timeBadge(review.updated, 'Last change')}</td>
@@ -851,6 +1198,7 @@ async function loadSourcePage() {
         else page.detailFailure = apiErrorMessage(error);
     }).then(updateSourcePage);
     await Promise.all([detailLoaded, loadSourceReviews()]);
+    noteRefresh('source', page.detailFailure || page.reviewsFailure || null);
 }
 
 async function loadSourceReviews() {
@@ -966,12 +1314,12 @@ function renderSourceHealth(source) {
     }
     if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
     const crawl = source.last_crawl_outcome
-        ? `${escapeHtml(displayName(source.last_crawl_outcome).toLowerCase())}${source.last_successful_crawl ? ` ${timeBadge(source.last_successful_crawl, 'Last successful crawl')}` : ''}${Number(source.crawl_failure_count) > 0 ? ` · ${pluralize(Number(source.crawl_failure_count), 'failed crawl', 'failed crawls')}` : ''}`
+        ? `${escapeHtml(reasonWord(source.last_crawl_outcome))}${source.last_successful_crawl ? ` ${timeBadge(source.last_successful_crawl, 'Last successful crawl')}` : ''}${Number(source.crawl_failure_count) > 0 && source.last_crawl_outcome !== 'NEEDS_OPERATOR' ? ` · ${pluralize(Number(source.crawl_failure_count), 'failed crawl', 'failed crawls')}` : ''}`
         : 'not crawled yet';
-    const streak = Number(source.scrape_failure_streak) || 0;
-    const scrape = streak > 0
-        ? `${streak} in a row · ${escapeHtml(errorKindLabel(source.last_scrape_error_kind))}${source.scrape_failing_since ? ` · since ${timeBadge(source.scrape_failing_since, 'Failing since', true)}` : ''}${source.scrape_paused_until ? ` · retries ${Date.parse(source.scrape_paused_until) <= Date.now() ? 'now' : escapeHtml(untilText(source.scrape_paused_until))}` : ''}`
-        : 'no failure streak';
+    // The status lines say what the failure streak is; this row adds only when the source last scraped.
+    const scrape = source.last_successful_scrape
+        ? `${(Number(source.scrape_failure_streak) || 0) > 0 ? 'last success ' : 'last scraped '}${timeBadge(source.last_successful_scrape, 'Last successful scrape')}`
+        : (Number(source.scrape_failure_streak) || 0) > 0 ? 'never scraped' : 'no failure streak';
     const errors = (source.url_error_kinds || []).filter(entry => !STATUS_ERROR_KINDS.has(entry.kind));
     return `<div class="card">
       <div class="card-head"><h2>Health</h2></div>
@@ -1191,7 +1539,7 @@ async function revokeMassRemovalConfirmation(listingSourceId) {
 // ───────────────────────────── Source rail of a review ─────────────────────────────
 // The reviews of the selected review's ListingSource in every status, read per source: they feed
 // the rail, the breadcrumb's count and the detection of a review that changed elsewhere.
-let rail = {listingSourceId: null, items: undefined, total: 0, failure: ''};
+let rail = {listingSourceId: null, items: undefined, total: 0, failure: '', source: null};
 let railCollapsed = readRailCollapsed();
 
 function readRailCollapsed() {
@@ -1208,16 +1556,60 @@ function railHidden() {
 
 async function loadRail(listingSourceId = rail.listingSourceId) {
     if (!listingSourceId) return;
-    if (rail.listingSourceId !== listingSourceId) rail = {listingSourceId, items: undefined, total: 0, failure: ''};
-    try {
-        const answer = await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/reviews?limit=200`);
-        if (rail.listingSourceId !== listingSourceId) return;
-        rail = {listingSourceId, items: answer.items, total: answer.total, failure: ''};
-        updateSelectedReviewFreshness(answer.items);
-    } catch (error) {
-        if (rail.listingSourceId === listingSourceId) rail.failure = apiErrorMessage(error);
+    if (rail.listingSourceId !== listingSourceId) {
+        rail = {listingSourceId, items: undefined, total: 0, failure: '', source: null};
+        sourceStatusWatch = null;
+        sourceChange = null;
+    }
+    const id = encodeURIComponent(listingSourceId);
+    const [reviews, source] = await Promise.allSettled([
+        api(`/api/listing-sources/${id}/reviews?limit=200`),
+        api(`/api/listing-sources/${id}`)
+    ]);
+    if (rail.listingSourceId !== listingSourceId) return;
+    if (reviews.status === 'fulfilled') {
+        rail = {...rail, items: reviews.value.items, total: reviews.value.total, failure: ''};
+        updateSelectedReviewFreshness(reviews.value.items);
+        noteRefresh('rail');
+    } else {
+        rail.failure = apiErrorMessage(reviews.reason);
+        noteRefresh('rail', rail.failure);
+    }
+    if (source.status === 'fulfilled') {
+        rail.source = source.value;
+        watchSourceStatus(source.value);
     }
     updateRail();
+}
+
+// The ListingSource's status as the reviewer first saw it with the review open, so a source that
+// starts failing meanwhile says so. Only a change into a condition is worth saying.
+let sourceStatusWatch = null;
+let sourceChange = null;
+
+function watchSourceStatus(source) {
+    const status = primaryStatus(source);
+    if (sourceStatusWatch && sourceStatusWatch !== status.key && SOURCE_CONDITION_KEYS.has(status.key)) {
+        sourceChange = {name: listingSourceName(source), text: status.text.toLowerCase(), detail: status.more};
+        updateBanners();
+    } else if (SOURCE_CONDITION_KEYS.has(status.key) === false && sourceStatusWatch !== status.key) {
+        sourceChange = null;
+        updateBanners();
+    }
+    sourceStatusWatch = status.key;
+}
+
+const SOURCE_CONDITION_KEYS = new Set(['crawl_needs_operator', 'failing_to_scrape', 'blocked_by_review', 'removals_held']);
+
+function renderSourceChange() {
+    if (!sourceChange) return '';
+    return notice('warn', 'Source', `${escapeHtml(sourceChange.name)} is now ${escapeHtml(sourceChange.text)}${sourceChange.detail ? ` · ${escapeHtml(sourceChange.detail)}` : ''}`,
+        {role: 'status', dismiss: 'dismissSourceChange()'});
+}
+
+function dismissSourceChange() {
+    sourceChange = null;
+    updateBanners();
 }
 
 // The overview counts and the rail follow every refresh and every verdict.
@@ -1240,7 +1632,7 @@ function renderRailItem(review, meta, badgeHtml) {
 function renderRailContent() {
     const name = selectedDetail?.review.listing_source_name || 'This source';
     const head = `<div class="card-head"><h3><a href="${sourceHash(rail.listingSourceId || '')}" style="color:inherit">${escapeHtml(name)}</a></h3>
-      <button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4l-4 4 4 4"/></svg></button></div>`;
+      ${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" type="button"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4l-4 4 4 4"/></svg></button></div>`;
     if (rail.items === undefined) {
         return `${head}<div class="rail-body">${rail.failure ? stateBlock('error', 'Reviews unavailable', rail.failure) : stateBlock('loading', 'Loading')}</div>`;
     }
@@ -1304,13 +1696,40 @@ function notice(tone, kind, body, {role = '', actions = '', dismiss = ''} = {}) 
 function renderBanners(detail, matrix) {
     return [
         renderRefreshBanner(),
+        renderSourceChange(),
+        renderVerdictNotice(detail),
+        renderClosedNotice(detail),
         renderCandidateError(detail),
         renderHumanRequired(detail),
         renderRepairRequest(detail),
         matrix ? renderMatrixNotice(detail, matrix) : '',
         renderAutoSchemaEvaluation(detail.review),
+        renderKeptEdits(),
+        renderEvaluatedNotice(),
         renderEditMessages()
     ].join('');
+}
+
+// What a closed review says about how it closed: by whom, when and why, and whether its approval is
+// the live one.
+function renderClosedNotice(detail) {
+    const review = detail.review;
+    if (review.status === 'PENDING_REVIEW' || verdictNotices.has(review.review_id)) return '';
+    const events = detail.events || [];
+    const closing = events.slice().reverse().find(event => ['APPROVED', 'REJECTED'].includes(event.action));
+    const when = closing ? ` ${timeBadge(closing.created, 'Closed')} by ${escapeHtml(actorWord(closing.actor))}` : ` ${timeBadge(review.updated, 'Closed')}`;
+    const notes = closing?.notes ? ` · “${escapeHtml(closing.notes)}”` : '';
+    if (review.status === 'SUPERSEDED') return notice('neutral', 'Superseded', `Replaced by a later review ·${when}`);
+    if (review.status === 'REJECTED') {
+        const undo = review.artifact_type === 'URL_PATTERN' ? ' A rejected URL pattern cannot be undone; the next crawl opens a new review.' : '';
+        return notice('neutral', 'Rejected', `${when.trim()}${notes}.${undo}`);
+    }
+    const live = review.artifact_type === 'PRODUCT_SCHEMA' ? Boolean(detail.candidate_is_live) : Boolean(railEntry(review.review_id)?.candidate_is_live);
+    return notice('neutral', 'Approved', `${when.trim()}${notes}${live ? '' : ' · superseded by a later approval'}.`);
+}
+
+function railEntry(reviewId) {
+    return (rail.items || []).find(review => review.review_id === reviewId);
 }
 
 function updateBanners() {
@@ -1326,12 +1745,337 @@ function lastChangeText(detail) {
         : `last change ${timeBadge(detail.review.updated, 'Last change')}`;
 }
 
+// ───────────────────────────── After a verdict ─────────────────────────────
+// What the reviewer's verdict did and how to take it back or go on: the banner that replaces the
+// plain "Approved" with Undo, and with the next review of the queue the review was opened from.
+// The reviewer's verdicts of this session by review, so Undo stays offered when they come back.
+const verdictNotices = new Map();
+
+const VERDICT_WORDS = {
+    approve: 'Approved', reject: 'Rejected', 'needs-repair': 'Repair requested',
+    restore: 'Restored', 'revoke-rejection': 'Rejection revoked'
+};
+
+function renderVerdictNotice(detail) {
+    const verdictNotice = verdictNotices.get(detail.review.review_id);
+    if (!verdictNotice) return '';
+    const review = detail.review;
+    const name = escapeHtml(review.listing_source_name || 'the source');
+    const actions = [];
+    let body = '';
+    if (verdictNotice.verdict === 'approve') {
+        body = `Live for ${name}`;
+        actions.push('<button class="btn btn-quiet btn-sm" onclick="restoreApproval()" title="Bring back what this approval replaced" type="button">Undo (restore previous)</button>');
+    } else if (verdictNotice.verdict === 'reject') {
+        if (rejectionRevocable(detail)) {
+            body = `Rejected ${name}'s review`;
+            actions.push('<button class="btn btn-quiet btn-sm" onclick="revokeRejection()" title="Lift the non-product verdict of this rejection" type="button">Undo (revoke rejection)</button>');
+        } else {
+            body = review.artifact_type === 'URL_PATTERN'
+                ? 'Rejecting a URL pattern cannot be undone; the next crawl opens a new review.'
+                : `Rejected ${name}'s review`;
+        }
+    } else {
+        body = review.listing_source_name ? `${name}` : '';
+    }
+    const next = queue?.next;
+    if (next) actions.push(`<a class="btn btn-primary btn-sm" href="${escapeHtmlAttr(queueItemHref(next))}">Next: ${escapeHtml(next.name)} →</a>`);
+    return notice('ok', VERDICT_WORDS[verdictNotice.verdict] || 'Done', body, {role: 'status', actions: actions.join(''), dismiss: 'dismissVerdictNotice()'});
+}
+
+function dismissVerdictNotice() {
+    verdictNotices.delete(selectedId);
+    updateBanners();
+}
+
+// ───────────────────────────── Queue ─────────────────────────────
+// A review opened from a list belongs to that list's queue: the fragment carries the list's query
+// and the review's place in it, and the neighbours are read from the same list endpoint, so a list
+// that shrinks under the reviewer still yields the right next review.
+let queue = null;
+
+function queueFromRoute() {
+    const key = route.params.get('queue') || '';
+    const index = Number(route.params.get('i'));
+    if (!/^reviews(&|$)/.test(key) || !Number.isInteger(index) || index < 0) return null;
+    return {key, index};
+}
+
+function queueLabel(params) {
+    if (params.get('waiting') === 'human') return 'waiting for a human';
+    if (params.get('waiting') === 'repair') return 'waiting for repair';
+    if (params.get('status') === 'PENDING_REVIEW') return 'pending';
+    return 'in this list';
+}
+
+async function loadQueue() {
+    const place = queueFromRoute();
+    if (!place) {
+        queue = null;
+        updateQueueBar();
+        return;
+    }
+    const params = new URLSearchParams(place.key);
+    const query = listApiQuery('reviews', params);
+    const offset = Math.max(0, place.index - 1);
+    query.set('limit', '3');
+    query.set('offset', String(offset));
+    try {
+        const answer = await api(`/api/reviews?${query}`);
+        const at = answer.items.findIndex(review => review.review_id === selectedId);
+        const neighbour = (review, index) => review && {review_id: review.review_id, name: review.listing_source_name || 'Unnamed source', index};
+        let position;
+        let previous;
+        let next;
+        if (at >= 0) {
+            position = offset + at;
+            previous = neighbour(answer.items[at - 1], position - 1);
+            next = neighbour(answer.items[at + 1], position + 1);
+        } else {
+            // The review left the list, so the one after it took its place.
+            position = place.index;
+            previous = place.index > 0 ? neighbour(answer.items[0], place.index - 1) : null;
+            next = neighbour(answer.items[place.index > 0 ? 1 : 0], place.index);
+        }
+        queue = {key: place.key, label: queueLabel(params), position, total: answer.total, present: at >= 0, previous: previous || null, next: next || null};
+    } catch (_) {
+        // The queue is a convenience: without it the review is still worked as a single one.
+        queue = null;
+    }
+    updateQueueBar();
+    updateBanners();
+}
+
+function queueItemHref(item) {
+    return reviewHash(item.review_id, {key: queue.key, index: item.index});
+}
+
+function queueBarHtml() {
+    if (!queue) return '';
+    const place = queue.present ? `<strong>${formatCount(queue.position + 1)} of ${formatCount(queue.total)}</strong>` : `<strong>${formatCount(queue.total)} left</strong>`;
+    const offset = Math.floor(queue.position / PAGE_SIZE) * PAGE_SIZE;
+    const back = `#${queue.key}${offset > 0 ? `&offset=${offset}` : ''}`;
+    const previous = queue.previous
+        ? `<a class="btn btn-sm" href="${escapeHtmlAttr(queueItemHref(queue.previous))}" title="Previous (K)">← Previous <span class="kbd">K</span></a>`
+        : '<button class="btn btn-sm" disabled type="button">← Previous <span class="kbd">K</span></button>';
+    const next = queue.next
+        ? `<a class="btn btn-sm" href="${escapeHtmlAttr(queueItemHref(queue.next))}" title="Next (J)">Next: ${escapeHtml(queue.next.name)} → <span class="kbd">J</span></a>`
+        : '<button class="btn btn-sm" disabled type="button">Next → <span class="kbd">J</span></button>';
+    return `<div class="queue-bar" role="navigation" aria-label="Review queue"><span>${place} ${escapeHtml(queue.label)}</span><span class="muted">·</span><a href="${escapeHtmlAttr(back)}">back to the list</a>
+      <span class="spacer"></span>
+      <span class="kbd-hint"><span class="kbd">A</span> approve · <span class="kbd">R</span> reject · <span class="kbd">N</span> needs repair · <span class="kbd">E</span> evaluate</span>
+      ${previous}${next}</div>`;
+}
+
+function updateQueueBar() {
+    const bar = document.getElementById('queueBar');
+    if (bar) bar.innerHTML = queueBarHtml();
+}
+
+function goQueue(step) {
+    const item = step > 0 ? queue?.next : queue?.previous;
+    if (item) location.hash = queueItemHref(item);
+}
+
+// ───────────────────────────── Keyboard ─────────────────────────────
+// Shortcuts for working a queue with the keyboard. They are ignored while a field has the focus or
+// a modifier is held, and a button or link keeps its own Enter.
+let chordTimer = null;
+let chord = '';
+
+function typingTarget(target) {
+    return target instanceof Element && target.closest('input, textarea, select, [contenteditable]');
+}
+
+function reviewPending() {
+    return selectedDetail?.review.status === 'PENDING_REVIEW' && !pendingAction;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typingTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if (chord === 'g') {
+        chord = '';
+        const target = {o: '#overview', s: '#sources', r: '#reviews'}[key];
+        if (target) {
+            event.preventDefault();
+            location.hash = key === 'r' ? lastReviewsHash : target;
+        }
+        return;
+    }
+    if (key === 'g') {
+        chord = 'g';
+        clearTimeout(chordTimer);
+        chordTimer = setTimeout(() => { chord = ''; }, 1200);
+        return;
+    }
+    if (key === '/' && listRouteKind()) {
+        const search = document.querySelector('#listFilters input[type=search]');
+        if (search) {
+            event.preventDefault();
+            search.focus();
+        }
+        return;
+    }
+    if (route.name !== 'review' || !selectedDetail) return;
+    if (key === 'enter' && verdictNotices.has(selectedId) && queue?.next && !event.target.closest?.('button, a')) {
+        event.preventDefault();
+        goQueue(1);
+    } else if (key === 'j' || key === 'k') {
+        goQueue(key === 'j' ? 1 : -1);
+    } else if (reviewPending() && key === 'a') {
+        event.preventDefault();
+        approveReview();
+    } else if (reviewPending() && key === 'r') {
+        event.preventDefault();
+        rejectReview();
+    } else if (reviewPending() && key === 'n') {
+        event.preventDefault();
+        needsRepair();
+    } else if (key === 'e' && selectedMatrix && !evaluating) {
+        event.preventDefault();
+        reevaluateMatrix();
+    }
+});
+
+// ───────────────────────────── Evaluating ─────────────────────────────
+// A live evaluation fetches every review page of the shop at its crawl delay, which takes a while:
+// the banner says it runs, the button stays off, and the coverage it replaces is dimmed, until the
+// matrix lands and the result is said once.
+let evaluating = null;
+let evaluatedNotice = null;
+
+function renderEvaluating() {
+    const pages = evaluating.pages;
+    return notice('info', 'Evaluating', `<span class="spinner" aria-hidden="true"></span>Fetching ${pages ? pluralize(pages, 'page', 'pages') : 'the pages'} from the shop at its crawl delay …`,
+        {role: 'status', actions: '<button class="btn btn-sm" disabled type="button">Evaluating…</button>'});
+}
+
+function renderEvaluatedNotice() {
+    if (evaluatedNotice?.reviewId !== selectedId) return '';
+    return notice('info', 'Evaluated', escapeHtml(evaluatedNotice.text), {role: 'status', dismiss: 'dismissEvaluatedNotice()'});
+}
+
+function dismissEvaluatedNotice() {
+    evaluatedNotice = null;
+    updateBanners();
+}
+
+// The outcome of an evaluation, said when its matrix has been loaded.
+function finishEvaluating(detail, matrix, failure) {
+    if (evaluating?.reviewId !== detail.review.review_id) return;
+    evaluating = null;
+    if (failure || !matrix?.candidates?.length) return;
+    const coverage = reviewPageCoverage(detail, matrix);
+    evaluatedNotice = {
+        reviewId: detail.review.review_id,
+        text: `${pluralize(coverage.total, 'page', 'pages')} · covers ${coverage.covered} of ${coverage.total}`
+    };
+}
+
+// ───────────────────────────── Unsaved edits across a conflict ─────────────────────────────
+// When the candidate changed elsewhere, refreshing keeps what the reviewer typed: the fields they
+// changed are applied to the new candidate as unsaved edits, and what could not be applied is said.
+let candidateBaseline = null;
+let keptEdits = null;
+
+function sameJson(a, b) {
+    return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function cloneJson(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+// The candidate `fresh` with the changes `draft` made to `base` applied: per schema field when the
+// schema lists have the same length, as a whole otherwise. Returns the merged candidate and what
+// could not be applied.
+function mergeDraftCandidate(artifactType, base, draft, fresh) {
+    const merged = cloneJson(fresh);
+    const notes = [];
+    if (!base) return {merged: cloneJson(draft), notes};
+    if (artifactType === 'URL_PATTERN') {
+        if (!sameJson(draft.decision, base.decision)) merged.decision = cloneJson(draft.decision);
+        return {merged, notes};
+    }
+    if (!sameJson(draft.removed_page_schemas, base.removed_page_schemas)) {
+        merged.removed_page_schemas = cloneJson(draft.removed_page_schemas || []);
+    }
+    const baseSchemas = base.schemas || [];
+    const draftSchemas = draft.schemas || [];
+    if (baseSchemas.length !== draftSchemas.length) {
+        merged.schemas = cloneJson(draftSchemas);
+        notes.push('You added or removed a schema, so your schema list replaced the new one.');
+        return {merged, notes};
+    }
+    draftSchemas.forEach((schema, index) => {
+        const before = baseSchemas[index] || {};
+        const keys = new Set([...Object.keys(schema), ...Object.keys(before)].filter(key => key !== 'raw_attributes'));
+        const changed = [...keys].filter(key => !sameJson(schema[key], before[key]));
+        const rawKeys = new Set([...Object.keys(schema.raw_attributes || {}), ...Object.keys(before.raw_attributes || {})]);
+        const rawChanged = [...rawKeys].filter(key => !sameJson((schema.raw_attributes || {})[key], (before.raw_attributes || {})[key]));
+        if (!changed.length && !rawChanged.length) return;
+        if (!merged.schemas?.[index]) {
+            notes.push(`${schemaLabel(index)} no longer exists; your edits to it were dropped.`);
+            return;
+        }
+        for (const key of changed) {
+            if (schema[key] === undefined) delete merged.schemas[index][key];
+            else merged.schemas[index][key] = cloneJson(schema[key]);
+        }
+        for (const key of rawChanged) {
+            merged.schemas[index].raw_attributes = merged.schemas[index].raw_attributes || {};
+            const value = (schema.raw_attributes || {})[key];
+            if (value === undefined) delete merged.schemas[index].raw_attributes[key];
+            else merged.schemas[index].raw_attributes[key] = cloneJson(value);
+        }
+    });
+    return {merged, notes};
+}
+
+function renderKeptEdits() {
+    if (keptEdits?.reviewId !== selectedId) return '';
+    const notes = keptEdits.notes.map(note => ` ${escapeHtml(note)}`).join('');
+    return notice('warn', 'Reloaded', `Your unsaved edits were kept; check them against the new candidate before saving.${notes}`,
+        {role: 'status', dismiss: 'dismissKeptEdits()'});
+}
+
+function dismissKeptEdits() {
+    keptEdits = null;
+    updateBanners();
+}
+
+async function refreshKeepingEdits() {
+    const review = selectedDetail.review;
+    const draft = cloneJson(review.candidate_payload);
+    const base = cloneJson(candidateBaseline);
+    const labelDraft = sampleLabelDraft;
+    const jsonText = document.getElementById('candidatePayload')?.value;
+    const jsonEdited = jsonText !== undefined && !sameJson(JSON.parse(jsonText || 'null'), draft);
+    const loaded = await submitEdit(async () => {
+        await loadSelectedReview(false);
+        await refreshChrome();
+    });
+    if (!loaded) return;
+    const {merged, notes} = mergeDraftCandidate(review.artifact_type, base, draft, selectedDetail.review.candidate_payload);
+    if (jsonEdited) notes.push('Unsaved changes in the JSON tab were not kept.');
+    candidateBaseline = cloneJson(selectedDetail.review.candidate_payload);
+    selectedDetail.review.candidate_payload = merged;
+    sampleLabelDraft = labelDraft;
+    dirty = true;
+    keptEdits = {reviewId: review.review_id, notes};
+    selectedReviewNeedsRefresh = false;
+    selectedReviewRefreshReason = '';
+    rerenderWorkbench();
+}
+
 function renderDetail(detail, matrix) {
     const review = detail.review;
     const urls = detail.urls || [];
     const live = review.status === 'APPROVED' && review.artifact_type === 'PRODUCT_SCHEMA' && Boolean(detail.candidate_is_live);
     const frameKept = writeDetail(`
       <nav class="crumbs" id="reviewCrumbs" aria-label="Breadcrumb">${renderCrumbs(review)}</nav>
+      <div id="queueBar">${queueBarHtml()}</div>
       <div class="review-layout${railHidden() ? ' rail-collapsed' : ''}" id="reviewLayout">
         <aside class="card rail" id="sourceRail" aria-label="This source">${renderRailContent()}</aside>
         <div class="review">
@@ -1369,7 +2113,8 @@ const MATRIX_POLL_INTERVAL_MS = 3000;
 // console asks for a refresh only when the reviewer does. `refreshed` tells whether a refresh,
 // the console's own or one it joined, stored the matrix meanwhile.
 async function loadSchemaMatrix(reviewId, refresh) {
-    const matrix = await api(`/api/reviews/${reviewId}/matrix${refresh ? '?refresh=true' : ''}`);
+    const matrix = await api(`/api/reviews/${reviewId}/matrix?${refresh ? 'refresh=true' : 'probe=true'}`);
+    if (matrix?.status === 'none') return {matrix: null, refreshed: false, missing: true};
     const refreshed = refresh || matrix?.status === 'refreshing';
     return {matrix: await pollSchemaMatrix(reviewId, matrix), refreshed};
 }
@@ -1381,7 +2126,7 @@ async function pollSchemaMatrix(reviewId, matrix) {
         showPage(stateBlock('loading', matrix.message || 'Refreshing schema matrix…'));
     }
     await new Promise((resolve) => setTimeout(resolve, MATRIX_POLL_INTERVAL_MS));
-    return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix`));
+    return pollSchemaMatrix(reviewId, await api(`/api/reviews/${reviewId}/matrix?probe=true`));
 }
 
 // A failed matrix refresh, or a review without a stored matrix, leaves the review workable: the
@@ -1400,7 +2145,13 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         try {
             let refreshed = refreshMatrix;
             try {
-                ({matrix, refreshed} = await loadSchemaMatrix(reviewId, refreshMatrix));
+                const loaded = await loadSchemaMatrix(reviewId, refreshMatrix);
+                if (loaded.missing) {
+                    matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
+                    matrixMissing = true;
+                } else {
+                    ({matrix, refreshed} = loaded);
+                }
             } catch (error) {
                 matrix = {review_id: reviewId, candidates: [], removed_page_matches: []};
                 if (refusalReason(error) === 'NO_MATRIX') {
@@ -1453,8 +2204,11 @@ async function loadSelectedReview(resetSelection, refreshMatrix = false) {
         selectedPageId = (pages.find(page => page.review_page_id === requested.pageId) || pages[0])?.review_page_id || null;
         previewUrlOverride = '';
     }
+    candidateBaseline = cloneJson(detail.review.candidate_payload);
+    finishEvaluating(detail, matrix, matrixFailure);
     normalizeSchemaSelection();
     renderDetail(detail, matrix);
+    loadQueue();
 }
 
 // Loading the preview fetches the shop page live, sends the shop another request and loses the
@@ -1548,9 +2302,9 @@ function renderApprovalPanel(detail) {
             : '';
         return `${live}${restore}`;
     }
-    return `<button onclick="needsRepair()" type="button">Needs repair</button>
-      <button class="btn btn-danger" onclick="rejectReview()" type="button">Reject</button>
-      <button class="btn btn-primary" onclick="approveReview()" type="button">Approve</button>`;
+    return `<button class="btn" onclick="needsRepair()" title="Needs repair (N)" type="button">Needs repair</button>
+      <button class="btn btn-danger" onclick="rejectReview()" title="Reject (R)" type="button">Reject</button>
+      <button class="btn btn-primary" onclick="approveReview()" title="Approve (A)" type="button">Approve</button>`;
 }
 
 // Edits go to a pending review's candidate, or to the live schema list through the one approved
@@ -1614,7 +2368,7 @@ function renderHumanRequired(detail) {
 function renderRepairRequest(detail) {
     const review = detail?.review;
     const request = review?.repair_request;
-    if (!request) return '';
+    if (!request || review.status !== 'PENDING_REVIEW') return '';
     const requested = (detail.events || []).slice().reverse().find(event => event.action === 'REPAIR_REQUESTED');
     return notice('warn', 'Repair note',
         `“${escapeHtml(request.note)}” ${timeBadge(request.requested, 'Repair requested')}${requested ? ` · ${escapeHtml(actorWord(requested.actor).replace(/^the /, ''))}` : ''}`);
@@ -1987,6 +2741,7 @@ function renderUrlPatternDecisionSection(review, view) {
           <button class="btn" onclick="saveNoUrlPattern()" type="button">Save as no pattern</button>
           <span class="small muted" id="urlPatternPreview">${escapeHtml(urlPatternPreviewText(view.preview))}</span>
         </div>
+        ${handBackHint()}
         ${decision.type === 'UNDECIDED' ? notice('warn', 'Undecided', 'Enter a product URL regex or save no pattern before approving.') : ''}` : ''}
     </div>`;
 }
@@ -2252,7 +3007,7 @@ function renderSampleLabels(review) {
         <button class="btn btn-sm" onclick="addSampleLabel()" type="button">Add label</button>
         <span class="spacer"></span>
         <button class="btn" onclick="saveSampleLabels()" type="button">Save labels</button>
-      </div>` : '';
+      </div>${handBackHint()}` : '';
     return `<div class="section">
       <div class="section-head"><h3>Labels</h3><span class="small muted" id="sampleLabelStats">${sampleLabelStatsHtml(labels)}</span></div>
       ${labels.length ? `<div class="table-wrap"><table class="data-table compact"><thead><tr><th>URL</th><th class="shrink">Label</th><th>Reason</th><th class="shrink">Decision takes it</th><th class="shrink"></th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
@@ -2379,7 +3134,9 @@ function renderSchemaWorkbench(detail, matrix) {
 }
 
 function renderPreviewFrame(page, previewUrl) {
-    if (!previewUrl) return '';
+    if (!previewUrl) {
+        return '<div class="frame-placeholder">No review page yet — paste a product URL above and Add to review; the schema is tested on it.</div>';
+    }
     return `<iframe id="snapshotFrame" src="${escapeHtmlAttr(previewFrameSrc(page, previewUrl))}" sandbox="allow-scripts"></iframe>`;
 }
 
@@ -2417,7 +3174,8 @@ function resetPreviewUrl() {
 
 function workbenchTab(key, label) {
     const active = activeWorkbenchPanel === key;
-    return `<button class="tab ${active ? 'active' : ''}" role="tab" aria-selected="${active}" onclick="setWorkbenchPanel('${key}')" type="button">${label}</button>`;
+    const dim = key === 'data' && evaluating?.reviewId === selectedId;
+    return `<button class="tab ${active ? 'active' : ''}${dim ? ' dimmed' : ''}" role="tab" aria-selected="${active}" onclick="setWorkbenchPanel('${key}')" type="button">${label}</button>`;
 }
 
 function renderWorkbenchPanel(detail, matrix, schemas) {
@@ -2494,6 +3252,7 @@ function renderSelectorPanel(schemas, matrix) {
           <span class="spacer"></span>
           ${dirty ? '<button class="btn btn-quiet" onclick="discardEdits()" type="button">Discard edits</button>' : ''}
         </div>
+        ${handBackHint()}
         <div id="pickedElement">${renderPickedElement(true)}</div>
       </div>
       ${renderRawAttributeAdder(disabled)}
@@ -2559,7 +3318,7 @@ function renderSchemaChips(schemas, disabled) {
     const last = selectedSchemaIndex >= schemas.length - 1;
     const coverage = selectedMatrix ? reviewPageCoverage(selectedDetail, selectedMatrix) : null;
     const coverageBadge = coverage && coverage.total
-        ? `<span class="badge badge-${coverageComplete(coverage) ? 'ok' : coverage.covered === 0 ? 'bad' : 'warn'}" title="${escapeHtmlAttr(coverageText(coverage))}">Covers ${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}</span>` : '';
+        ? `<span class="badge badge-${coverageComplete(coverage) ? 'ok' : coverage.covered === 0 ? 'bad' : 'warn'}${evaluating?.reviewId === selectedId ? ' dimmed' : ''}" title="${escapeHtmlAttr(coverageText(coverage))}">Covers ${coverage.covered} of ${coverage.total} page${coverage.total === 1 ? '' : 's'}</span>` : '';
     return `<div class="section">
       <div class="section-head"><h3>Schemas</h3>${coverageBadge}</div>
       <div class="chips" title="Schemas are applied in this order">
@@ -2782,16 +3541,18 @@ async function submitEdit(edit, successMessage = '') {
         }
         return true;
     } catch (error) {
-        editRefusal = {reviewId, message: apiErrorMessage(error)};
+        // A conflict is said once, by the "Changed elsewhere" banner, not again as a refusal that
+        // repeats it with the server's sentence.
         const currentVersion = changedCandidateVersion(error);
+        const coverage = refusedCoverage(error);
+        editRefusal = currentVersion !== null || coverage ? null : {reviewId, message: apiErrorMessage(error)};
         if (currentVersion !== null && selectedId === reviewId) {
             selectedReviewNeedsRefresh = true;
-            selectedReviewRefreshReason = `The candidate changed elsewhere and is at version ${currentVersion}; your edits are not saved. Refresh the review and apply them again.`;
+            selectedReviewRefreshReason = 'The candidate changed elsewhere; your edits are not saved. Refresh keeps them for you to check against the new candidate.';
         }
-        const coverage = refusedCoverage(error);
         if (coverage && selectedId === reviewId) {
             selectedReviewNeedsRefresh = true;
-            selectedReviewRefreshReason = `Not approved: the review's coverage is ${coverageText({...coverage, notEvaluated: coverage.not_evaluated})}. Refresh the review and confirm its current coverage.`;
+            selectedReviewRefreshReason = `Not approved: the review's coverage is now ${coverageText({...coverage, notEvaluated: coverage.not_evaluated})}. Refresh to confirm its current coverage.`;
         }
         if (selectedId === reviewId) {
             if (selectedDetail?.review.review_id === reviewId) {
@@ -2850,6 +3611,11 @@ function recordSavedCandidateVersion(saved) {
 }
 
 function renderMatrixNotice(detail, matrix) {
+    // A review without pages has nothing to evaluate, and a closed one is evaluated no more unless its
+    // approval holds what is live now.
+    if (!(detail.pages || []).length) return '';
+    if (detail.review.status !== 'PENDING_REVIEW' && !(detail.review.status === 'APPROVED' && detail.candidate_is_live)) return '';
+    if (evaluating?.reviewId === selectedId) return renderEvaluating();
     if (selectedMatrixMissing) {
         return notice('warn', 'Not evaluated', 'The candidate has not been evaluated on the live review pages.',
             {actions: '<button onclick="reevaluateMatrix()" type="button">Evaluate on live pages</button>'});
@@ -2893,7 +3659,9 @@ function apiErrorMessage(error) {
     const message = String((error && error.message) || error);
     let text = message;
     try {
-        text = JSON.parse(message).error || message;
+        const body = JSON.parse(message);
+        text = body.error || message;
+        if (Number.isInteger(body.retry_after_secs)) text = `${text} Retry in ${body.retry_after_secs} s.`;
     } catch (_) {}
     if (error?.network) return `Request failed, the console server did not answer: ${text}`;
     if (Number.isInteger(error?.status)) {
@@ -3531,9 +4299,23 @@ async function reloadMatrix() {
 // Re-evaluating reloads the review's candidate, so it asks before discarding unsaved edits,
 // and with them a refusal of those edits. The matrix, or why there is none, shows its outcome.
 async function reevaluateMatrix() {
-    await confirmDiscardingEdits('Re-evaluating', () => {
+    if (evaluating) return;
+    await confirmDiscardingEdits('Re-evaluating', async () => {
         editNotice = null;
-        return reloadDiscardingEdits(reloadMatrix);
+        evaluatedNotice = null;
+        evaluating = {
+            reviewId: selectedId,
+            pages: (selectedDetail.pages || []).filter(page => !page.not_product_reason).length
+        };
+        rerenderWorkbench();
+        try {
+            return await reloadDiscardingEdits(reloadMatrix);
+        } finally {
+            if (evaluating) {
+                evaluating = null;
+                rerenderWorkbench();
+            }
+        }
     });
 }
 
@@ -3541,6 +4323,7 @@ async function reevaluateMatrix() {
 async function refreshSelectedReview() {
     editNotice = null;
     pendingAction = null;
+    if (dirty || sampleLabelDraft) return refreshKeepingEdits();
     return reloadDiscardingEdits(async () => {
         await loadSelectedReview(false);
         await refreshChrome();
@@ -3869,7 +4652,9 @@ function approveReview() {
     openActionPanel({
         title: 'Approve?',
         message: shownCoverage
-            ? `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`
+            ? (shownCoverage.total === 0
+                ? 'This review has no pages, so nothing was tested. Approve anyway?'
+                : `Coverage is incomplete: ${coverageText(shownCoverage)}. Approving confirms these counts.`)
             : '',
         notes: 'optional',
         confirmLabel: shownCoverage ? 'Approve anyway' : 'Approve',
@@ -3884,7 +4669,7 @@ function approveReview() {
             }
             const verdict = {notes, expected_candidate_version: expectedCandidateVersion()};
             if (coverage) verdict.acknowledged_coverage = acknowledgedCoverage(coverage);
-            return submitVerdict('approve', verdict, 'Approved');
+            return submitVerdict('approve', verdict);
         }
     });
 }
@@ -3907,7 +4692,7 @@ function restoreApproval() {
         notes: 'optional',
         notesLabel: 'Why restore? (optional)',
         confirmLabel: 'Restore previous',
-        run: notes => submitVerdict('restore', {notes}, 'Previous configuration restored')
+        run: notes => submitVerdict('restore', {notes})
     });
 }
 
@@ -3919,7 +4704,7 @@ function revokeRejection() {
         notes: 'optional',
         notesLabel: 'Why revoke? (optional)',
         confirmLabel: 'Revoke rejection',
-        run: notes => submitVerdict('revoke-rejection', {notes}, 'Rejection revoked')
+        run: notes => submitVerdict('revoke-rejection', {notes})
     });
 }
 
@@ -3929,7 +4714,7 @@ function rejectReview() {
         notes: 'optional',
         confirmLabel: 'Reject',
         danger: true,
-        run: notes => submitVerdict('reject', {notes}, 'Rejected')
+        run: notes => submitVerdict('reject', {notes})
     });
 }
 
@@ -3939,20 +4724,23 @@ function needsRepair() {
         notes: 'required',
         notesLabel: 'What needs repair?',
         confirmLabel: 'Request repair',
-        run: notes => submitVerdict('needs-repair', {notes}, 'Repair requested')
+        run: notes => submitVerdict('needs-repair', {notes})
     });
 }
 
 // A refused verdict leaves the review on screen as it was and shows why; only an accepted one
 // reloads the review and the queue.
-async function submitVerdict(verdict, body, successMessage) {
+async function submitVerdict(verdict, body) {
     const reviewId = selectedId;
-    return submitMutation(() => api(`/api/reviews/${reviewId}/${verdict}`, {
-        method: 'POST',
-        body: JSON.stringify(body)
-    }), successMessage, async () => {
+    return submitMutation(async () => {
+        await api(`/api/reviews/${reviewId}/${verdict}`, {method: 'POST', body: JSON.stringify(body)});
+        verdictNotices.set(reviewId, {verdict});
+        evaluatedNotice = null;
+        keptEdits = null;
+    }, '', async () => {
         await refreshChrome();
         await loadSelectedReview(false);
+        await loadQueue();
     });
 }
 
@@ -4147,7 +4935,18 @@ function markDirty() {
 // The status is a live region that every render updates, so it changes its text only when the
 // state changes: rewriting the same text would have a screen reader announce it again. It is
 // empty while nothing needs saying.
+// Saving a change to a review the agents wait on hands it back to them; the hint under a Save
+// button says so while there is something to save.
+function handBackHint() {
+    const review = selectedDetail?.review;
+    if (review?.status !== 'PENDING_REVIEW' || !(review.human_required || review.repair_request)) return '';
+    return `<div class="small muted hand-back"${dirty ? '' : ' hidden'}>Saving hands this review back to the agents.</div>`;
+}
+
 function updateReloadState() {
+    document.querySelectorAll('.hand-back').forEach(hint => {
+        hint.hidden = !dirty;
+    });
     const state = document.getElementById('reloadState');
     const [text, className] = dirty
         ? ['Unsaved edits', 'system-status dirty']
@@ -4186,7 +4985,7 @@ function updateSelectedReviewFreshness(reviews) {
 function renderRefreshBanner() {
     if (!selectedReviewNeedsRefresh) return '';
     return notice('warn', 'Changed elsewhere', escapeHtml(selectedReviewRefreshReason || 'The review changed elsewhere.'),
-        {role: 'status', actions: '<button class="btn btn-sm" onclick="refreshSelectedReview()" type="button">Refresh review</button>'});
+        {role: 'status', actions: `<button class="btn btn-sm" onclick="refreshSelectedReview()" type="button">${dirty || sampleLabelDraft ? 'Refresh · keep my edits' : 'Refresh review'}</button>`});
 }
 
 function normalizeSchemaSelection() {
@@ -4249,9 +5048,31 @@ function formatDate(value) {
 // The elapsed time of `value` with the full date as its tooltip; `bare` drops the "ago" for a
 // sentence that says "since" itself.
 function timeBadge(value, label, bare = false) {
+    return timeSpan(value, bare ? 'bare' : 'ago', `${label}: ${formatDate(value)}`);
+}
+
+// The text of a moment relative to now, in one of the console's modes: `ago` ("5m ago"), `bare`
+// ("5m", for a sentence that says "since" itself), `until` ("in 5m") and `due` (`until`, "due"
+// once past).
+function timeText(value, mode) {
+    if (mode === 'bare') return elapsedTime(value).replace(/ ago$/, '');
+    if (mode === 'until') return untilText(value);
+    if (mode === 'due') return Date.parse(value) <= Date.now() ? 'due' : untilText(value);
+    return elapsedTime(value);
+}
+
+// A relative time that keeps its moment and mode, so `retickTimes` brings it up to date between
+// refreshes.
+function timeSpan(value, mode, title) {
     if (!value) return '';
-    const text = bare ? elapsedTime(value).replace(/ ago$/, '') : elapsedTime(value);
-    return `<span class="time" title="${escapeHtmlAttr(`${label}: ${formatDate(value)}`)}">${escapeHtml(text)}</span>`;
+    return `<span class="time" data-time="${escapeHtmlAttr(value)}" data-mode="${mode}" title="${escapeHtmlAttr(title)}">${escapeHtml(timeText(value, mode))}</span>`;
+}
+
+function retickTimes() {
+    for (const element of document.querySelectorAll('.time[data-time]')) {
+        const text = timeText(element.dataset.time, element.dataset.mode);
+        if (element.textContent !== text) element.textContent = text;
+    }
 }
 
 // The inline icons of the console, 16 px strokes in the current colour; the chevron points down
@@ -4306,6 +5127,7 @@ function elapsedTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
     const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (seconds < 45) return 'just now';
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
@@ -4353,6 +5175,9 @@ window.addEventListener('message', event => {
 function selectionUrlHash() {
     if (!selectedId) return location.hash;
     const params = new URLSearchParams({review: selectedId});
+    for (const name of ['queue', 'i']) {
+        if (route.params.get(name)) params.set(name, route.params.get(name));
+    }
     if (selectedMatrix && selectedDetail?.review.review_id === selectedId) {
         if (selectedPageId) params.set('page', selectedPageId);
         params.set('schema', String(selectedSchemaIndex));
@@ -4386,6 +5211,10 @@ async function selectReview(id, requested = null) {
     selectedMatrix = null;
     selectedReviewNeedsRefresh = false;
     selectedReviewRefreshReason = '';
+    evaluating = null;
+    evaluatedNotice = null;
+    keptEdits = null;
+    queue = null;
     activeWorkbenchPanel = 'selector';
     showPage(stateBlock('loading', 'Loading review'));
     updateReloadState();
@@ -4393,6 +5222,7 @@ async function selectReview(id, requested = null) {
 }
 
 function clearSelectedReview() {
+    queue = null;
     selectedId = null;
     selectedDetail = null;
     selectedMatrix = null;
@@ -4402,14 +5232,18 @@ function clearSelectedReview() {
     pendingAction = null;
     selectedReviewNeedsRefresh = false;
     selectedReviewRefreshReason = '';
-    rail = {listingSourceId: null, items: undefined, total: 0, failure: ''};
+    rail = {listingSourceId: null, items: undefined, total: 0, failure: '', source: null};
+    sourceStatusWatch = null;
+    sourceChange = null;
     updateReloadState();
 }
 
 // Shows the route the fragment names. The two list routes read their current window, the source
 // page its own reads, and a review its detail.
 function openRoute(next) {
+    rememberListReturn(next);
     route = next;
+    listReturn = listRouteKind() && leftList?.hash === routeHash(route.name, route.params) ? leftList : null;
     if (next.name === 'reviews') lastReviewsHash = location.hash;
     if (next.name === 'review') {
         updateNav();
@@ -4421,14 +5255,14 @@ function openRoute(next) {
     }
     clearSelectedReview();
     updateNav();
-    window.scrollTo(0, 0);
+    if (!listReturn) window.scrollTo(0, 0);
     if (next.name === 'source') {
         renderSourcePage();
         loadOverview();
         return loadSourcePage();
     }
     renderListPage();
-    return Promise.all([loadOverview(), loadList()]);
+    return Promise.all([loadOverview(), loadList(), next.name === 'overview' ? loadActivity() : null]);
 }
 
 function applyRouteFromUrl() {
@@ -4471,11 +5305,6 @@ function applyRequestedPageAndSchema({pageId, schemaIndex}) {
 
 window.addEventListener('hashchange', applyRouteFromUrl);
 
-function reportRefreshFailure(error) {
-    transientStatus = {text: `Refresh failed: ${apiErrorMessage(error)}`, className: 'system-status stale'};
-    updateReloadState();
-}
-
 // The header counts and the list on screen refresh calmly, and not at all while the tab is hidden;
 // they refresh at once when the tab is shown again. A refresh never reloads the selected review.
 const REFRESH_INTERVAL_MS = 15000;
@@ -4486,16 +5315,14 @@ async function refreshView() {
     refreshTimer = null;
     try {
         const work = [loadOverview()];
+        if (route.name === 'overview') work.push(loadActivity());
         if (listRouteKind()) work.push(loadList());
         else if (route.name === 'source') work.push(loadSourcePage());
-        else if (route.name === 'review') work.push(loadRail());
+        else if (route.name === 'review') work.push(loadRail(), loadQueue());
         await Promise.all(work);
-        if (transientStatus?.className === 'system-status stale') {
-            transientStatus = null;
-            updateReloadState();
-        }
+        noteRefresh('view');
     } catch (error) {
-        reportRefreshFailure(error);
+        noteRefresh('view', apiErrorMessage(error));
     }
     scheduleRefresh();
 }
@@ -4516,4 +5343,5 @@ document.addEventListener('visibilitychange', () => {
 
 scheduleRefresh();
 updateSignOutButton();
+updateRefreshState();
 applyRouteFromUrl();

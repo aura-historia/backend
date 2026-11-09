@@ -531,3 +531,61 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 @media (prefers-reduced-motion: reduce) {
     .chev svg, .skeleton { transition: none; animation: none; }
 }
+/* ───────────────────────────── 17. Proposals from the UX review (UX-REVIEW.md) ───────────────────────────── */
+/* Overview: sources table beside a recent-activity feed on wide screens; the feed drops below the table under 1320px. */
+.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: var(--s-4); align-items: start; }
+.feed { display: grid; }
+.feed-day { padding: var(--s-2) var(--s-4) 2px; color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.feed-item { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: var(--s-1) var(--s-3); padding: 6px var(--s-4); border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.feed-item:first-of-type, .feed-day + .feed-item { border-top: 0; }
+.feed-time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.feed-text { min-width: 0; color: var(--ink-2); }
+.feed-text a { color: var(--ink); font-weight: 600; }
+.feed-text .badge { vertical-align: 1px; }
+.feed-item.new { background: var(--accent-soft); }
+.feed-more { padding: var(--s-2) var(--s-4); border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+/* "Since you last looked" delta on a tile. */
+.tile-delta { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 0 6px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent); font-size: var(--fs-xs); font-weight: 600; vertical-align: 6px; }
+.tile-delta.down { background: var(--ok-soft); color: var(--ok); }
+/* Header refresh indicator. */
+.refresh-state { display: inline-flex; align-items: center; gap: 6px; margin-right: var(--s-2); color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.refresh-state .dot-live { width: 6px; height: 6px; }
+.refresh-state.paused { color: var(--warn); }
+/* Queue bar on a review opened from a list: position, previous/next, keyboard hints. */
+.queue-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) var(--s-3); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); font-size: var(--fs-sm); color: var(--ink-2); }
+.queue-bar strong { color: var(--ink); }
+.queue-bar .spacer { flex: 1; }
+.kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); font: 600 11px/16px var(--mono); text-align: center; vertical-align: middle; }
+.kbd-hint { color: var(--muted); font-size: var(--fs-xs); }
+/* Rail header: the source's health next to its name. */
+.rail .card-head .badge { margin-left: auto; }
+.rail .card-head .btn { margin-left: var(--s-1); }
+@media (max-width: 1319px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 719px) { .refresh-state { display: none; } .queue-bar .kbd-hint { display: none; } }
+
+/* ───────────────────────────── 18. Console additions ───────────────────────────── */
+/* A table that is refreshing or whose last refresh failed shows its rows, dimmed. */
+.data-table[aria-busy="true"], .data-table.stale { opacity: 0.6; }
+.data-table tr.selected > td { background: var(--accent-soft); }
+/* A group of the attention order: one row naming the condition its rows share. */
+.data-table tr.group-head th { position: sticky; top: calc(var(--header-h) + 30px); z-index: 1; padding: 4px var(--s-4); border-bottom: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.03em; text-align: left; text-transform: uppercase; }
+/* The page controls repeated in the filter row. */
+.filters .pager-buttons { margin-left: auto; }
+.filters .reset + .pager-buttons { margin-left: var(--s-3); }
+.filters .reset:not([hidden]) { margin-left: auto; }
+.filters .reset:not([hidden]) + .pager-buttons { margin-left: var(--s-3); }
+.pager-note { color: var(--warn); font-weight: 500; }
+.banner .spinner { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--info); animation: pulse 1s ease-in-out infinite; }
+.dimmed { opacity: 0.5; pointer-events: none; }
+@media (max-width: 479px) { .rail .card-head { flex-wrap: wrap; } .rail .card-head .badge { margin-left: 0; order: 3; } }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.tile-link { display: grid; gap: 2px; color: inherit; }
+.tile-link:hover { text-decoration: none; }
+.tile-sub a { color: inherit; text-decoration: underline dotted; }
+[data-stale] .data-table, [data-stale] .tiles, [data-stale] .feed { opacity: 0.6; }
+/* A banner with actions and a dismiss button keeps both in its first row. */
+@media (min-width: 720px) {
+    .banner:has(.banner-actions + .banner-dismiss) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+    .banner:has(.banner-actions + .banner-dismiss) .banner-actions { grid-row: 1; }
+    .banner:has(.banner-actions + .banner-dismiss) .banner-dismiss { grid-column: 4; grid-row: 1; }
+}
