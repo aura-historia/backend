@@ -57,13 +57,17 @@ pub(super) const PASSED_PLATFORM_ENV: &[&str] = &["SystemRoot", "TEMP", "TMP"];
 pub(super) const PASSED_PLATFORM_ENV: &[&str] = &[];
 
 /// Variables every CLI child is started with: no self-update and no non-essential traffic of a
-/// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, and UTC, so a usage
+/// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, the five-minute
+/// prompt cache, and UTC, so a usage
 /// limit's reset time reads in a zone the runner can parse.
-pub(super) const SET_ENV: [(&str, &str); 5] = [
+pub(super) const SET_ENV: [(&str, &str); 6] = [
     ("DISABLE_AUTOUPDATER", "1"),
     ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
     ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+    // A process runs minutes, so the five-minute cache serves its turns and costs less to write
+    // than the subscription's default hour (code.claude.com/docs/en/prompt-caching).
+    ("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m"),
     ("TZ", "UTC"),
 ];
 
@@ -106,6 +110,11 @@ impl fmt::Debug for ChildEnvironment {
             .finish()
     }
 }
+
+/// The system prompt of every agent process, in place of the CLI's default one, which describes a
+/// coding assistant with files and a shell the agents do not have and costs about 2,800 tokens on
+/// every turn. The role's instructions are the prompt on stdin.
+const SYSTEM_PROMPT: &str = "You are a review agent of the Aura Historia crawler's review console. You work through the console's tools only; the message that follows is your task and its rules.";
 
 /// A role's prompt and report schema, which change together.
 pub(super) struct RoleContract {
@@ -179,6 +188,8 @@ pub(super) fn agent_command(
         .map_err(|source| ReportSchemaError { role, source })?;
     let args = [
         "-p",
+        "--system-prompt",
+        SYSTEM_PROMPT,
         "--output-format",
         "stream-json",
         // `-p` takes `stream-json` only with it.
@@ -298,6 +309,8 @@ mod tests {
         let mcp_config = mcp_config(&settings(), AgentRole::Reviewer, review.review_id).to_string();
         let expected: Vec<String> = [
             "-p",
+            "--system-prompt",
+            SYSTEM_PROMPT,
             "--output-format",
             "stream-json",
             "--verbose",
@@ -382,6 +395,7 @@ mod tests {
                 ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
                 ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
                 ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+                ("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m"),
                 ("TZ", "UTC"),
             ]
         );

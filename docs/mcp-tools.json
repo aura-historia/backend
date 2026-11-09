@@ -9640,6 +9640,17 @@
               "type": "null"
             }
           ]
+        },
+        "viewUrl": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -19776,6 +19787,17 @@
               "$ref": "#/$defs/PublicListingSourceOperatorData"
             },
             "url": {
+              "anyOf": [
+                {
+                  "format": "uri",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "viewUrl": {
               "anyOf": [
                 {
                   "format": "uri",

@@ -1,12 +1,14 @@
-//! A shop page as the review agents read it: the YAML projection the schema generation prompt
-//! gives the LLM ([`html_to_schema_prompt_dsl`]), reused as is, and whether the page's own
+//! A shop page as the review agents read it: the outline of the elements the schema generation
+//! prompt shows the LLM ([`html_to_agent_page_outline`]), in CSS notation and with repeated
+//! siblings counted, which costs the agents about half the context of that prompt's YAML, and
+//! whether the page's own
 //! structured data describes one schema.org `Product`, which the projection strips with its
 //! scripts. The markup decides nothing; it is information for whoever inspects the page
 //! (`docs/crawler/extraction-and-review.md`, approval guard). The console's browser preview is
 //! another view: the instrumented page of `/api/review-pages/{id}/inspect`.
 
 use crate::review::product_markup::{JsonLdProductIds, describes_one_product, json_ld_product_ids};
-use crate::scraper::css_selector::product_schema_service::html_to_schema_prompt_dsl;
+use crate::scraper::css_selector::product_schema_service::html_to_agent_page_outline;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Serialize;
 
@@ -21,9 +23,10 @@ pub struct PageProjection {
     pub url: String,
     /// The URL the shop served the page from after redirects on its own host.
     pub final_url: String,
-    /// The page as YAML: the elements, attributes and text the schema generation prompt shows,
-    /// without scripts, styles, navigation, header and footer, with long texts and attributes
-    /// shortened and at most a bounded number of elements.
+    /// The page's outline: the elements, attributes and text the schema generation prompt shows,
+    /// without scripts, styles, navigation, header and footer, one element per line in CSS
+    /// notation, with long texts and attributes shortened, runs of same-structure siblings
+    /// counted and at most a bounded number of lines.
     pub projection: String,
     /// Whether the page's JSON-LD or microdata describes exactly one top-level schema.org
     /// `Product`, as [`describes_one_product`] decides it. Information only.
@@ -47,7 +50,7 @@ impl ProjectedHtml {
     /// so callers on the async runtime run this on a blocking thread.
     pub fn of(html: &str) -> Self {
         Self {
-            projection: html_to_schema_prompt_dsl(html),
+            projection: html_to_agent_page_outline(html),
             describes_one_product: describes_one_product(html),
             json_ld_product_ids: json_ld_product_ids(html),
         }
@@ -59,7 +62,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_project_the_page_as_the_schema_prompt_does_and_report_its_product_markup() {
+    fn should_outline_the_page_and_report_its_product_markup() {
         let html = r#"<!doctype html><html><head>
             <script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Oak chair"}</script>
             </head><body><nav>Menu</nav><h1 class="product-title">Oak chair</h1>
@@ -67,7 +70,12 @@ mod tests {
 
         let projected = ProjectedHtml::of(html);
 
-        assert_eq!(projected.projection, html_to_schema_prompt_dsl(html));
+        assert_eq!(projected.projection, html_to_agent_page_outline(html));
+        assert!(
+            projected
+                .projection
+                .contains("h1.product-title | Oak chair")
+        );
         assert!(projected.projection.contains("Oak chair"));
         assert!(!projected.projection.contains("ld+json"));
         assert!(!projected.projection.contains("Menu"));

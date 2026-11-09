@@ -6,6 +6,7 @@
 //! refusals by failed check, each process's outcome), and each review's tokens and cost. It is
 //! written to a Markdown file in the state directory's `digests/` and summarised in one log line.
 
+use super::context_use::ContextUseSummary;
 use super::envelope::TokenUsage;
 use super::ledger::{ProcessEnd, ProcessRecord, ProcessRole};
 use super::queue::{
@@ -120,6 +121,7 @@ pub struct Digest {
     /// The processes of the window by role and review type, such as (`author`, `URL_PATTERN`);
     /// `UNKNOWN` for a record written before the runner recorded the type.
     pub by_kind: BTreeMap<(&'static str, String), KindWork>,
+    context_use: ContextUseSummary,
     reports: Vec<ProcessRecord>,
     rolling: RollingCost,
 }
@@ -203,6 +205,7 @@ impl Digest {
             cost_usd: 0.0,
             reviews: BTreeMap::new(),
             by_kind: BTreeMap::new(),
+            context_use: ContextUseSummary::default(),
             reports: Vec::new(),
             rolling,
         };
@@ -237,6 +240,8 @@ impl Digest {
         kind.turns += record.num_turns;
         kind.usage.add(record.usage);
         kind.cost_usd += record.total_cost_usd;
+        self.context_use
+            .add(role_name(record.role), &record.context);
         if let Some(AgentReport::Reviewer(report)) = &record.report
             && report.server_answer.outcome == ServerOutcome::Refused
         {
@@ -277,6 +282,7 @@ impl Digest {
         self.write_decisions(&mut out);
         self.write_refusals(&mut out);
         self.write_processes(&mut out);
+        self.context_use.write_markdown(&mut out);
         self.write_reports(&mut out);
         self.write_rolling_cost(&mut out);
         out
@@ -607,10 +613,7 @@ fn end_name(end: ProcessEnd) -> &'static str {
 
 /// One process in a review's row: its role and how it ended.
 fn process_line(record: &ProcessRecord) -> String {
-    let role = match record.role {
-        ProcessRole::Author => "author",
-        ProcessRole::Reviewer => "reviewer",
-    };
+    let role = role_name(record.role);
     let detail = match (&record.report, record.limit, &record.failure) {
         (Some(AgentReport::Author(report)), _, _) => wire_name(Some(report.action)),
         (Some(AgentReport::Reviewer(report)), _, _) => format!(

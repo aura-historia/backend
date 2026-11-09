@@ -75,10 +75,31 @@ pub(super) enum Effect {
     Decides,
 }
 
-/// One tool: its MCP description with input and output schemas, and its handler.
+/// The reviews a tool works on, by their artifact type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Artifact {
+    /// Reviews of every artifact type.
+    Any,
+    ProductSchema,
+    UrlPattern,
+}
+
+impl Artifact {
+    fn includes(self, artifact_type: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::ProductSchema => artifact_type == ARTIFACT_PRODUCT_SCHEMA,
+            Self::UrlPattern => artifact_type == ARTIFACT_URL_PATTERN,
+        }
+    }
+}
+
+/// One tool: its MCP description with input and output schemas, the reviews it works on, and its
+/// handler.
 #[derive(Clone)]
 pub struct ToolDefinition {
     tool: Tool,
+    artifact: Artifact,
     handler: Arc<ToolHandler>,
 }
 
@@ -141,7 +162,46 @@ impl ToolDefinition {
                 tool_result(name, answer)
             })
         });
-        Ok(Self { tool, handler })
+        Ok(Self {
+            tool,
+            artifact: Artifact::Any,
+            handler,
+        })
+    }
+
+    /// The tool as one that works only on reviews of `artifact`.
+    pub(super) fn only_for(mut self, artifact: Artifact) -> Self {
+        self.artifact = artifact;
+        self
+    }
+
+    /// The tool as a server scoped to a review of `artifact_type` lists it: `None` for one that
+    /// works on no such review. A candidate argument that takes every artifact kind keeps the
+    /// review's kind only, with the definitions only the other kinds used dropped, since every
+    /// definition is in the agent's context on every turn.
+    pub fn for_artifact(mut self, artifact_type: &str) -> Option<Self> {
+        if !self.artifact.includes(artifact_type) {
+            return None;
+        }
+        let mut input = Value::Object((*self.tool.input_schema).clone());
+        if keep_candidate_kind(&mut input, artifact_type)
+            && let Value::Object(mut input) = input
+        {
+            drop_unreferenced_definitions(&mut input);
+            self.tool.input_schema = Arc::new(input);
+        }
+        Some(self)
+    }
+
+    /// The tool with the descriptions of its input's shared definitions (`$defs`) left out, for
+    /// a tool whose argument types another tool's schema documents already.
+    pub(super) fn without_nested_descriptions(mut self) -> Self {
+        let mut input = (*self.tool.input_schema).clone();
+        if let Some(definitions) = input.get_mut("$defs") {
+            remove_descriptions(definitions);
+        }
+        self.tool.input_schema = Arc::new(input);
+        self
     }
 
     pub fn tool(&self) -> &Tool {
@@ -202,6 +262,96 @@ fn tool_result<O: Serialize>(name: &str, answer: Result<O, ToolError>) -> CallTo
     }
 }
 
+/// Keeps, of every `oneOf` whose variants are told apart by a constant `kind`, the variant of
+/// `kind`; answers whether any variant was dropped.
+fn keep_candidate_kind(schema: &mut Value, kind: &str) -> bool {
+    let mut dropped = false;
+    match schema {
+        Value::Object(object) => {
+            if let Some(Value::Array(variants)) = object.get_mut("oneOf") {
+                let before = variants.len();
+                variants.retain(|variant| {
+                    variant["properties"]["kind"]["const"]
+                        .as_str()
+                        .is_none_or(|variant_kind| variant_kind == kind)
+                });
+                dropped |= variants.len() < before;
+            }
+            for value in object.values_mut() {
+                dropped |= keep_candidate_kind(value, kind);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                dropped |= keep_candidate_kind(item, kind);
+            }
+        }
+        _ => {}
+    }
+    dropped
+}
+
+/// Drops the `$defs` nothing in `schema` refers to any more, directly or through another
+/// definition.
+fn drop_unreferenced_definitions(schema: &mut JsonObject) {
+    let Some(Value::Object(definitions)) = schema.remove("$defs") else {
+        return;
+    };
+    let mut referenced = std::collections::BTreeSet::new();
+    let mut pending: Vec<String> = Vec::new();
+    for (name, value) in schema.iter() {
+        if name != "$defs" {
+            collect_references(value, &mut pending);
+        }
+    }
+    while let Some(name) = pending.pop() {
+        if referenced.insert(name.clone())
+            && let Some(definition) = definitions.get(&name)
+        {
+            collect_references(definition, &mut pending);
+        }
+    }
+    let kept: JsonObject = definitions
+        .into_iter()
+        .filter(|(name, _)| referenced.contains(name))
+        .collect();
+    if !kept.is_empty() {
+        schema.insert("$defs".to_owned(), Value::Object(kept));
+    }
+}
+
+fn collect_references(schema: &Value, names: &mut Vec<String>) {
+    match schema {
+        Value::Object(object) => {
+            if let Some(reference) = object.get("$ref").and_then(Value::as_str)
+                && let Some(name) = reference.strip_prefix("#/$defs/")
+            {
+                names.push(name.to_owned());
+            }
+            object
+                .values()
+                .for_each(|value| collect_references(value, names));
+        }
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| collect_references(item, names)),
+        _ => {}
+    }
+}
+
+fn remove_descriptions(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.get("description").is_some_and(Value::is_string) {
+                object.remove("description");
+            }
+            object.values_mut().for_each(remove_descriptions);
+        }
+        Value::Array(items) => items.iter_mut().for_each(remove_descriptions),
+        _ => {}
+    }
+}
+
 fn object_schema<T: JsonSchema>(settings: SchemaSettings) -> Option<JsonObject> {
     let schema =
         serde_json::to_value(settings.into_generator().into_root_schema_for::<T>()).ok()?;
@@ -222,6 +372,29 @@ pub fn tools_for(role: AgentRole) -> Result<Vec<ToolDefinition>, ToolSchemaError
         AgentRole::Reviewer => reviewer::tools()?,
     });
     Ok(tools)
+}
+
+/// The tools of `role` that work on a review of `artifact_type`, each as
+/// [`ToolDefinition::for_artifact`] shapes it.
+pub fn tools_for_artifact(
+    role: AgentRole,
+    artifact_type: &str,
+) -> Result<Vec<ToolDefinition>, ToolSchemaError> {
+    Ok(tools_for(role)?
+        .into_iter()
+        .filter_map(|tool| tool.for_artifact(artifact_type))
+        .collect())
+}
+
+/// The artifact type of the review `review_id`, as the console answers it.
+pub async fn review_artifact_type(
+    context: &ToolContext,
+    review_id: CrawlerReviewId,
+) -> Result<String, ToolError> {
+    Ok(review_detail(context, review_id)
+        .await?
+        .review
+        .artifact_type)
 }
 
 fn review_path(review_id: CrawlerReviewId, suffix: &str) -> String {
@@ -439,6 +612,154 @@ mod tests {
                     Err(ToolError::UrlOutsideReviewSource(_))
                 ),
                 "{url}"
+            );
+        }
+    }
+
+    fn description_texts(schema: &Value) -> usize {
+        match schema {
+            Value::Object(object) => {
+                usize::from(object.get("description").is_some_and(Value::is_string))
+                    + object.values().map(description_texts).sum::<usize>()
+            }
+            Value::Array(items) => items.iter().map(description_texts).sum(),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn should_list_only_the_tools_that_work_on_the_review_s_artifact_type() {
+        let names = |role, artifact_type| {
+            tools_for_artifact(role, artifact_type)
+                .unwrap_or_else(|error| panic!("{error}"))
+                .iter()
+                .map(|tool| tool.name().to_owned())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            names(AgentRole::Author, ARTIFACT_URL_PATTERN),
+            [
+                "list_pending_reviews",
+                "get_review",
+                "inspect_page",
+                "mark_needs_repair",
+                "update_candidate",
+                "label_sample_urls",
+            ]
+        );
+        assert_eq!(
+            names(AgentRole::Author, ARTIFACT_PRODUCT_SCHEMA),
+            [
+                "list_pending_reviews",
+                "get_review",
+                "inspect_page",
+                "refresh_matrix",
+                "mark_needs_repair",
+                "evaluate_candidate",
+                "update_candidate",
+                "update_schema_field",
+                "add_review_page",
+                "remove_review_page",
+                "mark_page_not_product",
+                "declare_removed_page",
+                "record_no_sold_page",
+            ]
+        );
+        assert_eq!(
+            names(AgentRole::Reviewer, ARTIFACT_URL_PATTERN),
+            [
+                "list_pending_reviews",
+                "get_review",
+                "inspect_page",
+                "mark_needs_repair",
+                "approve",
+                "reject",
+            ]
+        );
+        assert_eq!(
+            names(AgentRole::Author, "OTHER"),
+            [
+                "list_pending_reviews",
+                "get_review",
+                "inspect_page",
+                "mark_needs_repair",
+                "update_candidate"
+            ]
+        );
+    }
+
+    #[test]
+    fn should_narrow_update_candidate_to_the_review_s_candidate_kind() {
+        let input = |artifact_type| {
+            let tools = tools_for_artifact(AgentRole::Author, artifact_type)
+                .unwrap_or_else(|e| panic!("{e}"));
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name() == "update_candidate")
+                .unwrap_or_else(|| panic!("no update_candidate"));
+            Value::Object(tool.tool().input_schema.as_ref().clone())
+        };
+        let whole = Value::Object(
+            tools_for(AgentRole::Author)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .iter()
+                .find(|tool| tool.name() == "update_candidate")
+                .unwrap_or_else(|| panic!("no update_candidate"))
+                .tool()
+                .input_schema
+                .as_ref()
+                .clone(),
+        );
+        let kinds = |schema: &Value| {
+            schema["$defs"]["CandidateArgument"]["oneOf"]
+                .as_array()
+                .map_or(0, Vec::len)
+        };
+
+        let url_pattern = input(ARTIFACT_URL_PATTERN);
+        let product_schema = input(ARTIFACT_PRODUCT_SCHEMA);
+
+        assert_eq!(kinds(&whole), 2);
+        assert_eq!(kinds(&url_pattern), 1);
+        assert_eq!(
+            url_pattern["$defs"]["CandidateArgument"]["oneOf"][0]["properties"]["kind"]["const"],
+            ARTIFACT_URL_PATTERN
+        );
+        assert!(url_pattern["$defs"]["ProductCssSelectorSchema"].is_null());
+        assert!(url_pattern["$defs"]["ExtractionRule"].is_null());
+        assert!(url_pattern["$defs"]["UrlPatternDecisionArgument"].is_object());
+        assert_eq!(kinds(&product_schema), 1);
+        assert!(product_schema["$defs"]["ProductCssSelectorSchema"].is_object());
+        assert!(product_schema["$defs"]["ExtractionRule"].is_object());
+        assert!(product_schema["$defs"]["UrlPatternDecisionArgument"].is_null());
+        assert!(
+            url_pattern.to_string().len() * 3 < whole.to_string().len(),
+            "{} of {}",
+            url_pattern.to_string().len(),
+            whole.to_string().len()
+        );
+    }
+
+    #[test]
+    fn should_document_the_schema_rules_once_in_update_candidate() {
+        let tools = tools_for(AgentRole::Author).unwrap_or_else(|error| panic!("{error}"));
+        let definitions = |name: &str| {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name() == name)
+                .unwrap_or_else(|| panic!("no tool {name}"));
+            Value::Object(tool.tool().input_schema.as_ref().clone())["$defs"].clone()
+        };
+
+        assert!(description_texts(&definitions("update_candidate")) > 10);
+        for name in ["evaluate_candidate", "update_schema_field"] {
+            let definitions = definitions(name);
+            assert_eq!(description_texts(&definitions), 0, "{name}");
+            assert!(
+                definitions["ProductCssSelectorSchema"]["properties"]["description"].is_object()
+                    || name == "update_schema_field",
+                "{name} lost the schema's description field"
             );
         }
     }

@@ -2,6 +2,20 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-08 — `viewUrl` on public ListingSources (#2827)
+
+- `GET /v1/listing-sources` items and `GET /v1/listing-sources/by-slug/{listingSourceSlugId}` carry `viewUrl` next to `url`, and the MCP tools `searchPublicListingSources` and `getPublicListingSourceBySlug` return it too. It is the link to send visitors to, derived from `url` like a ProductListing's `viewUrl`: the source's affiliate link when it has a referral configuration, otherwise `url` with Aura's `utm_source=aura_historia` and `utm_medium=referral` parameters, unless `url` already carries a `utm_source`. It is present exactly when `url` is; `url` stays the source's own address. The referral configuration itself is still not exposed.
+
+## 2026-11-08 — Nudity is sensitive content (#2830)
+
+- Listing text assessment also flags nudity, erotica and pornography, in all catalogue languages, as `contentPolicy` `{ "decision": "REQUIRES_CONSENT", "category": "NUDITY" }`. Like `NAZI_GERMANY` listings, their image URLs are omitted unless the viewer's `showUnassessedOrSensitiveContent` is `true`. This applies to REST and MCP listing, watchlist, search-filter match and notification responses and to notification emails.
+- Text that matches several categories keeps `NAZI_GERMANY`.
+- A listing is assessed when its title or description is discovered or changes; listings assessed before this change keep their decision until then.
+
+## 2026-11-08 — Hidden listings link to the website's pricing section (#2824)
+
+- Listings redacted as hidden now carry `url` and `viewUrl` `https://aura-historia.com/#pricing` instead of `https://aura-historia.com/pricing`, a path the website does not serve. The website redirects the unlocalized path to the viewer's language. This applies to REST and MCP listing responses alike.
+
 ## 2026-11-07 — The website's WebMCP client metadata document (#2818)
 
 - Added `GET` and `HEAD /v1/site-discovery/oauth/webmcp-client.json` (`application/json`): the OAuth Client ID Metadata Document of the website's own WebMCP client, which the webapp publishes at `/oauth/webmcp-client.json`. Its `client_id` is that website URL (`https://aura-historia.com/oauth/webmcp-client.json`, on stage `https://stage.aura-historia.com/oauth/webmcp-client.json`). It declares a public client with the `authorization_code` and `refresh_token` grants and the callback `/api/oauth/webmcp/callback` on the website; stage also lists `http://localhost/api/oauth/webmcp/callback` for local development. Like the other website documents, responses allow any origin and anonymous ones are shared at the edge for 300 seconds. The website signs in like any other metadata document client, with no extra privileges. See [OAuth](oauth.md#the-websites-webmcp-client).

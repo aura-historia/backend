@@ -753,7 +753,7 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
         assert_eq!(serde_json::json!("Hidden"), body["item"]["source"]["name"]);
         for field in ["url", "viewUrl"] {
             assert_eq!(
-                serde_json::json!("https://aura-historia.com/pricing"),
+                serde_json::json!("https://aura-historia.com/#pricing"),
                 body["item"][field]
             );
         }

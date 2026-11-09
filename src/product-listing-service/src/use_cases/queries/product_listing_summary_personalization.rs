@@ -2,6 +2,7 @@ use crate::ports::{
     ListingSourceSummaryReadError, ListingSourceSummaryReader, ListingSourceSummaryWithReferral,
     ProductListingUserStateLookup, ProductListingUserStateReadError, ProductListingUserStateReader,
 };
+use crate::use_cases::queries::get_product_listing::HIDDEN_PRODUCT_LISTING_URL;
 use crate::use_cases::queries::search_product_listings::{
     PersonalizedProductListingSearchItem, ProductListingSearchItem,
     ProductListingSearchItemWithSource,
@@ -203,7 +204,7 @@ fn redact_hidden_product_search_item(
         .as_ref()
         .map(|title| title.localization)
         .unwrap_or(Language::En);
-    let hidden_url = Url::parse("https://aura-historia.com/pricing").map_err(|source| {
+    let hidden_url = Url::parse(HIDDEN_PRODUCT_LISTING_URL).map_err(|source| {
         ProductListingSummaryPersonalizationError::HiddenProductListingSummaryInvalid {
             source: box_error(source),
         }

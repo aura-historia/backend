@@ -233,7 +233,7 @@ webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly ex
 | `getAuction` | `auctionId`; returns source metadata, schedule, reported status/counts, visible count and catalogue/outbound links. |
 | `getAuctionCatalogue` | `auctionId`, language/currency, `pageSize`, `searchAfter`; returns public lots with existing listing presentation. |
 | `searchPublicListingSources` | `query`, `size` (default 21, 1–50), `searchAfter`; absent/blank text browses and insufficient text returns no matches. |
-| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, operator name and optional URL/image. |
+| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, operator name and optional URL, view URL and image. |
 | `discoverPartyLocations` | Complete `geography`, `size` (default 21, 1–100), `searchAfter`; returns public location IDs, basis, geographic context, point, precision and distance. |
 | `getPublicOverview` | Empty object; returns `asOf` and every stored public catalogue aggregate. An uncalculated overview is temporarily unavailable. |
 

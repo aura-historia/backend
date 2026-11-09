@@ -1,336 +1,193 @@
-use strum::IntoEnumIterator;
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, strum_macros::EnumIter)]
-pub enum SensitiveContentCategory {
-    NaziGermany,
-}
-
-impl SensitiveContentCategory {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::NaziGermany => "NAZI_GERMANY",
-        }
-    }
-
-    pub fn from_code(value: &str) -> Option<Self> {
-        Self::iter().find(|category| category.as_str() == value)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum ContentPolicyDecision {
-    Allowed,
-    RequiresConsent(SensitiveContentCategory),
-}
-
-impl ContentPolicyDecision {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Allowed => "ALLOWED",
-            Self::RequiresConsent(_) => "REQUIRES_CONSENT",
-        }
-    }
-}
-
-pub fn may_show_product_listing_images(
-    decision: Option<ContentPolicyDecision>,
-    show_unassessed_or_sensitive_content: bool,
-) -> bool {
-    show_unassessed_or_sensitive_content || matches!(decision, Some(ContentPolicyDecision::Allowed))
-}
-
-// ---------------------------------------------------------------------------
-// Listing text assessment
-// ---------------------------------------------------------------------------
+use super::keywords::KeywordSet;
 
 /// High-confidence terms that strongly indicate Nazi-era imagery or
 /// paraphernalia.  Every keyword is lowercase for case-insensitive matching.
 ///
 /// The list is organized by language and category.  Multi-word phrases act as
 /// their own word boundaries because spaces are not alphanumeric; single tokens
-/// are guarded by `contains_keyword` to avoid substring collisions.
-const NAZI_KEYWORDS: &[&str] = &[
-    // ── GERMAN ── core ideology & regime names ────────────────────────────
-    "drittes reich",
-    "dritten reich",
-    "dritte reich",
-    "3. reich",
-    "iii. reich",
-    "iii reich",
-    "nationalsozialismus",
-    "nationalsozialistisch",
-    "nationalsozialistische",
-    "nationalsozialisten",
-    "nazideutschland",
-    // ── GERMAN ── symbols & iconography ──────────────────────────────────
-    "hakenkreuz",
-    "hakenkreuzfahne",
-    "hakenkreuzflagge",
-    "hakenkreuzabzeichen",
-    "reichsadler",
-    "schwarze sonne",
-    "ss-rune",
-    "lebensrune",
-    "todesrune",
-    "sig-rune",
-    // ── GERMAN ── organizations ──────────────────────────────────────────
-    "nsdap",
-    "schutzstaffel",
-    "sturmabteilung",
-    "hitlerjugend",
-    "bund deutscher mädel",
-    "deutsches jungvolk",
-    "reichsarbeitsdienst",
-    "waffen-ss",
-    "waffen ss",
-    "leibstandarte",
-    "totenkopfverbände",
-    "totenkopf-ring",
-    "totenkopfring",
-    "gestapo",
-    "einsatzgruppe",
-    "reichssicherheitshauptamt",
-    "lebensborn",
-    "organisation todt",
-    // ── GERMAN ── senior Nazi leadership (unambiguous) ────────────────────
-    "adolf hitler",
-    "heil hitler",
-    "führerhauptquartier",
-    "wolfsschanze",
-    "reichskanzlei",
-    "reichsführer-ss",
-    "heinrich himmler",
-    "joseph goebbels",
-    "hermann göring",
-    "hermann goering",
-    "rudolf hess",
-    "reinhard heydrich",
-    "martin bormann",
-    "julius streicher",
-    "ernst röhm",
-    "ernst rohm",
-    // ── GERMAN ── events & sites ─────────────────────────────────────────
-    "reichsparteitag",
-    "reichskristallnacht",
-    "kristallnacht",
-    // ── ENGLISH ── regime names & ideology ───────────────────────────────
-    "third reich",
-    "nazi germany",
-    "national socialism",
-    "nazi party",
-    // ── ENGLISH ── symbols ────────────────────────────────────────────────
-    "swastika",
-    "black sun occult",
-    // ── ENGLISH ── organizations ─────────────────────────────────────────
-    "hitler youth",
-    "waffen ss",
-    "waffen-ss",
-    "gestapo",
-    "ss division",
-    "ss insignia",
-    "ss uniform",
-    "ss badge",
-    "ss dagger",
-    "ss helmet",
-    "ss ring",
-    // ── ENGLISH ── leadership ─────────────────────────────────────────────
-    "heinrich himmler",
-    "joseph goebbels",
-    "hermann goering",
-    "rudolf hess",
-    "reinhard heydrich",
-    // ── ENGLISH ── memorabilia descriptors ───────────────────────────────
-    "nazi memorabilia",
-    "nazi insignia",
-    "nazi medal",
-    "nazi uniform",
-    "nazi dagger",
-    "nazi helmet",
-    "nazi armband",
-    "nazi flag",
-    "nazi germany",
-    "reich chancellery",
-    // ── FRENCH ── ─────────────────────────────────────────────────────────
-    "troisième reich",
-    "iii° reich",
-    "croix gammée",
-    "croix gammee",
-    "national-socialisme",
-    "nationalsocialisme",
-    "allemagne nazie",
-    "parti nazi",
-    "waffen ss",
-    "waffen-ss",
-    "gestapo",
-    "jeunesses hitlériennes",
-    "heinrich himmler",
-    "joseph goebbels",
-    // ── SPANISH ── ────────────────────────────────────────────────────────
-    "tercer reich",
-    "esvástica",
-    "esvastica",
-    "svástica",
-    "svastica",
-    "cruz gamada",
-    "nacionalsocialismo",
-    "alemania nazi",
-    "partido nazi",
-    "waffen ss",
-    "waffen-ss",
-    "gestapo",
-    "juventudes hitlerianas",
-    // ── ITALIAN ── ────────────────────────────────────────────────────────
-    "terzo reich",
-    "svastica",
-    "nazionalsocialismo",
-    "germania nazista",
-    "partito nazista",
-    "waffen ss",
-    "waffen-ss",
-    "gestapo",
-    "gioventù hitleriana",
-    // ── DUTCH ── ──────────────────────────────────────────────────────────
-    "derde rijk",
-    "hakenkruis",
-    "nationaal-socialisme",
-    "naziduitsland",
-    "nazi-duitsland",
-    "hitleriaanse jeugd",
-    "waffen ss",
-    "gestapo",
-    // ── PORTUGUESE ── ────────────────────────────────────────────────────
-    "terceiro reich",
-    "suástica",
-    "suastica",
-    "nacional-socialismo",
-    "alemanha nazista",
-    "partido nazista",
-    "waffen ss",
-    "gestapo",
-    // ── POLISH ── ────────────────────────────────────────────────────────
-    "trzecia rzesza",
-    "swastyka",
-    "narodowy socjalizm",
-    "gestapo",
-    "waffen ss",
-    // ── CZECH / SLOVAK ── ────────────────────────────────────────────────
-    "třetí říše",
-    "nacistické německo",
-    "svastika",
-    "gestapo",
-    "waffen ss",
-];
-
-/// Returns `true` when `text` (expected to already be lowercase) contains
-/// `keyword` surrounded by non-alphanumeric boundaries (or string edges).
-///
-/// This prevents partial-word false positives, e.g. "nsdap" matching inside
-/// "nsdapper".  Multi-word keywords naturally include spaces which are not
-/// alphanumeric and therefore act as their own boundaries.
-fn contains_keyword(text: &str, keyword: &str) -> bool {
-    let mut start = 0;
-    while let Some(pos) = text[start..].find(keyword) {
-        let abs = start + pos;
-        let before_ok = abs == 0 || !text.as_bytes()[abs - 1].is_ascii_alphanumeric();
-        let end = abs + keyword.len();
-        let after_ok = end == text.len() || !text.as_bytes()[end].is_ascii_alphanumeric();
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
-    }
-    false
-}
-
-/// Assesses source listing text. Blank or absent text is not an assessment.
-pub fn assess_listing_text(
-    title: Option<&str>,
-    description: Option<&str>,
-) -> Option<ContentPolicyDecision> {
-    let parts = [title, description]
-        .into_iter()
-        .flatten()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>();
-
-    if parts.is_empty() {
-        return None;
-    }
-
-    let text = parts.join(" ").to_lowercase();
-    if NAZI_KEYWORDS
-        .iter()
-        .any(|keyword| contains_keyword(&text, keyword))
-    {
-        Some(ContentPolicyDecision::RequiresConsent(
-            SensitiveContentCategory::NaziGermany,
-        ))
-    } else {
-        Some(ContentPolicyDecision::Allowed)
-    }
-}
-
-// ===========================================================================
-// Tests
-// ===========================================================================
+/// are guarded by word boundaries to avoid substring collisions.
+pub(super) const NAZI_GERMANY_KEYWORDS: KeywordSet = KeywordSet {
+    words: &[
+        // ── GERMAN ── core ideology & regime names ────────────────────────────
+        "drittes reich",
+        "dritten reich",
+        "dritte reich",
+        "3. reich",
+        "iii. reich",
+        "iii reich",
+        "nationalsozialismus",
+        "nationalsozialistisch",
+        "nationalsozialistische",
+        "nationalsozialisten",
+        "nazideutschland",
+        // ── GERMAN ── symbols & iconography ──────────────────────────────────
+        "hakenkreuz",
+        "hakenkreuzfahne",
+        "hakenkreuzflagge",
+        "hakenkreuzabzeichen",
+        "reichsadler",
+        "schwarze sonne",
+        "ss-rune",
+        "lebensrune",
+        "todesrune",
+        "sig-rune",
+        // ── GERMAN ── organizations ──────────────────────────────────────────
+        "nsdap",
+        "schutzstaffel",
+        "sturmabteilung",
+        "hitlerjugend",
+        "bund deutscher mädel",
+        "deutsches jungvolk",
+        "reichsarbeitsdienst",
+        "waffen-ss",
+        "waffen ss",
+        "leibstandarte",
+        "totenkopfverbände",
+        "totenkopf-ring",
+        "totenkopfring",
+        "gestapo",
+        "einsatzgruppe",
+        "reichssicherheitshauptamt",
+        "lebensborn",
+        "organisation todt",
+        // ── GERMAN ── senior Nazi leadership (unambiguous) ────────────────────
+        "adolf hitler",
+        "heil hitler",
+        "führerhauptquartier",
+        "wolfsschanze",
+        "reichskanzlei",
+        "reichsführer-ss",
+        "heinrich himmler",
+        "joseph goebbels",
+        "hermann göring",
+        "hermann goering",
+        "rudolf hess",
+        "reinhard heydrich",
+        "martin bormann",
+        "julius streicher",
+        "ernst röhm",
+        "ernst rohm",
+        // ── GERMAN ── events & sites ─────────────────────────────────────────
+        "reichsparteitag",
+        "reichskristallnacht",
+        "kristallnacht",
+        // ── ENGLISH ── regime names & ideology ───────────────────────────────
+        "third reich",
+        "nazi germany",
+        "national socialism",
+        "nazi party",
+        // ── ENGLISH ── symbols ────────────────────────────────────────────────
+        "swastika",
+        "black sun occult",
+        // ── ENGLISH ── organizations ─────────────────────────────────────────
+        "hitler youth",
+        "waffen ss",
+        "waffen-ss",
+        "gestapo",
+        "ss division",
+        "ss insignia",
+        "ss uniform",
+        "ss badge",
+        "ss dagger",
+        "ss helmet",
+        "ss ring",
+        // ── ENGLISH ── leadership ─────────────────────────────────────────────
+        "heinrich himmler",
+        "joseph goebbels",
+        "hermann goering",
+        "rudolf hess",
+        "reinhard heydrich",
+        // ── ENGLISH ── memorabilia descriptors ───────────────────────────────
+        "nazi memorabilia",
+        "nazi insignia",
+        "nazi medal",
+        "nazi uniform",
+        "nazi dagger",
+        "nazi helmet",
+        "nazi armband",
+        "nazi flag",
+        "nazi germany",
+        "reich chancellery",
+        // ── FRENCH ── ─────────────────────────────────────────────────────────
+        "troisième reich",
+        "iii° reich",
+        "croix gammée",
+        "croix gammee",
+        "national-socialisme",
+        "nationalsocialisme",
+        "allemagne nazie",
+        "parti nazi",
+        "waffen ss",
+        "waffen-ss",
+        "gestapo",
+        "jeunesses hitlériennes",
+        "heinrich himmler",
+        "joseph goebbels",
+        // ── SPANISH ── ────────────────────────────────────────────────────────
+        "tercer reich",
+        "esvástica",
+        "esvastica",
+        "svástica",
+        "svastica",
+        "cruz gamada",
+        "nacionalsocialismo",
+        "alemania nazi",
+        "partido nazi",
+        "waffen ss",
+        "waffen-ss",
+        "gestapo",
+        "juventudes hitlerianas",
+        // ── ITALIAN ── ────────────────────────────────────────────────────────
+        "terzo reich",
+        "svastica",
+        "nazionalsocialismo",
+        "germania nazista",
+        "partito nazista",
+        "waffen ss",
+        "waffen-ss",
+        "gestapo",
+        "gioventù hitleriana",
+        // ── DUTCH ── ──────────────────────────────────────────────────────────
+        "derde rijk",
+        "hakenkruis",
+        "nationaal-socialisme",
+        "naziduitsland",
+        "nazi-duitsland",
+        "hitleriaanse jeugd",
+        "waffen ss",
+        "gestapo",
+        // ── PORTUGUESE ── ────────────────────────────────────────────────────
+        "terceiro reich",
+        "suástica",
+        "suastica",
+        "nacional-socialismo",
+        "alemanha nazista",
+        "partido nazista",
+        "waffen ss",
+        "gestapo",
+        // ── POLISH ── ────────────────────────────────────────────────────────
+        "trzecia rzesza",
+        "swastyka",
+        "narodowy socjalizm",
+        "gestapo",
+        "waffen ss",
+        // ── CZECH / SLOVAK ── ────────────────────────────────────────────────
+        "třetí říše",
+        "nacistické německo",
+        "svastika",
+        "gestapo",
+        "waffen ss",
+    ],
+    word_prefixes: &[],
+    substrings: &[],
+    exclusions: &[],
+};
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::HashSet;
-
-    #[test]
-    fn should_keep_canonical_content_policy_identifiers_exact() {
-        assert_eq!(ContentPolicyDecision::Allowed.as_str(), "ALLOWED");
-        assert_eq!(
-            ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany).as_str(),
-            "REQUIRES_CONSENT"
-        );
-        assert_eq!(
-            SensitiveContentCategory::NaziGermany.as_str(),
-            "NAZI_GERMANY"
-        );
-
-        assert_eq!(
-            SensitiveContentCategory::from_code("NAZI_GERMANY"),
-            Some(SensitiveContentCategory::NaziGermany)
-        );
-        assert_eq!(SensitiveContentCategory::from_code("nazi_germany"), None);
-        assert_eq!(
-            SensitiveContentCategory::iter()
-                .map(SensitiveContentCategory::as_str)
-                .collect::<HashSet<_>>()
-                .len(),
-            SensitiveContentCategory::iter().count(),
-        );
-    }
-
-    #[rstest::rstest]
-    #[case(None, false, false)]
-    #[case(None, true, true)]
-    #[case(Some(ContentPolicyDecision::Allowed), false, true)]
-    #[case(Some(ContentPolicyDecision::Allowed), true, true)]
-    #[case(
-        Some(ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany)),
-        false,
-        false
-    )]
-    #[case(
-        Some(ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany)),
-        true,
-        true
-    )]
-    fn should_apply_content_visibility_policy(
-        #[case] decision: Option<ContentPolicyDecision>,
-        #[case] preference: bool,
-        #[case] visible: bool,
-    ) {
-        assert_eq!(
-            may_show_product_listing_images(decision, preference),
-            visible
-        );
-    }
+    use crate::content_policy::{
+        ContentPolicyDecision, SensitiveContentCategory, assess_listing_text,
+    };
 
     // =======================================================================
     // Safe / benign listings – must NOT be flagged
@@ -345,11 +202,6 @@ mod tests {
                 assess_listing_text(Some("Barocker Schrank aus dem 18. Jahrhundert"), None),
                 Some(ContentPolicyDecision::Allowed)
             );
-        }
-
-        #[test]
-        fn should_return_no_assessment_when_title_is_empty() {
-            assert_eq!(assess_listing_text(Some(""), None), None);
         }
 
         #[test]
@@ -1071,6 +923,16 @@ mod tests {
         fn should_flag_when_keyword_at_end_of_text() {
             assert_eq!(
                 assess_listing_text(Some("Silbernes Abzeichen Drittes Reich"), None),
+                Some(ContentPolicyDecision::RequiresConsent(
+                    SensitiveContentCategory::NaziGermany
+                ))
+            );
+        }
+
+        #[test]
+        fn should_flag_when_keyword_is_written_against_cjk_text() {
+            assert_eq!(
+                assess_listing_text(Some("盖世太保gestapo徽章"), None),
                 Some(ContentPolicyDecision::RequiresConsent(
                     SensitiveContentCategory::NaziGermany
                 ))
