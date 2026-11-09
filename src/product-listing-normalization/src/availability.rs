@@ -297,6 +297,12 @@ const AVAILABLE: &[&str] = &[
     "カートに入れる",
     "カゴに入れる",
     "かごに入れる",
+    // Enquiry-only dealers show these actions on offered items and a sold label otherwise.
+    "enquire",
+    "make enquiry",
+    "make an enquiry",
+    "anfragen",
+    "cet objet vous intéresse ?",
     "verfügbar",
     "lieferbar",
     "disponible",
@@ -887,12 +893,6 @@ const NO_ASSERTION: &[&str] = &[
     "descatalogado",
     "fuori catalogo",
     "uit assortiment",
-    // Enquiry actions invite contact without stating availability.
-    "enquire",
-    "make enquiry",
-    "make an enquiry",
-    "anfragen",
-    "cet objet vous intéresse ?",
 ];
 
 fn regex_availability(
@@ -999,20 +999,12 @@ mod tests {
             ("Leider vergriffen", ListingAvailability::SoldOut),
             ("Disponibilité : vendu", ListingAvailability::SoldOut),
             ("Availability: In stock", ListingAvailability::InStock),
+            ("Enquire", ListingAvailability::Available),
+            ("Make enquiry →", ListingAvailability::Available),
+            ("Anfragen", ListingAvailability::Available),
+            ("Cet objet vous intéresse ?", ListingAvailability::Available),
         ] {
             assert_eq!(quick_check_availability(raw), resolved(expected), "{raw}");
-        }
-        for raw in [
-            "Enquire",
-            "Make enquiry →",
-            "Anfragen",
-            "Cet objet vous intéresse ?",
-        ] {
-            assert_eq!(
-                quick_check_availability(raw),
-                Ok(ListingAvailabilityQuickCheck::NoAssertion),
-                "{raw}"
-            );
         }
     }
 
