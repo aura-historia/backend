@@ -34,6 +34,7 @@ use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
+use super::usage_pacing::UsageWindows;
 use super::wire_name as name;
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
@@ -631,6 +632,7 @@ impl Pass<'_> {
         };
         let envelope = ResultEnvelope::parse(&output.stdout);
         record.context = ContextUse::parse(&output.stdout);
+        self.pace(&UsageWindows::parse(&output.stdout));
         if let Some(stop) = output.stopped {
             if let Some(envelope) = &envelope {
                 record.take_accounting(envelope);
@@ -802,6 +804,28 @@ impl Pass<'_> {
     fn pause(&self, limit: UsageLimit, now: OffsetDateTime) {
         let until = limit.paused_until(now);
         log_pause(&limit, until);
+        self.pause_until(&limit, until, false);
+    }
+
+    /// Pauses before the agents take more than their share of the login's usage windows, as a
+    /// process's stream last reported them ([`super::usage_pacing`]); running processes finish.
+    fn pace(&self, windows: &UsageWindows) {
+        let now = OffsetDateTime::now_utc();
+        let Some(limit) = self.settings.pacing.pause(windows, now) else {
+            return;
+        };
+        let until = limit.paused_until(now);
+        info!(
+            limit = name(Some(limit.kind)),
+            five_hour_utilization = windows.five_hour.map(|window| window.utilization),
+            seven_day_utilization = windows.seven_day.map(|window| window.utilization),
+            until = %timestamp(until),
+            "The agents took their share of the login's usage window; they pause until it allows more"
+        );
+        self.pause_until(&limit, until, true);
+    }
+
+    fn pause_until(&self, limit: &UsageLimit, until: OffsetDateTime, paced: bool) {
         self.with(|shared| {
             let later = shared.state.paused.is_none_or(|pause| pause.until < until);
             if later {
@@ -809,6 +833,7 @@ impl Pass<'_> {
                     until,
                     limit: limit.kind,
                     reported_reset: limit.resets_at.is_some(),
+                    paced,
                 });
                 self.keep_state(&shared.state);
             }

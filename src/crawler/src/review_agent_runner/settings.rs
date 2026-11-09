@@ -8,6 +8,7 @@
 //! may do.
 
 use super::invocation::ChildEnvironment;
+use super::usage_pacing::UsagePacing;
 use crate::review_mcp::{AgentRole, ReviewConsoleAccess, ReviewMcpSettingsError};
 use large_language_model::ClaudeEffort;
 use std::num::NonZeroU32;
@@ -22,6 +23,8 @@ pub const MAX_PROCESSES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES";
 pub const COOLDOWN_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES";
 pub const PROCESS_TIMEOUT_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES";
 pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS";
+pub const FIVE_HOUR_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT";
+pub const WEEKLY_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PERCENT";
 
 /// The model both agents run on unless their role's setting names another.
 const DEFAULT_MODEL: &str = "claude-opus-5-5";
@@ -33,6 +36,9 @@ const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(2).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
 const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(300).unwrap();
+/// The share of the login's usage windows the agents take by default, leaving the rest to the
+/// people who use the same login.
+const DEFAULT_SHARE_PERCENT: u32 = 70;
 
 /// What one start of the runner does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +85,8 @@ pub struct RunnerSettings {
     pub process_timeout: Duration,
     /// How long the service rests after a run ends before it starts the next; `--once` ignores it.
     pub interval: Duration,
+    /// The shares of the login's five-hour and weekly usage windows the agents may take.
+    pub pacing: UsagePacing,
 }
 
 impl RunnerSettings {
@@ -184,6 +192,10 @@ impl RunnerSettings {
                     .unwrap_or(DEFAULT_INTERVAL_SECONDS)
                     .get(),
             )),
+            pacing: UsagePacing {
+                five_hour_share: read.share(FIVE_HOUR_SHARE_ENV)?,
+                weekly_share: read.share(WEEKLY_SHARE_ENV)?,
+            },
         })
     }
 }
@@ -232,6 +244,19 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
                 .positive(&role_setting(role, "MAX_TURNS"))?
                 .unwrap_or(default_max_turns),
         })
+    }
+
+    /// A percentage from 1 to 100 as a share from 0.01 to 1, [`DEFAULT_SHARE_PERCENT`] unless set.
+    fn share(&self, name: &str) -> Result<f64, RunnerSettingsError> {
+        let percent = match (self.setting)(name) {
+            Some(value) => value
+                .parse::<u32>()
+                .ok()
+                .filter(|percent| (1..=100).contains(percent))
+                .ok_or_else(|| invalid(name.to_owned(), value, "a whole number from 1 to 100"))?,
+            None => DEFAULT_SHARE_PERCENT,
+        };
+        Ok(f64::from(percent) / 100.0)
     }
 
     fn positive(&self, name: &str) -> Result<Option<NonZeroU32>, RunnerSettingsError> {
@@ -404,6 +429,13 @@ mod tests {
         assert_eq!(read.max_processes.get(), 2);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
         assert_eq!(read.process_timeout, Duration::from_secs(60 * 60));
+        assert_eq!(
+            read.pacing,
+            UsagePacing {
+                five_hour_share: 0.7,
+                weekly_share: 0.7
+            }
+        );
     }
 
     #[test]
@@ -424,6 +456,8 @@ mod tests {
                 (COOLDOWN_MINUTES_ENV, "5"),
                 (PROCESS_TIMEOUT_MINUTES_ENV, "2"),
                 (INTERVAL_SECONDS_ENV, "30"),
+                (FIVE_HOUR_SHARE_ENV, "50"),
+                (WEEKLY_SHARE_ENV, "100"),
             ],
         )
         .unwrap_or_else(|error| panic!("{error}"));
@@ -452,6 +486,8 @@ mod tests {
         assert_eq!(read.cooldown, Duration::from_secs(300));
         assert_eq!(read.process_timeout, Duration::from_secs(120));
         assert_eq!(read.interval, Duration::from_secs(30));
+        assert_eq!(read.pacing.five_hour_share, 0.5);
+        assert_eq!(read.pacing.weekly_share, 1.0);
     }
 
     #[test]
@@ -479,6 +515,8 @@ mod tests {
             ("CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS", "0"),
             (MAX_PROCESSES_ENV, "two"),
             (INTERVAL_SECONDS_ENV, "0"),
+            (FIVE_HOUR_SHARE_ENV, "0"),
+            (WEEKLY_SHARE_ENV, "101"),
         ] {
             match settings(&[], &[(name, value)]) {
                 Err(RunnerSettingsError::Invalid { name: named, .. }) => assert_eq!(named, name),

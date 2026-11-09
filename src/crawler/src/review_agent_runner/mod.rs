@@ -28,6 +28,7 @@ mod reports;
 mod settings;
 mod state;
 mod stop;
+mod usage_pacing;
 
 pub use child::{RunnerChild, runner_env, runner_executable_next_to};
 pub use pass::{PassStop, PassSummary};
@@ -268,9 +269,15 @@ async fn write_digest(
     let rolling = RollingCost {
         five_hour_cost_usd: ledger.cost_within(FIVE_HOURS, now),
         weekly_cost_usd: ledger.cost_within(ONE_WEEK, now),
-        paused_until: state
-            .pause_at(now)
-            .map(|pause| (pause.until, usage_limit_name(pause.limit).to_owned())),
+        paused_until: state.pause_at(now).map(|pause| {
+            let limit = usage_limit_name(pause.limit);
+            let name = if pause.paced {
+                format!("the agents' share of the {limit}")
+            } else {
+                limit.to_owned()
+            };
+            (pause.until, name)
+        }),
         reviewers_paused_until: state.reviewer_pause_at(now).map(|pause| pause.until),
     };
     let digest = Digest::of(
@@ -1183,6 +1190,7 @@ echo "end $role $review" >> "$dir/order.log"
                     "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
                     "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
                     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                    "CLAUDE_CODE_PROMPT_CACHE_TTL",
                     "DISABLE_AUTOUPDATER",
                     "HOME",
                     "PATH",

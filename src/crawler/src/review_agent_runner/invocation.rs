@@ -57,13 +57,17 @@ pub(super) const PASSED_PLATFORM_ENV: &[&str] = &["SystemRoot", "TEMP", "TMP"];
 pub(super) const PASSED_PLATFORM_ENV: &[&str] = &[];
 
 /// Variables every CLI child is started with: no self-update and no non-essential traffic of a
-/// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, and UTC, so a usage
+/// pinned CLI, no `CLAUDE.md` instructions and no auto memory from the host, the five-minute
+/// prompt cache, and UTC, so a usage
 /// limit's reset time reads in a zone the runner can parse.
-pub(super) const SET_ENV: [(&str, &str); 5] = [
+pub(super) const SET_ENV: [(&str, &str); 6] = [
     ("DISABLE_AUTOUPDATER", "1"),
     ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
     ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+    // A process runs minutes, so the five-minute cache serves its turns and costs less to write
+    // than the subscription's default hour (code.claude.com/docs/en/prompt-caching).
+    ("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m"),
     ("TZ", "UTC"),
 ];
 
@@ -381,6 +385,7 @@ mod tests {
                 ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"),
                 ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
                 ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
+                ("CLAUDE_CODE_PROMPT_CACHE_TTL", "5m"),
                 ("TZ", "UTC"),
             ]
         );
