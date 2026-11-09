@@ -2,8 +2,8 @@
 
 use super::shared::encoded;
 use super::{
-    Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail, review_path,
-    review_source_crawl_host, review_source_url, review_source_urls, settled,
+    Artifact, Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail,
+    review_path, review_source_crawl_host, review_source_url, review_source_urls, settled,
 };
 use crate::review::model::CrawlerReviewPage;
 use crate::review_mcp::errors::ToolError;
@@ -210,6 +210,7 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             Effect::Reads,
             evaluate_candidate,
         )?
+        .only_for(Artifact::ProductSchema)
         .without_nested_descriptions(),
         ToolDefinition::new(
             "update_candidate",
@@ -223,43 +224,50 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             Effect::Changes,
             update_schema_field,
         )?
+        .only_for(Artifact::ProductSchema)
         .without_nested_descriptions(),
         ToolDefinition::new(
             "add_review_page",
             ADD_REVIEW_PAGE,
             Effect::Changes,
             add_review_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "remove_review_page",
             REMOVE_REVIEW_PAGE,
             Effect::Changes,
             remove_review_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "mark_page_not_product",
             MARK_PAGE_NOT_PRODUCT,
             Effect::Changes,
             mark_page_not_product,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "declare_removed_page",
             DECLARE_REMOVED_PAGE,
             Effect::Changes,
             declare_removed_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "record_no_sold_page",
             RECORD_NO_SOLD_PAGE,
             Effect::Changes,
             record_no_sold_page,
-        )?,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "label_sample_urls",
             LABEL_SAMPLE_URLS,
             Effect::ChangesIdempotently,
             label_sample_urls,
-        )?,
+        )?
+        .only_for(Artifact::UrlPattern),
     ])
 }
 
