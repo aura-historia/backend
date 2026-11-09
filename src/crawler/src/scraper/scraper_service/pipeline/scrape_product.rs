@@ -1,6 +1,7 @@
 use crate::network::policy::NetworkErrorKind;
 
 use crate::authoring::CrawlerAuthoringMode;
+use crate::logging::warn_in_source;
 use crate::review::repository::ReviewPlacement;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
@@ -17,8 +18,9 @@ use crate::scraper::scraper_service::domain::errors::{
 };
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
-    begin_transport_observation, current_fetch_failure, current_transport_observation,
-    scrape_health_for_scraper_error, with_scrape_observation,
+    begin_transport_observation, current_fetch_failure, current_scrape_telemetry,
+    current_transport_observation, record_captured_schema, scrape_health_for_scraper_error,
+    with_scrape_observation,
 };
 use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
@@ -34,7 +36,7 @@ use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use url::Url;
 
 /// Where a product URL's redirect on its own host, bare or `www.`, led, as the redirect
@@ -194,7 +196,7 @@ impl ScraperServiceImpl {
                 );
             }
             Err(error) => {
-                warn!(error = %error, "Failed to mark URL as other");
+                warn_in_source!(error = %error, "Failed to mark URL as other");
             }
         }
     }
@@ -226,7 +228,7 @@ impl ScraperServiceImpl {
                 debug!("Skipped stale page/schema fast-path completion");
             }
             Err(error) => {
-                warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
+                warn_in_source!(error = %error, "Failed to touch URL after page/schema fast-path skip");
             }
         }
     }
@@ -313,14 +315,18 @@ fn parse_fetched_page(
 impl ScraperService for ScraperServiceImpl {
     #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
     async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        let (result, observed_scrape_health, fetch_failure) = with_scrape_observation(async {
-            let result = self.scrape_request(&request).await;
-            let observed = current_transport_observation();
-            let fetch_failure = current_fetch_failure();
-            (result, observed, fetch_failure)
-        })
-        .await
-        .0;
+        let scrape_started_at = std::time::Instant::now();
+        let (result, observed_scrape_health, fetch_failure, mut telemetry) =
+            with_scrape_observation(async {
+                let result = self.scrape_request(&request).await;
+                let observed = current_transport_observation();
+                let fetch_failure = current_fetch_failure();
+                (result, observed, fetch_failure, current_scrape_telemetry())
+            })
+            .await
+            .0;
+        let scrape_ms = u64::try_from(scrape_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        telemetry.process_ms = Some(scrape_ms.saturating_sub(telemetry.fetch_ms.unwrap_or(0)));
         let scrape_health = observed_scrape_health.unwrap_or_else(|| match &result {
             Ok(_) => DomainFetchHealth::Responsive,
             Err(error) => scrape_health_for_scraper_error(error),
@@ -329,6 +335,7 @@ impl ScraperService for ScraperServiceImpl {
             result,
             scrape_health,
             fetch_failure,
+            telemetry,
         }
     }
 }
@@ -494,6 +501,12 @@ fn capture_selection(
             .chain(selection.fresh_schema.then_some(Some(&selection.raw))),
     );
     let mut schemas = extracted.into_schemas().product_schemas;
+    let schema_index = selection.cached_schema_index.unwrap_or(schemas.len());
+    // A carried-forward title stands in for the blank one the extraction found.
+    let fields_present = selection.raw.present_field_count()
+        + usize::from(
+            selection.carried_forward_title.is_some() && selection.raw.title.trim().is_empty(),
+        );
     if selection.fresh_schema {
         schemas.push(selection.schema.clone());
     }
@@ -514,6 +527,13 @@ fn capture_selection(
         .map_err(ScraperError::RawNormalizationInput)?
         .as_bytes()
         .to_vec();
+    // Only a capture that succeeded reports its schema.
+    record_captured_schema(
+        schema_index,
+        selection.score,
+        selection.fresh_schema,
+        fields_present,
+    );
     Ok(ScrapedProduct {
         acquired_at: page.acquired_at,
         raw_input,
@@ -803,7 +823,8 @@ impl ScraperServiceImpl {
     /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
     /// ListingSource's `missing_required_value` review for it, so the review agents see the page
     /// that no human adds, unless a rejection of such a review already judged the page under the
-    /// live schemas; that page needs nobody's attention, so it logs at INFO. Other modes open
+    /// live schemas; that page needs nobody's attention. The review's opening is the repository's
+    /// `crawler.review.opened` event, so these outcomes log at DEBUG. Other modes open
     /// none and log a WARN, as the scrape's failure did before, since a human adds the page from
     /// the console. A failure to open the review is a WARN too: the URL still records the
     /// outcome, and the next scrape tries again.
@@ -825,31 +846,31 @@ impl ScraperServiceImpl {
             _ => None,
         };
         match review {
-            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => info!(
+            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => debug!(
                 url = %page.url,
                 review_id = %review_id,
                 findings = %findings,
                 "Page left a required value blank; opened the missing_required_value review"
             ),
-            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => info!(
+            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => debug!(
                 url = %page.url,
                 review_id = %review_id,
                 findings = %findings,
                 "Page left a required value blank; joined the missing_required_value review"
             ),
-            Some(Ok(None)) => info!(
+            Some(Ok(None)) => debug!(
                 url = %page.url,
                 findings = %findings,
                 "Page left a required value blank; a rejected missing_required_value review already judged it under the live schemas"
             ),
-            Some(Err(error)) => warn!(
+            Some(Err(error)) => warn_in_source!(
                 url = %page.url,
                 findings = %findings,
                 error = %error,
                 cause = ?std::error::Error::source(&error),
                 "Page left a required value blank; could not open its missing_required_value review"
             ),
-            None => warn!(
+            None => warn_in_source!(
                 url = %page.url,
                 findings = %findings,
                 "Page left a required value blank"

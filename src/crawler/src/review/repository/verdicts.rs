@@ -44,7 +44,7 @@ use sqlx::Row;
 use std::num::NonZeroU32;
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::debug;
 
 /// An approval of a pending review as its approver sends it.
 #[derive(Debug, Clone, Copy)]
@@ -177,7 +177,6 @@ impl CrawlerReviewRepository {
         close_approved_review(&mut transaction, review_id, &review, approval).await?;
         release_work_waiting_on(&mut transaction, &review.waiting_work()).await?;
         commit_with_event(transaction, review_id, actor, event).await?;
-        info!(review_id = %review_id, actor = %actor, "Review approved");
         Ok(())
     }
 
@@ -221,7 +220,6 @@ impl CrawlerReviewRepository {
             ReviewMutation::Rejected { notes },
         )
         .await?;
-        info!(review_id = %review_id, actor = %actor, "Review rejected");
         Ok(())
     }
 
@@ -259,7 +257,6 @@ impl CrawlerReviewRepository {
             ReviewMutation::RepairRequested { note },
         )
         .await?;
-        info!(review_id = %review_id, actor = %actor, "Reviewer asked for a review to be repaired");
         Ok(())
     }
 }
@@ -297,7 +294,6 @@ impl CrawlerReviewRepository {
             ReviewMutation::HandedToHuman { note },
         )
         .await?;
-        info!(review_id = %review_id, actor = %actor, "Review agent handed a review to a human");
         Ok(())
     }
 }
@@ -523,7 +519,7 @@ async fn make_reviewed_url_pattern_live(
         url_classifier,
     )
     .await?;
-    info!(
+    debug!(
         review_id = %review_id,
         reclassified_urls = reclassified,
         "Approved URL pattern classified the ListingSource's stored URLs"
@@ -642,7 +638,7 @@ async fn make_product_schemas_live(
     if live.removed_page_schemas != replaced_removed_page_schemas {
         store_removed_page_schemas(transaction, listing_source_id, &live.removed_page_schemas)
             .await?;
-        info!(
+        debug!(
             review_id = %review_id,
             listing_source_id = %listing_source_id,
             removed_page_template_count = live.removed_page_schemas.len(),
@@ -771,7 +767,7 @@ fn check_approval_coverage(
         });
     }
     if !coverage.is_complete() {
-        info!(
+        debug!(
             review_id = %review_id,
             covered_pages = coverage.covered,
             removed_pages = coverage.removed,

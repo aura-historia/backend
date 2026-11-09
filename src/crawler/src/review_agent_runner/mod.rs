@@ -172,20 +172,7 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
-    info!(
-        pending = summary.pending,
-        waiting_for_human = summary.waiting_for_human,
-        handed_to_human = summary.handed_to_human,
-        reviewers_held_back = summary.reviewers_held_back,
-        cooling_down = summary.cooling_down,
-        worked = summary.worked,
-        processes = summary.processes,
-        decided = summary.decided,
-        stopped = %PassStop::describe(summary.stopped),
-        five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now),
-        weekly_cost_usd = ledger.cost_within(ONE_WEEK, now),
-        "Review agents pass finished"
-    );
+    log_pass_finished(&summary, &ledger, now);
     if stop.is_requested() {
         return Ok(RunOutcome::Ran {
             summary,
@@ -197,6 +184,36 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
         save_state(&settings.state_dir, &state)?;
     }
     Ok(RunOutcome::Ran { summary, digest })
+}
+
+/// Logs how a pass ended: at INFO when it started a process, at DEBUG when it only looked at the
+/// queue, which is most passes of an idle runner.
+fn log_pass_finished(summary: &PassSummary, ledger: &ProcessLedger, now: OffsetDateTime) {
+    macro_rules! log_pass_finished {
+        ($level:expr) => {
+            tracing::event!(
+                $level,
+                event = "crawler.review_agent.pass_completed",
+                pending = summary.pending,
+                waiting_for_human = summary.waiting_for_human,
+                handed_to_human = summary.handed_to_human,
+                reviewers_held_back = summary.reviewers_held_back,
+                cooling_down = summary.cooling_down,
+                worked = summary.worked,
+                processes = summary.processes,
+                decided = summary.decided,
+                stopped = %PassStop::describe(summary.stopped),
+                five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now),
+                weekly_cost_usd = ledger.cost_within(ONE_WEEK, now),
+                "Review agents pass finished"
+            )
+        };
+    }
+    if summary.processes == 0 {
+        log_pass_finished!(tracing::Level::DEBUG);
+    } else {
+        log_pass_finished!(tracing::Level::INFO);
+    }
 }
 
 /// Whether this process has told its login yet.
@@ -2190,6 +2207,71 @@ echo "end $role $review" >> "$dir/order.log"
         ));
         assert!(matches!(no_token_file, Err(RunnerError::NotAgentMode(_))));
         assert!(fixture.claude.calls().is_empty());
+    }
+
+    /// An idle runner passes every interval: INFO carries only the completion of a pass that worked a
+    /// review.
+    #[tokio::test]
+    async fn should_log_an_idle_pass_at_debug_and_a_working_pass_at_info() {
+        use crate::test_support::logged_events::LoggedEvents;
+        let idle = Fixture::new(vec![]).await;
+        let working = Fixture::new(vec![review("PENDING_REVIEW", true)]).await;
+        let (events, _guard) = LoggedEvents::capture();
+
+        run_with(&idle.settings(&["--once"], &[])).await;
+        let idle_levels = |name| {
+            events
+                .named(name)
+                .iter()
+                .map(|logged| logged.level)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_started"),
+            [tracing::Level::DEBUG]
+        );
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_completed"),
+            [tracing::Level::DEBUG]
+        );
+
+        run_with(&working.settings(&["--once"], &[])).await;
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_started"),
+            [tracing::Level::DEBUG, tracing::Level::DEBUG]
+        );
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_completed"),
+            [tracing::Level::DEBUG, tracing::Level::INFO]
+        );
+        let finished = events.named("crawler.review_agent.process_finished");
+        assert_eq!(finished.len(), 2, "an author and a reviewer process");
+        assert!(
+            finished
+                .iter()
+                .all(|logged| logged.level == tracing::Level::INFO)
+        );
+        assert_eq!(finished[0].field("listing_source_name"), Some("Antiques"));
+        assert!(finished[0].field("listing_source_id").is_some());
+        assert_eq!(finished[0].field("decision"), Some("staged"));
+        assert_eq!(finished[1].field("decision"), Some("approved"));
+        for field in [
+            "report",
+            "summary",
+            "risks",
+            "field_findings",
+            "server_answer",
+        ] {
+            assert!(
+                finished.iter().all(|logged| logged.field(field).is_none()),
+                "{field}"
+            );
+        }
+        assert!(
+            events
+                .named("crawler.review_agent.process_report")
+                .is_empty()
+        );
     }
 
     #[tokio::test]

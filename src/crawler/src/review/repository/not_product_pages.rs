@@ -20,7 +20,7 @@ use crate::spider::classification::url_metadata::UrlClass;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
-use tracing::info;
+use tracing::debug;
 
 /// The longest reason a mark keeps, in characters.
 pub const MAX_NOT_PRODUCT_REASON_CHARS: usize = 500;
@@ -63,9 +63,8 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
-            actor = %actor,
             review_page_id = %review_page_id,
             "Review page marked as no product page"
         );
@@ -101,9 +100,8 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
-            actor = %actor,
             review_page_id = %review_page_id,
             "Mark of a review page as no product page cleared"
         );
@@ -227,7 +225,7 @@ pub(super) async fn retire_marked_pages(
     if !stored.is_empty() {
         store_url_classes_clearing_retry(transaction, listing_source_id, &stored, &classes).await?;
     }
-    info!(
+    debug!(
         review_id = %review_id,
         marked_pages = marked_urls.len(),
         retired_urls = stored.len(),

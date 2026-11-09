@@ -1,4 +1,6 @@
 use crate::CrawlerReviewId;
+use crate::logging::SourceLogContext;
+use crate::logging::warn_in_source;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -336,7 +338,7 @@ impl SpiderServiceImpl {
             .collapse_unnormalized_product_urls(listing_source_id)
             .await
         {
-            warn!(
+            warn_in_source!(
                 error = %error,
                 cause = ?std::error::Error::source(&error),
                 "Failed to collapse stored product URLs onto their current spelling"
@@ -353,7 +355,7 @@ impl SpiderServiceImpl {
         discovery: Option<&CrawlDiscovery>,
     ) {
         let Some(discovery) = discovery else {
-            warn!("Spider crawl reported no frontier; keeping the previous one");
+            warn_in_source!("Spider crawl reported no frontier; keeping the previous one");
             return;
         };
         match self
@@ -366,7 +368,7 @@ impl SpiderServiceImpl {
                 frontier_urls = discovery.frontier.len(),
                 "The ListingSource moved to another crawl root during the crawl; its frontier is not kept"
             ),
-            Err(error) => warn!(error = ?error, "Failed to persist the crawl frontier"),
+            Err(error) => warn_in_source!(error = ?error, "Failed to persist the crawl frontier"),
         }
     }
 
@@ -476,7 +478,7 @@ impl SpiderServiceImpl {
         info!(
             review_id = %review_id,
             stored_urls = stored_pages.len(),
-            product_pattern = ?state.pattern.as_pattern().map(ProductUrlPattern::include_source),
+            product_pattern = state.pattern.as_pattern().map(ProductUrlPattern::include_source),
             "URL pattern review was decided during the crawl, classifying its stored URLs with the decision"
         );
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
@@ -532,7 +534,7 @@ impl SpiderServiceImpl {
         // URLs under the pattern it has and the reviewer's decision
         // classifies them.
         if let Err(UrlPatternServiceError::PendingReview { review_id, .. }) = classification {
-            info!(
+            debug!(
                 stage,
                 review_id = %review_id,
                 sample_size = state.inference_sample.len(),
@@ -551,9 +553,12 @@ impl SpiderServiceImpl {
                 .unwrap_or(ProductListingPattern::Unknown)
         })?;
 
-        if state.pattern.is_unknown() {
-            warn!(stage, "Found no product URL pattern");
-        }
+        log_pattern_classified(
+            &state.source,
+            stage,
+            &state.pattern,
+            state.inference_sample.len(),
+        );
 
         Ok(())
     }
@@ -614,7 +619,7 @@ impl SpiderServiceImpl {
     #[tracing::instrument(name = "spider_log_progress", skip(self, state))]
     fn log_progress(&self, state: &CrawlRunState) {
         if state.total_crawled.is_multiple_of(1000) {
-            info!(
+            debug!(
                 total_crawled = state.total_crawled,
                 products_found = state.products_found(),
                 "Crawl progress"
@@ -654,7 +659,7 @@ impl SpiderServiceImpl {
                     diagnostics: Box::default(),
                 });
             }
-            info!(
+            debug!(
                 url_count = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
             );
@@ -714,7 +719,9 @@ impl SpiderServiceImpl {
             && !has_pattern_match(&state.page_buffer, &state.pattern)
             && !state.inference_sample.is_empty()
         {
-            warn!("Persisted product URL pattern did not match crawl results, reclassifying");
+            warn_in_source!(
+                "Persisted product URL pattern did not match crawl results, reclassifying"
+            );
 
             self.classify_and_save_for_stage(
                 state,
@@ -751,7 +758,9 @@ impl SpiderServiceImpl {
             Ok(CrawlOutcomeWrite::RootMoved) => debug!(
                 "The ListingSource moved to another crawl root during the crawl; its full crawl is not recorded"
             ),
-            Err(error) => warn!(error = ?error, "Failed to mark ListingSource as crawled"),
+            Err(error) => {
+                warn_in_source!(error = ?error, "Failed to mark ListingSource as crawled")
+            }
         }
     }
 
@@ -766,7 +775,10 @@ impl SpiderServiceImpl {
         classify_threshold: usize,
     ) -> Result<CrawlRunState, SpiderServiceError> {
         let initial_pattern = self.pattern_service.load_pattern(listing_source_id).await?;
-        let mut state = CrawlRunState::new(initial_pattern);
+        let mut state = CrawlRunState::new(
+            SourceLogContext::of_run(*listing_source_id),
+            initial_pattern,
+        );
 
         if state.pattern_loaded_from_store {
             debug!("Loaded persisted product URL pattern");
@@ -778,6 +790,7 @@ impl SpiderServiceImpl {
                 continue;
             }
             state.total_crawled += 1;
+            state.query_url_pages += usize::from(page.url.as_url().query().is_some());
             state.challenged_pages += usize::from(page.bot_challenge);
             state.shop_platform = state.shop_platform.or(page.identity.platform);
 
@@ -1081,6 +1094,42 @@ fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> 
         .is_some_and(|regex| pages.iter().any(|page| page.url.matches_pattern(regex)))
 }
 
+pub(crate) const CRAWL_COMPLETED_EVENT: &str = "crawler.spider.crawl_completed";
+pub(crate) const CRAWL_DIAGNOSTICS_EVENT: &str = "crawler.spider.crawl_diagnostics";
+pub(crate) const PATTERN_CLASSIFIED_EVENT: &str = "crawler.spider.pattern_classified";
+
+/// The product URL pattern a classification stage settled on, or that it found none. A stage
+/// that found none is a warning: the crawl goes on without product URLs to store.
+fn log_pattern_classified(
+    source: &SourceLogContext,
+    stage: &'static str,
+    pattern: &ProductListingPattern,
+    sample_size: usize,
+) {
+    let product_pattern = pattern.as_pattern().map(ProductUrlPattern::include_source);
+    match product_pattern {
+        Some(_) => info!(
+            event = PATTERN_CLASSIFIED_EVENT,
+            listing_source_id = %source.listing_source_id,
+            listing_source_name = %source.listing_source_name,
+            domain = %source.domain,
+            stage,
+            sample_size,
+            product_pattern,
+            "Classified the product URL pattern"
+        ),
+        None => warn!(
+            event = PATTERN_CLASSIFIED_EVENT,
+            listing_source_id = %source.listing_source_id,
+            listing_source_name = %source.listing_source_name,
+            domain = %source.domain,
+            stage,
+            sample_size,
+            "Found no product URL pattern"
+        ),
+    }
+}
+
 /// Coverage losses on a crawl that delivered pages are only visible here.
 fn log_crawl_outcome(
     state: &CrawlRunState,
@@ -1091,37 +1140,23 @@ fn log_crawl_outcome(
 ) {
     let completion = diagnostics.completion;
     info!(
+        event = CRAWL_COMPLETED_EVENT,
+        listing_source_id = %state.source.listing_source_id,
+        listing_source_name = %state.source.listing_source_name,
+        domain = %state.source.domain,
         completion = %completion,
         kind = %kind,
-        crawl_budget_ms = diagnostics.crawl_budget_ms,
-        seeds = diagnostics.seeds,
-        known_skipped = diagnostics.known_skipped,
-        known_fetches_saved = diagnostics.known_fetches_saved,
-        root_reroot = ?diagnostics.root_reroot,
-        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
-        at_budget = completion == CrawlCompletion::PageBudgetReached,
-        diagnostic_reason = ?diagnostics.diagnostic_reason,
         truncated = !completion.is_full(),
         total_crawled = state.total_crawled,
         product_urls_count = state.products_found(),
-        product_pattern = ?product_pattern,
-        product_pattern_known = product_pattern.is_some(),
-        classification_done = state.classification_done,
-        pages_received = diagnostics.pages_received,
-        rejected_host = diagnostics.rejected_host,
-        rejected_blacklist = diagnostics.rejected_blacklist,
-        rejected_duplicate = diagnostics.rejected_duplicate,
-        robots_policy = ?diagnostics.robots_policy,
-        robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
-        request_delay_ms = diagnostics.request_delay_ms,
-        robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
-        lagged = diagnostics.lagged,
-        initial_anti_bot = ?diagnostics.initial_anti_bot,
+        product_pattern = product_pattern,
+        sample_match_ratio = state.sample_match_ratio(),
+        query_url_share = state.query_url_share(),
         status_counts = ?diagnostics.status_counts,
-        bot_challenge_pages = diagnostics.bot_challenge_pages,
-        rate_limit = ?diagnostics.rate_limit,
-        pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
-        stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
+        frontier_left = discovery.map(|discovery| discovery.frontier.len()),
+        diagnostic_reason = diagnostics.diagnostic_reason,
+        stopped_early = diagnostics.stopped_early.map(CrawlStopReason::as_str),
+        pending_url_pattern_review = state.pending_url_pattern_review().map(|id| id.to_string()),
         "{}",
         crawl_outcome_message(
             completion,
@@ -1129,22 +1164,48 @@ fn log_crawl_outcome(
             state.pending_url_pattern_review().is_some()
         )
     );
+    debug!(
+        event = CRAWL_DIAGNOSTICS_EVENT,
+        listing_source_id = %state.source.listing_source_id,
+        domain = %state.source.domain,
+        crawl_budget_ms = diagnostics.crawl_budget_ms,
+        seeds = diagnostics.seeds,
+        known_skipped = diagnostics.known_skipped,
+        known_fetches_saved = diagnostics.known_fetches_saved,
+        root_reroot = ?diagnostics.root_reroot,
+        at_budget = completion == CrawlCompletion::PageBudgetReached,
+        classification_done = state.classification_done,
+        pages_received = diagnostics.pages_received,
+        rejected_host = diagnostics.rejected_host,
+        rejected_blacklist = diagnostics.rejected_blacklist,
+        rejected_duplicate = diagnostics.rejected_duplicate,
+        robots_policy = ?diagnostics.robots_policy,
+        robots_crawl_delay_ms = diagnostics.robots_crawl_delay_ms,
+        request_delay_ms = diagnostics.request_delay_ms,
+        robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
+        lagged = diagnostics.lagged,
+        initial_anti_bot = ?diagnostics.initial_anti_bot,
+        bot_challenge_pages = diagnostics.bot_challenge_pages,
+        rate_limit = ?diagnostics.rate_limit,
+        "Crawl diagnostics"
+    );
 }
 
 /// The frontier a run that found no product URL left for the next crawl: `frontier_left` is
 /// absent when the crawl could not tell it, and a failed write is logged on its own. The
-/// scheduler logs the failure itself.
+/// scheduler logs the failure itself as `crawler.spider.crawl_failed`; this DEBUG
+/// record keeps the frontier size, which the error does not carry.
 fn log_failed_run_frontier(
     error: &SpiderServiceError,
     diagnostics: &CrawlDiagnostics,
     discovery: Option<&CrawlDiscovery>,
 ) {
-    info!(
+    debug!(
         error = %error,
         completion = %diagnostics.completion,
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
-        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
+        frontier_left = discovery.map(|discovery| discovery.frontier.len()),
         root_reroot = ?diagnostics.root_reroot,
         pages_received = diagnostics.pages_received,
         bot_challenge_pages = diagnostics.bot_challenge_pages,
@@ -1158,7 +1219,7 @@ fn log_crawl_stopped_early(diagnostics: &CrawlDiagnostics, error: &SpiderService
     let Some(stop_reason) = diagnostics.stopped_early else {
         return;
     };
-    info!(
+    debug!(
         stop_reason = %stop_reason,
         error = %error,
         completion = %diagnostics.completion,
@@ -4376,4 +4437,70 @@ fn crawl_failure_error(
         total_links,
         diagnostics: Box::new(diagnostics.clone()),
     })
+}
+
+#[cfg(test)]
+mod crawl_event_tests {
+    use super::*;
+    use crate::test_support::logged_events::LoggedEvents;
+
+    fn source() -> SourceLogContext {
+        SourceLogContext::new(ListingSourceId::new(), "Antique Shop", "antique.example")
+    }
+
+    #[test]
+    fn should_log_the_crawl_outcome_with_source_and_discovery_evidence_when_a_crawl_completes() {
+        let (events, _guard) = LoggedEvents::capture();
+        let mut state = CrawlRunState::new(source(), None);
+        state.total_crawled = 4;
+        state.query_url_pages = 1;
+        let diagnostics = CrawlDiagnostics {
+            completion: CrawlCompletion::HardTimeoutTruncated,
+            ..CrawlDiagnostics::default()
+        };
+
+        log_crawl_outcome(&state, &diagnostics, Some("/p/"), CrawlKind::Full, None);
+
+        let completed = events.named(CRAWL_COMPLETED_EVENT);
+        assert_eq!(completed.len(), 1);
+        let completed = &completed[0];
+        assert_eq!(completed.level, tracing::Level::INFO);
+        assert_eq!(completed.field("listing_source_name"), Some("Antique Shop"));
+        assert_eq!(completed.field("domain"), Some("antique.example"));
+        assert_eq!(completed.field("truncated"), Some("true"));
+        assert_eq!(completed.field("query_url_share"), Some("0.25"));
+        assert_eq!(completed.field("product_pattern"), Some("/p/"));
+        assert!(completed.field("status_counts").is_some());
+    }
+
+    #[test]
+    fn should_warn_that_no_pattern_was_found_when_classification_settles_on_none() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        log_pattern_classified(&source(), "threshold", &ProductListingPattern::Unknown, 12);
+
+        let classified = events.named(PATTERN_CLASSIFIED_EVENT);
+        assert_eq!(classified.len(), 1);
+        assert_eq!(classified[0].level, tracing::Level::WARN);
+        assert_eq!(classified[0].field("stage"), Some("threshold"));
+        assert_eq!(classified[0].field("sample_size"), Some("12"));
+        assert_eq!(classified[0].field("domain"), Some("antique.example"));
+    }
+
+    #[test]
+    fn should_name_the_pattern_at_info_when_classification_settles_on_one() {
+        let (events, _guard) = LoggedEvents::capture();
+        let pattern = ProductListingPattern::Known(
+            ProductUrlPattern::parse(r"/products/\d+$").expect("test pattern must parse"),
+        );
+
+        log_pattern_classified(&source(), "end_of_crawl", &pattern, 30);
+
+        let classified = events.named(PATTERN_CLASSIFIED_EVENT);
+        assert_eq!(classified[0].level, tracing::Level::INFO);
+        assert_eq!(
+            classified[0].field("product_pattern"),
+            Some("/products/\\d+$")
+        );
+    }
 }

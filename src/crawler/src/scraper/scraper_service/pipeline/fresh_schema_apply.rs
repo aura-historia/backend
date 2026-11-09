@@ -1,3 +1,4 @@
+use crate::logging::warn_in_source;
 use crate::scraper::css_selector::product_schema::{ProductCssSelectorSchema, RawExtractedProduct};
 use crate::scraper::css_selector::product_schema_service::{
     GeneratedSingleSchema, SchemaLlmEvaluation,
@@ -14,7 +15,6 @@ use crate::scraper::scraper_service::pipeline::fresh_schema_generation::FreshSch
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use time::OffsetDateTime;
-use tracing::warn;
 use url::Url;
 
 impl ScraperServiceImpl {
@@ -113,7 +113,7 @@ impl ScraperServiceImpl {
         let (_, raw) = match try_apply_schemas(std::iter::once(&generated_schema), html) {
             Ok(applied) => applied,
             Err(err) => {
-                warn!(error = ?err, "Generated schema did not apply; discarding");
+                warn_in_source!(error = ?err, "Generated schema did not apply; discarding");
                 return Err(ScraperError::SchemaRegenerationExhausted {
                     url: url.clone(),
                     attempts: 1,

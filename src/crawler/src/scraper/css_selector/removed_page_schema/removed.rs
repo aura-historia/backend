@@ -158,7 +158,7 @@ impl RemovedPageSchema {
             (None, Some(pattern)) => match removed_page_regex(pattern) {
                 Ok(regex) => Some(NoticeSignal::Regex(regex)),
                 Err(reason) => {
-                    tracing::warn!(
+                    crate::logging::warn_in_source!(
                         removed_page_selector = %self.selector,
                         removed_page_regex_rejection = %reason,
                         "Stored removed-page regex is rejected and ignored; fix or delete the row"

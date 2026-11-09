@@ -30,7 +30,7 @@ use super::queue::{
     QueuedReview, hand_to_human, review_events_since, review_queue, reviewer_judged_review,
     select_reviews, waits_for_human,
 };
-use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
+use super::reports::{AgentReport, AuthorAction, AuthorReport, ReviewerDecision, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
 use super::state::{Cooldown, Pause, ReviewerPause, RunnerState, save_state};
 use super::stop::RunnerStop;
@@ -45,7 +45,10 @@ use futures::stream::FuturesUnordered;
 use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 use time::OffsetDateTime;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+const PASS_STARTED_EVENT: &str = "crawler.review_agent.pass_started";
+const PROCESS_FINISHED_EVENT: &str = "crawler.review_agent.process_finished";
 
 /// What a pass did.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -267,7 +270,9 @@ impl Pass<'_> {
                 shared.summary.waiting_for_human = waiting_for_human;
                 shared.summary.cooling_down = cooling_down;
             });
-            info!(
+            // The completion record carries the pass's counts at INFO once it worked a review.
+            debug!(
+                event = PASS_STARTED_EVENT,
                 pending,
                 waiting_for_human,
                 cooling_down,
@@ -350,7 +355,11 @@ impl Pass<'_> {
         match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
             Ok(()) => {
                 info!(
+                    event = "crawler.review_agent.handed_to_human",
                     review_id = %review.review_id,
+                    listing_source_id = %review.listing_source_id,
+                    listing_source_name = review.listing_source_name.as_deref(),
+                    artifact_type = %review.artifact_type,
                     "The author found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
                 );
                 self.with(|shared| shared.summary.handed_to_human += 1);
@@ -406,7 +415,7 @@ impl Pass<'_> {
     /// pause ends, so the pass does not run its author again while the reviewers pause and the
     /// review is workable again as soon as they resume.
     fn hold_back_reviewer(&self, review: &QueuedReview, until: OffsetDateTime) {
-        info!(
+        debug!(
             review_id = %review.review_id,
             reviewers_paused_until = %timestamp(until),
             "No reviewer process starts: the reviewers pause after the agents' decision cap"
@@ -470,6 +479,7 @@ impl Pass<'_> {
             self.keep_state(&shared.state);
             if in_force.is_none() {
                 info!(
+                    event = "crawler.review_agent.reviewers_paused",
                     resumes_at = %timestamp(until),
                     "The agents reached the console's decision cap; no reviewer process starts until it resumes, authors keep running"
                 );
@@ -487,7 +497,11 @@ impl Pass<'_> {
         match waits_for_human(self.console, review.review_id).await {
             Ok(true) => {
                 info!(
+                    event = "crawler.review_agent.waiting_for_human",
                     review_id = %review.review_id,
+                    listing_source_id = %review.listing_source_id,
+                    listing_source_name = review.listing_source_name.as_deref(),
+                    artifact_type = %review.artifact_type,
                     role = role.as_str(),
                     "The review waits for a human after the agent's pass; no further process starts and it does not cool down"
                 );
@@ -571,7 +585,7 @@ impl Pass<'_> {
             self.with(|shared| shared.summary.worked += 1);
         }
         self.with(|shared| shared.summary.processes += 1);
-        info!(
+        debug!(
             review_id = %review.review_id,
             artifact_type = %review.artifact_type,
             role = role.as_str(),
@@ -602,7 +616,7 @@ impl Pass<'_> {
         };
         record.trail_verdict = trail_verdict;
         record.finished = OffsetDateTime::now_utc();
-        self.finish(record);
+        self.finish(review, record);
         Processed {
             step,
             trail_verdict,
@@ -722,24 +736,24 @@ impl Pass<'_> {
         }
     }
 
-    /// Records and logs a finished process: its report, usage and cost, never its prompt, page
-    /// content or envelope.
-    fn finish(&self, record: ProcessRecord) {
-        let report = record
-            .report
-            .as_ref()
-            .and_then(|report| serde_json::to_string(report).ok())
-            .unwrap_or_default();
+    /// Records a finished process in the ledger and logs its outcome, usage and cost, never its
+    /// report, prompt, page content or envelope.
+    fn finish(&self, review: &QueuedReview, record: ProcessRecord) {
         info!(
+            event = PROCESS_FINISHED_EVENT,
             review_id = %record.review_id,
+            listing_source_id = %review.listing_source_id,
+            listing_source_name = review.listing_source_name.as_deref(),
+            artifact_type = %review.artifact_type,
             role = name(Some(record.role)),
             prompt_version = %record.prompt_version,
             end = name(Some(record.end)),
             limit = name(record.limit),
             usage_limit = name(record.usage_limit),
-            failure = record.failure.as_deref().unwrap_or(""),
-            subtype = record.subtype.as_deref().unwrap_or(""),
-            terminal_reason = record.terminal_reason.as_deref().unwrap_or(""),
+            decision = record.report.as_ref().map(decision_name),
+            failure = non_empty(record.failure.as_deref()),
+            subtype = non_empty(record.subtype.as_deref()),
+            terminal_reason = non_empty(record.terminal_reason.as_deref()),
             api_error_status = record.api_error_status,
             num_turns = record.num_turns,
             duration_ms = record.duration_ms,
@@ -757,7 +771,6 @@ impl Pass<'_> {
                 .values()
                 .map(|answers| answers.chars)
                 .sum::<u64>(),
-            report = %report,
             "Review agent process finished"
         );
         self.with(|shared| {
@@ -775,7 +788,7 @@ impl Pass<'_> {
 
     /// Lets `review` wait until `until` before its next pass.
     fn cool_down_until(&self, review: &QueuedReview, until: OffsetDateTime) {
-        info!(
+        debug!(
             review_id = %review.review_id,
             until = %timestamp(until),
             "The review stays pending and cools down before its next pass"
@@ -931,6 +944,29 @@ impl PassStop {
     }
 }
 
+/// The one word of a report the process log keeps: the author's action or the reviewer's
+/// decision, in the vocabulary of `crawler.review.decided`. The report itself is in the ledger and
+/// the decision in the console's event trail.
+fn decision_name(report: &AgentReport) -> &'static str {
+    match report {
+        AgentReport::Author(report) => match report.action {
+            AuthorAction::Staged => "staged",
+            AuthorAction::NothingToStage => "nothing_to_stage",
+            AuthorAction::Skipped => "skipped",
+        },
+        AgentReport::Reviewer(report) => match report.decision {
+            ReviewerDecision::Approve => "approved",
+            ReviewerDecision::Reject => "rejected",
+            ReviewerDecision::NeedsRepair => "needs_repair",
+            ReviewerDecision::Skip => "skipped",
+        },
+    }
+}
+
+fn non_empty(text: Option<&str>) -> Option<&str> {
+    text.filter(|text| !text.is_empty())
+}
+
 /// Logs the pause a usage limit sets. A limit whose reset time the runner cannot read logs the
 /// line of the CLI's message, so a changed wording shows in the journal.
 fn log_pause(limit: &UsageLimit, until: OffsetDateTime) {
@@ -965,41 +1001,11 @@ pub fn usage_limit_name(kind: UsageLimitKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt::Write as _;
-    use std::sync::Arc;
-    use tracing::field::{Field, Visit};
-    use tracing_subscriber::layer::{Context, SubscriberExt};
-
-    /// The events logged while it is the default subscriber: each one's level and fields.
-    #[derive(Clone, Default)]
-    struct LoggedEvents(Arc<Mutex<Vec<(tracing::Level, String)>>>);
-
-    struct Fields(String);
-
-    impl Visit for Fields {
-        fn record_str(&mut self, field: &Field, value: &str) {
-            let _ = write!(self.0, "{}={value} ", field.name());
-        }
-
-        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-            let _ = write!(self.0, "{}={value:?} ", field.name());
-        }
-    }
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
-        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-            let mut fields = Fields(String::new());
-            event.record(&mut fields);
-            self.0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push((*event.metadata().level(), fields.0));
-        }
-    }
+    use crate::test_support::logged_events::LoggedEvents;
 
     #[test]
     fn should_log_the_limit_message_at_warn_when_its_reset_time_cannot_be_read() {
-        let logged = LoggedEvents::default();
+        let (logged, _guard) = LoggedEvents::capture();
         let now = OffsetDateTime::now_utc();
         let unreadable = UsageLimit {
             kind: UsageLimitKind::Weekly,
@@ -1011,28 +1017,20 @@ mod tests {
             ..unreadable.clone()
         };
 
-        tracing::subscriber::with_default(
-            tracing_subscriber::registry().with(logged.clone()),
-            || {
-                tracing::callsite::rebuild_interest_cache();
-                log_pause(&unreadable, unreadable.paused_until(now));
-                log_pause(&readable, readable.paused_until(now));
-            },
-        );
+        log_pause(&unreadable, unreadable.paused_until(now));
+        log_pause(&readable, readable.paused_until(now));
 
-        let events = logged.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let events = logged.all();
         assert_eq!(events.len(), 2, "{events:?}");
         assert!(
             events
                 .iter()
-                .all(|(level, _)| *level == tracing::Level::WARN)
+                .all(|logged| logged.level == tracing::Level::WARN)
         );
-        assert!(
-            events[0]
-                .1
-                .contains("limit_message=You've hit your weekly limit · resets in a while"),
-            "{events:?}"
+        assert_eq!(
+            events[0].field("limit_message"),
+            Some("You've hit your weekly limit · resets in a while")
         );
-        assert!(!events[1].1.contains("limit_message"), "{events:?}");
+        assert!(events[1].field("limit_message").is_none(), "{events:?}");
     }
 }

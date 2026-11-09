@@ -1,6 +1,6 @@
 use crate::metrics::{CrawlerMetric, MetricRecord};
 use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::info;
+use tracing::debug;
 
 pub(super) struct PerfCounter {
     count: AtomicU64,
@@ -42,7 +42,7 @@ impl PerfCounter {
         if total >= self.threshold {
             let total_ms = self.duration_ms.load(Ordering::Relaxed);
             let avg_seconds = average_seconds(total_ms, total);
-            info!(
+            debug!(
                 items_processed = total,
                 avg_seconds,
                 label = self.label,

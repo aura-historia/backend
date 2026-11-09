@@ -1,5 +1,6 @@
 use crate::CrawlerReviewId;
 use crate::authoring::CrawlerAuthoringMode;
+use crate::logging::SourceLogContext;
 use crate::review::model::SchemaMatrix;
 use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
@@ -71,18 +72,14 @@ impl ScraperServiceImpl {
         // `llm_decision` is the LLM's self-reported verdict; `outcome` is the final gate
         // result after deterministic coverage, so a schema that failed coverage never reads
         // as approved.
-        info!(
-            mode = self.authoring.as_str(),
-            outcome = if approved_by_llm {
-                "auto_approved"
-            } else {
-                "pending_review"
-            },
-            llm_decision = ?evaluation.decision,
-            confidence = ?evaluation.confidence,
+        log_schema_generated(
+            listing_source_id,
+            self.authoring,
+            reason,
             approved_by_llm,
             deterministic_approval_ok,
-            "Schema generation confidence evaluated"
+            &evaluation,
+            &failing_schema_fields(&matrix),
         );
 
         if approved_by_llm {
@@ -117,6 +114,63 @@ impl ScraperServiceImpl {
             .map_err(review_error_to_schema_service_error)?;
         Ok(GeneratedSchemaReviewOutcome::PendingReview(review_id))
     }
+}
+
+pub(crate) const SCHEMA_GENERATED_EVENT: &str = "crawler.schema.generated";
+
+/// The fields of the generated schemas that failed on a sample page, as `schema_index:field`
+/// without repeats: the fields that decide why a schema did not pass the deterministic gate.
+fn failing_schema_fields(matrix: &SchemaMatrix) -> Vec<String> {
+    let mut failing = std::collections::BTreeSet::new();
+    for candidate in &matrix.candidates {
+        for page in &candidate.pages {
+            for field in &page.fields {
+                if field.field == "images" && field.selector_match_count == Some(0) {
+                    continue;
+                }
+                if field.error.is_some()
+                    || (selector_field_matched_nothing(field) && field.required)
+                {
+                    failing.insert(format!("{}:{}", candidate.schema_index, field.field));
+                }
+            }
+        }
+    }
+    failing.into_iter().collect()
+}
+
+/// The gate's verdict on freshly generated schemas. `llm_decision` is the LLM's self-reported
+/// verdict; `gate_result` is the final result after deterministic coverage, so a schema that
+/// failed coverage never reads as approved.
+fn log_schema_generated(
+    listing_source_id: &ListingSourceId,
+    authoring: CrawlerAuthoringMode,
+    reason: &str,
+    approved_by_llm: bool,
+    deterministic_approval_ok: bool,
+    evaluation: &SchemaLlmEvaluation,
+    failing_fields: &[String],
+) {
+    let source = SourceLogContext::current();
+    info!(
+        event = SCHEMA_GENERATED_EVENT,
+        listing_source_id = %listing_source_id,
+        listing_source_name = source.as_ref().map(|source| source.listing_source_name.as_str()),
+        domain = source.as_ref().map(|source| source.domain.as_str()),
+        mode = authoring.as_str(),
+        reason,
+        gate_result = if approved_by_llm {
+            "auto_approved"
+        } else {
+            "pending_review"
+        },
+        llm_decision = ?evaluation.decision,
+        confidence = ?evaluation.confidence,
+        approved_by_llm,
+        deterministic_approval_ok,
+        failing_fields = ?failing_fields,
+        "Schema generation confidence evaluated"
+    );
 }
 
 fn with_schema_matrix_summary(

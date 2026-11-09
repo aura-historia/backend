@@ -95,6 +95,28 @@ pub struct ScrapeOutcome {
     pub result: Result<Option<ScrapedProduct>, ScraperError>,
     pub scrape_health: DomainFetchHealth,
     pub fetch_failure: Option<FetchFailureContext>,
+    pub telemetry: ScrapeTelemetry,
+}
+
+/// What one scrape did, for the URL's outcome log: the product page's answer and timings, the
+/// schema that was captured and the work the scrape spent on LLM calls and image probes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScrapeTelemetry {
+    /// The status the shop answered the product page with, when it answered.
+    pub http_status: Option<u16>,
+    pub fetch_ms: Option<u64>,
+    /// Everything of the scrape that is no product-page fetch.
+    pub process_ms: Option<u64>,
+    /// The index of the captured schema in the ListingSource's ordered schema set; a fresh
+    /// schema takes the next index.
+    pub schema_index: Option<usize>,
+    /// The ranking score of a cached schema's extraction; absent for a fresh schema.
+    pub schema_score: Option<usize>,
+    pub fresh_schema: bool,
+    /// How many of the product's extracted fields the captured extraction filled.
+    pub fields_present: Option<usize>,
+    pub image_probes: u32,
+    pub llm_calls: u32,
 }
 
 impl ScrapeOutcome {
@@ -122,6 +144,7 @@ impl ScrapeOutcome {
 struct ScrapeObservationState {
     transport_health: Option<DomainFetchHealth>,
     fetch_failure: Option<FetchFailureContext>,
+    telemetry: ScrapeTelemetry,
 }
 
 tokio::task_local! {
@@ -140,13 +163,14 @@ where
             RefCell::new(ScrapeObservationState {
                 transport_health: None,
                 fetch_failure: None,
+                telemetry: ScrapeTelemetry::default(),
             }),
-            async {
+            crate::logging::count_llm_calls_in(async {
                 let result = future.await;
                 let observation =
                     SCRAPE_OBSERVATION.with(|state| state.borrow().transport_health.clone());
                 (result, observation)
-            },
+            }),
         )
         .await
 }
@@ -169,6 +193,44 @@ pub(crate) fn current_fetch_failure() -> Option<FetchFailureContext> {
         .try_with(|state| state.borrow().fetch_failure.clone())
         .ok()
         .flatten()
+}
+
+/// The telemetry the running scrape collected so far; empty outside a scrape.
+pub(crate) fn current_scrape_telemetry() -> ScrapeTelemetry {
+    let mut telemetry = SCRAPE_OBSERVATION
+        .try_with(|state| state.borrow().telemetry.clone())
+        .unwrap_or_default();
+    telemetry.llm_calls = crate::logging::llm_calls_counted();
+    telemetry
+}
+
+fn update_scrape_telemetry(update: impl FnOnce(&mut ScrapeTelemetry)) {
+    let _ = SCRAPE_OBSERVATION.try_with(|state| update(&mut state.borrow_mut().telemetry));
+}
+
+pub(crate) fn record_product_page_fetch(status: Option<u16>, elapsed: std::time::Duration) {
+    update_scrape_telemetry(|telemetry| {
+        telemetry.http_status = status;
+        telemetry.fetch_ms = Some(u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX));
+    });
+}
+
+pub(crate) fn record_captured_schema(
+    schema_index: usize,
+    schema_score: Option<usize>,
+    fresh_schema: bool,
+    fields_present: usize,
+) {
+    update_scrape_telemetry(|telemetry| {
+        telemetry.schema_index = Some(schema_index);
+        telemetry.schema_score = schema_score;
+        telemetry.fresh_schema = fresh_schema;
+        telemetry.fields_present = Some(fields_present);
+    });
+}
+
+pub(crate) fn count_image_probe() {
+    update_scrape_telemetry(|telemetry| telemetry.image_probes += 1);
 }
 
 pub(crate) fn record_transport_observation(health: DomainFetchHealth) {
