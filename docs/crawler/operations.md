@@ -145,7 +145,7 @@ A role's server lists and runs only its own tools; the tool descriptions in [`re
 
 | Role | Tools |
 |---|---|
-| Both | `list_pending_reviews` (not when scoped with `--review`), `get_review`, `inspect_page`, `refresh_matrix` (product-schema reviews), `check_approval`, `mark_needs_repair` |
+| Both | `list_pending_reviews` (not when scoped with `--review`), `get_review`, `inspect_page`, `refresh_matrix` (product-schema reviews), `check_approval` (URL-pattern reviews), `mark_needs_repair` |
 | Author | `update_candidate`; on a product-schema review `evaluate_candidate`, `update_schema_field`, `add_review_page`, `remove_review_page`, `mark_page_not_product`, `declare_removed_page`, `record_no_sold_page`; on a URL-pattern review `label_sample_urls` |
 | Reviewer | `approve`, `reject` |
 
