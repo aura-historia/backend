@@ -21984,6 +21984,11 @@ components:
         - ja
         - ru
         - ar
+        - ko
+        - el
+        - he
+        - th
+        - hi
       description: "Supported language codes (ISO 639-1 canonical values):
 
         - de: German (includes de-DE, de-AT, de-CH, de-LU, de-LI)
@@ -21996,7 +22001,7 @@ components:
 
         - it: Italian (includes it-IT, it-CH)
 
-        - zh: Chinese (Simplified) (includes zh-CN, zh-Hans)
+        - zh: Chinese, Simplified or Traditional (includes zh-CN, zh-Hans, zh-TW, zh-Hant, zh-HK)
 
         - pt: Portuguese (includes pt-PT, pt-BR)
 
@@ -22014,10 +22019,20 @@ components:
 
         - ar: Arabic (includes ar-SA, ar-EG, ar-AE)
 
+        - ko: Korean (includes ko-KR)
+
+        - el: Greek (includes el-GR)
+
+        - he: Hebrew (includes he-IL)
+
+        - th: Thai (includes th-TH)
+
+        - hi: Hindi (includes hi-IN)
+
 
         `de`, `en`, `fr`, `es`, and `it` are fully supported localization/translation-target languages.
 
-        `zh`, `pt`, `pl`, `tr`, `nl`, `cs`, `ja`, `ru`, and `ar` are ingestion-only languages:
+        `zh`, `pt`, `pl`, `tr`, `nl`, `cs`, `ja`, `ru`, `ar`, `ko`, `el`, `he`, `th`, and `hi` are ingestion-only languages:
 
         they can appear in stored/native content and are accepted anywhere `LanguageData` is used,
 
