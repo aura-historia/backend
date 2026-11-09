@@ -294,17 +294,17 @@ async fn main() {
 
         // 1. Build cron config (needed for pool sizing before everything else)
         let config = CrawlerCronConfig {
-            spider_interval: Duration::from_mins(5),
-            scraper_interval: Duration::from_mins(5),
+            spider_interval: Duration::from_mins(1),
+            scraper_interval: Duration::from_mins(1),
             scraper_urls_per_source: 100,
-            spider_concurrency: 5,
+            spider_concurrency: 70,
             spider_site_concurrency_limit: 8,
-            scraper_concurrency: 5,
+            scraper_concurrency: 70,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-            push_batch_size: 10,
-            push_queue_capacity: 10,
-            push_max_batch_age: Duration::from_secs(5),
+            push_batch_size: 500,
+            push_queue_capacity: 1000,
+            push_max_batch_age: Duration::from_mins(20),
             push_max_concurrency: 1,
             ..Default::default()
         };

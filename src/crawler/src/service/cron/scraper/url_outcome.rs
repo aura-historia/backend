@@ -1,6 +1,6 @@
-//! The one INFO event every scraped URL logs, `crawler.scraper.url_outcome`: what happened to the
-//! URL and the evidence behind it, so an operator can answer "why wasn't URL X updated" from INFO
-//! logs alone.
+//! The one DEBUG event every scraped URL logs, `crawler.scraper.url_outcome`: what happened to the
+//! URL and the evidence behind it, so an operator can answer "why wasn't URL X updated" from DEBUG
+//! logs.
 
 use crate::logging::SourceLogContext;
 use crate::scraper::candidate_service::ScraperCandidate;
@@ -125,8 +125,7 @@ impl UrlOutcome {
     }
 }
 
-/// Logs the outcome of one scraped URL: at INFO when something happened to it, at DEBUG when
-/// its page was unchanged, which is most scraped URLs of a settled ListingSource.
+/// Logs the outcome of one scraped URL at DEBUG: it repeats for every URL of every batch.
 pub(super) fn log_url_outcome(
     source: &SourceLogContext,
     candidate: &ScraperCandidate,
@@ -161,10 +160,7 @@ pub(super) fn log_url_outcome(
             )
         };
     }
-    match outcome {
-        UrlOutcome::Unchanged => log_outcome!(tracing::Level::DEBUG),
-        _ => log_outcome!(tracing::Level::INFO),
-    }
+    log_outcome!(tracing::Level::DEBUG);
 }
 
 #[cfg(test)]
@@ -199,7 +195,7 @@ mod tests {
         let logged = events.named(URL_OUTCOME_EVENT);
         assert_eq!(logged.len(), 1);
         let logged = &logged[0];
-        assert_eq!(logged.level, tracing::Level::INFO);
+        assert_eq!(logged.level, tracing::Level::DEBUG);
         for (field, expected) in [
             ("listing_source_name", "Antique Shop"),
             ("domain", "antique.example"),
@@ -253,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn should_log_unchanged_urls_at_debug_and_every_other_outcome_at_info() {
+    fn should_log_every_outcome_at_debug() {
         let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
         let candidate = crate::service::cron::test_support::scraper_candidate(
             "Antique Shop",
@@ -283,13 +279,7 @@ mod tests {
             .collect();
         assert_eq!(
             levels,
-            [
-                tracing::Level::DEBUG,
-                tracing::Level::INFO,
-                tracing::Level::INFO,
-                tracing::Level::INFO,
-                tracing::Level::INFO,
-            ]
+            [tracing::Level::DEBUG; 5]
         );
     }
 

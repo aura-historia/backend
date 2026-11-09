@@ -39,16 +39,16 @@ const REVIEWER_DEFAULTS: RoleDefaults = RoleDefaults {
     effort: ClaudeEffort::Medium,
     max_turns: NonZeroU32::new(50).unwrap(),
 };
-const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(12).unwrap();
+const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(60).unwrap();
 /// The console's default cap on live jobs: a further process would only wait for one, since each
 /// agent process holds at most one live job at a time.
-const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(4).unwrap();
+const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
 const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(60).unwrap();
 /// The share of the login's usage windows the agents take by default, leaving the rest to the
 /// people who use the same login.
-const DEFAULT_SHARE_PERCENT: u32 = 70;
+const DEFAULT_SHARE_PERCENT: u32 = 100;
 
 /// What one start of the runner does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,15 +449,15 @@ mod tests {
                 max_turns: NonZeroU32::new(50).unwrap_or(NonZeroU32::MIN),
             }
         );
-        assert_eq!(read.max_reviews_per_run.get(), 12);
-        assert_eq!(read.max_processes.get(), 4);
+        assert_eq!(read.max_reviews_per_run.get(), 60);
+        assert_eq!(read.max_processes.get(), 20);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
         assert_eq!(read.process_timeout, Duration::from_secs(60 * 60));
         assert_eq!(
             read.pacing,
             UsagePacing {
-                five_hour_share: 0.7,
-                weekly_share: 0.7
+                five_hour_share: 1.0,
+                weekly_share: 1.0
             }
         );
     }

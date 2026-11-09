@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 pub const MAX_CONCURRENT_LIVE_JOBS_ENV: &str = "CRAWLER_REVIEW_MAX_CONCURRENT_LIVE_JOBS";
-pub const DEFAULT_MAX_CONCURRENT_LIVE_JOBS: NonZeroU32 = NonZeroU32::new(4).unwrap();
+pub const DEFAULT_MAX_CONCURRENT_LIVE_JOBS: NonZeroU32 = NonZeroU32::new(20).unwrap();
 /// How long a refused client waits before it asks again: about the time one page fetch at a
 /// shop's crawl delay takes.
 const RETRY_AFTER: Duration = Duration::from_secs(30);
