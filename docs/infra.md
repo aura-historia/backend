@@ -92,11 +92,12 @@ Production REST and MCP enable `PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABL
 for concurrent listing-search enrichment. Each process retains its existing PostgreSQL
 pool limit; other stages keep sequential enrichment.
 
-Production compute Lambdas reserve **136** concurrent executions in total: REST
-gets 50, the listing OpenSearch projector gets 10, and other functions get 1–5
-according to their role. These are conservative initial limits for the small
-database and external providers, not throughput targets. The existing dev
-reservations total 10, leaving **854** unreserved executions when both stages
+Production compute Lambdas reserve **151** concurrent executions in total: REST
+gets 50, the listing translation worker 15, the listing OpenSearch projector and
+embedding worker 10 each, and other functions get 1–5 according to their role.
+These are conservative initial limits for the small database and external
+providers, not throughput targets. The existing dev
+reservations total 10, leaving **839** unreserved executions when both stages
 share the granted **1,000** regional quota. Initialization, migration, delivery
 and CDK helper functions continue to use that shared pool. The
 [Lambda definitions](../infra/src/constructs/lambdas.ts) own individual limits;
@@ -106,7 +107,8 @@ together and preserves AWS's minimum 100 unreserved executions.
 Reserved concurrency guarantees capacity and caps active invocations across all
 versions and aliases of each function; it does not prewarm environments. SQS
 maximum concurrency follows the same reservation so pollers wait at the queue
-rather than repeatedly invoking a saturated function. Existing two-execution
+rather than repeatedly invoking a saturated function, so a saturated consumer
+shows as growing queue age and depth, not as `Throttles`. Existing two-execution
 ingestion and geographic worker limits remain in both stages. Before deployment,
 confirm the effective regional quota and other reservations with
 `aws lambda get-account-settings`. Tune limits using Lambda `ConcurrentExecutions`,

@@ -23,8 +23,8 @@ const PROD_RESERVATIONS: Record<string, number> = {
   "product-listing-ingestion-lambda": 2,
   "product-listing-normalization-lambda": 5,
   "product-content-assessment-lambda": 5,
-  "product-embedding-lambda": 5,
-  "product-translation-lambda": 5,
+  "product-embedding-lambda": 10,
+  "product-translation-lambda": 15,
   "notification-delivery-lambda": 5,
   "marketing-consent-sync-lambda": 2,
   "user-identity-deletion-lambda": 2,
@@ -122,6 +122,6 @@ describe.each(STAGES)("%s Lambda concurrency guard", (stage) => {
 test("leaves regional headroom when prod and dev share the 1,000-execution quota", () => {
   const total = STAGES.flatMap((stage) => Object.values(reservations(templatesFor(stage))))
     .reduce((sum, limit) => sum + limit, 0);
-  expect(total).toBe(146);
+  expect(total).toBe(161);
   expect(1_000 - total).toBeGreaterThanOrEqual(100);
 });
