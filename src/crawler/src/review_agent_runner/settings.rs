@@ -26,11 +26,19 @@ pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SEC
 pub const FIVE_HOUR_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT";
 pub const WEEKLY_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PERCENT";
 
-/// The model both agents run on unless their role's setting names another.
-const DEFAULT_MODEL: &str = "claude-opus-5-5";
-const DEFAULT_EFFORT: ClaudeEffort = ClaudeEffort::High;
-const DEFAULT_AUTHOR_MAX_TURNS: NonZeroU32 = NonZeroU32::new(80).unwrap();
-const DEFAULT_REVIEWER_MAX_TURNS: NonZeroU32 = NonZeroU32::new(50).unwrap();
+/// What each role runs with unless its settings say otherwise: the configuration that showed no
+/// finding in the agent comparison of #2835 at the lowest cost, a Sonnet-class author and a
+/// Haiku-class reviewer, both at `medium` effort.
+const AUTHOR_DEFAULTS: RoleDefaults = RoleDefaults {
+    model: "claude-sonnet-5-5",
+    effort: ClaudeEffort::Medium,
+    max_turns: NonZeroU32::new(80).unwrap(),
+};
+const REVIEWER_DEFAULTS: RoleDefaults = RoleDefaults {
+    model: "claude-haiku-5-5",
+    effort: ClaudeEffort::Medium,
+    max_turns: NonZeroU32::new(50).unwrap(),
+};
 const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(4).unwrap();
 const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(2).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
@@ -171,8 +179,8 @@ impl RunnerSettings {
             child_env,
             review_mcp_bin,
             state_dir,
-            author: read.agent(AgentRole::Author, DEFAULT_AUTHOR_MAX_TURNS)?,
-            reviewer: read.agent(AgentRole::Reviewer, DEFAULT_REVIEWER_MAX_TURNS)?,
+            author: read.agent(AgentRole::Author, &AUTHOR_DEFAULTS)?,
+            reviewer: read.agent(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -208,6 +216,13 @@ pub fn role_setting(role: AgentRole, setting: &str) -> String {
     )
 }
 
+/// A role's model, effort and turn cap when its settings name none.
+struct RoleDefaults {
+    model: &'static str,
+    effort: ClaudeEffort,
+    max_turns: NonZeroU32,
+}
+
 struct Reader<'a, F: Fn(&str) -> Option<String>> {
     setting: &'a F,
 }
@@ -216,7 +231,7 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
     fn agent(
         &self,
         role: AgentRole,
-        default_max_turns: NonZeroU32,
+        defaults: &RoleDefaults,
     ) -> Result<AgentProcessSettings, RunnerSettingsError> {
         let model_name = role_setting(role, "MODEL");
         let model = match (self.setting)(&model_name) {
@@ -228,21 +243,21 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
                     "a model alias or name of letters, digits, '.', '-', '_', '[' and ']' that starts with a letter or digit",
                 ));
             }
-            None => DEFAULT_MODEL.to_owned(),
+            None => defaults.model.to_owned(),
         };
         let effort_name = role_setting(role, "EFFORT");
         let effort = match (self.setting)(&effort_name) {
             Some(effort) => parse_effort(&effort).ok_or_else(|| {
                 invalid(effort_name, effort, "one of low, medium, high, xhigh, max")
             })?,
-            None => DEFAULT_EFFORT,
+            None => defaults.effort,
         };
         Ok(AgentProcessSettings {
             model,
             effort,
             max_turns: self
                 .positive(&role_setting(role, "MAX_TURNS"))?
-                .unwrap_or(default_max_turns),
+                .unwrap_or(defaults.max_turns),
         })
     }
 
@@ -419,12 +434,19 @@ mod tests {
         assert_eq!(
             read.author,
             AgentProcessSettings {
-                model: "claude-opus-5-5".to_owned(),
-                effort: ClaudeEffort::High,
+                model: "claude-sonnet-5-5".to_owned(),
+                effort: ClaudeEffort::Medium,
                 max_turns: NonZeroU32::new(80).unwrap_or(NonZeroU32::MIN),
             }
         );
-        assert_eq!(read.reviewer.max_turns.get(), 50);
+        assert_eq!(
+            read.reviewer,
+            AgentProcessSettings {
+                model: "claude-haiku-5-5".to_owned(),
+                effort: ClaudeEffort::Medium,
+                max_turns: NonZeroU32::new(50).unwrap_or(NonZeroU32::MIN),
+            }
+        );
         assert_eq!(read.max_reviews_per_run.get(), 4);
         assert_eq!(read.max_processes.get(), 2);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
@@ -479,7 +501,7 @@ mod tests {
         );
         assert_eq!(read.author.model, "claude-sonnet-5-5");
         assert_eq!(read.author.effort, ClaudeEffort::XHigh);
-        assert_eq!(read.reviewer.model, "claude-opus-5-5");
+        assert_eq!(read.reviewer.model, "claude-haiku-5-5");
         assert_eq!(read.reviewer.max_turns.get(), 12);
         assert_eq!(read.max_reviews_per_run.get(), 9);
         assert_eq!(read.max_processes.get(), 1);

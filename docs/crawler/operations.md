@@ -222,8 +222,8 @@ The process prints its messages as JSON lines. The runner keeps the end of that 
 | `CRAWLER_REVIEW_AGENT_RUNNER_CLAUDE_BIN` | The Claude Code CLI, an executable: on Windows the runner cannot start npm's `claude.cmd` shim, so name the package's `bin\claude.exe` | `claude` on the `PATH` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_REVIEW_MCP_BIN` | The `review-mcp` binary | the one next to the runner |
 | `CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR` | Lock, state, process ledger and digests | the working directory |
-| `CRAWLER_REVIEW_AGENT_AUTHOR_MODEL`, `CRAWLER_REVIEW_AGENT_REVIEWER_MODEL` | Model alias or name per role | `claude-opus-5-5` |
-| `CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT`, `CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT` | `low`, `medium`, `high`, `xhigh` or `max` | `high` |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_MODEL`, `CRAWLER_REVIEW_AGENT_REVIEWER_MODEL` | Model alias or name per role | author `claude-sonnet-5-5`, reviewer `claude-haiku-5-5`: the configuration without findings at the lowest cost in the agent comparison of [#2835](https://github.com/aura-historia/backend/issues/2835) |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT`, `CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT` | `low`, `medium`, `high`, `xhigh` or `max` | `medium` |
 | `CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS`, `CRAWLER_REVIEW_AGENT_REVIEWER_MAX_TURNS` | Turn cap per process | `80`, `50` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS` | Rest between the end of one run and the start of the next; `--once` ignores it | `300` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT` | The share of the login's five-hour usage window the agents may take, 1 to 100 ([limits](#limits)) | `70` |
