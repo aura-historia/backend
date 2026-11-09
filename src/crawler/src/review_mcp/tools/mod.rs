@@ -144,6 +144,17 @@ impl ToolDefinition {
         Ok(Self { tool, handler })
     }
 
+    /// The tool with the descriptions of its input's shared definitions (`$defs`) left out, for
+    /// a tool whose argument types another tool's schema documents already.
+    pub(super) fn without_nested_descriptions(mut self) -> Self {
+        let mut input = (*self.tool.input_schema).clone();
+        if let Some(definitions) = input.get_mut("$defs") {
+            remove_descriptions(definitions);
+        }
+        self.tool.input_schema = Arc::new(input);
+        self
+    }
+
     pub fn tool(&self) -> &Tool {
         &self.tool
     }
@@ -199,6 +210,19 @@ fn tool_result<O: Serialize>(name: &str, answer: Result<O, ToolError>) -> CallTo
             }
             error.into_tool_result()
         }
+    }
+}
+
+fn remove_descriptions(schema: &mut Value) {
+    match schema {
+        Value::Object(object) => {
+            if object.get("description").is_some_and(Value::is_string) {
+                object.remove("description");
+            }
+            object.values_mut().for_each(remove_descriptions);
+        }
+        Value::Array(items) => items.iter_mut().for_each(remove_descriptions),
+        _ => {}
     }
 }
 
@@ -438,6 +462,40 @@ mod tests {
                     Err(ToolError::UrlOutsideReviewSource(_))
                 ),
                 "{url}"
+            );
+        }
+    }
+
+    fn description_texts(schema: &Value) -> usize {
+        match schema {
+            Value::Object(object) => {
+                usize::from(object.get("description").is_some_and(Value::is_string))
+                    + object.values().map(description_texts).sum::<usize>()
+            }
+            Value::Array(items) => items.iter().map(description_texts).sum(),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn should_document_the_schema_rules_once_in_update_candidate() {
+        let tools = tools_for(AgentRole::Author).unwrap_or_else(|error| panic!("{error}"));
+        let definitions = |name: &str| {
+            let tool = tools
+                .iter()
+                .find(|tool| tool.name() == name)
+                .unwrap_or_else(|| panic!("no tool {name}"));
+            Value::Object(tool.tool().input_schema.as_ref().clone())["$defs"].clone()
+        };
+
+        assert!(description_texts(&definitions("update_candidate")) > 10);
+        for name in ["evaluate_candidate", "update_schema_field"] {
+            let definitions = definitions(name);
+            assert_eq!(description_texts(&definitions), 0, "{name}");
+            assert!(
+                definitions["ProductCssSelectorSchema"]["properties"]["description"].is_object()
+                    || name == "update_schema_field",
+                "{name} lost the schema's description field"
             );
         }
     }
