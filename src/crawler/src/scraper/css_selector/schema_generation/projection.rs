@@ -39,18 +39,25 @@ struct PageDsl {
     nodes: Vec<HtmlYamlNode>,
 }
 
+/// One element of the projection: its tag, the attributes and text it shows, and its children.
 #[derive(Debug, Serialize)]
-struct HtmlYamlNode {
-    tag: String,
+pub(super) struct HtmlYamlNode {
+    pub(super) tag: String,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    attrs: BTreeMap<String, String>,
+    pub(super) attrs: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
+    pub(super) text: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    children: Vec<HtmlYamlNode>,
+    pub(super) children: Vec<HtmlYamlNode>,
 }
 
 pub fn html_to_schema_prompt_dsl(input: &str) -> String {
+    serialize_within_limits(project_page(input), DSL_NODE_LIMIT, DSL_CHAR_BUDGET)
+}
+
+/// The elements of the page `input` the projection shows, without scripts, styles, navigation,
+/// header, footer, comments and layout-only wrappers, before any size limit.
+pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
     let document = parse_html().one(input);
 
     for selector in REMOVED_DSL_TAGS {
@@ -62,8 +69,7 @@ pub fn html_to_schema_prompt_dsl(input: &str) -> String {
     }
     remove_comments(&document);
 
-    let nodes = project_children(&document);
-    serialize_within_limits(nodes, DSL_NODE_LIMIT, DSL_CHAR_BUDGET)
+    project_children(&document)
 }
 
 /// The YAML of the longest document-order prefix of `nodes` of at most `node_limit` elements
@@ -277,7 +283,7 @@ fn projected_attrs(
     result
 }
 
-fn is_boolean_projected_attr(name: &str) -> bool {
+pub(super) fn is_boolean_projected_attr(name: &str) -> bool {
     matches!(name, "itemscope")
 }
 
