@@ -125,6 +125,24 @@ pub enum CrawlFailureKind {
 }
 
 impl CrawlFailureKind {
+    /// Every kind, so a table keyed by kind can be checked for completeness.
+    pub const ALL: [CrawlFailureKind; 14] = [
+        CrawlFailureKind::EmptyCrawl,
+        CrawlFailureKind::TinyCrawl,
+        CrawlFailureKind::NoAcceptedPages,
+        CrawlFailureKind::RobotsBlocked,
+        CrawlFailureKind::RateLimited,
+        CrawlFailureKind::AccessDenied,
+        CrawlFailureKind::CloudflareChallenge,
+        CrawlFailureKind::BotProtection,
+        CrawlFailureKind::TlsError,
+        CrawlFailureKind::ConnectError,
+        CrawlFailureKind::ServerError,
+        CrawlFailureKind::RedirectProblem,
+        CrawlFailureKind::InvalidUrl,
+        CrawlFailureKind::JavascriptRequired,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             CrawlFailureKind::EmptyCrawl => "EmptyCrawl",

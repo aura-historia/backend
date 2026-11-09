@@ -15,7 +15,8 @@ use crate::review::model::{
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
-    ListingSourceOverviewReader, ReviewQueueReader, SourceProductUrlReader,
+    ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
+    ReviewQueueReader, SourceEventReader, SourceProductUrlReader, persisted_row_failure,
 };
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -47,16 +48,18 @@ const LIVE_FETCH_DEADLINE: Duration = Duration::from_secs(25);
 /// refreshing, leaving room within [`REQUEST_DEADLINE`].
 const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
-/// The most events one answer of `GET /api/review-events` holds; a client reads on from the last
-/// event's time, as the review agents' daily digest does.
-const MAX_LISTED_REVIEW_EVENTS: usize = 1_000;
 
+mod activity;
+mod listing_source_list;
 mod mass_removal_confirmation;
 mod missing_value_pages;
 mod pending_reviews;
+mod query_params;
+mod review_list;
 mod schema_matrix;
 mod source_pages;
 
+use schema_matrix::NoMatrixAnswer;
 use source_pages::{EvaluationPayload, parse_review_evaluation_id};
 
 #[derive(Clone)]
@@ -64,6 +67,9 @@ pub struct ReviewServer {
     repository: CrawlerReviewRepository,
     review_queue: ReviewQueueReader,
     listing_sources: ListingSourceOverviewReader,
+    listing_source_details: ListingSourceDetailReader,
+    overview: ConsoleOverviewReader,
+    source_events: SourceEventReader,
     source_product_urls: SourceProductUrlReader,
     access: ReviewAccess,
     html_fetcher: Arc<dyn HtmlFetcher>,
@@ -83,9 +89,14 @@ impl ReviewServer {
         config: ReviewServerConfig,
         html_fetcher: Arc<dyn HtmlFetcher>,
     ) -> Self {
+        let review_queue = ReviewQueueReader::of(&repository);
+        let listing_sources = ListingSourceOverviewReader::new(repository.pool().clone());
         Self {
-            review_queue: ReviewQueueReader::of(&repository),
-            listing_sources: ListingSourceOverviewReader::new(repository.pool().clone()),
+            listing_source_details: ListingSourceDetailReader::new(listing_sources.clone()),
+            overview: ConsoleOverviewReader::new(&repository, listing_sources.clone()),
+            source_events: SourceEventReader::new(repository.pool().clone()),
+            review_queue,
+            listing_sources,
             source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
             repository,
             live_jobs: LiveJobLimit::new(config.max_concurrent_live_jobs),
@@ -100,8 +111,11 @@ impl ReviewServer {
     /// This console reporting, in the ListingSource overview, which sources the crawler of this
     /// process is crawling or scraping right now from `work_locks`, its lock manager.
     pub fn with_work_locks(self, work_locks: Arc<LocalLockManager>) -> Self {
+        let listing_sources = self.listing_sources.with_work_locks(work_locks.clone());
         Self {
-            listing_sources: self.listing_sources.with_work_locks(work_locks),
+            listing_source_details: ListingSourceDetailReader::new(listing_sources.clone()),
+            overview: ConsoleOverviewReader::new(&self.repository, listing_sources.clone()),
+            listing_sources,
             ..self
         }
     }
@@ -220,53 +234,27 @@ impl ReviewServer {
             ("GET", "/api/health") => HttpResponse::json(200, &json!({ "ok": true })),
             ("POST", "/api/session") => self.access.create_session(),
             ("POST", "/api/session/logout") => self.access.clear_session(&parsed),
-            ("GET", "/api/listing_sources") => {
-                match self.listing_sources.list_listing_sources(200).await {
-                    Ok(listing_sources) => HttpResponse::json(200, &listing_sources),
-                    Err(err) => internal_error(err),
-                }
-            }
+            ("GET", "/api/listing_sources") => self.listing_source_list(&parsed).await,
+            ("GET", "/api/overview") => self.console_overview().await,
             ("GET", "/api/raw-attribute-keys") => {
                 HttpResponse::json(200, &RawAttributeKey::registry())
             }
             ("GET", AGENT_LIMITS_ROUTE) => {
                 HttpResponse::json(200, self.repository.agent_decisions().limits())
             }
-            ("GET", "/api/reviews") => match self.review_queue.list_reviews(200).await {
-                Ok(reviews) => HttpResponse::json(200, &reviews),
-                Err(err) => internal_error(err),
-            },
+            ("GET", "/api/reviews") => self.review_list(&parsed).await,
             ("GET", "/api/pending-reviews") => self.pending_reviews(&parsed).await,
             ("GET", "/api/review-events") => self.review_events_since(&parsed).await,
+            ("GET", "/api/source-events") => self.source_events_since(&parsed).await,
             _ => self.route_dynamic(parsed, actor).await,
-        }
-    }
-
-    /// `GET /api/review-events?since=<RFC 3339 time>`: the events of all reviews since then,
-    /// oldest first and without their details, and whether later ones were left out.
-    async fn review_events_since(&self, request: &ParsedRequest<'_>) -> HttpResponse {
-        let Some(since) = request.query.get("since").and_then(|since| {
-            time::OffsetDateTime::parse(since, &time::format_description::well_known::Rfc3339).ok()
-        }) else {
-            return HttpResponse::json(
-                400,
-                &json!({ "error": "since must be an RFC 3339 time, such as 2026-10-28T06:00:00Z" }),
-            );
-        };
-        match self
-            .repository
-            .list_review_events_since(since, MAX_LISTED_REVIEW_EVENTS)
-            .await
-        {
-            Ok((events, truncated)) => {
-                HttpResponse::json(200, &json!({ "events": events, "truncated": truncated }))
-            }
-            Err(err) => internal_error(err),
         }
     }
 
     /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
     async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
+        if let Some(response) = self.route_listing_source_page(&request).await {
+            return response;
+        }
         if let Some(response) = self.route_missing_value_pages(&request, actor).await {
             return response;
         }
@@ -372,10 +360,19 @@ impl ReviewServer {
                 .query
                 .get("refresh")
                 .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
+            let absent = if request
+                .query
+                .get("probe")
+                .is_some_and(|value| value == "true")
+            {
+                NoMatrixAnswer::Status
+            } else {
+                NoMatrixAnswer::NotFound
+            };
             return if refresh {
                 self.refresh_schema_matrix(review_id, actor).await
             } else {
-                self.read_schema_matrix(review_id, actor).await
+                self.read_schema_matrix(review_id, actor, absent).await
             };
         }
 
@@ -1327,6 +1324,36 @@ fn live_jobs_busy(busy: LiveJobsBusy) -> HttpResponse {
         }),
     )
     .with_header("Retry-After", retry_after_secs.to_string())
+}
+
+/// The answer to a read that failed. A read fails closed on a stored row it cannot decode, and says
+/// so with `reason` `INVALID_PERSISTED_ROW`, the kind of the object and its identifier when the
+/// failure names one, so the operator knows which row to fix; the log has the detail. Any other
+/// failure is a plain `500`.
+fn read_error(error: sqlx::Error) -> HttpResponse {
+    let Some(failure) = persisted_row_failure(&error) else {
+        return internal_error(error);
+    };
+    error!(error = ?error, object = failure.object, row = ?failure.id, "Review console read an unreadable stored row");
+    let message = match &failure.id {
+        Some(id) => format!(
+            "a stored {} cannot be read ({id}); see the server log",
+            failure.object
+        ),
+        None => format!(
+            "a stored {} cannot be read; see the server log",
+            failure.object
+        ),
+    };
+    HttpResponse::json(
+        500,
+        &json!({
+            "error": message,
+            "reason": "INVALID_PERSISTED_ROW",
+            "object": failure.object,
+            "id": failure.id,
+        }),
+    )
 }
 
 fn internal_error(error: impl std::fmt::Display + std::fmt::Debug) -> HttpResponse {
@@ -3120,7 +3147,10 @@ Origin: http://127.0.0.1:7878/x
                 "{review}"
             );
             let (_, queue) = send(&server, "GET /api/reviews", "").await;
-            assert_eq!(queue[0]["repair_request"], review["repair_request"]);
+            assert_eq!(
+                queue["items"][0]["repair_request"],
+                review["repair_request"]
+            );
 
             let (status, body) = send(
                 &server,
@@ -3940,7 +3970,7 @@ Origin: http://127.0.0.1:7878/x
             let (status, taken) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {taken}");
             let (_, list) = send_as(&server, TOKEN, "GET /api/reviews", "").await;
-            let listed = list
+            let listed = list["items"]
                 .as_array()
                 .and_then(|reviews| {
                     reviews
@@ -3948,12 +3978,10 @@ Origin: http://127.0.0.1:7878/x
                         .find(|listed| listed["review_id"] == review_id.to_string())
                 })
                 .unwrap_or_else(|| panic!("review not listed: {list}"));
-            assert_eq!(
-                (&listed["agent_rounds"], &listed["human_required"]),
-                (&json!(1), &json!(true))
-            );
+            assert_eq!(listed["human_required"], true);
             let (_, detail) = send_as(&server, TOKEN, &review, "").await;
             assert_eq!(detail["review"]["human_required"], true);
+            assert_eq!(detail["review"]["agent_rounds"], 1);
             let version = detail["review"]["candidate_version"].clone();
 
             for (token, request, body) in [
@@ -5259,7 +5287,7 @@ Origin: http://127.0.0.1:7878/x
                 format!("/api/listing-sources/{listing_source_id}/missing-value-pages");
 
             let (_, sources) = send(&server, "GET /api/listing_sources", "").await;
-            let source = sources
+            let source = sources["items"]
                 .as_array()
                 .and_then(|sources| {
                     sources
@@ -5357,7 +5385,12 @@ Origin: http://127.0.0.1:7878/x
 
             assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
             let (_, reviews) = send(&server, "GET /api/reviews", "").await;
-            assert_eq!(reviews, json!([]), "a refused page opens no review");
+            assert_eq!(
+                reviews["items"],
+                json!([]),
+                "a refused page opens no review"
+            );
+            assert_eq!(reviews["total"], 0);
         }
     }
 
@@ -5404,7 +5437,7 @@ Origin: http://127.0.0.1:7878/x
 
         async fn overview_of(server: &ReviewServer, listing_source_id: ListingSourceId) -> Value {
             let (_, sources) = send(server, "GET /api/listing_sources", "").await;
-            sources
+            sources["items"]
                 .as_array()
                 .and_then(|sources| {
                     sources
@@ -5474,6 +5507,179 @@ Origin: http://127.0.0.1:7878/x
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod console_lists {
+        use super::needs_repair::send;
+        use super::schema_editing::pending_review_server;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// The console's lists answer the envelope of their window, the source page and its
+        /// reviews, and the overview counts, refuse a request they cannot read as asked with 400,
+        /// and answer 404 for a ListingSource that does not exist.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_the_console_lists_and_refuse_what_it_cannot_read() {
+            let (server, review_id) = pending_review_server().await;
+
+            let (status, reviews) =
+                send(&server, "GET /api/reviews?status=PENDING_REVIEW", "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {reviews}");
+            assert_eq!(
+                (&reviews["total"], &reviews["limit"], &reviews["offset"]),
+                (&json!(1), &json!(100), &json!(0))
+            );
+            assert_eq!(reviews["items"][0]["review_id"], review_id.to_string());
+            let listing_source_id = reviews["items"][0]["listing_source_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("review without ListingSource: {reviews}"))
+                .to_owned();
+            let (_, closed) = send(
+                &server,
+                "GET /api/reviews?status=APPROVED&waiting=human",
+                "",
+            )
+            .await;
+            assert_eq!(closed["total"], 0);
+
+            let (status, sources) = send(&server, "GET /api/listing_sources?q=edited", "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {sources}");
+            assert_eq!(sources["total"], 1);
+            assert!(sources["items"][0].get("llm_calls_count").is_none());
+
+            let (status, detail) = send(
+                &server,
+                &format!("GET /api/listing-sources/{listing_source_id}"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
+            assert_eq!(detail["listing_source_id"], listing_source_id);
+            assert_eq!(detail["url_pattern"], json!(null));
+            assert_eq!(detail["product_schemas"], json!([]));
+
+            let (status, source_reviews) = send(
+                &server,
+                &format!("GET /api/listing-sources/{listing_source_id}/reviews"),
+                "",
+            )
+            .await;
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "{status} {source_reviews}"
+            );
+            assert_eq!(source_reviews["total"], 1);
+            assert_eq!(source_reviews["items"][0]["candidate_is_live"], false);
+
+            let (status, counts) = send(&server, "GET /api/overview", "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {counts}");
+            assert_eq!(
+                counts["reviews"]["pending_by_artifact"]["PRODUCT_SCHEMA"],
+                1
+            );
+            assert_eq!(counts["agent_mode"], true);
+
+            for refused in [
+                "GET /api/reviews?status=PENDING",
+                "GET /api/reviews?limit=201",
+                "GET /api/listing_sources?sort=updated",
+                "GET /api/listing_sources?status=sick",
+                "GET /api/listing-sources/not-a-source",
+                &format!("GET /api/listing-sources/{listing_source_id}/reviews?q=x"),
+            ] {
+                let (status, body) = send(&server, refused, "").await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused}: {status} {body}"
+                );
+            }
+            for missing in [
+                format!("GET /api/listing-sources/{}", ListingSourceId::new()),
+                format!(
+                    "GET /api/listing-sources/{}/reviews",
+                    ListingSourceId::new()
+                ),
+            ] {
+                let (status, body) = send(&server, &missing, "").await;
+                assert!(
+                    status.starts_with("HTTP/1.1 404"),
+                    "{missing}: {status} {body}"
+                );
+            }
+        }
+
+        /// A stored row the console cannot decode fails the read that reaches it closed, saying
+        /// which kind of object it is and its identifier, while the other reads keep working; a
+        /// plain matrix read can ask for a status instead of a failed request.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_name_an_unreadable_stored_review_and_answer_the_rest() {
+            let (server, review_id) = pending_review_server().await;
+            let pool = test_api::get_postgres_client().await;
+            let invalid = uuid::Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
+                 SELECT $1, listing_source_id, 'URL_PATTERN', 'APPROVED', 'corrupt', '{}'::jsonb \
+                 FROM listing_sources LIMIT 1",
+            )
+            .bind(invalid)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert corrupt review: {error}"));
+
+            let (status, broken) = send(&server, "GET /api/reviews", "").await;
+            assert!(status.starts_with("HTTP/1.1 500"), "{status} {broken}");
+            assert_eq!(broken["reason"], "INVALID_PERSISTED_ROW");
+            assert_eq!(broken["object"], "review");
+            assert_eq!(broken["id"], invalid.to_string());
+            let (status, counts) = send(&server, "GET /api/overview", "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {counts}");
+            let (status, detail) =
+                send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
+
+            let (status, probed) = send(
+                &server,
+                &format!("GET /api/reviews/{review_id}/matrix?probe=true"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {probed}");
+            assert_eq!(probed["status"], "none");
+            let (status, plain) =
+                send(&server, &format!("GET /api/reviews/{review_id}/matrix"), "").await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {plain}");
+            assert_eq!(plain["reason"], "NO_MATRIX");
+        }
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_answer_the_activity_feeds_of_the_console() {
+            let (server, _) = pending_review_server().await;
+            let since = "since=2020-01-01T00:00:00Z";
+
+            let (status, reviews) = send(
+                &server,
+                &format!("GET /api/review-events?{since}&dir=desc&limit=5"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {reviews}");
+            assert_eq!(reviews["truncated"], false);
+            let (status, sources) =
+                send(&server, &format!("GET /api/source-events?{since}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {sources}");
+            assert_eq!(sources["events"], json!([]));
+            for refused in [
+                "GET /api/source-events".to_owned(),
+                format!("GET /api/source-events?{since}&limit=0"),
+                format!("GET /api/review-events?{since}&dir=up"),
+            ] {
+                let (status, body) = send(&server, &refused, "").await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused}: {status} {body}"
+                );
+            }
         }
     }
 }

@@ -56,7 +56,7 @@ pub use mass_removal_confirmation::MassRemovalConfirmation;
 pub use missing_value_pages::{
     MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
 };
-pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
+pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
@@ -71,8 +71,11 @@ use review_log::{ReviewLogEntry, log_committed_review};
 use crate::review::source_url::is_review_source_url;
 use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
 use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
-pub(crate) use repair_rounds::agent_repair_rounds;
 use repair_rounds::refuse_agent_while_human_required;
+pub(crate) use repair_rounds::{
+    after_last_human_event, agent_handed_review_to_human, agent_repair_rounds, agent_round_binds,
+    agent_rounds_of_review,
+};
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,
@@ -538,14 +541,15 @@ impl CrawlerReviewRepository {
         pending_reviews::fetch_pending_review_page(&self.pool, &self.agent_decisions, query).await
     }
 
-    /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and
-    /// whether later events were left out.
+    /// The events of all reviews created at or after `since`, in `direction` of their time, at most
+    /// `limit`, and whether events beyond the limit, later ones when oldest first, were left out.
     pub async fn list_review_events_since(
         &self,
         since: OffsetDateTime,
         limit: usize,
+        direction: SortDirection,
     ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
-        fetch_review_events_since(&self.pool, since, limit).await
+        fetch_review_events_since(&self.pool, since, limit, direction).await
     }
 
     /// Adds the URLs the crawl stored since the review opened to the sample of the pending
@@ -1864,9 +1868,9 @@ fn row_to_review_url(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewUrl, sql
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid persisted {object_type} UUID `{value}`")]
-struct PersistedObjectIdError {
-    object_type: &'static str,
-    value: uuid::Uuid,
+pub(crate) struct PersistedObjectIdError {
+    pub(crate) object_type: &'static str,
+    pub(crate) value: uuid::Uuid,
     #[source]
     source: domain_primitives::object_id::ObjectIdError,
 }

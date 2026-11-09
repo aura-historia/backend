@@ -112,7 +112,9 @@ fn escape_html_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{APP_JS, INSPECTOR_JS, instrument_live_html};
+    use crate::network::policy::DomainFailureKind;
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck, PlausibilityCheck};
+    use crate::spider::discovery::website_spider::{CrawlCooldownProfile, CrawlFailureKind};
 
     fn code(check: impl serde::Serialize) -> String {
         match serde_json::to_value(check) {
@@ -274,6 +276,53 @@ mod tests {
         assert!(preview.contains("<p>the http-equiv name=referrer text</p>"));
         assert!(
             preview.contains(r#"<img data-crawler-review-disabled-referrerPolicy="unsafe-url""#)
+        );
+    }
+
+    /// The line of the console's failure table that describes `kind`.
+    fn failure_entry(kind: &str) -> &'static str {
+        let table = APP_JS
+            .split_once("const FAILURES = {")
+            .and_then(|(_, rest)| rest.split_once("\n};"))
+            .map(|(entries, _)| entries)
+            .unwrap_or_else(|| panic!("app.js must define FAILURES"));
+        table
+            .lines()
+            .find(|line| line.trim_start().starts_with(&format!("{kind}: {{")))
+            .unwrap_or_else(|| panic!("app.js must explain the failure kind {kind}"))
+    }
+
+    /// Every persisted crawl and scrape failure kind has a label, a cause and the next step the
+    /// crawler's cooldown profile implies; a kind the table lacks would show as raw text.
+    #[test]
+    fn should_explain_every_crawl_and_scrape_failure_kind_as_the_crawler_retries_it() {
+        for kind in CrawlFailureKind::ALL {
+            let profile = match kind.cooldown_profile() {
+                CrawlCooldownProfile::Transient => "transient",
+                CrawlCooldownProfile::Recoverable => "recoverable",
+                CrawlCooldownProfile::DurableBlock => "durable",
+            };
+            let entry = failure_entry(kind.as_str());
+            assert!(
+                entry.contains(&format!("profile: '{profile}'")),
+                "app.js must give {kind} the {profile} profile: {entry}"
+            );
+            assert!(
+                entry.contains("label: '") && entry.contains("cause: "),
+                "{entry}"
+            );
+        }
+        for kind in DomainFailureKind::ALL {
+            let entry = failure_entry(kind.as_str());
+            assert!(entry.contains("profile: 'circuit'"), "{entry}");
+        }
+    }
+
+    #[test]
+    fn should_show_an_unknown_failure_kind_as_persisted() {
+        assert!(
+            APP_JS.contains("return {label: text || 'Unknown failure', cause: '', next: ''};"),
+            "describeFailure falls back to the persisted kind"
         );
     }
 }

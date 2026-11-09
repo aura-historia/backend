@@ -3,10 +3,10 @@
 //! full instead of the browser console's `GET /api/reviews`. The contract is in
 //! `docs/crawler/operations.md` (review service).
 
+use super::query_params::{after_cursor, optional_bool, page_size};
 use super::{ReviewServer, review_error};
-use crate::CrawlerReviewId;
 use crate::review::http::{HttpResponse, ParsedRequest};
-use crate::review::repository::{PendingReviewPageSize, PendingReviewQuery};
+use crate::review::repository::PendingReviewQuery;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -28,43 +28,18 @@ impl ReviewServer {
 /// do not wait for a human, `after` names the review the previous page ended with, and `limit`
 /// is the page size. A value that is given but not accepted is refused with what is accepted.
 fn pending_review_query(query: &HashMap<String, String>) -> Result<PendingReviewQuery, String> {
-    let human_required = match query.get("human_required").map(String::as_str) {
-        None => None,
-        Some("true") => Some(true),
-        Some("false") => Some(false),
-        Some(_) => return Err("human_required must be true or false".to_owned()),
-    };
-    let after = query
-        .get("after")
-        .map(|after| {
-            after.parse::<CrawlerReviewId>().map_err(|_| {
-                "after must be a review id, such as the next_after of the previous page".to_owned()
-            })
-        })
-        .transpose()?;
-    let page_size = match query.get("limit") {
-        None => PendingReviewPageSize::DEFAULT,
-        Some(limit) => limit
-            .parse()
-            .ok()
-            .and_then(PendingReviewPageSize::new)
-            .ok_or_else(|| {
-                format!(
-                    "limit must be a whole number from 1 to {}",
-                    PendingReviewPageSize::MAX.get()
-                )
-            })?,
-    };
     Ok(PendingReviewQuery {
-        human_required,
-        after,
-        page_size,
+        human_required: optional_bool(query, "human_required")?,
+        after: after_cursor(query, "a review id")?,
+        page_size: page_size(query)?,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CrawlerReviewId;
+    use crate::review::model::PageSize;
 
     fn query_of(pairs: &[(&str, &str)]) -> Result<PendingReviewQuery, String> {
         pending_review_query(
@@ -95,7 +70,7 @@ mod tests {
             Ok(PendingReviewQuery {
                 human_required: Some(false),
                 after: Some(after),
-                page_size: PendingReviewPageSize::new(250).unwrap_or(PendingReviewPageSize::MAX),
+                page_size: PageSize::new(250).unwrap_or(PageSize::MAX),
             })
         );
         assert_eq!(
