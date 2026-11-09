@@ -10,6 +10,7 @@ use crate::review::model::{
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
+use listing_source_core::ListingSourceId;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -49,6 +50,7 @@ impl fmt::Display for ReviewArtifact {
 pub struct QueuedReview {
     pub review_id: CrawlerReviewId,
     pub artifact_type: ReviewArtifact,
+    pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
     /// When a human last changed or judged the review, which handed it back to the agents.
     pub handed_back: Option<OffsetDateTime>,
@@ -147,6 +149,7 @@ impl ReviewQueue {
                     Some(QueuedReview {
                         review_id: review.review_id,
                         artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
+                        listing_source_id: review.listing_source_id,
                         listing_source_name: Some(review.listing_source_name),
                         handed_back: review.handed_back,
                         created: review.created,
@@ -441,6 +444,7 @@ mod tests {
             .map(|_| QueuedReview {
                 review_id: CrawlerReviewId::new(),
                 artifact_type: ReviewArtifact::ProductSchema,
+                listing_source_id: ListingSourceId::new(),
                 listing_source_name: None,
                 handed_back: None,
                 created: OffsetDateTime::UNIX_EPOCH,

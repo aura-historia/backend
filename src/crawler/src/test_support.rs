@@ -69,3 +69,86 @@ pub(crate) async fn store_crawl_root(
     .await
     .unwrap_or_else(|error| panic!("store the crawl root: {error}"));
 }
+
+/// Captures the level and fields of the tracing events logged while its guard is the thread's
+/// default subscriber. Use it from tests that assert on log fields.
+pub(crate) mod logged_events {
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+    use tracing::Level;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    #[derive(Debug, Clone)]
+    pub(crate) struct LoggedEvent {
+        pub(crate) level: Level,
+        pub(crate) fields: BTreeMap<String, String>,
+    }
+
+    impl LoggedEvent {
+        pub(crate) fn field(&self, name: &str) -> Option<&str> {
+            self.fields.get(name).map(String::as_str)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct LoggedEvents(Arc<Mutex<Vec<LoggedEvent>>>);
+
+    impl LoggedEvents {
+        /// Starts capturing; events are recorded until the guard drops.
+        pub(crate) fn capture() -> (Self, tracing::subscriber::DefaultGuard) {
+            let events = Self::default();
+            let guard = tracing::subscriber::set_default(
+                tracing_subscriber::registry().with(events.clone()),
+            );
+            tracing::callsite::rebuild_interest_cache();
+            (events, guard)
+        }
+
+        /// The events recorded so far, which are forgotten.
+        pub(crate) fn take(&self) -> Vec<LoggedEvent> {
+            std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()))
+        }
+
+        pub(crate) fn all(&self) -> Vec<LoggedEvent> {
+            self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        }
+
+        /// The events that carry `event` as their `event` field.
+        pub(crate) fn named(&self, event: &str) -> Vec<LoggedEvent> {
+            self.all()
+                .into_iter()
+                .filter(|logged| logged.field("event") == Some(event))
+                .collect()
+        }
+    }
+
+    struct Fields(BTreeMap<String, String>);
+
+    impl tracing::field::Visit for Fields {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            self.0.insert(field.name().to_owned(), value.to_owned());
+        }
+
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.0.insert(field.name().to_owned(), format!("{value:?}"));
+        }
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let mut fields = Fields(BTreeMap::new());
+            event.record(&mut fields);
+            self.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(LoggedEvent {
+                    level: *event.metadata().level(),
+                    fields: fields.0,
+                });
+        }
+    }
+}

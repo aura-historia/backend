@@ -750,6 +750,7 @@ mod tests {
         let agent_no_pattern = approval("AGENT_REVIEWER", Some("NO_PATTERN"));
         let queued = |artifact_type, hours_before| QueuedReview {
             review_id: CrawlerReviewId::new(),
+            listing_source_id: listing_source_core::ListingSourceId::new(),
             artifact_type,
             listing_source_name: None,
             handed_back: None,

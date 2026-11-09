@@ -780,6 +780,11 @@
                 "ja",
                 "ru",
                 "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi",
                 "de-DE",
                 "de-AT",
                 "de-CH",
@@ -807,6 +812,9 @@
                 "it-CH",
                 "zh-CN",
                 "zh-Hans",
+                "zh-TW",
+                "zh-Hant",
+                "zh-HK",
                 "pt-PT",
                 "pt-BR",
                 "pl-PL",
@@ -818,7 +826,12 @@
                 "ru-RU",
                 "ar-SA",
                 "ar-EG",
-                "ar-AE"
+                "ar-AE",
+                "ko-KR",
+                "el-GR",
+                "he-IL",
+                "th-TH",
+                "hi-IN"
               ],
               "type": "string"
             },
@@ -1320,7 +1333,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -2087,7 +2105,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -2298,6 +2321,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -2325,6 +2353,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -2336,7 +2367,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -2958,7 +2994,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -4025,6 +4066,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -4052,6 +4098,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -4063,7 +4112,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -5153,7 +5207,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -6337,6 +6396,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -6364,6 +6428,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -6375,7 +6442,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -7466,7 +7538,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -8689,7 +8766,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -9848,6 +9930,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -9875,6 +9962,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -9886,7 +9976,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -10438,7 +10533,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -11278,7 +11378,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -11969,7 +12074,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -12528,7 +12638,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -12820,6 +12935,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -12847,6 +12967,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -12858,7 +12981,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -13451,7 +13579,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -14728,7 +14861,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -14899,6 +15037,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -14926,6 +15069,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -14937,7 +15083,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -15007,7 +15158,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -15548,6 +15704,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -15575,6 +15736,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -15586,7 +15750,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -16204,7 +16373,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -17462,6 +17636,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -17489,6 +17668,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -17500,7 +17682,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -18600,7 +18787,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -20477,6 +20669,11 @@
             "ja",
             "ru",
             "ar",
+            "ko",
+            "el",
+            "he",
+            "th",
+            "hi",
             "de-DE",
             "de-AT",
             "de-CH",
@@ -20504,6 +20701,9 @@
             "it-CH",
             "zh-CN",
             "zh-Hans",
+            "zh-TW",
+            "zh-Hant",
+            "zh-HK",
             "pt-PT",
             "pt-BR",
             "pl-PL",
@@ -20515,7 +20715,12 @@
             "ru-RU",
             "ar-SA",
             "ar-EG",
-            "ar-AE"
+            "ar-AE",
+            "ko-KR",
+            "el-GR",
+            "he-IL",
+            "th-TH",
+            "hi-IN"
           ],
           "type": "string"
         },
@@ -21173,7 +21378,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -22338,6 +22548,11 @@
                 "ja",
                 "ru",
                 "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi",
                 "de-DE",
                 "de-AT",
                 "de-CH",
@@ -22365,6 +22580,9 @@
                 "it-CH",
                 "zh-CN",
                 "zh-Hans",
+                "zh-TW",
+                "zh-Hant",
+                "zh-HK",
                 "pt-PT",
                 "pt-BR",
                 "pl-PL",
@@ -22376,7 +22594,12 @@
                 "ru-RU",
                 "ar-SA",
                 "ar-EG",
-                "ar-AE"
+                "ar-AE",
+                "ko-KR",
+                "el-GR",
+                "he-IL",
+                "th-TH",
+                "hi-IN"
               ],
               "type": "string"
             },
@@ -22484,7 +22707,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },
@@ -23348,6 +23576,11 @@
                 "ja",
                 "ru",
                 "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi",
                 "de-DE",
                 "de-AT",
                 "de-CH",
@@ -23375,6 +23608,9 @@
                 "it-CH",
                 "zh-CN",
                 "zh-Hans",
+                "zh-TW",
+                "zh-Hant",
+                "zh-HK",
                 "pt-PT",
                 "pt-BR",
                 "pl-PL",
@@ -23386,7 +23622,12 @@
                 "ru-RU",
                 "ar-SA",
                 "ar-EG",
-                "ar-AE"
+                "ar-AE",
+                "ko-KR",
+                "el-GR",
+                "he-IL",
+                "th-TH",
+                "hi-IN"
               ],
               "type": "string"
             },
@@ -23929,7 +24170,12 @@
                 "cs",
                 "ja",
                 "ru",
-                "ar"
+                "ar",
+                "ko",
+                "el",
+                "he",
+                "th",
+                "hi"
               ],
               "type": "string"
             },

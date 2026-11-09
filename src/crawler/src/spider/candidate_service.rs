@@ -1,5 +1,6 @@
 use crate::CrawlerReviewId;
 use crate::crawl_root::CrawlRoot;
+use crate::logging::SourceLogContext;
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::CrawlKind;
 use crate::spider::discovery::website_spider::CrawlCompletion;
@@ -58,6 +59,7 @@ pub struct CrawlRateLimitWrite {
 
 pub struct SpiderCandidate {
     pub listing_source_id: ListingSourceId,
+    pub listing_source_name: String,
     pub crawl_root: CrawlRoot,
     pub crawl_failure_count: i32,
     pub last_crawl_error_kind: Option<String>,
@@ -76,6 +78,15 @@ impl SpiderCandidate {
     /// The crawl root the candidate's run crawls, which every write of the run's outcome names.
     pub fn crawled_root(&self) -> CrawledRoot {
         CrawledRoot::new(self.listing_source_id, self.crawl_root.url().as_str())
+    }
+
+    /// The source fields every crawl event of the candidate's run logs.
+    pub fn source_log_context(&self) -> SourceLogContext {
+        SourceLogContext {
+            listing_source_id: self.listing_source_id,
+            listing_source_name: self.listing_source_name.clone(),
+            domain: self.crawl_root.host().to_owned(),
+        }
     }
 }
 
@@ -171,6 +182,7 @@ impl SpiderCandidateServiceImpl {
 #[derive(sqlx::FromRow)]
 struct SpiderCandidateRow {
     listing_source_id: uuid::Uuid,
+    listing_source_name: String,
     crawl_root_url: String,
     crawl_host: String,
     crawl_failure_count: i32,
@@ -195,6 +207,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
         let rows = sqlx::query_as::<_, SpiderCandidateRow>(
             r#"
             SELECT listing_source_id,
+                   listing_source_name,
                    crawl_root_url,
                    crawl_host,
                    crawl_failure_count,
@@ -231,6 +244,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
                 Ok(SpiderCandidate {
                     listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                         .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
+                    listing_source_name: row.listing_source_name,
                     crawl_root: CrawlRoot::from_persisted(&row.crawl_root_url, &row.crawl_host)
                         .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
                     crawl_failure_count: row.crawl_failure_count,

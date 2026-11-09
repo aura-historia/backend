@@ -131,7 +131,7 @@ fn should_accept_each_advertised_language_alias_in_serde() {
     let codes = schema.as_value()["properties"]["language"]["enum"]
         .as_array()
         .expect("language schema enum");
-    assert_eq!(14 + 39, codes.len());
+    assert_eq!(19 + 47, codes.len());
     for code in codes {
         let input = json!({"text": "Cabinet", "language": code});
         let value: LocalizedTextData =

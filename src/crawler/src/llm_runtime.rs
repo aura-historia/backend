@@ -1,3 +1,6 @@
+use crate::logging::SourceLogContext;
+use crate::logging::count_llm_call;
+use crate::logging::warn_in_source;
 use application::error::static_error;
 use large_language_model::{
     LargeLanguageModel, LargeLanguageModelError, LargeLanguageModelRetryAdvice,
@@ -8,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore, SemaphorePermit};
 use tokio::time::{Instant, sleep};
-use tracing::warn;
+use tracing::info;
 
 const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 1;
 const DEFAULT_MIN_REQUEST_INTERVAL: Duration = Duration::from_secs(2);
@@ -156,6 +159,35 @@ pub enum ValidatedGenerationError<E> {
     Validation(E),
 }
 
+pub(crate) const LLM_INVOCATION_EVENT: &str = "crawler.llm.invocation";
+
+/// One provider call of a generation, whatever its outcome: a timed-out call has no record of
+/// its own in the model crate's logs, which is why this one names the source and the wait for the
+/// governor.
+fn log_llm_invocation(
+    request: &StructuredGenerationRequest,
+    attempt: usize,
+    max_attempts: usize,
+    governor_wait: Duration,
+    duration: Duration,
+    error: Option<&LargeLanguageModelError>,
+) {
+    let source = SourceLogContext::current();
+    info!(
+        event = LLM_INVOCATION_EVENT,
+        listing_source_id = source.as_ref().map(|source| source.listing_source_id.to_string()),
+        listing_source_name = source.as_ref().map(|source| source.listing_source_name.as_str()),
+        domain = source.as_ref().map(|source| source.domain.as_str()),
+        operation = ?request.operation,
+        attempt,
+        max_attempts,
+        outcome = error.map_or("ok", LargeLanguageModelError::kind),
+        governor_wait_ms = u64::try_from(governor_wait.as_millis()).unwrap_or(u64::MAX),
+        duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
+        "Crawler LLM invocation"
+    );
+}
+
 pub async fn generate_with_governor<Model, Output>(
     model: &Model,
     governor: Option<&Arc<CrawlerLlmGovernor>>,
@@ -182,19 +214,31 @@ where
     let max_attempts = policy.max_attempts.max(1);
     let mut last_error = None;
     for attempt in 1..=max_attempts {
+        let governor_wait_started_at = Instant::now();
         let permit = match governor {
             Some(governor) => Some(governor.acquire().await?),
             None => None,
         };
+        let governor_wait = governor_wait_started_at.elapsed();
+        count_llm_call();
+        let call_started_at = Instant::now();
         let result = model.generate(request.clone()).await;
         drop(permit);
+        log_llm_invocation(
+            &request,
+            attempt,
+            max_attempts,
+            governor_wait,
+            call_started_at.elapsed(),
+            result.as_ref().err(),
+        );
 
         match result {
             Ok(output) => return Ok(output),
             Err(error) if should_retry(&error) && attempt < max_attempts => {
                 let advice = retry_advice(&error);
                 let delay = retry_delay(&policy, attempt, advice, &request);
-                warn!(
+                warn_in_source!(
                     operation = ?request.operation,
                     attempt,
                     max_attempts,
@@ -250,7 +294,7 @@ where
                     Some(StructuredResponseFailureKind::MaxTokens) => {
                         let previous_limit = request.options.max_output_tokens;
                         request = max_tokens_retry_request(&request);
-                        warn!(
+                        warn_in_source!(
                             operation = ?base_request.operation,
                             validation_attempt = attempt,
                             max_validation_attempts = max_attempts,
@@ -276,7 +320,7 @@ where
                         let correction_feedback = error
                             .response_correction_feedback()
                             .unwrap_or_else(|| feedback_code.to_owned());
-                        warn!(
+                        warn_in_source!(
                             operation = ?base_request.operation,
                             validation_attempt = attempt,
                             max_validation_attempts = max_attempts,
@@ -296,7 +340,7 @@ where
             Ok(output) => return Ok(output),
             Err(error) if attempt < max_attempts => {
                 let feedback_code = feedback(&error);
-                warn!(
+                warn_in_source!(
                     operation = ?base_request.operation,
                     validation_attempt = attempt,
                     max_validation_attempts = max_attempts,
@@ -437,6 +481,61 @@ mod tests {
                 request_timeout: Duration::from_secs(180),
             },
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_log_every_invocation_with_its_outcome_and_source_when_a_call_times_out() {
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        let model = SequenceModel::new(vec![
+            Err(LargeLanguageModelError::Timeout {
+                source: static_error("provider timed out"),
+            }),
+            Ok(serde_json::json!({ "ok": true })),
+        ]);
+        let source = SourceLogContext::new(
+            listing_source_core::ListingSourceId::new(),
+            "Antique Shop",
+            "antique.example",
+        );
+
+        let _: serde_json::Value = source
+            .clone()
+            .scope(generate_with_governor(&model, None, request()))
+            .await
+            .expect("the retry after the timeout succeeds");
+
+        let invocations = events.named(LLM_INVOCATION_EVENT);
+        let outcomes = invocations
+            .iter()
+            .map(|logged| logged.field("outcome"))
+            .collect::<Vec<_>>();
+        assert_eq!(outcomes, vec![Some("timeout"), Some("ok")]);
+        assert_eq!(invocations[0].field("attempt"), Some("1"));
+        assert_eq!(
+            invocations[0].field("listing_source_name"),
+            Some("Antique Shop")
+        );
+        assert_eq!(invocations[0].field("domain"), Some("antique.example"));
+        let source_id = source.listing_source_id.to_string();
+        assert_eq!(
+            invocations[1].field("listing_source_id"),
+            Some(source_id.as_str())
+        );
+        assert!(invocations[0].field("governor_wait_ms").is_some());
+    }
+
+    #[tokio::test]
+    async fn should_log_an_invocation_without_source_fields_when_no_source_is_scoped() {
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        let model = SequenceModel::new(vec![Ok(serde_json::json!({ "ok": true }))]);
+
+        let _: serde_json::Value = generate_with_governor(&model, None, request())
+            .await
+            .expect("the call succeeds");
+
+        let invocations = events.named(LLM_INVOCATION_EVENT);
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(invocations[0].field("listing_source_name"), None);
     }
 
     struct StartRecordingModel {

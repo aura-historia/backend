@@ -17,7 +17,7 @@ use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 
 use crate::review::model::{ReviewActor, UrlPatternDecision};
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Review reason for a URL pattern an operator has to write because LLM calls are disabled.
 pub const MANUAL_URL_PATTERN_REASON: &str = "manual_url_pattern_required";
@@ -281,7 +281,8 @@ impl UrlPatternService for UrlPatternServiceImpl {
                 return Ok(None);
             }
             Some(DecidedUrlPattern::NoPattern) => {
-                info!(
+                tracing::info!(
+                    event = "crawler.spider.no_pattern_expired",
                     crawl_root_url,
                     "The agents' NO_PATTERN decision expired; classification decides the ListingSource again"
                 );
@@ -324,9 +325,9 @@ impl UrlPatternService for UrlPatternServiceImpl {
                         urls,
                     )
                     .await?;
-                info!(
+                debug!(
                     review_id = %review_id,
-                    "Opened manual URL pattern review; crawl waits for an operator pattern"
+                    "Manual URL pattern review opened; crawl waits for an operator pattern"
                 );
                 return Err(UrlPatternServiceError::PendingReview {
                     listing_source_id: *listing_source_id,

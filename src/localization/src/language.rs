@@ -29,6 +29,11 @@ pub enum Language {
     Ja,
     Ru,
     Ar,
+    Ko,
+    El,
+    He,
+    Th,
+    Hi,
 }
 
 impl Language {
@@ -84,6 +89,11 @@ impl Language {
             Language::Ja => "ja",
             Language::Ru => "ru",
             Language::Ar => "ar",
+            Language::Ko => "ko",
+            Language::El => "el",
+            Language::He => "he",
+            Language::Th => "th",
+            Language::Hi => "hi",
         }
     }
 
@@ -94,7 +104,7 @@ impl Language {
             Language::Fr => "French",
             Language::Es => "Spanish",
             Language::It => "Italian",
-            Language::Zh => "Chinese (Simplified)",
+            Language::Zh => "Chinese",
             Language::Pt => "Portuguese",
             Language::Pl => "Polish",
             Language::Tr => "Turkish",
@@ -103,6 +113,11 @@ impl Language {
             Language::Ja => "Japanese",
             Language::Ru => "Russian",
             Language::Ar => "Arabic",
+            Language::Ko => "Korean",
+            Language::El => "Greek",
+            Language::He => "Hebrew",
+            Language::Th => "Thai",
+            Language::Hi => "Hindi",
         }
     }
 
@@ -131,5 +146,43 @@ mod tests {
         );
 
         assert_eq!(resolved, Some(Localized::new(Language::En, "hello")));
+    }
+
+    #[test]
+    fn should_round_trip_every_language_code_including_source_only_languages() {
+        use strum::IntoEnumIterator;
+
+        for language in Language::iter() {
+            assert_eq!(Some(language), Language::from_code(language.as_str()));
+        }
+        for (code, language) in [
+            ("ko", Language::Ko),
+            ("el", Language::El),
+            ("he", Language::He),
+            ("th", Language::Th),
+            ("hi", Language::Hi),
+        ] {
+            assert_eq!(Some(language), Language::from_code(code));
+        }
+    }
+
+    #[test]
+    fn should_translate_only_into_the_deployed_translation_languages() {
+        use strum::IntoEnumIterator;
+
+        let targets: Vec<_> = Language::iter()
+            .filter(|language| language.is_translation_target())
+            .collect();
+
+        assert_eq!(
+            vec![
+                Language::De,
+                Language::En,
+                Language::Fr,
+                Language::Es,
+                Language::It
+            ],
+            targets
+        );
     }
 }

@@ -20,7 +20,6 @@ use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
-use tracing::info;
 
 impl CrawlerReviewRepository {
     /// Revokes the rejection of a manual product-schema review, so it classifies none of its pages
@@ -46,7 +45,6 @@ impl CrawlerReviewRepository {
             self.url_classifier,
         )
         .await?;
-        let reclassified_count = reclassified_urls.len();
         commit_with_event(
             transaction,
             review_id,
@@ -57,12 +55,6 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
-            review_id = %review_id,
-            actor = %actor,
-            reclassified_urls = reclassified_count,
-            "Revoked the rejection of a manual product schema review"
-        );
         Ok(())
     }
 }

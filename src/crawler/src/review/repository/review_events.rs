@@ -2,6 +2,7 @@
 //! the mutation's transaction, so a refused or failed mutation leaves none. The persisted
 //! `details` of each action are this module's [`ReviewMutation`] serialized.
 
+use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
     CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, ReviewEventSummary,
@@ -227,7 +228,8 @@ impl ReviewMutation<'_> {
 
 /// Appends the event of `actor`'s `mutation` of the review and commits the mutation's
 /// transaction with it. The caller holds the review's row lock, so the review's events append
-/// in the order its mutations commit, each with the candidate version the mutation left.
+/// in the order its mutations commit, each with the candidate version the mutation left. The
+/// mutation's `crawler.review.*` INFO event follows the commit ([`super::review_log`]).
 pub(super) async fn commit_with_event(
     mut transaction: sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -251,7 +253,14 @@ pub(super) async fn commit_with_event(
     if appended.rows_affected() != 1 {
         return Err(ReviewRepositoryError::NotFound(review_id));
     }
+    let logs = prepare_review_logs(
+        &mut transaction,
+        review_id,
+        ReviewLogEntry::of_mutation(actor, &mutation),
+    )
+    .await;
     transaction.commit().await?;
+    emit_all(logs);
     Ok(())
 }
 

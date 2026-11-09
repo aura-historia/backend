@@ -115,7 +115,10 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
             limit: MAX_SHIPPING_TEXT_BYTES,
         });
     }
-    if fragments.iter().any(|s| s.contains(['\0', '?', '？', '؟'])) {
+    if fragments
+        .iter()
+        .any(|s| s.contains(['\0', '?', '？', '؟']) || has_greek_question(s))
+    {
         return ShippingQuickCheck::Unsupported(Reason::UnsupportedCharacter);
     }
     let Ok(dispatch) = DISPATCH.as_ref() else {
@@ -126,7 +129,8 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
     let mut found = false;
     for (index, fragment) in fragments.iter().enumerate() {
         let normalized = normalize_text(fragment);
-        for clause in normalized.split(['.', '!', ';', '\n', '\r', '。', '！', '；', '؛']) {
+        for clause in normalized.split(['.', '!', ';', '\n', '\r', '。', '！', '；', '؛', '।', '॥'])
+        {
             let clause = clause.split_whitespace().collect::<Vec<_>>().join(" ");
             if clause.is_empty() {
                 continue;
@@ -186,6 +190,23 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
     }
 }
 
+/// Greek writes its question mark as `;` (U+037E, or the ASCII semicolon on a Greek keyboard) and
+/// has no semicolon of its own, so a `;` that follows Greek text is a question. Elsewhere `;`
+/// stays a clause separator.
+fn has_greek_question(text: &str) -> bool {
+    let is_greek = |c: char| matches!(c, '\u{370}'..='\u{3ff}' | '\u{1f00}'..='\u{1fff}');
+    let mut previous = None;
+    for c in text.chars() {
+        if c == '\u{37e}' || (c == ';' && previous.is_some_and(is_greek)) {
+            return true;
+        }
+        if !c.is_whitespace() {
+            previous = Some(c);
+        }
+    }
+    false
+}
+
 fn contradictory(assertions: &ItemShippingAssertions, collection_label: bool) -> bool {
     (collection_label && !assertions.prohibited)
         || (assertions.prohibited
@@ -197,6 +218,10 @@ fn contradictory(assertions: &ItemShippingAssertions, collection_label: bool) ->
 /// Case and layout only. Digits have the same decimal value in these scripts. Never
 /// strip accents, translate, change geographic scope, or interpret other numeral systems.
 fn normalize_text(text: &str) -> String {
+    restore_greek_final_sigma(lowercase_and_unify_layout(text))
+}
+
+fn lowercase_and_unify_layout(text: &str) -> String {
     text.chars()
         // Map Turkish dotted capital I before generic lowercasing, preserving unrelated
         // combining accents (including Polish dotted letters) in the original text.
@@ -210,6 +235,29 @@ fn normalize_text(text: &str) -> String {
             '０'..='９' => char::from_u32(u32::from(c) - u32::from('０') + u32::from('0')),
             '\u{200e}' | '\u{200f}' => None,
             _ => Some(c),
+        })
+        .collect()
+}
+
+/// Lowercasing one character at a time turns every capital sigma into `σ`, but Greek spells
+/// the last letter of a word `ς`. Restoring it keeps all-capitals text equal to its lowercase form.
+fn restore_greek_final_sigma(text: String) -> String {
+    if !text.contains('σ') {
+        return text;
+    }
+    let characters: Vec<char> = text.chars().collect();
+    characters
+        .iter()
+        .enumerate()
+        .map(|(index, &character)| {
+            let ends_word = index > 0
+                && characters[index - 1].is_alphabetic()
+                && !characters.get(index + 1).is_some_and(|c| c.is_alphabetic());
+            if character == 'σ' && ends_word {
+                'ς'
+            } else {
+                character
+            }
         })
         .collect()
 }
@@ -313,6 +361,46 @@ fn conditional(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn greek_final_sigma_is_restored_only_at_the_end_of_a_word() {
+        assert_eq!(
+            "κόσμος σε κόσμο",
+            normalize_text("ΚΌΣΜΟΣ ΣΕ ΚΌΣΜΟ"),
+            "capitals lowercase to the same spelling as typed lowercase text"
+        );
+        assert_eq!("κόσμος", normalize_text("κόσμος"));
+        assert_eq!("σ", normalize_text("Σ"), "a lone sigma ends no word");
+    }
+
+    #[test]
+    fn a_greek_semicolon_is_a_question_while_other_semicolons_separate_clauses() {
+        for question in [
+            "Αυτό το προϊόν μπορεί να αποσταλεί σε όλο τον κόσμο;",
+            "Αυτό το προϊόν μπορεί να αποσταλεί σε όλο τον κόσμο \u{37e}",
+            "Αυτό το προϊόν δεν μπορεί να αποσταλεί ;  ",
+        ] {
+            assert!(
+                matches!(
+                    quick_check_shipping(&[question]),
+                    ShippingQuickCheck::Unsupported(
+                        ShippingUnsupportedReason::UnsupportedCharacter
+                    )
+                ),
+                "{question}"
+            );
+        }
+        for statement in [
+            "Shipping is not available for this item;",
+            "Shipping is not available for this item; collection only",
+            "Αυτό το προϊόν δεν μπορεί να αποσταλεί. Shipping is not available for this item;",
+        ] {
+            assert!(
+                matches!(quick_check_shipping(&[statement]), ShippingQuickCheck::Resolved(a) if a.prohibited),
+                "{statement}"
+            );
+        }
+    }
 
     #[test]
     fn supported_english_and_german_item_prohibitions() {
@@ -845,6 +933,68 @@ mod multilingual_tests {
                 );
             }
         }
+    }
+
+    fn offered(code: &str) -> String {
+        fixtures()
+            .into_iter()
+            .find(|fixture| fixture.language == code)
+            .unwrap_or_else(|| panic!("fixture for {code}"))
+            .offered
+    }
+
+    /// Wording that restricts or conditions delivery must abstain next to a worldwide statement,
+    /// while ordinary antiques prose that merely resembles a marker must not.
+    #[test]
+    fn script_aware_markers_veto_delivery_wording_but_not_ordinary_antiques_prose() {
+        for (code, restriction) in [
+            ("el", "Στέλνουμε μόνο εντός Ελλάδας"),
+            ("ko", "해외 출고 불가"),
+            ("th", "เราส่งเฉพาะในประเทศไทย"),
+            ("hi", "केवल भारत में शिप किया जाएगा"),
+            ("he", "הובלה לישראל בלבד"),
+        ] {
+            assert_unsupported!(
+                quick_check_shipping_with_context(&[&offered(code)], &[restriction]),
+                "{code}: {restriction}"
+            );
+        }
+        for (code, prose) in [
+            ("el", "Παραδοσιακό ελληνικό κέντημα"),
+            ("el", "Εικόνα των Αποστόλων"),
+            ("ko", "상단, 하단에 약간의 흠집이 있습니다"),
+            ("ko", "수령 200년 느티나무 서랍장"),
+            ("th", "พระมหากษัตริย์ทรงใช้เก้าอี้ตัวนี้"),
+            ("th", "เก้าอี้ตกแต่งด้วยลายทอง"),
+            ("hi", "उत्कृष्ट क्राफ्टमैनशिप वाला पुराना संदूक"),
+            ("he", "שולחן אוכל מעץ אגוז בסגנון אדוארדיאני"),
+        ] {
+            assert!(
+                matches!(
+                    quick_check_shipping_with_context(&[&offered(code)], &[prose]),
+                    ShippingQuickCheck::Resolved(_)
+                ),
+                "ordinary prose must not hide a valid assertion in {code}: {prose}"
+            );
+        }
+    }
+
+    #[test]
+    fn natural_dispatch_wording_of_the_new_languages_is_handling_not_delivery_time() {
+        let business_days = TimeRange::new(10, 15, TimeUnit::Days, Some(TimeBasis::Business), None)
+            .expect("business-day range");
+        for text in [
+            "영업일 기준 10일~15일 이내에 출고됩니다",
+            "영업일 기준 10~15일 이내에 발송합니다",
+            "यह उत्पाद 10 से 15 कार्य दिवसों में भेजा जाएगा",
+            "यह आइटम 10 से 15 कार्यदिवस के भीतर भेजी जाएगी",
+            "จัดส่งภายใน 10-15 วันทำงาน",
+            "שליחה תוך 10 עד 15 ימי עסקים",
+        ] {
+            assert_eq!(Some(business_days), resolved(text).handling, "{text}");
+        }
+        // Israeli shops use "משלוח תוך" for the delivery lead time, which is not handling time.
+        assert_unsupported!(quick_check_shipping(&["משלוח תוך 10 עד 15 ימי עסקים"]));
     }
 
     #[test]

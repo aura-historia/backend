@@ -1,3 +1,4 @@
+use crate::logging::warn_in_source;
 use crate::network::policy::domain_failure_kind;
 use crate::scraper::candidate_service::SchemaSeedCandidate;
 use crate::scraper::scraper_service::domain::errors::{HttpErrorMetadata, ScraperError};
@@ -9,7 +10,7 @@ use crate::scraper::scraper_service::pipeline::scrape_product::is_redirect_to_no
 use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use listing_source_core::ListingSourceId;
-use tracing::{debug, warn};
+use tracing::debug;
 use url::Url;
 
 pub(crate) struct SchemaSeedPage {
@@ -50,7 +51,7 @@ impl ScraperServiceImpl {
         {
             Ok(urls) => urls,
             Err(err) => {
-                warn!(
+                warn_in_source!(
                     error = ?err,
                     "Failed to load random schema-seed URLs; falling back to current page only"
                 );
@@ -70,7 +71,7 @@ impl ScraperServiceImpl {
                         &sample.final_url,
                         product_url_pattern,
                     ) {
-                        warn!(
+                        warn_in_source!(
                             sample_url = %sample_url,
                             final_url = %sample.final_url,
                             "Skipping sampled schema-seed page because it redirected to a non-product page"
@@ -104,7 +105,7 @@ impl ScraperServiceImpl {
                         );
                         continue;
                     }
-                    warn!(
+                    warn_in_source!(
                         error = ?err,
                         sample_url = %sample_url,
                         "Failed to fetch sampled schema-seed page; continuing with available samples"

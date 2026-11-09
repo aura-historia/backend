@@ -256,7 +256,10 @@ fn record_root_moved(
     failure: Option<(&SpiderServiceError, &str)>,
 ) -> SpiderSlotStatus {
     info!(
-        crawl_host = %candidate.crawl_root.host(),
+        event = ROOT_MOVED_EVENT,
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_root.host(),
         outcome,
         error = failure.map(|(error, _)| tracing::field::display(error)),
         error_kind = failure.map(|(_, error_kind)| error_kind),
@@ -281,7 +284,9 @@ async fn record_completed_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist crawl completion metadata"
         ),
     }
@@ -320,8 +325,10 @@ async fn record_review_wait_run(
             return record_rate_limited_run(spider_candidates, candidate, result, rate_limit).await;
         }
         Ok(UrlPatternReviewWaitWrite::ReviewNotPending) => {
-            info!(
-                crawl_host = %candidate.crawl_root.host(),
+            debug!(
+                listing_source_id = %candidate.listing_source_id,
+                listing_source_name = %candidate.listing_source_name,
+                domain = %candidate.crawl_root.host(),
                 review_id = %review_id,
                 completion = %result.completion,
                 total_crawled = result.total_links,
@@ -331,12 +338,16 @@ async fn record_review_wait_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist crawl review-wait metadata"
         ),
     }
-    info!(
-        crawl_host = %candidate.crawl_root.host(),
+    debug!(
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_root.host(),
         review_id = %review_id,
         completion = %result.completion,
         total_crawled = result.total_links,
@@ -372,12 +383,17 @@ async fn record_truncated_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist crawl truncation metadata"
         ),
     }
-    warn!(
-        crawl_host = %candidate.crawl_root.host(),
+    info!(
+        event = CRAWL_TRUNCATED_EVENT,
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_root.host(),
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
@@ -407,12 +423,16 @@ async fn record_stopped_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist stopped crawl metadata"
         ),
     }
-    info!(
-        crawl_host = %candidate.crawl_root.host(),
+    debug!(
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_root.host(),
         next_crawl_at = %next_crawl_at,
         "Spider run stopped by the crawler's shutdown; the next crawl resumes from its frontier"
     );
@@ -437,12 +457,16 @@ async fn record_incremental_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist incremental crawl metadata"
         ),
     }
-    info!(
-        crawl_host = %candidate.crawl_root.host(),
+    debug!(
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_root.host(),
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
@@ -475,15 +499,20 @@ async fn record_rate_limited_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist rate-limited crawl metadata"
         ),
     }
     warn!(
-        crawl_host = %candidate.crawl_root.host(),
+        event = CRAWL_RATE_LIMITED_EVENT,
+        listing_source_id = %candidate.listing_source_id,
+        listing_source_name = %candidate.listing_source_name,
+        domain = %candidate.crawl_root.host(),
         completion = %result.completion,
         rate_limit_status = rate_limit.status,
-        retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
+        retry_after_seconds = rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
         rate_limit_streak = write.streak,
@@ -541,7 +570,9 @@ async fn record_failed_run(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist crawl failure metadata"
         ),
     }
@@ -550,19 +581,15 @@ async fn record_failed_run(
         error.cause(),
         error_kind,
         failure_count,
-        next_crawl_at,
-        cooldown,
+        FailureDisposition::Retry {
+            next_crawl_at,
+            cooldown,
+            rate_limit: rate_limit.map(|(signal, (write, _))| RateLimitFacts {
+                signal,
+                streak: write.streak,
+            }),
+        },
     );
-    if let Some((rate_limit, (write, _))) = rate_limit {
-        warn!(
-            crawl_host = %candidate.crawl_root.host(),
-            rate_limit_status = rate_limit.status,
-            retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
-            rate_limit_streak = write.streak,
-            error_kind,
-            "Spider run failed after a rate-limit answer stopped its crawl; the next crawl runs slower"
-        );
-    }
     SpiderSlotStatus::Failed
 }
 
@@ -589,28 +616,97 @@ async fn record_run_stopped_for_operator(
         }
         Err(err) => warn!(
             error = ?err,
-            crawl_host = %candidate.crawl_root.host(),
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             "Failed to persist crawl needs-operator metadata"
         ),
     }
-    warn!(
-        crawl_host = %candidate.crawl_root.host(),
-        error = %error.cause(),
+    log_spider_failure(
+        candidate,
+        error.cause(),
         error_kind,
         failure_count,
-        "Spider run kept failing; ListingSource waits for an operator"
+        FailureDisposition::NeedsOperator,
     );
     SpiderSlotStatus::StoppedForOperator
 }
 
-/// One warning per failed run, with the evidence the error variant carries.
+pub(crate) const CRAWL_FAILED_EVENT: &str = "crawler.spider.crawl_failed";
+const ROOT_MOVED_EVENT: &str = "crawler.spider.root_moved";
+const CRAWL_TRUNCATED_EVENT: &str = "crawler.spider.crawl_truncated";
+const CRAWL_RATE_LIMITED_EVENT: &str = "crawler.spider.crawl_rate_limited";
+
+/// What a failed run's failure came to.
+#[derive(Clone, Copy)]
+enum FailureDisposition {
+    /// The ListingSource is crawled again at `next_crawl_at`, after `cooldown`.
+    Retry {
+        next_crawl_at: time::OffsetDateTime,
+        cooldown: Duration,
+        /// The shop's rate-limit answer that stopped the crawl, when it gave one.
+        rate_limit: Option<RateLimitFacts>,
+    },
+    /// The ListingSource leaves the schedule until an operator changes its configuration.
+    NeedsOperator,
+}
+
+/// A shop's rate-limit answer and the ListingSource's resulting streak.
+#[derive(Clone, Copy)]
+struct RateLimitFacts {
+    signal: RateLimitSignal,
+    streak: i32,
+}
+
+impl FailureDisposition {
+    fn rate_limit(self) -> Option<RateLimitFacts> {
+        match self {
+            Self::Retry { rate_limit, .. } => rate_limit,
+            Self::NeedsOperator => None,
+        }
+    }
+
+    fn rate_limit_status(self) -> Option<u16> {
+        self.rate_limit().map(|facts| facts.signal.status)
+    }
+
+    fn retry_after_seconds(self) -> Option<u64> {
+        self.rate_limit()
+            .and_then(|facts| facts.signal.retry_after)
+            .map(|retry_after| retry_after.as_secs())
+    }
+
+    fn rate_limit_streak(self) -> Option<i32> {
+        self.rate_limit().map(|facts| facts.streak)
+    }
+
+    fn next_crawl_at(self) -> Option<String> {
+        match self {
+            Self::Retry { next_crawl_at, .. } => Some(next_crawl_at.to_string()),
+            Self::NeedsOperator => None,
+        }
+    }
+
+    fn cooldown_seconds(self) -> Option<u64> {
+        match self {
+            Self::Retry { cooldown, .. } => Some(cooldown.as_secs()),
+            Self::NeedsOperator => None,
+        }
+    }
+
+    fn needs_operator(self) -> bool {
+        matches!(self, Self::NeedsOperator)
+    }
+}
+
+/// One `crawler.spider.crawl_failed` warning per failed run, with the evidence the error variant
+/// carries and what the run's failure came to: a retry after a cooldown, or a wait for an operator.
 fn log_spider_failure(
     candidate: &SpiderCandidate,
     error: &SpiderServiceError,
     error_kind: &str,
     failure_count: i32,
-    next_crawl_at: time::OffsetDateTime,
-    cooldown: Duration,
+    disposition: FailureDisposition,
 ) {
     match error {
         SpiderServiceError::InsufficientInferenceSample {
@@ -620,7 +716,10 @@ fn log_spider_failure(
             diagnostics,
             ..
         } => warn!(
-            crawl_host = %candidate.crawl_root.host(),
+            event = CRAWL_FAILED_EVENT,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -629,12 +728,12 @@ fn log_spider_failure(
             min_sample_size = *min_sample_size,
             completion = %diagnostics.completion,
             truncated = !diagnostics.completion.is_full(),
-            stopped_early = ?diagnostics.stopped_early.map(|reason| reason.as_str()),
+            stopped_early = diagnostics.stopped_early.map(|reason| reason.as_str()),
             crawl_budget_ms = diagnostics.crawl_budget_ms,
             seeds = diagnostics.seeds,
             known_skipped = diagnostics.known_skipped,
             root_reroot = ?diagnostics.root_reroot,
-            diagnostic_reason = ?diagnostics.diagnostic_reason,
+            diagnostic_reason = diagnostics.diagnostic_reason,
             initial_anti_bot = ?diagnostics.initial_anti_bot,
             pages_received = diagnostics.pages_received,
             accepted = diagnostics.accepted,
@@ -645,11 +744,15 @@ fn log_spider_failure(
             status_counts = ?diagnostics.status_counts,
             bot_challenge_pages = diagnostics.bot_challenge_pages,
             robots_policy = ?diagnostics.robots_policy,
-            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+            robots_crawl_delay_ms = diagnostics.robots_crawl_delay_ms,
             request_delay_ms = diagnostics.request_delay_ms,
             robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
-            next_crawl_at = %next_crawl_at,
-            cooldown_seconds = cooldown.as_secs(),
+            next_crawl_at = disposition.next_crawl_at(),
+            cooldown_seconds = disposition.cooldown_seconds(),
+            needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::CrawlFailed {
@@ -657,20 +760,26 @@ fn log_spider_failure(
             diagnostics,
             ..
         } => warn!(
-            crawl_host = %candidate.crawl_root.host(),
+            event = CRAWL_FAILED_EVENT,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
             total_crawled = *total_links,
+            completion = %diagnostics.completion,
+            truncated = !diagnostics.completion.is_full(),
+            stopped_early = diagnostics.stopped_early.map(|reason| reason.as_str()),
             min_required_links = 2,
             user_agent = CRAWLER_USER_AGENT,
-            root_preflight_status = ?diagnostics.root_preflight_status,
-            http_status = ?diagnostics.http_status,
-            final_url = ?diagnostics.final_url,
-            redirect_url = ?diagnostics.redirect_url,
+            root_preflight_status = diagnostics.root_preflight_status,
+            http_status = diagnostics.http_status,
+            final_url = diagnostics.final_url,
+            redirect_url = diagnostics.redirect_url,
             root_reroot = ?diagnostics.root_reroot,
-            diagnostic_reason = ?diagnostics.diagnostic_reason,
-            initial_html_length = ?diagnostics.initial_html_length,
+            diagnostic_reason = diagnostics.diagnostic_reason,
+            initial_html_length = diagnostics.initial_html_length,
             initial_should_retry = diagnostics.initial_should_retry,
             initial_anti_bot = ?diagnostics.initial_anti_bot,
             bot_challenge_pages = diagnostics.bot_challenge_pages,
@@ -681,20 +790,27 @@ fn log_spider_failure(
             rejected_blacklist = diagnostics.rejected_blacklist,
             rejected_duplicate = diagnostics.rejected_duplicate,
             robots_policy = ?diagnostics.robots_policy,
-            robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
+            robots_crawl_delay_ms = diagnostics.robots_crawl_delay_ms,
             request_delay_ms = diagnostics.request_delay_ms,
             rate_limit = ?diagnostics.rate_limit,
             robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
             lagged = diagnostics.lagged,
-            next_crawl_at = %next_crawl_at,
-            cooldown_seconds = cooldown.as_secs(),
+            next_crawl_at = disposition.next_crawl_at(),
+            cooldown_seconds = disposition.cooldown_seconds(),
+            needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::Discovery(
             preflight @ SpiderDiscoveryError::Preflight { reason, source, .. },
         ) => {
             warn!(
-                crawl_host = %candidate.crawl_root.host(),
+                event = CRAWL_FAILED_EVENT,
+                listing_source_id = %candidate.listing_source_id,
+                listing_source_name = %candidate.listing_source_name,
+                domain = %candidate.crawl_root.host(),
                 error = %error,
                 error_kind,
                 failure_count,
@@ -704,11 +820,15 @@ fn log_spider_failure(
                 robots_transport_error = preflight
                     .robots_unreachable()
                     .and_then(RobotsUnreachable::transport_error),
-                redirect_url = ?preflight.redirect_target(),
+                redirect_url = preflight.redirect_target(),
                 root_reroot = ?preflight.root_reroot(),
                 source = ?source,
-                next_crawl_at = %next_crawl_at,
-                cooldown_seconds = cooldown.as_secs(),
+                next_crawl_at = disposition.next_crawl_at(),
+                cooldown_seconds = disposition.cooldown_seconds(),
+                needs_operator = disposition.needs_operator(),
+                rate_limit_status = disposition.rate_limit_status(),
+                retry_after_seconds = disposition.retry_after_seconds(),
+                rate_limit_streak = disposition.rate_limit_streak(),
                 "Spider run failed"
             )
         }
@@ -718,7 +838,10 @@ fn log_spider_failure(
             completion,
             ..
         } => warn!(
-            crawl_host = %candidate.crawl_root.host(),
+            event = CRAWL_FAILED_EVENT,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -727,8 +850,12 @@ fn log_spider_failure(
             product_pattern,
             completion = %completion,
             truncated = !completion.is_full(),
-            next_crawl_at = %next_crawl_at,
-            cooldown_seconds = cooldown.as_secs(),
+            next_crawl_at = disposition.next_crawl_at(),
+            cooldown_seconds = disposition.cooldown_seconds(),
+            needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::NoUrlPattern {
@@ -736,7 +863,10 @@ fn log_spider_failure(
             completion,
             ..
         } => warn!(
-            crawl_host = %candidate.crawl_root.host(),
+            event = CRAWL_FAILED_EVENT,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
@@ -744,17 +874,52 @@ fn log_spider_failure(
             product_urls_count = 0,
             completion = %completion,
             truncated = !completion.is_full(),
-            next_crawl_at = %next_crawl_at,
-            cooldown_seconds = cooldown.as_secs(),
+            next_crawl_at = disposition.next_crawl_at(),
+            cooldown_seconds = disposition.cooldown_seconds(),
+            needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
-        _ => warn!(
-            crawl_host = %candidate.crawl_root.host(),
+        SpiderServiceError::BotChallengedCrawl {
+            bot_challenge_pages,
+            pages_received,
+            failure,
+        } => warn!(
+            event = CRAWL_FAILED_EVENT,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
             error = %error,
             error_kind,
             failure_count,
-            next_crawl_at = %next_crawl_at,
-            cooldown_seconds = cooldown.as_secs(),
+            bot_challenge_pages = *bot_challenge_pages,
+            pages_received = *pages_received,
+            replaced_error = %failure,
+            replaced_error_kind = error_kind_for_spider_error(failure),
+            next_crawl_at = disposition.next_crawl_at(),
+            cooldown_seconds = disposition.cooldown_seconds(),
+            needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
+            "Spider run failed"
+        ),
+        _ => warn!(
+            event = CRAWL_FAILED_EVENT,
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_root.host(),
+            error = %error,
+            error_kind,
+            failure_count,
+            next_crawl_at = disposition.next_crawl_at(),
+            cooldown_seconds = disposition.cooldown_seconds(),
+            needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
     }
@@ -889,21 +1054,29 @@ fn spawn_spider_candidate(
                 };
             };
 
-            let run = spider_service
-                .run(
-                    &candidate.listing_source_id,
-                    &crawl_root_url,
-                    threshold,
-                    pace,
-                    candidate.kind,
-                )
-                .await;
-            let status = record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
-            emit_crawl_metrics(&candidate, &run, status);
-            SpiderSlotOutcome {
-                listing_source_id,
-                status,
-            }
+            // The whole slot runs scoped, so every record of the run and of its outcome's
+            // persistence names the source, which the span list no longer does.
+            candidate
+                .source_log_context()
+                .scope(async {
+                    let run = spider_service
+                        .run(
+                            &listing_source_id,
+                            &crawl_root_url,
+                            threshold,
+                            pace,
+                            candidate.kind,
+                        )
+                        .await;
+                    let status =
+                        record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
+                    emit_crawl_metrics(&candidate, &run, status);
+                    SpiderSlotOutcome {
+                        listing_source_id,
+                        status,
+                    }
+                })
+                .await
         }
         .instrument(span),
     );
@@ -975,7 +1148,7 @@ impl CrawlerCronJob {
                 }
 
                 if !started {
-                    info!(
+                    debug!(
                         concurrency = spider_concurrency,
                         "Spider scheduler pass starting"
                     );
@@ -1037,6 +1210,7 @@ impl CrawlerCronJob {
 
         let duration_ms = emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
         info!(
+            event = "crawler.spider.pass_completed",
             total,
             succeeded,
             truncated,
@@ -1122,6 +1296,7 @@ mod tests {
     fn spider_candidate(listing_source_id: ListingSourceId) -> SpiderCandidate {
         SpiderCandidate {
             listing_source_id,
+            listing_source_name: "Example Shop".to_owned(),
             crawl_root: crawl_root("https://example.com/"),
             crawl_failure_count: 0,
             last_crawl_error_kind: None,
@@ -1248,6 +1423,100 @@ mod tests {
                 diagnostic_reason: Some("test_diagnostic".to_string()),
                 ..CrawlDiagnostics::default()
             }),
+        }
+    }
+
+    mod crawl_failed_event {
+        use super::*;
+        use crate::test_support::logged_events::LoggedEvents;
+
+        fn failure_log(
+            error: &SpiderServiceError,
+            disposition: FailureDisposition,
+        ) -> crate::test_support::logged_events::LoggedEvent {
+            let (events, _guard) = LoggedEvents::capture();
+            let candidate = spider_candidate(ListingSourceId::new());
+
+            log_spider_failure(&candidate, error, "ConnectError", 5, disposition);
+
+            let mut failures = events.named(CRAWL_FAILED_EVENT);
+            assert_eq!(failures.len(), 1);
+            failures.remove(0)
+        }
+
+        #[test]
+        fn should_carry_the_rate_limit_answer_when_a_run_fails_after_one() {
+            let failure = failure_log(
+                &crawl_failed(CrawlFailureKind::ConnectError),
+                FailureDisposition::Retry {
+                    next_crawl_at: time::OffsetDateTime::UNIX_EPOCH,
+                    cooldown: Duration::from_secs(90),
+                    rate_limit: Some(RateLimitFacts {
+                        signal: RateLimitSignal {
+                            status: 429,
+                            retry_after: Some(Duration::from_secs(30)),
+                        },
+                        streak: 3,
+                    }),
+                },
+            );
+
+            assert_eq!(failure.field("rate_limit_status"), Some("429"));
+            assert_eq!(failure.field("retry_after_seconds"), Some("30"));
+            assert_eq!(failure.field("rate_limit_streak"), Some("3"));
+        }
+
+        #[test]
+        fn should_name_the_source_and_the_retry_when_a_run_fails_with_a_cooldown() {
+            let failure = failure_log(
+                &crawl_failed(CrawlFailureKind::ConnectError),
+                FailureDisposition::Retry {
+                    next_crawl_at: time::OffsetDateTime::UNIX_EPOCH,
+                    cooldown: Duration::from_secs(90),
+                    rate_limit: None,
+                },
+            );
+
+            assert_eq!(failure.level, tracing::Level::WARN);
+            assert_eq!(failure.field("listing_source_name"), Some("Example Shop"));
+            assert!(failure.field("domain").is_some());
+            assert_eq!(failure.field("needs_operator"), Some("false"));
+            assert_eq!(failure.field("cooldown_seconds"), Some("90"));
+            assert_eq!(
+                failure.field("next_crawl_at"),
+                Some("1970-01-01 0:00:00.0 +00:00:00"),
+                "a plain time, not `Some(..)`"
+            );
+            assert_eq!(failure.field("diagnostic_reason"), Some("test_diagnostic"));
+        }
+
+        #[test]
+        fn should_keep_the_failure_evidence_when_a_run_needs_an_operator() {
+            let failure = failure_log(
+                &crawl_failed(CrawlFailureKind::ConnectError),
+                FailureDisposition::NeedsOperator,
+            );
+
+            assert_eq!(failure.field("needs_operator"), Some("true"));
+            assert_eq!(failure.field("cooldown_seconds"), None);
+            assert_eq!(failure.field("diagnostic_reason"), Some("test_diagnostic"));
+        }
+
+        #[test]
+        fn should_name_the_failure_a_bot_challenge_replaced_when_a_crawl_met_bot_protection() {
+            let failure = failure_log(
+                &SpiderServiceError::BotChallengedCrawl {
+                    bot_challenge_pages: 4,
+                    pages_received: 5,
+                    failure: Box::new(crawl_failed(CrawlFailureKind::ConnectError)),
+                },
+                FailureDisposition::NeedsOperator,
+            );
+
+            assert_eq!(failure.field("bot_challenge_pages"), Some("4"));
+            assert_eq!(failure.field("pages_received"), Some("5"));
+            assert!(failure.field("replaced_error").is_some());
+            assert!(failure.field("replaced_error_kind").is_some());
         }
     }
 
@@ -1657,9 +1926,7 @@ mod tests {
         let mut spider_service = MockSpiderService::new();
         spider_service
             .expect_run()
-            .withf(move |listing_source_id, _, _, _, _| {
-                *listing_source_id == expected_listing_source_id
-            })
+            .withf(move |source, _, _, _, _| *source == expected_listing_source_id)
             .returning(|_, _, _, _, _| {
                 Box::pin(async {
                     Ok(SpiderRunResult {
@@ -1737,8 +2004,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(3)
-            .returning(move |listing_source_id, _, _, _, _| {
-                let listing_source_id = *listing_source_id;
+            .returning(move |source, _, _, _, _| {
+                let listing_source_id = *source;
                 let release_slow = Arc::clone(&release_slow_for_mock);
                 let slow_running = Arc::clone(&slow_running_for_mock);
                 let refill_started = Arc::clone(&refill_started_for_mock);
@@ -2825,8 +3092,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(2)
-            .returning(move |listing_source_id, _, _, _, _| {
-                let completion = if *listing_source_id == truncated_listing_source_id {
+            .returning(move |source, _, _, _, _| {
+                let completion = if *source == truncated_listing_source_id {
                     CrawlCompletion::HardTimeoutTruncated
                 } else {
                     CrawlCompletion::Completed

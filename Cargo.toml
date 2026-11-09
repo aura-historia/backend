@@ -313,7 +313,7 @@ spider = { version = "2", default-features = false, features = ["sync", "regex",
 scraper = "0.29.0"
 schemars = "1.2.1"
 kuchiki = "0.8.1"
-lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
+lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic", "korean", "greek", "hebrew", "thai", "hindi"] }
 dotenvy = "0.15"
 url-normalize = "0.1.1"
 yaml_serde = "0.10"

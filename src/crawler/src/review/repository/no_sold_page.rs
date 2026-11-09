@@ -17,7 +17,6 @@ use crate::review::model::{ARTIFACT_PRODUCT_SCHEMA, ReviewActor, STATUS_PENDING_
 use crate::review::source_url::is_review_source_url;
 use crate::spider::utils::url::CrawledUrl;
 use std::collections::HashSet;
-use tracing::info;
 use url::Url;
 
 /// The fewest distinct pages a record names: one page shows too little of a shop to say it has no
@@ -90,12 +89,6 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
-            review_id = %review_id,
-            actor = %actor,
-            checked_urls = recorded,
-            "No sold or unavailable page recorded for a product-schema review"
-        );
         Ok(recorded)
     }
 }

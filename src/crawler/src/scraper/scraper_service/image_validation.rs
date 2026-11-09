@@ -4,6 +4,7 @@ use crate::network::policy::{
     validate_public_http_url,
 };
 use crate::scraper::css_selector::rule::split_image_candidate_group;
+use crate::scraper::scraper_service::domain::product::count_image_probe;
 use regex::regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -254,6 +255,7 @@ fn dimensions_from_path(path: &str) -> Option<(usize, usize)> {
 }
 
 async fn probe_image_dimensions(url: &Url) -> ImageValidation {
+    count_image_probe();
     let mut current_url = url.clone();
     let mut redirect_count = 0;
     let response = loop {

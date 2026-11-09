@@ -2,14 +2,18 @@ use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use std::collections::HashSet;
 
 use crate::CrawlerReviewId;
+use crate::logging::SourceLogContext;
 use crate::spider::discovery::website_spider::CrawledPage;
 use crate::spider::service::product_pattern::ProductListingPattern;
-#[cfg(doc)]
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::ShopPlatform;
 
 pub struct CrawlRunState {
+    /// The ListingSource the crawl runs for, which its outcome events log.
+    pub source: SourceLogContext,
     pub total_crawled: usize,
+    /// How many of the crawled pages were URLs with a query string.
+    pub query_url_pages: usize,
     /// How many of the crawled pages were bot challenges the shop answered instead of the page.
     pub challenged_pages: usize,
     /// The [page spelling](CrawledUrl::page_spelling) of each crawled page the product pattern
@@ -46,7 +50,35 @@ impl CrawlRunState {
         self.challenged_pages > self.total_crawled.saturating_sub(self.challenged_pages)
     }
 
-    pub fn new(pattern: Option<ProductUrlPattern>) -> Self {
+    /// The share of the inference sample the product pattern takes; `None` without a known
+    /// pattern or a sample.
+    pub fn sample_match_ratio(&self) -> Option<f64> {
+        let pattern = self.pattern.as_pattern()?;
+        if self.inference_sample.is_empty() {
+            return None;
+        }
+        let taken = self
+            .inference_sample
+            .iter()
+            .filter(|sample| {
+                // As the classification matches: by the page's spellings, with or without its
+                // trailing slash.
+                url::Url::parse(sample)
+                    .is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
+            })
+            .count();
+        Some(taken as f64 / self.inference_sample.len() as f64)
+    }
+
+    /// The share of the crawled pages that were URLs with a query string.
+    pub fn query_url_share(&self) -> f64 {
+        match self.total_crawled {
+            0 => 0.0,
+            crawled => self.query_url_pages as f64 / crawled as f64,
+        }
+    }
+
+    pub fn new(source: SourceLogContext, pattern: Option<ProductUrlPattern>) -> Self {
         let pattern = pattern
             .map(ProductListingPattern::from)
             .unwrap_or(ProductListingPattern::Unknown);
@@ -54,7 +86,9 @@ impl CrawlRunState {
         let pattern_loaded_from_store = pattern.is_known();
 
         Self {
+            source,
             total_crawled: 0,
+            query_url_pages: 0,
             challenged_pages: 0,
             pattern_matched_pages: HashSet::new(),
             stored_product_pages: HashSet::new(),
@@ -97,5 +131,68 @@ impl CrawlRunState {
             .take()
             .map(|wait| wait.stored_pages)
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with_pattern(pattern: Option<&str>) -> CrawlRunState {
+        CrawlRunState::new(
+            SourceLogContext::new(
+                listing_source_core::ListingSourceId::new(),
+                "Antique Shop",
+                "antique.example",
+            ),
+            pattern.map(|include| {
+                ProductUrlPattern::parse(include).expect("test pattern must be a valid regex")
+            }),
+        )
+    }
+
+    #[test]
+    fn should_report_the_share_of_the_sample_the_pattern_takes() {
+        let mut state = state_with_pattern(Some(r"/products/\d+$"));
+        state.inference_sample = vec![
+            "https://antique.example/products/1".to_owned(),
+            "https://antique.example/products/2".to_owned(),
+            "https://antique.example/about".to_owned(),
+            "https://antique.example/contact".to_owned(),
+        ];
+
+        assert_eq!(state.sample_match_ratio(), Some(0.5));
+    }
+
+    #[test]
+    fn should_count_a_trailing_slash_variant_of_a_page_the_pattern_takes() {
+        let mut state = state_with_pattern(Some(r"/products/\d+/$"));
+        state.inference_sample = vec![
+            "https://antique.example/products/1".to_owned(),
+            "https://antique.example/about".to_owned(),
+        ];
+
+        assert_eq!(state.sample_match_ratio(), Some(0.5));
+    }
+
+    #[test]
+    fn should_report_no_match_ratio_without_a_pattern_or_a_sample() {
+        let mut without_pattern = state_with_pattern(None);
+        without_pattern.inference_sample = vec!["https://antique.example/a".to_owned()];
+        let without_sample = state_with_pattern(Some("/products/"));
+
+        assert_eq!(without_pattern.sample_match_ratio(), None);
+        assert_eq!(without_sample.sample_match_ratio(), None);
+    }
+
+    #[test]
+    fn should_report_the_share_of_crawled_pages_with_a_query_string() {
+        let mut state = state_with_pattern(None);
+        assert_eq!(state.query_url_share(), 0.0);
+
+        state.total_crawled = 4;
+        state.query_url_pages = 3;
+
+        assert_eq!(state.query_url_share(), 0.75);
     }
 }

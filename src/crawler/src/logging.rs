@@ -2,6 +2,10 @@ use async_trait::async_trait;
 
 pub const CRAWLER_SERVICE_NAME: &str = "crawler";
 pub const HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE: &str = "html5ever::tree_builder=error";
+/// The spider library logs its own crawl hard-timeout warning outside any span and with the
+/// source path of the machine that built it. The crawl's `crawler.spider.crawl_completed` event
+/// carries the truncation with the source, so only the library's errors stay.
+pub const SPIDER_LIBRARY_LOG_DIRECTIVE: &str = "spider=error";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlerComponent {
@@ -38,6 +42,133 @@ pub const COMPONENT_SCRAPER: &str = CrawlerComponent::Scraper.as_str();
 pub const COMPONENT_LISTING_SOURCE_SYNC: &str = CrawlerComponent::ListingSourceSync.as_str();
 pub const COMPONENT_SPIDER: &str = CrawlerComponent::Spider.as_str();
 pub const COMPONENT_STARTUP: &str = CrawlerComponent::Startup.as_str();
+
+/// The source a crawler outcome event is about, logged as the same three top-level fields on
+/// every named event so one query follows a shop through spider, scraper and LLM logs. The span
+/// list also carries source ids, but under keys that differ by span and not at all for some.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceLogContext {
+    pub listing_source_id: listing_source_core::ListingSourceId,
+    pub listing_source_name: String,
+    /// The host the ListingSource is crawled on.
+    pub domain: String,
+}
+
+tokio::task_local! {
+    static CURRENT_SOURCE: SourceLogContext;
+}
+
+impl SourceLogContext {
+    /// Runs `work` for this source: the outcome events of work that has no source parameter,
+    /// such as an LLM invocation, log it through [`SourceLogContext::current`].
+    pub async fn scope<F: std::future::Future>(self, work: F) -> F::Output {
+        CURRENT_SOURCE.scope(self, work).await
+    }
+
+    /// The source the running work belongs to, when a caller scoped one.
+    pub fn current() -> Option<Self> {
+        CURRENT_SOURCE.try_with(Clone::clone).ok()
+    }
+
+    /// The source the running work belongs to when a caller scoped `listing_source_id`; else only
+    /// the id, which is all an unscoped caller, such as a test or the dev binary, knows.
+    pub fn of_run(listing_source_id: listing_source_core::ListingSourceId) -> Self {
+        Self::current()
+            .filter(|current| current.listing_source_id == listing_source_id)
+            .unwrap_or_else(|| Self::new(listing_source_id, "", ""))
+    }
+
+    pub fn new(
+        listing_source_id: listing_source_core::ListingSourceId,
+        listing_source_name: impl Into<String>,
+        domain: impl Into<String>,
+    ) -> Self {
+        Self {
+            listing_source_id,
+            listing_source_name: listing_source_name.into(),
+            domain: domain.into(),
+        }
+    }
+}
+
+tokio::task_local! {
+    static LLM_CALLS: std::cell::Cell<u32>;
+}
+
+/// Counts the provider calls of the work it scopes, so a caller that logs the work's outcome
+/// reports how many calls it spent without the LLM runtime depending on that caller.
+pub async fn count_llm_calls_in<F: std::future::Future>(work: F) -> F::Output {
+    LLM_CALLS.scope(std::cell::Cell::new(0), work).await
+}
+
+/// Counts one provider call for the work scoped by [`count_llm_calls_in`]; outside it, nothing.
+pub fn count_llm_call() {
+    let _ = LLM_CALLS.try_with(|calls| calls.set(calls.get().saturating_add(1)));
+}
+
+/// The provider calls counted so far in the scoped work; `0` outside it.
+pub fn llm_calls_counted() -> u32 {
+    LLM_CALLS.try_with(std::cell::Cell::get).unwrap_or(0)
+}
+
+/// The source fields of the running work, for a record logged where only the ambient source is
+/// at hand: the three top-level fields every outcome event carries, absent for unscoped work.
+/// Use [`warn_in_source!`] and [`error_in_source!`] rather than building one by hand.
+pub struct CurrentSourceFields(Option<SourceLogContext>);
+
+impl SourceLogContext {
+    pub fn current_fields() -> CurrentSourceFields {
+        CurrentSourceFields(Self::current())
+    }
+}
+
+impl CurrentSourceFields {
+    pub fn listing_source_id(&self) -> Option<String> {
+        self.0
+            .as_ref()
+            .map(|source| source.listing_source_id.to_string())
+    }
+
+    pub fn listing_source_name(&self) -> Option<&str> {
+        self.0
+            .as_ref()
+            .map(|source| source.listing_source_name.as_str())
+    }
+
+    pub fn domain(&self) -> Option<&str> {
+        self.0.as_ref().map(|source| source.domain.as_str())
+    }
+}
+
+/// `tracing::warn!` that adds the ambient `listing_source_id`, `listing_source_name` and `domain`.
+/// The JSON records carry the current span only, so a record of nested work names its source
+/// itself.
+macro_rules! warn_in_source {
+    ($($rest:tt)*) => {{
+        let source = $crate::logging::SourceLogContext::current_fields();
+        tracing::warn!(
+            listing_source_id = source.listing_source_id(),
+            listing_source_name = source.listing_source_name(),
+            domain = source.domain(),
+            $($rest)*
+        )
+    }};
+}
+
+/// As [`warn_in_source!`] for `tracing::error!`.
+macro_rules! error_in_source {
+    ($($rest:tt)*) => {{
+        let source = $crate::logging::SourceLogContext::current_fields();
+        tracing::error!(
+            listing_source_id = source.listing_source_id(),
+            listing_source_name = source.listing_source_name(),
+            domain = source.domain(),
+            $($rest)*
+        )
+    }};
+}
+
+pub(crate) use {error_in_source, warn_in_source};
 
 const DEFAULT_LOG_STREAM_NAME: &str = "unknown-host";
 
