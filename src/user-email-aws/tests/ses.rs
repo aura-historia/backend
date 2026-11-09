@@ -245,7 +245,10 @@ async fn sends_signed_ses_payload_with_confirmation_link_and_accepts_receipt() {
         json!(["reader@example.test"])
     );
     assert_eq!(request["ConfigurationSetName"], CONFIGURATION_SET);
-    assert_eq!(request["FromEmailAddress"], "sender@example.test");
+    assert_eq!(
+        request["FromEmailAddress"],
+        "\"Newsletter | Aura Historia\" <sender@example.test>"
+    );
     assert_eq!(request["ReplyToAddresses"], json!(["reply@example.test"]));
     assert!(
         request["Content"]["Simple"]["Subject"]["Data"]
