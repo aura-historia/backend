@@ -267,7 +267,7 @@ export function stageConfig(stage: StageName): StageConfig {
     ],
     cognitoEmail: {
       configurationSet: emailConfigurationSetName,
-      from: "Account | Aura Historia <auth@notify.aura-historia.com>",
+      from: "Aura Historia <auth@notify.aura-historia.com>",
       identityDomain: "notify.aura-historia.com",
       replyTo: "contact@aura-historia.com",
     },

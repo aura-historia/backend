@@ -4,7 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-09 — Sender names on emails (#2846)
 
-- Emails now show a sender name that says why they were sent, in the pattern `<Reason> | Aura Historia`: `Watchlist Notification | Aura Historia` (price and availability changes), `Search Filter Notification | Aura Historia`, `Saved Search Digest | Aura Historia`, `Partnership Application | Aura Historia` (approval and rejection), `Newsletter | Aura Historia` (newsletter confirmation) and `Account | Aura Historia` (sign-in and verification codes). Sender addresses are unchanged.
+- Notification and newsletter-confirmation emails now show a sender name that says why they were sent, in the pattern `<Reason> | Aura Historia`: `Watchlist Notification | Aura Historia` (price and availability changes), `Search Filter Notification | Aura Historia`, `Saved Search Digest | Aura Historia`, `Partnership Application | Aura Historia` (approval and rejection) and `Newsletter | Aura Historia` (newsletter confirmation). Sender addresses are unchanged.
 - The names are English whatever the language of the email, so inbox rules keep matching when a user changes their language.
 
 ## 2026-11-09 — Korean, Greek, Hebrew, Thai and Hindi catalogue languages, Traditional Chinese tags (#2842)

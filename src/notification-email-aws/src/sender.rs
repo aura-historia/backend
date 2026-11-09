@@ -128,14 +128,25 @@ fn validated_frontend_origin(value: &str) -> Option<String> {
     (trusted_scheme && bare).then(|| origin.as_str().trim_end_matches('/').to_owned())
 }
 
-/// Keeps only the address of a sender setting that is either `address` or `Name <address>`.
+/// Keeps only the address of a sender setting that is either `address` or a single
+/// `Name <address>`. SES accepts only 7-bit ASCII addresses.
 fn validated_sender_address(configured: &str) -> Option<Email> {
     let configured = configured.trim();
     let address = match configured.strip_suffix('>') {
-        Some(mailbox) => mailbox.rsplit_once('<')?.1,
+        Some(mailbox) => {
+            let (name, address) = mailbox.rsplit_once('<')?;
+            if name.contains(['<', '>']) {
+                return None;
+            }
+            address
+        }
         None => configured,
     };
-    Email::new(address.trim()).ok()
+    let address = address.trim();
+    if !address.is_ascii() {
+        return None;
+    }
+    Email::new(address).ok()
 }
 
 /// A quoted display name stays valid whatever punctuation it carries, such as `|`.
@@ -350,7 +361,8 @@ mod tests {
     ) -> Result<EmailDeliveryConfig, EmailDeliveryConfigError> {
         EmailDeliveryConfig::new(
             "test-templates",
-            "from@example.test",
+            // A configured display name must never reach the `From` header.
+            "Configured Name <from@example.test>",
             "reply@example.test",
             configuration_set_name,
             "mail/test-commit/",
@@ -408,6 +420,10 @@ mod tests {
     #[case("Aura Historia <not-an-address>")]
     #[case("Aura Historia no-reply@notify.aura-historia.com>")]
     #[case("Aura Historia <no-reply@notify.aura-historia.com")]
+    #[case("jörg@notify.aura-historia.com")]
+    #[case("no-reply@münchen.example")]
+    #[case("Aura Historia <a@notify.aura-historia.com> <b@notify.aura-historia.com>")]
+    #[case("Aura Historia <a@notify.aura-historia.com>, Other <b@notify.aura-historia.com>")]
     fn should_reject_sender_settings_without_a_valid_address(#[case] configured: &str) {
         assert_eq!(None, validated_sender_address(configured));
         let error = EmailDeliveryConfig::new(

@@ -142,14 +142,25 @@ impl NewsletterConfirmationEmailConfig {
     }
 }
 
-/// Keeps only the address of a sender setting that is either `address` or `Name <address>`.
+/// Keeps only the address of a sender setting that is either `address` or a single
+/// `Name <address>`. SES accepts only 7-bit ASCII addresses.
 fn validated_sender_address(configured: &str) -> Option<Email> {
     let configured = configured.trim();
     let address = match configured.strip_suffix('>') {
-        Some(mailbox) => mailbox.rsplit_once('<')?.1,
+        Some(mailbox) => {
+            let (name, address) = mailbox.rsplit_once('<')?;
+            if name.contains(['<', '>']) {
+                return None;
+            }
+            address
+        }
         None => configured,
     };
-    Email::new(address.trim()).ok()
+    let address = address.trim();
+    if !address.is_ascii() {
+        return None;
+    }
+    Email::new(address).ok()
 }
 
 /// A quoted display name stays valid whatever punctuation it carries, such as `|`.
@@ -587,6 +598,10 @@ mod tests {
             "Aura Historia <not-an-address>",
             "Aura Historia sender@example.test>",
             "Aura Historia <sender@example.test",
+            "jörg@example.test",
+            "sender@münchen.example",
+            "Aura Historia <a@example.test> <b@example.test>",
+            "Aura Historia <a@example.test>, Other <b@example.test>",
         ] {
             assert_eq!(None, validated_sender_address(configured), "{configured}");
             let error = NewsletterConfirmationEmailConfig::new(
