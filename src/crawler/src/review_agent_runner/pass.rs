@@ -869,6 +869,7 @@ impl ProcessRecord {
             finished: OffsetDateTime::now_utc(),
             review_id: review.review_id,
             role: role.into(),
+            artifact_type: Some(review.artifact_type.as_str().to_owned()),
             prompt_version: prompt_version.to_owned(),
             end: ProcessEnd::Failed,
             limit: None,

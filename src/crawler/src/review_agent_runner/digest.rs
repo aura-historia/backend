@@ -64,6 +64,17 @@ impl SchemaReviewWait {
     }
 }
 
+/// The agent processes of one role on one review type in the window: where the tokens go.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct KindWork {
+    pub processes: usize,
+    /// Of them, those that hit their turn, budget or context limit before they decided.
+    pub limit_reached: usize,
+    pub turns: u64,
+    pub usage: TokenUsage,
+    pub cost_usd: f64,
+}
+
 /// The rolling cost sums and the pause at the digest's time.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RollingCost {
@@ -106,6 +117,9 @@ pub struct Digest {
     pub usage: TokenUsage,
     pub cost_usd: f64,
     pub reviews: BTreeMap<CrawlerReviewId, ReviewWork>,
+    /// The processes of the window by role and review type, such as (`author`, `URL_PATTERN`);
+    /// `UNKNOWN` for a record written before the runner recorded the type.
+    pub by_kind: BTreeMap<(&'static str, String), KindWork>,
     reports: Vec<ProcessRecord>,
     rolling: RollingCost,
 }
@@ -188,6 +202,7 @@ impl Digest {
             usage: TokenUsage::default(),
             cost_usd: 0.0,
             reviews: BTreeMap::new(),
+            by_kind: BTreeMap::new(),
             reports: Vec::new(),
             rolling,
         };
@@ -207,6 +222,21 @@ impl Digest {
             .or_default() += 1;
         self.usage.add(record.usage);
         self.cost_usd += record.total_cost_usd;
+        let kind = self
+            .by_kind
+            .entry((
+                role_name(record.role),
+                record
+                    .artifact_type
+                    .clone()
+                    .unwrap_or_else(|| "UNKNOWN".to_owned()),
+            ))
+            .or_default();
+        kind.processes += 1;
+        kind.limit_reached += usize::from(record.end == ProcessEnd::LimitReached);
+        kind.turns += record.num_turns;
+        kind.usage.add(record.usage);
+        kind.cost_usd += record.total_cost_usd;
         if let Some(AgentReport::Reviewer(report)) = &record.report
             && report.server_answer.outcome == ServerOutcome::Refused
         {
@@ -439,6 +469,27 @@ impl Digest {
             self.usage.cache_creation_input_tokens,
             self.cost_usd
         );
+        if !self.by_kind.is_empty() {
+            let _ = writeln!(
+                out,
+                "| Role | Review type | Processes | Hit a limit | Turns per process | Input tokens | Cache-read tokens | Output tokens | Cost |"
+            );
+            let _ = writeln!(out, "|---|---|---:|---:|---:|---:|---:|---:|---:|");
+            for ((role, artifact_type), kind) in &self.by_kind {
+                let _ = writeln!(
+                    out,
+                    "| {role} | {artifact_type} | {} | {} | {:.1} | {} | {} | {} | ${:.2} |",
+                    kind.processes,
+                    kind.limit_reached,
+                    kind.turns as f64 / kind.processes.max(1) as f64,
+                    kind.usage.input_tokens,
+                    kind.usage.cache_read_input_tokens,
+                    kind.usage.output_tokens,
+                    kind.cost_usd
+                );
+            }
+            out.push('\n');
+        }
         if self.reviews.is_empty() {
             return;
         }
@@ -535,6 +586,13 @@ impl Digest {
         let path = directory.join(format!("review-agents-{name}.md"));
         std::fs::write(&path, self.markdown())?;
         Ok(path)
+    }
+}
+
+fn role_name(role: ProcessRole) -> &'static str {
+    match role {
+        ProcessRole::Author => "author",
+        ProcessRole::Reviewer => "reviewer",
     }
 }
 
@@ -811,6 +869,7 @@ mod tests {
         let at = TO - Duration::hours(2);
         let mut author = record(at, 1.25);
         author.review_id = review_id;
+        author.artifact_type = Some("URL_PATTERN".to_owned());
         author.usage.input_tokens = 1_000;
         author.report = Some(AgentReport::Author(AuthorReport {
             review_id: review_id.to_string(),
@@ -822,6 +881,7 @@ mod tests {
         let mut refused = record(at, 0.5);
         refused.review_id = review_id;
         refused.role = ProcessRole::Reviewer;
+        refused.artifact_type = Some("URL_PATTERN".to_owned());
         refused.usage.input_tokens = 400;
         refused.report = Some(reviewer(
             review_id,
@@ -846,6 +906,31 @@ mod tests {
         );
 
         assert_eq!(digest.cost_usd, 3.75);
+        let kind = |role: &'static str, artifact_type: &str| {
+            digest.by_kind[&(role, artifact_type.to_owned())].clone()
+        };
+        assert_eq!(
+            (
+                kind("author", "URL_PATTERN").processes,
+                kind("author", "URL_PATTERN").usage.input_tokens,
+                kind("reviewer", "URL_PATTERN").cost_usd,
+            ),
+            (1, 1_000, 0.5)
+        );
+        assert_eq!(
+            (
+                kind("author", "UNKNOWN").processes,
+                kind("author", "UNKNOWN").limit_reached
+            ),
+            (1, 1)
+        );
+        assert!(
+            digest
+                .markdown()
+                .contains("| reviewer | URL_PATTERN | 1 | 0 | 3.0 | 400 |"),
+            "{}",
+            digest.markdown()
+        );
         assert_eq!(digest.reviews[&review_id].cost_usd, 1.75);
         assert_eq!(digest.reviews[&review_id].usage.input_tokens, 1_400);
         assert_eq!(
