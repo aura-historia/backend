@@ -22,6 +22,8 @@ use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tracing::{debug, info};
 
+#[path = "schema_generation/outline.rs"]
+mod outline;
 #[path = "schema_generation/projection.rs"]
 mod projection;
 #[path = "schema_generation/prompt.rs"]
@@ -29,6 +31,7 @@ mod prompt;
 #[path = "schema_generation/response.rs"]
 mod response;
 
+pub use outline::html_to_agent_page_outline;
 pub use projection::html_to_schema_prompt_dsl;
 pub use response::{
     GeneratedProductSchemas, GeneratedSingleSchema, SchemaLlmEvaluation,

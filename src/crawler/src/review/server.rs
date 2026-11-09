@@ -4945,7 +4945,7 @@ Origin: http://127.0.0.1:7878/x
             let projection = page["projection"].as_str().unwrap_or_default();
             assert_eq!(
                 projection,
-                crate::scraper::css_selector::product_schema_service::html_to_schema_prompt_dsl(
+                crate::scraper::css_selector::product_schema_service::html_to_agent_page_outline(
                     &product_page("chair")
                 )
             );
