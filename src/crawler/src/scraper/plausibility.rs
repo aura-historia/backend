@@ -8,6 +8,7 @@
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use crate::scraper::css_selector::raw_attribute_registry::is_registered_key;
 use crate::scraper::css_selector::rule::split_image_candidate_group;
+use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::source_listing_id::SourceListingId;
 use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use regex::regex;
@@ -127,12 +128,16 @@ pub enum PlausibilityCheck {
     /// An amount with a currency, where a label of availability or a cart or enquiry action is
     /// expected: a `state` rule that reads a price element.
     PriceText,
+    /// A status that the item is sold, reserved, out of stock or unavailable, with no amount,
+    /// where a price is expected: a price rule that reads the label a sold page shows in the
+    /// price's place, such as "Sold".
+    AvailabilityText,
 }
 
 impl PlausibilityCheck {
     /// Every check, so tests can pin how the review console names each code.
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Blank,
         Self::TooLong,
         Self::AllZeroDigits,
@@ -141,6 +146,7 @@ impl PlausibilityCheck {
         Self::InvalidIdentifier,
         Self::WordList,
         Self::PriceText,
+        Self::AvailabilityText,
     ];
 
     /// How the reason of a rejection and the review console describe the check.
@@ -154,6 +160,7 @@ impl PlausibilityCheck {
             Self::InvalidIdentifier => "is not a valid source listing id",
             Self::WordList => "is a list of words, not an identifier",
             Self::PriceText => "is a price, not an availability label",
+            Self::AvailabilityText => "is an availability label, not a price",
         }
     }
 }
@@ -466,10 +473,32 @@ fn price_checks(price: &str) -> Vec<PlausibilityCheck> {
         length_check(price),
         markup_check(price),
         has_only_zero_digits(price).then_some(PlausibilityCheck::AllZeroDigits),
+        availability_text_check(price),
     ]
     .into_iter()
     .flatten()
     .collect()
+}
+
+/// A price that holds no digit and that the ProductListing normalization resolves to an item
+/// that is gone: sold out, out of stock, reserved or unavailable. A price on application, such as
+/// "POA", resolves to none of them and stays plausible.
+fn availability_text_check(price: &str) -> Option<PlausibilityCheck> {
+    if price.chars().any(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    let gone = matches!(
+        quick_check_availability(price)
+            .ok()
+            .and_then(ListingAvailabilityQuickCheck::availability),
+        Some(
+            ListingAvailability::SoldOut
+                | ListingAvailability::OutOfStock
+                | ListingAvailability::Reserved
+                | ListingAvailability::Unavailable
+        )
+    );
+    gone.then_some(PlausibilityCheck::AvailabilityText)
 }
 
 fn state_checks(state: &str) -> Vec<PlausibilityCheck> {
@@ -648,8 +677,8 @@ fn skip_identifier(value: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::PlausibilityCheck::{
-        AllZeroDigits, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens, PriceText, TooLong,
-        WordList,
+        AllZeroDigits, AvailabilityText, Blank, DuplicateValues, InvalidIdentifier, MarkupTokens,
+        PriceText, TooLong, WordList,
     };
     use super::PlausibilityField::{
         Description, Images, Price, PriceEstimateMax, RawAttribute, SourceListingId, State, Title,
@@ -1057,6 +1086,42 @@ mod tests {
             );
             assert!(!findings.rejects_candidate());
             assert_eq!(findings.rank_penalty(), 2);
+        }
+
+        #[test]
+        fn should_flag_a_price_that_is_the_label_of_a_sold_or_unavailable_item() {
+            for label in [
+                "Sold",
+                "SOLD",
+                "Out of stock",
+                "Reserved",
+                "Nicht verfügbar",
+            ] {
+                let mut raw = plausible();
+                raw.price = Some(label.to_owned());
+
+                let findings = PlausibilityFindings::of(&raw);
+
+                assert_eq!(
+                    findings.as_slice(),
+                    [finding(Price, AvailabilityText)],
+                    "{label}"
+                );
+                assert!(findings.blocks_approval(), "{label}");
+                assert!(!findings.rejects_candidate(), "{label}");
+            }
+            for price in [
+                "POA",
+                "Price on application",
+                "Sold for £500",
+                "£1,250",
+                "Enquire",
+            ] {
+                let mut raw = plausible();
+                raw.price = Some(price.to_owned());
+
+                assert!(PlausibilityFindings::of(&raw).is_empty(), "{price}");
+            }
         }
 
         #[test]
