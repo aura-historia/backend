@@ -2,13 +2,13 @@
 //! the scraper's mass-removal guard honours until it ends, and its revocation
 //! (`docs/crawler/scheduling-and-retries.md`, mass-removal guard).
 
+use super::review_log::{ReviewLogEntry, prepare_source_log};
 use super::{CrawlerReviewRepository, ReviewRepositoryError};
 use crate::review::model::ReviewActor;
 use crate::scraper::removal_guard::{MASS_REMOVAL_HELD_ERROR_KIND, MassRemovalConfirmationHours};
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
 use time::OffsetDateTime;
-use tracing::info;
 
 /// A stored confirmation as `POST /api/listing-sources/{id}/mass-removal-confirmation` answers it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -60,15 +60,15 @@ impl CrawlerReviewRepository {
         .execute(&mut *transaction)
         .await?
         .rows_affected();
+        let log = prepare_source_log(
+            &mut *transaction,
+            listing_source_id,
+            ReviewLogEntry::mass_removal_confirmed(actor)
+                .with_affected_urls(usize::try_from(rearmed_held_urls).unwrap_or(usize::MAX)),
+        )
+        .await?;
         transaction.commit().await?;
-        info!(
-            listing_source_id = %listing_source_id,
-            actor = actor.as_str(),
-            confirmed_until = %confirmed_until,
-            hours = hours.get(),
-            rearmed_held_urls,
-            "Confirmed the ListingSource's mass removal; its held removals are due at once"
-        );
+        log.into_iter().for_each(|log| log.emit());
         Ok(MassRemovalConfirmation {
             mass_removal_confirmed_until: confirmed_until,
             mass_removal_confirmed_by: actor,
@@ -96,11 +96,13 @@ impl CrawlerReviewRepository {
         .ok_or(ReviewRepositoryError::ListingSourceNotFound(
             *listing_source_id,
         ))?;
-        info!(
-            listing_source_id = %listing_source_id,
-            actor = actor.as_str(),
-            "Revoked the ListingSource's mass-removal confirmation; the guard holds its removals again"
-        );
+        let log = prepare_source_log(
+            &self.pool,
+            listing_source_id,
+            ReviewLogEntry::mass_removal_revoked(actor),
+        )
+        .await?;
+        log.into_iter().for_each(|log| log.emit());
         Ok(())
     }
 }

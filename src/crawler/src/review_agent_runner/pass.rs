@@ -43,7 +43,10 @@ use futures::stream::FuturesUnordered;
 use std::collections::BTreeSet;
 use std::sync::{Mutex, PoisonError};
 use time::OffsetDateTime;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+const PASS_STARTED_EVENT: &str = "crawler.review_agent.pass_started";
+const PROCESS_FINISHED_EVENT: &str = "crawler.review_agent.process_finished";
 
 /// What a pass did.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -265,15 +268,27 @@ impl Pass<'_> {
                 shared.summary.waiting_for_human = waiting_for_human;
                 shared.summary.cooling_down = cooling_down;
             });
-            info!(
-                pending,
-                waiting_for_human,
-                cooling_down,
-                selected = selected.len(),
-                max_reviews_per_run = self.settings.max_reviews_per_run.get(),
-                max_processes = self.settings.max_processes.get(),
-                "Review agents pass started"
-            );
+            // A pass that selected no review is a heartbeat: INFO carries only passes that work.
+            macro_rules! log_pass_started {
+                ($level:expr, $event:expr) => {
+                    tracing::event!(
+                        $level,
+                        event = $event,
+                        pending,
+                        waiting_for_human,
+                        cooling_down,
+                        selected = selected.len(),
+                        max_reviews_per_run = self.settings.max_reviews_per_run.get(),
+                        max_processes = self.settings.max_processes.get(),
+                        "Review agents pass started"
+                    )
+                };
+            }
+            if selected.is_empty() {
+                log_pass_started!(tracing::Level::DEBUG, PASS_STARTED_EVENT);
+            } else {
+                log_pass_started!(tracing::Level::INFO, PASS_STARTED_EVENT);
+            }
         }
         Ok(selected)
     }
@@ -348,7 +363,11 @@ impl Pass<'_> {
         match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
             Ok(()) => {
                 info!(
+                    event = "crawler.review_agent.handed_to_human",
                     review_id = %review.review_id,
+                    listing_source_id = %review.listing_source_id,
+                    listing_source_name = review.listing_source_name.as_deref(),
+                    artifact_type = %review.artifact_type,
                     "The author found nothing to change on a candidate the reviewer already judged; the review is handed to a human and no reviewer process starts"
                 );
                 self.with(|shared| shared.summary.handed_to_human += 1);
@@ -404,7 +423,7 @@ impl Pass<'_> {
     /// pause ends, so the pass does not run its author again while the reviewers pause and the
     /// review is workable again as soon as they resume.
     fn hold_back_reviewer(&self, review: &QueuedReview, until: OffsetDateTime) {
-        info!(
+        debug!(
             review_id = %review.review_id,
             reviewers_paused_until = %timestamp(until),
             "No reviewer process starts: the reviewers pause after the agents' decision cap"
@@ -468,6 +487,7 @@ impl Pass<'_> {
             self.keep_state(&shared.state);
             if in_force.is_none() {
                 info!(
+                    event = "crawler.review_agent.reviewers_paused",
                     resumes_at = %timestamp(until),
                     "The agents reached the console's decision cap; no reviewer process starts until it resumes, authors keep running"
                 );
@@ -485,7 +505,11 @@ impl Pass<'_> {
         match waits_for_human(self.console, review.review_id).await {
             Ok(true) => {
                 info!(
+                    event = "crawler.review_agent.waiting_for_human",
                     review_id = %review.review_id,
+                    listing_source_id = %review.listing_source_id,
+                    listing_source_name = review.listing_source_name.as_deref(),
+                    artifact_type = %review.artifact_type,
                     role = role.as_str(),
                     "The review waits for a human after the agent's pass; no further process starts and it does not cool down"
                 );
@@ -569,7 +593,7 @@ impl Pass<'_> {
             self.with(|shared| shared.summary.worked += 1);
         }
         self.with(|shared| shared.summary.processes += 1);
-        info!(
+        debug!(
             review_id = %review.review_id,
             artifact_type = %review.artifact_type,
             role = role.as_str(),
@@ -600,7 +624,7 @@ impl Pass<'_> {
         };
         record.trail_verdict = trail_verdict;
         record.finished = OffsetDateTime::now_utc();
-        self.finish(record);
+        self.finish(review, record);
         Processed {
             step,
             trail_verdict,
@@ -718,24 +742,24 @@ impl Pass<'_> {
         }
     }
 
-    /// Records and logs a finished process: its report, usage and cost, never its prompt, page
-    /// content or envelope.
-    fn finish(&self, record: ProcessRecord) {
-        let report = record
-            .report
-            .as_ref()
-            .and_then(|report| serde_json::to_string(report).ok())
-            .unwrap_or_default();
+    /// Records a finished process in the ledger and logs its outcome, usage and cost, never its
+    /// report, prompt, page content or envelope.
+    fn finish(&self, review: &QueuedReview, record: ProcessRecord) {
         info!(
+            event = PROCESS_FINISHED_EVENT,
             review_id = %record.review_id,
+            listing_source_id = %review.listing_source_id,
+            listing_source_name = review.listing_source_name.as_deref(),
+            artifact_type = %review.artifact_type,
             role = name(Some(record.role)),
             prompt_version = %record.prompt_version,
             end = name(Some(record.end)),
             limit = name(record.limit),
             usage_limit = name(record.usage_limit),
-            failure = record.failure.as_deref().unwrap_or(""),
-            subtype = record.subtype.as_deref().unwrap_or(""),
-            terminal_reason = record.terminal_reason.as_deref().unwrap_or(""),
+            decision = record.report.as_ref().map(decision_name),
+            failure = non_empty(record.failure.as_deref()),
+            subtype = non_empty(record.subtype.as_deref()),
+            terminal_reason = non_empty(record.terminal_reason.as_deref()),
             api_error_status = record.api_error_status,
             num_turns = record.num_turns,
             duration_ms = record.duration_ms,
@@ -746,7 +770,6 @@ impl Pass<'_> {
             cache_creation_input_tokens = record.usage.cache_creation_input_tokens,
             total_cost_usd = record.total_cost_usd,
             cost_charged = record.cost_charged,
-            report = %report,
             "Review agent process finished"
         );
         self.with(|shared| {
@@ -764,7 +787,7 @@ impl Pass<'_> {
 
     /// Lets `review` wait until `until` before its next pass.
     fn cool_down_until(&self, review: &QueuedReview, until: OffsetDateTime) {
-        info!(
+        debug!(
             review_id = %review.review_id,
             until = %timestamp(until),
             "The review stays pending and cools down before its next pass"
@@ -894,6 +917,19 @@ impl PassStop {
             None => String::new(),
         }
     }
+}
+
+/// The one word of a report the process log keeps: the author's action or the reviewer's
+/// decision. The report itself is in the ledger and the decision in the console's event trail.
+fn decision_name(report: &AgentReport) -> String {
+    match report {
+        AgentReport::Author(report) => name(Some(report.action)),
+        AgentReport::Reviewer(report) => name(Some(report.decision)),
+    }
+}
+
+fn non_empty(text: Option<&str>) -> Option<&str> {
+    text.filter(|text| !text.is_empty())
 }
 
 /// Logs the pause a usage limit sets. A limit whose reset time the runner cannot read logs the

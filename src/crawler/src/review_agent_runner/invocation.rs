@@ -266,6 +266,7 @@ mod tests {
         QueuedReview {
             review_id: CrawlerReviewId::new(),
             artifact_type: ReviewArtifact::UrlPattern,
+            listing_source_id: listing_source_core::ListingSourceId::new(),
             listing_source_name: Some("Antiques".to_owned()),
             handed_back: None,
         }

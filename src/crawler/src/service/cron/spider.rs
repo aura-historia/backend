@@ -256,6 +256,7 @@ fn record_root_moved(
     failure: Option<(&SpiderServiceError, &str)>,
 ) -> SpiderSlotStatus {
     info!(
+        event = ROOT_MOVED_EVENT,
         listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_root.host(),
@@ -324,7 +325,7 @@ async fn record_review_wait_run(
             return record_rate_limited_run(spider_candidates, candidate, result, rate_limit).await;
         }
         Ok(UrlPatternReviewWaitWrite::ReviewNotPending) => {
-            info!(
+            debug!(
                 listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_root.host(),
@@ -388,7 +389,7 @@ async fn record_truncated_run(
             "Failed to persist crawl truncation metadata"
         ),
     }
-    warn!(
+    debug!(
         listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_root.host(),
@@ -427,7 +428,7 @@ async fn record_stopped_run(
             "Failed to persist stopped crawl metadata"
         ),
     }
-    info!(
+    debug!(
         listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_root.host(),
@@ -461,7 +462,7 @@ async fn record_incremental_run(
             "Failed to persist incremental crawl metadata"
         ),
     }
-    info!(
+    debug!(
         listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_root.host(),
@@ -581,20 +582,12 @@ async fn record_failed_run(
         FailureDisposition::Retry {
             next_crawl_at,
             cooldown,
+            rate_limit: rate_limit.map(|(signal, (write, _))| RateLimitFacts {
+                signal,
+                streak: write.streak,
+            }),
         },
     );
-    if let Some((rate_limit, (write, _))) = rate_limit {
-        warn!(
-            listing_source_id = %candidate.listing_source_id,
-            listing_source_name = %candidate.listing_source_name,
-            domain = %candidate.crawl_root.host(),
-            rate_limit_status = rate_limit.status,
-            retry_after_seconds = ?rate_limit.retry_after.map(|retry_after| retry_after.as_secs()),
-            rate_limit_streak = write.streak,
-            error_kind,
-            "Spider run failed after a rate-limit answer stopped its crawl; the next crawl runs slower"
-        );
-    }
     SpiderSlotStatus::Failed
 }
 
@@ -638,6 +631,7 @@ async fn record_run_stopped_for_operator(
 }
 
 pub(crate) const CRAWL_FAILED_EVENT: &str = "crawler.spider.crawl_failed";
+const ROOT_MOVED_EVENT: &str = "crawler.spider.root_moved";
 
 /// What a failed run's failure came to.
 #[derive(Clone, Copy)]
@@ -646,12 +640,42 @@ enum FailureDisposition {
     Retry {
         next_crawl_at: time::OffsetDateTime,
         cooldown: Duration,
+        /// The shop's rate-limit answer that stopped the crawl, when it gave one.
+        rate_limit: Option<RateLimitFacts>,
     },
     /// The ListingSource leaves the schedule until an operator changes its configuration.
     NeedsOperator,
 }
 
+/// A shop's rate-limit answer and the ListingSource's resulting streak.
+#[derive(Clone, Copy)]
+struct RateLimitFacts {
+    signal: RateLimitSignal,
+    streak: i32,
+}
+
 impl FailureDisposition {
+    fn rate_limit(self) -> Option<RateLimitFacts> {
+        match self {
+            Self::Retry { rate_limit, .. } => rate_limit,
+            Self::NeedsOperator => None,
+        }
+    }
+
+    fn rate_limit_status(self) -> Option<u16> {
+        self.rate_limit().map(|facts| facts.signal.status)
+    }
+
+    fn retry_after_seconds(self) -> Option<u64> {
+        self.rate_limit()
+            .and_then(|facts| facts.signal.retry_after)
+            .map(|retry_after| retry_after.as_secs())
+    }
+
+    fn rate_limit_streak(self) -> Option<i32> {
+        self.rate_limit().map(|facts| facts.streak)
+    }
+
     fn next_crawl_at(self) -> Option<time::OffsetDateTime> {
         match self {
             Self::Retry { next_crawl_at, .. } => Some(next_crawl_at),
@@ -722,6 +746,9 @@ fn log_spider_failure(
             next_crawl_at = ?disposition.next_crawl_at(),
             cooldown_seconds = disposition.cooldown_seconds(),
             needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::CrawlFailed {
@@ -764,6 +791,9 @@ fn log_spider_failure(
             next_crawl_at = ?disposition.next_crawl_at(),
             cooldown_seconds = disposition.cooldown_seconds(),
             needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::Discovery(
@@ -789,6 +819,9 @@ fn log_spider_failure(
                 next_crawl_at = ?disposition.next_crawl_at(),
                 cooldown_seconds = disposition.cooldown_seconds(),
                 needs_operator = disposition.needs_operator(),
+                rate_limit_status = disposition.rate_limit_status(),
+                retry_after_seconds = disposition.retry_after_seconds(),
+                rate_limit_streak = disposition.rate_limit_streak(),
                 "Spider run failed"
             )
         }
@@ -813,6 +846,9 @@ fn log_spider_failure(
             next_crawl_at = ?disposition.next_crawl_at(),
             cooldown_seconds = disposition.cooldown_seconds(),
             needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::NoUrlPattern {
@@ -834,6 +870,9 @@ fn log_spider_failure(
             next_crawl_at = ?disposition.next_crawl_at(),
             cooldown_seconds = disposition.cooldown_seconds(),
             needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         SpiderServiceError::BotChallengedCrawl {
@@ -855,6 +894,9 @@ fn log_spider_failure(
             next_crawl_at = ?disposition.next_crawl_at(),
             cooldown_seconds = disposition.cooldown_seconds(),
             needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
         _ => warn!(
@@ -868,6 +910,9 @@ fn log_spider_failure(
             next_crawl_at = ?disposition.next_crawl_at(),
             cooldown_seconds = disposition.cooldown_seconds(),
             needs_operator = disposition.needs_operator(),
+            rate_limit_status = disposition.rate_limit_status(),
+            retry_after_seconds = disposition.retry_after_seconds(),
+            rate_limit_streak = disposition.rate_limit_streak(),
             "Spider run failed"
         ),
     }
@@ -1152,6 +1197,7 @@ impl CrawlerCronJob {
 
         let duration_ms = emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
         info!(
+            event = "crawler.spider.pass_completed",
             total,
             succeeded,
             truncated,
@@ -1386,12 +1432,35 @@ mod tests {
         }
 
         #[test]
+        fn should_carry_the_rate_limit_answer_when_a_run_fails_after_one() {
+            let failure = failure_log(
+                &crawl_failed(CrawlFailureKind::ConnectError),
+                FailureDisposition::Retry {
+                    next_crawl_at: time::OffsetDateTime::UNIX_EPOCH,
+                    cooldown: Duration::from_secs(90),
+                    rate_limit: Some(RateLimitFacts {
+                        signal: RateLimitSignal {
+                            status: 429,
+                            retry_after: Some(Duration::from_secs(30)),
+                        },
+                        streak: 3,
+                    }),
+                },
+            );
+
+            assert_eq!(failure.field("rate_limit_status"), Some("429"));
+            assert_eq!(failure.field("retry_after_seconds"), Some("30"));
+            assert_eq!(failure.field("rate_limit_streak"), Some("3"));
+        }
+
+        #[test]
         fn should_name_the_source_and_the_retry_when_a_run_fails_with_a_cooldown() {
             let failure = failure_log(
                 &crawl_failed(CrawlFailureKind::ConnectError),
                 FailureDisposition::Retry {
                     next_crawl_at: time::OffsetDateTime::UNIX_EPOCH,
                     cooldown: Duration::from_secs(90),
+                    rate_limit: None,
                 },
             );
 

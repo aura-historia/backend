@@ -16,9 +16,12 @@ struct DomainSummary {
     failed: usize,
     awaiting_schema_review: usize,
     skipped: usize,
+    unchanged: usize,
     deferred: usize,
     /// Skipped URLs by reason; empty when nothing was skipped.
     skip_reasons: BTreeMap<&'static str, usize>,
+    /// Deferred URLs by reason; empty when nothing was deferred.
+    deferred_reasons: BTreeMap<&'static str, usize>,
 }
 
 #[derive(Debug, Default)]
@@ -41,16 +44,29 @@ impl PassSummary {
             failed: outcome.failed,
             awaiting_schema_review: outcome.awaiting_schema_review,
             skipped: outcome.skipped,
+            unchanged: outcome.unchanged,
             deferred: outcome.deferred_urls,
             skip_reasons: outcome.skip_reasons.clone(),
+            deferred_reasons: outcome.deferred_reasons.clone(),
         });
     }
 
     /// The skipped URLs of every domain, by reason.
     pub(super) fn skip_reasons(&self) -> BTreeMap<&'static str, usize> {
+        Self::sum_by_reason(self.domains.iter().map(|domain| &domain.skip_reasons))
+    }
+
+    /// The deferred URLs of every domain, by reason.
+    pub(super) fn deferred_reasons(&self) -> BTreeMap<&'static str, usize> {
+        Self::sum_by_reason(self.domains.iter().map(|domain| &domain.deferred_reasons))
+    }
+
+    fn sum_by_reason<'a>(
+        per_domain: impl Iterator<Item = &'a BTreeMap<&'static str, usize>>,
+    ) -> BTreeMap<&'static str, usize> {
         let mut total = BTreeMap::new();
-        for domain in &self.domains {
-            for (reason, count) in &domain.skip_reasons {
+        for reasons in per_domain {
+            for (reason, count) in reasons {
                 *total.entry(*reason).or_default() += count;
             }
         }
@@ -67,6 +83,7 @@ impl PassSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::cron::scraper::DeferralReason;
 
     fn batch(skip_reasons: &[(&'static str, usize)]) -> ScrapeBatchOutcome {
         let mut outcome = ScrapeBatchOutcome::default();
@@ -90,6 +107,28 @@ mod tests {
 
         assert_eq!(reasons.get("stale_write"), Some(&3));
         assert_eq!(reasons.get("scrape_circuit_open"), Some(&4));
+    }
+
+    #[test]
+    fn should_sum_the_deferral_reasons_and_count_unchanged_urls_when_the_pass_ends() {
+        let mut first = ScrapeBatchOutcome::default();
+        first.record_deferred(DeferralReason::TimeBudget, 5);
+        first.unchanged = 2;
+        let mut second = ScrapeBatchOutcome::default();
+        second.record_deferred(DeferralReason::TimeBudget, 1);
+        second.record_deferred(DeferralReason::UrlLock, 1);
+        let mut summary = PassSummary::default();
+        summary.observe_batch("a.example", "A", &first);
+        summary.observe_batch("b.example", "B", &second);
+
+        let reasons = summary.deferred_reasons();
+
+        assert_eq!(reasons.get("time_budget"), Some(&6));
+        assert_eq!(reasons.get("url_lock"), Some(&1));
+        let json: serde_json::Value = serde_json::from_str(&summary.by_domain_json())
+            .unwrap_or_else(|error| panic!("the breakdown is JSON: {error}"));
+        assert_eq!(json[0]["unchanged"], 2);
+        assert_eq!(json[0]["deferred"], 5);
     }
 
     #[test]

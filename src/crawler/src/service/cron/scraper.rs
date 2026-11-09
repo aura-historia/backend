@@ -218,6 +218,36 @@ struct NewRemoval {
     telemetry: ScrapeTelemetry,
 }
 
+/// Why URLs of a scraper batch were left for a later pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeferralReason {
+    /// The crawler is stopping.
+    Stopping,
+    /// The batch spent its time budget.
+    TimeBudget,
+    /// The ListingSource's pages wait on a pending product-schema review.
+    SchemaReviewPending,
+    /// robots.txt of the batch's origin could not be reached.
+    RobotsUnreachable,
+    /// The URL's process-local lock was held.
+    UrlLock,
+    /// The ListingSource's scraper lock was held.
+    SourceLock,
+}
+
+impl DeferralReason {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Stopping => "stopping",
+            Self::TimeBudget => "time_budget",
+            Self::SchemaReviewPending => "schema_review_pending",
+            Self::RobotsUnreachable => "robots_unreachable",
+            Self::UrlLock => "url_lock",
+            Self::SourceLock => "source_lock",
+        }
+    }
+}
+
 #[derive(Default)]
 struct ScrapeBatchOutcome {
     succeeded: usize,
@@ -225,12 +255,16 @@ struct ScrapeBatchOutcome {
     /// URLs whose page waits on a pending product-schema review, counted apart from `failed`.
     awaiting_schema_review: usize,
     skipped: usize,
+    /// URLs whose page matches their last scrape: the part of `skipped` that needed no work.
+    unchanged: usize,
     /// `skipped` by reason, which the pass summary reports.
     skip_reasons: BTreeMap<&'static str, usize>,
     /// URLs deferred by lock contention: every candidate of a deferred scraper batch plus
     /// URLs that lost a URL or ListingSource lock race inside a running batch. Counted in
     /// the same unit as `succeeded`, `failed`, `awaiting_schema_review` and `skipped`.
     deferred_urls: usize,
+    /// `deferred_urls` by reason, which the pass summary reports.
+    deferred_reasons: BTreeMap<&'static str, usize>,
     /// The whole scraper batch was deferred by scraper ListingSource lock contention.
     deferred: bool,
 }
@@ -289,6 +323,13 @@ impl BatchMetrics {
 }
 
 impl ScrapeBatchOutcome {
+    fn record_deferred(&mut self, reason: DeferralReason, urls: usize) {
+        self.deferred_urls += urls;
+        if urls > 0 {
+            *self.deferred_reasons.entry(reason.as_str()).or_default() += urls;
+        }
+    }
+
     fn record_skipped(&mut self, reason: &'static str, urls: usize) {
         self.skipped += urls;
         if urls > 0 {
@@ -632,9 +673,7 @@ async fn handle_verified_removal(
             named_outcome: refreshed
                 .named_outcome
                 .clone()
-                .or(Some(UrlOutcome::Removed {
-                    evidence: removal.evidence.kind.as_str(),
-                })),
+                .or(Some(UrlOutcome::removed(&removal))),
             ..refreshed
         };
     }
@@ -706,9 +745,7 @@ async fn capture_new_removal(
     log_url_outcome(
         &ctx.source_log_context(),
         candidate,
-        &UrlOutcome::Removed {
-            evidence: removal.evidence.kind.as_str(),
-        },
+        &UrlOutcome::removed(&removal),
         &telemetry,
     );
     ScrapeCandidateOutcome {
@@ -727,7 +764,7 @@ async fn capture_new_removal(
 /// withdraws can be traced to its evidence.
 fn log_verified_removal(candidate: &ScraperCandidate, removal: &ListingRemoval) {
     let evidence = &removal.evidence;
-    info!(
+    debug!(
         event = "crawler.scraper.verified_removal",
         listing_source_id = %candidate.listing_source_id,
         crawl_host = %candidate.crawl_host,
@@ -985,7 +1022,7 @@ async fn retire_duplicate_of_known_destination(
 ) -> ScrapeCandidateOutcome {
     match retire_as_duplicate(candidate, ctx).await {
         Ok(write_outcome) => {
-            info!(
+            debug!(
                 event = "crawler.product_url_retired_duplicate_of_known_destination",
                 listing_source_id = %candidate.listing_source_id,
                 old_url = %candidate.url,
@@ -1020,7 +1057,7 @@ async fn retire_duplicate_of_known_identity(
 ) -> ScrapeCandidateOutcome {
     match retire_as_duplicate(candidate, ctx).await {
         Ok(write_outcome) => {
-            info!(
+            debug!(
                 event = "crawler.product_url_retired_duplicate_of_known_identity",
                 listing_source_id = %candidate.listing_source_id,
                 old_url = %candidate.url,
@@ -1404,7 +1441,7 @@ async fn record_scrape_failure(
     let persisted =
         write_scrape_failure(candidate, ctx, url_failure, domain_kind, status_code, None).await;
     match &persisted {
-        Ok(Some(snapshot)) => info!(
+        Ok(Some(snapshot)) => debug!(
             event = "crawler.scraper.scrape_failure_recorded",
             crawl_host = %candidate.crawl_host,
             error_kind = %domain_kind.as_str(),
@@ -1894,7 +1931,7 @@ async fn scrape_batch_candidates(
     ) else {
         debug!("Deferring scraper batch - scraper ListingSource lock is currently held");
         outcome.deferred = true;
-        outcome.deferred_urls = candidates.len();
+        outcome.record_deferred(DeferralReason::SourceLock, candidates.len());
         return outcome;
     };
 
@@ -1917,23 +1954,23 @@ async fn scrape_batch_candidates(
     for (candidate_index, mut candidate) in candidates.into_iter().enumerate() {
         if ctx.stop.is_requested() {
             let remaining = candidate_count - candidate_index;
-            info!(
+            debug!(
                 event = "crawler.scraper.batch_stopped",
                 deferred_urls = remaining,
                 "Deferring remaining scraper URLs because the crawler is stopping"
             );
-            outcome.deferred_urls += remaining;
+            outcome.record_deferred(DeferralReason::Stopping, remaining);
             break;
         }
         // The first URL always runs, so every pass makes progress.
         if candidate_index > 0 && tokio::time::Instant::now() >= batch_deadline {
             let remaining = candidate_count - candidate_index;
-            info!(
+            debug!(
                 event = "crawler.scraper.batch_time_budget_reached",
                 deferred_urls = remaining,
                 "Deferring remaining scraper URLs to a later pass"
             );
-            outcome.deferred_urls += remaining;
+            outcome.record_deferred(DeferralReason::TimeBudget, remaining);
             break;
         }
         let candidate_url = candidate.url.clone();
@@ -1955,9 +1992,11 @@ async fn scrape_batch_candidates(
         } else if let Some(pair) = candidate_outcome.capture {
             enqueue_candidate_capture(&ctx, pair, &mut outcome).await;
         } else if candidate_outcome.deferred {
-            outcome.deferred_urls += 1;
+            outcome.record_deferred(DeferralReason::UrlLock, 1);
         } else if candidate_outcome.skipped {
-            outcome.record_skipped(candidate_outcome.url_outcome().skip_label(), 1);
+            let url_outcome = candidate_outcome.url_outcome();
+            outcome.unchanged += usize::from(url_outcome == UrlOutcome::Unchanged);
+            outcome.record_skipped(url_outcome.skip_label(), 1);
         } else {
             outcome.succeeded += 1;
         }
@@ -2018,13 +2057,13 @@ async fn scrape_batch_candidates(
         // decides, so fetching the rest of the batch would only park each page as well.
         if let Some(review_id) = candidate_outcome.awaited_schema_review {
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
-            info!(
+            debug!(
                 event = "crawler.scraper.batch_awaits_schema_review",
                 review_id = %review_id,
                 deferred_urls = remaining,
                 "Deferring remaining scraper URLs until the pending schema review is decided"
             );
-            outcome.deferred_urls += remaining;
+            outcome.record_deferred(DeferralReason::SchemaReviewPending, remaining);
             break;
         }
 
@@ -2033,12 +2072,12 @@ async fn scrape_batch_candidates(
         // same refusal.
         if candidate_outcome.robots_unreachable {
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
-            info!(
+            debug!(
                 event = "crawler.scraper.robots_unreachable_batch_stopped",
                 deferred_urls = remaining,
                 "Deferring remaining scraper URLs while robots.txt is unreachable"
             );
-            outcome.deferred_urls += remaining;
+            outcome.record_deferred(DeferralReason::RobotsUnreachable, remaining);
             break;
         }
     }
@@ -2295,6 +2334,7 @@ impl CrawlerCronJob {
         let mut failed = 0usize;
         let mut awaiting_schema_review = 0usize;
         let mut skipped = 0usize;
+        let mut unchanged = 0usize;
         let mut pass_summary = PassSummary::default();
         let mut started = false;
         let mut no_more_candidates = false;
@@ -2451,6 +2491,7 @@ impl CrawlerCronJob {
                     failed += scheduled.outcome.failed;
                     awaiting_schema_review += scheduled.outcome.awaiting_schema_review;
                     skipped += scheduled.outcome.skipped;
+                    unchanged += scheduled.outcome.unchanged;
                     deferred_urls += scheduled.outcome.deferred_urls;
                     if scheduled.outcome.deferred {
                         deferred_batches += 1;
@@ -2472,7 +2513,7 @@ impl CrawlerCronJob {
         }
 
         let duration_ms = emit_pass_duration(CrawlerMetric::ScraperPassDuration, pass_start);
-        // `total`, `succeeded`, `failed`, `awaiting_schema_review`, `skipped` and `deferred_urls`
+        // `total`, `succeeded`, `failed`, `awaiting_schema_review`, `skipped`, `unchanged` and `deferred_urls`
         // are all counted in candidate URLs; a page that waits on a pending product-schema review
         // is no failure, so it is counted apart from `failed`. `deferred_batches` counts whole
         // scraper batches that lost the scraper ListingSource lock and is reported separately so
@@ -2487,10 +2528,12 @@ impl CrawlerCronJob {
                     failed,
                     awaiting_schema_review,
                     skipped,
+                    unchanged,
                     deferred_urls,
                     deferred_batches,
                     duration_ms,
                     skip_reasons = ?pass_summary.skip_reasons(),
+                    deferred_reasons = ?pass_summary.deferred_reasons(),
                     by_domain = %pass_summary.by_domain_json(),
                     "Scraper scheduler pass complete"
                 )
@@ -2749,7 +2792,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_log_one_unchanged_outcome_with_the_scrape_telemetry_when_a_page_is_unchanged() {
+    async fn should_log_one_debug_unchanged_outcome_with_the_scrape_telemetry_when_a_page_is_unchanged()
+     {
         let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
         let candidate = scraper_candidate(
             "ListingSource",
@@ -2778,7 +2822,7 @@ mod tests {
         assert!(outcome.skipped, "an unchanged page still counts as skipped");
         let outcomes = events.named("crawler.scraper.url_outcome");
         assert_eq!(outcomes.len(), 1);
-        assert_eq!(outcomes[0].level, tracing::Level::INFO);
+        assert_eq!(outcomes[0].level, tracing::Level::DEBUG);
         assert_eq!(outcomes[0].field("outcome"), Some("unchanged"));
         assert_eq!(outcomes[0].field("http_status"), Some("200"));
         assert_eq!(outcomes[0].field("fetch_ms"), Some("12"));

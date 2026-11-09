@@ -169,7 +169,7 @@ fn init_crawler_logging(
             tracing_subscriber::fmt::format()
                 .json()
                 .with_current_span(true)
-                .with_span_list(true),
+                .with_span_list(false),
         ));
 
     if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
@@ -182,7 +182,7 @@ fn init_crawler_logging(
                         tracing_subscriber::fmt::format()
                             .json()
                             .with_current_span(true)
-                            .with_span_list(true)
+                            .with_span_list(false)
                             .with_file(false)
                             .with_line_number(false)
                             .with_target(false),

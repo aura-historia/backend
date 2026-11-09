@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::{debug, info};
+use tracing::debug;
 use url::Url;
 
 /// How long a fetched robots.txt (or a 4xx answer) is trusted; RFC 9309
@@ -90,7 +90,7 @@ impl ReqwestHtmlFetcher {
             return Ok(Arc::clone(&cached.policy));
         }
         let loaded = CachedPolicy::new(self.load_robots_policy(url).await?);
-        info!(
+        debug!(
             event = "crawler.scraper.robots_loaded",
             origin = %origin_key,
             policy = loaded.policy.label(),

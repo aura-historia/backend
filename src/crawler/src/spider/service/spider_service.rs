@@ -618,7 +618,7 @@ impl SpiderServiceImpl {
     #[tracing::instrument(name = "spider_log_progress", skip(self, state))]
     fn log_progress(&self, state: &CrawlRunState) {
         if state.total_crawled.is_multiple_of(1000) {
-            info!(
+            debug!(
                 total_crawled = state.total_crawled,
                 products_found = state.products_found(),
                 "Crawl progress"
@@ -1181,13 +1181,14 @@ fn log_crawl_outcome(
 
 /// The frontier a run that found no product URL left for the next crawl: `frontier_left` is
 /// absent when the crawl could not tell it, and a failed write is logged on its own. The
-/// scheduler logs the failure itself.
+/// scheduler logs the failure itself as `crawler.spider.crawl_failed`; this DEBUG
+/// record keeps the frontier size, which the error does not carry.
 fn log_failed_run_frontier(
     error: &SpiderServiceError,
     diagnostics: &CrawlDiagnostics,
     discovery: Option<&CrawlDiscovery>,
 ) {
-    info!(
+    debug!(
         error = %error,
         completion = %diagnostics.completion,
         crawl_budget_ms = diagnostics.crawl_budget_ms,
@@ -1206,7 +1207,7 @@ fn log_crawl_stopped_early(diagnostics: &CrawlDiagnostics, error: &SpiderService
     let Some(stop_reason) = diagnostics.stopped_early else {
         return;
     };
-    info!(
+    debug!(
         stop_reason = %stop_reason,
         error = %error,
         completion = %diagnostics.completion,

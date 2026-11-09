@@ -26,7 +26,7 @@ use crate::spider::classification::url_classifier::UrlClassifier;
 use listing_source_core::ListingSourceId;
 use serde::de::DeserializeOwned;
 use sqlx::Row;
-use tracing::info;
+use tracing::debug;
 
 impl CrawlerReviewRepository {
     /// Brings back the live configuration the review's approval replaced and releases the work
@@ -80,7 +80,6 @@ impl CrawlerReviewRepository {
         };
         release_work_waiting_on(&mut transaction, &review).await?;
         commit_with_event(transaction, review_id, actor, restore).await?;
-        info!(review_id = %review_id, actor = %actor, "Restored what a review's approval replaced");
         Ok(())
     }
 }
@@ -162,7 +161,7 @@ async fn restore_product_schemas<'a>(
         &record.replaced_removed_page_schemas,
     )
     .await?;
-    info!(
+    debug!(
         review_id = %review_id,
         listing_source_id = %listing_source_id,
         schema_count = record.replaced_product_schemas.as_ref().map_or(0, Vec::len),
@@ -199,7 +198,7 @@ async fn restore_url_pattern<'a>(
         url_classifier,
     )
     .await?;
-    info!(
+    debug!(
         review_id = %review_id,
         reclassified_urls = reclassified,
         "Restored the URL pattern an approval replaced"

@@ -25,7 +25,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::{debug, warn};
 use url::Url;
 
 /// What the tools of one `review-mcp` process share: the console client acting with the role's
@@ -166,7 +166,7 @@ impl ToolDefinition {
     pub async fn call(&self, arguments: JsonObject, context: Arc<ToolContext>) -> CallToolResult {
         let started = Instant::now();
         let result = (self.handler)(arguments, context).await;
-        info!(
+        debug!(
             tool = %self.tool.name,
             is_error = result.is_error.unwrap_or(false),
             elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),

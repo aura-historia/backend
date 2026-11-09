@@ -5,7 +5,7 @@
 use crate::logging::SourceLogContext;
 use crate::scraper::candidate_service::ScraperCandidate;
 use crate::scraper::scraper_service::ScrapeTelemetry;
-use tracing::info;
+use crate::scraper::scraper_service::domain::errors::ListingRemoval;
 
 pub(crate) const URL_OUTCOME_EVENT: &str = "crawler.scraper.url_outcome";
 
@@ -47,6 +47,11 @@ pub(super) enum UrlOutcome {
     /// A verified removal; `evidence` is the kind of evidence that showed it.
     Removed {
         evidence: &'static str,
+        /// The HTTP status of the answer that showed it, when it was one.
+        status: Option<u16>,
+        final_url: Option<String>,
+        /// The removal's explanation.
+        details: String,
     },
     /// The page waits on a pending product-schema review.
     AwaitingSchemaReview,
@@ -58,6 +63,20 @@ pub(super) enum UrlOutcome {
 }
 
 impl UrlOutcome {
+    pub(super) fn removed(removal: &ListingRemoval) -> Self {
+        Self::Removed {
+            evidence: removal.evidence.kind.as_str(),
+            status: removal.evidence.status,
+            final_url: removal
+                .evidence
+                .final_url
+                .as_ref()
+                .map(url::Url::as_str)
+                .map(str::to_owned),
+            details: removal.details.clone(),
+        }
+    }
+
     pub(super) fn failed(kind: impl Into<String>) -> Self {
         Self::Failed { kind: kind.into() }
     }
@@ -86,38 +105,66 @@ impl UrlOutcome {
 
     fn removal_evidence(&self) -> Option<&'static str> {
         match self {
-            Self::Removed { evidence } => Some(evidence),
+            Self::Removed { evidence, .. } => Some(evidence),
             _ => None,
+        }
+    }
+
+    /// The removal's HTTP status, final URL and explanation, which `removal_evidence` names the
+    /// kind of.
+    fn removal_facts(&self) -> (Option<u16>, Option<&str>, Option<&str>) {
+        match self {
+            Self::Removed {
+                status,
+                final_url,
+                details,
+                ..
+            } => (*status, final_url.as_deref(), Some(details)),
+            _ => (None, None, None),
         }
     }
 }
 
-/// Logs the outcome of one scraped URL.
+/// Logs the outcome of one scraped URL: at INFO when something happened to it, at DEBUG when
+/// its page was unchanged, which is most scraped URLs of a settled ListingSource.
 pub(super) fn log_url_outcome(
     source: &SourceLogContext,
     candidate: &ScraperCandidate,
     outcome: &UrlOutcome,
     telemetry: &ScrapeTelemetry,
 ) {
-    info!(
-        event = URL_OUTCOME_EVENT,
-        listing_source_id = %source.listing_source_id,
-        listing_source_name = %source.listing_source_name,
-        domain = %source.domain,
-        url = %candidate.url,
-        outcome = %outcome.label(),
-        removal_evidence = outcome.removal_evidence(),
-        http_status = telemetry.http_status,
-        fetch_ms = telemetry.fetch_ms,
-        process_ms = telemetry.process_ms,
-        schema_index = telemetry.schema_index,
-        schema_score = telemetry.schema_score,
-        fresh_schema = telemetry.fresh_schema,
-        fields_present = telemetry.fields_present,
-        image_probes = telemetry.image_probes,
-        llm_calls = telemetry.llm_calls,
-        "Scraped URL"
-    );
+    let (removal_status, removal_final_url, removal_details) = outcome.removal_facts();
+    macro_rules! log_outcome {
+        ($level:expr) => {
+            tracing::event!(
+                $level,
+                event = URL_OUTCOME_EVENT,
+                listing_source_id = %source.listing_source_id,
+                listing_source_name = %source.listing_source_name,
+                domain = %source.domain,
+                url = %candidate.url,
+                outcome = %outcome.label(),
+                removal_evidence = outcome.removal_evidence(),
+                removal_status,
+                removal_final_url,
+                removal_details,
+                http_status = telemetry.http_status,
+                fetch_ms = telemetry.fetch_ms,
+                process_ms = telemetry.process_ms,
+                schema_index = telemetry.schema_index,
+                schema_score = telemetry.schema_score,
+                fresh_schema = telemetry.fresh_schema,
+                fields_present = telemetry.fields_present,
+                image_probes = telemetry.image_probes,
+                llm_calls = telemetry.llm_calls,
+                "Scraped URL"
+            )
+        };
+    }
+    match outcome {
+        UrlOutcome::Unchanged => log_outcome!(tracing::Level::DEBUG),
+        _ => log_outcome!(tracing::Level::INFO),
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +235,9 @@ mod tests {
             &candidate,
             &UrlOutcome::Removed {
                 evidence: "gone_status",
+                status: Some(410),
+                final_url: Some("https://antique.example/gone".to_owned()),
+                details: "the shop answered 410".to_owned(),
             },
             &ScrapeTelemetry::default(),
         );
@@ -195,6 +245,52 @@ mod tests {
         let logged = events.named(URL_OUTCOME_EVENT);
         assert_eq!(logged[0].field("outcome"), Some("removed"));
         assert_eq!(logged[0].field("removal_evidence"), Some("gone_status"));
+        assert_eq!(logged[0].field("removal_status"), Some("410"));
+        assert_eq!(
+            logged[0].field("removal_details"),
+            Some("the shop answered 410")
+        );
+    }
+
+    #[test]
+    fn should_log_unchanged_urls_at_debug_and_every_other_outcome_at_info() {
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        let candidate = crate::service::cron::test_support::scraper_candidate(
+            "Antique Shop",
+            url::Url::parse("https://antique.example/products/3").unwrap(),
+        );
+        let source = SourceLogContext::new(
+            candidate.listing_source_id,
+            "Antique Shop",
+            "antique.example",
+        );
+        let outcomes = [
+            UrlOutcome::Unchanged,
+            UrlOutcome::Captured,
+            UrlOutcome::AwaitingSchemaReview,
+            UrlOutcome::Skipped(SkipReason::DuplicateUrl),
+            UrlOutcome::failed("ConnectError"),
+        ];
+
+        for outcome in &outcomes {
+            log_url_outcome(&source, &candidate, outcome, &ScrapeTelemetry::default());
+        }
+
+        let levels: Vec<_> = events
+            .named(URL_OUTCOME_EVENT)
+            .iter()
+            .map(|logged| logged.level)
+            .collect();
+        assert_eq!(
+            levels,
+            [
+                tracing::Level::DEBUG,
+                tracing::Level::INFO,
+                tracing::Level::INFO,
+                tracing::Level::INFO,
+                tracing::Level::INFO,
+            ]
+        );
     }
 
     #[test]
@@ -205,6 +301,9 @@ mod tests {
             (
                 UrlOutcome::Removed {
                     evidence: "gone_status",
+                    status: Some(410),
+                    final_url: None,
+                    details: String::new(),
                 },
                 "removed",
             ),

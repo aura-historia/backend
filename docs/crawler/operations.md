@@ -250,7 +250,7 @@ State between runs is in the state directory: `review-agent-runner-state.json` (
 
 #### Logging
 
-Each process logs `Starting a review agent process` with its review, role, prompt version, model, effort and turn cap, and `Review agent process finished` with its outcome, `subtype`, `terminal_reason`, `api_error_status`, turns, duration, models, `usage` tokens, `total_cost_usd`, `cost_charged` and report; each run logs `Review agents pass finished` with its counts and the rolling cost sums, and a run of the service that fails logs `Review agent run failed; the next run follows after the interval` with its error, or `Review agent run failed while the runner stops`. The log never holds a prompt, page content, a raw envelope or a token; a process that prints no envelope logs its exit code and the last line of its stderr, shortened, and a usage limit without a reset time the runner can read logs `The CLI reported a usage limit without a reset time the runner can read; the agents pause for an hour` with the line of the CLI's message as `limit_message`.
+Each process logs `crawler.review_agent.process_finished` at INFO (`Review agent process finished`) with its review, source, role, prompt version, outcome, the agent's `decision` (the author's action or the reviewer's decision), `subtype`, `terminal_reason` and `api_error_status` when set, turns, duration, models, token counts, `total_cost_usd` and `cost_charged`; the report is in the ledger, never in the log, and the process start is a DEBUG record. A run that worked a review logs `crawler.review_agent.pass_started` and `crawler.review_agent.pass_completed` with its counts and the rolling cost sums; a run that started no process logs both at DEBUG, and a run of the service that fails logs `Review agent run failed; the next run follows after the interval` with its error, or `Review agent run failed while the runner stops`. The log never holds a prompt, page content, a raw envelope or a token; a process that prints no envelope logs its exit code and the last line of its stderr, shortened, and a usage limit without a reset time the runner can read logs `The CLI reported a usage limit without a reset time the runner can read; the agents pause for an hour` with the line of the CLI's message as `limit_message`.
 
 #### Digest
 
@@ -315,17 +315,27 @@ Setting `CRAWLER_CLOUDWATCH_LOG_GROUP` adds CloudWatch Logs export, which needs 
 
 #### Outcome events
 
-Each crawler outcome an operator needs is one INFO (failures WARN) record with a stable `event` field and the top-level fields `listing_source_id`, `listing_source_name` and `domain`, so one query follows a shop through spider, scraper and LLM logs; the `spans` array is context, not the place to filter on a source. The events and their evidence live in the code that logs them; the contract is the name and these fields:
+Each crawler outcome an operator needs is one INFO (failures WARN) record with a stable `event` field and the top-level fields `listing_source_id`, `listing_source_name` and `domain`, so one query follows a shop through spider, scraper and LLM logs; the JSON records carry the current span, not the span list. What repeats inside a loop or restates an outcome already logged is DEBUG: per-URL records of unchanged pages, per-review candidate edits of the review agents (the event trail keeps them), idle passes, and follow-up lines of an outcome. The events and their evidence live in the code that logs them; the contract is the name and these fields:
 
 | Event | Answers |
 | --- | --- |
 | `crawler.spider.crawl_completed` | How a crawl ended: truncation, status histogram, product URL count, product pattern, sample match ratio and query-URL share. The spider library's own hard-timeout warning is filtered out; this event carries the truncation. |
-| `crawler.spider.crawl_failed` | Why a run failed, with the diagnostics of its variant, the failure a bot challenge replaced and whether the failure waits for an operator (`needs_operator`). |
+| `crawler.spider.crawl_failed` | Why a run failed, with the diagnostics of its variant, the failure a bot challenge replaced, whether the failure waits for an operator (`needs_operator`), the retry (`next_crawl_at`, `cooldown_seconds`) and, after a rate-limit answer, `rate_limit_status`, `retry_after_seconds` and `rate_limit_streak`. |
+| `crawler.spider.pass_completed` | A spider pass that started runs: how many ended in each way. |
+| `crawler.spider.root_moved` | A run whose result was dropped because the ListingSource moved to another crawl root meanwhile. |
 | `crawler.spider.pattern_classified` | Which product URL pattern a classification stage settled on, or, at WARN, that it found none. |
 | `crawler.schema.generated` | The gate's verdict on generated schemas (`gate_result`) and the fields that failed (`failing_fields`). |
 | `crawler.llm.invocation` | Every provider call of a generation, timeouts included, with the wait for the LLM governor. The source fields are absent for work no source scoped. |
 | `crawler.scraper.url_outcome` | What happened to one scraped URL: `outcome` is `captured`, `unchanged`, `removed`, `awaiting_schema_review`, `skipped:<reason>` or `failed:<kind>`, with the page's HTTP status, `fetch_ms`, `process_ms`, the captured schema's index and score, `fields_present`, `image_probes` and `llm_calls`. `captured` means handed to raw capture; whether a product is sold is the worker's normalization to decide. A removal names its evidence in `removal_evidence`. |
-| `crawler.scraper.pass_completed` | A scraper pass: totals, `skip_reasons` and a `by_domain` JSON array with each domain's counts. |
+| `crawler.scraper.pass_completed` | A scraper pass: totals, `unchanged` (the part of `skipped` that needed no work), `skip_reasons`, `deferred_reasons` (`stopping`, `time_budget`, `schema_review_pending`, `robots_unreachable`, `url_lock`, `source_lock`) and a `by_domain` JSON array with each domain's counts. |
+| `crawler.review.opened` | A review opened, with its `reason` and `artifact_type`. |
+| `crawler.review.decided` | A review decided: `decision` is `approved`, `rejected`, `needs_repair` or `handed_to_human`, with the `actor` and, for an approval, `incomplete_coverage`. |
+| `crawler.review.candidate_changed` | A change of a pending review's candidate (`change`: `candidate_edited`, `schema_edited`, `page_added`, `page_removed`, `labels_set`, `page_marked_not_product`, `mark_cleared`, `no_sold_page_recorded`). INFO for a human; DEBUG for the review agents, whose many edits the event trail keeps. |
+| `crawler.review.restored`, `crawler.review.rejection_revoked`, `crawler.review.urls_retired_not_product` | A restored approval, a revoked rejection and the product URLs an approval retired as no product pages, with `affected_urls` where counted. |
+| `crawler.source.mass_removal_confirmed`, `crawler.source.mass_removal_revoked` | A human's confirmation of a source's mass removal and its revocation. |
+| `crawler.review_agent.pass_started`, `crawler.review_agent.pass_completed` | A review agent runner pass that worked reviews, with its counts and cost sums; a pass that started no process logs DEBUG. |
+| `crawler.review_agent.process_finished` | One agent process: outcome, `decision`, usage and cost. The runner's queue serves no crawl host, so it has no `domain`. |
+| `crawler.review_agent.handed_to_human`, `crawler.review_agent.waiting_for_human`, `crawler.review_agent.reviewers_paused`, `crawler.review_agent.decision_cap_ended` | The runner's decisions to leave a review to a human and the pause of the reviewers at the agents' decision cap. |
 
 `crawler.raw_capture.batch` logs at INFO only when a batch persisted something or lost something; an idle batch logs at DEBUG.
 

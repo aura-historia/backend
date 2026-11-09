@@ -304,7 +304,10 @@ fn init_logging() {
         .json()
         .with_env_filter(filter)
         .event_format(EmfPassthroughFormat::new(
-            tracing_subscriber::fmt::format().json(),
+            tracing_subscriber::fmt::format()
+                .json()
+                .with_current_span(true)
+                .with_span_list(false),
         ))
         .init();
 }

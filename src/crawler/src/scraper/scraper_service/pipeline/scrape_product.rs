@@ -35,7 +35,7 @@ use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use url::Url;
 
 /// Where a product URL's redirect on its own host, bare or `www.`, led, as the redirect
@@ -815,7 +815,8 @@ impl ScraperServiceImpl {
     /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
     /// ListingSource's `missing_required_value` review for it, so the review agents see the page
     /// that no human adds, unless a rejection of such a review already judged the page under the
-    /// live schemas; that page needs nobody's attention, so it logs at INFO. Other modes open
+    /// live schemas; that page needs nobody's attention. The review's opening is the repository's
+    /// `crawler.review.opened` event, so these outcomes log at DEBUG. Other modes open
     /// none and log a WARN, as the scrape's failure did before, since a human adds the page from
     /// the console. A failure to open the review is a WARN too: the URL still records the
     /// outcome, and the next scrape tries again.
@@ -837,19 +838,19 @@ impl ScraperServiceImpl {
             _ => None,
         };
         match review {
-            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => info!(
+            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => debug!(
                 url = %page.url,
                 review_id = %review_id,
                 findings = %findings,
                 "Page left a required value blank; opened the missing_required_value review"
             ),
-            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => info!(
+            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => debug!(
                 url = %page.url,
                 review_id = %review_id,
                 findings = %findings,
                 "Page left a required value blank; joined the missing_required_value review"
             ),
-            Some(Ok(None)) => info!(
+            Some(Ok(None)) => debug!(
                 url = %page.url,
                 findings = %findings,
                 "Page left a required value blank; a rejected missing_required_value review already judged it under the live schemas"

@@ -27,7 +27,7 @@ use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::debug;
 use url::Url;
 
 mod inspected_pages;
@@ -42,6 +42,7 @@ mod rejected_pages;
 mod repair_rounds;
 mod restore;
 mod review_events;
+mod review_log;
 mod review_source;
 mod reviewer_page_url;
 mod revocation;
@@ -65,6 +66,7 @@ pub use verdicts::Approval;
 use review_events::{
     ReviewMutation, commit_with_event, fetch_review_events, fetch_review_events_since,
 };
+use review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 
 use crate::review::source_url::is_review_source_url;
 use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
@@ -710,7 +712,19 @@ impl CrawlerReviewRepository {
                 .await?;
             }
         }
+        let opened = match is_new {
+            true => {
+                prepare_review_logs(
+                    &mut *transaction,
+                    review_id,
+                    vec![ReviewLogEntry::opened(reason)],
+                )
+                .await?
+            }
+            false => Vec::new(),
+        };
         transaction.commit().await?;
+        emit_all(opened);
         Ok(review_id)
     }
 
@@ -835,7 +849,20 @@ impl CrawlerReviewRepository {
                 .await?;
             }
         }
+        // A review created already decided is not opened: its decision is its only event.
+        let opened = match is_new && status == STATUS_PENDING_REVIEW {
+            true => {
+                prepare_review_logs(
+                    &mut *transaction,
+                    review_id,
+                    vec![ReviewLogEntry::opened(reason)],
+                )
+                .await?
+            }
+            false => Vec::new(),
+        };
         transaction.commit().await?;
+        emit_all(opened);
         Ok(if is_new {
             ReviewPlacement::Opened(review_id)
         } else {
@@ -971,7 +998,7 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
             actor = %actor,
             url = %url,
@@ -1039,7 +1066,7 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
             actor = %actor,
             review_page_id = %review_page_id,
@@ -1527,7 +1554,7 @@ async fn attach_waiting_pages(
     }
     if attached > 0 {
         drop_cached_schema_matrix(transaction, review_id).await?;
-        info!(
+        debug!(
             review_id = %review_id,
             attached_pages = attached,
             waiting_pages,
@@ -1705,7 +1732,7 @@ fn log_approved_schema_edit(
     listing_source_id: &ListingSourceId,
     schema_count: usize,
 ) {
-    info!(
+    debug!(
         review_id = %review_id,
         actor = %actor,
         listing_source_id = %listing_source_id,
