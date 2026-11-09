@@ -17,31 +17,11 @@ use super::{
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::model::{
-    PendingReviewPage, PendingReviewSummary, PendingReviewTotals, STATUS_PENDING_REVIEW,
+    PageSize, PendingReviewPage, PendingReviewSummary, PendingReviewTotals, STATUS_PENDING_REVIEW,
 };
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
-
-/// How many reviews one page of the agents' queue holds, from 1 to [`PendingReviewPageSize::MAX`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PendingReviewPageSize(usize);
-
-impl PendingReviewPageSize {
-    /// The page size when none is asked for.
-    pub const DEFAULT: Self = Self(100);
-    /// The largest page.
-    pub const MAX: Self = Self(500);
-
-    /// Pages of `size` reviews, or `None` when `size` is not between 1 and [`Self::MAX`].
-    pub fn new(size: usize) -> Option<Self> {
-        (1..=Self::MAX.0).contains(&size).then_some(Self(size))
-    }
-
-    pub const fn get(self) -> usize {
-        self.0
-    }
-}
 
 /// Which page of the agents' queue to read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,7 +30,7 @@ pub struct PendingReviewQuery {
     pub human_required: Option<bool>,
     /// The review the previous page ended with; `None` reads the first page.
     pub after: Option<CrawlerReviewId>,
-    pub page_size: PendingReviewPageSize,
+    pub page_size: PageSize,
 }
 
 impl Default for PendingReviewQuery {
@@ -59,7 +39,7 @@ impl Default for PendingReviewQuery {
         Self {
             human_required: None,
             after: None,
-            page_size: PendingReviewPageSize::DEFAULT,
+            page_size: PageSize::DEFAULT,
         }
     }
 }
@@ -202,24 +182,4 @@ fn row_to_summary(
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_take_page_sizes_from_one_to_the_largest_page() {
-        assert_eq!(PendingReviewPageSize::new(0), None);
-        assert_eq!(
-            PendingReviewPageSize::new(1).map(PendingReviewPageSize::get),
-            Some(1)
-        );
-        assert_eq!(
-            PendingReviewPageSize::new(500),
-            Some(PendingReviewPageSize::MAX)
-        );
-        assert_eq!(PendingReviewPageSize::new(501), None);
-        assert!(PendingReviewPageSize::DEFAULT.get() <= PendingReviewPageSize::MAX.get());
-    }
 }

@@ -1,7 +1,7 @@
 //! A row of the console's review queue (`GET /api/reviews`). The contract is in
 //! `docs/crawler/operations.md` (review service).
 
-use super::RepairRequest;
+use super::{RepairRequest, ReviewActor};
 use crate::CrawlerReviewId;
 use crate::scraper::css_selector::product_schema_service::{
     SchemaLlmEvaluationConfidence, SchemaLlmEvaluationDecision,
@@ -25,14 +25,10 @@ pub struct ReviewQueueEntry {
     pub artifact_type: String,
     pub status: String,
     pub reason: String,
-    pub candidate_version: i64,
     /// The latest needs-repair verdict. While the review is pending it waits for that repair.
     pub repair_request: Option<RepairRequest>,
-    /// The needs-repair verdicts the review agents gave the review since a human last changed or
-    /// judged it.
-    pub agent_rounds: u32,
-    /// Whether, in `agent` authoring mode, `agent_rounds` reached the cap, so the review waits for
-    /// a human. Always `false` in the other modes.
+    /// Whether, in `agent` authoring mode, the agents' needs-repair rounds reached the cap or an
+    /// agent handed the review over, so it waits for a human. Always `false` in the other modes.
     pub human_required: bool,
     /// The outcome of the crawler's LLM evaluation of the generated schema the review holds;
     /// `None` when no LLM evaluated it.
@@ -41,8 +37,21 @@ pub struct ReviewQueueEntry {
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339::option")]
-    pub reviewed: Option<OffsetDateTime>,
+}
+
+/// A review of a ListingSource as its page lists it: the queue entry with whether its approved
+/// candidate is the live one and who changed it last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourceReviewEntry {
+    #[serde(flatten)]
+    pub review: ReviewQueueEntry,
+    /// Whether the review is the latest approved one of its artifact type for the ListingSource,
+    /// so what it approved is what is live unless a later live edit or restore replaced it.
+    pub candidate_is_live: bool,
+    /// The actor of the review's latest event; `None` for a review without events.
+    pub last_actor: Option<ReviewActor>,
+    /// Whether a human lifted the non-product verdict the review's rejection gave its pages.
+    pub rejection_revoked: bool,
 }
 
 /// The outcome of the crawler's LLM evaluation of a generated schema, as the review's validation
@@ -75,14 +84,11 @@ mod tests {
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             status: "PENDING_REVIEW".to_owned(),
             reason: "initial_schema_generation".to_owned(),
-            candidate_version: 3,
             repair_request: None,
-            agent_rounds: 0,
             human_required: false,
             auto_schema_evaluation,
             created,
             updated: created,
-            reviewed: None,
         }
     }
 
@@ -102,8 +108,13 @@ mod tests {
             json!({ "decision": "APPROVE", "confidence": "HIGH", "approved_by_llm": true })
         );
         assert_eq!(json["created"], json!("2024-10-04T00:00:00Z"));
-        assert_eq!(json["reviewed"], json!(null));
-        for detail_only in ["candidate_payload", "validation_summary", "reviewer_notes"] {
+        for detail_only in [
+            "candidate_payload",
+            "validation_summary",
+            "reviewer_notes",
+            "candidate_version",
+            "agent_rounds",
+        ] {
             assert!(json.get(detail_only).is_none(), "{detail_only} is answered");
         }
     }

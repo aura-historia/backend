@@ -2,14 +2,17 @@ use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
-    AutoSchemaEvaluationOutcome, ReviewActor, UrlPatternDecision, UrlPatternReviewCandidate,
+    AutoSchemaEvaluationOutcome, ListWindow, ReviewActor, SourceActivity, SourceStatus,
+    UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crawler::review::model::{
     PAGE_ROLE_PRIMARY, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, STATUS_APPROVED,
     STATUS_PENDING_REVIEW, SchemaPageReference, SchemaReviewPageInput,
 };
 use crawler::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
-use crawler::review::readers::{ListingSourceOverviewReader, ReviewQueueReader};
+use crawler::review::readers::{
+    ListingSourceOverviewReader, ListingSourceQuery, ReviewQuery, ReviewQueueReader,
+};
 use crawler::review::repository::{
     Approval, CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
 };
@@ -278,7 +281,9 @@ async fn should_surface_invalid_persisted_v4_review_id() {
     .await
     .unwrap();
 
-    let result = ReviewQueueReader::of(&repository).list_reviews(10).await;
+    let result = ReviewQueueReader::of(&repository)
+        .list_reviews(&ReviewQuery::default())
+        .await;
 
     assert!(matches!(result, Err(sqlx::Error::Decode(_))));
 }
@@ -2927,7 +2932,7 @@ async fn undecided_url_pattern_review(
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_list_listing_source_whose_crawl_waits_for_an_operator_first() {
+async fn should_rank_the_listing_source_whose_crawl_waits_for_an_operator_first() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let reviewed_source = ListingSourceId::new();
@@ -2952,17 +2957,22 @@ async fn should_list_listing_source_whose_crawl_waits_for_an_operator_first() {
         .unwrap();
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(1)
+        .list_listing_sources(&ListingSourceQuery {
+            window: ListWindow::new(1, 0).unwrap(),
+            ..ListingSourceQuery::default()
+        })
         .await
         .unwrap();
 
+    assert_eq!(overview.total, 2);
+    let overview = overview.items;
     assert_eq!(
         overview
             .iter()
             .map(|source| source.listing_source_id)
             .collect::<Vec<_>>(),
         vec![stopped_source],
-        "a crawl waiting for an operator outranks a pending review within the limit"
+        "a crawl waiting for an operator outranks a pending review on the first page"
     );
     assert_eq!(
         overview[0].crawl_root_url,
@@ -3072,9 +3082,10 @@ async fn should_list_each_sources_scrape_failure_streak_and_the_last_successful_
     }
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     let row = |listing_source_id: ListingSourceId| {
         overview
@@ -3205,9 +3216,10 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     .await;
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     let blocked_row = overview
         .iter()
@@ -3223,7 +3235,8 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     );
     assert_eq!(blocked_row.pending_reviews, 1);
     assert_eq!(
-        blocked_row
+        overview_of(&pool, blocked)
+            .await
             .url_error_kinds
             .iter()
             .map(|entry| (entry.kind.as_str(), entry.count))
@@ -3281,9 +3294,10 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
     .await;
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     let source = &overview[0];
     assert_eq!(source.blocked_urls, 3, "every product URL, counted once");
@@ -3295,9 +3309,10 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
 
     store_live_product_schema(&pool, listing_source_id).await;
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
     assert_eq!(
         overview[0].blocked_urls, 1,
         "with a schema stored, only the page that recorded the wait is blocked"
@@ -3343,9 +3358,10 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
     .await;
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     let source = &overview[0];
     assert_eq!(source.held_removal_urls, 2);
@@ -3361,7 +3377,8 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
         "the earliest `last_scraped` of the held URLs"
     );
     assert_eq!(
-        source
+        overview_of(&pool, listing_source_id)
+            .await
             .url_error_kinds
             .iter()
             .map(|entry| (entry.kind.as_str(), entry.count))
@@ -3434,9 +3451,10 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
     .await;
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     let first_row = overview
         .iter()
@@ -3489,9 +3507,10 @@ async fn should_report_the_scrape_cooldown_end_and_failing_since_per_source() {
     .unwrap();
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     let rfc3339 = |value: &str| {
         OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).unwrap()
@@ -3518,10 +3537,10 @@ async fn should_report_the_scrape_cooldown_end_and_failing_since_per_source() {
     assert_eq!(closed_row.scrape_failing_since, None);
 }
 
-/// The limit only bounds the sources that need no attention: every failing, blocked or held
-/// ListingSource of an enabled one is listed, however many healthy ones come first by name.
+/// A failing, blocked or held ListingSource of an enabled one is ranked ahead of the healthy ones,
+/// however many there are, and the `needs_attention` health filter lists exactly those.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_never_drop_a_failing_or_blocked_listing_source_for_the_row_limit() {
+async fn should_rank_a_failing_blocked_or_held_listing_source_ahead_of_the_healthy_ones() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let mut healthy = Vec::new();
@@ -3583,20 +3602,31 @@ async fn should_never_drop_a_failing_or_blocked_listing_source_for_the_row_limit
     .await;
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(2)
+        .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap();
 
-    let listed = overview
+    let ranked = overview
+        .items
         .iter()
         .map(|source| source.listing_source_id)
         .collect::<Vec<_>>();
     assert_eq!(
-        listed,
-        vec![blocked, failing, held],
-        "the three that need attention exceed the limit of 2 and the healthy ones are cut"
+        ranked[..3],
+        [blocked, failing, held],
+        "the three that need attention come before the healthy ones"
     );
-    assert!(healthy.iter().all(|source| !listed.contains(source)));
+    assert_eq!(overview.total, 3 + i64::try_from(healthy.len()).unwrap());
+    assert!(healthy.iter().all(|source| ranked[3..].contains(source)));
+    let attention = ListingSourceOverviewReader::new(pool.clone())
+        .list_listing_sources(&ListingSourceQuery {
+            status: Some(SourceStatus::NeedsAttention),
+            ..ListingSourceQuery::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(attention.total, 3);
+    assert_eq!(attention.items.len(), 3);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -3628,12 +3658,14 @@ async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_
         .unwrap();
 
     let queue = ReviewQueueReader::of(&repository)
-        .list_reviews(10)
+        .list_reviews(&ReviewQuery::default())
         .await
         .unwrap();
 
+    assert_eq!(queue.total, 3);
     assert_eq!(
         queue
+            .items
             .iter()
             .map(|review| (review.review_id, review.listing_source_crawl_enabled))
             .collect::<Vec<_>>(),
@@ -3642,7 +3674,7 @@ async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_
             (disabled_pending, false),
             (closed, true)
         ],
-        "a newer pending review of a disabled ListingSource follows the older one of an enabled ListingSource"
+        "pending reviews of crawl-enabled ListingSources come first, then those of disabled ones, then closed ones"
     );
 }
 
@@ -3679,12 +3711,13 @@ async fn should_list_only_the_llm_evaluation_outcome_of_each_review_in_the_queue
     let manual = pending_schema_review(&repository, &manual_source).await;
 
     let queue = ReviewQueueReader::of(&repository)
-        .list_reviews(10)
+        .list_reviews(&ReviewQuery::default())
         .await
         .unwrap();
 
     let outcome_of = |review_id: CrawlerReviewId| {
         queue
+            .items
             .iter()
             .find(|review| review.review_id == review_id)
             .unwrap_or_else(|| panic!("review {review_id} is not listed"))
@@ -3721,7 +3754,9 @@ async fn should_surface_a_persisted_llm_evaluation_the_queue_cannot_read() {
     .await
     .unwrap();
 
-    let result = ReviewQueueReader::of(&repository).list_reviews(10).await;
+    let result = ReviewQueueReader::of(&repository)
+        .list_reviews(&ReviewQuery::default())
+        .await;
 
     assert!(
         matches!(&result, Err(sqlx::Error::Decode(error)) if error.to_string().contains(&review_id.to_string())),
@@ -5264,18 +5299,16 @@ async fn should_keep_the_review_pending_when_the_stored_removed_page_templates_d
     );
 }
 
-/// The listing of `listing_source_id` among `ListingSourceOverviewReader::list_listing_sources`.
+/// The overview of `listing_source_id` as `ListingSourceOverviewReader::find_listing_source` reads it.
 async fn overview_of(
     pool: &PgPool,
     listing_source_id: ListingSourceId,
 ) -> crawler::review::model::ListingSourceOverview {
     ListingSourceOverviewReader::new(pool.clone())
-        .list_listing_sources(10)
+        .find_listing_source(listing_source_id)
         .await
         .unwrap()
-        .into_iter()
-        .find(|source| source.listing_source_id == listing_source_id)
-        .expect("the source is listed")
+        .expect("the source exists")
 }
 
 /// Confirming makes the held removals of the source due at once, in the confirmation's
@@ -5394,10 +5427,11 @@ async fn should_not_list_an_expired_mass_removal_confirmation() {
     assert_eq!(source.mass_removal_confirmed_by, None);
 }
 
-/// A source the crawler is working on right now is listed beyond the row limit, with the
-/// component and since when; a source nothing works on carries neither.
+/// A source the crawler is working on right now is listed with the component and since when, and
+/// the `activity` filter lists only the sources a component works on; a source nothing works on
+/// carries neither.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_list_a_running_source_beyond_the_row_limit() {
+async fn should_report_and_filter_the_sources_the_crawler_works_on_right_now() {
     let pool = get_postgres_client().await;
     let sources = [
         ListingSourceId::new(),
@@ -5410,32 +5444,58 @@ async fn should_list_a_running_source_beyond_the_row_limit() {
     let work_locks = Arc::new(LocalLockManager::new());
     let reader =
         ListingSourceOverviewReader::new(pool.clone()).with_work_locks(Arc::clone(&work_locks));
+    let list = |activity: Option<SourceActivity>| {
+        let reader = reader.clone();
+        async move {
+            reader
+                .list_listing_sources(&ListingSourceQuery {
+                    activity,
+                    ..ListingSourceQuery::default()
+                })
+                .await
+                .unwrap()
+        }
+    };
 
-    let unlocked = reader.list_listing_sources(1).await.unwrap();
-    assert_eq!(unlocked.len(), 1);
-    let running_id = sources
-        .into_iter()
-        .find(|id| *id != unlocked[0].listing_source_id)
-        .unwrap();
-    let _lock = WorkLock::try_acquire(&work_locks, WorkLockScope::Scraper, running_id).unwrap();
+    assert_eq!(list(Some(SourceActivity::Idle)).await.total, 3);
+    let scraped_id = sources[0];
+    let crawled_id = sources[1];
+    let _scrape = WorkLock::try_acquire(&work_locks, WorkLockScope::Scraper, scraped_id).unwrap();
+    let _crawl = WorkLock::try_acquire(&work_locks, WorkLockScope::Spider, crawled_id).unwrap();
 
-    let listed = reader.list_listing_sources(1).await.unwrap();
-
-    assert_eq!(listed.len(), 2);
-    let running = listed
+    let ids =
+        |page: &crawler::review::model::ListPage<crawler::review::model::ListingSourceOverview>| {
+            let mut ids = page
+                .items
+                .iter()
+                .map(|source| source.listing_source_id)
+                .collect::<Vec<_>>();
+            ids.sort_by_key(|id| id.to_string());
+            ids
+        };
+    let all = list(None).await;
+    assert_eq!(all.total, 3);
+    let scraping = list(Some(SourceActivity::Scraping)).await;
+    assert_eq!((scraping.total, ids(&scraping)), (1, vec![scraped_id]));
+    let crawling = list(Some(SourceActivity::Crawling)).await;
+    assert_eq!((crawling.total, ids(&crawling)), (1, vec![crawled_id]));
+    let idle = list(Some(SourceActivity::Idle)).await;
+    assert_eq!((idle.total, ids(&idle)), (1, vec![sources[2]]));
+    let running = all
+        .items
         .iter()
-        .find(|source| source.listing_source_id == running_id)
-        .expect("the running source is listed");
+        .find(|source| source.listing_source_id == scraped_id)
+        .expect("the scraped source is listed");
     let since = running.scraping_since.expect("scraping since");
     assert!(
         (OffsetDateTime::now_utc() - since).abs() < time::Duration::seconds(10),
         "{since}"
     );
     assert_eq!(running.crawling_since, None);
-    assert!(
-        listed
-            .iter()
-            .filter(|source| source.listing_source_id != running_id)
-            .all(|source| source.scraping_since.is_none() && source.crawling_since.is_none())
-    );
+    let idle = all
+        .items
+        .iter()
+        .find(|source| source.listing_source_id == sources[2])
+        .expect("the idle source is listed");
+    assert!(idle.scraping_since.is_none() && idle.crawling_since.is_none());
 }

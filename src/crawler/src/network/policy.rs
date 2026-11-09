@@ -58,6 +58,20 @@ pub enum DomainFailureKind {
 }
 
 impl DomainFailureKind {
+    /// Every kind, so a table keyed by kind can be checked for completeness.
+    pub const ALL: [DomainFailureKind; 10] = [
+        Self::Timeout,
+        Self::Connect,
+        Self::DnsTimeout,
+        Self::DnsResolution,
+        Self::Http408,
+        Self::Http429,
+        Self::Http503,
+        Self::Http504,
+        Self::Http5xxBurst,
+        Self::HttpStatusBurst,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Timeout => "TIMEOUT",

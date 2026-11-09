@@ -24,6 +24,20 @@ pub struct ListingSourceProductSchema {
     pub updated: OffsetDateTime,
 }
 
+/// The product schemas a stored `product_schema` JSON value holds: the list the crawler writes, or
+/// the single schema object an older version wrote. A value that is neither fails, so no reader
+/// shows or scrapes by something else than what is stored.
+pub fn decode_stored_product_schemas(
+    stored: serde_json::Value,
+) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
+    match serde_json::from_value::<Vec<ProductCssSelectorSchema>>(stored.clone()) {
+        Ok(schemas) => Ok(schemas),
+        Err(_) => {
+            serde_json::from_value::<ProductCssSelectorSchema>(stored).map(|schema| vec![schema])
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
@@ -688,6 +702,33 @@ mod tests {
     use crate::scraper::plausibility::{
         PlausibilityCheck, PlausibilityField, PlausibilityFinding, PlausibilityFindings,
     };
+
+    #[test]
+    fn should_decode_a_stored_schema_list_and_the_single_object_an_older_version_wrote() {
+        let schema = ProductCssSelectorSchema {
+            source_listing_id: None,
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("span.state"),
+            images: text_rule_all("img"),
+            raw_attributes: BTreeMap::new(),
+        };
+        let single = serde_json::to_value(&schema).unwrap_or_else(|error| panic!("{error}"));
+        let list = serde_json::to_value(vec![&schema]).unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(
+            super::decode_stored_product_schemas(list).ok(),
+            Some(vec![schema.clone()])
+        );
+        assert_eq!(
+            super::decode_stored_product_schemas(single).ok(),
+            Some(vec![schema])
+        );
+        assert!(super::decode_stored_product_schemas(serde_json::json!("title")).is_err());
+    }
 
     // -------------------------------------------------------------------------
     // Helpers

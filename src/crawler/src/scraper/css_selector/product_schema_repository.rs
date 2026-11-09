@@ -1,5 +1,5 @@
 use crate::scraper::css_selector::product_schema::{
-    ListingSourceProductSchema, ProductCssSelectorSchema,
+    ListingSourceProductSchema, ProductCssSelectorSchema, decode_stored_product_schemas,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::{PgPool, Row};
@@ -43,16 +43,8 @@ fn row_to_schema(row: sqlx::postgres::PgRow) -> Result<ListingSourceProductSchem
     let created: OffsetDateTime = row.try_get("created")?;
     let updated: OffsetDateTime = row.try_get("updated")?;
 
-    let product_schemas: Vec<ProductCssSelectorSchema> = match serde_json::from_value::<
-        Vec<ProductCssSelectorSchema>,
-    >(product_schema_json.clone())
-    {
-        Ok(list) => list,
-        Err(_) => vec![
-            serde_json::from_value::<ProductCssSelectorSchema>(product_schema_json)
-                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-        ],
-    };
+    let product_schemas = decode_stored_product_schemas(product_schema_json)
+        .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
     Ok(ListingSourceProductSchema {
         listing_source_id: ListingSourceId::try_from(listing_source_id_uuid)
             .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,

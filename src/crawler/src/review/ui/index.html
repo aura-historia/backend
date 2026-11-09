@@ -15,38 +15,23 @@
 </head>
 <body>
 <header class="app-header">
-    <h1>Crawler review</h1>
-    <nav aria-label="View" class="view-switch">
-        <a class="view-tab" href="#sources" id="viewTabSources">Sources</a>
-        <a class="view-tab" href="#reviews" id="viewTabReviews">Reviews</a>
+    <a class="brand" href="#overview">
+        <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="16"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg>Crawler review
+    </a>
+    <nav aria-label="Views" class="nav">
+        <a class="nav-link" href="#overview" id="navOverview">Overview</a>
+        <a class="nav-link" href="#sources" id="navSources">Sources</a>
+        <a class="nav-link" href="#reviews" id="navReviews">Reviews</a>
     </nav>
     <div class="header-actions">
+        <span class="refresh-state" id="refreshState"></span>
         <span class="system-status" id="reloadState" role="status"></span>
-        <button class="quiet" hidden id="signOutButton" onclick="clearReviewAuthToken()" title="End the browser session and forget the review token" type="button">Sign out</button>
-        <button aria-label="Switch to dark mode" class="icon quiet" id="themeToggle" onclick="toggleTheme()" title="Switch to dark mode" type="button"></button>
+        <button class="btn btn-quiet btn-sm" hidden id="signOutButton" onclick="clearReviewAuthToken()" title="End the browser session and forget the review token" type="button">Sign out</button>
+        <button aria-label="Switch to dark mode" class="btn btn-quiet btn-icon btn-sm" id="themeToggle" onclick="toggleTheme()" title="Switch to dark mode" type="button"></button>
     </div>
 </header>
-<main class="app view-sources" id="appShell">
-    <section class="sidebar" id="reviewSidebar">
-        <div class="sidebar-head">
-            <input aria-label="Search reviews" id="reviewSearch" oninput="setReviewSearch(this.value)"
-                   placeholder="Search reviews" type="search">
-            <button aria-controls="reviewSidebarBody" aria-expanded="true" aria-label="Collapse the queue"
-                    class="icon quiet" id="sidebarToggle" onclick="toggleSidebar()"
-                    title="Collapse the queue" type="button">
-                <svg aria-hidden="true" focusable="false" height="16" viewBox="0 0 16 16" width="16">
-                    <path d="M10 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-linecap="round"
-                          stroke-linejoin="round" stroke-width="1.6"/>
-                </svg>
-            </button>
-        </div>
-        <div id="reviewSidebarBody">
-            <div class="queue" id="reviewList"></div>
-        </div>
-    </section>
-    <section class="detail-shell">
-        <div class="detail sources" id="detail"></div>
-    </section>
+<main class="main" id="appShell">
+    <div class="page" id="detail"></div>
 </main>
 <script src="/assets/app.js"></script>
 </body>

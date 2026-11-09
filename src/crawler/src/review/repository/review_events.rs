@@ -6,7 +6,7 @@ use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
     CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, ReviewEventSummary,
-    SampleLabelCounts, SampleLabels,
+    SampleLabelCounts, SampleLabels, SortDirection,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -356,17 +356,19 @@ pub(super) async fn fetch_review_events_since<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     since: time::OffsetDateTime,
     limit: usize,
+    direction: SortDirection,
 ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
-    let rows = sqlx::query(
+    let order = direction.sql();
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT e.event_id, e.review_id, r.artifact_type, r.listing_source_id, \
                 s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, e.created \
          FROM crawler_review_events e \
          JOIN crawler_reviews r ON r.review_id = e.review_id \
          LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
          WHERE e.created >= $1 \
-         ORDER BY e.created, e.event_id \
-         LIMIT $2",
-    )
+         ORDER BY e.created {order}, e.event_id {order} \
+         LIMIT $2"
+    )))
     .bind(since)
     .bind(i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX))
     .fetch_all(executor)
