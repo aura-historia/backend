@@ -92,11 +92,8 @@ impl ReviewServer {
         let review_queue = ReviewQueueReader::of(&repository);
         let listing_sources = ListingSourceOverviewReader::new(repository.pool().clone());
         Self {
-            listing_source_details: ListingSourceDetailReader::new(
-                listing_sources.clone(),
-                review_queue.clone(),
-            ),
-            overview: ConsoleOverviewReader::of(&repository),
+            listing_source_details: ListingSourceDetailReader::new(listing_sources.clone()),
+            overview: ConsoleOverviewReader::new(&repository, listing_sources.clone()),
             review_queue,
             listing_sources,
             source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
@@ -115,11 +112,8 @@ impl ReviewServer {
     pub fn with_work_locks(self, work_locks: Arc<LocalLockManager>) -> Self {
         let listing_sources = self.listing_sources.with_work_locks(work_locks.clone());
         Self {
-            listing_source_details: ListingSourceDetailReader::new(
-                listing_sources.clone(),
-                self.review_queue.clone(),
-            ),
-            overview: self.overview.with_work_locks(work_locks),
+            listing_source_details: ListingSourceDetailReader::new(listing_sources.clone()),
+            overview: ConsoleOverviewReader::new(&self.repository, listing_sources.clone()),
             listing_sources,
             ..self
         }
@@ -277,7 +271,7 @@ impl ReviewServer {
 
     /// Routes a request with a path parameter. Review mutations are recorded as `actor`'s.
     async fn route_dynamic(&self, request: ParsedRequest<'_>, actor: ReviewActor) -> HttpResponse {
-        if let Some(response) = self.route_listing_source_detail(&request).await {
+        if let Some(response) = self.route_listing_source_page(&request).await {
             return response;
         }
         if let Some(response) = self.route_missing_value_pages(&request, actor).await {
@@ -3114,7 +3108,7 @@ Origin: http://127.0.0.1:7878/x
             );
             let (_, queue) = send(&server, "GET /api/reviews", "").await;
             assert_eq!(
-                queue["reviews"][0]["repair_request"],
+                queue["items"][0]["repair_request"],
                 review["repair_request"]
             );
 
@@ -3936,7 +3930,7 @@ Origin: http://127.0.0.1:7878/x
             let (status, taken) = send_as(&server, REVIEWER_TOKEN, &needs_repair, &notes).await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {taken}");
             let (_, list) = send_as(&server, TOKEN, "GET /api/reviews", "").await;
-            let listed = list["reviews"]
+            let listed = list["items"]
                 .as_array()
                 .and_then(|reviews| {
                     reviews
@@ -5255,7 +5249,7 @@ Origin: http://127.0.0.1:7878/x
                 format!("/api/listing-sources/{listing_source_id}/missing-value-pages");
 
             let (_, sources) = send(&server, "GET /api/listing_sources", "").await;
-            let source = sources["listing_sources"]
+            let source = sources["items"]
                 .as_array()
                 .and_then(|sources| {
                     sources
@@ -5354,7 +5348,7 @@ Origin: http://127.0.0.1:7878/x
             assert!(status.starts_with("HTTP/1.1 400"), "{status} {refused}");
             let (_, reviews) = send(&server, "GET /api/reviews", "").await;
             assert_eq!(
-                reviews["reviews"],
+                reviews["items"],
                 json!([]),
                 "a refused page opens no review"
             );
@@ -5405,7 +5399,7 @@ Origin: http://127.0.0.1:7878/x
 
         async fn overview_of(server: &ReviewServer, listing_source_id: ListingSourceId) -> Value {
             let (_, sources) = send(server, "GET /api/listing_sources", "").await;
-            sources["listing_sources"]
+            sources["items"]
                 .as_array()
                 .and_then(|sources| {
                     sources
@@ -5480,14 +5474,13 @@ Origin: http://127.0.0.1:7878/x
     mod console_lists {
         use super::needs_repair::send;
         use super::schema_editing::pending_review_server;
-        use crate::CrawlerReviewId;
         use listing_source_core::ListingSourceId;
         use serde_json::json;
         use test_api::IntegrationTestService as _;
 
-        /// The console's lists answer their totals and the page of their query, refuse a request
-        /// they cannot read as asked with 400, and answer 404 for a ListingSource or a page
-        /// cursor that does not exist.
+        /// The console's lists answer the envelope of their window, the source page and its
+        /// reviews, and the overview counts, refuse a request they cannot read as asked with 400,
+        /// and answer 404 for a ListingSource that does not exist.
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
         async fn should_answer_the_console_lists_and_refuse_what_it_cannot_read() {
             let (server, review_id) = pending_review_server().await;
@@ -5495,51 +5488,67 @@ Origin: http://127.0.0.1:7878/x
             let (status, reviews) =
                 send(&server, "GET /api/reviews?status=PENDING_REVIEW", "").await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {reviews}");
-            assert_eq!(reviews["total"], 1);
-            assert_eq!(reviews["next_after"], json!(null));
-            assert_eq!(reviews["reviews"][0]["review_id"], review_id.to_string());
-            let listing_source_id = reviews["reviews"][0]["listing_source_id"]
+            assert_eq!(
+                (&reviews["total"], &reviews["limit"], &reviews["offset"]),
+                (&json!(1), &json!(100), &json!(0))
+            );
+            assert_eq!(reviews["items"][0]["review_id"], review_id.to_string());
+            let listing_source_id = reviews["items"][0]["listing_source_id"]
                 .as_str()
                 .unwrap_or_else(|| panic!("review without ListingSource: {reviews}"))
                 .to_owned();
-            let (_, closed) = send(&server, "GET /api/reviews?status=APPROVED,REJECTED", "").await;
+            let (_, closed) = send(
+                &server,
+                "GET /api/reviews?status=APPROVED&waiting=human",
+                "",
+            )
+            .await;
             assert_eq!(closed["total"], 0);
 
             let (status, sources) = send(&server, "GET /api/listing_sources?q=edited", "").await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {sources}");
             assert_eq!(sources["total"], 1);
-            assert_eq!(
-                sources["listing_sources"][0]["listing_source_slug"],
-                "edited-source"
-            );
+            assert!(sources["items"][0].get("llm_calls_count").is_none());
 
             let (status, detail) = send(
                 &server,
-                &format!("GET /api/listing_sources/{listing_source_id}"),
+                &format!("GET /api/listing-sources/{listing_source_id}"),
                 "",
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {detail}");
-            assert_eq!(
-                detail["listing_source"]["listing_source_id"],
-                listing_source_id
+            assert_eq!(detail["listing_source_id"], listing_source_id);
+            assert_eq!(detail["url_pattern"], json!(null));
+            assert_eq!(detail["product_schemas"], json!([]));
+
+            let (status, source_reviews) = send(
+                &server,
+                &format!("GET /api/listing-sources/{listing_source_id}/reviews"),
+                "",
+            )
+            .await;
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "{status} {source_reviews}"
             );
-            assert_eq!(detail["url_pattern"]["state"], "UNKNOWN");
-            assert_eq!(detail["product_schema"], json!(null));
-            assert_eq!(detail["reviews"]["total"], 1);
+            assert_eq!(source_reviews["total"], 1);
+            assert_eq!(source_reviews["items"][0]["candidate_is_live"], false);
 
             let (status, counts) = send(&server, "GET /api/overview", "").await;
             assert!(status.starts_with("HTTP/1.1 200"), "{status} {counts}");
-            assert_eq!(counts["sources"]["total"], 1);
-            assert_eq!(counts["pending_reviews"]["product_schema"], 1);
+            assert_eq!(
+                counts["reviews"]["pending_by_artifact"]["PRODUCT_SCHEMA"],
+                1
+            );
+            assert_eq!(counts["agent_mode"], true);
 
             for refused in [
                 "GET /api/reviews?status=PENDING",
-                "GET /api/reviews?limit=0",
+                "GET /api/reviews?limit=201",
                 "GET /api/listing_sources?sort=updated",
-                "GET /api/listing_sources?health=sick",
-                "GET /api/listing_sources/not-a-source",
-                &format!("GET /api/listing_sources/{listing_source_id}?limit=501"),
+                "GET /api/listing_sources?status=sick",
+                "GET /api/listing-sources/not-a-source",
+                &format!("GET /api/listing-sources/{listing_source_id}/reviews?q=x"),
             ] {
                 let (status, body) = send(&server, refused, "").await;
                 assert!(
@@ -5548,9 +5557,11 @@ Origin: http://127.0.0.1:7878/x
                 );
             }
             for missing in [
-                format!("GET /api/listing_sources/{}", ListingSourceId::new()),
-                format!("GET /api/reviews?after={}", CrawlerReviewId::new()),
-                format!("GET /api/listing_sources?after={}", ListingSourceId::new()),
+                format!("GET /api/listing-sources/{}", ListingSourceId::new()),
+                format!(
+                    "GET /api/listing-sources/{}/reviews",
+                    ListingSourceId::new()
+                ),
             ] {
                 let (status, body) = send(&server, &missing, "").await;
                 assert!(

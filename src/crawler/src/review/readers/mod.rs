@@ -7,13 +7,11 @@
 mod console_overview;
 mod listing_source_detail;
 mod listing_source_overview;
-mod page_error;
 mod review_queue;
 mod source_product_urls;
 
 pub use console_overview::ConsoleOverviewReader;
-pub use listing_source_detail::{ListingSourceDetailReader, ReviewHistoryQuery};
-pub use listing_source_overview::{ListingSourceOverviewReader, ListingSourceQuery};
-pub use page_error::PageReadError;
+pub use listing_source_detail::ListingSourceDetailReader;
+pub use listing_source_overview::{HealthCounts, ListingSourceOverviewReader, ListingSourceQuery};
 pub use review_queue::{ReviewQuery, ReviewQueueReader};
 pub use source_product_urls::{MAX_SOURCE_PRODUCT_URLS, SourceProductUrlReader};

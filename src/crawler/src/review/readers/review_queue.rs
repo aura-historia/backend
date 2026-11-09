@@ -1,17 +1,13 @@
-//! `GET /api/reviews`: the console's review queue, page by page, which the console polls while its
-//! tab is visible. The contract is in `docs/crawler/operations.md` (review service).
-//!
-//! A page starts after the review the previous one ended with, by that review's creation time and
-//! id, which never change, so a review that closes or comes to wait for a human between two pages
-//! moves no other review across the page boundary. Every filter, the search and the count run in
-//! SQL over all reviews.
+//! `GET /api/reviews` and `GET /api/listing-sources/{id}/reviews`: the console's review queue, one
+//! window at a time, which the console polls while its tab is visible. The contract is in
+//! `docs/crawler/operations.md` (review service). Every filter, the search, the order and the
+//! count run in SQL over all reviews.
 
-use super::PageReadError;
 use crate::CrawlerReviewId;
-use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
+use crate::review::agent_decisions::AgentDecisionPolicy;
 use crate::review::model::{
-    ArtifactType, AutoSchemaEvaluationOutcome, PageSize, ReviewQueueEntry, ReviewQueuePage,
-    ReviewStatus, SearchTerm, SortDirection,
+    ArtifactType, AutoSchemaEvaluationOutcome, ListPage, ListWindow, ReviewActor, ReviewQueueEntry,
+    ReviewSort, ReviewStatus, ReviewWaiting, SearchTerm, SortDirection, SourceReviewEntry,
 };
 use crate::review::repository::{
     CrawlerReviewRepository, after_last_human_event, agent_handed_review_to_human,
@@ -21,26 +17,21 @@ use crate::review::repository::{
 use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
-use time::OffsetDateTime;
+use std::collections::HashMap;
 
-/// Which page of the review queue to read.
+/// Which window of the review queue to read.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ReviewQuery {
-    /// Reviews whose ListingSource's name, slug or crawl host contains this text, or whose id is
-    /// this text.
+    /// Reviews of a ListingSource whose name contains this text.
     pub search: Option<SearchTerm>,
     /// Only the reviews of this ListingSource.
     pub listing_source_id: Option<ListingSourceId>,
-    /// Only reviews in one of these statuses; empty lists every status.
-    pub statuses: Vec<ReviewStatus>,
+    pub status: Option<ReviewStatus>,
     pub artifact_type: Option<ArtifactType>,
-    /// Only the reviews whose `human_required` is this; `None` lists both.
-    pub human_required: Option<bool>,
-    /// The direction of the creation time: newest first by default.
+    pub waiting: Option<ReviewWaiting>,
+    pub sort: ReviewSort,
     pub direction: SortDirection,
-    /// The review the previous page ended with; `None` reads the first page.
-    pub after: Option<CrawlerReviewId>,
-    pub page_size: PageSize,
+    pub window: ListWindow,
 }
 
 /// Reads the console's review queue under the review agents' decision policy of the start, which
@@ -61,185 +52,239 @@ impl ReviewQueueReader {
         }
     }
 
-    /// The page of reviews `query` asks for, with how many reviews match it in all. A review that
-    /// `query.after` names but that does not exist is [`PageReadError::UnknownCursor`]. Of the
+    /// The window of reviews `query` asks for, with how many reviews match it in all. Of the
     /// validation summary only the LLM evaluation's outcome is read.
     pub async fn list_reviews(
         &self,
         query: &ReviewQuery,
-    ) -> Result<ReviewQueuePage, PageReadError> {
-        let cursor = match query.after {
-            Some(after) => Some(self.page_cursor(after).await?),
-            None => None,
-        };
-        let page_size = query.page_size.get();
+    ) -> Result<ListPage<ReviewQueueEntry>, sqlx::Error> {
         let (agents, repair_requested, human) = agent_round_binds();
-        let rows = sqlx::query(sqlx::AssertSqlSafe(review_page_sql(query.direction)))
-            .bind(agents)
-            .bind(repair_requested)
-            .bind(human)
-            .bind(
-                self.agent_decisions
-                    .repair_rounds_cap()
-                    .map(|cap| i64::from(cap.get())),
-            )
-            .bind(query.listing_source_id.map(|id| *id.as_uuid()))
-            .bind(
-                query
-                    .statuses
-                    .iter()
-                    .map(|status| status.as_str())
-                    .collect::<Vec<_>>(),
-            )
-            .bind(query.artifact_type.map(ArtifactType::as_str))
-            .bind(query.search.as_ref().map(SearchTerm::contains_pattern))
-            .bind(
-                query
-                    .search
-                    .as_ref()
-                    .and_then(|term| term.as_str().parse::<CrawlerReviewId>().ok())
-                    .map(|id| *id.as_uuid()),
-            )
-            .bind(query.human_required)
-            .bind(cursor.map(|(created, _)| created))
-            .bind(cursor.map(|(_, review_id)| *review_id.as_uuid()))
-            .bind(i64::try_from(page_size.saturating_add(1)).unwrap_or(i64::MAX))
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(review_page_sql(
+            query.sort,
+            query.direction,
+        )))
+        .bind(agents)
+        .bind(repair_requested)
+        .bind(human)
+        .bind(
+            self.agent_decisions
+                .repair_rounds_cap()
+                .map(|cap| i64::from(cap.get())),
+        )
+        .bind(query.listing_source_id.map(|id| *id.as_uuid()))
+        .bind(query.status.map(ReviewStatus::as_str))
+        .bind(query.artifact_type.map(ArtifactType::as_str))
+        .bind(query.search.as_ref().map(SearchTerm::contains_pattern))
+        .bind(query.waiting.map(waiting_name))
+        .bind(i64::try_from(query.window.offset()).unwrap_or(i64::MAX))
+        .bind(i64::try_from(query.window.limit()).unwrap_or(i64::MAX))
+        .fetch_all(&self.pool)
+        .await?;
 
-        let total = match rows.first() {
-            Some(row) => row.try_get("total")?,
-            None => return Err(sqlx::Error::RowNotFound.into()),
+        let Some(total) = rows.first().map(|row| row.try_get("total")).transpose()? else {
+            return Err(sqlx::Error::RowNotFound);
         };
         let mut reviews = Vec::with_capacity(rows.len());
         for row in &rows {
             if row.try_get::<Option<uuid::Uuid>, _>("review_id")?.is_some() {
-                reviews.push(self.queue_entry(row)?);
+                reviews.push(queue_entry(row)?);
             }
         }
-        let next_after = if reviews.len() > page_size {
-            reviews.truncate(page_size);
-            reviews.last().map(|review| review.review_id)
-        } else {
-            None
-        };
-        Ok(ReviewQueuePage {
-            reviews,
-            total,
-            next_after,
-        })
+        Ok(ListPage::new(reviews, total, query.window))
     }
 
-    /// The creation time and id of the review `after`, which a page starts after.
-    async fn page_cursor(
+    /// The window of the reviews of `listing_source_id` that `query` asks for, newest first and of
+    /// both artifact types unless `query` filters, each with whether it is the live one and who
+    /// changed it last, read for the whole window in one more query.
+    pub async fn list_source_reviews(
         &self,
-        after: CrawlerReviewId,
-    ) -> Result<(OffsetDateTime, CrawlerReviewId), PageReadError> {
-        sqlx::query_scalar::<_, OffsetDateTime>(
-            "SELECT created FROM crawler_reviews WHERE review_id = $1",
-        )
-        .bind(after.as_uuid())
-        .fetch_optional(&self.pool)
-        .await?
-        .map(|created| (created, after))
-        .ok_or_else(|| PageReadError::UnknownCursor(after.to_string()))
+        listing_source_id: ListingSourceId,
+        query: &ReviewQuery,
+    ) -> Result<ListPage<SourceReviewEntry>, sqlx::Error> {
+        let page = self
+            .list_reviews(&ReviewQuery {
+                listing_source_id: Some(listing_source_id),
+                sort: ReviewSort::Created,
+                direction: SortDirection::Descending,
+                ..query.clone()
+            })
+            .await?;
+        let review_ids = page
+            .items
+            .iter()
+            .map(|review| *review.review_id.as_uuid())
+            .collect::<Vec<_>>();
+        let mut context = self.source_review_context(&review_ids).await?;
+        let items = page
+            .items
+            .into_iter()
+            .map(|review| {
+                let (candidate_is_live, last_actor) =
+                    context.remove(&review.review_id).unwrap_or_default();
+                SourceReviewEntry {
+                    review,
+                    candidate_is_live,
+                    last_actor,
+                }
+            })
+            .collect();
+        Ok(ListPage {
+            items,
+            total: page.total,
+            limit: page.limit,
+            offset: page.offset,
+        })
     }
 
-    /// The queue row of `row`, with its agent rounds. A stored evaluation that does not read as
-    /// one fails the queue, as any other invalid persisted review does, with an error that names
-    /// the review, so the console's log points at the row to fix.
-    fn queue_entry(&self, row: &PgRow) -> Result<ReviewQueueEntry, sqlx::Error> {
-        let review_id = crawler_review_id_from_uuid(row.try_get("review_id")?)?;
-        let status: String = row.try_get("status")?;
-        // A count beyond `u32` is past any cap, so saturating keeps the review with a human.
-        let rounds = AgentRounds {
-            needs_repair: u32::try_from(row.try_get::<i64, _>("agent_rounds")?).unwrap_or(u32::MAX),
-            handed_to_human: row.try_get("handed_to_human")?,
-        };
-        let auto_schema_evaluation = row
-            .try_get::<Option<serde_json::Value>, _>("auto_schema_evaluation")?
-            .map(serde_json::from_value::<AutoSchemaEvaluationOutcome>)
-            .transpose()
-            .map_err(|source| {
-                sqlx::Error::Decode(Box::new(UnreadableAutoSchemaEvaluation {
-                    review_id,
-                    source,
-                }))
-            })?;
-        Ok(ReviewQueueEntry {
-            review_id,
-            listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
-            listing_source_name: row.try_get("listing_source_name")?,
-            listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
-            artifact_type: row.try_get("artifact_type")?,
-            human_required: self.agent_decisions.waits_for_human(&status, rounds),
-            status,
-            reason: row.try_get("reason")?,
-            candidate_version: row.try_get("candidate_version")?,
-            repair_request: row_to_repair_request(row)?,
-            agent_rounds: rounds.needs_repair,
-            auto_schema_evaluation,
-            created: row.try_get("created")?,
-            updated: row.try_get("updated")?,
-            reviewed: row.try_get("reviewed")?,
-        })
+    /// Whether each of `review_ids` is the latest approved review of its ListingSource and
+    /// artifact type, and the actor of its latest event.
+    async fn source_review_context(
+        &self,
+        review_ids: &[uuid::Uuid],
+    ) -> Result<HashMap<CrawlerReviewId, (bool, Option<ReviewActor>)>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT r.review_id,
+                    r.status = 'APPROVED'
+                      AND r.review_id = (
+                          SELECT a.review_id FROM crawler_reviews a
+                          WHERE a.listing_source_id = r.listing_source_id
+                            AND a.artifact_type = r.artifact_type
+                            AND a.status = 'APPROVED'
+                          ORDER BY a.reviewed DESC NULLS LAST, a.review_id DESC
+                          LIMIT 1) AS candidate_is_live,
+                    (SELECT e.actor FROM crawler_review_events e
+                     WHERE e.review_id = r.review_id
+                     ORDER BY e.created DESC, e.event_id DESC
+                     LIMIT 1) AS last_actor
+             FROM crawler_reviews r
+             WHERE r.review_id = ANY($1)",
+        )
+        .bind(review_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                let actor = row
+                    .try_get::<Option<String>, _>("last_actor")?
+                    .map(|name| {
+                        ReviewActor::from_persisted(&name).ok_or_else(|| {
+                            sqlx::Error::Decode(format!("invalid persisted actor `{name}`").into())
+                        })
+                    })
+                    .transpose()?;
+                Ok((
+                    crawler_review_id_from_uuid(row.try_get("review_id")?)?,
+                    (row.try_get("candidate_is_live")?, actor),
+                ))
+            })
+            .collect()
     }
 }
 
-/// The page query of the reviews in `direction` of their creation time. Binds `$1` to `$3` of
+fn waiting_name(waiting: ReviewWaiting) -> &'static str {
+    match waiting {
+        ReviewWaiting::Human => "human",
+        ReviewWaiting::Repair => "repair",
+    }
+}
+
+/// The queue row of `row`. A stored evaluation that does not read as one fails the queue, as any
+/// other invalid persisted review does, with an error that names the review, so the console's log
+/// points at the row to fix.
+fn queue_entry(row: &PgRow) -> Result<ReviewQueueEntry, sqlx::Error> {
+    let review_id = crawler_review_id_from_uuid(row.try_get("review_id")?)?;
+    let auto_schema_evaluation = row
+        .try_get::<Option<serde_json::Value>, _>("auto_schema_evaluation")?
+        .map(serde_json::from_value::<AutoSchemaEvaluationOutcome>)
+        .transpose()
+        .map_err(|source| {
+            sqlx::Error::Decode(Box::new(UnreadableAutoSchemaEvaluation {
+                review_id,
+                source,
+            }))
+        })?;
+    Ok(ReviewQueueEntry {
+        review_id,
+        listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
+        listing_source_name: row.try_get("listing_source_name")?,
+        listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
+        artifact_type: row.try_get("artifact_type")?,
+        status: row.try_get("status")?,
+        reason: row.try_get("reason")?,
+        repair_request: row_to_repair_request(row)?,
+        human_required: row.try_get("human_required")?,
+        auto_schema_evaluation,
+        created: row.try_get("created")?,
+        updated: row.try_get("updated")?,
+    })
+}
+
+/// The window query of the reviews in the order of `sort`. Binds `$1` to `$3` of
 /// [`agent_rounds_of_review`], `$4`, the repair-round cap or null, `$5`, the ListingSource or null,
-/// `$6`, the statuses, `$7`, the artifact type or null, `$8` and `$9`, the search's `ILIKE` pattern
-/// and the review id it names, or null, `$10`, the `human_required` filter or null, `$11` and
-/// `$12`, the creation time and id of the review the page starts after or null, and `$13`, the
-/// most rows to answer. Every row carries the total; an empty page is one row with the total and
-/// no review. Only a pending review's agent rounds are counted.
+/// `$6`, the status or null, `$7`, the artifact type or null, `$8`, the `ILIKE` pattern of the
+/// ListingSource name or null, `$9`, what the review waits for or null, `$10`, the rows to skip,
+/// and `$11`, the most rows to answer. Every row carries the total; an empty window is one row
+/// with the total and no review. Only a pending review's agent rounds are counted.
 ///
-/// The SQL is assembled from static fragments only, chosen by `direction`, never from request text.
-fn review_page_sql(direction: SortDirection) -> String {
-    let (order, after) = match direction {
-        SortDirection::Ascending => ("ASC", ">"),
-        SortDirection::Descending => ("DESC", "<"),
-    };
+/// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
+/// request text.
+fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
+    let order = review_order(sort, direction.sql());
     format!(
         "WITH candidates AS (
              SELECT r.review_id, r.listing_source_id, s.listing_source_name,
                     COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
-                    r.artifact_type, r.status, r.reason, r.candidate_version,
+                    r.artifact_type, r.status, r.reason,
                     r.repair_requested, r.repair_note,
                     r.validation_summary -> 'auto_schema_evaluation' AS auto_schema_evaluation,
-                    r.created, r.updated, r.reviewed,
+                    r.created, r.updated,
                     CASE WHEN r.status = 'PENDING_REVIEW' THEN {rounds} ELSE 0 END AS agent_rounds,
                     CASE WHEN r.status = 'PENDING_REVIEW' THEN {handed} ELSE FALSE END
                         AS handed_to_human
              FROM crawler_reviews r
              LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id
              WHERE ($5::uuid IS NULL OR r.listing_source_id = $5)
-               AND (cardinality($6::text[]) = 0 OR r.status = ANY($6))
+               AND ($6::text IS NULL OR r.status = $6)
                AND ($7::text IS NULL OR r.artifact_type = $7)
-               AND ($8::text IS NULL
-                    OR s.listing_source_name ILIKE $8
-                    OR s.listing_source_slug ILIKE $8
-                    OR s.crawl_host ILIKE $8
-                    OR r.review_id::text ILIKE $8
-                    OR r.review_id = $9::uuid)
+               AND ($8::text IS NULL OR s.listing_source_name ILIKE $8)
+         ), scored AS (
+             SELECT *, $4::bigint IS NOT NULL AND status = 'PENDING_REVIEW'
+                           AND (agent_rounds >= $4 OR handed_to_human) AS human_required
+             FROM candidates
          ), matching AS (
-             SELECT * FROM candidates
-             WHERE $10::boolean IS NULL
-                OR $10 = ($4::bigint IS NOT NULL AND status = 'PENDING_REVIEW'
-                          AND (agent_rounds >= $4 OR handed_to_human))
-         ), page AS (
-             SELECT * FROM matching
-             WHERE $11::timestamptz IS NULL OR (created, review_id) {after} ($11, $12::uuid)
-             ORDER BY created {order}, review_id {order}
-             LIMIT $13
+             SELECT * FROM scored
+             WHERE $9::text IS NULL
+                OR ($9 = 'human' AND human_required)
+                OR ($9 = 'repair' AND status = 'PENDING_REVIEW'
+                    AND repair_requested IS NOT NULL AND NOT human_required)
+         ), ranked AS (
+             SELECT matching.*, ROW_NUMBER() OVER (ORDER BY {order}) AS position FROM matching
          )
          SELECT t.total, p.*
          FROM (SELECT COUNT(*) AS total FROM matching) t
-         LEFT JOIN page p ON TRUE
-         ORDER BY p.created {order}, p.review_id {order}",
+         LEFT JOIN (SELECT * FROM ranked WHERE position > $10 AND position <= $10 + $11) p ON TRUE
+         ORDER BY p.position",
         rounds = agent_rounds_of_review!(),
         handed = agent_handed_review_to_human!(),
     )
+}
+
+/// The `ORDER BY` list of `sort` in `direction` (an SQL keyword). The queue order ignores the
+/// direction.
+fn review_order(sort: ReviewSort, direction: &str) -> String {
+    match sort {
+        ReviewSort::Queue => {
+            "CASE WHEN status = 'PENDING_REVIEW' AND listing_source_crawl_enabled THEN 0
+                 WHEN status = 'PENDING_REVIEW' THEN 1 ELSE 2 END,
+            CASE WHEN status = 'PENDING_REVIEW' THEN created END ASC, created DESC, review_id"
+                .to_owned()
+        }
+        ReviewSort::Created => format!("created {direction}, review_id"),
+        ReviewSort::Updated => format!("updated {direction}, review_id"),
+        ReviewSort::Source => {
+            format!("lower(listing_source_name) {direction} NULLS LAST, created DESC, review_id")
+        }
+    }
 }
 
 /// A review whose validation summary keeps an `auto_schema_evaluation` that is no evaluation the

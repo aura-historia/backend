@@ -2,7 +2,7 @@ use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
-    AutoSchemaEvaluationOutcome, PageSize, ReviewActor, SourceActivity, SourceHealth,
+    AutoSchemaEvaluationOutcome, ListWindow, ReviewActor, SourceActivity, SourceStatus,
     UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crawler::review::model::{
@@ -11,7 +11,7 @@ use crawler::review::model::{
 };
 use crawler::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crawler::review::readers::{
-    ListingSourceOverviewReader, ListingSourceQuery, PageReadError, ReviewQuery, ReviewQueueReader,
+    ListingSourceOverviewReader, ListingSourceQuery, ReviewQuery, ReviewQueueReader,
 };
 use crawler::review::repository::{
     Approval, CrawlerReviewRepository, ReviewRepositoryError, SchemaReviewWithStatusInput,
@@ -285,10 +285,7 @@ async fn should_surface_invalid_persisted_v4_review_id() {
         .list_reviews(&ReviewQuery::default())
         .await;
 
-    assert!(matches!(
-        result,
-        Err(PageReadError::Database(sqlx::Error::Decode(_)))
-    ));
+    assert!(matches!(result, Err(sqlx::Error::Decode(_))));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -2961,15 +2958,14 @@ async fn should_rank_the_listing_source_whose_crawl_waits_for_an_operator_first(
 
     let overview = ListingSourceOverviewReader::new(pool.clone())
         .list_listing_sources(&ListingSourceQuery {
-            page_size: PageSize::new(1).unwrap(),
+            window: ListWindow::new(1, 0).unwrap(),
             ..ListingSourceQuery::default()
         })
         .await
         .unwrap();
 
     assert_eq!(overview.total, 2);
-    assert_eq!(overview.next_after, Some(stopped_source));
-    let overview = overview.listing_sources;
+    let overview = overview.items;
     assert_eq!(
         overview
             .iter()
@@ -3089,7 +3085,7 @@ async fn should_list_each_sources_scrape_failure_streak_and_the_last_successful_
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
 
     let row = |listing_source_id: ListingSourceId| {
         overview
@@ -3223,7 +3219,7 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
 
     let blocked_row = overview
         .iter()
@@ -3239,7 +3235,8 @@ async fn should_count_only_urls_waiting_on_a_pending_review_as_blocked() {
     );
     assert_eq!(blocked_row.pending_reviews, 1);
     assert_eq!(
-        blocked_row
+        overview_of(&pool, blocked)
+            .await
             .url_error_kinds
             .iter()
             .map(|entry| (entry.kind.as_str(), entry.count))
@@ -3300,7 +3297,7 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
 
     let source = &overview[0];
     assert_eq!(source.blocked_urls, 3, "every product URL, counted once");
@@ -3315,7 +3312,7 @@ async fn should_count_every_product_url_of_a_source_waiting_on_its_first_schema_
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
     assert_eq!(
         overview[0].blocked_urls, 1,
         "with a schema stored, only the page that recorded the wait is blocked"
@@ -3364,7 +3361,7 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
 
     let source = &overview[0];
     assert_eq!(source.held_removal_urls, 2);
@@ -3380,7 +3377,8 @@ async fn should_list_held_removals_without_moving_the_last_successful_scrape() {
         "the earliest `last_scraped` of the held URLs"
     );
     assert_eq!(
-        source
+        overview_of(&pool, listing_source_id)
+            .await
             .url_error_kinds
             .iter()
             .map(|entry| (entry.kind.as_str(), entry.count))
@@ -3456,7 +3454,7 @@ async fn should_name_the_oldest_blocking_review_of_a_blocked_listing_source() {
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
 
     let first_row = overview
         .iter()
@@ -3512,7 +3510,7 @@ async fn should_report_the_scrape_cooldown_end_and_failing_since_per_source() {
         .list_listing_sources(&ListingSourceQuery::default())
         .await
         .unwrap()
-        .listing_sources;
+        .items;
 
     let rfc3339 = |value: &str| {
         OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).unwrap()
@@ -3609,7 +3607,7 @@ async fn should_rank_a_failing_blocked_or_held_listing_source_ahead_of_the_healt
         .unwrap();
 
     let ranked = overview
-        .listing_sources
+        .items
         .iter()
         .map(|source| source.listing_source_id)
         .collect::<Vec<_>>();
@@ -3622,22 +3620,17 @@ async fn should_rank_a_failing_blocked_or_held_listing_source_ahead_of_the_healt
     assert!(healthy.iter().all(|source| ranked[3..].contains(source)));
     let attention = ListingSourceOverviewReader::new(pool.clone())
         .list_listing_sources(&ListingSourceQuery {
-            health: Some(SourceHealth::NeedsAttention),
+            status: Some(SourceStatus::NeedsAttention),
             ..ListingSourceQuery::default()
         })
         .await
         .unwrap();
     assert_eq!(attention.total, 3);
-    assert!(
-        attention
-            .listing_sources
-            .iter()
-            .all(|source| source.needs_attention)
-    );
+    assert_eq!(attention.items.len(), 3);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_list_every_review_newest_first_with_the_crawl_state_of_its_listing_source() {
+async fn should_list_pending_reviews_of_disabled_listing_sources_after_those_of_enabled_ones() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let enabled_source = ListingSourceId::new();
@@ -3672,16 +3665,16 @@ async fn should_list_every_review_newest_first_with_the_crawl_state_of_its_listi
     assert_eq!(queue.total, 3);
     assert_eq!(
         queue
-            .reviews
+            .items
             .iter()
             .map(|review| (review.review_id, review.listing_source_crawl_enabled))
             .collect::<Vec<_>>(),
         vec![
-            (closed, true),
+            (enabled_pending, true),
             (disabled_pending, false),
-            (enabled_pending, true)
+            (closed, true)
         ],
-        "every review is listed newest first, pending or closed, with the crawl state of its ListingSource"
+        "pending reviews of crawl-enabled ListingSources come first, then those of disabled ones, then closed ones"
     );
 }
 
@@ -3724,7 +3717,7 @@ async fn should_list_only_the_llm_evaluation_outcome_of_each_review_in_the_queue
 
     let outcome_of = |review_id: CrawlerReviewId| {
         queue
-            .reviews
+            .items
             .iter()
             .find(|review| review.review_id == review_id)
             .unwrap_or_else(|| panic!("review {review_id} is not listed"))
@@ -3766,7 +3759,7 @@ async fn should_surface_a_persisted_llm_evaluation_the_queue_cannot_read() {
         .await;
 
     assert!(
-        matches!(&result, Err(PageReadError::Database(sqlx::Error::Decode(error))) if error.to_string().contains(&review_id.to_string())),
+        matches!(&result, Err(sqlx::Error::Decode(error)) if error.to_string().contains(&review_id.to_string())),
         "{result:?}"
     );
 }
@@ -5464,38 +5457,32 @@ async fn should_report_and_filter_the_sources_the_crawler_works_on_right_now() {
         }
     };
 
-    assert_eq!(list(Some(SourceActivity::Active)).await.total, 0);
+    assert_eq!(list(Some(SourceActivity::Idle)).await.total, 3);
     let scraped_id = sources[0];
     let crawled_id = sources[1];
     let _scrape = WorkLock::try_acquire(&work_locks, WorkLockScope::Scraper, scraped_id).unwrap();
     let _crawl = WorkLock::try_acquire(&work_locks, WorkLockScope::Spider, crawled_id).unwrap();
 
-    let ids = |page: &crawler::review::model::ListingSourcePage| {
-        let mut ids = page
-            .listing_sources
-            .iter()
-            .map(|source| source.listing_source_id)
-            .collect::<Vec<_>>();
-        ids.sort_by_key(|id| id.to_string());
-        ids
-    };
-    let sorted = |mut expected: Vec<ListingSourceId>| {
-        expected.sort_by_key(|id| id.to_string());
-        expected
-    };
+    let ids =
+        |page: &crawler::review::model::ListPage<crawler::review::model::ListingSourceOverview>| {
+            let mut ids = page
+                .items
+                .iter()
+                .map(|source| source.listing_source_id)
+                .collect::<Vec<_>>();
+            ids.sort_by_key(|id| id.to_string());
+            ids
+        };
     let all = list(None).await;
     assert_eq!(all.total, 3);
     let scraping = list(Some(SourceActivity::Scraping)).await;
     assert_eq!((scraping.total, ids(&scraping)), (1, vec![scraped_id]));
     let crawling = list(Some(SourceActivity::Crawling)).await;
     assert_eq!((crawling.total, ids(&crawling)), (1, vec![crawled_id]));
-    let active = list(Some(SourceActivity::Active)).await;
-    assert_eq!(
-        (active.total, ids(&active)),
-        (2, sorted(vec![scraped_id, crawled_id]))
-    );
+    let idle = list(Some(SourceActivity::Idle)).await;
+    assert_eq!((idle.total, ids(&idle)), (1, vec![sources[2]]));
     let running = all
-        .listing_sources
+        .items
         .iter()
         .find(|source| source.listing_source_id == scraped_id)
         .expect("the scraped source is listed");
@@ -5506,7 +5493,7 @@ async fn should_report_and_filter_the_sources_the_crawler_works_on_right_now() {
     );
     assert_eq!(running.crawling_since, None);
     let idle = all
-        .listing_sources
+        .items
         .iter()
         .find(|source| source.listing_source_id == sources[2])
         .expect("the idle source is listed");

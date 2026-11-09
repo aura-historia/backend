@@ -3,7 +3,7 @@
 //! answered with `400` instead of a different page.
 
 use crate::review::model::{
-    MAX_SEARCH_TERM_CHARS, PageSize, QueryValue, SearchTerm, SortDirection,
+    ListWindow, MAX_SEARCH_TERM_CHARS, PageSize, QueryValue, SearchTerm, SortDirection,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -48,6 +48,29 @@ pub(super) fn page_size(query: &HashMap<String, String>) -> Result<PageSize, Str
             )
         }),
     }
+}
+
+/// The window `limit` (at most [`ListWindow::MAX_LIMIT`], 100 by default) and `offset` (0 by
+/// default) ask for.
+pub(super) fn list_window(query: &HashMap<String, String>) -> Result<ListWindow, String> {
+    let limit = match query.get("limit") {
+        None => ListWindow::DEFAULT_LIMIT,
+        Some(limit) => limit.parse().map_err(|_| limit_refusal())?,
+    };
+    let offset = match query.get("offset") {
+        None => 0,
+        Some(offset) => offset
+            .parse()
+            .map_err(|_| "offset must be a whole number".to_owned())?,
+    };
+    ListWindow::new(limit, offset).ok_or_else(limit_refusal)
+}
+
+fn limit_refusal() -> String {
+    format!(
+        "limit must be a whole number from 1 to {}",
+        ListWindow::MAX_LIMIT
+    )
 }
 
 /// Refuses a parameter of `query` that is not one of `accepted`, so a misspelt filter is not
@@ -107,12 +130,12 @@ pub(super) fn search_term(query: &HashMap<String, String>) -> Result<Option<Sear
     }
 }
 
-/// The sort direction `order`, or `default` when it is not given.
+/// The sort direction `dir`, or `default` when it is not given.
 pub(super) fn sort_direction(
     query: &HashMap<String, String>,
     default: SortDirection,
 ) -> Result<SortDirection, String> {
-    Ok(named::<SortDirection>(query, "order")?.unwrap_or(default))
+    Ok(named::<SortDirection>(query, "dir")?.unwrap_or(default))
 }
 
 #[cfg(test)]
@@ -142,14 +165,14 @@ mod tests {
     #[test]
     fn should_name_what_a_named_parameter_accepts() {
         assert_eq!(
-            named::<SortDirection>(&query_of(&[("order", "up")]), "order"),
-            Err("order must be one of asc, desc".to_owned())
+            named::<SortDirection>(&query_of(&[("dir", "up")]), "dir"),
+            Err("dir must be one of asc, desc".to_owned())
         );
         assert_eq!(
-            named::<SortDirection>(&query_of(&[("order", "asc")]), "order"),
+            named::<SortDirection>(&query_of(&[("dir", "asc")]), "dir"),
             Ok(Some(SortDirection::Ascending))
         );
-        assert_eq!(named::<SortDirection>(&query_of(&[]), "order"), Ok(None));
+        assert_eq!(named::<SortDirection>(&query_of(&[]), "dir"), Ok(None));
     }
 
     #[test]
@@ -162,5 +185,24 @@ mod tests {
             Ok(Some("Antik".to_owned()))
         );
         assert!(search_term(&query_of(&[("q", &"a".repeat(101))])).is_err());
+    }
+
+    #[test]
+    fn should_read_the_window_and_refuse_one_beyond_the_largest() {
+        let window = |pairs: &[(&str, &str)]| list_window(&query_of(pairs));
+
+        assert_eq!(window(&[]), Ok(ListWindow::default()));
+        assert_eq!(
+            window(&[("limit", "25"), ("offset", "50")]),
+            Ok(ListWindow::new(25, 50).unwrap_or_default())
+        );
+        for refused in [
+            [("limit", "0")],
+            [("limit", "201")],
+            [("limit", "many")],
+            [("offset", "-1")],
+        ] {
+            assert!(window(&refused).is_err(), "{refused:?}");
+        }
     }
 }

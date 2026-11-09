@@ -1,15 +1,14 @@
-//! `GET /api/listing_sources/{id}`: one ListingSource with its review history and the live URL
-//! pattern and product schemas it crawls and scrapes by. The contract is in
+//! `GET /api/listing-sources/{id}`: one ListingSource with the live URL pattern, product schemas
+//! and removed-page templates it crawls and scrapes by. The contract is in
 //! `docs/crawler/operations.md` (review service).
 
-use super::{ListingSourceOverviewReader, ReviewQuery, ReviewQueueReader};
-use crate::review::model::{
-    ListingSourceDetail, PageSize, ProductSchemaOverview, UrlPatternOverview,
-};
-use crate::scraper::css_selector::product_schema_repository::{
-    ListingSourceProductSchemaRepository, ListingSourceProductSchemaRepositoryImpl,
-};
+use super::ListingSourceOverviewReader;
+use crate::review::model::{ListingSourceDetail, ReviewActor, UrlPatternOverview};
+use crate::review::repository::crawler_review_id_from_uuid;
+use crate::scraper::css_selector::product_schema::decode_stored_product_schemas;
+use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use listing_source_core::ListingSourceId;
+use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 
 /// Reads the page of one ListingSource.
@@ -17,90 +16,119 @@ use sqlx::{PgPool, Row};
 pub struct ListingSourceDetailReader {
     pool: PgPool,
     overviews: ListingSourceOverviewReader,
-    reviews: ReviewQueueReader,
 }
 
+/// The live configuration of a ListingSource and the latest approvals of its artifacts, in one
+/// read. An approval is the latest one by the time it was reviewed; it is the live one unless a
+/// live edit or a restore replaced it since. Binds `$1`, the ListingSource.
+const LIVE_CONFIGURATION: &str = "
+    SELECT s.url_pattern_state, s.url_pattern, s.url_pattern_exclude,
+           ps.product_schema, ps.updated AS schemas_updated,
+           rp.removed_page_schema,
+           pattern_review.review_id AS pattern_review_id,
+           pattern_review.reviewed AS pattern_approved_at,
+           (SELECT e.actor FROM crawler_review_events e
+            WHERE e.review_id = pattern_review.review_id AND e.action = 'APPROVED'
+            ORDER BY e.created DESC, e.event_id DESC
+            LIMIT 1) AS pattern_approved_by,
+           schema_review.review_id AS schema_review_id
+    FROM listing_sources s
+    LEFT JOIN listing_source_product_schemas ps ON ps.listing_source_id = s.listing_source_id
+    LEFT JOIN listing_source_removed_page_schemas rp ON rp.listing_source_id = s.listing_source_id
+    LEFT JOIN LATERAL (
+        SELECT review_id, reviewed FROM crawler_reviews
+        WHERE listing_source_id = s.listing_source_id
+          AND artifact_type = 'URL_PATTERN' AND status = 'APPROVED'
+        ORDER BY reviewed DESC NULLS LAST, review_id DESC
+        LIMIT 1
+    ) pattern_review ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT review_id FROM crawler_reviews
+        WHERE listing_source_id = s.listing_source_id
+          AND artifact_type = 'PRODUCT_SCHEMA' AND status = 'APPROVED'
+        ORDER BY reviewed DESC NULLS LAST, review_id DESC
+        LIMIT 1
+    ) schema_review ON TRUE
+    WHERE s.listing_source_id = $1";
+
 impl ListingSourceDetailReader {
-    pub fn new(overviews: ListingSourceOverviewReader, reviews: ReviewQueueReader) -> Self {
+    pub fn new(overviews: ListingSourceOverviewReader) -> Self {
         Self {
             pool: overviews.pool().clone(),
             overviews,
-            reviews,
         }
     }
 
-    /// The page of `listing_source_id`, with the page of its reviews, newest first, that `reviews`
-    /// asks for; `None` when no such ListingSource exists.
+    /// The page of `listing_source_id`, or `None` when no such ListingSource exists. A stored
+    /// schema or template that does not read as one fails the page instead of showing something
+    /// else.
     pub async fn find_listing_source(
         &self,
         listing_source_id: ListingSourceId,
-        reviews: ReviewHistoryQuery,
-    ) -> Result<Option<ListingSourceDetail>, super::PageReadError> {
-        let Some(listing_source) = self
+    ) -> Result<Option<ListingSourceDetail>, sqlx::Error> {
+        let Some(overview) = self
             .overviews
             .find_listing_source(listing_source_id)
             .await?
         else {
             return Ok(None);
         };
-        let url_pattern = self.url_pattern(listing_source_id).await?;
-        let product_schema = self.product_schema(listing_source_id).await?;
-        let reviews = self
-            .reviews
-            .list_reviews(&ReviewQuery {
-                listing_source_id: Some(listing_source_id),
-                after: reviews.after,
-                page_size: reviews.page_size,
-                ..ReviewQuery::default()
-            })
+        let row = sqlx::query(LIVE_CONFIGURATION)
+            .bind(listing_source_id.as_uuid())
+            .fetch_one(&self.pool)
             .await?;
-        Ok(Some(ListingSourceDetail {
-            listing_source,
-            url_pattern,
-            product_schema,
-            reviews,
-        }))
-    }
-
-    async fn url_pattern(
-        &self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<UrlPatternOverview, sqlx::Error> {
-        let row = sqlx::query(
-            "SELECT url_pattern_state, url_pattern, url_pattern_exclude
-             FROM listing_sources
-             WHERE listing_source_id = $1",
-        )
-        .bind(listing_source_id.as_uuid())
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(UrlPatternOverview {
-            state: row.try_get("url_pattern_state")?,
-            pattern: row.try_get("url_pattern")?,
-            exclude: row.try_get("url_pattern_exclude")?,
-        })
-    }
-
-    /// The live product schemas, decoded as the scraper reads them, so a stored schema that does
-    /// not read as one fails the page instead of showing something else.
-    async fn product_schema(
-        &self,
-        listing_source_id: ListingSourceId,
-    ) -> Result<Option<ProductSchemaOverview>, sqlx::Error> {
-        Ok(ListingSourceProductSchemaRepositoryImpl::new(&self.pool)
-            .find_product_schema(&listing_source_id)
-            .await?
-            .map(|stored| ProductSchemaOverview {
-                schemas: stored.product_schemas,
-                created: stored.created,
-                updated: stored.updated,
-            }))
+        Ok(Some(detail_of_row(overview, &row)?))
     }
 }
 
-/// Which page of a ListingSource's review history to read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ReviewHistoryQuery {
-    pub after: Option<crate::CrawlerReviewId>,
-    pub page_size: PageSize,
+fn detail_of_row(
+    overview: crate::review::model::ListingSourceOverview,
+    row: &PgRow,
+) -> Result<ListingSourceDetail, sqlx::Error> {
+    let decode = |source: serde_json::Error| sqlx::Error::Decode(Box::new(source));
+    let url_pattern = row
+        .try_get::<Option<String>, _>("url_pattern")?
+        .map(|value| {
+            Ok::<_, sqlx::Error>(UrlPatternOverview {
+                value,
+                exclude: row.try_get("url_pattern_exclude")?,
+                approved_review_id: row
+                    .try_get::<Option<uuid::Uuid>, _>("pattern_review_id")?
+                    .map(crawler_review_id_from_uuid)
+                    .transpose()?,
+                approved_at: row.try_get("pattern_approved_at")?,
+                approved_by: row
+                    .try_get::<Option<String>, _>("pattern_approved_by")?
+                    .map(|name| {
+                        ReviewActor::from_persisted(&name).ok_or_else(|| {
+                            sqlx::Error::Decode(format!("invalid persisted actor `{name}`").into())
+                        })
+                    })
+                    .transpose()?,
+            })
+        })
+        .transpose()?;
+    let product_schemas = row
+        .try_get::<Option<serde_json::Value>, _>("product_schema")?
+        .map(decode_stored_product_schemas)
+        .transpose()
+        .map_err(decode)?
+        .unwrap_or_default();
+    let removed_page_schemas = row
+        .try_get::<Option<serde_json::Value>, _>("removed_page_schema")?
+        .map(serde_json::from_value::<Vec<RemovedPageSchema>>)
+        .transpose()
+        .map_err(decode)?
+        .unwrap_or_default();
+    Ok(ListingSourceDetail {
+        overview,
+        url_pattern,
+        product_schemas,
+        removed_page_schemas,
+        live_schema_review_id: row
+            .try_get::<Option<uuid::Uuid>, _>("schema_review_id")?
+            .map(crawler_review_id_from_uuid)
+            .transpose()?,
+        live_schemas_since: row.try_get("schemas_updated")?,
+    })
 }

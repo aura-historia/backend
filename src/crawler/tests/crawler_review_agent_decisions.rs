@@ -2105,13 +2105,12 @@ async fn agent_rounds(
         .list_reviews(&ReviewQuery::default())
         .await
         .unwrap()
-        .reviews
+        .items
         .into_iter()
         .find(|review| review.review_id == review_id)
         .unwrap_or_else(|| panic!("review {review_id} is not listed"));
     assert_eq!(
-        (listed.agent_rounds, listed.human_required),
-        (detail.agent_rounds, detail.human_required),
+        listed.human_required, detail.human_required,
         "the list and the detail disagree"
     );
     let queued = queued_review(repository, review_id).await;

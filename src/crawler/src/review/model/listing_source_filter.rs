@@ -8,83 +8,57 @@ use super::{QueryValue, SortDirection};
 pub enum SourceActivity {
     Crawling,
     Scraping,
-    /// Crawling or scraping.
-    Active,
-}
-
-impl SourceActivity {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Crawling => "crawling",
-            Self::Scraping => "scraping",
-            Self::Active => "active",
-        }
-    }
+    /// Neither crawling nor scraping.
+    Idle,
 }
 
 impl QueryValue for SourceActivity {
     const VALUES: &'static [(&'static str, Self)] = &[
         ("crawling", Self::Crawling),
         ("scraping", Self::Scraping),
-        ("active", Self::Active),
+        ("idle", Self::Idle),
     ];
 }
 
-/// How a ListingSource stands, which only a crawl-enabled one can be short of.
+/// How a ListingSource stands. Only a crawl-enabled one can need attention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceHealth {
+pub enum SourceStatus {
     /// Any of the four conditions below.
     NeedsAttention,
+    /// Crawl-enabled and none of the conditions.
+    Healthy,
+    /// Crawling is switched off.
+    Disabled,
     /// Its crawl waits for an operator.
-    NeedsOperator,
+    CrawlNeedsOperator,
     /// URLs wait on a pending product-schema review.
     Blocked,
     /// Its scrapes keep failing.
-    ScrapeFailing,
+    Failing,
     /// The mass-removal guard holds removals back.
-    HeldRemovals,
-    /// Crawl-enabled and none of the conditions.
-    Healthy,
+    Held,
 }
 
-impl SourceHealth {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::NeedsAttention => "needs_attention",
-            Self::NeedsOperator => "needs_operator",
-            Self::Blocked => "blocked",
-            Self::ScrapeFailing => "scrape_failing",
-            Self::HeldRemovals => "held_removals",
-            Self::Healthy => "healthy",
-        }
-    }
-}
-
-impl QueryValue for SourceHealth {
+impl QueryValue for SourceStatus {
     const VALUES: &'static [(&'static str, Self)] = &[
         ("needs_attention", Self::NeedsAttention),
-        ("needs_operator", Self::NeedsOperator),
-        ("blocked", Self::Blocked),
-        ("scrape_failing", Self::ScrapeFailing),
-        ("held_removals", Self::HeldRemovals),
         ("healthy", Self::Healthy),
+        ("disabled", Self::Disabled),
+        ("crawl_needs_operator", Self::CrawlNeedsOperator),
+        ("blocked", Self::Blocked),
+        ("failing", Self::Failing),
+        ("held", Self::Held),
     ];
 }
 
-/// The column the overview sorts by, named as the overview's JSON field. `Attention` ranks the
-/// sources an operator has to look at first.
+/// The column the overview sorts by. `Attention` ranks the sources an operator has to look at
+/// first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SourceSort {
     #[default]
     Attention,
-    ListingSourceName,
+    Name,
     PendingReviews,
-    ProductUrls,
-    BlockedUrls,
-    HeldRemovalUrls,
-    ScrapeFailureStreak,
-    LlmCallsCount,
-    LastSuccessfulCrawl,
     LastSuccessfulScrape,
     NextCrawlAt,
 }
@@ -94,7 +68,7 @@ impl SourceSort {
     /// other column with the most, or the latest, first.
     pub const fn default_direction(self) -> SortDirection {
         match self {
-            Self::ListingSourceName => SortDirection::Ascending,
+            Self::Name => SortDirection::Ascending,
             _ => SortDirection::Descending,
         }
     }
@@ -103,14 +77,8 @@ impl SourceSort {
 impl QueryValue for SourceSort {
     const VALUES: &'static [(&'static str, Self)] = &[
         ("attention", Self::Attention),
-        ("listing_source_name", Self::ListingSourceName),
+        ("name", Self::Name),
         ("pending_reviews", Self::PendingReviews),
-        ("product_urls", Self::ProductUrls),
-        ("blocked_urls", Self::BlockedUrls),
-        ("held_removal_urls", Self::HeldRemovalUrls),
-        ("scrape_failure_streak", Self::ScrapeFailureStreak),
-        ("llm_calls_count", Self::LlmCallsCount),
-        ("last_successful_crawl", Self::LastSuccessfulCrawl),
         ("last_successful_scrape", Self::LastSuccessfulScrape),
         ("next_crawl_at", Self::NextCrawlAt),
     ];

@@ -7,13 +7,13 @@ use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
-    ArtifactType, ListingSourcePage, PAGE_ROLE_PRIMARY, PageSize, ReviewActor, ReviewQueuePage,
-    ReviewStatus, SchemaReviewPageInput, SearchTerm, SortDirection, SourceActivity, SourceHealth,
-    SourceSort, UrlPatternDecision,
+    ArtifactType, ListPage, ListWindow, ListingSourceOverview, PAGE_ROLE_PRIMARY, ReviewActor,
+    ReviewQueueEntry, ReviewSort, ReviewStatus, ReviewWaiting, SchemaReviewPageInput, SearchTerm,
+    SortDirection, SourceActivity, SourceSort, SourceStatus, UrlPatternDecision,
 };
 use crawler::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
-    ListingSourceQuery, PageReadError, ReviewHistoryQuery, ReviewQuery, ReviewQueueReader,
+    ListingSourceQuery, ReviewQuery, ReviewQueueReader,
 };
 use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -66,8 +66,8 @@ fn review_pages() -> Vec<SchemaReviewPageInput> {
     }]
 }
 
-fn page_size(size: usize) -> PageSize {
-    PageSize::new(size).unwrap_or_else(|| panic!("{size} is a page size"))
+fn window(limit: usize, offset: usize) -> ListWindow {
+    ListWindow::new(limit, offset).unwrap_or_else(|| panic!("{limit} is a limit"))
 }
 
 /// A ListingSource named `name` with the slug `slug` and the crawl host `host`.
@@ -158,179 +158,149 @@ fn agent_repository(pool: &PgPool, max_repair_rounds: u32) -> CrawlerReviewRepos
     ))
 }
 
-async fn list_reviews(repository: &CrawlerReviewRepository, query: ReviewQuery) -> ReviewQueuePage {
+async fn list_reviews(
+    repository: &CrawlerReviewRepository,
+    query: ReviewQuery,
+) -> ListPage<ReviewQueueEntry> {
     ReviewQueueReader::of(repository)
         .list_reviews(&query)
         .await
         .unwrap()
 }
 
-fn review_ids(page: &ReviewQueuePage) -> Vec<CrawlerReviewId> {
-    page.reviews.iter().map(|review| review.review_id).collect()
+fn review_ids(page: &ListPage<ReviewQueueEntry>) -> Vec<CrawlerReviewId> {
+    page.items.iter().map(|review| review.review_id).collect()
 }
 
-/// Reads every page of the queue of `query` with `size` reviews a page, newest or oldest first as
-/// `query` says, and returns each page's total and ids.
-async fn read_all_reviews(
-    repository: &CrawlerReviewRepository,
-    query: ReviewQuery,
-    size: usize,
-) -> Vec<(i64, Vec<CrawlerReviewId>)> {
-    let mut pages = Vec::new();
-    let mut after = None;
-    loop {
-        let page = list_reviews(
-            repository,
-            ReviewQuery {
-                after,
-                page_size: page_size(size),
-                ..query.clone()
-            },
-        )
-        .await;
-        pages.push((page.total, review_ids(&page)));
-        match page.next_after {
-            Some(next) => after = Some(next),
-            None => return pages,
-        }
-    }
+fn sorted<T: ToString + Copy>(ids: &[T]) -> Vec<String> {
+    let mut ids = ids.iter().map(ToString::to_string).collect::<Vec<_>>();
+    ids.sort();
+    ids
+}
+
+/// A ListingSource whose name, host and enabled flag the test chooses, without a slug that matters.
+async fn source(pool: &PgPool, name: &str, host: &str, enabled: bool) -> ListingSourceId {
+    insert_source(
+        pool,
+        name,
+        &name.to_lowercase().replace(' ', "-"),
+        host,
+        enabled,
+    )
+    .await
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_page_through_every_review_newest_first_without_gaps_or_repeats() {
+async fn should_read_every_review_in_windows_of_the_queue_order() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let mut created = Vec::new();
-    for index in 0..4 {
-        let source = insert_source(
-            &pool,
-            &format!("Shop {index}"),
-            &format!("shop-{index}"),
-            &format!("shop{index}.example.com"),
-            true,
-        )
-        .await;
-        created.push(closed_schema_review(&repository, source, "APPROVED").await);
-        created.push(pending_url_pattern_review(&repository, source).await);
-    }
-    created.reverse();
+    let enabled = source(&pool, "Enabled", "enabled.example.com", true).await;
+    let disabled = source(&pool, "Disabled", "disabled.example.com", false).await;
+    let closed_old = closed_schema_review(&repository, enabled, "REJECTED").await;
+    let pending_disabled = pending_schema_review(&repository, disabled).await;
+    let pending_old = pending_url_pattern_review(&repository, enabled).await;
+    let pending_new = pending_schema_review(&repository, enabled).await;
+    let closed_new = closed_schema_review(&repository, enabled, "APPROVED").await;
 
-    let pages = read_all_reviews(&repository, ReviewQuery::default(), 3).await;
-
-    assert_eq!(
-        pages
-            .iter()
-            .map(|(total, ids)| (*total, ids.len()))
-            .collect::<Vec<_>>(),
-        vec![(8, 3), (8, 3), (8, 2)]
-    );
-    assert_eq!(
-        pages
-            .into_iter()
-            .flat_map(|(_, ids)| ids)
-            .collect::<Vec<_>>(),
-        created,
-        "newest first, each review once"
-    );
-    let mut oldest_first = created.clone();
-    oldest_first.reverse();
-    let ascending = read_all_reviews(
-        &repository,
-        ReviewQuery {
-            direction: SortDirection::Ascending,
-            ..ReviewQuery::default()
-        },
-        5,
-    )
-    .await;
-    assert_eq!(
-        ascending
-            .into_iter()
-            .flat_map(|(_, ids)| ids)
-            .collect::<Vec<_>>(),
-        oldest_first
-    );
-}
-
-/// A review that opens, closes or is decided between two pages moves no other review across the
-/// page boundary: the pages continue after the review the previous one ended with.
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_keep_the_pages_of_the_queue_stable_while_reviews_open_and_close() {
-    let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
-    let mut created = Vec::new();
-    for index in 0..5 {
-        let source = insert_source(
-            &pool,
-            &format!("Shop {index}"),
-            &format!("shop-{index}"),
-            &format!("shop{index}.example.com"),
-            true,
-        )
-        .await;
-        created.push(pending_schema_review(&repository, source).await);
-    }
-    created.reverse();
-    let first = list_reviews(
-        &repository,
-        ReviewQuery {
-            page_size: page_size(2),
-            ..ReviewQuery::default()
-        },
-    )
-    .await;
-    assert_eq!(review_ids(&first), created[..2]);
-    let late_source = insert_source(&pool, "Late", "late", "late.example.com", true).await;
-    let late = pending_schema_review(&repository, late_source).await;
-    repository
-        .reject_review(created[3], ReviewActor::Human, Some("not a product schema"))
-        .await
-        .unwrap();
-
+    let all = list_reviews(&repository, ReviewQuery::default()).await;
     let second = list_reviews(
         &repository,
         ReviewQuery {
-            after: first.next_after,
-            page_size: page_size(2),
+            window: window(2, 2),
             ..ReviewQuery::default()
         },
     )
     .await;
 
     assert_eq!(
-        review_ids(&second),
-        created[2..4],
-        "the review decided in between stays where it was, the one opened since is not repeated"
+        review_ids(&all),
+        vec![
+            pending_old,
+            pending_new,
+            pending_disabled,
+            closed_new,
+            closed_old
+        ],
+        "pending of enabled sources oldest first, pending of disabled ones, then closed newest first"
     );
-    assert_eq!(second.total, 6);
-    assert!(!review_ids(&second).contains(&late));
+    assert_eq!((all.total, all.limit, all.offset), (5, 100, 0));
+    assert_eq!(review_ids(&second), vec![pending_disabled, closed_new]);
+    assert_eq!((second.total, second.limit, second.offset), (5, 2, 2));
+    let beyond = list_reviews(
+        &repository,
+        ReviewQuery {
+            window: window(2, 10),
+            ..ReviewQuery::default()
+        },
+    )
+    .await;
+    assert_eq!((beyond.items.len(), beyond.total), (0, 5));
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_sort_the_review_queue_by_the_column_asked_for() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let zeta = source(&pool, "Zeta", "zeta.example.com", true).await;
+    let alpha = source(&pool, "Alpha", "alpha.example.com", true).await;
+    let first = pending_schema_review(&repository, zeta).await;
+    let second = pending_schema_review(&repository, alpha).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET updated = NOW() + INTERVAL '1 hour' WHERE review_id = $1",
+    )
+    .bind(first.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let sorted_by = |sort, direction| ReviewQuery {
+        sort,
+        direction,
+        ..ReviewQuery::default()
+    };
+
+    let newest = list_reviews(
+        &repository,
+        sorted_by(ReviewSort::Created, SortDirection::Descending),
+    )
+    .await;
+    let oldest = list_reviews(
+        &repository,
+        sorted_by(ReviewSort::Created, SortDirection::Ascending),
+    )
+    .await;
+    let by_name = list_reviews(
+        &repository,
+        sorted_by(ReviewSort::Source, SortDirection::Ascending),
+    )
+    .await;
+    let by_update = list_reviews(
+        &repository,
+        sorted_by(ReviewSort::Updated, SortDirection::Descending),
+    )
+    .await;
+
+    assert_eq!(review_ids(&newest), vec![second, first]);
+    assert_eq!(review_ids(&oldest), vec![first, second]);
+    assert_eq!(review_ids(&by_name), vec![second, first]);
+    assert_eq!(review_ids(&by_update), vec![first, second]);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_filter_reviews_by_status_artifact_type_and_listing_source() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let first = insert_source(&pool, "First", "first", "first.example.com", true).await;
-    let second = insert_source(&pool, "Second", "second", "second.example.com", true).await;
+    let first = source(&pool, "First", "first.example.com", true).await;
+    let second = source(&pool, "Second", "second.example.com", true).await;
     let approved = closed_schema_review(&repository, first, "APPROVED").await;
-    let rejected = closed_schema_review(&repository, first, "REJECTED").await;
+    closed_schema_review(&repository, first, "REJECTED").await;
     let pending_schema = pending_schema_review(&repository, first).await;
     let pending_pattern = pending_url_pattern_review(&repository, first).await;
     let other_pending = pending_schema_review(&repository, second).await;
-    let ids = |page: &ReviewQueuePage| {
-        let mut ids = review_ids(page);
-        ids.sort_by_key(|id| id.to_string());
-        ids
-    };
-    let sorted = |mut expected: Vec<CrawlerReviewId>| {
-        expected.sort_by_key(|id| id.to_string());
-        expected
-    };
 
-    let closed = list_reviews(
+    let by_status = list_reviews(
         &repository,
         ReviewQuery {
-            statuses: vec![ReviewStatus::Approved, ReviewStatus::Rejected],
+            status: Some(ReviewStatus::Approved),
             ..ReviewQuery::default()
         },
     )
@@ -347,13 +317,13 @@ async fn should_filter_reviews_by_status_artifact_type_and_listing_source() {
         &repository,
         ReviewQuery {
             listing_source_id: Some(first),
-            statuses: vec![ReviewStatus::PendingReview],
+            status: Some(ReviewStatus::PendingReview),
             artifact_type: Some(ArtifactType::ProductSchema),
             ..ReviewQuery::default()
         },
     )
     .await;
-    let all_of_second = list_reviews(
+    let of_second = list_reviews(
         &repository,
         ReviewQuery {
             listing_source_id: Some(second),
@@ -362,82 +332,65 @@ async fn should_filter_reviews_by_status_artifact_type_and_listing_source() {
     )
     .await;
 
-    assert_eq!(
-        (closed.total, ids(&closed)),
-        (2, sorted(vec![approved, rejected]))
-    );
-    assert_eq!((patterns.total, ids(&patterns)), (1, vec![pending_pattern]));
-    assert_eq!(
-        (pending_of_first.total, ids(&pending_of_first)),
-        (1, vec![pending_schema])
-    );
-    assert_eq!(
-        (all_of_second.total, ids(&all_of_second)),
-        (1, vec![other_pending])
-    );
+    assert_eq!(review_ids(&by_status), vec![approved]);
+    assert_eq!(review_ids(&patterns), vec![pending_pattern]);
+    assert_eq!(review_ids(&pending_of_first), vec![pending_schema]);
+    assert_eq!(review_ids(&of_second), vec![other_pending]);
+    assert_eq!(by_status.total, 1);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_search_reviews_by_shop_name_slug_host_and_review_id() {
+async fn should_search_reviews_by_listing_source_name_and_match_wildcards_literally() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let antiques = insert_source(
-        &pool,
-        "Antik Sammler",
-        "antik-sammler",
-        "sammler.example.de",
-        true,
-    )
-    .await;
-    let percent = insert_source(&pool, "50% Shop", "fifty-shop", "fifty.example.com", true).await;
-    let other = insert_source(&pool, "Other", "other", "other.example.com", true).await;
+    let antiques = source(&pool, "Antik Sammler", "sammler.example.de", true).await;
+    let percent = source(&pool, "50% Shop", "fifty.example.com", true).await;
     let antiques_review = pending_schema_review(&repository, antiques).await;
     let percent_review = pending_schema_review(&repository, percent).await;
-    let other_review = pending_schema_review(&repository, other).await;
     let search = |text: &str| ReviewQuery {
         search: SearchTerm::new(text),
         ..ReviewQuery::default()
     };
 
-    let by_name = list_reviews(&repository, search("antik")).await;
-    let by_slug = list_reviews(&repository, search("K-SAMM")).await;
-    let by_host = list_reviews(&repository, search("sammler.example")).await;
-    let by_id = list_reviews(&repository, search(&other_review.to_string())).await;
+    let by_name = list_reviews(&repository, search("ANTIK")).await;
     let by_wildcard = list_reviews(&repository, search("50%")).await;
     let by_underscore = list_reviews(&repository, search("_")).await;
-    let by_nothing = list_reviews(&repository, search("no such shop")).await;
 
     assert_eq!(review_ids(&by_name), vec![antiques_review]);
-    assert_eq!(review_ids(&by_slug), vec![antiques_review]);
-    assert_eq!(review_ids(&by_host), vec![antiques_review]);
-    assert_eq!(review_ids(&by_id), vec![other_review]);
-    assert_eq!(
-        review_ids(&by_wildcard),
-        vec![percent_review],
-        "a % in the search matches itself, not any text"
-    );
-    assert_eq!(by_underscore.total, 0, "an _ in the search matches itself");
-    assert_eq!(by_nothing.total, 0);
+    assert_eq!(review_ids(&by_wildcard), vec![percent_review]);
+    assert_eq!(by_underscore.total, 0);
 }
 
-/// The `human_required` filter reads the agents' rounds as the review's own `human_required`
-/// does, and only a pending review waits.
+/// The `waiting` filter reads the agents' rounds as the review's own `human_required` does: a
+/// pending review waits for a human at the cap or after a hand-over, and for a repair while a
+/// needs-repair verdict is open below the cap.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_filter_the_reviews_that_wait_for_a_human() {
+async fn should_filter_the_reviews_that_wait_for_a_human_or_a_repair() {
     let pool = get_postgres_client().await;
-    let repository = agent_repository(&pool, 1);
-    let capped_source = insert_source(&pool, "Capped", "capped", "capped.example.com", true).await;
-    let handed_source = insert_source(&pool, "Handed", "handed", "handed.example.com", true).await;
-    let working_source =
-        insert_source(&pool, "Working", "working", "working.example.com", true).await;
+    let repository = agent_repository(&pool, 2);
+    let capped_source = source(&pool, "Capped", "capped.example.com", true).await;
+    let handed_source = source(&pool, "Handed", "handed.example.com", true).await;
+    let repair_source = source(&pool, "Repair", "repair.example.com", true).await;
+    let working_source = source(&pool, "Working", "working.example.com", true).await;
     let capped = pending_schema_review(&repository, capped_source).await;
     let handed = pending_schema_review(&repository, handed_source).await;
+    let repair = pending_schema_review(&repository, repair_source).await;
     let working = pending_schema_review(&repository, working_source).await;
+    for _ in 0..2 {
+        repository
+            .request_repair(
+                capped,
+                ReviewActor::AgentReviewer,
+                Some("the title is wrong"),
+            )
+            .await
+            .unwrap();
+    }
     repository
         .request_repair(
-            capped,
+            repair,
             ReviewActor::AgentReviewer,
-            Some("the title is wrong"),
+            Some("the price is wrong"),
         )
         .await
         .unwrap();
@@ -445,87 +398,74 @@ async fn should_filter_the_reviews_that_wait_for_a_human() {
         .hand_to_human(handed, ReviewActor::AgentAuthor, Some("needs a decision"))
         .await
         .unwrap();
-    let closed = closed_schema_review(&repository, capped_source, "REJECTED").await;
-    let waiting = |human_required| ReviewQuery {
-        human_required: Some(human_required),
+    let waiting = |waiting| ReviewQuery {
+        waiting: Some(waiting),
         ..ReviewQuery::default()
     };
 
-    let waits = list_reviews(&repository, waiting(true)).await;
-    let does_not_wait = list_reviews(&repository, waiting(false)).await;
+    let human = list_reviews(&repository, waiting(ReviewWaiting::Human)).await;
+    let repairing = list_reviews(&repository, waiting(ReviewWaiting::Repair)).await;
+    let everything = list_reviews(&repository, ReviewQuery::default()).await;
 
-    let mut waiting_ids = review_ids(&waits);
-    waiting_ids.sort_by_key(|id| id.to_string());
-    let mut expected = vec![capped, handed];
-    expected.sort_by_key(|id| id.to_string());
-    assert_eq!((waits.total, waiting_ids), (2, expected));
-    assert!(waits.reviews.iter().all(|review| review.human_required));
-    assert_eq!(does_not_wait.total, 2);
-    assert!(review_ids(&does_not_wait).contains(&working));
-    assert!(review_ids(&does_not_wait).contains(&closed));
-    assert!(
-        does_not_wait
-            .reviews
+    assert_eq!(sorted(&review_ids(&human)), sorted(&[capped, handed]));
+    assert!(human.items.iter().all(|review| review.human_required));
+    assert_eq!(review_ids(&repairing), vec![repair]);
+    assert_eq!(
+        everything
+            .items
             .iter()
-            .all(|review| !review.human_required)
+            .filter(|review| review.human_required)
+            .count(),
+        2
     );
+    assert!(review_ids(&everything).contains(&working));
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_wait_for_no_human_outside_agent_mode() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let source = insert_source(&pool, "Shop", "shop", "shop.example.com", true).await;
-    pending_schema_review(&repository, source).await;
+    let shop = source(&pool, "Shop", "shop.example.com", true).await;
+    pending_schema_review(&repository, shop).await;
 
     let waits = list_reviews(
         &repository,
         ReviewQuery {
-            human_required: Some(true),
+            waiting: Some(ReviewWaiting::Human),
             ..ReviewQuery::default()
         },
     )
     .await;
-    let counts = ConsoleOverviewReader::of(&repository)
+    let counts = overview_reader(&pool, &repository)
         .overview()
         .await
         .unwrap();
 
     assert_eq!(waits.total, 0);
-    assert_eq!(counts.pending_reviews.waiting_for_human, 0);
+    assert_eq!(counts.reviews.waiting_for_human, 0);
+    assert!(!counts.agent_mode);
 }
 
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_a_review_cursor_that_names_no_review() {
-    let pool = get_postgres_client().await;
-    let repository = CrawlerReviewRepository::new(pool.clone());
-
-    let result = ReviewQueueReader::of(&repository)
-        .list_reviews(&ReviewQuery {
-            after: Some(CrawlerReviewId::new()),
-            ..ReviewQuery::default()
-        })
-        .await;
-
-    assert!(matches!(result, Err(PageReadError::UnknownCursor(_))));
+fn overview_reader(pool: &PgPool, repository: &CrawlerReviewRepository) -> ConsoleOverviewReader {
+    ConsoleOverviewReader::new(repository, ListingSourceOverviewReader::new(pool.clone()))
 }
 
-async fn list_sources(pool: &PgPool, query: ListingSourceQuery) -> ListingSourcePage {
+async fn list_sources(pool: &PgPool, query: ListingSourceQuery) -> ListPage<ListingSourceOverview> {
     ListingSourceOverviewReader::new(pool.clone())
         .list_listing_sources(&query)
         .await
         .unwrap()
 }
 
-fn source_ids(page: &ListingSourcePage) -> Vec<ListingSourceId> {
-    page.listing_sources
+fn source_ids(page: &ListPage<ListingSourceOverview>) -> Vec<ListingSourceId> {
+    page.items
         .iter()
         .map(|source| source.listing_source_id)
         .collect()
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_page_through_every_listing_source_in_the_order_asked_for() {
+async fn should_read_listing_sources_in_windows_of_the_order_asked_for() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
     let mut by_name = Vec::new();
@@ -533,44 +473,27 @@ async fn should_page_through_every_listing_source_in_the_order_asked_for() {
         .iter()
         .enumerate()
     {
-        let id = insert_source(
-            &pool,
-            name,
-            &format!("slug-{index}"),
-            &format!("shop{index}.example.com"),
-            true,
-        )
-        .await;
-        by_name.push((name.to_lowercase(), id, index));
+        let id = source(&pool, name, &format!("shop{index}.example.com"), true).await;
+        by_name.push((name.to_lowercase(), id));
     }
     by_name.sort();
-    // Two pending reviews for Echo, one for Charlie.
     let echo = by_name[4].1;
     let charlie = by_name[2].1;
     pending_schema_review(&repository, echo).await;
     pending_url_pattern_review(&repository, echo).await;
     pending_schema_review(&repository, charlie).await;
+    let named = |offset| ListingSourceQuery {
+        sort: SourceSort::Name,
+        direction: SortDirection::Ascending,
+        window: window(2, offset),
+        ..ListingSourceQuery::default()
+    };
 
     let mut paged = Vec::new();
-    let mut after = None;
-    loop {
-        let page = list_sources(
-            &pool,
-            ListingSourceQuery {
-                sort: SourceSort::ListingSourceName,
-                direction: SortDirection::Ascending,
-                after,
-                page_size: page_size(2),
-                ..ListingSourceQuery::default()
-            },
-        )
-        .await;
-        assert_eq!(page.total, 5);
+    for offset in [0, 2, 4] {
+        let page = list_sources(&pool, named(offset)).await;
+        assert_eq!((page.total, page.limit, page.offset), (5, 2, offset));
         paged.extend(source_ids(&page));
-        match page.next_after {
-            Some(next) => after = Some(next),
-            None => break,
-        }
     }
     let by_reviews = list_sources(
         &pool,
@@ -583,52 +506,20 @@ async fn should_page_through_every_listing_source_in_the_order_asked_for() {
 
     assert_eq!(
         paged,
-        by_name.iter().map(|(_, id, _)| *id).collect::<Vec<_>>(),
+        by_name.iter().map(|(_, id)| *id).collect::<Vec<_>>(),
         "by name regardless of case, each source once"
     );
-    assert_eq!(
-        source_ids(&by_reviews)[..2],
-        [echo, charlie],
-        "the most pending reviews first"
-    );
+    assert_eq!(source_ids(&by_reviews)[..2], [echo, charlie]);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_filter_and_search_listing_sources_in_sql() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let healthy = insert_source(
-        &pool,
-        "Healthy Shop",
-        "healthy",
-        "healthy.example.com",
-        true,
-    )
-    .await;
-    let stopped = insert_source(
-        &pool,
-        "Stopped Shop",
-        "stopped",
-        "stopped.example.com",
-        true,
-    )
-    .await;
-    let failing = insert_source(
-        &pool,
-        "Failing Shop",
-        "failing",
-        "failing.example.com",
-        true,
-    )
-    .await;
-    let disabled = insert_source(
-        &pool,
-        "Disabled Shop",
-        "disabled",
-        "disabled.example.com",
-        false,
-    )
-    .await;
+    let healthy = source(&pool, "Healthy Shop", "healthy.example.com", true).await;
+    let stopped = source(&pool, "Stopped Shop", "stopped.example.com", true).await;
+    let failing = source(&pool, "Failing Shop", "failing.example.com", true).await;
+    let disabled = source(&pool, "Disabled Shop", "disabled.example.com", false).await;
     SpiderCandidateServiceImpl::new(pool.clone())
         .mark_crawl_needs_operator(
             &CrawledRoot::new(stopped, "https://stopped.example.com/".to_owned()),
@@ -638,126 +529,59 @@ async fn should_filter_and_search_listing_sources_in_sql() {
         .await
         .unwrap();
     sqlx::query(
-        "UPDATE listing_sources SET scrape_failure_streak = 3, last_scrape_error_kind = 'TIMEOUT' \
-         WHERE listing_source_id = $1",
+        "UPDATE listing_sources SET scrape_failure_streak = 3, last_scrape_error_kind = 'TIMEOUT'          WHERE listing_source_id = $1",
     )
     .bind(failing.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
     pending_schema_review(&repository, disabled).await;
-    let with = |health: Option<SourceHealth>, crawl_enabled: Option<bool>| ListingSourceQuery {
-        health,
-        crawl_enabled,
+    let with = |status| ListingSourceQuery {
+        status: Some(status),
         ..ListingSourceQuery::default()
     };
-    let sorted = |mut ids: Vec<ListingSourceId>| {
-        ids.sort_by_key(|id| id.to_string());
-        ids
-    };
 
-    let attention = list_sources(&pool, with(Some(SourceHealth::NeedsAttention), None)).await;
-    let operator = list_sources(&pool, with(Some(SourceHealth::NeedsOperator), None)).await;
-    let scrape_failing = list_sources(&pool, with(Some(SourceHealth::ScrapeFailing), None)).await;
-    let healthy_page = list_sources(&pool, with(Some(SourceHealth::Healthy), None)).await;
-    let not_crawled = list_sources(&pool, with(None, Some(false))).await;
+    let attention = list_sources(&pool, with(SourceStatus::NeedsAttention)).await;
+    let operator = list_sources(&pool, with(SourceStatus::CrawlNeedsOperator)).await;
+    let failing_page = list_sources(&pool, with(SourceStatus::Failing)).await;
+    let healthy_page = list_sources(&pool, with(SourceStatus::Healthy)).await;
+    let disabled_page = list_sources(&pool, with(SourceStatus::Disabled)).await;
+    let by_name = list_sources(
+        &pool,
+        ListingSourceQuery {
+            search: SearchTerm::new("STOPPED SH"),
+            ..ListingSourceQuery::default()
+        },
+    )
+    .await;
     let by_host = list_sources(
         &pool,
         ListingSourceQuery {
-            search: SearchTerm::new("STOPPED.example"),
-            ..ListingSourceQuery::default()
-        },
-    )
-    .await;
-    let by_id = list_sources(
-        &pool,
-        ListingSourceQuery {
-            search: SearchTerm::new(&failing.to_string()),
+            search: SearchTerm::new("failing.example"),
             ..ListingSourceQuery::default()
         },
     )
     .await;
 
-    assert_eq!(
-        (attention.total, sorted(source_ids(&attention))),
-        (2, sorted(vec![stopped, failing]))
-    );
+    assert_eq!(sorted(&source_ids(&attention)), sorted(&[stopped, failing]));
     assert_eq!(source_ids(&operator), vec![stopped]);
-    assert_eq!(source_ids(&scrape_failing), vec![failing]);
+    assert_eq!(source_ids(&failing_page), vec![failing]);
     assert_eq!(
         source_ids(&healthy_page),
         vec![healthy],
         "a source that is not crawled is neither healthy nor in need of attention"
     );
-    assert_eq!(source_ids(&not_crawled), vec![disabled]);
-    assert_eq!(source_ids(&by_host), vec![stopped]);
-    assert_eq!(source_ids(&by_id), vec![failing]);
-    assert!(
-        attention
-            .listing_sources
-            .iter()
-            .all(|source| source.needs_attention)
-    );
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_continue_after_a_listing_source_that_no_longer_matches_the_filter() {
-    let pool = get_postgres_client().await;
-    let mut ids = Vec::new();
-    for index in 0..4 {
-        ids.push(
-            insert_source(
-                &pool,
-                &format!("Shop {index}"),
-                &format!("shop-{index}"),
-                &format!("shop{index}.example.com"),
-                true,
-            )
-            .await,
-        );
-    }
-    let query = |after| ListingSourceQuery {
-        crawl_enabled: Some(true),
-        sort: SourceSort::ListingSourceName,
-        direction: SortDirection::Ascending,
-        after,
-        page_size: page_size(2),
-        ..ListingSourceQuery::default()
-    };
-    let first = list_sources(&pool, query(None)).await;
-    assert_eq!(source_ids(&first), ids[..2]);
-    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
-        .bind(ids[1].as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let second = list_sources(&pool, query(first.next_after)).await;
-
-    assert_eq!(source_ids(&second), ids[2..]);
-    assert_eq!(second.total, 3);
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_a_listing_source_cursor_that_names_no_listing_source() {
-    let pool = get_postgres_client().await;
-
-    let result = ListingSourceOverviewReader::new(pool)
-        .list_listing_sources(&ListingSourceQuery {
-            after: Some(ListingSourceId::new()),
-            ..ListingSourceQuery::default()
-        })
-        .await;
-
-    assert!(matches!(result, Err(PageReadError::UnknownCursor(_))));
+    assert_eq!(source_ids(&disabled_page), vec![disabled]);
+    assert_eq!(source_ids(&by_name), vec![stopped]);
+    assert_eq!(source_ids(&by_host), vec![failing]);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_filter_the_listing_sources_the_crawler_works_on_right_now() {
     let pool = get_postgres_client().await;
-    let crawled = insert_source(&pool, "Crawled", "crawled", "crawled.example.com", true).await;
-    let scraped = insert_source(&pool, "Scraped", "scraped", "scraped.example.com", true).await;
-    insert_source(&pool, "Idle", "idle", "idle.example.com", true).await;
+    let crawled = source(&pool, "Crawled", "crawled.example.com", true).await;
+    let scraped = source(&pool, "Scraped", "scraped.example.com", true).await;
+    let idle = source(&pool, "Idle", "idle.example.com", true).await;
     let work_locks = Arc::new(LocalLockManager::new());
     let reader =
         ListingSourceOverviewReader::new(pool.clone()).with_work_locks(Arc::clone(&work_locks));
@@ -776,19 +600,18 @@ async fn should_filter_the_listing_sources_the_crawler_works_on_right_now() {
         .list_listing_sources(&with(SourceActivity::Scraping))
         .await
         .unwrap();
-    let active = reader
-        .list_listing_sources(&with(SourceActivity::Active))
+    let idling = reader
+        .list_listing_sources(&with(SourceActivity::Idle))
         .await
         .unwrap();
-    let counts = ConsoleOverviewReader::of(&CrawlerReviewRepository::new(pool.clone()))
-        .with_work_locks(Arc::clone(&work_locks))
+    let counts = ConsoleOverviewReader::new(&CrawlerReviewRepository::new(pool.clone()), reader)
         .overview()
         .await
         .unwrap();
 
     assert_eq!(source_ids(&crawling), vec![crawled]);
     assert_eq!(source_ids(&scraping), vec![scraped]);
-    assert_eq!((active.total, active.listing_sources.len()), (2, 2));
+    assert_eq!(source_ids(&idling), vec![idle]);
     assert_eq!(
         (counts.sources.crawling_now, counts.sources.scraping_now),
         (1, 1)
@@ -796,85 +619,56 @@ async fn should_filter_the_listing_sources_the_crawler_works_on_right_now() {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_read_a_listing_source_with_its_review_history_url_pattern_and_schema() {
+async fn should_read_a_listing_source_with_its_live_configuration() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let source = insert_source(&pool, "Antik", "antik", "antik.example.com", true).await;
-    let other = insert_source(&pool, "Other", "other", "other.example.com", true).await;
-    pending_schema_review(&repository, other).await;
-    let oldest = closed_schema_review(&repository, source, "SUPERSEDED").await;
-    let rejected = closed_schema_review(&repository, source, "REJECTED").await;
-    let pattern = pending_url_pattern_review(&repository, source).await;
-    let pending = pending_schema_review(&repository, source).await;
+    let shop = source(&pool, "Antik", "antik.example.com", true).await;
+    let pattern_review = pending_url_pattern_review(&repository, shop).await;
+    repository
+        .reject_review(pattern_review, ReviewActor::Human, Some("no"))
+        .await
+        .unwrap();
+    let approved_schema = closed_schema_review(&repository, shop, "APPROVED").await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern = '/item/\\d+', \
-         url_pattern_exclude = '/item/0' WHERE listing_source_id = $1",
+        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern = '/item/\\d+',          url_pattern_exclude = '/item/0' WHERE listing_source_id = $1",
     )
-    .bind(source.as_uuid())
+    .bind(shop.as_uuid())
     .execute(&pool)
     .await
     .unwrap();
+    // The product schema is stored in the single-object shape an older version wrote.
     sqlx::query(
-        "INSERT INTO listing_source_product_schemas \
-         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+        "INSERT INTO listing_source_product_schemas          (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
     )
-    .bind(source.as_uuid())
-    .bind(serde_json::to_value(vec![schema()]).unwrap())
+    .bind(shop.as_uuid())
+    .bind(serde_json::to_value(schema()).unwrap())
     .execute(&pool)
     .await
     .unwrap();
-    let reader = ListingSourceDetailReader::new(
-        ListingSourceOverviewReader::new(pool.clone()),
-        ReviewQueueReader::of(&repository),
-    );
+    let reader = ListingSourceDetailReader::new(ListingSourceOverviewReader::new(pool.clone()));
 
     let detail = reader
-        .find_listing_source(
-            source,
-            ReviewHistoryQuery {
-                after: None,
-                page_size: page_size(3),
-            },
-        )
+        .find_listing_source(shop)
         .await
         .unwrap()
         .expect("the source exists");
-    let rest = reader
-        .find_listing_source(
-            source,
-            ReviewHistoryQuery {
-                after: detail.reviews.next_after,
-                page_size: page_size(3),
-            },
-        )
-        .await
-        .unwrap()
-        .expect("the source exists");
+    let json = serde_json::to_value(&detail).unwrap();
 
-    assert_eq!(detail.listing_source.listing_source_id, source);
-    assert_eq!(detail.listing_source.listing_source_slug, "antik");
+    assert_eq!(json["listing_source_id"], shop.to_string());
+    assert_eq!(json["url_pattern"]["value"], "/item/\\d+");
+    assert_eq!(json["url_pattern"]["exclude"], "/item/0");
     assert_eq!(
-        (
-            detail.url_pattern.state.as_str(),
-            detail.url_pattern.pattern.as_deref(),
-            detail.url_pattern.exclude.as_deref()
-        ),
-        ("MATCHED", Some("/item/\\d+"), Some("/item/0"))
+        json["url_pattern"]["approved_review_id"],
+        json!(null),
+        "no approved pattern review"
     );
-    assert_eq!(
-        detail.product_schema.map(|schema| schema.schemas),
-        Some(vec![schema()])
-    );
-    assert_eq!(detail.reviews.total, 4, "only the reviews of this source");
-    assert_eq!(
-        review_ids(&detail.reviews),
-        vec![pending, pattern, rejected]
-    );
-    assert_eq!(review_ids(&rest.reviews), vec![oldest]);
-    assert_eq!(rest.reviews.next_after, None);
+    assert_eq!(detail.product_schemas, vec![schema()]);
+    assert_eq!(detail.removed_page_schemas, vec![]);
+    assert_eq!(detail.live_schema_review_id, Some(approved_schema));
+    assert!(detail.live_schemas_since.is_some());
     assert!(
         reader
-            .find_listing_source(ListingSourceId::new(), ReviewHistoryQuery::default())
+            .find_listing_source(ListingSourceId::new())
             .await
             .unwrap()
             .is_none()
@@ -882,35 +676,119 @@ async fn should_read_a_listing_source_with_its_review_history_url_pattern_and_sc
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_read_a_listing_source_without_schema_as_having_none() {
+async fn should_name_who_approved_the_live_url_pattern() {
     let pool = get_postgres_client().await;
     let repository = CrawlerReviewRepository::new(pool.clone());
-    let source = insert_source(&pool, "Antik", "antik", "antik.example.com", true).await;
-    let reader = ListingSourceDetailReader::new(
-        ListingSourceOverviewReader::new(pool.clone()),
-        ReviewQueueReader::of(&repository),
+    let shop = source(&pool, "Antik", "antik.example.com", true).await;
+    sqlx::query(
+        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern = '/item/'          WHERE listing_source_id = $1",
+    )
+    .bind(shop.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review = pending_url_pattern_review(&repository, shop).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET status = 'APPROVED', reviewed = NOW() WHERE review_id = $1",
+    )
+    .bind(review.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO crawler_review_events (event_id, review_id, actor, action, candidate_version, details)          VALUES (gen_random_uuid(), $1, 'AGENT_REVIEWER', 'APPROVED', 1, '{}'::jsonb)",
+    )
+    .bind(review.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let reader = ListingSourceDetailReader::new(ListingSourceOverviewReader::new(pool.clone()));
+
+    let json = serde_json::to_value(
+        reader
+            .find_listing_source(shop)
+            .await
+            .unwrap()
+            .expect("the source exists"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        json["url_pattern"]["approved_review_id"],
+        review.to_string()
     );
+    assert_eq!(json["url_pattern"]["approved_by"], "AGENT_REVIEWER");
+    assert!(json["url_pattern"]["approved_at"].is_string());
+}
 
-    let detail = reader
-        .find_listing_source(source, ReviewHistoryQuery::default())
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_list_the_reviews_of_a_listing_source_with_their_live_flag_and_last_actor() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let shop = source(&pool, "Antik", "antik.example.com", true).await;
+    let other = source(&pool, "Other", "other.example.com", true).await;
+    pending_schema_review(&repository, other).await;
+    let old_approved = closed_schema_review(&repository, shop, "APPROVED").await;
+    let live_approved = closed_schema_review(&repository, shop, "APPROVED").await;
+    let pending = pending_schema_review(&repository, shop).await;
+    repository
+        .request_repair(
+            pending,
+            ReviewActor::AgentReviewer,
+            Some("the title is wrong"),
+        )
         .await
-        .unwrap()
-        .expect("the source exists");
+        .unwrap();
+    let reader = ReviewQueueReader::of(&repository);
 
-    assert!(detail.product_schema.is_none());
-    assert_eq!(detail.url_pattern.state, "UNKNOWN");
-    assert_eq!(detail.url_pattern.pattern, None);
-    assert_eq!(detail.reviews.total, 0);
+    let all = reader
+        .list_source_reviews(shop, &ReviewQuery::default())
+        .await
+        .unwrap();
+    let approved_only = reader
+        .list_source_reviews(
+            shop,
+            &ReviewQuery {
+                status: Some(ReviewStatus::Approved),
+                window: window(1, 1),
+                ..ReviewQuery::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let flags = all
+        .items
+        .iter()
+        .map(|entry| {
+            (
+                entry.review.review_id,
+                entry.candidate_is_live,
+                entry.last_actor,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(all.total, 3, "only this source's reviews, newest first");
+    assert_eq!(
+        flags,
+        vec![
+            (pending, false, Some(ReviewActor::AgentReviewer)),
+            (live_approved, true, None),
+            (old_approved, false, None),
+        ]
+    );
+    assert_eq!(approved_only.total, 2);
+    assert_eq!(approved_only.items[0].review.review_id, old_approved);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
     let pool = get_postgres_client().await;
     let repository = agent_repository(&pool, 1);
-    let enabled = insert_source(&pool, "Enabled", "enabled", "enabled.example.com", true).await;
-    let stopped = insert_source(&pool, "Stopped", "stopped", "stopped.example.com", true).await;
-    let disabled =
-        insert_source(&pool, "Disabled", "disabled", "disabled.example.com", false).await;
+    let enabled = source(&pool, "Enabled", "enabled.example.com", true).await;
+    let stopped = source(&pool, "Stopped", "stopped.example.com", true).await;
+    let blocked = source(&pool, "Blocked", "blocked.example.com", true).await;
+    let disabled = source(&pool, "Disabled", "disabled.example.com", false).await;
     SpiderCandidateServiceImpl::new(pool.clone())
         .mark_crawl_needs_operator(
             &CrawledRoot::new(stopped, "https://stopped.example.com/".to_owned()),
@@ -919,6 +797,13 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         )
         .await
         .unwrap();
+    sqlx::query(
+        "UPDATE listing_sources SET scrape_failure_streak = 2, last_scrape_error_kind = 'TIMEOUT'          WHERE listing_source_id = $1",
+    )
+    .bind(blocked.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
     let waiting = pending_schema_review(&repository, enabled).await;
     pending_url_pattern_review(&repository, disabled).await;
     pending_schema_review(&repository, disabled).await;
@@ -932,7 +817,7 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         .await
         .unwrap();
 
-    let counts = ConsoleOverviewReader::of(&repository)
+    let counts = overview_reader(&pool, &repository)
         .overview()
         .await
         .unwrap();
@@ -941,18 +826,17 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
         serde_json::to_value(counts).unwrap(),
         json!({
             "sources": {
-                "total": 3,
-                "crawl_enabled": 2,
-                "needs_operator": 1,
-                "crawling_now": 0,
-                "scraping_now": 0
+                "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
+                "crawl_needs_operator": 1, "blocked_by_review": 0,
+                "failing_to_scrape": 1, "held_removals": 0
             },
-            "pending_reviews": {
-                "total": 3,
-                "url_pattern": 1,
-                "product_schema": 2,
+            "reviews": {
+                "pending_total": 3,
+                "pending_by_artifact": { "PRODUCT_SCHEMA": 2, "URL_PATTERN": 1 },
+                "pending_disabled_sources": 2,
                 "waiting_for_human": 1
-            }
+            },
+            "agent_mode": true
         })
     );
 }
