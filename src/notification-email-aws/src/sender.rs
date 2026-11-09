@@ -1,7 +1,8 @@
 use crate::{
     provider_failure::SesSendFailed,
     template_mapping::{
-        EmailLanguage, FrontendLinks, ses_template_tag_value, subject, template_data, template_type,
+        EmailLanguage, EmailTemplateType, FrontendLinks, ses_template_tag_value, subject,
+        template_data, template_type,
     },
     template_reader::TemplateReader,
 };
@@ -175,9 +176,9 @@ impl SesNotificationChannelSender {
         &self,
         source: &NotificationDeliverySource,
         first_name: Option<&str>,
-    ) -> Result<(String, String, &'static str), NotificationChannelSendError> {
+    ) -> Result<RenderedEmail, NotificationChannelSendError> {
         let template_type = if source.saved_search_digest.is_some() {
-            crate::template_mapping::EmailTemplateType::SavedSearchDigest
+            EmailTemplateType::SavedSearchDigest
         } else {
             template_type(&source.content)
         };
@@ -195,12 +196,18 @@ impl SesNotificationChannelSender {
                 ),
             )
             .await?;
-        Ok((
-            subject(template_type, email_language).to_owned(),
-            body,
-            ses_template_tag_value(template_type),
-        ))
+        Ok(RenderedEmail {
+            template_type,
+            subject: subject(template_type, email_language).to_owned(),
+            html_body: body,
+        })
     }
+}
+
+struct RenderedEmail {
+    template_type: EmailTemplateType,
+    subject: String,
+    html_body: String,
 }
 
 #[async_trait::async_trait]
@@ -222,29 +229,34 @@ impl NotificationChannelSender for SesNotificationChannelSender {
                 code: "EMAIL_TARGET_MISSING",
                 source: box_error(std::io::Error::other("email delivery target is missing")),
             })?;
-        let (subject, body, template_tag_value) =
-            self.render(source, target.first_name.as_deref()).await?;
+        let rendered = self.render(source, target.first_name.as_deref()).await?;
         let message = Message::builder()
-            .subject(Content::builder().data(subject).build().map_err(|source| {
-                NotificationChannelSendError::Permanent {
-                    code: "EMAIL_CONTENT_INVALID",
-                    source: box_error(source),
-                }
-            })?)
+            .subject(
+                Content::builder()
+                    .data(rendered.subject)
+                    .build()
+                    .map_err(|source| NotificationChannelSendError::Permanent {
+                        code: "EMAIL_CONTENT_INVALID",
+                        source: box_error(source),
+                    })?,
+            )
             .body(
                 Body::builder()
-                    .html(Content::builder().data(body).build().map_err(|source| {
-                        NotificationChannelSendError::Permanent {
-                            code: "EMAIL_CONTENT_INVALID",
-                            source: box_error(source),
-                        }
-                    })?)
+                    .html(
+                        Content::builder()
+                            .data(rendered.html_body)
+                            .build()
+                            .map_err(|source| NotificationChannelSendError::Permanent {
+                                code: "EMAIL_CONTENT_INVALID",
+                                source: box_error(source),
+                            })?,
+                    )
                     .build(),
             )
             .build();
         let email_tag = MessageTag::builder()
             .name("template_type")
-            .value(template_tag_value)
+            .value(ses_template_tag_value(rendered.template_type))
             .build()
             .map_err(|source| NotificationChannelSendError::Permanent {
                 code: "EMAIL_TAG_INVALID",
