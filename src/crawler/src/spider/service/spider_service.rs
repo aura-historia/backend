@@ -533,7 +533,7 @@ impl SpiderServiceImpl {
         // URLs under the pattern it has and the reviewer's decision
         // classifies them.
         if let Err(UrlPatternServiceError::PendingReview { review_id, .. }) = classification {
-            info!(
+            debug!(
                 stage,
                 review_id = %review_id,
                 sample_size = state.inference_sample.len(),
@@ -658,7 +658,7 @@ impl SpiderServiceImpl {
                     diagnostics: Box::default(),
                 });
             }
-            info!(
+            debug!(
                 url_count = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
             );
@@ -1083,6 +1083,7 @@ fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> 
 }
 
 pub(crate) const CRAWL_COMPLETED_EVENT: &str = "crawler.spider.crawl_completed";
+pub(crate) const CRAWL_DIAGNOSTICS_EVENT: &str = "crawler.spider.crawl_diagnostics";
 pub(crate) const PATTERN_CLASSIFIED_EVENT: &str = "crawler.spider.pattern_classified";
 
 /// The product URL pattern a classification stage settled on, or that it found none. A stage
@@ -1133,21 +1134,34 @@ fn log_crawl_outcome(
         domain = %state.source.domain,
         completion = %completion,
         kind = %kind,
+        truncated = !completion.is_full(),
+        total_crawled = state.total_crawled,
+        product_urls_count = state.products_found(),
+        product_pattern = ?product_pattern,
         sample_match_ratio = state.sample_match_ratio(),
         query_url_share = state.query_url_share(),
+        status_counts = ?diagnostics.status_counts,
+        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
+        diagnostic_reason = ?diagnostics.diagnostic_reason,
+        stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
+        pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
+        "{}",
+        crawl_outcome_message(
+            completion,
+            diagnostics.stopped_early,
+            state.pending_url_pattern_review().is_some()
+        )
+    );
+    debug!(
+        event = CRAWL_DIAGNOSTICS_EVENT,
+        listing_source_id = %state.source.listing_source_id,
+        domain = %state.source.domain,
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
         known_skipped = diagnostics.known_skipped,
         known_fetches_saved = diagnostics.known_fetches_saved,
         root_reroot = ?diagnostics.root_reroot,
-        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
         at_budget = completion == CrawlCompletion::PageBudgetReached,
-        diagnostic_reason = ?diagnostics.diagnostic_reason,
-        truncated = !completion.is_full(),
-        total_crawled = state.total_crawled,
-        product_urls_count = state.products_found(),
-        product_pattern = ?product_pattern,
-        product_pattern_known = product_pattern.is_some(),
         classification_done = state.classification_done,
         pages_received = diagnostics.pages_received,
         rejected_host = diagnostics.rejected_host,
@@ -1159,17 +1173,9 @@ fn log_crawl_outcome(
         robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
         lagged = diagnostics.lagged,
         initial_anti_bot = ?diagnostics.initial_anti_bot,
-        status_counts = ?diagnostics.status_counts,
         bot_challenge_pages = diagnostics.bot_challenge_pages,
         rate_limit = ?diagnostics.rate_limit,
-        pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
-        stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
-        "{}",
-        crawl_outcome_message(
-            completion,
-            diagnostics.stopped_early,
-            state.pending_url_pattern_review().is_some()
-        )
+        "Crawl diagnostics"
     );
 }
 

@@ -343,7 +343,7 @@ async fn record_review_wait_run(
             "Failed to persist crawl review-wait metadata"
         ),
     }
-    info!(
+    debug!(
         listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_root.host(),
@@ -1090,7 +1090,7 @@ impl CrawlerCronJob {
                 }
 
                 if !started {
-                    info!(
+                    debug!(
                         concurrency = spider_concurrency,
                         "Spider scheduler pass starting"
                     );

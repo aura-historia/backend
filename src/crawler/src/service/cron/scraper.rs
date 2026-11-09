@@ -2271,7 +2271,7 @@ impl CrawlerCronJob {
         let pass_start = tokio::time::Instant::now();
         self.emit_due_scraper_urls().await;
         self.emit_sources_awaiting_review().await;
-        info!(
+        debug!(
             concurrency = scraper_concurrency,
             push_batch_size = self.config.effective_push_batch_size(),
             push_queue_capacity = self.config.effective_push_queue_capacity(),
@@ -2477,20 +2477,31 @@ impl CrawlerCronJob {
         // is no failure, so it is counted apart from `failed`. `deferred_batches` counts whole
         // scraper batches that lost the scraper ListingSource lock and is reported separately so
         // expected lock contention is not mistaken for failures or meaningful skips.
-        info!(
-            event = PASS_COMPLETED_EVENT,
-            total,
-            succeeded,
-            failed,
-            awaiting_schema_review,
-            skipped,
-            deferred_urls,
-            deferred_batches,
-            duration_ms,
-            skip_reasons = ?pass_summary.skip_reasons(),
-            by_domain = %pass_summary.by_domain_json(),
-            "Scraper scheduler pass complete"
-        );
+        macro_rules! log_pass {
+            ($level:expr) => {
+                tracing::event!(
+                    $level,
+                    event = PASS_COMPLETED_EVENT,
+                    total,
+                    succeeded,
+                    failed,
+                    awaiting_schema_review,
+                    skipped,
+                    deferred_urls,
+                    deferred_batches,
+                    duration_ms,
+                    skip_reasons = ?pass_summary.skip_reasons(),
+                    by_domain = %pass_summary.by_domain_json(),
+                    "Scraper scheduler pass complete"
+                )
+            };
+        }
+        // A pass without candidates is a heartbeat: INFO carries only passes that scraped.
+        if total == 0 {
+            log_pass!(tracing::Level::DEBUG);
+        } else {
+            log_pass!(tracing::Level::INFO);
+        }
 
         #[cfg(not(test))]
         {
