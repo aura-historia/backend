@@ -1,3 +1,4 @@
+use crate::persisted_referral;
 use application::error::{box_error, static_error};
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::*;
@@ -185,7 +186,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
                 source: box_error(ListingIngestionConfigurationMismatch),
             }
         })?;
-        let referral_configuration = referral_json(source.referral_configuration());
+        let referral_configuration = persisted_referral::to_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
             "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (listing_source_slug_id) DO NOTHING RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
@@ -225,7 +226,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
                 source: box_error(error),
             }
         })?;
-        let referral_configuration = referral_json(source.referral_configuration());
+        let referral_configuration = persisted_referral::to_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
             "UPDATE listing_sources SET name=$1,listing_source_type=$2,operator_party_id=$3,url=$4,image=$5,platform_technology=$6,referral_configuration=$7,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$8 AND version=$9 RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
@@ -320,7 +321,8 @@ async fn load(
                 .map_err(invalid)?,
         },
         platform_technology: row.platform_technology,
-        referral_configuration: parse_referral(row.referral_configuration)?,
+        referral_configuration: persisted_referral::from_json(row.referral_configuration.as_ref())
+            .map_err(invalid)?,
     })
     .map_err(invalid)?;
     config.validate_for(&source).map_err(invalid)?;
@@ -463,32 +465,6 @@ fn parse_optional_language(
         .transpose()
 }
 
-fn referral_json(value: Option<&ReferralConfiguration>) -> Option<serde_json::Value> {
-    value.map(|value| match value {
-        ReferralConfiguration::Partnerize { camref } => {
-            serde_json::json!({"kind":"PARTNERIZE","camref":camref.as_ref()})
-        }
-    })
-}
-fn parse_referral(
-    value: Option<serde_json::Value>,
-) -> Result<Option<ReferralConfiguration>, ListingSourceRepositoryError> {
-    value
-        .map(|value| {
-            let camref = value
-                .get("camref")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| invalid(ListingIngestionConfigurationMismatch))?;
-            if value.get("kind").and_then(serde_json::Value::as_str) == Some("PARTNERIZE") {
-                Ok(ReferralConfiguration::Partnerize {
-                    camref: PartnerizeCamref::try_from(camref).map_err(invalid)?,
-                })
-            } else {
-                Err(invalid(ListingIngestionConfigurationMismatch))
-            }
-        })
-        .transpose()
-}
 fn invalid(error: impl std::error::Error + Send + Sync + 'static) -> ListingSourceRepositoryError {
     ListingSourceRepositoryError::InvalidPersistedState {
         source: box_error(error),
@@ -1634,26 +1610,6 @@ mod tests {
         assert!(parse_optional_language(Some("INVALID")).is_err());
     }
 
-    #[test]
-    fn should_reject_unsafe_partnerize_camref_from_persisted_configuration() {
-        for camref in [" campaign", "campaign/ref", "campaign?ref", "café"] {
-            let persisted = Some(serde_json::json!({"kind":"PARTNERIZE","camref":camref}));
-
-            assert!(parse_referral(persisted).is_err(), "{camref:?}");
-        }
-    }
-
-    #[test]
-    fn should_serialize_valid_partnerize_camref() {
-        let camref = PartnerizeCamref::try_from("1101l3AbC")
-            .unwrap_or_else(|error| panic!("test camref: {error}"));
-        let configuration = ReferralConfiguration::Partnerize { camref };
-
-        assert_eq!(
-            Some(serde_json::json!({"kind":"PARTNERIZE","camref":"1101l3AbC"})),
-            referral_json(Some(&configuration))
-        );
-    }
     #[aura_integration_test(services=[BUSINESS_SCHEMA], isolated = true)]
     async fn unrelated_source_edit_preserves_import_authority_and_woocommerce_configuration() {
         let pool = get_postgres_client().await;

@@ -11,7 +11,9 @@ use aura_historia_contracts::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use listing_source_service::use_cases::queries::{
-    public_listing_source::{PublicListingSourceOperatorSummary, PublicListingSourceSummary},
+    public_listing_source::{
+        PublicListingSourceOperatorSummary, PublicListingSourceSummary, PublicListingSourceWebsite,
+    },
     search_public_listing_sources::{
         PublicListingSourceSearchContinuation, PublicListingSourceSearchPosition,
         SearchPublicListingSourcesRequest, SearchPublicListingSourcesResult,
@@ -148,7 +150,7 @@ fn should_expose_exact_public_source_fields_and_omit_absent_images_and_urls() {
         operator: PublicListingSourceOperatorSummary {
             name: PartyName::try_from("Museum Operator").unwrap(),
         },
-        url: None,
+        website: None,
         image: None,
     };
     let detail = output(PublicListingSourceData::from(source.clone()));
@@ -175,6 +177,37 @@ fn should_expose_exact_public_source_fields_and_omit_absent_images_and_urls() {
             },
             None
         ))
+    );
+}
+
+#[test]
+fn should_expose_view_url_next_to_url_when_the_source_has_a_website() {
+    let source = PublicListingSourceSummary {
+        listing_source_id: source_id(),
+        listing_source_slug_id: ListingSourceSlugId::raw("museum-source").unwrap(),
+        name: ListingSourceName::try_from("Museum Source").unwrap(),
+        operator: PublicListingSourceOperatorSummary {
+            name: PartyName::try_from("Museum Operator").unwrap(),
+        },
+        website: Some(PublicListingSourceWebsite {
+            url: "https://museum.example.test/".parse().unwrap(),
+            view_url: "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral"
+                .parse()
+                .unwrap(),
+        }),
+        image: None,
+    };
+
+    assert_eq!(
+        json!({
+            "listingSourceId": source_id(),
+            "listingSourceSlugId": "museum-source",
+            "name": "Museum Source",
+            "operator": {"name": "Museum Operator"},
+            "url": "https://museum.example.test/",
+            "viewUrl": "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral",
+        }),
+        output(PublicListingSourceData::from(source))
     );
 }
 
