@@ -28,11 +28,13 @@ const DEFAULT_MODEL: &str = "claude-opus-5-5";
 const DEFAULT_EFFORT: ClaudeEffort = ClaudeEffort::High;
 const DEFAULT_AUTHOR_MAX_TURNS: NonZeroU32 = NonZeroU32::new(80).unwrap();
 const DEFAULT_REVIEWER_MAX_TURNS: NonZeroU32 = NonZeroU32::new(50).unwrap();
-const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(4).unwrap();
-const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(2).unwrap();
+const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(12).unwrap();
+/// The console's default cap on live jobs: a further process would only wait for one, since each
+/// agent process holds at most one live job at a time.
+const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(4).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
-const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(300).unwrap();
+const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(60).unwrap();
 
 /// What one start of the runner does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,7 +378,7 @@ mod tests {
         let read = settings(&[], &[]).unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(read.mode, RunMode::Loop);
-        assert_eq!(read.interval, Duration::from_secs(300));
+        assert_eq!(read.interval, Duration::from_secs(60));
         assert_eq!(read.console.console_url.as_str(), "http://127.0.0.1:7878/");
         assert_eq!(
             read.console.token_file,
@@ -400,8 +402,8 @@ mod tests {
             }
         );
         assert_eq!(read.reviewer.max_turns.get(), 50);
-        assert_eq!(read.max_reviews_per_run.get(), 4);
-        assert_eq!(read.max_processes.get(), 2);
+        assert_eq!(read.max_reviews_per_run.get(), 12);
+        assert_eq!(read.max_processes.get(), 4);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
         assert_eq!(read.process_timeout, Duration::from_secs(60 * 60));
     }

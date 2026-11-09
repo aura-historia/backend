@@ -27,7 +27,9 @@ pub const AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV: &str = "CRAWLER_REVIEW_AGENT_NO_PAT
 /// The console's read-only route that answers its [`AgentLimits`].
 pub const AGENT_LIMITS_ROUTE: &str = "/api/review-agent-limits";
 
-const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(20).unwrap();
+/// About what four agent processes decide in an hour, so the cap stops a runaway rather than
+/// throttling the runner's default capacity.
+const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(60).unwrap();
 const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
 const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
@@ -222,7 +224,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn should_take_twenty_decisions_per_hour_and_the_other_defaults_when_nothing_is_set() {
+    fn should_take_sixty_decisions_per_hour_and_the_other_defaults_when_nothing_is_set() {
         for env in [
             &[][..],
             &[
@@ -235,7 +237,7 @@ mod tests {
             let limits = limits_from(env).unwrap_or_else(|error| panic!("{env:?}: {error}"));
 
             assert_eq!(limits, AgentLimits::default(), "{env:?}");
-            assert_eq!(limits.max_decisions_per_hour.get(), 20);
+            assert_eq!(limits.max_decisions_per_hour.get(), 60);
             assert_eq!(limits.max_matrix_age(), Duration::from_secs(30 * 60));
             assert_eq!(limits.min_labelled_urls.get(), 3);
             assert_eq!(limits.max_repair_rounds.get(), 3);
@@ -325,7 +327,7 @@ mod tests {
         assert_eq!(
             answered,
             serde_json::json!({
-                "max_decisions_per_hour": 20,
+                "max_decisions_per_hour": 60,
                 "matrix_max_age_minutes": 30,
                 "min_labelled_urls": 3,
                 "max_repair_rounds": 3,
