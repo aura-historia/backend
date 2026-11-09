@@ -4,7 +4,8 @@ use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::event_id::EventId;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::{
-    content_policy::ContentPolicyDecision, product_listing_id::ProductListingId,
+    content_policy::{ContentPolicyDecision, SensitiveContentCategory},
+    product_listing_id::ProductListingId,
 };
 use product_listing_postgres::{
     SqlxProductListingContentAssessmentReader, SqlxProductListingContentAssessmentWriterFactory,
@@ -15,6 +16,7 @@ use product_listing_service::ports::{
     ProductListingContentAssessmentWriterFactory,
 };
 use std::time::Duration;
+use strum::IntoEnumIterator;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
@@ -248,6 +250,45 @@ async fn should_advance_listing_freshness_only_for_effective_assessment_changes(
     }
     .await;
     assert!(result.is_ok(), "assessment freshness: {result:?}");
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_persist_and_read_every_sensitive_content_category() {
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let pool = get_postgres_client().await;
+        let (product_id, source) = insert_product_with_created_event(&pool).await?;
+        for category in SensitiveContentCategory::iter() {
+            let decision = ContentPolicyDecision::RequiresConsent(category);
+            let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await?;
+            let outcome = SqlxProductListingContentAssessmentWriterFactory::new()
+                .in_transaction(&mut tx)
+                .apply(&ProductListingContentAssessmentWrite {
+                    product_listing_id: product_id,
+                    source_event_id: source,
+                    decision: Some(decision),
+                })
+                .await?;
+            tx.commit().await?;
+            assert_eq!(
+                ProductListingContentAssessmentWriteOutcome::Applied,
+                outcome
+            );
+
+            let assessments = SqlxProductListingContentAssessmentReader::new(pool.clone())
+                .find_current_assessments(&[product_id])
+                .await?;
+            assert_eq!(
+                Some(decision),
+                assessments
+                    .get(&product_id)
+                    .map(|assessment| assessment.decision),
+                "{category:?} must round-trip through the stored assessment"
+            );
+        }
+        Ok(())
+    }
+    .await;
+    assert!(result.is_ok(), "sensitive content categories: {result:?}");
 }
 
 async fn apply_assessment(

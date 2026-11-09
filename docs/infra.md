@@ -186,6 +186,16 @@ valid. Keep issuer, API and database clocks synchronized within the 60-second al
 The [authentication boundary](http-api-front-door.md#route-and-authentication-boundary)
 owns cutoff, provider-failure and out-of-band revocation semantics.
 
+### Content assessment categories
+
+Every serving version must know every category stored in
+`product_listing_content_assessments`: readers fail closed on an unknown one, so listing,
+search, watchlist and notification reads that touch such a row fail. Do not roll back to a
+version that predates a stored category (`NUDITY` was added by
+[#2830](https://github.com/aura-historia/backend/issues/2830)) while rows with it exist.
+If a rollback is unavoidable, first delete those rows. Their listings then count as
+unassessed, so their images stay hidden until assessment runs again.
+
 ## Deployment inputs and approvals
 
 [Release](../.github/workflows/deploy.yml) is a **manual** workflow dispatched from

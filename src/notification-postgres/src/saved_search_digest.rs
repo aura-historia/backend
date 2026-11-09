@@ -175,7 +175,7 @@ pub(crate) async fn load_delivery_source(
         presentation::NotificationPresentationPreferences,
         saved_search_digest::SavedSearchEmailDigest,
     };
-    use product_listing_core::content_policy::{ContentPolicyDecision, SensitiveContentCategory};
+    use product_listing_core::content_policy::ContentPolicyDecision;
     let target = sqlx::query_as::<_, DigestTarget>(r#"SELECT g.digest_id, g.user_id, g.window_end, g.payload_version, d.channel, d.target_key, u.language, u.show_unassessed_or_sensitive_content
         FROM notification_deliveries d JOIN saved_search_digests g USING(digest_id) JOIN users u ON u.user_id = g.user_id
         WHERE d.notification_delivery_id = $1 AND NOT u.suspended"#)
@@ -223,11 +223,13 @@ pub(crate) async fn load_delivery_source(
         }
         let policy = match (row.decision.as_deref(), row.category.as_deref()) {
             (None, None) => None,
-            (Some("ALLOWED"), None) => Some(ContentPolicyDecision::Allowed),
-            (Some("REQUIRES_CONSENT"), Some("NAZI_GERMANY")) => Some(
-                ContentPolicyDecision::RequiresConsent(SensitiveContentCategory::NaziGermany),
+            (Some(decision), category) => Some(
+                ContentPolicyDecision::from_codes(decision, category)
+                    .ok_or_else(|| invalid("invalid current saved-search content assessment"))?,
             ),
-            _ => return Err(invalid("invalid current saved-search content assessment")),
+            (None, Some(_)) => {
+                return Err(invalid("invalid current saved-search content assessment"));
+            }
         };
         let notification = Notification::try_from(row.notification).map_err(|source| {
             NotificationDeliveryError::InvalidPersistedState {

@@ -22317,6 +22317,10 @@ components:
               type: string
               enum:
                 - NAZI_GERMANY
+                - NUDITY
+              description: >-
+                Why the listing is sensitive: `NAZI_GERMANY` for Nazi-era imagery or paraphernalia,
+                `NUDITY` for nudity, erotica or pornography.
       description: Listing-level content decision. This schema is used only when the listing has an assessment.
     SortProductListingFieldData:
       type: string

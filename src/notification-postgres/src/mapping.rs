@@ -14,12 +14,9 @@ use notification_core::{
 use partnership_core::partnership_application_id::PartnershipApplicationId;
 use party_core::party_name::PartyName;
 use product_listing_core::{
-    content_policy::{ContentPolicyDecision, SensitiveContentCategory},
-    listing_availability::ListingAvailability,
-    product_listing_id::ProductListingId,
-    product_listing_price::ProductListingPrice,
-    product_listing_slug_id::ProductListingSlugId,
-    source_listing_id::SourceListingId,
+    content_policy::ContentPolicyDecision, listing_availability::ListingAvailability,
+    product_listing_id::ProductListingId, product_listing_price::ProductListingPrice,
+    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     title::Title,
 };
 use search_filter_core::{
@@ -374,13 +371,8 @@ impl TryFrom<PersistedContentPolicyDecision> for ContentPolicyDecision {
     type Error = NotificationMappingError;
 
     fn try_from(value: PersistedContentPolicyDecision) -> Result<Self, Self::Error> {
-        match (value.decision.as_str(), value.category.as_deref()) {
-            ("ALLOWED", None) => Ok(Self::Allowed),
-            ("REQUIRES_CONSENT", Some(category)) => SensitiveContentCategory::from_code(category)
-                .map(Self::RequiresConsent)
-                .ok_or(NotificationMappingError::InvalidContentPolicy),
-            _ => Err(NotificationMappingError::InvalidContentPolicy),
-        }
+        Self::from_codes(&value.decision, value.category.as_deref())
+            .ok_or(NotificationMappingError::InvalidContentPolicy)
     }
 }
 
