@@ -5594,7 +5594,6 @@ Origin: http://127.0.0.1:7878/x
         async fn should_name_an_unreadable_stored_review_and_answer_the_rest() {
             let (server, review_id) = pending_review_server().await;
             let pool = test_api::get_postgres_client().await;
-            let (_, listed) = send(&server, "GET /api/reviews", "").await;
             let invalid = uuid::Uuid::new_v4();
             sqlx::query(
                 "INSERT INTO crawler_reviews (review_id, listing_source_id, artifact_type, status, reason, candidate_payload) \
