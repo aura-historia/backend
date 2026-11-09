@@ -26,6 +26,8 @@ const INSPECT_PAGE: &str = "Fetch one page live and read it as the YAML projecti
 
 const REFRESH_MATRIX: &str = "Evaluate a product-schema review's current candidate live: the console fetches every review page at the shop's crawl delay, evaluates on them what approving the candidate would make live, stores this matrix for the review and returns it. Per schema and page: applies (the schema extracts a plausible product from the page), the extracted values (state_availability is what the normalization resolves the extracted state to, the only thing that counts for availability at runtime and for the sold-page check, null when it resolves to nothing), how each field's selectors matched (matches 0 on a required field fails the page; an optional field may miss on some pages, but a rule that matches nothing on any page is wrong), the plausibility findings, notices that block no approval (a price in another currency than the fallback currency), and which pages the removed-page templates match. not_evaluated_pages lists review pages the matrix did not evaluate. An approval of product schemas rests on the stored matrix of the candidate version it approves, fetched recently, so refresh after the last change. The tool waits while the console fetches, minutes for a slow shop, and answers STILL_RUNNING after 15 minutes; call it again to keep waiting. Only this tool fetches the pages: get_review shows the stored matrix and fetches nothing. A refresh is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. On a review with human_required true it is refused with CONFLICT and reason HUMAN_REQUIRED, also when the review comes to wait for a human while the pages are fetched. NOT_FOUND with reason NO_MATRIX means the matrix was dropped after it was stored, because the candidate or the review pages changed: read the review and call refresh_matrix again. A URL-pattern review has no matrix (INVALID_REQUEST). When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is. Changes no candidate.";
 
+const CHECK_APPROVAL: &str = "Run the console's approval guard on a URL-pattern review's current candidate without approving it: failed_checks lists every check an agent approval would fail now, by its code (such as TOO_FEW_LABELS, PRODUCT_LABEL_NOT_MATCHED or NO_PATTERN_TOO_FEW_INSPECTED) with what it names, the same answer an approval would get; an empty list means the guard would pass. failed_checks is null for a product-schema review, whose checks rest on a live matrix the reviewer refreshes, so check those with refresh_matrix. The four-eyes rule and the hourly cap of agent approvals are not part of the answer. Reads only; fetches nothing from the shop.";
+
 const MARK_NEEDS_REPAIR: &str = "Give the review the needs-repair verdict: it stays pending, and your notes become its repair request, which tells the author agent or a human what to fix. Use it when the candidate is wrong but can be fixed. notes are required and must be concrete: name the page URL, the schema index or field, and what is wrong with it. Each needs-repair verdict of an agent is one round of the agents' back-and-forth on the review: the verdict that reaches the cap is taken, and from then on the review waits for a human (human_required true), so this and every other change or verdict of yours on it is refused with CONFLICT and reason HUMAN_REQUIRED. Changes no candidate; refused for a review that is no longer pending.";
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -103,6 +105,12 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             refresh_matrix,
         )?,
         ToolDefinition::new(
+            "check_approval",
+            CHECK_APPROVAL,
+            Effect::Reads,
+            check_approval,
+        )?,
+        ToolDefinition::new(
             "mark_needs_repair",
             MARK_NEEDS_REPAIR,
             Effect::Changes,
@@ -159,6 +167,25 @@ async fn inspect_page(
         .await?
         .decode()?;
     Ok(PageProjectionView::of(projection, arguments.offset))
+}
+
+/// The approval guard's dry run of a review's current candidate.
+#[derive(Debug, serde::Serialize, Deserialize, JsonSchema)]
+pub(super) struct ApprovalChecks {
+    /// Every check an agent approval would fail now, each with its `check` code and what it names;
+    /// empty when the guard would pass, null for a product-schema review.
+    failed_checks: Option<Vec<serde_json::Value>>,
+}
+
+async fn check_approval(
+    arguments: ReviewArguments,
+    context: Arc<ToolContext>,
+) -> Result<ApprovalChecks, ToolError> {
+    Ok(context
+        .console
+        .get(&review_path(arguments.review_id, "/approval-checks"))
+        .await?
+        .decode()?)
 }
 
 async fn refresh_matrix(

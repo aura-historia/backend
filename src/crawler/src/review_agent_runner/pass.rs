@@ -28,8 +28,8 @@ use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
 use super::process::{ChildError, ChildOutput, ChildStop, run_agent};
 use super::queue::{
-    QueuedReview, ReviewArtifact, hand_to_human, review_events_since, review_queue,
-    reviewer_judged_review, select_reviews, waits_for_human,
+    QueuedReview, ReviewArtifact, approval_failures, hand_to_human, review_events_since,
+    review_queue, reviewer_judged_review, select_reviews, waits_for_human,
 };
 use super::reports::{AgentReport, AuthorAction, AuthorReport, TrailVerdict};
 use super::settings::{RunnerSettings, effort_flag};
@@ -67,6 +67,9 @@ pub struct PassSummary {
     /// Reviews this pass worked whose reviewer process did not start because the reviewers pause
     /// after the agents' decision cap.
     pub reviewers_held_back: usize,
+    /// URL-pattern reviews whose reviewer process did not start because the approval guard
+    /// already refuses the candidate the author left: the reviewer could only refuse it again.
+    pub guard_blocked: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -320,6 +323,11 @@ impl Pass<'_> {
             self.cool_down(&review);
             return;
         }
+        if self.guard_refuses(&review).await {
+            self.with(|shared| shared.summary.guard_blocked += 1);
+            self.cool_down(&review);
+            return;
+        }
         if let Some(until) = self.reviewer_pause_until(OffsetDateTime::now_utc()) {
             self.hold_back_reviewer(&review, until);
             return;
@@ -335,6 +343,36 @@ impl Pass<'_> {
             Step::NoDecision => {
                 self.finish_reviewer_pass(&review, processed.trail_verdict)
                     .await;
+            }
+        }
+    }
+
+    /// Whether the approval guard refuses the URL-pattern candidate the author left, so a reviewer
+    /// process could only be refused, as the `TOO_FEW_LABELS` loops of #2822 were: a needs-repair
+    /// round spent on what the author can read with `check_approval` itself. A product-schema
+    /// review, and a review whose checks cannot be read, gets its reviewer as before.
+    async fn guard_refuses(&self, review: &QueuedReview) -> bool {
+        if review.artifact_type != ReviewArtifact::UrlPattern {
+            return false;
+        }
+        match approval_failures(self.console, review.review_id).await {
+            Ok(Some(failed)) if !failed.is_empty() => {
+                info!(
+                    review_id = %review.review_id,
+                    failed_checks = ?failed,
+                    "The approval guard refuses the candidate the author left; no reviewer process starts and the review cools down"
+                );
+                true
+            }
+            Ok(_) => false,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot read the approval guard's checks of the candidate; the reviewer runs"
+                );
+                false
             }
         }
     }

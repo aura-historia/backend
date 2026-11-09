@@ -174,6 +174,7 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
         pending = summary.pending,
         waiting_for_human = summary.waiting_for_human,
         handed_to_human = summary.handed_to_human,
+        guard_blocked = summary.guard_blocked,
         reviewers_held_back = summary.reviewers_held_back,
         cooling_down = summary.cooling_down,
         worked = summary.worked,
@@ -449,6 +450,16 @@ mod tests {
                             .filter(|_| request.starts_with("POST "))
                         {
                             hand_over(review, &body, &claude_dir)
+                        } else if let Some(review) = path
+                            .strip_prefix("/api/reviews/")
+                            .and_then(|rest| rest.strip_suffix("/approval-checks"))
+                            .and_then(|id| {
+                                reviews
+                                    .iter()
+                                    .find(|review| review.review_id.to_string() == id)
+                            })
+                        {
+                            approval_checks(review, &claude_dir)
                         } else if let Some(review) =
                             path.strip_prefix("/api/reviews/").and_then(|id| {
                                 reviews
@@ -648,6 +659,23 @@ mod tests {
         events
     }
 
+    /// `GET /api/reviews/{id}/approval-checks`: `null` for a product-schema review, and for a
+    /// URL-pattern review the guard's refusal when the review is marked `guard_refused/<id>`.
+    fn approval_checks(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
+        let failed = if review.artifact_type != "URL_PATTERN" {
+            json!(null)
+        } else if claude_dir
+            .join("guard_refused")
+            .join(review.review_id.to_string())
+            .exists()
+        {
+            json!([{ "check": "TOO_FEW_LABELS", "product": 1, "not_product": 3, "minimum": 3 }])
+        } else {
+            json!([])
+        };
+        (200, json!({ "failed_checks": failed }).to_string())
+    }
+
     fn review(status: &str, crawl_enabled: bool) -> CrawlerReview {
         let now = OffsetDateTime::now_utc();
         CrawlerReview {
@@ -750,6 +778,7 @@ echo "end $role $review" >> "$dir/order.log"
                 "unreadable",
                 "judged",
                 "handover_refused",
+                "guard_refused",
                 "late",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
@@ -847,6 +876,18 @@ echo "end $role $review" >> "$dir/order.log"
                 self.directory
                     .path()
                     .join("judged")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// Has the approval guard refuse the URL-pattern candidate of the review `review_id`.
+        fn guard_refuses(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("guard_refused")
                     .join(review_id.to_string()),
                 "",
             )
@@ -1392,6 +1433,43 @@ echo "end $role $review" >> "$dir/order.log"
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// A URL-pattern candidate the approval guard already refuses gets no reviewer process, which
+    /// could only be refused: the review cools down, while one the guard passes gets its reviewer.
+    #[tokio::test]
+    async fn should_start_no_reviewer_for_a_url_pattern_candidate_the_guard_refuses() {
+        let url_pattern = |review: CrawlerReview| CrawlerReview {
+            artifact_type: "URL_PATTERN".to_owned(),
+            ..review
+        };
+        let refused = url_pattern(review("PENDING_REVIEW", true));
+        let passing = url_pattern(review("PENDING_REVIEW", true));
+        let fixture = Fixture::new(vec![refused.clone(), passing.clone()]).await;
+        fixture.claude.guard_refuses(refused.review_id);
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.guard_blocked), (3, 1));
+        assert!(
+            !fixture
+                .claude
+                .order()
+                .contains(&format!("start reviewer {}", refused.review_id)),
+            "{:?}",
+            fixture.claude.order()
+        );
+        assert!(
+            fixture
+                .claude
+                .order()
+                .contains(&format!("start reviewer {}", passing.review_id))
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            state.cooldowns.contains_key(&refused.review_id),
+            "{state:?}"
+        );
     }
 
     /// A hand-over the console does not take must not become one more reviewer round: the review

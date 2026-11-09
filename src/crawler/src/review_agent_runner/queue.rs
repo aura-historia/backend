@@ -252,6 +252,30 @@ fn judged_by_reviewer(
     })
 }
 
+/// The approval-guard checks an agent approval of the URL-pattern review `review_id`'s current
+/// candidate would fail now, by their codes, read with the author agent's token; `None` for a
+/// product-schema review, whose checks rest on a live matrix the reviewer refreshes.
+pub async fn approval_failures(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<Option<Vec<String>>, ConsoleError> {
+    #[derive(Deserialize)]
+    struct Answer {
+        failed_checks: Option<Vec<FailedCheck>>,
+    }
+    #[derive(Deserialize)]
+    struct FailedCheck {
+        check: String,
+    }
+    let answer: Answer = console
+        .get(&format!("/api/reviews/{review_id}/approval-checks"))
+        .await?
+        .decode()?;
+    Ok(answer
+        .failed_checks
+        .map(|checks| checks.into_iter().map(|check| check.check).collect()))
+}
+
 /// Hands `review_id` to a human at once with the author agent's token, `reasoning` as the note
 /// of the event that records it.
 pub async fn hand_to_human(

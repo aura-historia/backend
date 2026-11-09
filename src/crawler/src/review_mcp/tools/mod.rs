@@ -340,6 +340,7 @@ mod tests {
             "get_review",
             "inspect_page",
             "refresh_matrix",
+            "check_approval",
             "mark_needs_repair",
         ];
         let author = [

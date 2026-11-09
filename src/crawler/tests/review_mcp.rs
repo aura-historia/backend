@@ -346,6 +346,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "get_review",
             "inspect_page",
             "refresh_matrix",
+            "check_approval",
             "mark_needs_repair",
             "evaluate_candidate",
             "update_candidate",
@@ -365,6 +366,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "get_review",
             "inspect_page",
             "refresh_matrix",
+            "check_approval",
             "mark_needs_repair",
             "approve",
             "reject",
@@ -395,6 +397,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "get_review",
             "inspect_page",
             "refresh_matrix",
+            "check_approval",
             "mark_needs_repair",
             "approve",
             "reject",
@@ -710,6 +713,18 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         staged["candidate"]["decision"],
         json!({ "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" }),
         "{staged}"
+    );
+    // The guard's dry run answers what an approval would fail, before anyone approves.
+    let checked = author
+        .call(
+            "check_approval",
+            json!({ "review_id": url_pattern.to_string() }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        checked["failed_checks"][0]["check"], "TOO_FEW_LABELS",
+        "{checked}"
     );
     let too_few = reviewer
         .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": excluded["candidate_version"] }))

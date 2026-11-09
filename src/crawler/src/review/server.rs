@@ -343,6 +343,26 @@ impl ReviewServer {
 
         if request.method == "GET"
             && request.path.starts_with("/api/reviews/")
+            && request.path.ends_with("/approval-checks")
+        {
+            let Some(review_id) = parse_review_id_with_suffix(request.path, "/approval-checks")
+            else {
+                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
+            };
+            return match self
+                .repository
+                .url_pattern_approval_failures(review_id)
+                .await
+            {
+                Ok(failed_checks) => {
+                    HttpResponse::json(200, &json!({ "failed_checks": failed_checks }))
+                }
+                Err(error) => review_error(error),
+            };
+        }
+
+        if request.method == "GET"
+            && request.path.starts_with("/api/reviews/")
             && request.path.ends_with("/matrix")
         {
             let Some(review_id) = parse_review_id_with_suffix(request.path, "/matrix") else {
