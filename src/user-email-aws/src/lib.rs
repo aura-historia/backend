@@ -11,6 +11,7 @@ use aws_sdk_sesv2::{
 };
 use handlebars::Handlebars;
 use localization::Language;
+use serde_email::Email;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use url::{Host, Url};
@@ -26,6 +27,10 @@ const S3_DEADLINE: Duration = Duration::from_secs(2);
 const SES_DEADLINE: Duration = Duration::from_secs(3);
 const MAX_TEMPLATE_BYTES: usize = 128 * 1024;
 const MAX_RENDERED_BYTES: usize = 256 * 1024;
+/// `From` display name, `<reason> | Aura Historia`: English in every email language so
+/// inbox rules and sender recognition survive a language switch, and ASCII so it needs
+/// no RFC 2047 encoding.
+const SENDER_NAME: &str = "Newsletter | Aura Historia";
 
 /// Safe to display: no configuration value or proof is retained in errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +53,7 @@ impl std::error::Error for NewsletterConfirmationEmailConfigError {}
 #[derive(Clone, PartialEq, Eq)]
 pub struct NewsletterConfirmationEmailConfig {
     bucket: String,
-    from: String,
+    from: Email,
     reply_to: String,
     configuration_set: String,
     template_prefix: String,
@@ -56,6 +61,9 @@ pub struct NewsletterConfirmationEmailConfig {
 }
 
 impl NewsletterConfirmationEmailConfig {
+    /// `from` is the verified sender address. The display name is [`SENDER_NAME`], so a
+    /// name in the setting is ignored.
+    ///
     /// `configuration_set` is a required trusted deployment setting, never user input.
     /// `frontend_origin` is a trusted deployment setting, never a request redirect.
     /// Real stages have pinned HTTPS origins; local/ephemeral require HTTP loopback.
@@ -76,8 +84,9 @@ impl NewsletterConfirmationEmailConfig {
             stage.into(),
             template_prefix.into(),
         );
+        let from = validated_sender_address(&from)
+            .ok_or(NewsletterConfirmationEmailConfigError::InvalidConfiguration)?;
         if bucket.trim().is_empty()
-            || from.trim().is_empty()
             || reply_to.trim().is_empty()
             || configuration_set.len() > 64
             || !safe_key_component(&configuration_set)
@@ -131,6 +140,21 @@ impl NewsletterConfirmationEmailConfig {
             frontend_origin: origin,
         })
     }
+}
+
+/// Keeps only the address of a sender setting that is either `address` or `Name <address>`.
+fn validated_sender_address(configured: &str) -> Option<Email> {
+    let configured = configured.trim();
+    let address = match configured.strip_suffix('>') {
+        Some(mailbox) => mailbox.rsplit_once('<')?.1,
+        None => configured,
+    };
+    Email::new(address.trim()).ok()
+}
+
+/// A quoted display name stays valid whatever punctuation it carries, such as `|`.
+fn from_header(address: &Email) -> String {
+    format!("\"{SENDER_NAME}\" <{address}>")
 }
 
 fn safe_key_component(value: &str) -> bool {
@@ -348,7 +372,7 @@ impl SesNewsletterConfirmationEmailSender {
             SES_DEADLINE,
             self.ses
                 .send_email()
-                .from_email_address(&self.config.from)
+                .from_email_address(from_header(&self.config.from))
                 .reply_to_addresses(&self.config.reply_to)
                 .configuration_set_name(&self.config.configuration_set)
                 .destination(
@@ -520,7 +544,7 @@ mod tests {
         assert!(
             NewsletterConfirmationEmailConfig::new(
                 "bucket",
-                "from",
+                "from@example.test",
                 "reply",
                 "aura-historia-test-email",
                 "../prod",
@@ -532,12 +556,72 @@ mod tests {
     }
 
     #[test]
+    fn should_keep_only_the_address_of_the_sender_setting() {
+        for (configured, expected) in [
+            ("sender@example.test", "sender@example.test"),
+            ("  sender@example.test\n", "sender@example.test"),
+            ("Aura Historia <sender@example.test>", "sender@example.test"),
+            (
+                "\"Aura | Historia\" <sender@example.test> ",
+                "sender@example.test",
+            ),
+            ("<sender@example.test>", "sender@example.test"),
+        ] {
+            assert_eq!(
+                Some(expected),
+                validated_sender_address(configured)
+                    .as_ref()
+                    .map(Email::as_str),
+                "{configured}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_reject_sender_settings_without_a_valid_address() {
+        for configured in [
+            "",
+            "   ",
+            "not-an-address",
+            "Aura Historia <>",
+            "Aura Historia <not-an-address>",
+            "Aura Historia sender@example.test>",
+            "Aura Historia <sender@example.test",
+        ] {
+            assert_eq!(None, validated_sender_address(configured), "{configured}");
+            let error = NewsletterConfirmationEmailConfig::new(
+                "bucket",
+                configured,
+                "reply@example.test",
+                "aura-historia-test-email",
+                "dev",
+                "mail/abc123/",
+                "https://stage.aura-historia.com",
+            )
+            .err()
+            .expect("invalid sender address");
+            assert_eq!(
+                NewsletterConfirmationEmailConfigError::InvalidConfiguration,
+                error
+            );
+        }
+    }
+
+    #[test]
+    fn should_quote_the_newsletter_display_name_in_the_from_header() {
+        assert_eq!(
+            "\"Newsletter | Aura Historia\" <from@example.test>",
+            from_header(&Email::new("from@example.test").unwrap())
+        );
+    }
+
+    #[test]
     fn should_reject_unsafe_or_unterminated_template_prefixes() {
         for prefix in ["", "mail/id", "/mail/id/", "mail/../", "mail/id//"] {
             assert!(
                 NewsletterConfirmationEmailConfig::new(
                     "bucket",
-                    "from",
+                    "from@example.test",
                     "reply",
                     "mail-config",
                     "dev",

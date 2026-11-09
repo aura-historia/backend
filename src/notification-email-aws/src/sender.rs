@@ -1,8 +1,8 @@
 use crate::{
     provider_failure::SesSendFailed,
     template_mapping::{
-        EmailLanguage, EmailTemplateType, FrontendLinks, ses_template_tag_value, subject,
-        template_data, template_type,
+        EmailLanguage, EmailTemplateType, FrontendLinks, sender_name, ses_template_tag_value,
+        subject, template_data, template_type,
     },
     template_reader::TemplateReader,
 };
@@ -22,6 +22,7 @@ use notification_service::ports::{
     },
     notification_delivery_repository::NotificationDeliverySource,
 };
+use serde_email::Email;
 use std::sync::Arc;
 use url::{Host, Url};
 
@@ -30,6 +31,7 @@ use url::{Host, Url};
 pub enum EmailDeliveryConfigError {
     InvalidConfigurationSetName,
     InvalidFrontendOrigin,
+    InvalidSenderAddress,
     InvalidTemplatePrefix,
 }
 
@@ -40,6 +42,7 @@ impl std::fmt::Display for EmailDeliveryConfigError {
                 "invalid notification email SES configuration set name"
             }
             Self::InvalidFrontendOrigin => "invalid notification email frontend origin",
+            Self::InvalidSenderAddress => "invalid notification email sender address",
             Self::InvalidTemplatePrefix => "invalid notification email template prefix",
         })
     }
@@ -50,7 +53,7 @@ impl std::error::Error for EmailDeliveryConfigError {}
 #[derive(Clone)]
 pub struct EmailDeliveryConfig {
     template_bucket: String,
-    from_email_address: String,
+    from_email_address: Email,
     reply_to_email_address: String,
     configuration_set_name: String,
     template_prefix: String,
@@ -58,6 +61,9 @@ pub struct EmailDeliveryConfig {
 }
 
 impl EmailDeliveryConfig {
+    /// `from_email_address` is the verified sender address. The display name of
+    /// each email is chosen per template, so a name in the setting is ignored.
+    ///
     /// `frontend_origin` is a trusted deployment setting (the web app origin
     /// email links point to): HTTPS, or HTTP on a loopback host for local runs.
     pub fn new(
@@ -90,9 +96,11 @@ impl EmailDeliveryConfig {
         }
         let frontend_origin = validated_frontend_origin(frontend_origin)
             .ok_or(EmailDeliveryConfigError::InvalidFrontendOrigin)?;
+        let from_email_address = validated_sender_address(&from_email_address.into())
+            .ok_or(EmailDeliveryConfigError::InvalidSenderAddress)?;
         Ok(Self {
             template_bucket: template_bucket.into(),
-            from_email_address: from_email_address.into(),
+            from_email_address,
             reply_to_email_address: reply_to_email_address.into(),
             configuration_set_name,
             template_prefix,
@@ -120,9 +128,24 @@ fn validated_frontend_origin(value: &str) -> Option<String> {
     (trusted_scheme && bare).then(|| origin.as_str().trim_end_matches('/').to_owned())
 }
 
+/// Keeps only the address of a sender setting that is either `address` or `Name <address>`.
+fn validated_sender_address(configured: &str) -> Option<Email> {
+    let configured = configured.trim();
+    let address = match configured.strip_suffix('>') {
+        Some(mailbox) => mailbox.rsplit_once('<')?.1,
+        None => configured,
+    };
+    Email::new(address.trim()).ok()
+}
+
+/// A quoted display name stays valid whatever punctuation it carries, such as `|`.
+fn from_header(display_name: &str, address: &Email) -> String {
+    format!("\"{display_name}\" <{address}>")
+}
+
 pub struct SesNotificationChannelSender {
     ses: SesClient,
-    from_email_address: String,
+    from_email_address: Email,
     reply_to_email_address: String,
     configuration_set_name: String,
     templates: TemplateReader,
@@ -158,13 +181,17 @@ impl SesNotificationChannelSender {
 
     fn send_email_request(
         &self,
+        template_type: EmailTemplateType,
         destination: String,
         message: Message,
         email_tag: MessageTag,
     ) -> SendEmailFluentBuilder {
         self.ses
             .send_email()
-            .from_email_address(&self.from_email_address)
+            .from_email_address(from_header(
+                sender_name(template_type),
+                &self.from_email_address,
+            ))
             .reply_to_addresses(&self.reply_to_email_address)
             .configuration_set_name(&self.configuration_set_name)
             .destination(Destination::builder().to_addresses(destination).build())
@@ -263,7 +290,12 @@ impl NotificationChannelSender for SesNotificationChannelSender {
                 source: box_error(source),
             })?;
         let response = self
-            .send_email_request(target.address.to_string(), message, email_tag)
+            .send_email_request(
+                rendered.template_type,
+                target.address.to_string(),
+                message,
+                email_tag,
+            )
             .send()
             .await
             .map_err(SesSendFailed)?;
@@ -333,6 +365,77 @@ mod tests {
     #[case("http://127.0.0.1:3000/", "http://127.0.0.1:3000")]
     fn should_accept_bare_trusted_frontend_origins(#[case] value: &str, #[case] expected: &str) {
         assert_eq!(Some(expected.to_owned()), validated_frontend_origin(value));
+    }
+
+    #[rstest]
+    #[case(
+        "no-reply@notify.aura-historia.com",
+        "no-reply@notify.aura-historia.com"
+    )]
+    #[case(
+        "  no-reply@notify.aura-historia.com\n",
+        "no-reply@notify.aura-historia.com"
+    )]
+    #[case(
+        "Aura Historia <no-reply@notify.aura-historia.com>",
+        "no-reply@notify.aura-historia.com"
+    )]
+    #[case(
+        "\"Aura | Historia\" <no-reply@notify.aura-historia.com> ",
+        "no-reply@notify.aura-historia.com"
+    )]
+    #[case(
+        "<no-reply@notify.aura-historia.com>",
+        "no-reply@notify.aura-historia.com"
+    )]
+    fn should_keep_only_the_address_of_the_sender_setting(
+        #[case] configured: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            Some(expected),
+            validated_sender_address(configured)
+                .as_ref()
+                .map(Email::as_str)
+        );
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("   ")]
+    #[case("not-an-address")]
+    #[case("Aura Historia <>")]
+    #[case("Aura Historia <not-an-address>")]
+    #[case("Aura Historia no-reply@notify.aura-historia.com>")]
+    #[case("Aura Historia <no-reply@notify.aura-historia.com")]
+    fn should_reject_sender_settings_without_a_valid_address(#[case] configured: &str) {
+        assert_eq!(None, validated_sender_address(configured));
+        let error = EmailDeliveryConfig::new(
+            "test-templates",
+            configured,
+            "reply@example.test",
+            "aura-historia-test-email",
+            "mail/test-commit/",
+            "https://stage.aura-historia.com",
+        )
+        .err()
+        .expect("invalid sender address");
+        assert_eq!(EmailDeliveryConfigError::InvalidSenderAddress, error);
+        assert_eq!(
+            "invalid notification email sender address",
+            error.to_string()
+        );
+    }
+
+    #[test]
+    fn should_quote_the_display_name_in_the_from_header() {
+        assert_eq!(
+            "\"Watchlist Notification | Aura Historia\" <from@example.test>",
+            from_header(
+                "Watchlist Notification | Aura Historia",
+                &Email::new("from@example.test").unwrap()
+            )
+        );
     }
 
     #[rstest]
@@ -482,7 +585,12 @@ mod tests {
                 .unwrap();
             let mut send = Box::pin(
                 sender
-                    .send_email_request("recipient@example.test".to_owned(), message, tag)
+                    .send_email_request(
+                        EmailTemplateType::WatchlistUpdatePrice,
+                        "recipient@example.test".to_owned(),
+                        message,
+                        tag,
+                    )
                     .send(),
             );
             // Static credentials, disabled timeouts and the capture interceptor make
@@ -496,7 +604,10 @@ mod tests {
         assert_eq!(2, requests.len(), "each send must serialize exactly once");
         for request in requests.iter() {
             assert_eq!(name, request["ConfigurationSetName"]);
-            assert_eq!("from@example.test", request["FromEmailAddress"]);
+            assert_eq!(
+                "\"Watchlist Notification | Aura Historia\" <from@example.test>",
+                request["FromEmailAddress"]
+            );
             assert_eq!(
                 serde_json::json!(["reply@example.test"]),
                 request["ReplyToAddresses"]

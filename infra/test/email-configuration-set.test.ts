@@ -96,7 +96,7 @@ describe.each(STAGES)("%s managed SES configuration set", (stage) => {
     expect(pool.Properties.EmailConfiguration).toEqual({
       ConfigurationSet: setRef,
       EmailSendingAccount: "DEVELOPER",
-      From: "Aura Historia <auth@notify.aura-historia.com>",
+      From: "Account | Aura Historia <auth@notify.aura-historia.com>",
       ReplyToEmailAddress: "contact@aura-historia.com",
       SourceArn: {
         "Fn::Sub": ["arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${IdentityDomain}", {

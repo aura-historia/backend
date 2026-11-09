@@ -84,3 +84,25 @@ async fn should_filter_captured_messages_by_source() {
     assert_eq!(id, emails[0].id);
     assert_eq!(alternate, emails[0].source);
 }
+
+#[aura_integration_test(services = [Ses()], isolated = true)]
+#[ignore = "fixture self-test; run explicitly with --ignored"]
+async fn should_capture_and_clear_messages_sent_with_a_display_name() {
+    let context = test_api::TestContext::current().unwrap();
+    let source = context.sender_email().unwrap();
+    let alternate = context.register_sender("secondary").await.unwrap();
+    verify_sender_identity(&alternate).await;
+    let named = format!("\"Watchlist Notification | Aura Historia\" <{source}>");
+    let id = send(&named).await;
+    send(&alternate).await;
+
+    let emails = get_sent_emails().await;
+    assert_eq!(1, emails.len());
+    assert_eq!(id, emails[0].id);
+    assert_eq!(named, emails[0].source);
+    assert_eq!(1, get_sent_emails_from(&alternate).await.len());
+
+    clear_sent_emails().await;
+    assert!(get_sent_emails().await.is_empty());
+    assert_eq!(1, get_sent_emails_from(&alternate).await.len());
+}

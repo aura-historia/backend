@@ -162,14 +162,16 @@ pub async fn get_sent_emails() -> Vec<SentEmail> {
     body.messages
 }
 
-/// Retrieves emails sent through Floci SES filtered by source email.
+/// Retrieves emails sent through Floci SES from the given sender address, with or
+/// without a display name (`address` or `"Name" <address>`).
 ///
-/// Uses the `email` query parameter on the `/_aws/ses` endpoint.
+/// Floci stores `Source` verbatim and its `email` query filter compares it exactly, so
+/// a display name would hide the message from that filter: select by mailbox address
+/// here instead.
 pub async fn get_sent_emails_from(source_email: &str) -> Vec<SentEmail> {
     let url = format!("{}/_aws/ses", get_endpoint_url());
     let response = reqwest::Client::new()
         .get(&url)
-        .query(&[("email", source_email)])
         .send()
         .await
         .unwrap_or_else(|e| panic!("shouldn't fail querying Floci SES endpoint: {e}"))
@@ -182,6 +184,17 @@ pub async fn get_sent_emails_from(source_email: &str) -> Vec<SentEmail> {
         .unwrap_or_else(|e| panic!("shouldn't fail deserializing SES messages response: {e}"));
 
     body.messages
+        .into_iter()
+        .filter(|email| mailbox_address(&email.source) == source_email)
+        .collect()
+}
+
+/// The address of a `From` value that is either `address` or `Name <address>`.
+fn mailbox_address(source: &str) -> &str {
+    source
+        .strip_suffix('>')
+        .and_then(|mailbox| mailbox.rsplit_once('<'))
+        .map_or(source, |(_, address)| address)
 }
 
 /// Deletes all sent emails from Floci's in-memory SES store.
@@ -305,35 +318,25 @@ pub async fn wait_for_ses_email_to(
     }
 }
 
-/// Floci 2.3.0 filters GET by source and DELETE by message ID, never by source.
+/// Floci 2.3.0 deletes by message ID, never by source, and its source filter ignores
+/// captures sent with a display name. Select the owner's captures by mailbox address.
 pub(crate) async fn clear_source(source: &str) -> Result<(), application::error::BoxError> {
-    #[derive(Deserialize)]
-    struct Capture {
-        #[serde(rename = "Id")]
-        id: String,
-        #[serde(rename = "Source")]
-        source: String,
-    }
-    #[derive(Deserialize)]
-    struct Captures {
-        messages: Vec<Capture>,
-    }
     let url = format!("{}/_aws/ses", get_endpoint_url());
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
     let body = client
         .get(&url)
-        .query(&[("email", source)])
         .send()
         .await?
         .error_for_status()?
-        .json::<Captures>()
+        .json::<SentEmailsResponse>()
         .await?;
-    for message in body.messages {
-        if message.source != source {
-            return Err(std::io::Error::other("SES returned an unowned capture").into());
-        }
+    for message in body
+        .messages
+        .into_iter()
+        .filter(|message| mailbox_address(&message.source) == source)
+    {
         client
             .delete(&url)
             .query(&[("id", message.id)])
@@ -342,4 +345,24 @@ pub(crate) async fn clear_source(source: &str) -> Result<(), application::error:
             .error_for_status()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mailbox_address;
+
+    #[test]
+    fn should_select_the_address_of_a_source_with_or_without_display_name() {
+        for (source, expected) in [
+            ("sender@example.test", "sender@example.test"),
+            (
+                "\"Watchlist Notification | Aura Historia\" <sender@example.test>",
+                "sender@example.test",
+            ),
+            ("Aura Historia <sender@example.test>", "sender@example.test"),
+            ("<sender@example.test>", "sender@example.test"),
+        ] {
+            assert_eq!(expected, mailbox_address(source), "{source}");
+        }
+    }
 }

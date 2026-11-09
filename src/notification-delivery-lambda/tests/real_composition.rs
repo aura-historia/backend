@@ -78,6 +78,13 @@ async fn active_postgres_lease_retains_work_then_redelivery_sends_once_and_dupli
             email.destination.to_addresses.contains(&recipient)
         ).ok_or("SES delivery not captured")?;
         assert_eq!("Your watchlist item's availability changed", email.subject);
+        assert_eq!(
+            format!(
+                "\"Watchlist Notification | Aura Historia\" <{}>",
+                test_api::TestContext::current().ok_or("delivery test context")?.sender_email()?
+            ),
+            email.source
+        );
         assert!(email.body.html_part.as_deref().is_some_and(|html|
             html.contains("Delivery test source") && html.contains("In stock")
         ));
