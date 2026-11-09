@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-08 — Nudity is sensitive content (#2830)
+
+- Listing text assessment also flags nudity, erotica and pornography, in all catalogue languages, as `contentPolicy` `{ "decision": "REQUIRES_CONSENT", "category": "NUDITY" }`. Like `NAZI_GERMANY` listings, their image URLs are omitted unless the viewer's `showUnassessedOrSensitiveContent` is `true`. This applies to REST and MCP listing, watchlist, search-filter match and notification responses and to notification emails.
+- Text that matches several categories keeps `NAZI_GERMANY`.
+- A listing is assessed when its title or description is discovered or changes; listings assessed before this change keep their decision until then.
+
 ## 2026-11-08 — Hidden listings link to the website's pricing section (#2824)
 
 - Listings redacted as hidden now carry `url` and `viewUrl` `https://aura-historia.com/#pricing` instead of `https://aura-historia.com/pricing`, a path the website does not serve. The website redirects the unlocalized path to the viewer's language. This applies to REST and MCP listing responses alike.

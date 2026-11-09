@@ -1,8 +1,7 @@
 use crate::object_id::try_from_uuid;
 use application::error::{box_error, static_error};
 use product_listing_core::{
-    content_policy::{ContentPolicyDecision, SensitiveContentCategory},
-    product_listing_id::ProductListingId,
+    content_policy::ContentPolicyDecision, product_listing_id::ProductListingId,
 };
 use product_listing_service::ports::{
     ProductListingContentAssessment, ProductListingContentAssessmentReadError,
@@ -110,17 +109,9 @@ pub(crate) fn decode_decision(
     decision: &str,
     category: Option<&str>,
 ) -> Result<ContentPolicyDecision, ProductListingContentAssessmentReadError> {
-    match (decision, category) {
-        ("ALLOWED", None) => Ok(ContentPolicyDecision::Allowed),
-        ("REQUIRES_CONSENT", Some(category)) => SensitiveContentCategory::from_code(category)
-            .map(ContentPolicyDecision::RequiresConsent)
-            .ok_or_else(|| {
-                mapping_error("persisted product content assessment category is invalid")
-            }),
-        _ => Err(mapping_error(
-            "persisted product content assessment decision and category are invalid",
-        )),
-    }
+    ContentPolicyDecision::from_codes(decision, category).ok_or_else(|| {
+        mapping_error("persisted product content assessment decision and category are invalid")
+    })
 }
 
 fn mapping_error(message: &'static str) -> ProductListingContentAssessmentReadError {
@@ -138,31 +129,5 @@ fn mapping_error_source(
         source: box_error(ProductListingContentAssessmentMappingError {
             source: box_error(source),
         }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_decode_exact_content_assessment_codecs() {
-        assert!(matches!(
-            decode_decision("ALLOWED", None),
-            Ok(ContentPolicyDecision::Allowed)
-        ));
-        assert!(matches!(
-            decode_decision("REQUIRES_CONSENT", Some("NAZI_GERMANY")),
-            Ok(ContentPolicyDecision::RequiresConsent(
-                SensitiveContentCategory::NaziGermany
-            ))
-        ));
-    }
-
-    #[test]
-    fn should_reject_incomplete_content_assessment_codecs() {
-        assert!(decode_decision("ALLOWED", Some("NAZI_GERMANY")).is_err());
-        assert!(decode_decision("REQUIRES_CONSENT", None).is_err());
-        assert!(decode_decision("allowed", None).is_err());
     }
 }
