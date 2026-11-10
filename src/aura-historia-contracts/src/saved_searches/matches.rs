@@ -22,12 +22,14 @@ use user_core::user_id::UserId;
 pub struct SearchFilterMatchesQuery {
     #[serde(default, with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::LANGUAGE)]
     pub language: Language,
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::CURRENCY)]
     pub currency: Currency,
-    /// Defaults to 21 and clamps to 1..=100.
     #[serde(default)]
+    #[schemars(description = crate::wire::description::PAGE_SIZE)]
     #[schemars(range(max = u64::MAX))]
     pub size: Option<u64>,
 }

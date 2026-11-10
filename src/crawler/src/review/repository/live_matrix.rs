@@ -93,6 +93,7 @@ impl CrawlerReviewRepository {
             .await?;
         let page_ids = pages
             .iter()
+            .filter(|(page, _)| !page.is_marked_not_product())
             .map(|(page, _)| *page.review_page_id.as_uuid())
             .collect();
         let live_evaluation = LiveMatrixEvaluation {
@@ -149,7 +150,12 @@ impl CrawlerReviewRepository {
             .iter()
             .map(|url| review_source_url(url, crawl_host.as_deref()))
             .collect::<Result<Vec<_>, _>>()?;
-        let pages = fetch_review_pages(&self.pool, review_id).await?;
+        // A page marked as no product page is no page the proposal has to resolve.
+        let pages = fetch_review_pages(&self.pool, review_id)
+            .await?
+            .into_iter()
+            .filter(|page| !page.is_marked_not_product())
+            .collect();
         Ok(CandidateProposal {
             review_id,
             listing_source_id: review.listing_source_id,
@@ -342,10 +348,11 @@ impl CrawlerReviewRepository {
         let pages = fetch_review_pages(&mut *transaction, review_id).await?;
         if evaluated.candidate_version() != Some(candidate_version)
             || candidate_hash != evaluated.candidate_hash
-            || !evaluated
-                .page_ids
-                .iter()
-                .all(|id| pages.iter().any(|page| page.review_page_id.as_uuid() == id))
+            || !evaluated.page_ids.iter().all(|id| {
+                pages.iter().any(|page| {
+                    page.review_page_id.as_uuid() == id && !page.is_marked_not_product()
+                })
+            })
         {
             return Err(ReviewRepositoryError::CandidateChangedDuringEvaluation {
                 candidate_version,

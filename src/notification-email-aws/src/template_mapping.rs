@@ -39,7 +39,12 @@ impl EmailLanguage {
             | Language::Cs
             | Language::Ja
             | Language::Ru
-            | Language::Ar => Self::En,
+            | Language::Ar
+            | Language::Ko
+            | Language::El
+            | Language::He
+            | Language::Th
+            | Language::Hi => Self::En,
         }
     }
 
@@ -129,6 +134,24 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::SavedSearchDigest => "SAVED_SEARCH_DIGEST",
         EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
         EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
+    }
+}
+
+/// `From` display name, `<reason> | Aura Historia`. It is identical in every email
+/// language so a recipient's inbox rules and sender recognition survive a language
+/// switch, and it stays ASCII so it needs no RFC 2047 encoding.
+pub(crate) const fn sender_name(template_type: EmailTemplateType) -> &'static str {
+    match template_type {
+        EmailTemplateType::WatchlistUpdatePrice
+        | EmailTemplateType::WatchlistUpdateAvailability => {
+            "Watchlist Notification | Aura Historia"
+        }
+        EmailTemplateType::SearchFilterMatch => "Search Filter Notification | Aura Historia",
+        EmailTemplateType::SavedSearchDigest => "Saved Search Digest | Aura Historia",
+        EmailTemplateType::PartnershipApplicationApproval
+        | EmailTemplateType::PartnershipApplicationRejection => {
+            "Partnership Application | Aura Historia"
+        }
     }
 }
 
@@ -723,6 +746,11 @@ mod tests {
     #[case(Language::Ja, EmailLanguage::En)]
     #[case(Language::Ru, EmailLanguage::En)]
     #[case(Language::Ar, EmailLanguage::En)]
+    #[case(Language::Ko, EmailLanguage::En)]
+    #[case(Language::El, EmailLanguage::En)]
+    #[case(Language::He, EmailLanguage::En)]
+    #[case(Language::Th, EmailLanguage::En)]
+    #[case(Language::Hi, EmailLanguage::En)]
     fn should_resolve_profile_language_to_deployed_email_language(
         #[case] profile_language: Language,
         #[case] expected_email_language: EmailLanguage,
@@ -801,6 +829,59 @@ mod tests {
         assert_eq!(expected_fr, subject(template, EmailLanguage::Fr));
         assert_eq!(expected_es, subject(template, EmailLanguage::Es));
         assert_eq!(expected_it, subject(template, EmailLanguage::It));
+    }
+
+    #[rstest]
+    #[case(
+        EmailTemplateType::WatchlistUpdatePrice,
+        "Watchlist Notification | Aura Historia"
+    )]
+    #[case(
+        EmailTemplateType::WatchlistUpdateAvailability,
+        "Watchlist Notification | Aura Historia"
+    )]
+    #[case(
+        EmailTemplateType::SearchFilterMatch,
+        "Search Filter Notification | Aura Historia"
+    )]
+    #[case(
+        EmailTemplateType::SavedSearchDigest,
+        "Saved Search Digest | Aura Historia"
+    )]
+    #[case(
+        EmailTemplateType::PartnershipApplicationApproval,
+        "Partnership Application | Aura Historia"
+    )]
+    #[case(
+        EmailTemplateType::PartnershipApplicationRejection,
+        "Partnership Application | Aura Historia"
+    )]
+    fn should_name_sender_after_the_email_reason(
+        #[case] template: EmailTemplateType,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(expected, sender_name(template));
+    }
+
+    #[test]
+    fn should_keep_every_sender_name_safe_to_quote_without_encoding() {
+        for template in [
+            EmailTemplateType::WatchlistUpdatePrice,
+            EmailTemplateType::WatchlistUpdateAvailability,
+            EmailTemplateType::SearchFilterMatch,
+            EmailTemplateType::SavedSearchDigest,
+            EmailTemplateType::PartnershipApplicationApproval,
+            EmailTemplateType::PartnershipApplicationRejection,
+        ] {
+            let name = sender_name(template);
+            assert!(name.ends_with(" | Aura Historia"), "{name}");
+            assert!(
+                name.bytes()
+                    .all(|byte| byte.is_ascii_graphic() || byte == b' '),
+                "{name}"
+            );
+            assert!(!name.contains(['"', '\\', '<', '>']), "{name}");
+        }
     }
 
     #[rstest]

@@ -2,7 +2,8 @@
 
 Deterministic raw-revision normalization in the business worker improves through one loop:
 **capture unresolved inputs → log actionable diagnostics → improve the heuristics → replay the
-whole corpus**. The improving agent and its schedule live outside this repository. The crawler
+whole corpus**. The [`normalization-heuristics` skill](../.agents/skills/normalization-heuristics/SKILL.md)
+runs one turn of that loop on request; any schedule for it lives outside this repository. The crawler
 does not normalize; candidates its plausibility checks reject are crawler concerns and are not
 recorded here.
 

@@ -40,6 +40,7 @@ const SITE_DISCOVERY_ROUTE_KEYS = [
   "agent-skills/index.json",
   "agent-skills/{}/SKILL.md",
   "auth.md",
+  "oauth/webmcp-client.json",
 ].flatMap((document) => [`GET /v1/site-discovery/${document}`, `HEAD /v1/site-discovery/${document}`]);
 const WELL_KNOWN_ROUTE_KEYS = [
   "GET /.well-known/oauth-authorization-server",
@@ -143,7 +144,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(173);
+      expect(routes).toHaveLength(176);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every(isCanonicalRouteKey)).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -524,7 +525,7 @@ describe("HTTP API route policy matrix", () => {
     expect(selectivePathRoutes.every((route) => route.method === "GET" || (route.method === "HEAD" && (
       route.path === "/.well-known/api-catalog" || route.path.startsWith("/v1/site-discovery/"))))).toBe(true);
     expect(selectiveReadRouteKeys).toEqual([...SELECTIVE_CACHE_GET_ROUTE_KEYS, ...SITE_DISCOVERY_ROUTE_KEYS].sort());
-    expect(selectivePathRoutes).toHaveLength(23);
+    expect(selectivePathRoutes).toHaveLength(25);
     const selectiveReadRoutes = selectivePathRoutes;
     for (const route of selectiveReadRoutes) {
       // The overview and discovery documents evaluate no credentials; catalogue reads accept
@@ -579,7 +580,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(173);
+    expect(routes).toHaveLength(176);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; exact discovery and site-document routes add one route
     // per method each.

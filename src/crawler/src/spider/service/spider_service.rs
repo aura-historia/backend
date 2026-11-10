@@ -1,10 +1,13 @@
 use crate::CrawlerReviewId;
+use crate::logging::SourceLogContext;
+use crate::logging::warn_in_source;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
 use crate::spider::classification::url_metadata_repository::{
@@ -300,6 +303,8 @@ impl SpiderServiceImpl {
         listing_source_id: &ListingSourceId,
         kind: CrawlKind,
     ) -> Result<CrawlSeeds, SpiderServiceError> {
+        self.collapse_unnormalized_product_urls_best_effort(listing_source_id)
+            .await;
         let frontier = self
             .frontier_repository
             .load_frontier(listing_source_id)
@@ -322,6 +327,25 @@ impl SpiderServiceImpl {
         })
     }
 
+    /// Moves or retires the source's product rows stored under a spelling the crawler no longer
+    /// produces, once per crawl pass. A failure leaves the rows as they are for the next pass.
+    async fn collapse_unnormalized_product_urls_best_effort(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) {
+        if let Err(error) = self
+            .frontier_repository
+            .collapse_unnormalized_product_urls(listing_source_id)
+            .await
+        {
+            warn_in_source!(
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Failed to collapse stored product URLs onto their current spelling"
+            );
+        }
+    }
+
     /// Keeps what the crawl of `root` left unvisited for the ListingSource's next crawl. A failed
     /// write leaves the previous frontier, which the next crawl revisits at worst; a ListingSource
     /// that moved to another root keeps the empty frontier the move left.
@@ -331,7 +355,7 @@ impl SpiderServiceImpl {
         discovery: Option<&CrawlDiscovery>,
     ) {
         let Some(discovery) = discovery else {
-            warn!("Spider crawl reported no frontier; keeping the previous one");
+            warn_in_source!("Spider crawl reported no frontier; keeping the previous one");
             return;
         };
         match self
@@ -344,7 +368,7 @@ impl SpiderServiceImpl {
                 frontier_urls = discovery.frontier.len(),
                 "The ListingSource moved to another crawl root during the crawl; its frontier is not kept"
             ),
-            Err(error) => warn!(error = ?error, "Failed to persist the crawl frontier"),
+            Err(error) => warn_in_source!(error = ?error, "Failed to persist the crawl frontier"),
         }
     }
 
@@ -382,9 +406,9 @@ impl SpiderServiceImpl {
         let url_class = self
             .config
             .url_classifier
-            .classify(page.url.as_url().as_str(), pattern.as_regex());
+            .classify(page.url.as_url().as_str(), pattern.as_pattern());
         let canonical = pattern
-            .as_regex()
+            .as_pattern()
             .filter(|_| url_class == UrlClass::ProductListing)
             .and_then(|regex| {
                 canonical_product_url(&page.url, &page.identity, shop_platform, regex)
@@ -445,7 +469,7 @@ impl SpiderServiceImpl {
         };
         let Some(decision) = self
             .pattern_service
-            .decision_stored_during_crawl(listing_source_id, state.pattern.as_regex())
+            .decision_stored_during_crawl(listing_source_id, state.pattern.as_pattern())
             .await?
         else {
             return Ok(());
@@ -454,7 +478,7 @@ impl SpiderServiceImpl {
         info!(
             review_id = %review_id,
             stored_urls = stored_pages.len(),
-            product_pattern = ?state.pattern.as_regex().map(regex::Regex::as_str),
+            product_pattern = state.pattern.as_pattern().map(ProductUrlPattern::include_source),
             "URL pattern review was decided during the crawl, classifying its stored URLs with the decision"
         );
         for pages in stored_pages.chunks(self.config.db_batch_size.max(1)) {
@@ -501,7 +525,7 @@ impl SpiderServiceImpl {
             .classify_and_save(
                 listing_source_id,
                 crawl_root_url,
-                state.pattern.as_regex(),
+                state.pattern.as_pattern(),
                 &state.inference_sample,
             )
             .await;
@@ -510,7 +534,7 @@ impl SpiderServiceImpl {
         // URLs under the pattern it has and the reviewer's decision
         // classifies them.
         if let Err(UrlPatternServiceError::PendingReview { review_id, .. }) = classification {
-            info!(
+            debug!(
                 stage,
                 review_id = %review_id,
                 sample_size = state.inference_sample.len(),
@@ -529,9 +553,12 @@ impl SpiderServiceImpl {
                 .unwrap_or(ProductListingPattern::Unknown)
         })?;
 
-        if state.pattern.is_unknown() {
-            warn!(stage, "Found no product URL pattern");
-        }
+        log_pattern_classified(
+            &state.source,
+            stage,
+            &state.pattern,
+            state.inference_sample.len(),
+        );
 
         Ok(())
     }
@@ -592,7 +619,7 @@ impl SpiderServiceImpl {
     #[tracing::instrument(name = "spider_log_progress", skip(self, state))]
     fn log_progress(&self, state: &CrawlRunState) {
         if state.total_crawled.is_multiple_of(1000) {
-            info!(
+            debug!(
                 total_crawled = state.total_crawled,
                 products_found = state.products_found(),
                 "Crawl progress"
@@ -632,7 +659,7 @@ impl SpiderServiceImpl {
                     diagnostics: Box::default(),
                 });
             }
-            info!(
+            debug!(
                 url_count = state.inference_sample.len(),
                 "Threshold not reached, classifying collected URLs"
             );
@@ -692,7 +719,9 @@ impl SpiderServiceImpl {
             && !has_pattern_match(&state.page_buffer, &state.pattern)
             && !state.inference_sample.is_empty()
         {
-            warn!("Persisted product URL pattern did not match crawl results, reclassifying");
+            warn_in_source!(
+                "Persisted product URL pattern did not match crawl results, reclassifying"
+            );
 
             self.classify_and_save_for_stage(
                 state,
@@ -729,7 +758,9 @@ impl SpiderServiceImpl {
             Ok(CrawlOutcomeWrite::RootMoved) => debug!(
                 "The ListingSource moved to another crawl root during the crawl; its full crawl is not recorded"
             ),
-            Err(error) => warn!(error = ?error, "Failed to mark ListingSource as crawled"),
+            Err(error) => {
+                warn_in_source!(error = ?error, "Failed to mark ListingSource as crawled")
+            }
         }
     }
 
@@ -744,7 +775,10 @@ impl SpiderServiceImpl {
         classify_threshold: usize,
     ) -> Result<CrawlRunState, SpiderServiceError> {
         let initial_pattern = self.pattern_service.load_pattern(listing_source_id).await?;
-        let mut state = CrawlRunState::new(initial_pattern);
+        let mut state = CrawlRunState::new(
+            SourceLogContext::of_run(*listing_source_id),
+            initial_pattern,
+        );
 
         if state.pattern_loaded_from_store {
             debug!("Loaded persisted product URL pattern");
@@ -756,6 +790,7 @@ impl SpiderServiceImpl {
                 continue;
             }
             state.total_crawled += 1;
+            state.query_url_pages += usize::from(page.url.as_url().query().is_some());
             state.challenged_pages += usize::from(page.bot_challenge);
             state.shop_platform = state.shop_platform.or(page.identity.platform);
 
@@ -954,8 +989,8 @@ impl SpiderServiceImpl {
 
         let product_pattern = state
             .pattern
-            .as_regex()
-            .map(|regex| regex.as_str().to_string());
+            .as_pattern()
+            .map(|regex| regex.include_source().to_string());
 
         // `last_crawled` records the last full crawl; a truncated one keeps the
         // ListingSource due so the scheduler can retry it sooner. A full crawl that
@@ -1026,7 +1061,7 @@ fn record_pattern_matches(
     pattern: &ProductListingPattern,
     matched: &mut HashSet<Url>,
 ) {
-    let Some(regex) = pattern.as_regex() else {
+    let Some(regex) = pattern.as_pattern() else {
         return;
     };
     matched.extend(
@@ -1055,8 +1090,44 @@ fn record_stored_products(stored: &[SpiderUrlRecord], products: &mut HashSet<Url
 
 fn has_pattern_match(pages: &[CrawledPage], pattern: &ProductListingPattern) -> bool {
     pattern
-        .as_regex()
+        .as_pattern()
         .is_some_and(|regex| pages.iter().any(|page| page.url.matches_pattern(regex)))
+}
+
+pub(crate) const CRAWL_COMPLETED_EVENT: &str = "crawler.spider.crawl_completed";
+pub(crate) const CRAWL_DIAGNOSTICS_EVENT: &str = "crawler.spider.crawl_diagnostics";
+pub(crate) const PATTERN_CLASSIFIED_EVENT: &str = "crawler.spider.pattern_classified";
+
+/// The product URL pattern a classification stage settled on, or that it found none. A stage
+/// that found none is a warning: the crawl goes on without product URLs to store.
+fn log_pattern_classified(
+    source: &SourceLogContext,
+    stage: &'static str,
+    pattern: &ProductListingPattern,
+    sample_size: usize,
+) {
+    let product_pattern = pattern.as_pattern().map(ProductUrlPattern::include_source);
+    match product_pattern {
+        Some(_) => info!(
+            event = PATTERN_CLASSIFIED_EVENT,
+            listing_source_id = %source.listing_source_id,
+            listing_source_name = %source.listing_source_name,
+            domain = %source.domain,
+            stage,
+            sample_size,
+            product_pattern,
+            "Classified the product URL pattern"
+        ),
+        None => warn!(
+            event = PATTERN_CLASSIFIED_EVENT,
+            listing_source_id = %source.listing_source_id,
+            listing_source_name = %source.listing_source_name,
+            domain = %source.domain,
+            stage,
+            sample_size,
+            "Found no product URL pattern"
+        ),
+    }
 }
 
 /// Coverage losses on a crawl that delivered pages are only visible here.
@@ -1069,37 +1140,23 @@ fn log_crawl_outcome(
 ) {
     let completion = diagnostics.completion;
     info!(
+        event = CRAWL_COMPLETED_EVENT,
+        listing_source_id = %state.source.listing_source_id,
+        listing_source_name = %state.source.listing_source_name,
+        domain = %state.source.domain,
         completion = %completion,
         kind = %kind,
-        crawl_budget_ms = diagnostics.crawl_budget_ms,
-        seeds = diagnostics.seeds,
-        known_skipped = diagnostics.known_skipped,
-        known_fetches_saved = diagnostics.known_fetches_saved,
-        root_reroot = ?diagnostics.root_reroot,
-        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
-        at_budget = completion == CrawlCompletion::PageBudgetReached,
-        diagnostic_reason = ?diagnostics.diagnostic_reason,
         truncated = !completion.is_full(),
         total_crawled = state.total_crawled,
         product_urls_count = state.products_found(),
-        product_pattern = ?product_pattern,
-        product_pattern_known = product_pattern.is_some(),
-        classification_done = state.classification_done,
-        pages_received = diagnostics.pages_received,
-        rejected_host = diagnostics.rejected_host,
-        rejected_blacklist = diagnostics.rejected_blacklist,
-        rejected_duplicate = diagnostics.rejected_duplicate,
-        robots_policy = ?diagnostics.robots_policy,
-        robots_crawl_delay_ms = ?diagnostics.robots_crawl_delay_ms,
-        request_delay_ms = diagnostics.request_delay_ms,
-        robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
-        lagged = diagnostics.lagged,
-        initial_anti_bot = ?diagnostics.initial_anti_bot,
+        product_pattern = product_pattern,
+        sample_match_ratio = state.sample_match_ratio(),
+        query_url_share = state.query_url_share(),
         status_counts = ?diagnostics.status_counts,
-        bot_challenge_pages = diagnostics.bot_challenge_pages,
-        rate_limit = ?diagnostics.rate_limit,
-        pending_url_pattern_review = ?state.pending_url_pattern_review().map(|id| id.to_string()),
-        stopped_early = ?diagnostics.stopped_early.map(CrawlStopReason::as_str),
+        frontier_left = discovery.map(|discovery| discovery.frontier.len()),
+        diagnostic_reason = diagnostics.diagnostic_reason,
+        stopped_early = diagnostics.stopped_early.map(CrawlStopReason::as_str),
+        pending_url_pattern_review = state.pending_url_pattern_review().map(|id| id.to_string()),
         "{}",
         crawl_outcome_message(
             completion,
@@ -1107,22 +1164,48 @@ fn log_crawl_outcome(
             state.pending_url_pattern_review().is_some()
         )
     );
+    debug!(
+        event = CRAWL_DIAGNOSTICS_EVENT,
+        listing_source_id = %state.source.listing_source_id,
+        domain = %state.source.domain,
+        crawl_budget_ms = diagnostics.crawl_budget_ms,
+        seeds = diagnostics.seeds,
+        known_skipped = diagnostics.known_skipped,
+        known_fetches_saved = diagnostics.known_fetches_saved,
+        root_reroot = ?diagnostics.root_reroot,
+        at_budget = completion == CrawlCompletion::PageBudgetReached,
+        classification_done = state.classification_done,
+        pages_received = diagnostics.pages_received,
+        rejected_host = diagnostics.rejected_host,
+        rejected_blacklist = diagnostics.rejected_blacklist,
+        rejected_duplicate = diagnostics.rejected_duplicate,
+        robots_policy = ?diagnostics.robots_policy,
+        robots_crawl_delay_ms = diagnostics.robots_crawl_delay_ms,
+        request_delay_ms = diagnostics.request_delay_ms,
+        robots_rules_failing_closed = diagnostics.robots_rules_failing_closed,
+        lagged = diagnostics.lagged,
+        initial_anti_bot = ?diagnostics.initial_anti_bot,
+        bot_challenge_pages = diagnostics.bot_challenge_pages,
+        rate_limit = ?diagnostics.rate_limit,
+        "Crawl diagnostics"
+    );
 }
 
 /// The frontier a run that found no product URL left for the next crawl: `frontier_left` is
 /// absent when the crawl could not tell it, and a failed write is logged on its own. The
-/// scheduler logs the failure itself.
+/// scheduler logs the failure itself as `crawler.spider.crawl_failed`; this DEBUG
+/// record keeps the frontier size, which the error does not carry.
 fn log_failed_run_frontier(
     error: &SpiderServiceError,
     diagnostics: &CrawlDiagnostics,
     discovery: Option<&CrawlDiscovery>,
 ) {
-    info!(
+    debug!(
         error = %error,
         completion = %diagnostics.completion,
         crawl_budget_ms = diagnostics.crawl_budget_ms,
         seeds = diagnostics.seeds,
-        frontier_left = ?discovery.map(|discovery| discovery.frontier.len()),
+        frontier_left = discovery.map(|discovery| discovery.frontier.len()),
         root_reroot = ?diagnostics.root_reroot,
         pages_received = diagnostics.pages_received,
         bot_challenge_pages = diagnostics.bot_challenge_pages,
@@ -1136,7 +1219,7 @@ fn log_crawl_stopped_early(diagnostics: &CrawlDiagnostics, error: &SpiderService
     let Some(stop_reason) = diagnostics.stopped_early else {
         return;
     };
-    info!(
+    debug!(
         stop_reason = %stop_reason,
         error = %error,
         completion = %diagnostics.completion,
@@ -1234,7 +1317,6 @@ mod service_tests {
     };
     use crate::spider::utils::url::CrawledUrl;
     use crate::spider::utils::url::canonical::PageIdentityEvidence;
-    use regex::Regex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::sync::{mpsc, oneshot};
 
@@ -1251,6 +1333,9 @@ mod service_tests {
     /// A ListingSource with no frontier, whose crawl's frontier is not checked.
     fn no_frontier() -> Arc<MockCrawlFrontierRepository> {
         let mut repository = MockCrawlFrontierRepository::new();
+        repository
+            .expect_collapse_unnormalized_product_urls()
+            .returning(|_| Box::pin(async { Ok(()) }));
         repository
             .expect_load_frontier()
             .returning(|_| Box::pin(async { Ok(Vec::new()) }));
@@ -1420,6 +1505,10 @@ mod service_tests {
     ) -> Arc<MockCrawlFrontierRepository> {
         let mut repository = MockCrawlFrontierRepository::new();
         repository
+            .expect_collapse_unnormalized_product_urls()
+            .times(1)
+            .returning(|_| Box::pin(async { Ok(()) }));
+        repository
             .expect_load_frontier()
             .times(1)
             .return_once(move |_| Box::pin(async move { Ok(frontier) }));
@@ -1443,9 +1532,9 @@ mod service_tests {
 
     fn pattern_service_with_stored_pattern() -> MockUrlPatternService {
         let mut service = MockUrlPatternService::new();
-        service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+        service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
+        });
         service
     }
 
@@ -1651,7 +1740,7 @@ mod service_tests {
             .expect_classify_and_save()
             .times(1)
             .returning(|_, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
         pattern_service.expect_mark_as_crawled().times(0);
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
@@ -1823,7 +1912,7 @@ mod service_tests {
     /// A pattern service for a ListingSource without a stored pattern whose classification of the
     /// crawl answers `classified`; the failed run records no full crawl.
     fn classifying_pattern_service(
-        classified: Option<Result<Option<Regex>, UrlPatternServiceError>>,
+        classified: Option<Result<Option<ProductUrlPattern>, UrlPatternServiceError>>,
     ) -> MockUrlPatternService {
         let mut service = MockUrlPatternService::new();
         service
@@ -1863,7 +1952,9 @@ mod service_tests {
         let no_product_urls = run_failing_crawl_with_frontier(
             item_pages(),
             CrawlDiagnostics::default(),
-            classifying_pattern_service(Some(Ok(Some(Regex::new(r"/product/").unwrap())))),
+            classifying_pattern_service(Some(Ok(Some(
+                ProductUrlPattern::parse(r"/product/").unwrap(),
+            )))),
             url_repository_storing(1),
             true,
         )
@@ -2058,7 +2149,9 @@ mod service_tests {
             .expect_classify_and_save()
             .times(1)
             .withf(|_, _, _, sample| sample.len() == 6)
-            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/item/").unwrap())) })
+            });
         setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
         let service = SpiderServiceImpl::new(
             SpiderServiceConfig {
@@ -2291,7 +2384,7 @@ mod service_tests {
         mock_pattern_service
             .expect_classify_and_save()
             .returning(|_, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
@@ -2351,7 +2444,7 @@ mod service_tests {
             .expect_classify_and_save()
             .times(1)
             .returning(|_, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo
@@ -2543,13 +2636,15 @@ mod service_tests {
         let crawl_root_url = "https://example.com";
 
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
-        mock_pattern_service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+        mock_pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
+        });
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .withf(|_, _, crawl_pattern, _| crawl_pattern.map(Regex::as_str) == Some(r"/product/"))
+            .withf(|_, _, crawl_pattern, _| {
+                crawl_pattern.map(ProductUrlPattern::include_source) == Some(r"/product/")
+            })
             .returning(move |_, _, _, _| {
                 Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
             });
@@ -2669,7 +2764,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_classify_stored_urls_and_complete_when_review_is_approved_mid_crawl() {
         let (run, stored) = run_crawl_decided_while_waiting(DecidedUrlPattern::Pattern(
-            Regex::new(r"/product/").unwrap(),
+            ProductUrlPattern::parse(r"/product/").unwrap(),
         ))
         .await;
 
@@ -2737,7 +2832,7 @@ mod service_tests {
             .expect_classify_and_save()
             .times(1)
             .returning(|_, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
         mock_pattern_service.expect_mark_as_crawled().times(0);
         // The crawled URLs are kept, only the outcome is a failure.
@@ -2853,7 +2948,7 @@ mod service_tests {
         mock_pattern_service
             .expect_classify_and_save()
             .returning(|_, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
@@ -3036,7 +3131,7 @@ mod service_tests {
             .times(1)
             .withf(|_, _, crawl_pattern, _| crawl_pattern.is_none())
             .returning(|_, _, _, _| {
-                Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) })
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
             });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
@@ -3077,16 +3172,20 @@ mod service_tests {
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
 
         // Persisted pattern expects /product/
-        mock_pattern_service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+        mock_pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
+        });
 
         // Reclassification gives the correct /item/ pattern
         mock_pattern_service
             .expect_classify_and_save()
             .times(1)
-            .withf(|_, _, crawl_pattern, _| crawl_pattern.map(Regex::as_str) == Some(r"/product/"))
-            .returning(|_, _, _, _| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+            .withf(|_, _, crawl_pattern, _| {
+                crawl_pattern.map(ProductUrlPattern::include_source) == Some(r"/product/")
+            })
+            .returning(|_, _, _, _| {
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/item/").unwrap())) })
+            });
 
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
 
@@ -3127,9 +3226,9 @@ mod service_tests {
         // robots.txt Crawl-delay delivers.
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
 
-        mock_pattern_service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+        mock_pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/item/").unwrap())) })
+        });
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         setup_mock_url_repo(&mut mock_url_repo, 1, listing_source_id);
@@ -3170,9 +3269,9 @@ mod service_tests {
         paths.extend((1..=5).map(|i| format!("/item/{i}/")));
         setup_mock_crawl(&mut mock_spider, crawl_root_url, paths);
 
-        mock_pattern_service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+        mock_pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/item/").unwrap())) })
+        });
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         mock_url_repo
@@ -3291,9 +3390,9 @@ mod service_tests {
                 })
             })
         });
-        mock_pattern_service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/products/[^/]+$").unwrap())) }));
+        mock_pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/products/[^/]+$").unwrap())) })
+        });
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let stored: Arc<std::sync::Mutex<Vec<DiscoveredUrl>>> = Arc::default();
@@ -3363,9 +3462,9 @@ mod service_tests {
         let listing_source_id = ListingSourceId::new();
         let crawl_root_url = "https://example.com";
         setup_mock_crawl(&mut mock_spider, crawl_root_url, item_pages());
-        mock_pattern_service
-            .expect_load_pattern()
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/item/").unwrap())) }));
+        mock_pattern_service.expect_load_pattern().returning(|_| {
+            Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/item/").unwrap())) })
+        });
         mock_pattern_service.expect_classify_and_save().times(0);
         setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
         let kept: Vec<String> = item_pages().into_iter().take(kept_other).collect();
@@ -3972,7 +4071,9 @@ mod service_tests {
         mock_pattern_service
             .expect_load_pattern()
             .times(1)
-            .returning(|_| Box::pin(async { Ok(Some(Regex::new(r"/product/").unwrap())) }));
+            .returning(|_| {
+                Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
+            });
         mock_pattern_service.expect_classify_and_save().times(0);
         mock_pattern_service.expect_mark_as_crawled().times(0);
         mock_url_repo.expect_upsert_links_batch().times(0);
@@ -4044,7 +4145,9 @@ mod service_tests {
         );
         let mut pattern_service = MockUrlPatternService::new();
         pattern_service.expect_load_pattern().return_once(move |_| {
-            Box::pin(async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) })
+            Box::pin(async move {
+                Ok(stored_pattern.map(|pattern| ProductUrlPattern::parse(pattern).unwrap()))
+            })
         });
         pattern_service.expect_classify_and_save().times(0);
         pattern_service.expect_mark_as_crawled().times(0);
@@ -4187,9 +4290,9 @@ mod service_tests {
         mock_pattern_service
             .expect_load_pattern()
             .returning(move |_| {
-                Box::pin(
-                    async move { Ok(stored_pattern.map(|pattern| Regex::new(pattern).unwrap())) },
-                )
+                Box::pin(async move {
+                    Ok(stored_pattern.map(|pattern| ProductUrlPattern::parse(pattern).unwrap()))
+                })
             });
         mock_pattern_service
             .expect_classify_and_save()
@@ -4294,11 +4397,11 @@ fn no_product_urls_error(
     if state.pattern_matched_any() {
         return None;
     }
-    Some(match state.pattern.as_regex() {
+    Some(match state.pattern.as_pattern() {
         Some(pattern) => SpiderServiceError::NoProductUrls {
             crawl_root_url: crawl_root_url.to_string(),
             total_links: state.total_crawled,
-            product_pattern: pattern.as_str().to_string(),
+            product_pattern: pattern.include_source().to_string(),
             completion,
         },
         None => SpiderServiceError::NoUrlPattern {
@@ -4334,4 +4437,70 @@ fn crawl_failure_error(
         total_links,
         diagnostics: Box::new(diagnostics.clone()),
     })
+}
+
+#[cfg(test)]
+mod crawl_event_tests {
+    use super::*;
+    use crate::test_support::logged_events::LoggedEvents;
+
+    fn source() -> SourceLogContext {
+        SourceLogContext::new(ListingSourceId::new(), "Antique Shop", "antique.example")
+    }
+
+    #[test]
+    fn should_log_the_crawl_outcome_with_source_and_discovery_evidence_when_a_crawl_completes() {
+        let (events, _guard) = LoggedEvents::capture();
+        let mut state = CrawlRunState::new(source(), None);
+        state.total_crawled = 4;
+        state.query_url_pages = 1;
+        let diagnostics = CrawlDiagnostics {
+            completion: CrawlCompletion::HardTimeoutTruncated,
+            ..CrawlDiagnostics::default()
+        };
+
+        log_crawl_outcome(&state, &diagnostics, Some("/p/"), CrawlKind::Full, None);
+
+        let completed = events.named(CRAWL_COMPLETED_EVENT);
+        assert_eq!(completed.len(), 1);
+        let completed = &completed[0];
+        assert_eq!(completed.level, tracing::Level::INFO);
+        assert_eq!(completed.field("listing_source_name"), Some("Antique Shop"));
+        assert_eq!(completed.field("domain"), Some("antique.example"));
+        assert_eq!(completed.field("truncated"), Some("true"));
+        assert_eq!(completed.field("query_url_share"), Some("0.25"));
+        assert_eq!(completed.field("product_pattern"), Some("/p/"));
+        assert!(completed.field("status_counts").is_some());
+    }
+
+    #[test]
+    fn should_warn_that_no_pattern_was_found_when_classification_settles_on_none() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        log_pattern_classified(&source(), "threshold", &ProductListingPattern::Unknown, 12);
+
+        let classified = events.named(PATTERN_CLASSIFIED_EVENT);
+        assert_eq!(classified.len(), 1);
+        assert_eq!(classified[0].level, tracing::Level::WARN);
+        assert_eq!(classified[0].field("stage"), Some("threshold"));
+        assert_eq!(classified[0].field("sample_size"), Some("12"));
+        assert_eq!(classified[0].field("domain"), Some("antique.example"));
+    }
+
+    #[test]
+    fn should_name_the_pattern_at_info_when_classification_settles_on_one() {
+        let (events, _guard) = LoggedEvents::capture();
+        let pattern = ProductListingPattern::Known(
+            ProductUrlPattern::parse(r"/products/\d+$").expect("test pattern must parse"),
+        );
+
+        log_pattern_classified(&source(), "end_of_crawl", &pattern, 30);
+
+        let classified = events.named(PATTERN_CLASSIFIED_EVENT);
+        assert_eq!(classified[0].level, tracing::Level::INFO);
+        assert_eq!(
+            classified[0].field("product_pattern"),
+            Some("/products/\\d+$")
+        );
+    }
 }

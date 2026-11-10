@@ -7,17 +7,23 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GeographicSearchData {
+    /// ISO 3166-1 alpha-2 country codes, at most 100; a listing matches when it is located in any of them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     countries: Vec<String>,
+    /// ISO 3166-2 subdivision codes, at most 100, that belong to `countries` when those are given; a listing matches when it is located in any of them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     subdivisions: Vec<String>,
+    /// Point that `radius` and `distanceOrder` measure from; required by either of them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     origin: Option<OriginData>,
+    /// Only listings within this distance of `origin`, at most 20,000 km.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::wire::schema::optional_distance")]
     radius: Option<geo::data::geography_data::DistanceData>,
+    /// Which locations count when measuring distance: `STRICT` (default) only exact premises, `APPROXIMATE` also street, locality and representative points; `APPROXIMATE` needs `origin` with `radius` or `distanceOrder`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<String>,
+    /// Order results by distance from `origin`, `ASC` (nearest first) or `DESC`; requires `origin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     distance_order: Option<String>,
 }
@@ -29,7 +35,9 @@ impl std::fmt::Debug for GeographicSearchData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct OriginData {
+    /// Latitude in decimal degrees.
     latitude: f64,
+    /// Longitude in decimal degrees.
     longitude: f64,
 }
 impl TryFrom<GeographicSearchData> for GeographicQuery {

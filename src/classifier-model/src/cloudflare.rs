@@ -143,6 +143,13 @@ impl CloudflareClassifierModel {
         Self::with_endpoint(config, endpoint)
     }
 
+    /// Bounds fetching each candidate image, for interactive callers. A fetch that exceeds it
+    /// omits the image, as any failed fetch does, and the candidate keeps its other evidence.
+    pub fn with_image_fetch_deadline(mut self, deadline: Duration) -> Self {
+        self.image_fetcher = ImageFetcher::new().with_total_timeout(deadline);
+        self
+    }
+
     fn with_endpoint(
         config: CloudflareClassifierConfig,
         endpoint: Url,

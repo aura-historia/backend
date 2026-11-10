@@ -1,7 +1,7 @@
 pub(super) use aura_historia_contracts::saved_searches::{
-    CreateSearchFilterData, PaginatedData, SearchFilterData, SearchFilterMatchData,
-    SearchFilterMatchesData, SearchFilterMatchesQuery, UpdateSearchFilterData,
-    UpdateSearchFilterMatchFeedbackData,
+    CreateSearchFilterData, PaginatedData, PreviewSearchFilterMatchesData, SearchFilterData,
+    SearchFilterMatchData, SearchFilterMatchPreviewData, SearchFilterMatchesData,
+    SearchFilterMatchesQuery, UpdateSearchFilterData, UpdateSearchFilterMatchFeedbackData,
 };
 use aura_historia_contracts::saved_searches::{SavedSearchInputError, SavedSearchInputErrorKind};
 

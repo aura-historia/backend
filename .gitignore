@@ -55,3 +55,6 @@ coverage.lcov
 
 # Prepared release plan and CDK assembly
 .release/
+
+# npm dependencies of the MJML email templates
+/mjml/node_modules/

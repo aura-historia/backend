@@ -94,6 +94,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/index.json", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/agent-skills/{skill_name}/SKILL.md", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/auth.md", ["GET", "HEAD"]),
+  ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/site-discovery/oauth/webmcp-client.json", ["GET", "HEAD"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/health", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/ready", ["GET"]),
 
@@ -157,6 +158,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist", ["GET", "POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/watchlist/{product_listing_id}", ["PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters", ["GET", "POST"]),
+  ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/preview", ["POST"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}", ["GET", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/me/search-filters/{user_search_filter_id}/matches/{product_listing_id}", ["PATCH"]),

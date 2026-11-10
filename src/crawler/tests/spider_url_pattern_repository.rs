@@ -1,3 +1,4 @@
+use crawler::spider::classification::product_url_pattern::ProductUrlPattern;
 use crawler::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl, UrlPatternState,
 };
@@ -19,6 +20,10 @@ async fn insert_source(pool: &sqlx::PgPool, listing_source_id: ListingSourceId, 
     .execute(pool)
     .await
     .unwrap();
+}
+
+fn pattern(include: &str) -> ProductUrlPattern {
+    ProductUrlPattern::parse(include).unwrap()
 }
 
 async fn stored_pattern(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) -> Option<String> {
@@ -71,7 +76,7 @@ async fn should_save_replace_and_clear_pattern_of_listing_source() {
     assert_eq!(initial.url_pattern_state, UrlPatternState::Unknown);
 
     repository
-        .save_pattern(&listing_source_id, Some(r"/products/"))
+        .save_pattern(&listing_source_id, Some(&pattern(r"/products/")))
         .await
         .unwrap();
     let saved = repository
@@ -83,7 +88,7 @@ async fn should_save_replace_and_clear_pattern_of_listing_source() {
     assert_eq!(saved.url_pattern_state, UrlPatternState::Matched);
 
     repository
-        .save_pattern(&listing_source_id, Some(r"/objects/"))
+        .save_pattern(&listing_source_id, Some(&pattern(r"/objects/")))
         .await
         .unwrap();
     let replaced = repository
@@ -129,11 +134,11 @@ async fn should_store_patterns_and_crawl_marks_independently_per_listing_source(
     insert_source(&pool, source_b, "b.example.com").await;
 
     repository
-        .save_pattern(&source_a, Some(r"/products/"))
+        .save_pattern(&source_a, Some(&pattern(r"/products/")))
         .await
         .unwrap();
     repository
-        .save_pattern(&source_b, Some(r"/objects/"))
+        .save_pattern(&source_b, Some(&pattern(r"/objects/")))
         .await
         .unwrap();
 
@@ -169,7 +174,9 @@ async fn should_reject_pattern_writes_for_missing_listing_source() {
     let missing = ListingSourceId::new();
     insert_source(&pool, owner, "owned.example.com").await;
 
-    let result = repository.save_pattern(&missing, Some(r"/items/")).await;
+    let result = repository
+        .save_pattern(&missing, Some(&pattern(r"/items/")))
+        .await;
     assert!(
         matches!(result, Err(sqlx::Error::RowNotFound)),
         "{result:?}"
@@ -198,4 +205,102 @@ async fn should_reject_crawl_mark_for_missing_listing_source() {
         "{result:?}"
     );
     assert!(last_crawled(&pool, owner).await.is_none());
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_save_read_and_clear_the_exclusion_with_its_pattern() {
+    let pool = get_postgres_client().await;
+    let repository = ListingSourceUrlPatternRepositoryImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id, "excluding.example.com").await;
+    let excluding = pattern(r"/products/")
+        .with_exclude(Some("gift-card|-service$"))
+        .unwrap();
+
+    repository
+        .save_pattern(&listing_source_id, Some(&excluding))
+        .await
+        .unwrap();
+    let saved = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.url_pattern.as_deref(), Some("/products/"));
+    assert_eq!(
+        saved.url_pattern_exclude.as_deref(),
+        Some("gift-card|-service$")
+    );
+    assert_eq!(saved.url_pattern_state, UrlPatternState::Matched);
+
+    repository
+        .save_pattern(&listing_source_id, Some(&pattern(r"/objects/")))
+        .await
+        .unwrap();
+    let replaced = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(replaced.url_pattern_exclude.is_none());
+
+    repository
+        .save_pattern(&listing_source_id, Some(&excluding))
+        .await
+        .unwrap();
+    repository
+        .save_no_pattern(&listing_source_id)
+        .await
+        .unwrap();
+    let no_pattern = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(no_pattern.url_pattern.is_none());
+    assert!(no_pattern.url_pattern_exclude.is_none());
+
+    repository
+        .save_pattern(&listing_source_id, Some(&excluding))
+        .await
+        .unwrap();
+    repository
+        .save_pattern(&listing_source_id, None)
+        .await
+        .unwrap();
+    let cleared = repository
+        .find_pattern(&listing_source_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(cleared.url_pattern_exclude.is_none());
+    assert_eq!(cleared.url_pattern_state, UrlPatternState::Unknown);
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_refuse_an_exclusion_without_a_pattern_or_a_blank_one() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    insert_source(&pool, listing_source_id, "shape.example.com").await;
+    let write = |state: &'static str, include: Option<&'static str>, exclude: &'static str| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "UPDATE listing_sources \
+                 SET url_pattern_state = $2, url_pattern = $3, url_pattern_exclude = $4 \
+                 WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(state)
+            .bind(include)
+            .bind(exclude)
+            .execute(&pool)
+            .await
+        }
+    };
+
+    assert!(write("UNKNOWN", None, "gift-card").await.is_err());
+    assert!(write("NO_PATTERN", None, "gift-card").await.is_err());
+    assert!(write("MATCHED", Some("/p/"), "  ").await.is_err());
+    assert!(write("MATCHED", Some("/p/"), "gift-card").await.is_ok());
 }

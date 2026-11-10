@@ -7,7 +7,7 @@ owns hosting, certificates, Origin/CORS and stage verification. Native and Lambd
 points share one registry and authenticate each request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
-The shared registry contains 38 operations: 12 public catalogue operations and 26 operations
+The shared registry contains 37 operations: 11 public catalogue operations and 26 operations
 for the authenticated user's own account, saved searches, watchlist and notifications. Ten public
 operations forward validated delegated context. MCP is a consumer surface:
 [partner workflows](#partner-workflows-use-rest) use REST.
@@ -84,7 +84,7 @@ shared use case and must never become transport truncation.
 
 The registry rejects duplicate IDs and titles, lists tools lexically by operation ID,
 and returns at most 50 definitions with an explicit continuation cursor. The complete
-38-tool catalogue fits one page without `nextCursor`; generic clients still pass any returned
+37-tool catalogue fits one page without `nextCursor`; generic clients still pass any returned
 `nextCursor` as `cursor` until it is absent. Its
 manifest includes `aura.historia/operationId`, `aura.historia/access` and
 `aura.historia/requiredScopes` metadata. Protected tools remain discoverable.
@@ -103,8 +103,10 @@ Absent credentials permit discovery and public operations. Supplied malformed, e
 revoked or invalid credentials receive HTTP `401` with `error="invalid_token"`, including on
 public calls. Protected calls without credentials receive HTTP `401`; insufficient grants
 receive HTTP `403` with `error="insufficient_scope"`. Their Bearer challenges include
-`resource_metadata` and every scope required by the selected operation, rather than only the
-missing subset. Authentication-store outages receive bounded HTTP `503` with `Retry-After: 1`;
+`resource_metadata` and the whole ordinary-user scope vocabulary, whatever the selected
+operation needs: a client requests what the challenge names, so naming only the operation's
+scopes would cost one approval per tool family. Admission still enforces each operation's own
+scopes. Authentication-store outages receive bounded HTTP `503` with `Retry-After: 1`;
 invalid persisted/internal authentication state receives `500`. Neither becomes anonymous
 success or an invalid-token challenge. Rejected requests never execute a tool. Use cases
 remain the authority for scope, role, partnership and ownership checks.
@@ -113,17 +115,21 @@ Both `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-protected-resource/v1` serve credential-free RFC 9728 metadata. They
 identify the exact canonical MCP resource and configured Aura issuer, and advertise only header
 bearer credentials and the ordinary-user scopes, like the REST protected-resource metadata. A
-client that signs in without a challenge requests these, so one approval covers every personal
-tool. Operation challenges still name the required scope set of each protected call. Host/Origin checks and `Cache-Control: no-store`
-apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
+client that signs in without a challenge requests these, and protected-call challenges name the
+same vocabulary, so one approval covers every personal tool. Host/Origin checks and
+`Cache-Control: no-store` apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
 server discovery belongs to [the OAuth contract](oauth.md); the server card and every other
 discovery document belong to [agent discovery](agent-discovery.md).
 
 Family adapters classify expected input, missing-resource, conflict, forbidden
-and temporary failures into distinct static tool-error codes. Invalid arguments
-are protocol errors; unexpected failures are safe `-32603` errors. Technical
-causes remain attached to internal error types and never appear in client
-messages. No mutation is automatically retried: a timeout or oversized response
+and temporary failures into distinct static tool-error codes. `NOT_FOUND` and
+`CONFLICT` results add a second text block with a static message that names the
+resource and a next step; the first block stays the bare code. Invalid arguments
+are `-32602` protocol errors whose message gives the reason, bounded in length, and
+the failing argument where the validation knows it: the reason is the client-safe text
+REST returns as problem detail, a decoding failure's reason never repeats a supplied value,
+and a member of a flattened input reports its reason without a name. Unexpected failures are safe `-32603` errors. Technical causes remain
+attached to internal error types and never appear in client messages. No mutation is automatically retried: a timeout or oversized response
 may follow a completed write, so callers must follow the operation's existing
 idempotency and recovery contract.
 
@@ -144,6 +150,22 @@ there are no per-directory variants. Check new or changed tools against the
   as continuation, background matching, conflicts or non-idempotent creation, stated as facts
   about the tool. They give the model no behavioural instructions, promote nothing and name no
   other tool to call.
+- **Argument types.** The Claude review flags an argument that is a bare `$ref` (or an `allOf`)
+  without a `type`, which is how schemars describes an argument whose type is a shared
+  definition. When it builds a tool's input schema, the registry repeats the type that definition
+  declares next to the reference. This never narrows what an argument accepts. An argument whose
+  type cannot be derived, such as a definition whose variants have different types, stays as
+  generated; give its field an explicit schema. The
+  [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on any argument that
+  has neither a `type` nor an `anyOf`.
+- **Argument descriptions.** Every input property, nested ones included, has a one-sentence
+  description that states what the services do with the value. It is a doc comment or a shared
+  constant (`wire::description`) on the contract, so REST and MCP agree, and the
+  [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on any undescribed
+  argument or tagged-union variant. The registry appends the shared minor-unit rule for amounts
+  to the description of every tool whose input or output schema contains a money amount (an
+  object with `amount` and `currency`), and the `price` and `maximumPerItem` arguments state it
+  themselves.
 - **Server identity.** `initialize` and `server/discover` report the name `aura-historia-mcp`,
   the title `Aura Historia`, a description, the environment's website as `websiteUrl` and its
   PNG icons. `version` is the deployed release's source commit (`COMMIT_SHA`), or `unreleased`
@@ -157,12 +179,33 @@ there are no per-directory variants. Check new or changed tools against the
   [infrastructure configuration](../infra/src/config.ts) once OpenAI's portal issues it.
   Synthesis rejects a token the server would refuse at startup.
 
-Schemas stay as generated. Models load at most each tool's name, title, description and input
-schema: the tool definitions of the Claude and OpenAI model APIs have no output schema, and
-OpenAI uses `outputSchema` to check `structuredContent`. Output schemas already share their
-types through `$defs` and `$ref`; the remaining repetition is the same types in several tools,
-which MCP cannot share because each tool's schema is self-contained. Their descriptions document
-the result for clients, so they stay. Input schemas are the complete shared request contracts.
+Apart from those argument types, schemas stay as generated. Models load at most each tool's name,
+title, description and input schema: the tool definitions of the Claude and OpenAI model APIs
+have no output schema, and OpenAI uses `outputSchema` to check `structuredContent`. Output
+schemas already share their types through `$defs` and `$ref`; the remaining repetition is the
+same types in several tools, which MCP cannot share because each tool's schema is
+self-contained. Their descriptions document the result for clients, so they stay. Input schemas
+are the complete shared request contracts.
+
+## Tool snapshot
+
+[`mcp-tools.json`](mcp-tools.json) is the `tools` array that an anonymous `tools/list` returns
+under revision `2026-07-28`, protected tools included. The website syncs it from this repository,
+like the OpenAPI document, and registers its WebMCP tools from it. It never lists tools at
+runtime: `tools/list` is a POST that the CDN cannot cache, so every page view would invoke the MCP
+Lambda and use up its small reserved concurrency.
+
+The registry renders the file. [`tools_snapshot.rs`](../src/aura-historia-mcp/tests/tools_snapshot.rs)
+fails when the file differs from the registry's output. It also fails when production and stage
+would render different files or a tool names an environment origin. After changing a tool,
+regenerate the file:
+
+```sh
+UPDATE_MCP_TOOLS_SNAPSHOT=1 cargo test --locked -p aura-historia-mcp --test tools_snapshot
+```
+
+Renaming or removing a tool, or changing its arguments incompatibly, breaks the website's calls
+to it until the webapp syncs again. Record such changes in the [changelog](CHANGELOG.md).
 
 ## Watchlist tools
 
@@ -195,26 +238,26 @@ contracts and the same typed runtime service family. The
 
 The public subset remains callable without credentials. Its ten listing, history, auction and
 source operations forward a supplied, validated `DelegatedUser` directly to the existing service
-use cases, preserving the same tool names, full contracts, filters and continuations. Location
-discovery and public overview remain anonymous. Public operations require no scopes and advertise
+use cases, preserving the same tool names, full contracts, filters and continuations. The public
+overview remains anonymous. Public operations require no scopes and advertise
 read-only, idempotent, nondestructive behavior against Aura's catalogue. Services remain the
 authorization authority. The public manifest describes this subset of the hybrid endpoint;
 protected families have separate, non-overlapping registrations. Newsletter opt-in/confirmation, health/readiness,
-webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded.
+webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded. Public
+seller-location discovery (`GET /v1/party-locations`) is REST-only.
 
 | Tool / source operation ID | Arguments and result |
 | --- | --- |
 | `simpleSearchProductListings` | Complete existing filters, language/currency, `sort`, `order`, `size`, `searchAfter`; returns the cursored personalized summary collection and service-supplied totals. |
 | `getProductListing` | `productListingId`, language/currency; returns the complete public detail envelope. |
 | `getProductListingByTitleSlug` | `productListingTitleSlugId`, language/currency; returns the same detail envelope. |
-| `getSimilarProductListings` | `productListingId`, language/currency; returns `EMBEDDING_PENDING` or `READY` with `items`. |
+| `getSimilarProductListings` | `productListingId`, language/currency, optional `size` (default 20, clamped to 1–50); returns `EMBEDDING_PENDING` or `READY` with `items`. |
 | `getProductListingHistory` | `productListingId`, optional `currency`; returns every shared history entry inside `{ "result": [...] }`. |
 | `listAuctions` | Source, format, reported status, schedule range, `timeRole`, sort/order, `pageSize`, `searchAfter`; returns the public auction directory. |
 | `getAuction` | `auctionId`; returns source metadata, schedule, reported status/counts, visible count and catalogue/outbound links. |
 | `getAuctionCatalogue` | `auctionId`, language/currency, `pageSize`, `searchAfter`; returns public lots with existing listing presentation. |
 | `searchPublicListingSources` | `query`, `size` (default 21, 1–50), `searchAfter`; absent/blank text browses and insufficient text returns no matches. |
-| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, operator name and optional URL/image. |
-| `discoverPartyLocations` | Complete `geography`, `size` (default 21, 1–100), `searchAfter`; returns public location IDs, basis, geographic context, point, precision and distance. |
+| `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, operator name and optional URL, view URL and image. |
 | `getPublicOverview` | Empty object; returns `asOf` and every stored public catalogue aggregate. An uncalculated overview is temporarily unavailable. |
 
 Search retains geography, shipping, all identifier inclusion/exclusion sets, price/date ranges,
@@ -231,12 +274,12 @@ stored destination-derived `shipping` only with `users:read`. Unauthorized secti
 no applicable sections means `userState` itself is omitted. Write scopes do not imply read scopes.
 Stored hidden-item, tier and sensitive-image policy still applies with every scope combination,
 including an empty grant. No stored browsing destination is read without `users:read`.
-Public source/location/auction output excludes management, contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
+Public source/auction output excludes management, contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
 exact JSON integers.
 
-Similarity uses the service's fixed neighbor limit. `EMBEDDING_PENDING` means retry the same
-operation later; `READY` with an empty array is a completed result. The envelope represents REST's
-bodyless pending outcome and introduces no neighbor-count argument.
+Similarity returns up to `size` neighbors; out-of-range values are clamped, and REST keeps the
+default of 20. `EMBEDDING_PENDING` means retry the same operation later; `READY` with an empty
+array is a completed result. The envelope represents REST's bodyless pending outcome.
 
 ### Continuations and complete history
 
@@ -245,14 +288,12 @@ bodyless pending outcome and introduces no neighbor-count argument.
 | Listing search | Supply the returned `searchAfter` object directly as JSON. Its immutable FX snapshot and complete opaque sort values are retained. REST alone query-encodes that object. |
 | Auction directory/catalogue | Serialize the returned `searchAfter` object as the next argument's JSON string, as on REST. Directory scope includes all filters/sort and nullable schedule instants; catalogue scope includes auction, position and listing identity. |
 | Source search | Return the opaque cursor unchanged with the same canonical query and page size. Encoded/decoded cursor bounds remain 4 KiB/3 KiB. |
-| Location discovery | Supply the returned object containing `locationId` and optional `distanceKm`; preserve the geographic scope. |
-| History and similarity | No paging or continuation arguments. |
+| History and similarity | No paging or continuation arguments; similarity takes only a neighbor count. |
 
 Auction scheduled sorting requires `timeRole`; a schedule range requires both bounds. Catalogue
 pricing retains the use case's current/sale-observation FX selection. Source search and slug
 detail share a non-queuing budget of four active reads with a 500 ms source-read timeout, also
-bounded by the invocation deadline. Location validation uses the existing constructors/service;
-no address or profile origin is inferred.
+bounded by the invocation deadline.
 
 History deliberately preserves the full REST array and the existing webapp timeline contract.
 Every event retains its original order, including distinct events sharing a timestamp, discovery
@@ -270,7 +311,7 @@ The [personalization suite](../src/aura-historia-mcp/tests/public_release/person
 exercises real listing and shipping handlers through HTTP, including all read-scope combinations,
 private-section omission and protective policy. The public authentication suite checks all ten
 context paths, including operations with no personalized output.
-Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
+Local tests exercise both discovery and initialize lifecycles, all eleven tools, complete search
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
 
@@ -311,7 +352,8 @@ Address creation assigns a new identity on every accepted call, including equal 
 Its annotations mark it non-idempotent; an ambiguous timeout requires reconciliation before a
 retry, as described in [command retries](command-retries.md). Replacements/deletion advertise
 destructive effects and preserve service CAS behavior. The transport does not retry mutations.
-Credential management, billing and account deletion have no tools in this family.
+Credential management, billing and account deletion have no tools in this family, and the account
+result carries no Stripe customer reference, like REST `/v1/me/account`.
 
 ## Saved searches and match feedback
 
@@ -396,7 +438,7 @@ sign in without registration where the environment enables
 confidential client per environment with an exact HTTPS callback and a scope ceiling, then
 follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup). The same MCP URL supports anonymous discovery and public calls before, during and after a
 connection. Protected tools remain listed; their HTTP `401`/`403` challenges identify the
-resource metadata and required scopes. To add scopes, start a new authorization with a fresh
+resource metadata and the ordinary-user scopes to approve. To add scopes, start a new authorization with a fresh
 state and S256 verifier, obtain human approval and exchange its single-use code. A client
 must validate the exact callback and state, handle `access_denied` without exchanging a
 code, and keep its secret and verifier out of browser URLs and logs.

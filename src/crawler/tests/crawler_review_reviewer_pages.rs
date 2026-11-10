@@ -1,11 +1,12 @@
 use crawler::review::model::{
-    CrawlerReviewPage, ListingSourceOverview, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED,
-    PAGE_ROLE_SEED, PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor,
-    ReviewEventAction, STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
+    CrawlerReviewPage, PAGE_ROLE_PRIMARY, PAGE_ROLE_REVIEWER_ADDED, PAGE_ROLE_SEED,
+    PAGE_ROLE_TRIGGERING_GENERATION_PAGE, PAGE_ROLE_WAITING_PAGE, ReviewActor, ReviewEventAction,
+    STATUS_PENDING_REVIEW, STATUS_REJECTED, SchemaReviewPageInput,
 };
 use crawler::review::readers::ListingSourceOverviewReader;
 use crawler::review::repository::{
-    CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewRepositoryError,
+    CrawlerReviewRepository, MAX_REVIEWER_ADDED_PAGES, MAX_WAITING_PAGES, ReviewPlacement,
+    ReviewRepositoryError,
 };
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
@@ -1497,6 +1498,56 @@ async fn should_add_a_missing_value_page_to_the_pending_review_and_need_live_sch
     ));
 }
 
+/// The first page of a ListingSource that left a value blank opens the `missing_required_value`
+/// review; the next one joins it, so the scraper's log line says which of the two happened.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_tell_whether_a_scraped_missing_value_page_opened_or_joined_the_review() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let (listing_source_id, earlier) = pending_schema_review(&pool).await;
+    sqlx::query(
+        "UPDATE crawler_reviews SET status = 'REJECTED', reviewed = NOW() WHERE review_id = $1",
+    )
+    .bind(earlier.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(json!([schema()]))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let first = repository
+        .open_or_join_review_for_scraped_missing_value_page(
+            &listing_source_id,
+            &url("https://www.example.com/products/untitled-1"),
+            PRODUCT_HTML,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let second = repository
+        .open_or_join_review_for_scraped_missing_value_page(
+            &listing_source_id,
+            &url("https://www.example.com/products/untitled-2"),
+            PRODUCT_HTML,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    let ReviewPlacement::Opened(opened) = first else {
+        panic!("the first page opens the review: {first:?}");
+    };
+    assert_eq!(second, ReviewPlacement::Joined(opened));
+    assert_ne!(opened, earlier);
+}
+
 /// The overview counts exactly the pages the console lists: a URL retired as `DUPLICATE` keeps
 /// the outcome its last scrape recorded, but is no page a review can take, and no product URL of
 /// its own.
@@ -1511,14 +1562,14 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
         record_missing_value_page(&pool, listing_source_id, page.as_str()).await;
     }
     let overview_reader = ListingSourceOverviewReader::new(pool.clone());
-    let overview_of = |sources: Vec<ListingSourceOverview>| {
-        sources
-            .into_iter()
-            .find(|source| source.listing_source_id == listing_source_id)
+    let overview_of = || async {
+        overview_reader
+            .find_listing_source(listing_source_id)
+            .await
+            .unwrap()
             .unwrap()
     };
-    let product_urls_before =
-        overview_of(overview_reader.list_listing_sources(10).await.unwrap()).product_urls;
+    let product_urls_before = overview_of().await.product_urls;
     sqlx::query("UPDATE listing_source_urls SET crawler_disposition = 'DUPLICATE' WHERE url = $1")
         .bind(retired.as_str())
         .execute(&pool)
@@ -1529,7 +1580,7 @@ async fn should_count_only_the_missing_value_pages_it_lists() {
         .list_missing_value_pages(&listing_source_id)
         .await
         .unwrap();
-    let overview = overview_of(overview_reader.list_listing_sources(10).await.unwrap());
+    let overview = overview_of().await;
 
     assert_eq!(
         pages

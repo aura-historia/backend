@@ -1,5 +1,8 @@
 use crate::network::policy::NetworkErrorKind;
 
+use crate::authoring::CrawlerAuthoringMode;
+use crate::logging::warn_in_source;
+use crate::review::repository::ReviewPlacement;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -8,14 +11,16 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
+use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
 };
 use crate::scraper::scraper_service::domain::product::{
     DomainFetchHealth, ScrapeMode, ScrapeOutcome, ScrapeRequest, ScrapedProduct, ScraperService,
-    begin_transport_observation, current_fetch_failure, current_transport_observation,
-    scrape_health_for_scraper_error, with_scrape_observation,
+    begin_transport_observation, current_fetch_failure, current_scrape_telemetry,
+    current_transport_observation, record_captured_schema, scrape_health_for_scraper_error,
+    with_scrape_observation,
 };
 use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
 use crate::scraper::scraper_service::pipeline::cached_schema_selection::{
@@ -26,11 +31,11 @@ use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use crate::scraper::scraper_service::util::hash::{
     EXTRACTOR_VERSION, fingerprint_scraper_context, hash_extractions,
 };
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_metadata::CrawlerUrlWriteOutcome;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{is_language_segment, without_language_segment};
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use tracing::{debug, warn};
 use url::Url;
 
@@ -67,7 +72,7 @@ impl Redirect {
     pub(crate) fn of(
         original_url: &Url,
         final_url: &Url,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
     ) -> Self {
         let original = CrawledUrl::new(original_url.clone());
         let target = CrawledUrl::new(final_url.clone());
@@ -84,7 +89,7 @@ impl Redirect {
         if is_homepage(&target) {
             return stored(target, RedirectTarget::Homepage);
         }
-        let Some(pattern) = product_url_pattern.and_then(|raw| Regex::new(raw).ok()) else {
+        let Some(pattern) = product_url_pattern else {
             return stored(target, RedirectTarget::ProductPage);
         };
         // The recognized language segments are a guess about the path (`/art/12`), so the
@@ -94,10 +99,10 @@ impl Redirect {
             .then(|| without_language_segment(&target))
             .flatten()
             .map(CrawledUrl::new)
-            .filter(|unprefixed| unprefixed.matches_pattern(&pattern));
+            .filter(|unprefixed| unprefixed.matches_pattern(pattern));
         match unprefixed {
             Some(unprefixed) => stored(unprefixed, RedirectTarget::ProductPage),
-            None if target.matches_pattern(&pattern) => stored(target, RedirectTarget::ProductPage),
+            None if target.matches_pattern(pattern) => stored(target, RedirectTarget::ProductPage),
             None => stored(target, RedirectTarget::OutsideProductPattern),
         }
     }
@@ -108,7 +113,7 @@ impl RedirectTarget {
     pub(crate) fn of(
         original_url: &Url,
         final_url: &Url,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
     ) -> Self {
         Redirect::of(original_url, final_url, product_url_pattern).target
     }
@@ -126,7 +131,7 @@ impl RedirectTarget {
 pub(crate) fn is_redirect_to_non_product_page(
     original_url: &Url,
     final_url: &Url,
-    product_url_pattern: Option<&str>,
+    product_url_pattern: Option<&ProductUrlPattern>,
 ) -> bool {
     is_same_logical_host(original_url, final_url)
         && !RedirectTarget::of(original_url, final_url, product_url_pattern).is_product_page()
@@ -191,7 +196,7 @@ impl ScraperServiceImpl {
                 );
             }
             Err(error) => {
-                warn!(error = %error, "Failed to mark URL as other");
+                warn_in_source!(error = %error, "Failed to mark URL as other");
             }
         }
     }
@@ -223,7 +228,7 @@ impl ScraperServiceImpl {
                 debug!("Skipped stale page/schema fast-path completion");
             }
             Err(error) => {
-                warn!(error = %error, "Failed to touch URL after page/schema fast-path skip");
+                warn_in_source!(error = %error, "Failed to touch URL after page/schema fast-path skip");
             }
         }
     }
@@ -310,14 +315,18 @@ fn parse_fetched_page(
 impl ScraperService for ScraperServiceImpl {
     #[tracing::instrument(skip(self, request), fields(listing_source_id = %request.listing_source_id, url = %request.url, mode = ?request.mode))]
     async fn scrape(&self, request: ScrapeRequest) -> ScrapeOutcome {
-        let (result, observed_scrape_health, fetch_failure) = with_scrape_observation(async {
-            let result = self.scrape_request(&request).await;
-            let observed = current_transport_observation();
-            let fetch_failure = current_fetch_failure();
-            (result, observed, fetch_failure)
-        })
-        .await
-        .0;
+        let scrape_started_at = std::time::Instant::now();
+        let (result, observed_scrape_health, fetch_failure, mut telemetry) =
+            with_scrape_observation(async {
+                let result = self.scrape_request(&request).await;
+                let observed = current_transport_observation();
+                let fetch_failure = current_fetch_failure();
+                (result, observed, fetch_failure, current_scrape_telemetry())
+            })
+            .await
+            .0;
+        let scrape_ms = u64::try_from(scrape_started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
+        telemetry.process_ms = Some(scrape_ms.saturating_sub(telemetry.fetch_ms.unwrap_or(0)));
         let scrape_health = observed_scrape_health.unwrap_or_else(|| match &result {
             Ok(_) => DomainFetchHealth::Responsive,
             Err(error) => scrape_health_for_scraper_error(error),
@@ -326,6 +335,7 @@ impl ScraperService for ScraperServiceImpl {
             result,
             scrape_health,
             fetch_failure,
+            telemetry,
         }
     }
 }
@@ -352,7 +362,7 @@ impl FetchedProductPage {
     fn locate(
         url: &Url,
         fetched: FetchedHtml,
-        product_url_pattern: Option<&str>,
+        product_url_pattern: Option<&ProductUrlPattern>,
         acquired_at: time::OffsetDateTime,
     ) -> Result<Self, ScraperError> {
         if !is_same_logical_host(url, &fetched.final_url) {
@@ -491,6 +501,12 @@ fn capture_selection(
             .chain(selection.fresh_schema.then_some(Some(&selection.raw))),
     );
     let mut schemas = extracted.into_schemas().product_schemas;
+    let schema_index = selection.cached_schema_index.unwrap_or(schemas.len());
+    // A carried-forward title stands in for the blank one the extraction found.
+    let fields_present = selection.raw.present_field_count()
+        + usize::from(
+            selection.carried_forward_title.is_some() && selection.raw.title.trim().is_empty(),
+        );
     if selection.fresh_schema {
         schemas.push(selection.schema.clone());
     }
@@ -511,6 +527,13 @@ fn capture_selection(
         .map_err(ScraperError::RawNormalizationInput)?
         .as_bytes()
         .to_vec();
+    // Only a capture that succeeded reports its schema.
+    record_captured_schema(
+        schema_index,
+        selection.score,
+        selection.fresh_schema,
+        fields_present,
+    );
     Ok(ScrapedProduct {
         acquired_at: page.acquired_at,
         raw_input,
@@ -561,7 +584,7 @@ impl ScraperServiceImpl {
         let page = FetchedProductPage::locate(
             url,
             fetched,
-            request.product_url_pattern.as_deref(),
+            request.product_url_pattern.as_ref(),
             time::OffsetDateTime::now_utc(),
         )?;
 
@@ -632,7 +655,7 @@ impl ScraperServiceImpl {
             None => ExtractedSchemaSet::parse_and_extract(
                 self.obtain_schemas(
                     fetched_page,
-                    request.product_url_pattern.as_deref(),
+                    request.product_url_pattern.as_ref(),
                     request.mode,
                 )
                 .await?,
@@ -756,6 +779,7 @@ impl ScraperServiceImpl {
                         extracted = live;
                         continue;
                     }
+                    self.report_missing_required_value(page, &findings).await;
                     return Err(ScraperError::MissingRequiredValue {
                         url: page.url.clone(),
                         findings,
@@ -796,6 +820,64 @@ impl ScraperServiceImpl {
         }
     }
 
+    /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
+    /// ListingSource's `missing_required_value` review for it, so the review agents see the page
+    /// that no human adds, unless a rejection of such a review already judged the page under the
+    /// live schemas; that page needs nobody's attention. The review's opening is the repository's
+    /// `crawler.review.opened` event, so these outcomes log at DEBUG. Other modes open
+    /// none and log a WARN, as the scrape's failure did before, since a human adds the page from
+    /// the console. A failure to open the review is a WARN too: the URL still records the
+    /// outcome, and the next scrape tries again.
+    async fn report_missing_required_value(
+        &self,
+        page: FetchedPage<'_>,
+        findings: &PlausibilityFindings,
+    ) {
+        let review = match (self.authoring, &self.review_repository) {
+            (CrawlerAuthoringMode::Agent, Some(repository)) => Some(
+                repository
+                    .open_or_join_review_for_scraped_missing_value_page(
+                        page.listing_source_id,
+                        page.url,
+                        page.html,
+                    )
+                    .await,
+            ),
+            _ => None,
+        };
+        match review {
+            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => debug!(
+                url = %page.url,
+                review_id = %review_id,
+                findings = %findings,
+                "Page left a required value blank; opened the missing_required_value review"
+            ),
+            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => debug!(
+                url = %page.url,
+                review_id = %review_id,
+                findings = %findings,
+                "Page left a required value blank; joined the missing_required_value review"
+            ),
+            Some(Ok(None)) => debug!(
+                url = %page.url,
+                findings = %findings,
+                "Page left a required value blank; a rejected missing_required_value review already judged it under the live schemas"
+            ),
+            Some(Err(error)) => warn_in_source!(
+                url = %page.url,
+                findings = %findings,
+                error = %error,
+                cause = ?std::error::Error::source(&error),
+                "Page left a required value blank; could not open its missing_required_value review"
+            ),
+            None => warn_in_source!(
+                url = %page.url,
+                findings = %findings,
+                "Page left a required value blank"
+            ),
+        }
+    }
+
     /// The live schemas extracted from the page when they changed since `extracted` was read,
     /// looked up at most once per scrape (`reread` records it). The live set is known only after
     /// awaits, so it is extracted from a second parse.
@@ -831,7 +913,9 @@ mod tests {
         RedirectTarget::of(
             &Url::parse(original).unwrap(),
             &Url::parse(served).unwrap(),
-            pattern,
+            pattern
+                .map(|pattern| ProductUrlPattern::parse(pattern).unwrap())
+                .as_ref(),
         )
     }
 

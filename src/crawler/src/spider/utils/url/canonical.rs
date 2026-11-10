@@ -11,6 +11,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 use super::CrawledUrl;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 
 /// A shop system whose product URLs the crawler knows how to canonicalize.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +63,7 @@ pub fn canonical_product_url(
     page: &CrawledUrl,
     evidence: &PageIdentityEvidence,
     platform: Option<ShopPlatform>,
-    product_pattern: &Regex,
+    product_pattern: &ProductUrlPattern,
 ) -> Option<CrawledUrl> {
     if !page.matches_pattern(product_pattern) {
         return None;
@@ -153,15 +154,15 @@ mod tests {
 
     /// The unanchored pattern URL-pattern inference produces for a Shopify shop: it takes the
     /// product under every collection as well.
-    fn shopify_pattern() -> Regex {
-        Regex::new(r"/products/[^/]+$").unwrap()
+    fn shopify_pattern() -> ProductUrlPattern {
+        ProductUrlPattern::parse(r"/products/[^/]+$").unwrap()
     }
 
     fn canonical(
         page: &str,
         evidence: &PageIdentityEvidence,
         platform: Option<ShopPlatform>,
-        pattern: &Regex,
+        pattern: &ProductUrlPattern,
     ) -> Option<String> {
         canonical_product_url(&crawled(page), evidence, platform, pattern)
             .map(|url| url.to_string())
@@ -257,7 +258,7 @@ mod tests {
 
         #[test]
         fn should_keep_the_page_when_its_canonical_link_is_a_page_the_crawler_never_fetches() {
-            let pattern = Regex::new(r"/(products|cart)/").unwrap();
+            let pattern = ProductUrlPattern::parse(r"/(products|cart)/").unwrap();
             assert_eq!(
                 canonical(
                     "https://shop.example/products/chair/",
@@ -291,8 +292,8 @@ mod tests {
         const EN_PAGE: &str =
             "https://www.antik-heymann.de/en/antiquitaeten/tische/biedermeier-tisch-1022.html";
 
-        fn antique_pattern() -> Regex {
-            Regex::new(r"/antiquitaeten/[^/]+/[^/]+\.html$").unwrap()
+        fn antique_pattern() -> ProductUrlPattern {
+            ProductUrlPattern::parse(r"/antiquitaeten/[^/]+/[^/]+\.html$").unwrap()
         }
 
         /// antik-heymann.de serves each product under `/en/` too; the English page names itself
@@ -341,7 +342,7 @@ mod tests {
 
         #[test]
         fn should_keep_a_page_whose_first_segment_is_no_language() {
-            let pattern = Regex::new(r"/item/").unwrap();
+            let pattern = ProductUrlPattern::parse(r"/item/").unwrap();
             assert_eq!(
                 canonical(
                     "https://shop.example/antiques/item/1",
@@ -373,7 +374,7 @@ mod tests {
 
         #[test]
         fn should_store_a_shopify_collection_product_url_under_its_product_url() {
-            let pattern = Regex::new(r"/products/[^/]+/?$").unwrap();
+            let pattern = ProductUrlPattern::parse(r"/products/[^/]+/?$").unwrap();
             for (page, expected) in [
                 (
                     "https://kernow.example/collections/chairs/products/oak-chair",

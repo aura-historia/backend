@@ -12,6 +12,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 use thiserror::Error;
 use tracing::{debug, info};
 
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 
 const SAMPLE_LIMIT: usize = 20;
@@ -63,7 +64,7 @@ pub trait UrlClassificationService: Send + Sync {
     ) -> Result<Option<Regex>, UrlClassificationError>;
     fn filter_product_urls(
         &self,
-        pattern: &Regex,
+        pattern: &ProductUrlPattern,
         all_urls: &[String],
     ) -> Result<Vec<CrawledUrl>, UrlClassificationError>;
 }
@@ -213,7 +214,7 @@ impl<Llm: LargeLanguageModel> UrlClassificationService for UrlClassificationServ
     )]
     fn filter_product_urls(
         &self,
-        pattern: &Regex,
+        pattern: &ProductUrlPattern,
         all_urls: &[String],
     ) -> Result<Vec<CrawledUrl>, UrlClassificationError> {
         info!("Applying URL pattern to crawled URLs");

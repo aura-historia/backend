@@ -1,4 +1,7 @@
 use super::{ProductListingSearchData, code_sets};
+use crate::product_listings::product_data::{
+    PersonalizedProductListingSummaryData, personalized_product_summary_data,
+};
 use crate::shipping::listing::ShippingMatchValuationData;
 use auction_core::AuctionId;
 use domain_primitives::event_id::EventId;
@@ -10,6 +13,7 @@ use search_filter_core::{
     user_search_filter_name::UserSearchFilterName,
 };
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
+use search_filter_service::use_cases::SearchFilterMatchPreview;
 use serde::Serialize;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
@@ -94,6 +98,29 @@ impl From<SearchFilterMatchView> for SearchFilterMatchData {
             feedback: view.feedback,
             created: view.created,
             updated: view.updated,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFilterMatchPreviewData {
+    /// At most four listings the criteria match now, most relevant first.
+    pub items: Vec<PersonalizedProductListingSummaryData>,
+    /// `true` when fewer than four matches were found among the candidates the preview
+    /// evaluates, so more listings may match than it shows.
+    pub candidate_limit_reached: bool,
+}
+
+impl From<SearchFilterMatchPreview> for SearchFilterMatchPreviewData {
+    fn from(preview: SearchFilterMatchPreview) -> Self {
+        Self {
+            items: preview
+                .items
+                .into_iter()
+                .map(personalized_product_summary_data)
+                .collect(),
+            candidate_limit_reached: preview.candidate_limit_reached,
         }
     }
 }

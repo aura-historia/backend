@@ -181,7 +181,9 @@ use search_filter_postgres::{
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterHandler, DeleteOwnedSearchFilterHandler, GetOwnedSearchFilterHandler,
-    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler, UpdateOwnedSearchFilterHandler,
+    ListOwnedSearchFiltersHandler, ListSearchFilterMatchesHandler,
+    PreviewSearchFilterMatchesHandler, SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE,
+    SearchFilterMatchPreviewPolicy, UpdateOwnedSearchFilterHandler,
     UpdateSearchFilterMatchFeedbackHandler,
 };
 use std::collections::{HashMap, HashSet};
@@ -229,6 +231,29 @@ use watchlist_service::use_cases::{
     ListWatchlistHandler, UnwatchProductListingHandler, UpdateWatchlistProductListingHandler,
     WatchProductListingHandler,
 };
+
+/// Accepts every candidate, so previews expose retrieval and presentation composition.
+struct AcceptingTestClassifier;
+
+#[async_trait::async_trait]
+impl classifier_model::ClassifierModel for AcceptingTestClassifier {
+    async fn classify(
+        &self,
+        _: classifier_model::ClassificationRequest,
+    ) -> Result<classifier_model::ClassificationResponse, classifier_model::ClassificationError>
+    {
+        Ok(classifier_model::ClassificationResponse {
+            answers: std::collections::BTreeMap::from([(
+                classifier_model::QuestionId::new("should_show")
+                    .map_err(|_| classifier_model::ClassificationError::InvalidResponse)?,
+                classifier_model::Probability::new(1.0)
+                    .map_err(|_| classifier_model::ClassificationError::InvalidResponse)?,
+            )]),
+            usage: Default::default(),
+            diagnostics: Default::default(),
+        })
+    }
+}
 
 #[derive(Clone, Copy)]
 enum TestEmbeddingGenerator {
@@ -1792,6 +1817,29 @@ async fn test_state(
             unit_of_work.clone(),
             SqlxSearchFilterRepositoryFactory,
             SqlxSearchFilterMatchRepositoryFactory,
+        )),
+        Arc::new(PreviewSearchFilterMatchesHandler::new(
+            unit_of_work.clone(),
+            user_postgres::SqlxUserTierEntitlementsFactory::new(),
+            TestEmbeddingGenerator::Success,
+            SqlxFxRateSnapshotReader::new(pool.clone()),
+            OpenSearchProductListingSearchReader::with_index(
+                opensearch_client.clone(),
+                product_listings_index.clone(),
+            ),
+            product_listing_postgres::SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),
+            AcceptingTestClassifier,
+            product_listing_service::use_cases::ProductListingSearchPresentation::new(
+                SqlxListingSourceSummaryReader::new(pool.clone()),
+                SqlxProductListingUserStateReader::new(pool.clone()),
+                SqlxProductListingContentAssessmentReader::new(pool.clone()),
+                shipping.clone(),
+            ),
+            SearchFilterMatchPreviewPolicy {
+                should_show_threshold: classifier_model::Probability::new(0.5)
+                    .unwrap_or_else(|error| panic!("invalid preview threshold: {error}")),
+                classification_deadline: SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE,
+            },
         )),
         Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     );

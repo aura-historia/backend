@@ -4,7 +4,7 @@
 //! a new review. The review stays rejected and keeps its history; the revocation joins its event
 //! trail.
 
-use super::rejected_pages::RejectedPages;
+use super::rejected_pages::{RejectedPages, store_url_classes_clearing_retry};
 use super::review_events::{LiveUrlPattern, ReviewMutation, commit_with_event};
 use super::reviewer_page_url::ReviewPageIdentity;
 use super::{
@@ -20,7 +20,6 @@ use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
-use tracing::info;
 
 impl CrawlerReviewRepository {
     /// Revokes the rejection of a manual product-schema review, so it classifies none of its pages
@@ -46,7 +45,6 @@ impl CrawlerReviewRepository {
             self.url_classifier,
         )
         .await?;
-        let reclassified_count = reclassified_urls.len();
         commit_with_event(
             transaction,
             review_id,
@@ -57,12 +55,6 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
-            review_id = %review_id,
-            actor = %actor,
-            reclassified_urls = reclassified_count,
-            "Revoked the rejection of a manual product schema review"
-        );
         Ok(())
     }
 }
@@ -132,7 +124,7 @@ async fn classify_rejected_pages_again(
     let other_rejections =
         RejectedPages::load_without(&mut **transaction, listing_source_id, review_id).await?;
     let stored = sqlx::query(
-        "SELECT u.url, u.url_class, s.url_pattern, s.url_pattern_state \
+        "SELECT u.url, u.url_class, s.url_pattern, s.url_pattern_exclude, s.url_pattern_state \
          FROM listing_source_urls u \
          JOIN listing_sources s ON s.listing_source_id = u.listing_source_id \
          WHERE u.listing_source_id = $1 AND u.url = ANY($2::text[]) \
@@ -149,6 +141,7 @@ async fn classify_rejected_pages_again(
         let url: String = row.try_get("url")?;
         let decision = LiveUrlPattern {
             url_pattern: row.try_get("url_pattern")?,
+            url_pattern_exclude: row.try_get("url_pattern_exclude")?,
             url_pattern_state: row.try_get("url_pattern_state")?,
         };
         let class = if other_rejections.covers(&url) {
@@ -165,16 +158,6 @@ async fn classify_rejected_pages_again(
     if urls.is_empty() {
         return Ok(urls);
     }
-    sqlx::query(
-        "UPDATE listing_source_urls AS u \
-         SET url_class = input.url_class, next_retry_at = NULL, updated = NOW() \
-         FROM UNNEST($1::text[], $2::text[]) AS input(url, url_class) \
-         WHERE u.url = input.url AND u.listing_source_id = $3",
-    )
-    .bind(&urls)
-    .bind(&classes)
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .execute(&mut **transaction)
-    .await?;
+    store_url_classes_clearing_retry(transaction, listing_source_id, &urls, &classes).await?;
     Ok(urls)
 }

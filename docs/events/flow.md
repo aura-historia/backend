@@ -382,6 +382,19 @@ meaning. Subsequent FX captures do not rewrite matches or repeat their notificat
 Persisted match INSERTs feed the existing CDC notification route independently of external notification
 eligibility and monthly quotas.
 
+An interactive [match preview](../../src/search-filter-service/src/use_cases/preview_search_filter_matches.rs)
+decides unsaved criteria with the same retrieval mode, source eligibility, tier evidence policy,
+classifier and threshold, so it shows only listings a run would accept. It always sends single
+candidates, the reference that shared requests must match before the
+[quality gate](../durable-worker-runbook.md#saved-search-batching-quality-gate) admits them. It
+differs where a run's scope does: it searches the whole catalogue (only an authored `updated`
+range applies) at the current FX snapshot, has no existing matches to skip and evaluates a
+bounded, rank-ordered prefix of candidates ([API contract](../swagger.yaml)). An undecided
+candidate is retried with the filter backoff, then fails the preview instead of being skipped.
+Images get a short interactive fetch budget; a slower image is omitted like any failed fetch.
+The preview persists nothing; its classifier diagnostics and decision events carry
+correlation IDs starting with `preview:`.
+
 The [periodic use case](../../src/search-filter-service/src/use_cases/run_periodic_search_filter_matching.rs)
 owns executable matching semantics; [periodic recovery](../durable-worker-runbook.md#periodic-matching-recovery)
 owns operator checks.

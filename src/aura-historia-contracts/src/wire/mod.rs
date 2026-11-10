@@ -1,6 +1,7 @@
 //! Codecs for canonical domain values at the public contract boundary.
 
 pub mod currency;
+pub mod description;
 pub mod language;
 
 fn deserialize_code<'de, T, D>(deserializer: D, parse: fn(&str) -> Option<T>) -> Result<T, D::Error>

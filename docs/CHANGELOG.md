@@ -2,6 +2,58 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — MCP tool catalogue fixes before directory submission
+
+- **Breaking change (MCP):** the tool `discoverPartyLocations` is removed. Public seller-location discovery stays available on `GET /v1/party-locations`. The tool catalogue now lists 37 tools.
+- The MCP tool `getSimilarProductListings` takes an optional `size`, the number of neighbours to return: default 20, as before, and clamped to 1 through 50. `GET /v1/product-listings/{productListingId}/similar` is unchanged.
+- Every argument of the MCP tools now has a description. Tools that accept or return prices state that amounts are integers in the currency's minor unit (EUR `119199` = €1,191.99; JPY whole units), and `enhancedSearchDescription` states that it only works together with `productQuery`. No argument or result changed.
+- MCP tool errors say more. `NOT_FOUND` and `CONFLICT` results carry a second text block naming the resource and a next step (for example "Listing is already on the watchlist."); the first block is still the bare code. Invalid arguments (`-32602`) now give the reason and, where known, the argument, without repeating the value you sent: "Invalid tool arguments: productListingId: malformed object ID".
+- **Breaking change:** `GET` and `PATCH /v1/me/account` and the MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`; the account response is one shared shape. Administrator endpoints still return it. Clients that read the field from `OwnUserAccountData` must stop; billing itself is unaffected.
+
+## 2026-11-10 — One approval for every MCP tool
+
+- The `WWW-Authenticate` challenge of a protected MCP call (`401`, and `403` with `error="insufficient_scope"`) now names all eight ordinary-user scopes in `scope`, not only the scopes the called tool needs. A client that follows the challenge, such as Claude, asks the user once instead of once per tool family. Each tool still requires its own scopes, and a token that lacks them still receives `403`.
+- A fixed registered client that requests what the challenge names needs the full ordinary-user vocabulary in its scope ceiling; a request above the ceiling returns `invalid_scope`. Metadata document clients are unaffected.
+
+## 2026-11-09 — Search-filter match previews (#2849)
+
+- New `POST /v1/me/search-filters/preview` takes `{ "search": ... }` with the same criteria as `POST /v1/me/search-filters` and returns `{ "items": [...], "candidateLimitReached": boolean }` without saving anything. Items have the `GET /v1/product-listings` item shape, at most four, most relevant first, with no paging. It requires `search-filters:write` and applies the same tier field restrictions as creating a filter.
+- Matches are decided as scheduled matching decides them, with the same classifier, acceptance threshold and tier evidence, but over the whole catalogue. Use this instead of `GET /v1/product-listings` to show what a filter would match: plain search results include listings the classifier would reject.
+- The preview classifies at most sixteen candidates and stops at four matches; `candidateLimitReached` is `true` when it stopped before finding four. If the classifier cannot decide a candidate after retrying, the request fails with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` rather than returning an inaccurate preview, or with `500 SEARCH_FILTER_INTERNAL_ERROR` when the classifier rejects the deployment's configuration.
+
+## 2026-11-09 — Sender names on emails (#2846)
+
+- Notification and newsletter-confirmation emails now show a sender name that says why they were sent, in the pattern `<Reason> | Aura Historia`: `Watchlist Notification | Aura Historia` (price and availability changes), `Search Filter Notification | Aura Historia`, `Saved Search Digest | Aura Historia`, `Partnership Application | Aura Historia` (approval and rejection) and `Newsletter | Aura Historia` (newsletter confirmation). Sender addresses are unchanged.
+- The names are English whatever the language of the email, so inbox rules keep matching when a user changes their language.
+
+## 2026-11-09 — Korean, Greek, Hebrew, Thai and Hindi catalogue languages, Traditional Chinese tags (#2842)
+
+- `LanguageData` accepts and returns `ko`, `el`, `he`, `th` and `hi`. Listings whose title or description is in one of these languages are no longer rejected as an unknown language: they are stored and searchable in their original language and return that `language` in `original` listing text. Clients that validate `language` against a closed list must accept the new values.
+- Like `zh`, `ja` and `ar`, they are source-only languages: a user can set one as their profile language, but the backend never translates into them, and notifications for such a profile are sent in English. A new account whose sign-up locale is one of them (for example `ko-KR`) starts with that profile language instead of none.
+- Input also accepts the locale tags `ko-KR`, `el-GR`, `he-IL`, `th-TH`, `hi-IN` and, for Traditional Chinese, `zh-TW`, `zh-Hant` and `zh-HK`. They resolve to `ko`, `el`, `he`, `th`, `hi` and `zh`; responses always return the canonical code. `zh` now covers Simplified and Traditional Chinese.
+
+## 2026-11-08 — `viewUrl` on public ListingSources (#2827)
+
+- `GET /v1/listing-sources` items and `GET /v1/listing-sources/by-slug/{listingSourceSlugId}` carry `viewUrl` next to `url`, and the MCP tools `searchPublicListingSources` and `getPublicListingSourceBySlug` return it too. It is the link to send visitors to, derived from `url` like a ProductListing's `viewUrl`: the source's affiliate link when it has a referral configuration, otherwise `url` with Aura's `utm_source=aura_historia` and `utm_medium=referral` parameters, unless `url` already carries a `utm_source`. It is present exactly when `url` is; `url` stays the source's own address. The referral configuration itself is still not exposed.
+
+## 2026-11-08 — Nudity is sensitive content (#2830)
+
+- Listing text assessment also flags nudity, erotica and pornography, in all catalogue languages, as `contentPolicy` `{ "decision": "REQUIRES_CONSENT", "category": "NUDITY" }`. Like `NAZI_GERMANY` listings, their image URLs are omitted unless the viewer's `showUnassessedOrSensitiveContent` is `true`. This applies to REST and MCP listing, watchlist, search-filter match and notification responses and to notification emails.
+- Text that matches several categories keeps `NAZI_GERMANY`.
+- A listing is assessed when its title or description is discovered or changes; listings assessed before this change keep their decision until then.
+
+## 2026-11-08 — Hidden listings link to the website's pricing section (#2824)
+
+- Listings redacted as hidden now carry `url` and `viewUrl` `https://aura-historia.com/#pricing` instead of `https://aura-historia.com/pricing`, a path the website does not serve. The website redirects the unlocalized path to the viewer's language. This applies to REST and MCP listing responses alike.
+
+## 2026-11-07 — The website's WebMCP client metadata document (#2818)
+
+- Added `GET` and `HEAD /v1/site-discovery/oauth/webmcp-client.json` (`application/json`): the OAuth Client ID Metadata Document of the website's own WebMCP client, which the webapp publishes at `/oauth/webmcp-client.json`. Its `client_id` is that website URL (`https://aura-historia.com/oauth/webmcp-client.json`, on stage `https://stage.aura-historia.com/oauth/webmcp-client.json`). It declares a public client with the `authorization_code` and `refresh_token` grants and the callback `/api/oauth/webmcp/callback` on the website; stage also lists `http://localhost/api/oauth/webmcp/callback` for local development. Like the other website documents, responses allow any origin and anonymous ones are shared at the edge for 300 seconds. The website signs in like any other metadata document client, with no extra privileges. See [OAuth](oauth.md#the-websites-webmcp-client).
+
+## 2026-11-07 — MCP tool snapshot for the website's WebMCP (#2817)
+
+- Added [`mcp-tools.json`](mcp-tools.json): exactly the `tools` array that an anonymous MCP `tools/list` returns under revision `2026-07-28`, including protected tools and their `_meta` access and required scopes. It is the same for production and stage. The website registers its WebMCP tools from it instead of calling `tools/list`. Renaming or removing a tool breaks the website's calls to it until the webapp syncs this file again; such changes are recorded here. See [MCP](mcp.md#tool-snapshot).
+
 ## 2026-11-06 — Website discovery documents for agents (#2805)
 
 - Added `GET` and `HEAD` for the documents that describe the website to agents, which the webapp publishes on `aura-historia.com`. Responses allow any origin, and anonymous ones are shared at the edge for 300 seconds. See [agent discovery](agent-discovery.md#website-documents).

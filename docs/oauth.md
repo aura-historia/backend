@@ -124,6 +124,11 @@ server-side credential configuration. Register each environment separately. Sche
 port, path and query must match the registered callback exactly; registering a prefix,
 wildcard or the consent URL does not authorize the client's callback.
 
+MCP challenges name the whole ordinary-user vocabulary, and an authorization request above the
+registered ceiling returns `invalid_scope`. A client that requests what a challenge names
+therefore needs the full vocabulary as its ceiling; with a narrower ceiling it must clamp its
+request to the ceiling itself.
+
 Configure any generic OAuth test client with that registration, its exact callback and the
 issuer. Read discovery, generate an S256 challenge/verifier pair, and request `response_type=code`,
 the chosen registered scopes, a fresh `state`, and the environment's canonical MCP `resource`.
@@ -205,6 +210,19 @@ meantime fails with `invalid_grant`. The client receives an expiring Bearer toke
 connection and no third-party exchange code, and a refresh token when the
 [issuance rule](#refresh-tokens) applies. An individual access token's scopes and expiry can
 only be narrowed afterwards, not widened or removed.
+
+### The website's WebMCP client
+
+The website is itself a metadata document client, so agents in the browser can use the
+signed-in MCP tools through WebMCP. MCP keeps rejecting Cognito JWTs; the website obtains Aura
+tokens for the MCP resource like any other agent. Its `client_id` is
+`https://aura-historia.com/oauth/webmcp-client.json`, on stage
+`https://stage.aura-historia.com/oauth/webmcp-client.json`. The backend writes the document
+among the [website documents](agent-discovery.md#webmcp-client), and the webapp publishes it at
+that URL. Aura fetches it from the website like any other document, under the same outbound
+policy and cache; the website's Worker forwards that request back to the API. The website gets
+no extra privileges: the same consent page, scope ceiling, token lifetimes, refresh-token rules
+and host denylist apply, and its users end its connection like any other.
 
 ### Connections
 

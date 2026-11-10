@@ -364,7 +364,7 @@ mod tests {
             ProductListingSearchProjection, ProductListingSearchProjectionWriteOutcome,
             ProductListingSearchReadRequest, ProductListingSearchReader,
             ProductListingSimilarProductListingsReader,
-            ProductListingSimilarProductListingsRequest,
+            ProductListingSimilarProductListingsRequest, SimilarProductListingsLimit,
         };
         use serde_json::{Value, json};
         use std::time::Duration;
@@ -598,6 +598,7 @@ mod tests {
                 embedding,
                 language: Language::En,
                 price_filter_plan: plan,
+                limit: SimilarProductListingsLimit::default(),
             })
             .await?;
             assert_eq!(expected, similar.len());

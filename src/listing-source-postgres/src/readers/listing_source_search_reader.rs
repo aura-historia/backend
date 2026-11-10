@@ -1,3 +1,4 @@
+use crate::persisted_referral::{self, PersistedReferralConfigurationError};
 use application::error::{box_error, static_error};
 use application::pagination::{Cursor, SortKey};
 use domain_primitives::object_id::ObjectIdError;
@@ -6,8 +7,7 @@ use domain_primitives::sort::{Sort, SortOrder};
 use listing_source_core::{
     InvalidListingIngestionMethod, InvalidListingSourceSlug, InvalidListingSourceType,
     ListingSourceId, ListingSourceName, ListingSourcePresentation, ListingSourceSearch,
-    ListingSourceSlugId, PartnerizeCamref, PartnerizeCamrefError, PlatformTechnology,
-    PlatformTechnologyError, ReferralConfiguration, SortListingSourceField,
+    ListingSourceSlugId, PlatformTechnology, PlatformTechnologyError, SortListingSourceField,
 };
 use listing_source_service::ports::{
     ListingSourceSearchReadError, ListingSourceSearchReader, ListingSourceSearchReaderFactory,
@@ -92,9 +92,7 @@ enum ListingSourceSearchRowMappingError {
     #[error("invalid listing source operator Party name")]
     PartyName(#[source] PartyNameError),
     #[error("invalid listing source referral configuration")]
-    ReferralConfiguration,
-    #[error("invalid Partnerize camref")]
-    PartnerizeCamref(#[source] PartnerizeCamrefError),
+    ReferralConfiguration(#[source] PersistedReferralConfigurationError),
 }
 
 impl TryFrom<ListingSourceSearchRow> for ListingSourceSearchSummary {
@@ -140,32 +138,14 @@ impl TryFrom<ListingSourceSearchRow> for ListingSourceSearchSummary {
                     .map(|value| Url::parse(&value).map_err(Self::Error::Url))
                     .transpose()?,
             },
-            referral_configuration: parse_referral_configuration(row.referral_configuration)?,
+            referral_configuration: persisted_referral::from_json(
+                row.referral_configuration.as_ref(),
+            )
+            .map_err(Self::Error::ReferralConfiguration)?,
             created: row.created,
             updated: row.updated,
         })
     }
-}
-
-fn parse_referral_configuration(
-    value: Option<serde_json::Value>,
-) -> Result<Option<ReferralConfiguration>, ListingSourceSearchRowMappingError> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-
-    if value.get("kind").and_then(serde_json::Value::as_str) != Some("PARTNERIZE") {
-        return Err(ListingSourceSearchRowMappingError::ReferralConfiguration);
-    }
-    let camref = value
-        .get("camref")
-        .and_then(serde_json::Value::as_str)
-        .ok_or(ListingSourceSearchRowMappingError::ReferralConfiguration)?;
-
-    Ok(Some(ReferralConfiguration::Partnerize {
-        camref: PartnerizeCamref::try_from(camref)
-            .map_err(ListingSourceSearchRowMappingError::PartnerizeCamref)?,
-    }))
 }
 
 #[async_trait::async_trait]
@@ -405,31 +385,6 @@ mod tests {
     #[test]
     fn should_escape_like_wildcards_as_literal_text() {
         assert_eq!(r"%100\%\_ready\\\\%", like_pattern("100%_ready\\\\"));
-    }
-
-    #[test]
-    fn should_parse_safe_partnerize_referral_summary() {
-        let result = parse_referral_configuration(Some(serde_json::json!({
-            "kind": "PARTNERIZE",
-            "camref": "campaign123",
-        })));
-
-        assert!(matches!(
-            result,
-            Ok(Some(ReferralConfiguration::Partnerize { camref }))
-                if camref.as_ref() == "campaign123"
-        ));
-    }
-
-    #[test]
-    fn should_reject_invalid_partnerize_referral_summary() {
-        for value in [
-            serde_json::json!({"kind":"OTHER","camref":"campaign123"}),
-            serde_json::json!({"kind":"PARTNERIZE"}),
-            serde_json::json!({"kind":"PARTNERIZE","camref":"campaign/ref"}),
-        ] {
-            assert!(parse_referral_configuration(Some(value)).is_err());
-        }
     }
 
     #[test]

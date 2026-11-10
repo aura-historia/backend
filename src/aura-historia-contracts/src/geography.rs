@@ -12,13 +12,18 @@ pub struct InvalidGeographyData;
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GeographyData {
+    /// Version of the ISO 3166 code list the codes come from; `iso-codes-4.20.1` is the only accepted value.
     pub reference_release: String,
+    /// Free-text address; address-book entries require it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address_text: Option<String>,
+    /// ISO 3166-1 alpha-2 country code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country: Option<String>,
+    /// ISO 3166-2 subdivision code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subdivision: Option<String>,
+    /// Postal code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub postal_code: Option<String>,
 }

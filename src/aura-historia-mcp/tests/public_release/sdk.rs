@@ -12,7 +12,7 @@ use rmcp::{
 type Client = RunningService<RoleClient, ClientConfig>;
 
 #[tokio::test]
-async fn should_call_all_twelve_public_tools_and_continue_large_results_with_official_sdk_clients()
+async fn should_call_all_eleven_public_tools_and_continue_large_results_with_official_sdk_clients()
 {
     let fixture = Arc::new(Fixture::default());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -69,7 +69,7 @@ async fn should_call_all_twelve_public_tools_and_continue_large_results_with_off
 
 async fn exercise_tools(client: &Client, fixture: &Arc<Fixture>) {
     let tools: Value = serde_json::to_value(client.list_tools(None).await.unwrap()).unwrap();
-    assert_eq!(12, tools["tools"].as_array().unwrap().len());
+    assert_eq!(11, tools["tools"].as_array().unwrap().len());
     for (name, input) in inputs() {
         let tool = tools["tools"]
             .as_array()

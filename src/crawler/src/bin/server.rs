@@ -31,7 +31,6 @@
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
-//! | `CRAWLER_LOCAL_MAX_PUSHED_LISTINGS` | Local only: stop gracefully after this many observations reached the queue. Debug builds only; a release build refuses to start while it is set |
 //! | `CRAWLER_START_REVIEW_AGENT_RUNNER` | `true` starts `review-agent-runner` from next to this binary as its child in `agent` mode, as `dev` does; unset or `false` leaves it to its own service. Never set it next to a runner service: two runners would work the same reviews. Any other value fails startup |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
@@ -62,7 +61,7 @@ use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use crawler::local_db::local_db_url_from_env;
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
-    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, cloudwatch_logging_config,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE, cloudwatch_logging_config,
     ensure_cloudwatch_log_destination,
 };
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
@@ -75,8 +74,7 @@ use crawler::service::listing_source_api::{
     ApiListingSourceRegistrationSource, ListingSourceApiConfig,
 };
 use crawler::service::raw_capture::{
-    LOCAL_MAX_PUSHED_LISTINGS_ENV, LimitedRawCapture, ProductListingRawCaptureService,
-    ProductListingRawCaptureServiceImpl, local_push_limit,
+    ProductListingRawCaptureService, ProductListingRawCaptureServiceImpl,
 };
 use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
@@ -152,7 +150,7 @@ fn build_log_filter() -> EnvFilter {
         .unwrap_or("info")
         .to_string();
     let directives = format!(
-        "{raw_level},spider=warn,sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
+        "{raw_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
     );
     EnvFilter::new(directives)
 }
@@ -169,7 +167,7 @@ fn init_crawler_logging(
             tracing_subscriber::fmt::format()
                 .json()
                 .with_current_span(true)
-                .with_span_list(true),
+                .with_span_list(false),
         ));
 
     if let (Some(config), Some(client)) = (cloudwatch_config, cloudwatch_client) {
@@ -182,7 +180,7 @@ fn init_crawler_logging(
                         tracing_subscriber::fmt::format()
                             .json()
                             .with_current_span(true)
-                            .with_span_list(true)
+                            .with_span_list(false)
                             .with_file(false)
                             .with_line_number(false)
                             .with_target(false),
@@ -244,24 +242,13 @@ fn start_review_agent_runner_child(console_port: u16) -> Option<RunnerChild> {
     )
 }
 
-/// Starts the graceful stop of the local push cap: the same path as a SIGTERM from outside.
-fn stop_gracefully() {
-    #[cfg(unix)]
-    // SAFETY: raising a signal in the current process has no memory-safety preconditions.
-    unsafe {
-        libc::raise(libc::SIGTERM);
-    }
-    #[cfg(not(unix))]
-    std::process::exit(0);
-}
-
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
 
     let cloudwatch_logging = cloudwatch_logging_config()
         .expect("Failed to parse crawler CloudWatch logging configuration");
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_10())
         .load()
         .await;
     let cloudwatch_client = cloudwatch_logging
@@ -294,17 +281,17 @@ async fn main() {
 
         // 1. Build cron config (needed for pool sizing before everything else)
         let config = CrawlerCronConfig {
-            spider_interval: Duration::from_mins(5),
-            scraper_interval: Duration::from_mins(5),
+            spider_interval: Duration::from_mins(1),
+            scraper_interval: Duration::from_mins(1),
             scraper_urls_per_source: 100,
-            spider_concurrency: 5,
+            spider_concurrency: 70,
             spider_site_concurrency_limit: 8,
-            scraper_concurrency: 5,
+            scraper_concurrency: 70,
             spider_classify_threshold: 400,
             scraper_schema_seed_pages: DEFAULT_SCHEMA_SEED_PAGES,
-            push_batch_size: 10,
-            push_queue_capacity: 10,
-            push_max_batch_age: Duration::from_secs(5),
+            push_batch_size: 500,
+            push_queue_capacity: 1000,
+            push_max_batch_age: Duration::from_mins(20),
             push_max_concurrency: 1,
             ..Default::default()
         };
@@ -381,22 +368,6 @@ async fn main() {
                 )),
                 config.effective_push_max_concurrency(),
             ));
-        let raw_capture = match local_push_limit(
-            std::env::var(LOCAL_MAX_PUSHED_LISTINGS_ENV).ok().as_deref(),
-            cfg!(debug_assertions),
-        )
-        .unwrap_or_else(|error| panic!("invalid crawler local push cap: {error}"))
-        {
-            Some(limit) => {
-                info!(
-                    limit,
-                    "Local push cap active: the crawler stops after the cap"
-                );
-                Box::new(LimitedRawCapture::new(raw_capture, limit, stop_gracefully))
-                    as Box<dyn ProductListingRawCaptureService>
-            }
-            None => raw_capture,
-        };
 
         // 6. Wire the shared crawler pipeline and run until stopped.
         // Building the runtime writes the agents' token file the runner reads.

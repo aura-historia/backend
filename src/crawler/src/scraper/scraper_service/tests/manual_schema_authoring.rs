@@ -754,6 +754,162 @@ async fn should_not_wait_on_pending_review_when_the_cached_schema_finds_an_empty
     assert!(pages.iter().all(|page| page.role != PAGE_ROLE_WAITING_PAGE));
 }
 
+/// Stores the live schema list the scraper's cached schemas mirror, which a
+/// `missing_required_value` review starts from.
+async fn insert_live_title_schema(pool: &PgPool, listing_source_id: ListingSourceId) {
+    sqlx::query(
+        "INSERT INTO listing_source_product_schemas \
+         (listing_source_id, product_schema, created, updated) VALUES ($1, $2, NOW(), NOW())",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(json!([item_title_schema()]))
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert live schemas: {error}"));
+}
+
+/// Scrapes `page_url` in `agent` mode, which serves a product page whose title is blank.
+async fn scrape_untitled_page_in_agent_mode(
+    repository: &CrawlerReviewRepository,
+    listing_source_id: ListingSourceId,
+    page_url: Url,
+) -> Result<Option<ScrapedProduct>, ScraperError> {
+    let mut fetcher = MockHtmlFetcher::new();
+    let served = page_url.clone();
+    fetcher.expect_fetch().once().returning(move |_| {
+        let served = served.clone();
+        Box::pin(async move { Ok(fetch_result_for(untitled_html(), served)) })
+    });
+    scraper_with_review_gate(
+        fetcher,
+        schema_service_without_generation(Some(cached_schemas(
+            listing_source_id,
+            vec![item_title_schema()],
+        ))),
+        repository.clone(),
+        MockScraperCandidateService::new(),
+        CrawlerAuthoringMode::Agent,
+    )
+    .scrape(primary_only_request(&listing_source_id, &page_url))
+    .await
+    .result
+}
+
+/// In `agent` mode the review agents are the only ones to see a page that leaves a required
+/// value blank, so it opens the ListingSource's `missing_required_value` review, and every
+/// further page, or the same page scraped again, joins that one review as a waiting page.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_one_missing_value_review_for_the_pages_of_a_source_when_authoring_is_agent() {
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    insert_live_title_schema(&pool, id).await;
+    let other_url = Url::parse("https://example.com/products/sold-two").unwrap();
+
+    for page_url in [product_url(), other_url.clone(), product_url()] {
+        let result = scrape_untitled_page_in_agent_mode(&repository, id, page_url).await;
+        assert_eq!(missing_required_value(result), "`title` is blank");
+    }
+
+    assert_eq!(product_schema_review_count(&pool, &id).await, 1);
+    let review_id = repository
+        .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+        .await
+        .unwrap_or_else(|error| panic!("read pending reviews: {error}"))
+        .unwrap_or_else(|| panic!("expected a pending review"));
+    let review = repository
+        .get_review(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review: {error}"));
+    assert_eq!(review.review.reason, "missing_required_value");
+    let mut pages = repository
+        .get_review_pages(review_id)
+        .await
+        .unwrap_or_else(|error| panic!("read review pages: {error}"))
+        .into_iter()
+        .map(|page| (page.url, page.role))
+        .collect::<Vec<_>>();
+    pages.sort();
+    assert_eq!(
+        pages,
+        vec![
+            (product_url().to_string(), PAGE_ROLE_WAITING_PAGE.to_owned()),
+            (other_url.to_string(), PAGE_ROLE_WAITING_PAGE.to_owned()),
+        ]
+    );
+}
+
+/// Once the agents reject a `missing_required_value` review, its pages open no new review in
+/// `agent` mode, so the agents do not pay for the same verdict on every scrape: a page the review
+/// never held still does, and so does a held page once a product schema list went live after the
+/// rejection.
+#[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+async fn should_open_no_missing_value_review_for_a_page_a_rejection_judged_under_the_live_schemas()
+{
+    let pool = test_api::get_postgres_client().await;
+    let id = insert_listing_source(&pool).await;
+    let repository = agent_deciding_repository(&pool);
+    insert_live_title_schema(&pool, id).await;
+    let other_url = Url::parse("https://example.com/products/sold-two").unwrap();
+    let pending_review_pages = || async {
+        let review_id = repository
+            .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+            .await
+            .unwrap_or_else(|error| panic!("read pending reviews: {error}"));
+        match review_id {
+            Some(review_id) => repository
+                .get_review_pages(review_id)
+                .await
+                .unwrap_or_else(|error| panic!("read review pages: {error}"))
+                .into_iter()
+                .map(|page| page.url)
+                .collect(),
+            None => Vec::new(),
+        }
+    };
+
+    let first = scrape_untitled_page_in_agent_mode(&repository, id, product_url()).await;
+    let rejected = repository
+        .latest_pending_review_id(&id, "PRODUCT_SCHEMA")
+        .await
+        .unwrap_or_else(|error| panic!("read pending reviews: {error}"))
+        .unwrap_or_else(|| panic!("expected a pending review"));
+    repository
+        .reject_review(
+            rejected,
+            ReviewActor::AgentReviewer,
+            Some("the page shows no title to read"),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("reject the review: {error}"));
+    let judged = scrape_untitled_page_in_agent_mode(&repository, id, product_url()).await;
+    let pages_after_the_judged_page = pending_review_pages().await;
+    let other = scrape_untitled_page_in_agent_mode(&repository, id, other_url.clone()).await;
+    let pages_after_the_other_page = pending_review_pages().await;
+    sqlx::query(
+        "UPDATE listing_source_product_schemas SET updated = NOW() WHERE listing_source_id = $1",
+    )
+    .bind(id.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("make a schema list live: {error}"));
+    let after_new_live_schemas =
+        scrape_untitled_page_in_agent_mode(&repository, id, product_url()).await;
+    let mut pages_after_new_live_schemas = pending_review_pages().await;
+    pages_after_new_live_schemas.sort();
+
+    for result in [first, judged, other, after_new_live_schemas] {
+        assert_eq!(missing_required_value(result), "`title` is blank");
+    }
+    assert_eq!(pages_after_the_judged_page, Vec::<String>::new());
+    assert_eq!(pages_after_the_other_page, vec![other_url.to_string()]);
+    assert_eq!(
+        pages_after_new_live_schemas,
+        vec![product_url().to_string(), other_url.to_string()]
+    );
+    assert_eq!(product_schema_review_count(&pool, &id).await, 2);
+}
+
 /// An empty title is no reason to skip schema work when the cached schema also captures
 /// something other than the product's values from the page.
 #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]

@@ -9,6 +9,7 @@ mod auth_md;
 mod environment;
 mod poppy;
 mod template;
+mod webmcp_client;
 
 pub use environment::DiscoveryEnvironment;
 
@@ -72,6 +73,11 @@ impl SiteDocuments {
             SiteDocument::new(poppy::PATH, JSON, poppy::render(environment)),
             SiteDocument::new(SKILLS_INDEX_PATH, JSON, skills_index),
             SiteDocument::new(auth_md::PATH, MARKDOWN, auth_md::render(environment)),
+            SiteDocument::new(
+                webmcp_client::PATH,
+                JSON,
+                webmcp_client::render(environment),
+            ),
         ];
         documents.extend(
             skills
@@ -95,10 +101,13 @@ fn skill_path(name: &str) -> String {
     format!("agent-skills/{name}/SKILL.md")
 }
 
-/// `auth.md` lives at the website root, where agents look for it; every other document lives
-/// below the website's `/.well-known` path.
+/// Documents that agents look for at their own path below the website root rather than below
+/// `/.well-known`.
+const ROOT_DOCUMENTS: [&str; 2] = [auth_md::PATH, webmcp_client::PATH];
+
+/// Where the website publishes the document at `path` below the discovery root.
 fn site_path(path: &str) -> String {
-    if path == auth_md::PATH {
+    if ROOT_DOCUMENTS.contains(&path) {
         format!("/{path}")
     } else {
         format!("/.well-known/{path}")
@@ -138,6 +147,8 @@ mod tests {
             .collect()
     }
 
+    /// Apart from schema identifiers, only the stage WebMCP client lists a URL outside the
+    /// environment: the webapp's local development callback.
     #[test]
     fn should_link_only_to_the_environment_origins_apart_from_schema_identifiers() {
         for environment in environments() {
@@ -145,7 +156,11 @@ mod tests {
             let mut checked = 0;
             for document in documents.iter() {
                 for url in urls(document.body()) {
-                    if url == agent_skills::INDEX_SCHEMA {
+                    if url == agent_skills::INDEX_SCHEMA
+                        || (environment == AuraResourcePolicy::stage().into()
+                            && document.path() == webmcp_client::PATH
+                            && url == webmcp_client::development_callback_url())
+                    {
                         continue;
                     }
                     assert!(
@@ -185,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn should_publish_auth_md_at_the_website_root_and_the_rest_below_well_known() {
+    fn should_publish_root_documents_at_the_website_root_and_the_rest_below_well_known() {
         let documents = SiteDocuments::render(AuraResourcePolicy::production().into());
         let paths: Vec<_> = documents.iter().map(SiteDocument::site_path).collect();
         assert_eq!(
@@ -194,6 +209,7 @@ mod tests {
                 "/.well-known/poppy.json",
                 "/.well-known/agent-skills/index.json",
                 "/auth.md",
+                "/oauth/webmcp-client.json",
                 "/.well-known/agent-skills/catalogue-search/SKILL.md",
                 "/.well-known/agent-skills/connect-account/SKILL.md",
                 "/.well-known/agent-skills/partner-listing-batches/SKILL.md",
@@ -231,10 +247,11 @@ mod tests {
             let site = environment.site_origin();
             for document in documents.iter() {
                 for url in urls(document.body()) {
-                    // The home page and the logo are the webapp's own.
+                    // The home page, the logo and the WebMCP callback are the webapp's own.
                     if url.starts_with(site)
                         && url != site
-                        && url != format!("{site}/icon1080x1080.png")
+                        && url != environment.site_logo_url()
+                        && url != webmcp_client::callback_url(environment)
                     {
                         assert!(
                             published(&documents, environment, url).is_some(),

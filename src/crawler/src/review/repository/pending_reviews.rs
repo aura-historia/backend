@@ -7,39 +7,21 @@
 //! other review across the page boundary. The contract is in `docs/crawler/operations.md` (review
 //! service).
 
-use super::repair_rounds::{agent_round_binds, agent_rounds_of_review};
+use super::repair_rounds::{
+    after_last_human_event, agent_handed_review_to_human, agent_round_binds, agent_rounds_of_review,
+};
 use super::{
     ReviewRepositoryError, crawler_review_id_from_uuid, listing_source_id_from_uuid,
     row_to_repair_request,
 };
 use crate::CrawlerReviewId;
-use crate::review::agent_decisions::AgentDecisionPolicy;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::model::{
-    PendingReviewPage, PendingReviewSummary, PendingReviewTotals, STATUS_PENDING_REVIEW,
+    PageSize, PendingReviewPage, PendingReviewSummary, PendingReviewTotals, STATUS_PENDING_REVIEW,
 };
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
-
-/// How many reviews one page of the agents' queue holds, from 1 to [`PendingReviewPageSize::MAX`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PendingReviewPageSize(usize);
-
-impl PendingReviewPageSize {
-    /// The page size when none is asked for.
-    pub const DEFAULT: Self = Self(100);
-    /// The largest page.
-    pub const MAX: Self = Self(500);
-
-    /// Pages of `size` reviews, or `None` when `size` is not between 1 and [`Self::MAX`].
-    pub fn new(size: usize) -> Option<Self> {
-        (1..=Self::MAX.0).contains(&size).then_some(Self(size))
-    }
-
-    pub const fn get(self) -> usize {
-        self.0
-    }
-}
 
 /// Which page of the agents' queue to read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +30,7 @@ pub struct PendingReviewQuery {
     pub human_required: Option<bool>,
     /// The review the previous page ended with; `None` reads the first page.
     pub after: Option<CrawlerReviewId>,
-    pub page_size: PendingReviewPageSize,
+    pub page_size: PageSize,
 }
 
 impl Default for PendingReviewQuery {
@@ -57,7 +39,7 @@ impl Default for PendingReviewQuery {
         Self {
             human_required: None,
             after: None,
-            page_size: PendingReviewPageSize::DEFAULT,
+            page_size: PageSize::DEFAULT,
         }
     }
 }
@@ -66,14 +48,14 @@ impl Default for PendingReviewQuery {
 /// agent rounds reach the policy's [repair-round cap](AgentDecisionPolicy::repair_rounds_cap), as
 /// [`AgentDecisionPolicy::waits_for_human`] decides, so with no cap, outside `agent` mode, none
 /// does. Each review also carries the time of its latest `HUMAN` event, which handed it back to the
-/// agents. Binds `$1` to `$3` of [`agent_rounds_of_review`], `$3` also as the human actor of that
-/// event, `$4`, the repair-round cap or null, `$5`, the `human_required` filter or null, `$6` and
-/// `$7`, the creation time and id of the review the page starts after or null, and `$8`, the most
+/// agents. Binds `$1` to `$4` of [`agent_rounds_of_review`], `$3` also as the human actor of that
+/// event, `$5`, the repair-round cap or null, `$6`, the `human_required` filter or null, `$7` and
+/// `$8`, the creation time and id of the review the page starts after or null, and `$9`, the most
 /// rows to answer. Every row carries the totals; an empty page is one row with the totals and no
 /// review.
 const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
     "WITH queue AS ( \
-         SELECT q.*, (q.agent_rounds >= $4::bigint) IS TRUE AS waits_for_human \
+         SELECT q.*, ($5::bigint IS NOT NULL AND (q.agent_rounds >= $5::bigint OR q.handed_to_human)) AS waits_for_human \
          FROM ( \
              SELECT r.review_id, r.listing_source_id, s.listing_source_name, \
                     r.artifact_type, r.reason, r.candidate_version, r.repair_requested, \
@@ -81,7 +63,9 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
                     (SELECT MAX(h.created) FROM crawler_review_events h \
                      WHERE h.review_id = r.review_id AND h.actor = $3) AS handed_back, ",
     agent_rounds_of_review!(),
-    " AS agent_rounds \
+    " AS agent_rounds, ",
+    agent_handed_review_to_human!(),
+    " AS handed_to_human \
              FROM crawler_reviews r \
              JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
              WHERE r.status = 'PENDING_REVIEW' AND s.crawl_enabled \
@@ -94,10 +78,10 @@ const PENDING_REVIEW_PAGE_QUERY: &str = concat!(
      ), \
      page AS ( \
          SELECT * FROM queue \
-         WHERE ($5::boolean IS NULL OR waits_for_human = $5) \
-           AND ($6::timestamptz IS NULL OR (created, review_id) > ($6, $7::uuid)) \
+         WHERE ($6::boolean IS NULL OR waits_for_human = $6) \
+           AND ($7::timestamptz IS NULL OR (created, review_id) > ($7, $8::uuid)) \
          ORDER BY created, review_id \
-         LIMIT $8 \
+         LIMIT $9 \
      ) \
      SELECT t.workable, t.waiting_for_human, p.* \
      FROM totals t LEFT JOIN page p ON TRUE \
@@ -117,11 +101,12 @@ pub(super) async fn fetch_pending_review_page(
         None => None,
     };
     let page_size = query.page_size.get();
-    let (agents, repair_requested, human) = agent_round_binds();
+    let (agents, repair_requested, human, window_days) = agent_round_binds(agent_decisions);
     let rows = sqlx::query(PENDING_REVIEW_PAGE_QUERY)
         .bind(agents)
         .bind(repair_requested)
         .bind(human)
+        .bind(window_days)
         .bind(
             agent_decisions
                 .repair_rounds_cap()
@@ -180,7 +165,10 @@ fn row_to_summary(
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<PendingReviewSummary, sqlx::Error> {
     // A count beyond `u32` is past any cap, so saturating keeps the review with a human.
-    let agent_rounds = u32::try_from(row.try_get::<i64, _>("agent_rounds")?).unwrap_or(u32::MAX);
+    let rounds = AgentRounds {
+        needs_repair: u32::try_from(row.try_get::<i64, _>("agent_rounds")?).unwrap_or(u32::MAX),
+        handed_to_human: row.try_get("handed_to_human")?,
+    };
     Ok(PendingReviewSummary {
         review_id: crawler_review_id_from_uuid(row.try_get("review_id")?)?,
         listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
@@ -189,30 +177,10 @@ fn row_to_summary(
         reason: row.try_get("reason")?,
         candidate_version: row.try_get("candidate_version")?,
         repair_request: row_to_repair_request(row)?,
-        agent_rounds,
-        human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, agent_rounds),
+        agent_rounds: rounds.needs_repair,
+        human_required: agent_decisions.waits_for_human(STATUS_PENDING_REVIEW, rounds),
         handed_back: row.try_get("handed_back")?,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_take_page_sizes_from_one_to_the_largest_page() {
-        assert_eq!(PendingReviewPageSize::new(0), None);
-        assert_eq!(
-            PendingReviewPageSize::new(1).map(PendingReviewPageSize::get),
-            Some(1)
-        );
-        assert_eq!(
-            PendingReviewPageSize::new(500),
-            Some(PendingReviewPageSize::MAX)
-        );
-        assert_eq!(PendingReviewPageSize::new(501), None);
-        assert!(PendingReviewPageSize::DEFAULT.get() <= PendingReviewPageSize::MAX.get());
-    }
 }

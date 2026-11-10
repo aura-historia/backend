@@ -2,7 +2,8 @@
 //! (`schemas/*-report.v1.json`) asks for them. A report is the agent's own account and decides
 //! nothing: the console's event trail is what happened. The runner checks that a report is the
 //! role's report for the review it was given, keeps it bounded in its ledger and log, and reads
-//! the reviewer's decision and the server's answer to schedule the review's next pass.
+//! the reviewer's decision and the server's answer to schedule the review's next pass; the
+//! server's answer a report claims is the agent's account, the event trail's is [`TrailVerdict`].
 
 use crate::CrawlerReviewId;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,9 @@ pub enum AuthorAction {
     NothingToStage,
     /// The author could not work the review.
     Skipped,
+    /// The author cannot decide the review from what it can read, such as a sample behind a login
+    /// wall or bot challenge.
+    NeedsHuman,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,6 +61,27 @@ pub enum ServerOutcome {
     Accepted,
     Refused,
     NotSent,
+}
+
+/// What the console's event trail records of a reviewer process: the verdict it took, or none.
+/// The trail records only what the console accepted, so `NoVerdict` is what a refusal and a
+/// decision that was never sent look like alike; the reviewer's report says which, as its own
+/// account. Persisted in the process ledger, absent in records written before it existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrailVerdict {
+    Approved,
+    Rejected,
+    RepairRequested,
+    /// The trail shows no verdict of the reviewer agent on the review since its process started.
+    NoVerdict,
+}
+
+impl TrailVerdict {
+    /// Whether the trail shows the console took a decision.
+    pub const fn is_decision(self) -> bool {
+        !matches!(self, Self::NoVerdict)
+    }
 }
 
 /// What the console answered the reviewer's decision, as the reviewer reports it.

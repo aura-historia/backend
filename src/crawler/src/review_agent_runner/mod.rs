@@ -14,6 +14,7 @@
 //! `docs/crawler/operations.md` (review agent runner).
 
 mod child;
+mod context_use;
 mod decision_cap;
 mod digest;
 mod envelope;
@@ -27,6 +28,7 @@ mod reports;
 mod settings;
 mod state;
 mod stop;
+mod usage_pacing;
 
 pub use child::{RunnerChild, runner_env, runner_executable_next_to};
 pub use pass::{PassStop, PassSummary};
@@ -40,7 +42,7 @@ use digest::{Digest, RollingCost};
 use ledger::{FIVE_HOURS, LEDGER_RETENTION, ONE_WEEK, ProcessLedger};
 use login::{LoginError, probe_login};
 use pass::{PassError, usage_limit_name, work_pending_reviews};
-use queue::{HumanRequiredReview, ReviewEventsSince, review_events_since, review_queue};
+use queue::{ReviewEventsSince, ReviewQueue, review_events_since, review_queue};
 use state::{RunnerLock, RunnerState, StateError, load_state, save_state};
 
 use crate::review::agent_decisions::{AGENT_LIMITS_ROUTE, AgentLimits};
@@ -170,20 +172,7 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     save_state(&settings.state_dir, &state)?;
     let summary = pass?;
     let now = OffsetDateTime::now_utc();
-    info!(
-        pending = summary.pending,
-        waiting_for_human = summary.waiting_for_human,
-        handed_to_human = summary.handed_to_human,
-        reviewers_held_back = summary.reviewers_held_back,
-        cooling_down = summary.cooling_down,
-        worked = summary.worked,
-        processes = summary.processes,
-        decided = summary.decided,
-        stopped = %PassStop::describe(summary.stopped),
-        five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now),
-        weekly_cost_usd = ledger.cost_within(ONE_WEEK, now),
-        "Review agents pass finished"
-    );
+    log_pass_finished(&summary, &ledger, now);
     if stop.is_requested() {
         return Ok(RunOutcome::Ran {
             summary,
@@ -195,6 +184,37 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
         save_state(&settings.state_dir, &state)?;
     }
     Ok(RunOutcome::Ran { summary, digest })
+}
+
+/// Logs how a pass ended: at INFO when it started a process, at DEBUG when it only looked at the
+/// queue, which is most passes of an idle runner.
+fn log_pass_finished(summary: &PassSummary, ledger: &ProcessLedger, now: OffsetDateTime) {
+    macro_rules! log_pass_finished {
+        ($level:expr) => {
+            tracing::event!(
+                $level,
+                event = "crawler.review_agent.pass_completed",
+                pending = summary.pending,
+                waiting_for_human = summary.waiting_for_human,
+                handed_to_human = summary.handed_to_human,
+                guard_blocked = summary.guard_blocked,
+                reviewers_held_back = summary.reviewers_held_back,
+                cooling_down = summary.cooling_down,
+                worked = summary.worked,
+                processes = summary.processes,
+                decided = summary.decided,
+                stopped = %PassStop::describe(summary.stopped),
+                five_hour_cost_usd = ledger.cost_within(FIVE_HOURS, now),
+                weekly_cost_usd = ledger.cost_within(ONE_WEEK, now),
+                "Review agents pass finished"
+            )
+        };
+    }
+    if summary.processes == 0 {
+        log_pass_finished!(tracing::Level::DEBUG);
+    } else {
+        log_pass_finished!(tracing::Level::INFO);
+    }
 }
 
 /// Whether this process has told its login yet.
@@ -253,7 +273,7 @@ async fn write_digest(
             None => now - DIGEST_INTERVAL,
         },
     };
-    let (events, waiting_for_human) = match digest_reads(console, from).await {
+    let (events, queue) = match digest_reads(console, from).await {
         Ok(read) => read,
         Err(error) => {
             warn!(
@@ -267,9 +287,15 @@ async fn write_digest(
     let rolling = RollingCost {
         five_hour_cost_usd: ledger.cost_within(FIVE_HOURS, now),
         weekly_cost_usd: ledger.cost_within(ONE_WEEK, now),
-        paused_until: state
-            .pause_at(now)
-            .map(|pause| (pause.until, usage_limit_name(pause.limit).to_owned())),
+        paused_until: state.pause_at(now).map(|pause| {
+            let limit = usage_limit_name(pause.limit);
+            let name = if pause.paced {
+                format!("the agents' share of the {limit}")
+            } else {
+                limit.to_owned()
+            };
+            (pause.until, name)
+        }),
         reviewers_paused_until: state.reviewer_pause_at(now).map(|pause| pause.until),
     };
     let digest = Digest::of(
@@ -277,7 +303,7 @@ async fn write_digest(
         now,
         events,
         ledger.since(from).cloned().collect(),
-        waiting_for_human,
+        queue,
         rolling,
     );
     match digest.write(&settings.state_dir) {
@@ -292,9 +318,14 @@ async fn write_digest(
                 rejected_by_others = digest.rejected.others,
                 needs_repair_by_agents = digest.needs_repair.agents,
                 needs_repair_by_others = digest.needs_repair.others,
+                handed_to_human_by_agents = digest.handed_to_human.agents,
+                no_sold_page_recorded_by_agents = digest.no_sold_page_recorded.agents,
+                no_sold_page_recorded_by_others = digest.no_sold_page_recorded.others,
                 restored = digest.restored,
                 revoked_rejections = digest.revoked_rejections,
                 needs_a_human = digest.needs_a_human.len(),
+                agent_no_patterns = digest.agent_no_patterns.len(),
+                workable_schema_reviews = digest.schema_wait.workable,
                 refusals_by_failed_check = ?digest.refusals_by_check,
                 refusals_by_kind = ?digest.refusals_by_kind,
                 processes = ?digest.processes_by_end,
@@ -323,10 +354,10 @@ async fn write_digest(
 async fn digest_reads(
     console: &ConsoleClient,
     from: OffsetDateTime,
-) -> Result<(ReviewEventsSince, Vec<HumanRequiredReview>), ConsoleError> {
+) -> Result<(ReviewEventsSince, ReviewQueue), ConsoleError> {
     Ok((
         review_events_since(console, from).await?,
-        review_queue(console).await?.waiting_for_human,
+        review_queue(console).await?,
     ))
 }
 
@@ -391,50 +422,98 @@ mod tests {
             let claude_dir = Arc::new(claude_dir);
             tokio::spawn(async move {
                 while let Ok((mut stream, _)) = listener.accept().await {
-                    let mut request = Vec::new();
-                    let mut buffer = [0_u8; 4096];
-                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        match stream.read(&mut buffer).await {
-                            Ok(0) | Err(_) => break,
-                            Ok(read) => request.extend_from_slice(&buffer[..read]),
-                        }
-                    }
-                    let request = String::from_utf8_lossy(&request).to_string();
-                    let authorized = request
-                        .lines()
-                        .any(|line| line == format!("authorization: Bearer {AUTHOR_TOKEN}"));
-                    let path = request.split_whitespace().nth(1).unwrap_or_default();
-                    let (status, body) = if !authorized {
-                        (401, "{\"error\":\"unauthorized\"}".to_owned())
-                    } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
-                        (200, pending_page(&reviews, query, &claude_dir))
-                    } else if path.starts_with("/api/review-events?since=") {
-                        let decided_log = claude_dir.join("decided.log");
-                        (200, with_decisions(&events, &decided_log).to_string())
-                    } else if let Some(review) = path.strip_prefix("/api/reviews/").and_then(|id| {
-                        reviews
-                            .iter()
-                            .find(|review| review.review_id.to_string() == id)
-                    }) {
-                        review_detail(review, &claude_dir)
-                    } else if path == AGENT_LIMITS_ROUTE
-                        && !claude_dir.join("limits_unreadable").exists()
-                    {
-                        let limits = AgentLimits {
-                            min_labelled_urls: std::num::NonZeroU32::new(CONSOLE_MIN_LABELLED_URLS)
-                                .unwrap_or(std::num::NonZeroU32::MIN),
-                            ..AgentLimits::default()
-                        };
-                        (200, json!(limits).to_string())
-                    } else {
-                        (404, "{\"error\":\"not found\"}".to_owned())
-                    };
-                    let response = format!(
-                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
+                    // Each connection on its own task, so a client that connects and sends
+                    // nothing yet, such as a pooled connection, holds no other request back.
+                    let (reviews, events, claude_dir) = (
+                        Arc::clone(&reviews),
+                        Arc::clone(&events),
+                        Arc::clone(&claude_dir),
                     );
-                    let _ = stream.write_all(response.as_bytes()).await;
-                    let _ = stream.shutdown().await;
+                    tokio::spawn(async move {
+                        let mut request = Vec::new();
+                        let mut buffer = [0_u8; 4096];
+                        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            match stream.read(&mut buffer).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(read) => request.extend_from_slice(&buffer[..read]),
+                            }
+                        }
+                        let content_length = String::from_utf8_lossy(&request)
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length: ")
+                                    .and_then(|length| length.trim().parse::<usize>().ok())
+                            })
+                            .unwrap_or(0);
+                        let header_end = request
+                            .windows(4)
+                            .position(|window| window == b"\r\n\r\n")
+                            .map_or(request.len(), |at| at + 4);
+                        while request.len() < header_end + content_length {
+                            match stream.read(&mut buffer).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(read) => request.extend_from_slice(&buffer[..read]),
+                            }
+                        }
+                        let request = String::from_utf8_lossy(&request).to_string();
+                        let body = request.get(header_end..).unwrap_or_default().to_owned();
+                        let authorized = request
+                            .lines()
+                            .any(|line| line == format!("authorization: Bearer {AUTHOR_TOKEN}"));
+                        let path = request.split_whitespace().nth(1).unwrap_or_default();
+                        let (status, body) = if !authorized {
+                            (401, "{\"error\":\"unauthorized\"}".to_owned())
+                        } else if let Some(query) = path.strip_prefix("/api/pending-reviews?") {
+                            (200, pending_page(&reviews, query, &claude_dir))
+                        } else if path.starts_with("/api/review-events?since=") {
+                            let decided_log = claude_dir.join("decided.log");
+                            (200, with_decisions(&events, &decided_log).to_string())
+                        } else if let Some(review) = path
+                            .strip_prefix("/api/reviews/")
+                            .and_then(|rest| rest.strip_suffix("/hand-to-human"))
+                            .filter(|_| request.starts_with("POST "))
+                        {
+                            hand_over(review, &body, &claude_dir)
+                        } else if let Some(review) = path
+                            .strip_prefix("/api/reviews/")
+                            .and_then(|rest| rest.strip_suffix("/approval-checks"))
+                            .and_then(|id| {
+                                reviews
+                                    .iter()
+                                    .find(|review| review.review_id.to_string() == id)
+                            })
+                        {
+                            approval_checks(review, &claude_dir)
+                        } else if let Some(review) =
+                            path.strip_prefix("/api/reviews/").and_then(|id| {
+                                reviews
+                                    .iter()
+                                    .find(|review| review.review_id.to_string() == id)
+                            })
+                        {
+                            review_detail(review, &claude_dir)
+                        } else if path == AGENT_LIMITS_ROUTE
+                            && !claude_dir.join("limits_unreadable").exists()
+                        {
+                            let limits = AgentLimits {
+                                min_labelled_urls: std::num::NonZeroU32::new(
+                                    CONSOLE_MIN_LABELLED_URLS,
+                                )
+                                .unwrap_or(std::num::NonZeroU32::MIN),
+                                ..AgentLimits::default()
+                            };
+                            (200, json!(limits).to_string())
+                        } else {
+                            (404, "{\"error\":\"not found\"}".to_owned())
+                        };
+                        let response = format!(
+                            "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(response.as_bytes()).await;
+                        let _ = stream.shutdown().await;
+                    });
                 }
             });
             Self { url }
@@ -452,12 +531,28 @@ mod tests {
             .filter(|review| {
                 review.status == "PENDING_REVIEW" && review.listing_source_crawl_enabled
             })
+            .filter(|review| {
+                let late = claude_dir
+                    .join("late")
+                    .join(review.review_id.to_string())
+                    .exists();
+                let run_started = std::fs::read_to_string(claude_dir.join("order.log"))
+                    .is_ok_and(|order| order.contains("start author"));
+                !late || run_started
+            })
             .collect();
+        let waits = |review: &CrawlerReview| {
+            review.human_required
+                || claude_dir
+                    .join("human")
+                    .join(review.review_id.to_string())
+                    .exists()
+        };
         let count = |human_required: bool| {
             i64::try_from(
                 queue
                     .iter()
-                    .filter(|review| review.human_required == human_required)
+                    .filter(|review| waits(review) == human_required)
                     .count(),
             )
             .unwrap_or(i64::MAX)
@@ -471,7 +566,7 @@ mod tests {
             .filter(|review| {
                 query
                     .get("human_required")
-                    .is_none_or(|wanted| review.human_required.to_string() == *wanted)
+                    .is_none_or(|wanted| waits(review).to_string() == *wanted)
             })
             .collect();
         let start = query.get("after").map_or(0, |after| {
@@ -493,7 +588,7 @@ mod tests {
                 candidate_version: review.candidate_version,
                 repair_request: review.repair_request.clone(),
                 agent_rounds: review.agent_rounds,
-                human_required: review.human_required,
+                human_required: waits(review),
                 handed_back: std::fs::read_to_string(
                     claude_dir
                         .join("handed_back")
@@ -522,6 +617,24 @@ mod tests {
         .unwrap_or_default()
     }
 
+    /// `POST /api/reviews/{id}/hand-to-human` of the review `review_id`: logs `<review id>
+    /// <notes>` to `handovers.log` and, as the console does, leaves the review waiting for a human.
+    /// A review marked `handover_refused/<review id>` answers `409`.
+    fn hand_over(review_id: &str, body: &str, claude_dir: &Path) -> (u16, String) {
+        if claude_dir.join("handover_refused").join(review_id).exists() {
+            return (409, "{\"error\":\"refused\"}".to_owned());
+        }
+        let notes = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|body| body["notes"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        let mut log = std::fs::read_to_string(claude_dir.join("handovers.log")).unwrap_or_default();
+        log.push_str(&format!("{review_id} {notes}\n"));
+        let _ = std::fs::write(claude_dir.join("handovers.log"), log);
+        let _ = std::fs::write(claude_dir.join("human").join(review_id), "");
+        (200, "{\"ok\":true}".to_owned())
+    }
+
     /// `GET /api/reviews/{id}` of `review`, as the fake `claude` in `claude_dir` left it.
     fn review_detail(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
         let id = review.review_id.to_string();
@@ -533,7 +646,20 @@ mod tests {
             review.agent_rounds = 3;
             review.human_required = true;
         }
-        let detail = json!({ "review": review, "pages": [], "urls": [], "events": [] });
+        let judged = claude_dir.join("judged").join(&id).exists();
+        let events: Vec<Value> = judged
+            .then(|| {
+                json!({
+                    "actor": "AGENT_REVIEWER", "action": "REPAIR_REQUESTED",
+                    "candidate_version": review.candidate_version,
+                    "created": OffsetDateTime::now_utc()
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .unwrap_or_default(),
+                })
+            })
+            .into_iter()
+            .collect();
+        let detail = json!({ "review": review, "pages": [], "urls": [], "events": events });
         (200, detail.to_string())
     }
 
@@ -556,6 +682,23 @@ mod tests {
             }
         }
         events
+    }
+
+    /// `GET /api/reviews/{id}/approval-checks`: `null` for a product-schema review, and for a
+    /// URL-pattern review the guard's refusal when the review is marked `guard_refused/<id>`.
+    fn approval_checks(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
+        let failed = if review.artifact_type != "URL_PATTERN" {
+            json!(null)
+        } else if claude_dir
+            .join("guard_refused")
+            .join(review.review_id.to_string())
+            .exists()
+        {
+            json!([{ "check": "TOO_FEW_LABELS", "product": 1, "not_product": 3, "minimum": 3 }])
+        } else {
+            json!([])
+        };
+        (200, json!({ "failed_checks": failed }).to_string())
     }
 
     fn review(status: &str, crawl_enabled: bool) -> CrawlerReview {
@@ -620,7 +763,10 @@ printf '%s\n' "$@" > "$call/argv"
 printf '%s' "$prompt" > "$call/stdin"
 env > "$call/env"
 echo "start $role $review" >> "$dir/order.log"
-if [ -f "$dir/hand_over/$review-$role" ]; then touch "$dir/human/$review"; fi
+if [ -f "$dir/hand_over/$review-$role" ]; then
+  target="$(cat "$dir/hand_over/$review-$role")"
+  touch "$dir/human/${target:-$review}"
+fi
 if [ "$role" = reviewer ]; then
   decision="$dir/decisions/$review"
   [ -f "$decision" ] || decision="$dir/decisions/reviewer"
@@ -655,6 +801,10 @@ echo "end $role $review" >> "$dir/order.log"
                 "human",
                 "handed_back",
                 "unreadable",
+                "judged",
+                "handover_refused",
+                "guard_refused",
+                "late",
             ] {
                 std::fs::create_dir(directory.path().join(subdirectory)).unwrap_or_default();
             }
@@ -698,6 +848,29 @@ echo "end $role $review" >> "$dir/order.log"
                 .unwrap_or_default();
         }
 
+        /// Has the process `<review id>-<role>` give the verdict that leaves the review `other`, not
+        /// its own, waiting for a human.
+        fn hand_other_to_human(&self, name: &str, other: CrawlerReviewId) {
+            std::fs::write(
+                self.directory.path().join("hand_over").join(name),
+                other.to_string(),
+            )
+            .unwrap_or_default();
+        }
+
+        /// Keeps the review `review_id` out of the queue until a process of the run has started,
+        /// as a review that opens while the run works.
+        fn appears_during_the_run(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("late")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
         /// Hands the review `review_id` back to the agents now, as a human's change or verdict
         /// does: it no longer waits for a human, the queue lists when it was handed back, and no
         /// process hands it over again.
@@ -719,6 +892,52 @@ echo "end $role $review" >> "$dir/order.log"
                         .join(format!("{review_id}-{role}")),
                 );
             }
+        }
+
+        /// Marks the review `review_id` as one whose current candidate the reviewer already
+        /// judged with a needs-repair verdict.
+        fn judged(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("judged")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// Has the approval guard refuse the URL-pattern candidate of the review `review_id`.
+        fn guard_refuses(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("guard_refused")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// Has the console refuse to hand the review `review_id` to a human.
+        fn refuse_handover(&self, review_id: CrawlerReviewId) {
+            std::fs::write(
+                self.directory
+                    .path()
+                    .join("handover_refused")
+                    .join(review_id.to_string()),
+                "",
+            )
+            .unwrap_or_default();
+        }
+
+        /// The `<review id> <notes>` lines of the hand-overs the fake console took.
+        fn handovers(&self) -> Vec<String> {
+            std::fs::read_to_string(self.directory.path().join("handovers.log"))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_owned)
+                .collect()
         }
 
         /// Has the console fail to answer the review `review_id`.
@@ -1031,6 +1250,7 @@ echo "end $role $review" >> "$dir/order.log"
                     "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
                     "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
                     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                    "CLAUDE_CODE_PROMPT_CACHE_TTL",
                     "DISABLE_AUTOUPDATER",
                     "HOME",
                     "PATH",
@@ -1053,8 +1273,8 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v5");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v3");
+        assert_eq!(ledger[0]["prompt_version"], "author.v10");
+        assert_eq!(ledger[1]["prompt_version"], "reviewer.v7");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);
@@ -1165,6 +1385,143 @@ echo "end $role $review" >> "$dir/order.log"
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// An author that finds nothing to stage on a candidate the reviewer already judged gives the
+    /// reviewer nothing new: the review goes to a human at once with the author's reasoning, no
+    /// reviewer starts, and the review gets no cooldown. On a candidate the reviewer has not judged
+    /// the reviewer runs as before.
+    #[tokio::test]
+    async fn should_hand_a_review_to_a_human_when_the_author_stages_nothing_on_a_judged_candidate()
+    {
+        let judged = review("PENDING_REVIEW", true);
+        let unjudged = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![judged.clone(), unjudged.clone()]).await;
+        fixture.claude.judged(judged.review_id);
+        fixture
+            .claude
+            .answer("author", author_envelope("NOTHING_TO_STAGE", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(
+            (run.worked, run.processes, run.handed_to_human, run.decided),
+            (2, 3, 1, 1)
+        );
+        let (judged_id, unjudged_id) = (judged.review_id, unjudged.review_id);
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {judged_id}"),
+                format!("end author {judged_id}"),
+                format!("start author {unjudged_id}"),
+                format!("end author {unjudged_id}"),
+                format!("start reviewer {unjudged_id}"),
+                format!("end reviewer {unjudged_id}"),
+            ]
+        );
+        let handovers = fixture.claude.handovers();
+        assert_eq!(handovers.len(), 1, "{handovers:?}");
+        assert!(
+            handovers[0].starts_with(&judged_id.to_string())
+                && handovers[0].contains("Author's reasoning: Staged and tested on /item/1."),
+            "{handovers:?}"
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// An author that cannot decide a review and reports `NEEDS_HUMAN`
+    /// hands the review over at once, without a reviewer process or a cooldown, whether or not the
+    /// reviewer judged the candidate before.
+    #[tokio::test]
+    async fn should_hand_a_review_to_a_human_when_the_author_reports_needs_human() {
+        let unjudged = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![unjudged.clone()]).await;
+        fixture
+            .claude
+            .answer("author", author_envelope("NEEDS_HUMAN", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.handed_to_human), (1, 1));
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {}", unjudged.review_id),
+                format!("end author {}", unjudged.review_id),
+            ]
+        );
+        let handovers = fixture.claude.handovers();
+        assert!(
+            handovers.len() == 1 && handovers[0].contains("reported NEEDS_HUMAN"),
+            "{handovers:?}"
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.is_empty(), "{state:?}");
+    }
+
+    /// A URL-pattern candidate the approval guard already refuses gets no reviewer process, which
+    /// could only be refused: the review cools down, while one the guard passes gets its reviewer.
+    #[tokio::test]
+    async fn should_start_no_reviewer_for_a_url_pattern_candidate_the_guard_refuses() {
+        let url_pattern = |review: CrawlerReview| CrawlerReview {
+            artifact_type: "URL_PATTERN".to_owned(),
+            ..review
+        };
+        let refused = url_pattern(review("PENDING_REVIEW", true));
+        let passing = url_pattern(review("PENDING_REVIEW", true));
+        let fixture = Fixture::new(vec![refused.clone(), passing.clone()]).await;
+        fixture.claude.guard_refuses(refused.review_id);
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.guard_blocked), (3, 1));
+        assert!(
+            !fixture
+                .claude
+                .order()
+                .contains(&format!("start reviewer {}", refused.review_id)),
+            "{:?}",
+            fixture.claude.order()
+        );
+        assert!(
+            fixture
+                .claude
+                .order()
+                .contains(&format!("start reviewer {}", passing.review_id))
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            state.cooldowns.contains_key(&refused.review_id),
+            "{state:?}"
+        );
+    }
+
+    /// A hand-over the console does not take must not become one more reviewer round: the review
+    /// cools down, and the reviewer does not run.
+    #[tokio::test]
+    async fn should_cool_a_review_down_when_the_console_does_not_take_the_hand_over() {
+        let judged = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![judged.clone()]).await;
+        fixture.claude.judged(judged.review_id);
+        fixture.claude.refuse_handover(judged.review_id);
+        fixture
+            .claude
+            .answer("author", author_envelope("NOTHING_TO_STAGE", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.handed_to_human), (1, 0));
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {}", judged.review_id),
+                format!("end author {}", judged.review_id),
+            ]
+        );
+        let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(state.cooldowns.contains_key(&judged.review_id), "{state:?}");
     }
 
     /// An author process that ends without a decision after its own needs-repair verdict reached
@@ -1744,6 +2101,46 @@ echo "end $role $review" >> "$dir/order.log"
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
         assert!(!state.cooldowns.contains_key(&repaired.review_id));
         assert!(state.cooldowns.contains_key(&unrecorded.review_id));
+        let ledger = fixture.ledger();
+        let trail_verdict = |review: &CrawlerReview, role: &str| {
+            ledger
+                .iter()
+                .find(|record| {
+                    record["review_id"] == review.review_id.to_string() && record["role"] == role
+                })
+                .map(|record| record["trail_verdict"].clone())
+        };
+        assert_eq!(
+            trail_verdict(&repaired, "reviewer"),
+            Some(json!("REPAIR_REQUESTED"))
+        );
+        assert_eq!(
+            trail_verdict(&unrecorded, "reviewer"),
+            Some(json!("NO_VERDICT"))
+        );
+        assert_eq!(trail_verdict(&repaired, "author"), Some(Value::Null));
+    }
+
+    /// The ledger and the digest show the verdict the trail records for a reviewer whose report
+    /// says `NOT_SENT`, and the report's claim only as its account.
+    #[tokio::test]
+    async fn should_show_the_trail_s_verdict_not_the_reports_not_sent_in_the_ledger_and_digest() {
+        let approved = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![approved.clone()]).await;
+        fixture
+            .claude
+            .answer("reviewer", reviewer_envelope("APPROVE", "NOT_SENT", 0.25));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!(run.decided, 1);
+        let reviewer = fixture
+            .ledger()
+            .into_iter()
+            .find(|record| record["role"] == "reviewer")
+            .unwrap_or_else(|| panic!("no reviewer record"));
+        assert_eq!(reviewer["trail_verdict"], "APPROVED");
+        assert_eq!(reviewer["report"]["server_answer"]["outcome"], "NOT_SENT");
     }
 
     /// The agents run on the login's subscription: only its usage limits stop a pass, never the
@@ -1765,6 +2162,89 @@ echo "end $role $review" >> "$dir/order.log"
         let run = summary(&run_with(&fixture.settings(&[], &[])).await);
 
         assert_eq!((run.worked, run.processes, run.stopped), (2, 4, None));
+    }
+
+    /// The pool refills from the queue whenever a slot frees: a review that opened while the run
+    /// worked is worked in the same run, within the run's budget and once per review.
+    #[tokio::test]
+    async fn should_refill_a_freed_slot_from_the_queue_with_a_review_that_opened_during_the_run() {
+        let first = review("PENDING_REVIEW", true);
+        let late = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![first.clone(), late.clone()]).await;
+        fixture.claude.appears_during_the_run(late.review_id);
+        let settings = fixture.settings(
+            &[],
+            &[("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "4")],
+        );
+
+        let run = summary(&run_with(&settings).await);
+
+        assert_eq!((run.pending, run.worked, run.processes), (1, 2, 4));
+        let (first_id, late_id) = (first.review_id, late.review_id);
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {first_id}"),
+                format!("end author {first_id}"),
+                format!("start reviewer {first_id}"),
+                format!("end reviewer {first_id}"),
+                format!("start author {late_id}"),
+                format!("end author {late_id}"),
+                format!("start reviewer {late_id}"),
+                format!("end reviewer {late_id}"),
+            ]
+        );
+    }
+
+    /// A refill reads the queue as it is then: a review that came to wait for a human while
+    /// another one was worked gets no process.
+    #[tokio::test]
+    async fn should_not_start_a_review_that_came_to_wait_for_a_human_before_its_slot_freed() {
+        let first = review("PENDING_REVIEW", true);
+        let waiting_by_then = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![first.clone(), waiting_by_then.clone()]).await;
+        fixture.claude.hand_other_to_human(
+            &format!("{}-author", first.review_id),
+            waiting_by_then.review_id,
+        );
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.worked, run.processes), (1, 2));
+        assert!(
+            !fixture
+                .claude
+                .order()
+                .iter()
+                .any(|line| line.ends_with(&waiting_by_then.review_id.to_string())),
+            "{:?}",
+            fixture.claude.order()
+        );
+    }
+
+    /// The run's budget of reviews and the once-per-run rule hold under refilling: a review the
+    /// agents leave workable, with a needs-repair verdict, is not worked again in the same run.
+    #[tokio::test]
+    async fn should_work_at_most_the_budget_of_reviews_and_each_once_per_run() {
+        let fixture = Fixture::new((0..4).map(|_| review("PENDING_REVIEW", true)).collect()).await;
+        fixture.claude.decide("reviewer", "REPAIR_REQUESTED");
+        let settings = fixture.settings(
+            &[],
+            &[
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN", "3"),
+                ("CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES", "2"),
+            ],
+        );
+
+        let run = summary(&run_with(&settings).await);
+
+        assert_eq!((run.worked, run.processes), (3, 6));
+        let order = fixture.claude.order();
+        let authors: std::collections::BTreeSet<&String> = order
+            .iter()
+            .filter(|line| line.starts_with("start author"))
+            .collect();
+        assert_eq!(authors.len(), 3, "{order:?}");
     }
 
     #[tokio::test]
@@ -1837,6 +2317,71 @@ echo "end $role $review" >> "$dir/order.log"
         ));
         assert!(matches!(no_token_file, Err(RunnerError::NotAgentMode(_))));
         assert!(fixture.claude.calls().is_empty());
+    }
+
+    /// An idle runner passes every interval: INFO carries only the completion of a pass that worked a
+    /// review.
+    #[tokio::test]
+    async fn should_log_an_idle_pass_at_debug_and_a_working_pass_at_info() {
+        use crate::test_support::logged_events::LoggedEvents;
+        let idle = Fixture::new(vec![]).await;
+        let working = Fixture::new(vec![review("PENDING_REVIEW", true)]).await;
+        let (events, _guard) = LoggedEvents::capture();
+
+        run_with(&idle.settings(&["--once"], &[])).await;
+        let idle_levels = |name| {
+            events
+                .named(name)
+                .iter()
+                .map(|logged| logged.level)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_started"),
+            [tracing::Level::DEBUG]
+        );
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_completed"),
+            [tracing::Level::DEBUG]
+        );
+
+        run_with(&working.settings(&["--once"], &[])).await;
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_started"),
+            [tracing::Level::DEBUG, tracing::Level::DEBUG]
+        );
+        assert_eq!(
+            idle_levels("crawler.review_agent.pass_completed"),
+            [tracing::Level::DEBUG, tracing::Level::INFO]
+        );
+        let finished = events.named("crawler.review_agent.process_finished");
+        assert_eq!(finished.len(), 2, "an author and a reviewer process");
+        assert!(
+            finished
+                .iter()
+                .all(|logged| logged.level == tracing::Level::INFO)
+        );
+        assert_eq!(finished[0].field("listing_source_name"), Some("Antiques"));
+        assert!(finished[0].field("listing_source_id").is_some());
+        assert_eq!(finished[0].field("decision"), Some("staged"));
+        assert_eq!(finished[1].field("decision"), Some("approved"));
+        for field in [
+            "report",
+            "summary",
+            "risks",
+            "field_findings",
+            "server_answer",
+        ] {
+            assert!(
+                finished.iter().all(|logged| logged.field(field).is_none()),
+                "{field}"
+            );
+        }
+        assert!(
+            events
+                .named("crawler.review_agent.process_report")
+                .is_empty()
+        );
     }
 
     #[tokio::test]

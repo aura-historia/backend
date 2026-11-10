@@ -137,9 +137,12 @@ Before traffic, verify the shared purpose-list ID, signing configuration/public 
 SES identity and isolated recipient access, pinned confirmation templates and frontend
 confirmation URL. Application senders and Cognito explicitly select their stage's
 CDK-owned SES configuration set; sender roles need scoped send permission for the
-approved identity and selected set. Do not rely on or change the shared identity's
-externally owned default to configure a stage. Configuration and mocks do not prove
-live provider acceptance.
+approved identity and selected set. Application senders name their sender
+`<Reason> | Aura Historia`: they choose that display name per message type and take only
+the verified address from their sender setting. Cognito's sender is protected identity
+stack configuration, changed only under platform maintenance. Do not rely on
+or change the shared identity's externally owned default to configure a stage.
+Configuration and mocks do not prove live provider acceptance.
 
 Create the managed set and metrics destination before switching consumers. During a
 live cutover, preserve narrowly scoped permissions for old consumers until their

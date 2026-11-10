@@ -18,14 +18,20 @@ static DETECTOR: Lazy<LanguageDetector> = Lazy::new(|| {
         LinguaLanguage::Japanese,
         LinguaLanguage::Russian,
         LinguaLanguage::Arabic,
+        LinguaLanguage::Korean,
+        LinguaLanguage::Greek,
+        LinguaLanguage::Hebrew,
+        LinguaLanguage::Thai,
+        LinguaLanguage::Hindi,
     ])
     .build()
 });
 
 /// Detects the language of a text snippet.
 ///
-/// Returns `None` if the language cannot be identified as one of the supported
-/// languages (DE, EN, FR, ES, IT, ZH, PT, PL, TR, NL, CS, JA, RU, AR).
+/// Returns `None` if the language cannot be identified as one of the catalogue languages
+/// the detector is built with. Traditional and Simplified Chinese are one language to the
+/// detector and both resolve to [`Language::Zh`].
 pub fn detect_language(text: &str) -> Option<Language> {
     DETECTOR.detect_language_of(text).map(from_lingua)
 }
@@ -60,6 +66,11 @@ const fn from_lingua(language: LinguaLanguage) -> Language {
         LinguaLanguage::Japanese => Language::Ja,
         LinguaLanguage::Russian => Language::Ru,
         LinguaLanguage::Arabic => Language::Ar,
+        LinguaLanguage::Korean => Language::Ko,
+        LinguaLanguage::Greek => Language::El,
+        LinguaLanguage::Hebrew => Language::He,
+        LinguaLanguage::Thai => Language::Th,
+        LinguaLanguage::Hindi => Language::Hi,
     }
 }
 
@@ -122,7 +133,7 @@ mod tests {
     // Languages with distinctive scripts or sufficiently unique vocabulary are
     // reliably detected.  Portuguese, Polish and Dutch share so much vocabulary
     // with Spanish, English and German respectively that lingua may mis-classify
-    // short samples when all 14 languages are active in the detector; those
+    // short samples when all of these languages are active in the detector; those
     // languages are fully supported in the type system but auto-detection from
     // crawler text may be unreliable for them.
 
@@ -156,6 +167,30 @@ mod tests {
     #[case(
         "هذه القطعة الأثرية من مجموعة خاصة وتعود إلى مطلع القرن العشرين. تم توثيق مصدرها في القاهرة. القطعة في حالة ممتازة وتحمل شهادة أصالة من خبير متخصص في التحف.",
         Some(Language::Ar)
+    )]
+    #[case(
+        "이 골동품은 개인 한국 소장품에서 나온 것으로 20세기 초로 거슬러 올라갑니다. 서울의 경매장에서 입수한 이 작품은 조선 시대의 것으로 추정됩니다. 상태는 매우 좋습니다.",
+        Some(Language::Ko)
+    )]
+    #[case(
+        "這件古董來自一個私人台灣收藏，可追溯到二十世紀初。這件珍貴文物展示了獨特的工藝和歷史價值，保存狀況良好。",
+        Some(Language::Zh)
+    )]
+    #[case(
+        "Αυτό το αντίκα προέρχεται από μια ιδιωτική ελληνική συλλογή και χρονολογείται στις αρχές του εικοστού αιώνα. Η προέλευση έχει τεκμηριωθεί στην Αθήνα και το αντικείμενο βρίσκεται σε άριστη κατάσταση.",
+        Some(Language::El)
+    )]
+    #[case(
+        "פריט עתיק זה מגיע מאוסף פרטי ישראלי ומתוארך לתחילת המאה העשרים. מקורו מתועד בירושלים. הפריט במצב מצוין ומגיע עם תעודת אותנטיות ממומחה לעתיקות.",
+        Some(Language::He)
+    )]
+    #[case(
+        "ของเก่าชิ้นนี้มาจากคอลเลกชันส่วนตัวของไทยและมีอายุย้อนไปถึงต้นศตวรรษที่ยี่สิบ ที่มาได้รับการบันทึกไว้ในกรุงเทพฯ ชิ้นนี้อยู่ในสภาพดีเยี่ยมและมีใบรับรองความแท้",
+        Some(Language::Th)
+    )]
+    #[case(
+        "यह प्राचीन वस्तु एक निजी भारतीय संग्रह से आई है और बीसवीं सदी की शुरुआत की है। इसका मूल दिल्ली में प्रलेखित है। यह वस्तु उत्कृष्ट स्थिति में है और इसके साथ प्रमाणिकता का प्रमाणपत्र है।",
+        Some(Language::Hi)
     )]
     fn should_detect_ingestion_only_languages_when_sufficient_text_provided(
         #[case] text: &str,

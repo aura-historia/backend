@@ -4,8 +4,8 @@ use crate::{
 };
 use aura_historia_runtime::{
     ProductListingDependencies, PublicAuctions, PublicListingSourceReadBudget,
-    PublicListingSources, PublicOverview, PublicPartyLocations, PublicProductListingHistory,
-    PublicProductListings, Runtime,
+    PublicListingSources, PublicOverview, PublicProductListingHistory, PublicProductListings,
+    Runtime,
 };
 
 /// Typed handles allow native/Lambda composition and isolated protocol fixtures to use one registry.
@@ -15,7 +15,6 @@ pub struct PublicServices {
     pub auctions: PublicAuctions,
     pub sources: PublicListingSources,
     pub source_budget: PublicListingSourceReadBudget,
-    pub locations: PublicPartyLocations,
     pub overview: PublicOverview,
 }
 
@@ -32,7 +31,6 @@ impl PublicServices {
             auctions: runtime.public_auctions().clone(),
             sources: runtime.public_listing_sources().clone(),
             source_budget: PublicListingSourceReadBudget::default(),
-            locations: runtime.public_party_locations().clone(),
             overview: runtime.public_overview().clone(),
         }
     }
@@ -53,7 +51,6 @@ pub fn operations(
     operations.extend(public_discovery::operations(
         services.sources,
         services.source_budget,
-        services.locations,
         services.overview,
     )?);
     Ok(operations)

@@ -96,7 +96,7 @@ impl McpServer {
         let body: Value = response.json().await.unwrap();
         assert!(body["result"].get("nextCursor").is_none());
         let tools = body["result"]["tools"].as_array().unwrap().clone();
-        assert_eq!(38, tools.len());
+        assert_eq!(37, tools.len());
         tools
     }
 

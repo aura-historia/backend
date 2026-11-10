@@ -425,6 +425,7 @@ mod tests {
                 "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
                 "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                "CLAUDE_CODE_PROMPT_CACHE_TTL",
                 "DISABLE_AUTOUPDATER",
                 "LANG",
                 "PATH",

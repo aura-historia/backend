@@ -444,7 +444,7 @@ mod tests {
                 tracing_subscriber::fmt::format()
                     .json()
                     .with_current_span(true)
-                    .with_span_list(true),
+                    .with_span_list(false),
             ));
         let probe_buffer = buffer.clone();
         tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), || {
@@ -481,6 +481,18 @@ mod tests {
         assert_eq!(line["ScrapesSucceeded"], 3);
         assert!(line.get("fields").is_none());
         assert!(line.get("span").is_none());
+    }
+
+    #[test]
+    fn should_write_the_current_span_without_the_span_list_for_other_events() {
+        let lines = json_log_lines(|| {
+            let _outer = tracing::info_span!("outer").entered();
+            let _inner = tracing::info_span!("inner").entered();
+            tracing::info!("Inside spans");
+        });
+
+        assert_eq!(lines[0]["span"]["name"], "inner");
+        assert!(lines[0].get("spans").is_none());
     }
 
     #[test]

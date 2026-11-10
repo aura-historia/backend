@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.aura-historia/mcp",
+  "title": "Aura Historia",
+  "description": "Search art and antiques from dealers and auction houses; manage your watchlist and saved searches.",
+  "version": "1.0.0",
+  "websiteUrl": "https://aura-historia.com",
+  "repository": {
+    "url": "https://github.com/aura-historia/backend",
+    "source": "github",
+    "id": "1014774244",
+    "subfolder": "src/aura-historia-mcp"
+  },
+  "icons": [
+    {
+      "src": "https://aura-historia.com/icon1080x1080.png",
+      "mimeType": "image/png",
+      "sizes": ["1080x1080"]
+    },
+    {
+      "src": "https://aura-historia.com/favicon.png",
+      "mimeType": "image/png",
+      "sizes": ["32x32"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.aura-historia.com/v1"
+    }
+  ]
+}

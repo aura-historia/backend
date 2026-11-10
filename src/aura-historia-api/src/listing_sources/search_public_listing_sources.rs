@@ -355,7 +355,7 @@ mod tests {
                     name: party_core::party_name::PartyName::try_from("Operator")
                         .unwrap_or_else(|error| panic!("valid operator name: {error}")),
                 },
-                url: None,
+                website: None,
                 image: None,
             })
         }

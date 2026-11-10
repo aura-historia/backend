@@ -75,6 +75,7 @@ pub fn decision_cap_resumes_at(
 /// Logs, once, that the reviewer pause `ended` is over and reviewers start again.
 pub fn log_reviewer_pause_ended(ended: ReviewerPause) {
     info!(
+        event = "crawler.review_agent.decision_cap_ended",
         resumed_at = %timestamp(ended.until),
         "The reviewer pause after the agents' decision cap ended; reviewer processes start again"
     );
@@ -113,6 +114,7 @@ mod tests {
             action: action.as_str().to_owned(),
             candidate_version: 1,
             notes: None,
+            approved_url_pattern_state: None,
             created: NOW - Duration::minutes(minutes_ago),
         }
     }

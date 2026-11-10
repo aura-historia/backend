@@ -15,7 +15,7 @@ use crate::scraper::scraper_service::service::ScraperServiceImpl;
 use listing_source_core::ListingSourceId;
 use serde_json::json;
 use std::collections::BTreeMap;
-use tracing::info;
+use tracing::debug;
 use url::Url;
 
 /// Review reason for a product schema an operator has to write because LLM calls are disabled.
@@ -135,10 +135,10 @@ impl ScraperServiceImpl {
             .await
         {
             Ok(review_id) => {
-                info!(
+                debug!(
                     review_id = %review_id,
                     existing_schema_count = existing_schemas.len(),
-                    "Opened manual product schema review; scraping waits for an operator schema"
+                    "Manual product schema review opened; scraping waits for an operator schema"
                 );
                 ScraperError::PendingSchemaReview {
                     url: url.clone(),

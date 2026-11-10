@@ -126,7 +126,7 @@ async fn should_forward_exact_delegated_context_to_all_ten_optional_auth_operati
         for (name, arguments) in inputs() {
             authenticated_call(&app, name, arguments).await;
         }
-        assert_eq!(12, fixture.calls.lock().unwrap().len());
+        assert_eq!(11, fixture.calls.lock().unwrap().len());
     }
 }
 

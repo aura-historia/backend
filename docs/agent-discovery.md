@@ -24,8 +24,9 @@ issuer fails startup, so a document can never mix environments.
 | Documentation | `https://docs.api.aura-historia.com` | `https://docs.api.aura-historia.com` |
 
 Tests render each document for both environments and fail if any URL lies outside that
-environment's origins. The only exception is a document's schema identifier, such as the
-server card's `$schema`.
+environment's origins. The only exceptions are a document's schema identifier, such as the
+server card's `$schema`, and the local development callback of the stage
+[WebMCP client](#webmcp-client).
 
 ## Documents
 
@@ -67,6 +68,20 @@ or `initialize`, whose live values win if they ever disagree with the card.
 SEP-2127 recommends `<endpoint>/server-card` and leaves the location free when a catalog links
 to it. Aura serves the card at the path that the website's AI catalog links to and that agent
 readiness checks probe. The route keeps the MCP Host allowlist but not its Origin allowlist.
+
+### Registry listing
+
+The [official MCP registry](https://registry.modelcontextprotocol.io) lists the server under the same
+reverse-DNS name as the card, `com.aura-historia/mcp`. The published manifest is
+[`server.json`](../src/aura-historia-mcp/server.json), and a unit test holds its identity fields equal to
+the production card, which stays the source of truth. Its `version` is an independently raised semantic
+version, because the registry orders releases by version while the card reports the deployed release
+commit.
+
+Publishing authenticates over DNS: the apex of `aura-historia.com` carries a `v=MCPv1` TXT record whose
+Ed25519 public key matches the operator's publishing key, which lives outside this repository. A selector
+subdomain is not accepted, and the registry verifies the namespace, never the remote URL. Re-publish with
+a raised `version` whenever the listed identity or endpoint changes.
 
 ### API catalog
 
@@ -125,6 +140,7 @@ path, where agents and agent-readiness scanners look for it.
 | [Agent skills index](#agent-skills) | `agent-skills/index.json` | `/.well-known/agent-skills/index.json` | `application/json` |
 | [Agent skill](#agent-skills) | `agent-skills/{name}/SKILL.md` | `/.well-known/agent-skills/{name}/SKILL.md` | `text/markdown; charset=utf-8` |
 | [auth.md](#authmd) | `auth.md` | `/auth.md` | `text/markdown; charset=utf-8` |
+| [WebMCP client](#webmcp-client) | `oauth/webmcp-client.json` | `/oauth/webmcp-client.json` | `application/json` |
 
 The routes are exact; a skill name the index does not list returns `404`. Responses are
 approved anonymous discovery representations with a 300-second shared TTL, like the API
@@ -181,9 +197,27 @@ Scanners that require `agent_auth` or a registration flow therefore do not pass 
 Its metadata URLs are bare URLs, not code spans: agent-readiness scanners that follow them
 from `auth.md` take a closing backtick as part of the URL.
 
+### WebMCP client
+
+The website signs its users in to the MCP server as an ordinary
+[metadata document client](oauth.md#the-websites-webmcp-client), so agents in the browser can use
+the signed-in MCP tools through WebMCP. This is its Client ID Metadata Document. `client_id` is
+the document's own website URL, which lies outside `/.well-known` like `auth.md`. `client_uri` is
+the website, `logo_uri` its logo and `client_name` the user-facing "AI agents in your browser".
+The only callback is the website's `/api/oauth/webmcp/callback`, where the webapp's Worker
+exchanges the code. On stage, the same path on `http://localhost` is also listed for the
+webapp's local development server. The document declares a public client
+(`token_endpoint_auth_method: none`) with the `authorization_code` and `refresh_token` grants
+and the `code` response type.
+
+A test loads the document of each environment the way the authorization and token endpoints
+do: the metadata document source fetches it from a stand-in for the website's Worker under its
+fetch limits, and the `oauth-core` validator accepts it for the `client_id` it was fetched from.
+
 ## Changing a document
 
-Change the renderer and its tests together with this document. For the API host, also update
+Change the renderer and its tests together with this document. A change to the card's identity or
+endpoint also needs a [registry re-publish](#registry-listing). For the API host, also update
 [OpenAPI](swagger.yaml) and the [changelog](CHANGELOG.md). A new path also needs an exact
 Gateway route, its CloudFront behaviour and a row in the
 [stage verification table](http-api-front-door.md#mcp-deployment-and-stage-verification); a new

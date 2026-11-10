@@ -1,7 +1,9 @@
 //! The pages a ListingSource's rejected manual product-schema reviews classify as non-product
-//! pages (`docs/crawler/operations.md#manual-authoring`): the one place that decides whether a
-//! rejection covers a crawler URL, for the scraper's check of one page and for every write that
-//! classifies stored URLs by their URL pattern.
+//! pages (`docs/crawler/operations.md#manual-authoring`), and the pages its approved reviews
+//! marked as no product page (`docs/crawler/extraction-and-review.md`, review pages): the one
+//! place that decides whether a review covers a crawler URL, for the scraper's check of one page
+//! and for every write that classifies stored URLs by their URL pattern, so the spider keeps such
+//! a page `other` although its URL still matches the pattern.
 
 use super::reviewer_page_url::ReviewPageIdentity;
 use super::{ROLES_NO_REJECTION_JUDGES, ReviewEventAction};
@@ -10,7 +12,7 @@ use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SC
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 
-/// The pages unrevoked rejections of a ListingSource's reviews cover, each as the console's
+/// The pages unrevoked rejections and approved page marks of a ListingSource's reviews cover, each as the console's
 /// [`ReviewPageIdentity`], so a crawler URL in any spelling of a rejected page is covered.
 #[derive(Debug, Default)]
 pub(crate) struct RejectedPages {
@@ -45,7 +47,8 @@ impl RejectedPages {
     /// The pages that rejections of `listing_source_id`'s product-schema reviews opened for
     /// `reason` cover: their seed and triggering pages, never pages that judge no rejection (such
     /// as reviewer-added pages), while no human revoked the rejection; the review `except`, when
-    /// given, does not count.
+    /// given, does not count. The pages that approved reviews marked as no product page are
+    /// covered whatever the reason.
     pub(super) async fn load_for_reason<'e>(
         executor: impl sqlx::PgExecutor<'e>,
         listing_source_id: &ListingSourceId,
@@ -59,7 +62,12 @@ impl RejectedPages {
                AND r.status = 'REJECTED' AND r.reason = $2 AND p.role <> ALL($3) \
                AND r.review_id IS DISTINCT FROM $5 \
                AND NOT EXISTS (SELECT 1 FROM crawler_review_events e \
-                               WHERE e.review_id = r.review_id AND e.action = $4)",
+                               WHERE e.review_id = r.review_id AND e.action = $4) \
+             UNION ALL \
+             SELECT p.url FROM crawler_reviews r \
+             JOIN crawler_review_pages p ON p.review_id = r.review_id \
+             WHERE r.listing_source_id = $1 AND r.artifact_type = 'PRODUCT_SCHEMA' \
+               AND r.status = 'APPROVED' AND p.not_product_reason IS NOT NULL",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(reason)
@@ -86,6 +94,29 @@ impl RejectedPages {
         !self.pages.is_empty()
             && ReviewPageIdentity::of_stored(url).is_some_and(|page| self.pages.contains(&page))
     }
+}
+
+/// Stores `classes` as the classes of the stored `urls` of the ListingSource, parallel to `urls`,
+/// and clears their retry delay: the write that moves a page out of the product class, whichever
+/// verdict or mark decided it.
+pub(super) async fn store_url_classes_clearing_retry(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    urls: &[String],
+    classes: &[String],
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE listing_source_urls AS u \
+         SET url_class = input.url_class, next_retry_at = NULL, updated = NOW() \
+         FROM UNNEST($1::text[], $2::text[]) AS input(url, url_class) \
+         WHERE u.url = input.url AND u.listing_source_id = $3",
+    )
+    .bind(urls)
+    .bind(classes)
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

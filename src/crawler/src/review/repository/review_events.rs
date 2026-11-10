@@ -2,16 +2,19 @@
 //! the mutation's transaction, so a refused or failed mutation leaves none. The persisted
 //! `details` of each action are this module's [`ReviewMutation`] serialized.
 
+use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
     CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, ReviewEventSummary,
-    SampleLabelCounts, SampleLabels,
+    SampleLabelCounts, SampleLabels, SortDirection,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::{CrawlerReviewEventId, CrawlerReviewId};
-use regex::Regex;
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPattern, ProductUrlPatternError,
+};
+use crate::{CrawlerReviewEventId, CrawlerReviewId, CrawlerReviewPageId};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -51,7 +54,30 @@ pub(super) enum ReviewMutation<'a> {
         url: String,
         role: String,
     },
+    /// `POST /api/reviews/{id}/pages/{review_page_id}/not-product`.
+    PageMarkedNotProduct {
+        review_page_id: CrawlerReviewPageId,
+        url: &'a str,
+        reason: &'a str,
+    },
+    /// `DELETE /api/reviews/{id}/pages/{review_page_id}/not-product`.
+    PageNotProductCleared {
+        review_page_id: CrawlerReviewPageId,
+        url: &'a str,
+    },
+    /// `POST /api/reviews/{id}/no-sold-page`; the notes are the author's account.
+    NoSoldPageRecorded {
+        #[serde(skip)]
+        notes: &'a str,
+        /// The pages the author checked, in the crawler's spelling.
+        checked_urls: Vec<String>,
+    },
     RepairRequested {
+        #[serde(skip)]
+        note: &'a str,
+    },
+    /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note.
+    HandedToHuman {
         #[serde(skip)]
         note: &'a str,
     },
@@ -64,6 +90,10 @@ pub(super) enum ReviewMutation<'a> {
         /// one.
         #[serde(skip_serializing_if = "Option::is_none")]
         live_evaluation: Option<LiveMatrixEvaluation>,
+        /// The URLs of the review pages marked as no product page, which the approval retired as
+        /// product URLs of the ListingSource.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        retired_not_product_urls: Vec<String>,
         #[serde(flatten)]
         configuration: ProductSchemaApprovalRecord,
     },
@@ -110,18 +140,21 @@ pub(super) enum ReviewMutation<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct LiveUrlPattern {
     pub(super) url_pattern: Option<String>,
+    /// The exclusion of the pattern, kept out of the event when the pattern has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) url_pattern_exclude: Option<String>,
     pub(super) url_pattern_state: String,
 }
 
 impl LiveUrlPattern {
     /// The pattern that classifies the source's URLs as products: only a `MATCHED` decision has
     /// one.
-    pub(super) fn live_pattern(&self) -> Result<Option<Regex>, regex::Error> {
-        self.url_pattern
-            .as_deref()
-            .filter(|_| self.url_pattern_state == "MATCHED")
-            .map(Regex::new)
-            .transpose()
+    pub(super) fn live_pattern(&self) -> Result<Option<ProductUrlPattern>, ProductUrlPatternError> {
+        let matched = self.url_pattern_state == "MATCHED";
+        ProductUrlPattern::from_stored(
+            self.url_pattern.as_deref().filter(|_| matched),
+            self.url_pattern_exclude.as_deref(),
+        )
     }
 }
 
@@ -156,7 +189,11 @@ impl ReviewMutation<'_> {
             Self::SchemaFieldEdited { .. } => ReviewEventAction::SchemaFieldEdited,
             Self::PageAdded { .. } => ReviewEventAction::PageAdded,
             Self::PageRemoved { .. } => ReviewEventAction::PageRemoved,
+            Self::PageMarkedNotProduct { .. } => ReviewEventAction::PageMarkedNotProduct,
+            Self::PageNotProductCleared { .. } => ReviewEventAction::PageNotProductCleared,
+            Self::NoSoldPageRecorded { .. } => ReviewEventAction::NoSoldPageRecorded,
             Self::RepairRequested { .. } => ReviewEventAction::RepairRequested,
+            Self::HandedToHuman { .. } => ReviewEventAction::HandedToHuman,
             Self::ProductSchemasApproved { .. } | Self::UrlPatternApproved { .. } => {
                 ReviewEventAction::Approved
             }
@@ -170,7 +207,8 @@ impl ReviewMutation<'_> {
 
     fn notes(&self) -> Option<&str> {
         match self {
-            Self::RepairRequested { note } => Some(note),
+            Self::RepairRequested { note } | Self::HandedToHuman { note } => Some(note),
+            Self::NoSoldPageRecorded { notes, .. } => Some(notes),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
             | Self::Rejected { notes }
@@ -181,14 +219,17 @@ impl ReviewMutation<'_> {
             | Self::SampleLabelsEdited { .. }
             | Self::SchemaFieldEdited { .. }
             | Self::PageAdded { .. }
-            | Self::PageRemoved { .. } => None,
+            | Self::PageRemoved { .. }
+            | Self::PageMarkedNotProduct { .. }
+            | Self::PageNotProductCleared { .. } => None,
         }
     }
 }
 
 /// Appends the event of `actor`'s `mutation` of the review and commits the mutation's
 /// transaction with it. The caller holds the review's row lock, so the review's events append
-/// in the order its mutations commit, each with the candidate version the mutation left.
+/// in the order its mutations commit, each with the candidate version the mutation left. The
+/// mutation's `crawler.review.*` INFO event follows the commit ([`super::review_log`]).
 pub(super) async fn commit_with_event(
     mut transaction: sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -212,8 +253,36 @@ pub(super) async fn commit_with_event(
     if appended.rows_affected() != 1 {
         return Err(ReviewRepositoryError::NotFound(review_id));
     }
+    let logs = prepare_review_logs(
+        &mut transaction,
+        review_id,
+        ReviewLogEntry::of_mutation(actor, &mutation),
+    )
+    .await;
     transaction.commit().await?;
+    emit_all(logs);
     Ok(())
+}
+
+/// Whether the review's trail holds a record that no sold or unavailable page of the ListingSource
+/// was found that no later `HUMAN` event follows: a human's change or verdict hands the review
+/// back, and the agents search again for its next approval.
+pub(super) async fn has_no_sold_page_record<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    review_id: CrawlerReviewId,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM crawler_review_events e \
+         WHERE e.review_id = $1 AND e.action = $2 \
+           AND NOT EXISTS (SELECT 1 FROM crawler_review_events h \
+                           WHERE h.review_id = e.review_id AND h.actor = $3 \
+                             AND h.created > e.created))",
+    )
+    .bind(review_id.as_uuid())
+    .bind(ReviewEventAction::NoSoldPageRecorded.as_str())
+    .bind(ReviewActor::Human.as_str())
+    .fetch_one(executor)
+    .await
 }
 
 /// The approval event of a review, as a restore reads it.
@@ -281,23 +350,28 @@ pub(super) async fn fetch_review_events<'e>(
 }
 
 /// The events of all reviews created at or after `since`, oldest first, at most `limit`, each
-/// with its review's artifact type and ListingSource and without its details, and whether later
-/// events were left out.
+/// with its review's artifact type and ListingSource and, of its details, only the URL-pattern
+/// state an approval made live, and whether later events were left out.
 pub(super) async fn fetch_review_events_since<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     since: time::OffsetDateTime,
     limit: usize,
+    direction: SortDirection,
 ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
-    let rows = sqlx::query(
+    let order = direction.sql();
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT e.event_id, e.review_id, r.artifact_type, r.listing_source_id, \
-                s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, e.created \
+                s.listing_source_name, e.actor, e.action, e.candidate_version, e.notes, \
+                CASE WHEN e.action = 'APPROVED' \
+                     THEN e.details -> 'approved_url_pattern' ->> 'url_pattern_state' \
+                END AS approved_url_pattern_state, e.created \
          FROM crawler_review_events e \
          JOIN crawler_reviews r ON r.review_id = e.review_id \
          LEFT JOIN listing_sources s ON s.listing_source_id = r.listing_source_id \
          WHERE e.created >= $1 \
-         ORDER BY e.created, e.event_id \
-         LIMIT $2",
-    )
+         ORDER BY e.created {order}, e.event_id {order} \
+         LIMIT $2"
+    )))
     .bind(since)
     .bind(i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX))
     .fetch_all(executor)
@@ -324,6 +398,7 @@ pub(super) async fn fetch_review_events_since<'e>(
                 action: persisted_action(&action)?,
                 candidate_version: row.try_get("candidate_version")?,
                 notes: row.try_get("notes")?,
+                approved_url_pattern_state: row.try_get("approved_url_pattern_state")?,
                 created: row.try_get("created")?,
             })
         })
@@ -375,10 +450,12 @@ mod tests {
         UrlPatternApprovalRecord {
             replaced_url_pattern: LiveUrlPattern {
                 url_pattern: None,
+                url_pattern_exclude: None,
                 url_pattern_state: "UNKNOWN".to_owned(),
             },
             approved_url_pattern: LiveUrlPattern {
                 url_pattern: Some("/item/".to_owned()),
+                url_pattern_exclude: None,
                 url_pattern_state: "MATCHED".to_owned(),
             },
         }
@@ -459,10 +536,19 @@ mod tests {
                 json!({}),
             ),
             (
+                ReviewMutation::HandedToHuman {
+                    note: "nothing to change",
+                },
+                ReviewEventAction::HandedToHuman,
+                Some("nothing to change"),
+                json!({}),
+            ),
+            (
                 ReviewMutation::ProductSchemasApproved {
                     notes: Some("covers the shop"),
                     coverage,
                     live_evaluation: None,
+                    retired_not_product_urls: vec![],
                     configuration: ProductSchemaApprovalRecord {
                         replaced_product_schemas: None,
                         replaced_removed_page_schemas: vec![],
@@ -520,6 +606,7 @@ mod tests {
                     restored_event_id: event_id,
                     replaced_url_pattern: LiveUrlPattern {
                         url_pattern: Some("/item/".to_owned()),
+                        url_pattern_exclude: None,
                         url_pattern_state: "MATCHED".to_owned(),
                     },
                 },
@@ -572,6 +659,7 @@ mod tests {
                 not_evaluated: 0,
             },
             live_evaluation: None,
+            retired_not_product_urls: vec![],
             configuration: configuration.clone(),
         };
 

@@ -22,9 +22,10 @@ pub struct SearchPublicListingSourcesData {
     /// Optional source-name text; omission or whitespace browses, insufficient text returns no matches.
     #[serde(default)]
     pub query: Option<String>,
-    /// Page size from 1 through 50. Continuations are bound to the query and page size.
+    /// Number of providers per page, from 1 to 50 (default 21); continuations are bound to the query and page size.
     #[serde(default = "default_size")]
     pub size: u8,
+    /// Continuation from the previous page: pass back exactly as returned, with the same `query` and `size`.
     #[serde(default)]
     pub search_after: Option<String>,
 }
@@ -77,6 +78,7 @@ impl TryFrom<SearchPublicListingSourcesData> for SearchPublicListingSourcesReque
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GetPublicListingSourceBySlugData {
+    /// Slug ID of the provider, the last segment of an Aura Historia provider page URL.
     pub listing_source_slug_id: String,
 }
 
@@ -102,11 +104,18 @@ pub struct PublicListingSourceData {
     url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    view_url: Option<Url>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(schema_with = "crate::wire::schema::optional_url")]
     image: Option<Url>,
 }
 
 impl From<PublicListingSourceSummary> for PublicListingSourceData {
     fn from(value: PublicListingSourceSummary) -> Self {
+        let (url, view_url) = value
+            .website
+            .map(|website| (website.url, website.view_url))
+            .unzip();
         Self {
             listing_source_id: value.listing_source_id,
             listing_source_slug_id: value.listing_source_slug_id.to_string(),
@@ -114,7 +123,8 @@ impl From<PublicListingSourceSummary> for PublicListingSourceData {
             operator: PublicListingSourceOperatorData {
                 name: value.operator.name.to_string(),
             },
-            url: value.url,
+            url,
+            view_url,
             image: value.image,
         }
     }

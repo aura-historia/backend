@@ -173,7 +173,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     timeoutSeconds: 45,
   },
   productEmbedding: {
-    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
+    reservedConcurrency: (config) => config.isProd ? 10 : undefined,
     id: "ProductEmbeddingLambda",
     binaryName: "product-embedding-lambda",
     memorySize: 1024,
@@ -189,7 +189,7 @@ const LAMBDA_DEFINITIONS = defineLambdaDefinitions({
     }),
   },
   productTranslation: {
-    reservedConcurrency: (config) => config.isProd ? 5 : undefined,
+    reservedConcurrency: (config) => config.isProd ? 15 : undefined,
     id: "ProductTranslationLambda",
     binaryName: "product-translation-lambda",
     memorySize: 512,
@@ -372,6 +372,10 @@ export class Lambdas extends Construct {
       emailConfigurationSet: props.emailConfigurationSet,
       commitSha: props.parameters.commitSha,
       mailTemplatePrefix: props.parameters.mailTemplatePrefix,
+      searchFilterClassifier: {
+        model: props.parameters.searchFilterClassifierModel,
+        shouldShowThresholdBps: props.parameters.searchFilterMatchShouldShowThresholdBps,
+      },
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,

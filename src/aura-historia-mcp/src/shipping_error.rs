@@ -23,8 +23,12 @@ pub(crate) fn destination(error: user_service::address_book::AddressBookError) -
         AuthenticationRequired | Forbidden | Resolution(ResolutionError::Forbidden) => {
             OperationError::Forbidden
         }
-        NotFound | Resolution(ResolutionError::Missing) => OperationError::NotFound,
-        Conflict | Resolution(ResolutionError::Conflict) => OperationError::Conflict(None),
+        NotFound | Resolution(ResolutionError::Missing) => OperationError::NotFound(
+            "Address or browsing destination not found: check the addressId, or save a browsing destination first.",
+        ),
+        Conflict | Resolution(ResolutionError::Conflict) => OperationError::conflict(
+            "Address or browsing destination changed concurrently: retry the request.",
+        ),
         InvalidInput | Resolution(ResolutionError::InvalidInput) => OperationError::InvalidInput,
         error @ (Storage(_)
         | Transaction(_)

@@ -1,0 +1,5 @@
+interface:
+  display_name: "Normalization heuristics"
+  short_description: "Improve normalization heuristics from the production diagnostic corpus"
+policy:
+  allow_implicit_invocation: false

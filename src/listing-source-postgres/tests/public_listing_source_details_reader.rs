@@ -2,7 +2,10 @@ use application::transaction::{Transaction, UnitOfWork};
 use listing_source_core::ListingSourceSlugId;
 use listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory;
 use listing_source_service::{
-    ports::{PublicListingSourceDetailsReader, PublicListingSourceDetailsReaderFactory},
+    ports::{
+        PublicListingSourceDetailsReadError, PublicListingSourceDetailsReader,
+        PublicListingSourceDetailsReaderFactory,
+    },
     use_cases::queries::public_listing_source::PublicListingSourceSummary,
 };
 use platform_postgres::SqlxUnitOfWork;
@@ -36,8 +39,74 @@ async fn should_find_exact_slug_with_public_projection() {
                 && summary.listing_source_slug_id.as_ref() == "detail-source"
                 && summary.name.as_ref() == "Detail Source"
                 && summary.operator.name.as_ref() == "Detail Operator"
-                && summary.url.as_ref().is_some_and(|url| url.as_str() == "https://example.test/source")
+                && summary.website.as_ref().is_some_and(|website| website.url.as_str() == "https://example.test/source"
+                    && website.view_url.as_str() == "https://example.test/source?utm_source=aura_historia&utm_medium=referral")
                 && summary.image.is_none()
+    ));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_route_view_url_through_the_source_referral_configuration() {
+    let pool = get_postgres_client().await;
+    let party_id = uuid::Uuid::now_v7();
+    insert_party(&pool, party_id, "referral-operator", "Referral Operator").await;
+    let source_id = uuid::Uuid::now_v7();
+    insert_source(
+        &pool,
+        source_id,
+        "referral-source",
+        "Referral Source",
+        party_id,
+        Some("https://example.test/source"),
+        None,
+    )
+    .await;
+    set_referral_configuration(
+        &pool,
+        source_id,
+        serde_json::json!({"kind":"PARTNERIZE","camref":"1101l3AbC"}),
+    )
+    .await;
+
+    let website = read(&pool, "referral-source")
+        .await
+        .and_then(|summary| summary.website)
+        .unwrap_or_else(|| panic!("source should have a website"));
+
+    assert_eq!("https://example.test/source", website.url.as_str());
+    assert!(
+        website
+            .view_url
+            .as_str()
+            .starts_with("https://prf.hn/click/camref:1101l3AbC/"),
+        "{}",
+        website.view_url
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_fail_closed_when_the_persisted_referral_configuration_is_invalid() {
+    let pool = get_postgres_client().await;
+    let party_id = uuid::Uuid::now_v7();
+    insert_party(&pool, party_id, "broken-operator", "Broken Operator").await;
+    let source_id = uuid::Uuid::now_v7();
+    insert_source(
+        &pool,
+        source_id,
+        "broken-source",
+        "Broken Source",
+        party_id,
+        Some("https://example.test/source"),
+        None,
+    )
+    .await;
+    set_referral_configuration(&pool, source_id, serde_json::json!({"kind":"OTHER"})).await;
+
+    let result = try_read(&pool, "broken-source").await;
+
+    assert!(matches!(
+        result,
+        Err(PublicListingSourceDetailsReadError::InvalidReadModel { .. })
     ));
 }
 
@@ -69,6 +138,15 @@ async fn should_return_none_for_unknown_or_deleted_exact_slug() {
 }
 
 async fn read(pool: &sqlx::PgPool, slug: &str) -> Option<PublicListingSourceSummary> {
+    try_read(pool, slug)
+        .await
+        .unwrap_or_else(|error| panic!("read public detail: {error}"))
+}
+
+async fn try_read(
+    pool: &sqlx::PgPool,
+    slug: &str,
+) -> Result<Option<PublicListingSourceSummary>, PublicListingSourceDetailsReadError> {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut transaction = unit_of_work
         .begin()
@@ -79,8 +157,7 @@ async fn read(pool: &sqlx::PgPool, slug: &str) -> Option<PublicListingSourceSumm
     let result = SqlxPublicListingSourceDetailsReaderFactory::new()
         .in_transaction(&mut transaction)
         .find_by_slug(&slug)
-        .await
-        .unwrap_or_else(|error| panic!("read public detail: {error}"));
+        .await;
     transaction
         .commit()
         .await
@@ -117,4 +194,19 @@ async fn insert_source(
             .execute(pool)
             .await
             .unwrap_or_else(|error| panic!("insert test source: {error}"));
+}
+
+async fn set_referral_configuration(
+    pool: &sqlx::PgPool,
+    id: uuid::Uuid,
+    referral_configuration: serde_json::Value,
+) {
+    sqlx::query(
+        "UPDATE listing_sources SET referral_configuration = $2 WHERE listing_source_id = $1",
+    )
+    .bind(id)
+    .bind(referral_configuration)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("set test source referral configuration: {error}"));
 }

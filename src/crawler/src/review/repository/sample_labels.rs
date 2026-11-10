@@ -20,7 +20,7 @@ use crate::review::source_url::is_review_source_url;
 use crate::spider::utils::url::CrawledUrl;
 use std::collections::{HashMap, HashSet};
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::debug;
 use url::Url;
 
 /// The most URLs one review's sample labels hold.
@@ -88,7 +88,7 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
             actor = %actor,
             product_labels = counts.product,

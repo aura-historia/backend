@@ -129,7 +129,7 @@ aura-historia-auth = { path = "src/aura-historia-auth" }
 aura-historia-contracts = { path = "src/aura-historia-contracts" }
 aura-historia-mcp = { path = "src/aura-historia-mcp" }
 aura-historia-runtime = { path = "src/aura-historia-runtime" }
-rmcp = { version = "=3.8.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
 tokio-util = "0.7.18"
 aura-historia-jobs = { path = "src/aura-historia-jobs" }
 aura-historia-cdc-routing = { path = "src/aura-historia-cdc-routing" }
@@ -305,6 +305,7 @@ openssl = { version = "0.10.80", default-features = false }
 jsonwebtokens = "1.2.0"
 aws-sdk-cognitoidentityprovider = "1.120.0"
 html-escape = "0.3.0"
+encoding_rs = "0.8.35"
 regex = "1.12.4"
 indexmap = { version = "2.14.0", features = ["serde"] }
 slug = "0.1.6"
@@ -312,7 +313,7 @@ spider = { version = "2", default-features = false, features = ["sync", "regex",
 scraper = "0.29.0"
 schemars = "1.2.1"
 kuchiki = "0.8.1"
-lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic"] }
+lingua = { version = "1.7.2", default-features = false, features = ["english", "german", "french", "spanish", "italian", "chinese", "portuguese", "polish", "turkish", "dutch", "czech", "japanese", "russian", "arabic", "korean", "greek", "hebrew", "thai", "hindi"] }
 dotenvy = "0.15"
 url-normalize = "0.1.1"
 yaml_serde = "0.10"

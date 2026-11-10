@@ -8,6 +8,7 @@
 //! may do.
 
 use super::invocation::ChildEnvironment;
+use super::usage_pacing::UsagePacing;
 use crate::review_mcp::{AgentRole, ReviewConsoleAccess, ReviewMcpSettingsError};
 use large_language_model::ClaudeEffort;
 use std::num::NonZeroU32;
@@ -22,17 +23,32 @@ pub const MAX_PROCESSES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES";
 pub const COOLDOWN_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES";
 pub const PROCESS_TIMEOUT_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES";
 pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS";
+pub const FIVE_HOUR_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT";
+pub const WEEKLY_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PERCENT";
 
-/// The model both agents run on unless their role's setting names another.
-const DEFAULT_MODEL: &str = "claude-opus-5-5";
-const DEFAULT_EFFORT: ClaudeEffort = ClaudeEffort::High;
-const DEFAULT_AUTHOR_MAX_TURNS: NonZeroU32 = NonZeroU32::new(80).unwrap();
-const DEFAULT_REVIEWER_MAX_TURNS: NonZeroU32 = NonZeroU32::new(50).unwrap();
-const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(4).unwrap();
-const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(2).unwrap();
+/// What each role runs with unless its settings say otherwise: the configuration that showed no
+/// finding in the agent comparison of #2835 at the lowest cost, a Sonnet-class author and a
+/// Haiku-class reviewer, both at `medium` effort.
+const AUTHOR_DEFAULTS: RoleDefaults = RoleDefaults {
+    model: "claude-sonnet-5-5",
+    effort: ClaudeEffort::Medium,
+    max_turns: NonZeroU32::new(80).unwrap(),
+};
+const REVIEWER_DEFAULTS: RoleDefaults = RoleDefaults {
+    model: "claude-haiku-5-5",
+    effort: ClaudeEffort::Medium,
+    max_turns: NonZeroU32::new(50).unwrap(),
+};
+const DEFAULT_MAX_REVIEWS_PER_RUN: NonZeroU32 = NonZeroU32::new(60).unwrap();
+/// The console's default cap on live jobs: a further process would only wait for one, since each
+/// agent process holds at most one live job at a time.
+const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
-const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(300).unwrap();
+const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(60).unwrap();
+/// The share of the login's usage windows the agents take by default, leaving the rest to the
+/// people who use the same login.
+const DEFAULT_SHARE_PERCENT: u32 = 100;
 
 /// What one start of the runner does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +95,8 @@ pub struct RunnerSettings {
     pub process_timeout: Duration,
     /// How long the service rests after a run ends before it starts the next; `--once` ignores it.
     pub interval: Duration,
+    /// The shares of the login's five-hour and weekly usage windows the agents may take.
+    pub pacing: UsagePacing,
 }
 
 impl RunnerSettings {
@@ -163,8 +181,8 @@ impl RunnerSettings {
             child_env,
             review_mcp_bin,
             state_dir,
-            author: read.agent(AgentRole::Author, DEFAULT_AUTHOR_MAX_TURNS)?,
-            reviewer: read.agent(AgentRole::Reviewer, DEFAULT_REVIEWER_MAX_TURNS)?,
+            author: read.agent(AgentRole::Author, &AUTHOR_DEFAULTS)?,
+            reviewer: read.agent(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -184,6 +202,10 @@ impl RunnerSettings {
                     .unwrap_or(DEFAULT_INTERVAL_SECONDS)
                     .get(),
             )),
+            pacing: UsagePacing {
+                five_hour_share: read.share(FIVE_HOUR_SHARE_ENV)?,
+                weekly_share: read.share(WEEKLY_SHARE_ENV)?,
+            },
         })
     }
 }
@@ -196,6 +218,13 @@ pub fn role_setting(role: AgentRole, setting: &str) -> String {
     )
 }
 
+/// A role's model, effort and turn cap when its settings name none.
+struct RoleDefaults {
+    model: &'static str,
+    effort: ClaudeEffort,
+    max_turns: NonZeroU32,
+}
+
 struct Reader<'a, F: Fn(&str) -> Option<String>> {
     setting: &'a F,
 }
@@ -204,7 +233,7 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
     fn agent(
         &self,
         role: AgentRole,
-        default_max_turns: NonZeroU32,
+        defaults: &RoleDefaults,
     ) -> Result<AgentProcessSettings, RunnerSettingsError> {
         let model_name = role_setting(role, "MODEL");
         let model = match (self.setting)(&model_name) {
@@ -216,22 +245,35 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
                     "a model alias or name of letters, digits, '.', '-', '_', '[' and ']' that starts with a letter or digit",
                 ));
             }
-            None => DEFAULT_MODEL.to_owned(),
+            None => defaults.model.to_owned(),
         };
         let effort_name = role_setting(role, "EFFORT");
         let effort = match (self.setting)(&effort_name) {
             Some(effort) => parse_effort(&effort).ok_or_else(|| {
                 invalid(effort_name, effort, "one of low, medium, high, xhigh, max")
             })?,
-            None => DEFAULT_EFFORT,
+            None => defaults.effort,
         };
         Ok(AgentProcessSettings {
             model,
             effort,
             max_turns: self
                 .positive(&role_setting(role, "MAX_TURNS"))?
-                .unwrap_or(default_max_turns),
+                .unwrap_or(defaults.max_turns),
         })
+    }
+
+    /// A percentage from 1 to 100 as a share from 0.01 to 1, [`DEFAULT_SHARE_PERCENT`] unless set.
+    fn share(&self, name: &str) -> Result<f64, RunnerSettingsError> {
+        let percent = match (self.setting)(name) {
+            Some(value) => value
+                .parse::<u32>()
+                .ok()
+                .filter(|percent| (1..=100).contains(percent))
+                .ok_or_else(|| invalid(name.to_owned(), value, "a whole number from 1 to 100"))?,
+            None => DEFAULT_SHARE_PERCENT,
+        };
+        Ok(f64::from(percent) / 100.0)
     }
 
     fn positive(&self, name: &str) -> Result<Option<NonZeroU32>, RunnerSettingsError> {
@@ -376,7 +418,7 @@ mod tests {
         let read = settings(&[], &[]).unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(read.mode, RunMode::Loop);
-        assert_eq!(read.interval, Duration::from_secs(300));
+        assert_eq!(read.interval, Duration::from_secs(60));
         assert_eq!(read.console.console_url.as_str(), "http://127.0.0.1:7878/");
         assert_eq!(
             read.console.token_file,
@@ -394,16 +436,30 @@ mod tests {
         assert_eq!(
             read.author,
             AgentProcessSettings {
-                model: "claude-opus-5-5".to_owned(),
-                effort: ClaudeEffort::High,
+                model: "claude-sonnet-5-5".to_owned(),
+                effort: ClaudeEffort::Medium,
                 max_turns: NonZeroU32::new(80).unwrap_or(NonZeroU32::MIN),
             }
         );
-        assert_eq!(read.reviewer.max_turns.get(), 50);
-        assert_eq!(read.max_reviews_per_run.get(), 4);
-        assert_eq!(read.max_processes.get(), 2);
+        assert_eq!(
+            read.reviewer,
+            AgentProcessSettings {
+                model: "claude-haiku-5-5".to_owned(),
+                effort: ClaudeEffort::Medium,
+                max_turns: NonZeroU32::new(50).unwrap_or(NonZeroU32::MIN),
+            }
+        );
+        assert_eq!(read.max_reviews_per_run.get(), 60);
+        assert_eq!(read.max_processes.get(), 20);
         assert_eq!(read.cooldown, Duration::from_secs(180 * 60));
         assert_eq!(read.process_timeout, Duration::from_secs(60 * 60));
+        assert_eq!(
+            read.pacing,
+            UsagePacing {
+                five_hour_share: 1.0,
+                weekly_share: 1.0
+            }
+        );
     }
 
     #[test]
@@ -424,6 +480,8 @@ mod tests {
                 (COOLDOWN_MINUTES_ENV, "5"),
                 (PROCESS_TIMEOUT_MINUTES_ENV, "2"),
                 (INTERVAL_SECONDS_ENV, "30"),
+                (FIVE_HOUR_SHARE_ENV, "50"),
+                (WEEKLY_SHARE_ENV, "100"),
             ],
         )
         .unwrap_or_else(|error| panic!("{error}"));
@@ -445,13 +503,15 @@ mod tests {
         );
         assert_eq!(read.author.model, "claude-sonnet-5-5");
         assert_eq!(read.author.effort, ClaudeEffort::XHigh);
-        assert_eq!(read.reviewer.model, "claude-opus-5-5");
+        assert_eq!(read.reviewer.model, "claude-haiku-5-5");
         assert_eq!(read.reviewer.max_turns.get(), 12);
         assert_eq!(read.max_reviews_per_run.get(), 9);
         assert_eq!(read.max_processes.get(), 1);
         assert_eq!(read.cooldown, Duration::from_secs(300));
         assert_eq!(read.process_timeout, Duration::from_secs(120));
         assert_eq!(read.interval, Duration::from_secs(30));
+        assert_eq!(read.pacing.five_hour_share, 0.5);
+        assert_eq!(read.pacing.weekly_share, 1.0);
     }
 
     #[test]
@@ -479,6 +539,8 @@ mod tests {
             ("CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS", "0"),
             (MAX_PROCESSES_ENV, "two"),
             (INTERVAL_SECONDS_ENV, "0"),
+            (FIVE_HOUR_SHARE_ENV, "0"),
+            (WEEKLY_SHARE_ENV, "101"),
         ] {
             match settings(&[], &[(name, value)]) {
                 Err(RunnerSettingsError::Invalid { name: named, .. }) => assert_eq!(named, name),

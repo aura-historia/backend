@@ -15,6 +15,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct HistoryInput {
+    /// ID of the listing (`pl_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(flatten)]
@@ -64,7 +65,7 @@ pub fn operations(
 fn history_error(error: GetProductListingHistoryError) -> OperationError {
     use GetProductListingHistoryError::*;
     match error {
-        NotFound => OperationError::NotFound,
+        NotFound => OperationError::NotFound("Listing not found: check the productListingId."),
         error @ (QueryFailed { .. }
         | FxSnapshotUnavailable { .. }
         | BeginTransactionFailed(_)
@@ -418,7 +419,7 @@ mod tests {
             .call(input(id), context())
             .await
             .unwrap_err();
-        assert!(matches!(error, OperationError::NotFound));
+        assert!(matches!(error, OperationError::NotFound(_)));
         let protocol = error.into_protocol().unwrap();
         assert_eq!(Some(true), protocol.is_error);
         assert_eq!("NOT_FOUND", protocol.content[0].as_text().unwrap().text);

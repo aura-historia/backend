@@ -10,8 +10,8 @@ use super::bounds::{keep_first, keep_last, truncated_text};
 use super::wire;
 use crate::review::model::{
     CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, PendingReviewPage, PendingReviewSummary,
-    RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, UrlPatternDecision,
-    UrlPatternReviewCandidate,
+    RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, SourceProductUrl,
+    UrlPatternDecision, UrlPatternReviewCandidate,
 };
 use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
@@ -35,12 +35,14 @@ const MAX_EVENTS: usize = 40;
 const MAX_NOTE_CHARS: usize = 1_000;
 /// The longest extracted value a matrix answer carries, in characters.
 pub(super) const MAX_VALUE_CHARS: usize = 300;
-/// The most characters of a page projection an answer carries.
-pub(super) const MAX_PROJECTION_CHARS: usize = 36_000;
+/// The most characters of a page projection an answer carries. Every answer stays in the agent's
+/// context for the rest of its run, so a window holds what a product page's outline usually
+/// needs, and `offset` reads on.
+pub(super) const MAX_PROJECTION_CHARS: usize = 24_000;
 /// The most bytes those characters take as a JSON string, so a window of non-Latin or
 /// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
 /// read on from, instead of being cut by it.
-const MAX_PROJECTION_JSON_BYTES: usize = 40 * 1024;
+const MAX_PROJECTION_JSON_BYTES: usize = 28 * 1024;
 
 /// One page of the pending reviews the agents can work.
 #[derive(Debug, Serialize, JsonSchema)]
@@ -110,9 +112,9 @@ pub struct ReviewView {
     /// The needs-repair verdicts the agents gave the review since a human last changed or judged
     /// it.
     pub agent_rounds: u32,
-    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap, and
-    /// every change, verdict and page fetch of an agent on it is refused with `HUMAN_REQUIRED`
-    /// until a human changes or judges it. Leave such a review alone.
+    /// Whether the review waits for a human: the agents' needs-repair rounds reached the cap or an
+    /// agent handed it over, and every change, verdict and page fetch of an agent on it is refused
+    /// with `HUMAN_REQUIRED` until a human changes or judges it. Leave such a review alone.
     pub human_required: bool,
     pub candidate: CandidateView,
     /// The pages a product-schema candidate is evaluated on.
@@ -127,6 +129,11 @@ pub struct ReviewView {
     /// The `offset` that reads the next page of the sample with `get_review`; null on the last
     /// page.
     pub sample_urls_next_offset: Option<usize>,
+    /// Product URLs of the review's ListingSource that are not review pages, for picking live,
+    /// sold, price-on-application or photo-less pages to test with `evaluate_candidate` or add
+    /// with `add_review_page`; empty on a URL-pattern review. At most 40: those that scraped
+    /// without an error first, the most recently scraped first, then the rest.
+    pub source_product_urls: Vec<SourceProductUrlView>,
     /// The product-schema matrix the console stored for the candidate, if any. A candidate change
     /// drops it; `refresh_matrix` evaluates a new one.
     pub matrix: Option<MatrixView>,
@@ -150,6 +157,9 @@ pub enum CandidateView {
         decision: UrlPatternDecisionView,
         /// The ListingSource's pattern when the review opened.
         current_pattern: Option<String>,
+        /// The exclusion of the ListingSource's pattern when the review opened, when it had one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_exclude: Option<String>,
         sample_labels: Vec<SampleLabelView>,
         labelled_at: Option<String>,
     },
@@ -158,8 +168,13 @@ pub enum CandidateView {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UrlPatternDecisionView {
-    /// A regex; a URL it matches anywhere is a product URL.
-    Pattern { value: String },
+    /// A regex; a URL it matches anywhere is a product URL unless the exclusion, a regex matched
+    /// anywhere too, takes it.
+    Pattern {
+        value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclude: Option<String>,
+    },
     /// The ListingSource has no product URLs.
     NoPattern,
     /// No decision staged yet.
@@ -187,16 +202,36 @@ pub struct ReviewPageView {
     /// `PRIMARY`, `SEED`, `TRIGGERING_GENERATION_PAGE`, `REVIEWER_ADDED` or `WAITING_PAGE`.
     pub role: String,
     pub fetched: String,
+    /// Why the page was marked as no product page; null for a page the candidate resolves. A
+    /// marked page is left out of the matrix and of the coverage.
+    pub not_product_reason: Option<String>,
 }
 
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SourceProductUrlView {
+    pub url: String,
+    /// When the scraper last evaluated the page; null before its first scrape.
+    pub last_scraped: Option<String>,
+    /// The error kind of the last scrape, such as `MissingRequiredValue`; null when it scraped
+    /// without one.
+    pub last_error_kind: Option<String>,
+}
+
+/// One URL of a URL-pattern review's sample. A field that is unknown, such as every pattern match
+/// before the ListingSource has a pattern, is left out rather than answered as null: a sample page
+/// lists up to [`MAX_SAMPLE_URLS`] of them, and each answer stays in the agent's context.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SampleUrlView {
     pub url: String,
     /// How the ListingSource's current pattern classified the URL before the review.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_pattern_match: Option<bool>,
     /// Whether the candidate's pattern matches the URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_pattern_match: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub candidate_class: Option<String>,
 }
 
@@ -225,8 +260,10 @@ pub struct PageProjectionView {
     /// reads, each cut to [`MAX_VALUE_CHARS`] so the projection window keeps its share of the answer
     /// bound. The projection strips the script they are in, so they show nowhere else.
     pub json_ld_product_ids: JsonLdProductIds,
-    /// The page as YAML: the elements, attributes and text the schema generation prompt shows,
-    /// without scripts, styles, navigation, header and footer.
+    /// The page's outline: one element per line in CSS notation, indented by depth, with its
+    /// text after ` | `; the elements, attributes and text the schema generation prompt shows,
+    /// without scripts, styles, navigation, header and footer, and runs of same-structure
+    /// siblings counted.
     pub projection: String,
     /// The character of the whole projection this answer starts at.
     pub projection_offset: usize,
@@ -245,6 +282,14 @@ pub struct CandidateChanged {
     pub candidate_version: i64,
 }
 
+/// A record that the author found no sold or unavailable page.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct NoSoldPageRecorded {
+    pub review_id: String,
+    /// How many distinct pages the record names.
+    pub recorded_urls: usize,
+}
+
 /// A page added to the review.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PageAdded {
@@ -260,6 +305,16 @@ pub struct PageAdded {
 pub struct PageRemoved {
     pub review_id: String,
     pub review_page_id: String,
+}
+
+/// A review page marked as no product page.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct PageMarkedNotProduct {
+    pub review_id: String,
+    pub review_page_id: String,
+    pub url: String,
+    /// The reason the console stored.
+    pub reason: String,
 }
 
 /// A verdict the console took.
@@ -312,7 +367,7 @@ impl PendingReview {
             listing_source_id: review.listing_source_id.to_string(),
             listing_source_name: review.listing_source_name,
             candidate_version: review.candidate_version,
-            repair_request: review.repair_request.map(RepairRequestView::of),
+            repair_request: review.repair_request.map(RepairRequestView::preview),
             agent_rounds: review.agent_rounds,
             updated: timestamp(review.updated),
         }
@@ -320,7 +375,18 @@ impl PendingReview {
 }
 
 impl RepairRequestView {
+    /// The request with its whole note: the author repairs what the reviewer asked, and a cut note
+    /// loses part of it. The answer bound of [`super::bounds::bound_answer`] still applies to the
+    /// answer as a whole.
     fn of(repair: RepairRequest) -> Self {
+        Self {
+            note: repair.note,
+            requested: timestamp(repair.requested),
+        }
+    }
+
+    /// The request with its note cut at [`MAX_NOTE_CHARS`], for a list of many reviews.
+    fn preview(repair: RepairRequest) -> Self {
         Self {
             note: note(&repair.note),
             requested: timestamp(repair.requested),
@@ -341,6 +407,7 @@ impl ReviewView {
             candidate_is_live,
             pages,
             urls,
+            source_product_urls,
             events,
         } = detail;
         let mut truncations = Vec::new();
@@ -364,6 +431,10 @@ impl ReviewView {
             human_required: review.human_required,
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
+            source_product_urls: source_product_urls
+                .into_iter()
+                .map(SourceProductUrlView::of)
+                .collect(),
             sample_urls: sample.urls,
             sample_urls_offset: sample.offset,
             sample_urls_total: sample.total,
@@ -405,6 +476,7 @@ impl CandidateView {
         let UrlPatternReviewCandidate {
             decision,
             current_pattern,
+            current_exclude,
             sample_labels,
         } = candidate;
         let (sample_labels, labelled_at) = match sample_labels {
@@ -429,11 +501,14 @@ impl CandidateView {
         };
         Self::UrlPattern {
             decision: match decision {
-                UrlPatternDecision::Pattern { value } => UrlPatternDecisionView::Pattern { value },
+                UrlPatternDecision::Pattern { value, exclude } => {
+                    UrlPatternDecisionView::Pattern { value, exclude }
+                }
                 UrlPatternDecision::NoPattern => UrlPatternDecisionView::NoPattern,
                 UrlPatternDecision::Undecided => UrlPatternDecisionView::Undecided,
             },
             current_pattern,
+            current_exclude,
             sample_labels,
             labelled_at,
         }
@@ -447,6 +522,7 @@ impl ReviewPageView {
             url: page.url,
             role: page.role,
             fetched: timestamp(page.fetched),
+            not_product_reason: page.not_product_reason.as_deref().map(note),
         }
     }
 }
@@ -488,6 +564,16 @@ impl SamplePage {
             offset,
             total,
             next_offset,
+        }
+    }
+}
+
+impl SourceProductUrlView {
+    fn of(url: SourceProductUrl) -> Self {
+        Self {
+            url: url.url,
+            last_scraped: url.last_scraped.map(timestamp),
+            last_error_kind: url.last_error_kind,
         }
     }
 }
@@ -716,6 +802,87 @@ mod tests {
         );
     }
 
+    fn long_repair_note() -> String {
+        format!("{} END", "page 1: state reads a price. ".repeat(100))
+    }
+
+    #[test]
+    fn should_answer_the_whole_repair_note_of_a_review_within_the_answer_bound() {
+        let note = long_repair_note();
+        assert!(note.chars().count() > MAX_NOTE_CHARS);
+        let mut repairing = review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({}));
+        repairing["repair_request"] = json!({ "note": note, "requested": "2026-10-27T11:00:00Z" });
+
+        let answer = json!(ReviewView::of(
+            decoded(json!({
+                "review": repairing,
+                "candidate_is_live": false,
+                "pages": [],
+                "urls": [],
+                "events": [],
+            })),
+            wire::Candidate::ProductSchema(wire::ProductSchemaCandidate {
+                schemas: vec![],
+                removed_page_schemas: vec![],
+            }),
+            0,
+        ));
+
+        assert_eq!(answer["repair_request"]["note"], json!(note));
+        assert_eq!(
+            crate::review_mcp::bounds::bound_answer(
+                answer.clone(),
+                crate::review_mcp::bounds::MAX_TOOL_OUTPUT_BYTES
+            ),
+            Ok(answer)
+        );
+    }
+
+    #[test]
+    fn should_cut_the_repair_note_in_the_list_of_pending_reviews() {
+        let mut queued = queued(1);
+        queued["repair_request"]["note"] = json!(long_repair_note());
+
+        let pending = json!(PendingReviews::of(queue_page(vec![queued], None)));
+
+        let note = pending["reviews"][0]["repair_request"]["note"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(note.contains("[truncated: 1000 of "), "{note}");
+    }
+
+    /// The exclusion of the decision and of the live pattern is shown when there is one and left
+    /// out when there is none.
+    #[test]
+    fn should_show_the_exclusion_of_the_decision_and_of_the_current_pattern() {
+        let view = |candidate: Value| {
+            json!(CandidateView::of(wire::Candidate::UrlPattern(decoded(
+                candidate
+            ))))
+        };
+
+        let excluding = view(json!({
+            "decision": { "type": "PATTERN", "value": "/item/", "exclude": "gift-card" },
+            "current_pattern": "/item/",
+            "current_exclude": "voucher",
+        }));
+        let plain = view(json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": "/item/",
+        }));
+
+        assert_eq!(
+            excluding["decision"],
+            json!({ "type": "PATTERN", "value": "/item/", "exclude": "gift-card" })
+        );
+        assert_eq!(excluding["current_exclude"], "voucher");
+        assert_eq!(
+            plain["decision"],
+            json!({ "type": "PATTERN", "value": "/item/" })
+        );
+        assert!(plain.get("current_exclude").is_none(), "{plain}");
+    }
+
     #[test]
     fn should_show_a_url_pattern_review_with_its_labels_latest_events_and_first_sample_page() {
         let candidate = json!({
@@ -745,6 +912,15 @@ mod tests {
             view["sample_urls"].as_array().map(Vec::len),
             Some(MAX_SAMPLE_URLS)
         );
+        assert_eq!(
+            view["sample_urls"][0],
+            json!({
+                "url": "https://antiques.example/item/0",
+                "candidate_pattern_match": true,
+                "candidate_class": "product",
+            }),
+            "the matches unknown before the ListingSource has a pattern are left out"
+        );
         assert_eq!(view["sample_urls_total"], 200);
         assert_eq!(view["events"][0]["candidate_version"], 10);
         assert_eq!(view["events_total"], 50);
@@ -756,6 +932,30 @@ mod tests {
             ])
         );
         assert_eq!(view["matrix"], Value::Null);
+    }
+
+    #[test]
+    fn should_pass_the_shops_product_urls_through_with_their_scrape_outcome() {
+        let candidate = json!({ "schemas": [] });
+        let mut detail = url_pattern_detail(&candidate, 0, 0);
+        detail.source_product_urls = decoded(json!([
+            { "url": "https://antiques.example/item/1", "last_scraped": "2026-11-01T10:00:00Z", "last_error_kind": null },
+            { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "MissingRequiredValue" },
+        ]));
+
+        let view = ReviewView::of(
+            detail,
+            wire::Candidate::ProductSchema(decoded(candidate)),
+            0,
+        );
+
+        assert_eq!(
+            json!(view)["source_product_urls"],
+            json!([
+                { "url": "https://antiques.example/item/1", "last_scraped": "2026-11-01T10:00:00Z", "last_error_kind": null },
+                { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "MissingRequiredValue" },
+            ])
+        );
     }
 
     fn url_pattern_detail(candidate: &Value, urls: usize, events: usize) -> wire::ReviewDetail {
@@ -870,7 +1070,7 @@ mod tests {
 
     #[test]
     fn should_answer_a_long_projection_in_marked_windows() {
-        let projection = format!("page_dsl:\n{}", "  - tag: p\n".repeat(5_000));
+        let projection = format!("main\n{}", " p | text\n".repeat(4_000));
         let page = |offset| {
             PageProjectionView::of(
                 wire::PageProjection {
@@ -892,7 +1092,7 @@ mod tests {
 
         assert!(first.projection_truncated);
         assert_eq!(first.projection_chars, total);
-        assert!(first.projection.starts_with("page_dsl:"));
+        assert!(first.projection.starts_with("main\n"));
         assert!(
             first.projection.ends_with(&format!(
                 "more characters; call inspect_page with offset {MAX_PROJECTION_CHARS} to read on]\n"

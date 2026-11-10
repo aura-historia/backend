@@ -5,8 +5,9 @@
 //! page content never reach it. Records older than the longest window anything reads are pruned
 //! at the start of a run.
 
+use super::context_use::ContextUse;
 use super::envelope::{ProcessLimit, TokenUsage, UsageLimitKind};
-use super::reports::AgentReport;
+use super::reports::{AgentReport, TrailVerdict};
 use crate::CrawlerReviewId;
 use crate::review_mcp::AgentRole;
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,10 @@ pub struct ProcessRecord {
     pub finished: OffsetDateTime,
     pub review_id: CrawlerReviewId,
     pub role: ProcessRole,
+    /// What the review asked for, such as `URL_PATTERN`, so the digest sums the tokens per role
+    /// and review type; `None` in a record written before the runner recorded it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_type: Option<String>,
     /// The prompt and report schema version, such as `author.v2`.
     pub prompt_version: String,
     pub end: ProcessEnd,
@@ -90,8 +95,21 @@ pub struct ProcessRecord {
     /// before it reported a cost, not what the CLI reported.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cost_charged: bool,
+    /// What filled the process's context, as far as its output shows.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub context: ContextUse,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<AgentReport>,
+    /// What the event trail recorded of a reviewer process, which the runner reads after it; what
+    /// happened to the verdict, where the report only claims the server's answer. `None` for an
+    /// author process, for a reviewer process whose trail the runner could not read, and for a
+    /// record written before the runner read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trail_verdict: Option<TrailVerdict>,
+}
+
+fn is_default(context: &ContextUse) -> bool {
+    *context == ContextUse::default()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -321,6 +339,7 @@ pub(super) mod tests {
         ProcessRecord {
             finished,
             review_id: CrawlerReviewId::new(),
+            artifact_type: None,
             role: ProcessRole::Author,
             prompt_version: "author.v1".to_owned(),
             end: ProcessEnd::Reported,
@@ -336,7 +355,9 @@ pub(super) mod tests {
             usage: TokenUsage::default(),
             total_cost_usd: cost,
             cost_charged: false,
+            context: ContextUse::default(),
             report: None,
+            trail_verdict: None,
         }
     }
 

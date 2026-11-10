@@ -3,3 +3,5 @@ src/crawler/migrations/*.sql text eol=lf
 # The API compiles these documents in and serves them byte for byte, digests included, and
 # reads the skills' front matter by LF line breaks; keep them identical on every platform.
 src/agent-discovery/documents/** text eol=lf
+# The MCP tool snapshot test compares the file byte for byte with the rendered tools/list.
+docs/mcp-tools.json text eol=lf

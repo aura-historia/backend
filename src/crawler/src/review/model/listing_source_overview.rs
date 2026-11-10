@@ -8,7 +8,6 @@ pub struct ListingSourceOverview {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
     pub crawl_enabled: bool,
-    pub llm_calls_count: i64,
     /// Where the source's crawl starts, derived from its presentation URL; `None` while the scope
     /// gives it no crawl root (`docs/crawler/README.md#listingsource-scope`).
     pub crawl_root_url: Option<String>,
@@ -49,6 +48,8 @@ pub struct ListingSourceOverview {
     pub mass_removal_confirmed_by: Option<ReviewActor>,
     /// The last error kind of the product URLs that carry one, with the number of URLs per kind,
     /// the most frequent first.
+    /// Only on the ListingSource's own page; the list leaves it out.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_error_kinds: Vec<UrlErrorKindCount>,
     /// Product pages whose last scrape recorded `MissingRequiredValue`, listed by
     /// `GET /api/listing-sources/{id}/missing-value-pages`.
@@ -83,6 +84,9 @@ pub struct CrawlStateOverview {
     /// The source's consecutive scrape failures of one kind, as its scraper circuit records them;
     /// 0 once a fetch of it succeeds again.
     pub scrape_failure_streak: i32,
+    /// The status code the scrape circuit last recorded with its failure kind, such as the 403 an
+    /// HTTP-status burst answered; `None` for a failure without a status.
+    pub last_scrape_status_code: Option<i32>,
     /// The kind of those failures, such as `TIMEOUT` or `HTTP_503`; `None` without a streak.
     pub last_scrape_error_kind: Option<String>,
     /// When the current same-kind scrape failure streak began; `None` while
@@ -107,7 +111,6 @@ mod tests {
                 .expect("v7 uuid is a valid listing source id"),
             listing_source_name: None,
             crawl_enabled: true,
-            llm_calls_count: 0,
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,
             last_successful_scrape: last_successful,
@@ -130,6 +133,7 @@ mod tests {
                 crawl_failure_count: 5,
                 next_crawl_at: None,
                 scrape_failure_streak: 3,
+                last_scrape_status_code: Some(503),
                 last_scrape_error_kind: Some("HTTP_503".to_owned()),
                 scrape_failing_since: None,
                 scrape_paused_until: None,
@@ -190,6 +194,7 @@ mod tests {
 
         assert_eq!(json["scrape_failure_streak"], 3);
         assert_eq!(json["last_scrape_error_kind"], "HTTP_503");
+        assert_eq!(json["last_scrape_status_code"], 503);
     }
 
     #[test]

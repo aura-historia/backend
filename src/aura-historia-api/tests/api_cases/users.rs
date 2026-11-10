@@ -114,6 +114,26 @@ async fn should_return_user_when_admin_reads_user() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_not_return_the_stripe_customer_id_in_the_own_account_rest_response() {
+    let user_id = seed_user("USER").await;
+    let token =
+        seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
+    set_user_stripe_customer_id(user_id, &format!("cus_own_account_{user_id}")).await;
+
+    let response = reqwest::Client::new()
+        .get(format!("{}/v1/me/account", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get own account API: {error}"));
+    let (status, body) = json_response(response).await;
+
+    assert_eq!(reqwest::StatusCode::OK, status);
+    assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
+    assert!(body.get("stripeCustomerId").is_none(), "{body}");
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_return_not_found_when_admin_reads_missing_user() {
     let admin_id = seed_user("ADMIN").await;
     let token = seed_access_token_for(

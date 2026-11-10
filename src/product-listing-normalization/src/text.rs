@@ -258,6 +258,18 @@ mod tests {
     // title language in the context of description and fallback language
     // -----------------------------------------------------------------------
 
+    #[rstest]
+    #[case("조선 시대 백자 달항아리, 높이 40cm", Language::Ko)]
+    #[case("清代青花瓷瓶，高三十厘米，保存完好", Language::Zh)]
+    #[case("清代青花瓷瓶，高三十公分，保存完好", Language::Zh)]
+    #[case("Αντίκα ξύλινο μπαούλο με μπρούντζινες λαβές", Language::El)]
+    fn should_resolve_title_in_source_only_script_language_instead_of_rejecting_it(
+        #[case] title: &str,
+        #[case] expected: Language,
+    ) {
+        assert_eq!(localize(title, None, None), expected);
+    }
+
     fn localize(
         title: &str,
         description: Option<&str>,
@@ -497,6 +509,22 @@ mod tests {
             "expected DescriptionUnknownLanguage, got: {:?}",
             err
         );
+    }
+
+    #[rstest]
+    #[case(
+        "조선 시대 백자 달항아리입니다. 상태가 매우 좋고 상자가 함께 제공됩니다.",
+        Language::Ko
+    )]
+    #[case("清代青花瓷瓶，高三十公分，保存狀況良好，附原裝木盒。", Language::Zh)]
+    fn should_resolve_description_in_source_only_script_language_instead_of_rejecting_it(
+        #[case] text: &str,
+        #[case] expected: Language,
+    ) {
+        let result = normalize_description(vec![text.into()], None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.localization, expected);
     }
 
     #[test]

@@ -36,6 +36,7 @@ use crate::scraper::scraper_service::service::{
     DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE, ScraperServiceImpl,
 };
 use crate::scraper::scraper_service::{ScrapeMode, ScrapeRequest, ScraperService};
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_metadata::{CrawlerDisposition, CrawlerUrlWriteOutcome};
 use std::future::Future;
 use std::sync::Arc;
@@ -74,7 +75,7 @@ pub(super) fn primary_only_request_with_pattern(
     product_url_pattern: &str,
 ) -> ScrapeRequest {
     ScrapeRequest {
-        product_url_pattern: Some(product_url_pattern.to_owned()),
+        product_url_pattern: ProductUrlPattern::parse(product_url_pattern).ok(),
         ..primary_only_request(listing_source_id, url)
     }
 }

@@ -44,6 +44,12 @@ pub(crate) struct SelectedSchemaCandidate {
     pub(crate) validated_image_urls: Vec<String>,
     pub(crate) schema: ProductCssSelectorSchema,
     pub(crate) fresh_schema: bool,
+    /// The index of `schema` in the ListingSource's ordered schema set; `None` for a fresh
+    /// schema, which takes the next index.
+    pub(crate) cached_schema_index: Option<usize>,
+    /// The ranking score of the cached extraction; `None` for a fresh schema and for a
+    /// title-less extraction, which is not ranked.
+    pub(crate) score: Option<usize>,
     /// The title the URL was last captured with, captured in place of the blank title of
     /// `raw` (see [`CheckedCachedCandidates::untitled`]). `None` captures the extracted title.
     pub(crate) carried_forward_title: Option<String>,
@@ -344,6 +350,8 @@ impl ScraperServiceImpl {
                     validated_image_urls: untitled.validated_image_urls,
                     schema: untitled.schema.clone(),
                     fresh_schema: false,
+                    cached_schema_index: Some(untitled.schema_index),
+                    score: None,
                     carried_forward_title: Some(title.to_owned()),
                 }));
             }
@@ -377,6 +385,8 @@ impl ScraperServiceImpl {
             validated_image_urls: selected.validated_image_urls,
             schema: selected.schema.clone(),
             fresh_schema: false,
+            cached_schema_index: Some(selected.schema_index),
+            score: Some(selected.score.as_usize()),
             carried_forward_title: None,
         }))
     }
@@ -389,9 +399,7 @@ mod tests {
         CssSelector, ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
     use crate::scraper::scraper_service::util::hash::hash_page;
-    use std::collections::BTreeMap;
-    use std::sync::{Arc, Mutex, PoisonError};
-    use tracing_subscriber::layer::{Context, SubscriberExt};
+    use crate::test_support::logged_events::{LoggedEvent, LoggedEvents};
 
     const PAGE: &str = r#"<html><body><main>
         <h1>Walnut Dumb Waiter</h1>
@@ -452,49 +460,14 @@ mod tests {
         }
     }
 
-    type LoggedEvent = (tracing::Level, BTreeMap<String, String>);
-
-    /// The level and fields of each event logged while it is the default subscriber.
-    #[derive(Clone, Default)]
-    struct LoggedEvents(Arc<Mutex<Vec<LoggedEvent>>>);
-
-    impl LoggedEvents {
-        fn taken(&self) -> Vec<LoggedEvent> {
-            std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
-        }
-    }
-
-    struct EventFields(BTreeMap<String, String>);
-
-    impl tracing::field::Visit for EventFields {
-        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-
-        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-    }
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
-        fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-            let mut fields = EventFields(BTreeMap::new());
-            event.record(&mut fields);
-            self.0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push((*event.metadata().level(), fields.0));
-        }
-    }
-
     fn optional_misses_logged(events: &[LoggedEvent]) -> Vec<(tracing::Level, &str)> {
         events
             .iter()
-            .filter(|(_, fields)| {
-                fields.get("message").map(String::as_str)
+            .filter(|logged| {
+                logged.field("message")
                     == Some("Optional schema rule yielded no value; leaving the field empty")
             })
-            .map(|(level, fields)| (*level, fields["field"].as_str()))
+            .filter_map(|logged| Some((logged.level, logged.field("field")?)))
             .collect()
     }
 
@@ -512,23 +485,20 @@ mod tests {
 
     #[test]
     fn should_log_the_optional_field_misses_only_when_selection_uses_the_extraction() {
-        let logged = LoggedEvents::default();
-        let subscriber = tracing_subscriber::registry().with(logged.clone());
-
-        tracing::subscriber::with_default(subscriber, || {
-            tracing::callsite::rebuild_interest_cache();
+        let (logged, _guard) = LoggedEvents::capture();
+        {
             let extracted = ExtractedSchemaSet::parse_and_extract(
                 schema_set(vec![failing_schema(), applying_schema()]),
                 PAGE,
             );
             extracted.page_hash();
-            let logged_before_selection = logged.taken();
+            let logged_before_selection = logged.take();
 
             let candidates = extracted.applied_candidates();
 
             assert!(logged_before_selection.is_empty());
             assert_eq!(
-                optional_misses_logged(&logged.taken()),
+                optional_misses_logged(&logged.take()),
                 vec![(tracing::Level::DEBUG, "description")],
                 "selection logs the description miss once, at debug"
             );
@@ -539,17 +509,14 @@ mod tests {
                     .collect::<Vec<_>>(),
                 vec![1]
             );
-        });
+        }
     }
 
     /// Selector drift that breaks a required rule shows the optional rules it broke too.
     #[test]
     fn should_log_a_required_failure_with_its_selector_and_the_optional_misses() {
-        let logged = LoggedEvents::default();
-        let subscriber = tracing_subscriber::registry().with(logged.clone());
-
-        tracing::subscriber::with_default(subscriber, || {
-            tracing::callsite::rebuild_interest_cache();
+        let (logged, _guard) = LoggedEvents::capture();
+        {
             let extracted = ExtractedSchemaSet::parse_and_extract(
                 schema_set(vec![failing_state_schema()]),
                 PAGE,
@@ -557,31 +524,32 @@ mod tests {
 
             assert!(extracted.applied_candidates().is_empty());
 
-            let events = logged.taken();
+            let events = logged.take();
             assert!(
                 optional_misses_logged(&events).is_empty(),
                 "a failed schema logs its misses with its failure only"
             );
             let failures = events
                 .iter()
-                .filter(|(_, fields)| {
-                    fields.get("message").map(String::as_str)
-                        == Some("Cached schema failed to apply")
-                })
+                .filter(|logged| logged.field("message") == Some("Cached schema failed to apply"))
                 .collect::<Vec<_>>();
-            let [(level, fields)] = failures.as_slice() else {
+            let [failure] = failures.as_slice() else {
                 panic!("expected one apply failure, logged {failures:?}");
             };
-            assert_eq!(*level, tracing::Level::DEBUG);
-            assert_eq!(fields["candidate_apply_field"], "state");
+            assert_eq!(failure.level, tracing::Level::DEBUG);
+            assert_eq!(failure.field("candidate_apply_field"), Some("state"));
             assert!(
-                fields["candidate_apply_error"].contains("`#missing-state`"),
-                "{fields:?}"
+                failure
+                    .field("candidate_apply_error")
+                    .is_some_and(|error| error.contains("`#missing-state`")),
+                "{failure:?}"
             );
             assert_eq!(
-                fields["candidate_optional_misses"],
-                "description: no element matched selector `#description` (or any additional selectors)"
+                failure.field("candidate_optional_misses"),
+                Some(
+                    "description: no element matched selector `#description` (or any additional selectors)"
+                )
             );
-        });
+        }
     }
 }

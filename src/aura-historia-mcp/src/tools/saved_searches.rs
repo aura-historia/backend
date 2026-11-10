@@ -34,6 +34,7 @@ struct EmptyArguments {}
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FilterArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
 }
@@ -46,6 +47,7 @@ struct CreateArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdateArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
     #[serde(flatten)]
@@ -54,10 +56,12 @@ struct UpdateArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MatchesArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
     #[serde(flatten)]
     query: SearchFilterMatchesQuery,
+    /// Continuation from the previous page: its `searchAfter` array of [RFC 3339 match time, listing ID], passed back exactly as returned.
     #[serde(default)]
     #[schemars(schema_with = "match_cursor_schema")]
     search_after: Option<Value>,
@@ -65,8 +69,10 @@ struct MatchesArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FeedbackArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
+    /// ID of the listing (`pl_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(flatten)]
@@ -580,7 +586,7 @@ mod tests {
             ));
             assert_eq!(expected, command.feedback);
         }
-        assert!(matches!(registry.get("updateSearchFilterMatchFeedback").unwrap().call(json!({"userSearchFilterId":fixture.filter,"productListingId":ProductListingId::new(),"feedback":true}),fixture.context(CredentialCapability::SearchFiltersWrite)).await,Err(OperationError::NotFound)));
+        assert!(matches!(registry.get("updateSearchFilterMatchFeedback").unwrap().call(json!({"userSearchFilterId":fixture.filter,"productListingId":ProductListingId::new(),"feedback":true}),fixture.context(CredentialCapability::SearchFiltersWrite)).await,Err(OperationError::NotFound(_))));
     }
     #[tokio::test]
     async fn should_reject_another_users_saved_search_and_caller_selected_owner() {
@@ -625,7 +631,7 @@ mod tests {
                     .unwrap()
                     .call(input.clone(), context.clone())
                     .await,
-                Err(OperationError::NotFound)
+                Err(OperationError::NotFound(_))
             ));
             input["userId"] = json!(UserId::new());
             assert!(matches!(
@@ -709,11 +715,11 @@ mod tests {
         assert!(error.source().unwrap().source().is_some());
         assert!(matches!(
             error::update(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict),
-            OperationError::Conflict(None)
+            OperationError::Conflict { .. }
         ));
         assert!(matches!(
             error::create(CreateSearchFilterError::SearchFilterAlreadyExists),
-            OperationError::Conflict(None)
+            OperationError::Conflict { .. }
         ));
         assert!(matches!(
             error::update(
@@ -788,7 +794,7 @@ mod tests {
             operation.call(input, other)
         );
         assert!(own.is_ok());
-        assert!(matches!(other, Err(OperationError::NotFound)));
+        assert!(matches!(other, Err(OperationError::NotFound(_))));
     }
 
     mod fixtures {

@@ -6,8 +6,10 @@ use crate::review::model::{
     RemovedPageTemplateMatch, RemovedPageTemplateOutcome, SchemaPageEvaluation,
     SchemaPageReference, SelectorFieldEvaluation,
 };
+use crate::review::page_content_checks::{StateReading, candidate_has_sold_state};
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
+use product_listing_core::listing_availability::ListingAvailability;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -64,12 +66,20 @@ pub struct SchemaPageView {
     pub findings: Vec<FindingView>,
 }
 
-/// What a schema extracted from a page; long values are shortened.
+/// What a schema extracted from a page; long values are shortened. `state_availability` is the
+/// availability the ProductListing normalization resolves the whole `state` to, as its catalogue
+/// code such as `SOLD_OUT`, `null` when `state` is no whole availability label (a sentence, a
+/// cart button): at runtime only this becomes the listing's availability. `state_mentions` is the
+/// sold, out of stock or unavailable code that a window of one to four words of an unresolved
+/// `state` names, such as a sentence announcing the sale. The approval guard's sold-page check
+/// accepts either.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ExtractedView {
     pub source_listing_id: String,
     pub title: String,
     pub state: String,
+    pub state_availability: Option<String>,
+    pub state_mentions: Option<String>,
     pub price: Option<String>,
     pub price_estimate_min: Option<String>,
     pub price_estimate_max: Option<String>,
@@ -133,6 +143,12 @@ pub struct FindingView {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[schemars(default)]
     pub values: Vec<String>,
+    /// Price text in a `state` that an agent's approval accepts, because the same rule resolves
+    /// to sold or unavailable on another review page (a status slot that shows the amount while
+    /// the item is for sale). The finding stays true; it just does not block.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub exempt_as_status_slot: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -177,13 +193,16 @@ impl MatrixView {
             schemas: matrix
                 .candidates
                 .into_iter()
-                .map(|candidate| SchemaResultView {
-                    schema_index: candidate.schema_index,
-                    pages: candidate
-                        .pages
-                        .into_iter()
-                        .map(SchemaPageView::of)
-                        .collect(),
+                .map(|candidate| {
+                    let status_slot = candidate_has_sold_state(&candidate.pages);
+                    SchemaResultView {
+                        schema_index: candidate.schema_index,
+                        pages: candidate
+                            .pages
+                            .into_iter()
+                            .map(|page| SchemaPageView::of(page, status_slot))
+                            .collect(),
+                    }
                 })
                 .collect(),
             removed_page_matches: matrix
@@ -213,8 +232,8 @@ impl PageRefView {
 }
 
 impl SchemaPageView {
-    fn of(page: SchemaPageEvaluation) -> Self {
-        let findings = page_findings(&page);
+    fn of(page: SchemaPageEvaluation, status_slot: bool) -> Self {
+        let findings = page_findings(&page, status_slot);
         Self {
             page: PageRefView::of(page.page_reference, page.url, page.role),
             applies: page.apply_ok,
@@ -226,7 +245,7 @@ impl SchemaPageView {
     }
 }
 
-fn page_findings(page: &SchemaPageEvaluation) -> Vec<FindingView> {
+fn page_findings(page: &SchemaPageEvaluation, status_slot: bool) -> Vec<FindingView> {
     let per_page = page
         .plausibility_findings
         .as_slice()
@@ -237,6 +256,7 @@ fn page_findings(page: &SchemaPageEvaluation) -> Vec<FindingView> {
             check: code_of(&finding.check),
             message: finding.to_string(),
             values: Vec::new(),
+            exempt_as_status_slot: status_slot && finding.is_price_text_on_state(),
         });
     let cross_page = page
         .cross_page_findings
@@ -248,6 +268,7 @@ fn page_findings(page: &SchemaPageEvaluation) -> Vec<FindingView> {
             check: code_of(&finding.check),
             message: finding.to_string(),
             values: finding.values.iter().map(|text| value(text)).collect(),
+            exempt_as_status_slot: false,
         });
     let identity = page
         .identity_agreement_findings
@@ -259,6 +280,7 @@ fn page_findings(page: &SchemaPageEvaluation) -> Vec<FindingView> {
             check: code_of(&finding.check),
             message: finding.to_string(),
             values: finding.values.iter().map(|text| value(text)).collect(),
+            exempt_as_status_slot: false,
         });
     per_page.chain(cross_page).chain(identity).collect()
 }
@@ -273,10 +295,14 @@ fn code_of(check: &impl Serialize) -> String {
 
 impl ExtractedView {
     fn of(extracted: RawExtractedProduct) -> Self {
+        let reading = StateReading::of(&extracted.state);
+        let code = |availability: ListingAvailability| availability.as_str().to_owned();
         Self {
             source_listing_id: value(&extracted.source_listing_id),
             title: value(&extracted.title),
             state: value(&extracted.state),
+            state_availability: reading.resolved.map(code),
+            state_mentions: reading.mentioned.map(code),
             price: extracted.price.as_deref().map(value),
             price_estimate_min: extracted.price_estimate_min.as_deref().map(value),
             price_estimate_max: extracted.price_estimate_max.as_deref().map(value),
@@ -413,6 +439,7 @@ mod tests {
         assert_eq!(page["applies"], false);
         assert_eq!(page["extracted"]["description_excerpt"], "Oak chair");
         assert_eq!(page["extracted"]["images"], 2);
+        assert_eq!(page["extracted"]["state_availability"], "IN_STOCK");
         assert_eq!(
             page["extracted"]["raw_attributes"],
             json!({ "rawMaterial": "oak | brass" })
@@ -443,6 +470,72 @@ mod tests {
         assert_eq!(
             view["removed_page_matches"][1]["product_titles_taken_for_notices"],
             json!(["Oak chair"])
+        );
+    }
+
+    #[test]
+    fn should_show_what_each_extracted_state_resolves_to() {
+        let extracted = |state: &str| -> RawExtractedProduct {
+            decoded(json!({
+                "source_listing_id": "A1", "title": "Chair", "description": [], "price": null,
+                "price_estimate_min": null, "price_estimate_max": null, "state": state,
+                "images": [], "raw_attributes": {},
+            }))
+        };
+
+        let resolved = json!(ExtractedView::of(extracted("Sold")));
+        let sentence = json!(ExtractedView::of(extracted(
+            "This item has been sold, though you can still email the seller"
+        )));
+
+        assert_eq!(resolved["state_availability"], "SOLD_OUT");
+        assert_eq!(resolved["state_mentions"], Value::Null);
+        assert_eq!(sentence["state_availability"], Value::Null);
+        assert_eq!(sentence["state_mentions"], "SOLD_OUT");
+    }
+
+    #[test]
+    fn should_mark_price_text_in_a_status_slot_as_exempt() {
+        let page = |url: &str, state: &str| {
+            json!({
+                "page_reference": { "kind": "persisted", "review_page_id": CrawlerReviewPageId::new().to_string() },
+                "url": url, "role": "PRIMARY", "apply_ok": true,
+                "extracted": {
+                    "source_listing_id": "A1", "title": "Chair", "description": [], "price": null,
+                    "price_estimate_min": null, "price_estimate_max": null, "state": state,
+                    "images": [], "raw_attributes": {},
+                },
+                "error": null,
+                "plausibility_findings": [{ "field": "state", "check": "PRICE_TEXT" }],
+                "cross_page_findings": [], "identity_agreement_findings": [], "fields": [],
+            })
+        };
+        let matrix = |states: [&str; 2]| -> wire::ReviewMatrix {
+            decoded(json!({
+                "review_id": null,
+                "candidates": [{ "schema_index": 0, "pages": [
+                    page("https://shop.example/a", states[0]),
+                    page("https://shop.example/b", states[1]),
+                ]}],
+                "removed_page_matches": [],
+                "not_evaluated_pages": [],
+            }))
+        };
+
+        let slot = json!(MatrixView::of(matrix(["£ 3,800 plus VAT", "Sold"])));
+        let none = json!(MatrixView::of(matrix(["£ 3,800 plus VAT", "POA"])));
+
+        assert_eq!(
+            slot["schemas"][0]["pages"][0]["findings"][0]["check"],
+            "PRICE_TEXT"
+        );
+        assert_eq!(
+            slot["schemas"][0]["pages"][0]["findings"][0]["exempt_as_status_slot"],
+            true
+        );
+        assert_eq!(
+            none["schemas"][0]["pages"][0]["findings"][0].get("exempt_as_status_slot"),
+            None
         );
     }
 }

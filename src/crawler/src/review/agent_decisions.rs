@@ -20,14 +20,21 @@ pub const AGENT_MAX_DECISIONS_PER_HOUR_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_DEC
 pub const AGENT_MATRIX_MAX_AGE_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES";
 pub const AGENT_MIN_LABELLED_URLS_ENV: &str = "CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS";
 pub const AGENT_MAX_REPAIR_ROUNDS_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS";
+pub const AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV: &str =
+    "CRAWLER_REVIEW_AGENT_REPAIR_ROUND_WINDOW_DAYS";
+pub const AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV: &str = "CRAWLER_REVIEW_AGENT_NO_PATTERN_MAX_AGE_DAYS";
 
 /// The console's read-only route that answers its [`AgentLimits`].
 pub const AGENT_LIMITS_ROUTE: &str = "/api/review-agent-limits";
 
-const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(20).unwrap();
+/// About what four agent processes decide in an hour, so the cap stops a runaway rather than
+/// throttling the runner's default capacity.
+const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(300).unwrap();
 const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
 const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
+const DEFAULT_REPAIR_ROUND_WINDOW_DAYS: NonZeroU32 = NonZeroU32::new(7).unwrap();
+const DEFAULT_NO_PATTERN_MAX_AGE_DAYS: NonZeroU32 = NonZeroU32::new(30).unwrap();
 
 /// The limits of the review agents' own decisions, approvals and rejections alike: the
 /// `CRAWLER_REVIEW_AGENT_*` settings, as the console answers them at [`AGENT_LIMITS_ROUTE`]. A
@@ -44,9 +51,17 @@ pub struct AgentLimits {
     /// labelled `NOT_PRODUCT`.
     pub min_labelled_urls: NonZeroU32,
     /// How many needs-repair verdicts the agents give a pending review, counted since a human last
-    /// changed or judged it, before it waits for a human and the agents may change or decide
-    /// nothing on it.
+    /// changed or judged it and within `repair_round_window_days`, before it waits for a human and
+    /// the agents may change or decide nothing on it.
     pub max_repair_rounds: NonZeroU32,
+    /// How many days an agent's needs-repair verdict or hand-over to a human counts: a review no
+    /// human answered within that time returns to the agents for a fresh attempt, so the reviews
+    /// waiting for a human do not pile up with ListingSources nobody looks at.
+    pub repair_round_window_days: NonZeroU32,
+    /// How many days an agent-approved `NO_PATTERN` holds before the next crawl opens a new
+    /// URL-pattern review, so a wrong decision does not remove a shop from product crawling for
+    /// good. A human's `NO_PATTERN` holds until a human changes it.
+    pub no_pattern_max_age_days: NonZeroU32,
 }
 
 impl Default for AgentLimits {
@@ -56,6 +71,8 @@ impl Default for AgentLimits {
             matrix_max_age_minutes: DEFAULT_MATRIX_MAX_AGE_MINUTES,
             min_labelled_urls: DEFAULT_MIN_LABELLED_URLS,
             max_repair_rounds: DEFAULT_MAX_REPAIR_ROUNDS,
+            repair_round_window_days: DEFAULT_REPAIR_ROUND_WINDOW_DAYS,
+            no_pattern_max_age_days: DEFAULT_NO_PATTERN_MAX_AGE_DAYS,
         }
     }
 }
@@ -78,6 +95,14 @@ impl AgentLimits {
             )?,
             min_labelled_urls: read(AGENT_MIN_LABELLED_URLS_ENV, defaults.min_labelled_urls)?,
             max_repair_rounds: read(AGENT_MAX_REPAIR_ROUNDS_ENV, defaults.max_repair_rounds)?,
+            repair_round_window_days: read(
+                AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV,
+                defaults.repair_round_window_days,
+            )?,
+            no_pattern_max_age_days: read(
+                AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV,
+                defaults.no_pattern_max_age_days,
+            )?,
         })
     }
 
@@ -85,6 +110,25 @@ impl AgentLimits {
     /// been fetched.
     pub fn max_matrix_age(&self) -> Duration {
         Duration::from_secs(u64::from(self.matrix_max_age_minutes.get()) * 60)
+    }
+}
+
+/// What the review agents did on a review since a human last changed or judged it, from its event
+/// trail.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentRounds {
+    /// The agents' needs-repair verdicts: the rounds of their back-and-forth on the review.
+    pub needs_repair: u32,
+    /// Whether an agent handed the review to a human at once, which needs no further round.
+    pub handed_to_human: bool,
+}
+
+impl AgentRounds {
+    pub const fn needs_repair(rounds: u32) -> Self {
+        Self {
+            needs_repair: rounds,
+            handed_to_human: false,
+        }
     }
 }
 
@@ -116,14 +160,32 @@ impl AgentDecisionPolicy {
             .then_some(self.limits.max_repair_rounds)
     }
 
-    /// Whether a review in `status` that the agents gave `agent_rounds` needs-repair verdicts
-    /// since a human last changed or judged it waits for a human: it is pending and their
-    /// back-and-forth on it reached the [repair-round cap](Self::repair_rounds_cap).
-    pub fn waits_for_human(&self, status: &str, agent_rounds: u32) -> bool {
+    /// How many days back the agents' needs-repair verdicts and hand-overs count toward a review
+    /// waiting for a human, where the review agents work the reviews; `None` elsewhere. A query
+    /// that counts the rounds binds this value.
+    pub fn repair_round_window_days(&self) -> Option<i32> {
+        self.authoring
+            .has_review_agents()
+            .then(|| i32::try_from(self.limits.repair_round_window_days.get()).unwrap_or(i32::MAX))
+    }
+
+    /// How many days an agent-approved `NO_PATTERN` holds before the next crawl opens a new
+    /// URL-pattern review, where the review agents work the reviews; `None` elsewhere, where it
+    /// holds until changed.
+    pub fn no_pattern_max_age_days(&self) -> Option<i32> {
+        self.authoring
+            .has_review_agents()
+            .then(|| i32::try_from(self.limits.no_pattern_max_age_days.get()).unwrap_or(i32::MAX))
+    }
+
+    /// Whether a review in `status` that the agents worked as `rounds` says since a human last
+    /// changed or judged it waits for a human: it is pending and either their back-and-forth on it
+    /// reached the [repair-round cap](Self::repair_rounds_cap) or an agent handed it over.
+    pub fn waits_for_human(&self, status: &str, rounds: AgentRounds) -> bool {
         status == STATUS_PENDING_REVIEW
             && self
                 .repair_rounds_cap()
-                .is_some_and(|cap| agent_rounds >= cap.get())
+                .is_some_and(|cap| rounds.handed_to_human || rounds.needs_repair >= cap.get())
     }
 }
 
@@ -131,11 +193,13 @@ impl AgentDecisionPolicy {
 mod tests {
     use super::*;
 
-    const SETTINGS: [&str; 4] = [
+    const SETTINGS: [&str; 6] = [
         AGENT_MAX_DECISIONS_PER_HOUR_ENV,
         AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
         AGENT_MIN_LABELLED_URLS_ENV,
         AGENT_MAX_REPAIR_ROUNDS_ENV,
+        AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV,
+        AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV,
     ];
 
     // Tests that touch the process environment are serialized, so no test reads the
@@ -160,7 +224,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn should_take_twenty_decisions_per_hour_and_the_other_defaults_when_nothing_is_set() {
+    fn should_take_sixty_decisions_per_hour_and_the_other_defaults_when_nothing_is_set() {
         for env in [
             &[][..],
             &[
@@ -173,10 +237,12 @@ mod tests {
             let limits = limits_from(env).unwrap_or_else(|error| panic!("{env:?}: {error}"));
 
             assert_eq!(limits, AgentLimits::default(), "{env:?}");
-            assert_eq!(limits.max_decisions_per_hour.get(), 20);
+            assert_eq!(limits.max_decisions_per_hour.get(), 300);
             assert_eq!(limits.max_matrix_age(), Duration::from_secs(30 * 60));
             assert_eq!(limits.min_labelled_urls.get(), 3);
             assert_eq!(limits.max_repair_rounds.get(), 3);
+            assert_eq!(limits.repair_round_window_days.get(), 7);
+            assert_eq!(limits.no_pattern_max_age_days.get(), 30);
         }
     }
 
@@ -188,6 +254,8 @@ mod tests {
             (AGENT_MATRIX_MAX_AGE_MINUTES_ENV, "10"),
             (AGENT_MIN_LABELLED_URLS_ENV, " 4 "),
             (AGENT_MAX_REPAIR_ROUNDS_ENV, "2"),
+            (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, "14"),
+            (AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV, "60"),
         ])
         .unwrap_or_else(|error| panic!("agent decision limits: {error}"));
 
@@ -198,6 +266,8 @@ mod tests {
                 matrix_max_age_minutes: NonZeroU32::new(10).unwrap(),
                 min_labelled_urls: NonZeroU32::new(4).unwrap(),
                 max_repair_rounds: NonZeroU32::new(2).unwrap(),
+                repair_round_window_days: NonZeroU32::new(14).unwrap(),
+                no_pattern_max_age_days: NonZeroU32::new(60).unwrap(),
             }
         );
     }
@@ -257,10 +327,12 @@ mod tests {
         assert_eq!(
             answered,
             serde_json::json!({
-                "max_decisions_per_hour": 20,
+                "max_decisions_per_hour": 300,
                 "matrix_max_age_minutes": 30,
                 "min_labelled_urls": 3,
                 "max_repair_rounds": 3,
+                "repair_round_window_days": 7,
+                "no_pattern_max_age_days": 30,
             })
         );
         assert_eq!(
@@ -282,19 +354,63 @@ mod tests {
         )
     }
 
+    /// The round window and the `NO_PATTERN` age bind only where the review agents work the
+    /// reviews: elsewhere a human decides every review and nothing expires.
+    #[test]
+    fn should_bind_the_round_window_and_no_pattern_age_only_in_agent_mode() {
+        let agent = AgentDecisionPolicy::new(CrawlerAuthoringMode::Agent, AgentLimits::default());
+        let manual = AgentDecisionPolicy::new(CrawlerAuthoringMode::Manual, AgentLimits::default());
+
+        assert_eq!(
+            (
+                agent.repair_round_window_days(),
+                agent.no_pattern_max_age_days()
+            ),
+            (Some(7), Some(30))
+        );
+        assert_eq!(
+            (
+                manual.repair_round_window_days(),
+                manual.no_pattern_max_age_days()
+            ),
+            (None, None)
+        );
+    }
+
     /// The verdict that reaches the cap is still taken; from then on the pending review waits for a
     /// human, and a decided review waits for nobody.
     #[test]
     fn should_hand_a_review_to_a_human_once_the_agents_reached_the_cap() {
         let policy = capped_at_three(CrawlerAuthoringMode::Agent);
 
-        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 0));
-        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, 2));
-        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, 3));
-        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, 4));
+        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(0)));
+        assert!(!policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(2)));
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(3)));
+        assert!(policy.waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(4)));
         for decided in ["APPROVED", "REJECTED", "SUPERSEDED"] {
-            assert!(!policy.waits_for_human(decided, 3), "{decided}");
+            assert!(
+                !policy.waits_for_human(decided, AgentRounds::needs_repair(3)),
+                "{decided}"
+            );
         }
+    }
+
+    /// An agent's hand-off needs no round, but only where review agents work the reviews and
+    /// only on a pending review.
+    #[test]
+    fn should_hand_a_review_to_a_human_when_an_agent_handed_it_over_before_the_cap() {
+        let handed = AgentRounds {
+            needs_repair: 1,
+            handed_to_human: true,
+        };
+        let agent = capped_at_three(CrawlerAuthoringMode::Agent);
+
+        assert!(agent.waits_for_human(STATUS_PENDING_REVIEW, handed));
+        assert!(!agent.waits_for_human("APPROVED", handed));
+        assert!(
+            !capped_at_three(CrawlerAuthoringMode::Review)
+                .waits_for_human(STATUS_PENDING_REVIEW, handed)
+        );
     }
 
     /// Outside `agent` mode a human decides every review, so none waits for a human, not even one
@@ -307,11 +423,15 @@ mod tests {
             CrawlerAuthoringMode::Manual,
         ] {
             assert!(
-                !capped_at_three(authoring).waits_for_human(STATUS_PENDING_REVIEW, 3),
+                !capped_at_three(authoring)
+                    .waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(3)),
                 "{authoring:?}"
             );
         }
-        assert!(!AgentDecisionPolicy::default().waits_for_human(STATUS_PENDING_REVIEW, 3));
+        assert!(
+            !AgentDecisionPolicy::default()
+                .waits_for_human(STATUS_PENDING_REVIEW, AgentRounds::needs_repair(3))
+        );
         assert_eq!(AgentDecisionPolicy::default().repair_rounds_cap(), None);
         assert_eq!(
             capped_at_three(CrawlerAuthoringMode::Agent).repair_rounds_cap(),

@@ -59,7 +59,7 @@ impl SqsDeadLetterCustody {
             .ok()
             .filter(|url| !url.trim().is_empty())
             .ok_or_else(|| Error::from(format!("missing required {DEAD_LETTER_QUEUE_URL_ENV}")))?;
-        let config = aws_config::defaults(aws_config::BehaviorVersion::v2026_01_12())
+        let config = aws_config::defaults(aws_config::BehaviorVersion::v2026_11_10())
             .load()
             .await;
         Ok(Self::new(Client::new(&config), queue_url))
@@ -113,7 +113,7 @@ mod tests {
     fn should_keep_body_group_and_original_message_id_when_building_the_custody_request() {
         let client = Client::from_conf(
             aws_sdk_sqs::Config::builder()
-                .behavior_version(aws_sdk_sqs::config::BehaviorVersion::v2026_01_12())
+                .behavior_version(aws_sdk_sqs::config::BehaviorVersion::v2026_11_10())
                 .region(aws_sdk_sqs::config::Region::new("eu-central-1"))
                 .build(),
         );

@@ -389,7 +389,10 @@ unknown eligibility/currency/basis unless separately stated. Dispatch durations 
 never transit/arrival; duration alone cannot identify a service/destination and produces no
 write. Whole-component replacements never merge into shared profile services. Clause matching
 normalizes layout/case/punctuation/digit forms without translation; unsupported delivery or
-conditional clauses veto recognized assertions even across languages.
+conditional clauses veto recognized assertions even across languages. A question or condition in
+description prose without delivery wording still vetoes an assertion found elsewhere; alone it is
+no assertion, not a normalization diagnostic. In dedicated shipping fields every clause is
+delivery context.
 
 Only non-native sources receive crawler SOURCE overrides. Application retains the catalog
 transaction's optimistic version, raw-revision request identity and original acquisition time;

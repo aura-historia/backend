@@ -2,6 +2,8 @@ use oauth_core::resource::AuraResourcePolicy;
 
 /// The MCP host serves its Server Card here; the MCP crate owns that route.
 const MCP_SERVER_CARD_PATH: &str = "/.well-known/mcp/server-card.json";
+/// The webapp serves the website's logo here.
+const SITE_LOGO_PATH: &str = "/icon1080x1080.png";
 
 /// The origins that one environment advertises to agents. It comes from the `oauth-core`
 /// resource policy that `OAUTH_ISSUER_URL` selects, so no document can mix production and
@@ -26,6 +28,11 @@ impl DiscoveryEnvironment {
     /// The website's host name, such as `aura-historia.com`.
     pub const fn site_domain(self) -> &'static str {
         self.policy.site_domain()
+    }
+
+    /// The website's logo, which the webapp serves.
+    pub fn site_logo_url(self) -> String {
+        format!("{}{SITE_LOGO_PATH}", self.site_origin())
     }
 
     /// The REST API origin; its versioned API lives below `/v1`.

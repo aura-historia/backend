@@ -13,7 +13,8 @@ fn address_geography_schema(generator: &mut SchemaGenerator) -> Schema {
         "type": "object",
         "required": ["addressText"],
         "properties": {"addressText": {
-            "type": "string", "minLength": 1, "maxLength": geo::AddressText::MAX_BYTES
+            "type": "string", "minLength": 1, "maxLength": geo::AddressText::MAX_BYTES,
+            "description": "Free-text address; required for address-book entries."
         }}
     }]})
 }
@@ -21,22 +22,28 @@ fn address_geography_schema(generator: &mut SchemaGenerator) -> Schema {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateData {
+    /// Name of the address in the address book.
     pub label: String,
+    /// Where the address is: the reference release, the address text (required) and optionally country, subdivision and postal code.
     #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateData {
+    /// Current version from the last read; a stale version returns CONFLICT.
     #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
+    /// New name of the address, replacing the current one.
     pub label: String,
+    /// New location of the address, replacing the current one entirely.
     #[schemars(schema_with = "address_geography_schema")]
     pub geography: GeographyData,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExpectedData {
+    /// Current version from the last read; a stale version returns CONFLICT.
     #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
 }
@@ -71,9 +78,11 @@ impl From<UserAddressView> for AddressData {
 #[derive(Deserialize, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PageQuery {
+    /// Continuation from the previous page: its `next` address ID, passed back exactly as returned.
     #[serde(default)]
     #[schemars(schema_with = "crate::wire::schema::optional_user_address_id")]
     pub after: Option<UserAddressId>,
+    /// Number of addresses per page, from 1 to 100 (default 25).
     #[serde(default)]
     #[schemars(range(min = 1, max = 100))]
     pub limit: Option<u32>,

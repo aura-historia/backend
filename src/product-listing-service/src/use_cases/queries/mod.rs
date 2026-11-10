@@ -7,6 +7,7 @@ pub mod get_product_listing_delivery;
 pub mod get_product_listing_history;
 pub mod get_public_catalogue_overview;
 pub mod get_similar_product_listings;
+pub mod product_listing_search_presentation;
 pub(crate) mod product_listing_summary_personalization;
 pub mod search_product_listings;
 

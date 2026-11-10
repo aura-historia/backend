@@ -242,9 +242,9 @@ Receipts survive listing/source deletion and have no TTL. They deduplicate succe
 
 ## Content assessment and image visibility
 
-Images are URL-only source facts. Listing-level assessment is asynchronous enrichment; missing or stale assessment means unassessed, not an invented policy value.
+Images are URL-only source facts. Listing-level assessment is asynchronous enrichment; missing or stale assessment means unassessed, not an invented policy value. It is a multilingual keyword heuristic over the source title and description, in [`content_policy`](../src/product-listing-core/src/content_policy/mod.rs); when several sensitive categories match, the first declared one is the decision. Keywords are per language and coverage is uneven: text in a language without keywords for a category is not flagged for it, so adding a catalogue language does not extend the heuristic to it.
 
-Without the stored `show_unassessed_or_sensitive_content` preference, image URLs are visible only under a current `ALLOWED` assessment. Opted-in users may see allowed, sensitive (`REQUIRES_CONSENT(NAZI_GERMANY)`) and unassessed images. Redaction preserves image order/cardinality and omits hidden URLs, leaving an empty image object.
+Without the stored `show_unassessed_or_sensitive_content` preference, image URLs are visible only under a current `ALLOWED` assessment. Opted-in users may see allowed, sensitive (`REQUIRES_CONSENT` with a category such as `NAZI_GERMANY` or `NUDITY`) and unassessed images. Redaction preserves image order/cardinality and omits hidden URLs, leaving an empty image object.
 
 The authorized [management inspection](#management-inspection-and-mutation) view exposes canonical URLs separately from these public/user presentation rules.
 

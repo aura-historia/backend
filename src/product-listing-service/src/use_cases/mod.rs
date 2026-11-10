@@ -113,6 +113,9 @@ pub use queries::get_similar_product_listings::{
     GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
     GetSimilarProductListingsUseCase,
 };
+pub use queries::product_listing_search_presentation::{
+    ProductListingSearchPresentation, ProductListingSearchPresenter,
+};
 pub use queries::search_product_listings::{
     PersonalizedProductListingSummary, ProductListingSearchCursor, ProductListingSearchItem,
     ProductListingSearchReadExecutionPolicy, ProductListingSearchReadResult, ProductListingSummary,

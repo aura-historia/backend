@@ -6,7 +6,8 @@ use crate::scraper::scraper_service::domain::errors::{
     HttpErrorMetadata, RemovalEvidence, RemovalEvidenceKind, ScraperError,
 };
 use crate::scraper::scraper_service::domain::product::{
-    FetchFailureSource, ScrapeRequest, record_transport_failure, record_transport_success,
+    FetchFailureSource, ScrapeRequest, record_product_page_fetch, record_transport_failure,
+    record_transport_success,
 };
 use crate::scraper::scraper_service::html_fetcher::{FetchError, FetchedHtml};
 use crate::scraper::scraper_service::pipeline::scrape_product::{
@@ -25,7 +26,7 @@ fn disallowed_redirect_removal(request: &ScrapeRequest, final_url: &Url) -> Opti
         return None;
     }
     let (kind, reason) =
-        match RedirectTarget::of(url, final_url, request.product_url_pattern.as_deref()) {
+        match RedirectTarget::of(url, final_url, request.product_url_pattern.as_ref()) {
             RedirectTarget::Homepage => (RemovalEvidenceKind::RedirectToHomepage, "the homepage"),
             RedirectTarget::OutsideProductPattern => (
                 RemovalEvidenceKind::RedirectToDisallowedPage,
@@ -43,6 +44,22 @@ fn disallowed_redirect_removal(request: &ScrapeRequest, final_url: &Url) -> Opti
     ))
 }
 
+/// The status the shop answered a product-page fetch with, when it answered with one.
+fn answered_status(result: &Result<FetchedHtml, FetchError>) -> Option<u16> {
+    match result {
+        Ok(fetched) => Some(fetched.status.as_u16()),
+        Err(FetchError::Network {
+            kind: NetworkErrorKind::HttpStatus(status),
+            ..
+        }) => Some(*status),
+        Err(FetchError::NetworkWithMetadata { kind, status, .. }) => status.or(match kind {
+            NetworkErrorKind::HttpStatus(status) => Some(*status),
+            _ => None,
+        }),
+        Err(_) => None,
+    }
+}
+
 impl ScraperServiceImpl {
     /// Fetches the page `request` names on `domain` and records the transport observation. A
     /// 404 or 410, or a redirect on the shop's own host to the homepage or to a page outside the
@@ -58,7 +75,10 @@ impl ScraperServiceImpl {
         let expected_last_captured_raw_input_sha256 =
             request.expected_last_captured_raw_input_sha256.as_deref();
         debug!(domain, "Fetching product page HTML");
-        match self.html_fetcher.fetch(url).await {
+        let fetch_started_at = std::time::Instant::now();
+        let fetch_result = self.html_fetcher.fetch(url).await;
+        record_product_page_fetch(answered_status(&fetch_result), fetch_started_at.elapsed());
+        match fetch_result {
             Ok(fetched) => {
                 record_transport_success();
                 Ok(fetched)

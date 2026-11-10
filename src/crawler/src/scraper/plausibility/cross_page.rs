@@ -1,7 +1,10 @@
 //! Cross-page plausibility checks: one candidate's extractions of the review pages compared
-//! with each other. Each review page shows a different product, so a `title`, an identity
-//! or an image that two pages share names the shop, the category or a default share image
-//! rather than the product. Runtime extraction sees one page at a time and cannot run them.
+//! with each other. Each review page shows a different product, so an identity or an image
+//! that two pages share names the shop, the category or a default share image rather than
+//! the product. A shared `title` is a finding only when the pages that share it also share
+//! an identity or an image, or when every page shares it; otherwise it is the name two
+//! different products have in common. Runtime extraction sees one page at a time and cannot
+//! run them.
 
 use super::PlausibilityField;
 use crate::scraper::css_selector::product_schema::RawExtractedProduct;
@@ -100,19 +103,30 @@ impl CrossPageFindings {
     /// per-page checks; an `images` rule without a capturable image on any page is
     /// reported on every page.
     pub fn of(pages: &[PageExtraction<'_>]) -> Vec<Self> {
-        let identities = repeated_values(pages, |page| {
+        let identity_keys = keyed_values(pages, |page| {
             non_blank(page.raw.source_listing_id.trim())
                 .map(|identity| (identity.to_owned(), identity.to_owned()))
                 .into_iter()
                 .collect()
         });
-        let titles = repeated_values(pages, |page| {
+        let title_keys = keyed_values(pages, |page| {
             non_blank(page.raw.title.trim())
                 .map(|title| (collapse_whitespace(title), title.to_owned()))
                 .into_iter()
                 .collect()
         });
-        let images = repeated_values(pages, image_identities);
+        let image_keys = keyed_values(pages, image_identities);
+        let identity_groups = pages_per_key(&identity_keys);
+        let image_groups = pages_per_key(&image_keys);
+        let title_groups = pages_per_key(&title_keys);
+
+        let identities = repeated_values(&identity_keys, &identity_groups, |_| true);
+        let images = repeated_values(&image_keys, &image_groups, |_| true);
+        let titles = repeated_values(&title_keys, &title_groups, |sharing| {
+            sharing.len() == pages.len()
+                || shares_a_key(sharing, &identity_groups)
+                || shares_a_key(sharing, &image_groups)
+        });
         let no_image_on_any_page = !pages.iter().any(|page| page.has_capturable_image);
 
         identities
@@ -144,26 +158,49 @@ impl CrossPageFindings {
     }
 }
 
-/// For each page, its values whose comparison key also occurs on another page. `keyed`
-/// yields a page's `(key, value)` pairs.
-fn repeated_values(
+/// Each page's `(key, value)` pairs, as `keyed` yields them.
+fn keyed_values(
     pages: &[PageExtraction<'_>],
     keyed: impl Fn(&PageExtraction<'_>) -> Vec<(String, String)>,
-) -> Vec<Vec<String>> {
-    let keyed_pages: Vec<Vec<(String, String)>> = pages.iter().map(keyed).collect();
-    let mut pages_per_key: HashMap<&str, usize> = HashMap::new();
-    for page in &keyed_pages {
+) -> Vec<Vec<(String, String)>> {
+    pages.iter().map(keyed).collect()
+}
+
+/// The indexes of the pages that show each comparison key, in page order.
+fn pages_per_key(keyed_pages: &[Vec<(String, String)>]) -> HashMap<&str, Vec<usize>> {
+    let mut pages_per_key: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (index, page) in keyed_pages.iter().enumerate() {
         let keys: HashSet<&str> = page.iter().map(|(key, _)| key.as_str()).collect();
         for key in keys {
-            *pages_per_key.entry(key).or_default() += 1;
+            pages_per_key.entry(key).or_default().push(index);
         }
     }
+    pages_per_key
+}
+
+/// Whether at least two of the pages in `sharing` show one key of `groups`.
+fn shares_a_key(sharing: &[usize], groups: &HashMap<&str, Vec<usize>>) -> bool {
+    groups
+        .values()
+        .any(|group| group.iter().filter(|index| sharing.contains(index)).count() > 1)
+}
+
+/// For each page, its values whose key another page shows too and whose sharing pages
+/// `is_repeat` accepts.
+fn repeated_values(
+    keyed_pages: &[Vec<(String, String)>],
+    groups: &HashMap<&str, Vec<usize>>,
+    is_repeat: impl Fn(&[usize]) -> bool,
+) -> Vec<Vec<String>> {
     keyed_pages
         .iter()
         .map(|page| {
             let mut reported = HashSet::new();
             page.iter()
-                .filter(|(key, _)| pages_per_key[key.as_str()] > 1 && reported.insert(key))
+                .filter(|(key, _)| {
+                    let sharing = &groups[key.as_str()];
+                    sharing.len() > 1 && is_repeat(sharing) && reported.insert(key)
+                })
                 .map(|(_, value)| value.clone())
                 .collect()
         })
@@ -386,6 +423,109 @@ mod tests {
                         repeated(Title, &["Sold items  -\nNavarro"]),
                     ],
                     vec![repeated(SourceListingId, &["top"])],
+                ]
+            );
+        }
+
+        /// Wharton Antiques names two different fireplaces alike.
+        #[test]
+        fn should_leave_a_title_alone_when_two_of_many_distinct_products_share_it() {
+            let findings = findings_of(&[
+                (
+                    "https://shop.example/20628",
+                    product("20628", "Antique French Stone Fireplace", &["/a.jpg"]),
+                ),
+                (
+                    "https://shop.example/24811",
+                    product("24811", "Antique French Stone Fireplace", &["/b.jpg"]),
+                ),
+                ("https://shop.example/1", product("1", "Chair", &["/c.jpg"])),
+                ("https://shop.example/2", product("2", "Table", &["/d.jpg"])),
+                (
+                    "https://shop.example/3",
+                    product("3", "Mirror", &["/e.jpg"]),
+                ),
+                ("https://shop.example/4", product("4", "Clock", &["/f.jpg"])),
+            ]);
+
+            assert!(findings.iter().all(Vec::is_empty), "{findings:?}");
+        }
+
+        #[test]
+        fn should_report_a_title_that_every_page_shares_though_identities_and_images_differ() {
+            let findings = findings_of(&[
+                (
+                    "https://shop.example/a",
+                    product("a", "Antiques - Shop", &["/a.jpg"]),
+                ),
+                (
+                    "https://shop.example/b",
+                    product("b", "Antiques - Shop", &["/b.jpg"]),
+                ),
+            ]);
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![repeated(Title, &["Antiques - Shop"])],
+                    vec![repeated(Title, &["Antiques - Shop"])],
+                ]
+            );
+        }
+
+        #[test]
+        fn should_report_a_title_that_pages_of_one_identity_share_among_other_products() {
+            let findings = findings_of(&[
+                ("https://shop.example/a", product("same", "Fireplace", &[])),
+                ("https://shop.example/b", product("same", "Fireplace", &[])),
+                ("https://shop.example/c", product("c", "Chair", &[])),
+            ]);
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![
+                        repeated(SourceListingId, &["same"]),
+                        repeated(Title, &["Fireplace"]),
+                    ],
+                    vec![
+                        repeated(SourceListingId, &["same"]),
+                        repeated(Title, &["Fireplace"]),
+                    ],
+                    vec![],
+                ]
+            );
+        }
+
+        #[test]
+        fn should_report_a_title_that_pages_sharing_an_image_share_among_other_products() {
+            let findings = findings_of(&[
+                (
+                    "https://shop.example/a",
+                    product("a", "Fireplace", &["/share.jpg"]),
+                ),
+                (
+                    "https://shop.example/b",
+                    product("b", "Fireplace", &["/share.jpg"]),
+                ),
+                (
+                    "https://shop.example/c",
+                    product("c", "Chair", &["/chair.jpg"]),
+                ),
+            ]);
+
+            assert_eq!(
+                findings,
+                vec![
+                    vec![
+                        repeated(Title, &["Fireplace"]),
+                        repeated(Images, &["/share.jpg"]),
+                    ],
+                    vec![
+                        repeated(Title, &["Fireplace"]),
+                        repeated(Images, &["/share.jpg"]),
+                    ],
+                    vec![],
                 ]
             );
         }

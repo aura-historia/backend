@@ -3,11 +3,14 @@
 //! candidate takes as product pages. The contract is in `docs/crawler/extraction-and-review.md`
 //! (review rail).
 
+use super::reviewer_page_url::ReviewPageIdentity;
+use crate::review::approval_guard::SampleUrl;
 use crate::review::model::UrlPatternReviewCandidate;
+use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::utils::url::CrawledUrl;
 use crate::{CrawlerReviewId, CrawlerReviewUrlId};
-use regex::Regex;
+use url::Url;
 
 /// The most URLs a URL-pattern review's sample holds: the crawl's first URLs when the review
 /// opened, and then the URLs the crawl stored while the review waits, see [`refresh_sample`].
@@ -27,7 +30,7 @@ impl CandidateClassification {
     pub(super) fn of(
         url_classifier: UrlClassifier,
         raw_url: &str,
-        candidate_pattern: Option<&Regex>,
+        candidate_pattern: Option<&ProductUrlPattern>,
     ) -> Self {
         Self {
             pattern_match: candidate_pattern.map(|pattern| pattern_takes(pattern, raw_url)),
@@ -38,6 +41,49 @@ impl CandidateClassification {
     }
 }
 
+/// Records what inspecting the page of `url` found, whether it describes exactly one schema.org
+/// `Product`, on the sample row of the review that holds the page under any spelling the crawler
+/// stores it under. A URL outside the sample, and any review without a sample, record nothing.
+/// The approval guard compares the share of such pages with what the pattern takes.
+pub(super) async fn record_sample_page_markup(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    url: &Url,
+    describes_one_product: bool,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE crawler_review_urls SET describes_one_product = $3 \
+         WHERE review_id = $1 AND url = ANY($2)",
+    )
+    .bind(review_id.as_uuid())
+    .bind(ReviewPageIdentity::spellings(url))
+    .bind(describes_one_product)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+/// The URLs of the review's sample with what their inspection found, as the approval guard reads
+/// them.
+pub(super) async fn fetch_sample_urls<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    review_id: CrawlerReviewId,
+) -> Result<Vec<SampleUrl>, sqlx::Error> {
+    Ok(sqlx::query_as::<_, (String, Option<bool>)>(
+        "SELECT url, describes_one_product FROM crawler_review_urls \
+         WHERE review_id = $1 ORDER BY created, url",
+    )
+    .bind(review_id.as_uuid())
+    .fetch_all(executor)
+    .await?
+    .into_iter()
+    .map(|(url, describes_one_product)| SampleUrl {
+        url,
+        describes_one_product,
+    })
+    .collect())
+}
+
 /// Classifies the stored sample of the review `review_id` again under the edited candidate's
 /// `candidate_pattern` and records how many of its URLs that pattern takes as the validation
 /// summary's `candidate_product_count`, in the transaction that stores the candidate, so the URL
@@ -46,7 +92,7 @@ pub(super) async fn reclassify_sample(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
     url_classifier: UrlClassifier,
-    candidate_pattern: Option<&Regex>,
+    candidate_pattern: Option<&ProductUrlPattern>,
 ) -> Result<(), sqlx::Error> {
     let sample: Vec<(uuid::Uuid, String)> =
         sqlx::query_as("SELECT review_url_id, url FROM crawler_review_urls WHERE review_id = $1")
@@ -124,11 +170,11 @@ pub(super) async fn refresh_sample(
         return Ok(());
     };
     let (Ok(candidate_pattern), Ok(current_pattern)) = (
-        candidate.decision.candidate_regex(),
+        candidate.decision.candidate_pattern(),
         candidate
             .current_pattern
             .as_deref()
-            .map(Regex::new)
+            .map(ProductUrlPattern::parse)
             .transpose(),
     ) else {
         return Ok(());
@@ -181,8 +227,8 @@ async fn insert_refreshed_urls(
     review_id: CrawlerReviewId,
     urls: &[(String, String)],
     url_classifier: UrlClassifier,
-    current_pattern: Option<&Regex>,
-    candidate_pattern: Option<&Regex>,
+    current_pattern: Option<&ProductUrlPattern>,
+    candidate_pattern: Option<&ProductUrlPattern>,
 ) -> Result<(), sqlx::Error> {
     let mut review_url_ids = Vec::with_capacity(urls.len());
     let mut raw_urls = Vec::with_capacity(urls.len());
@@ -221,7 +267,10 @@ async fn insert_refreshed_urls(
 }
 
 /// How many of `urls` the candidate's pattern takes; none without a pattern.
-pub(super) fn candidate_product_count(urls: &[String], candidate_pattern: Option<&Regex>) -> usize {
+pub(super) fn candidate_product_count(
+    urls: &[String],
+    candidate_pattern: Option<&ProductUrlPattern>,
+) -> usize {
     candidate_pattern
         .map(|pattern| {
             urls.iter()
@@ -233,7 +282,7 @@ pub(super) fn candidate_product_count(urls: &[String], candidate_pattern: Option
 
 /// Whether `pattern` takes the stored URL `raw_url` as the spider matches it, with or without its
 /// trailing slash.
-pub(super) fn pattern_takes(pattern: &Regex, raw_url: &str) -> bool {
+pub(super) fn pattern_takes(pattern: &ProductUrlPattern, raw_url: &str) -> bool {
     CrawledUrl::try_from(raw_url).is_ok_and(|url| url.matches_pattern(pattern))
 }
 
@@ -243,6 +292,7 @@ mod tests {
     use crate::review::model::UrlPatternDecision;
     use crate::review::repository::CrawlerReviewRepository;
     use listing_source_core::ListingSourceId;
+    use regex::Regex;
     use sqlx::PgPool;
     use test_api::IntegrationTestService as _;
 

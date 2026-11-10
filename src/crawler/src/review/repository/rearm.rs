@@ -4,7 +4,7 @@
 use super::ReviewRepositoryError;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use listing_source_core::ListingSourceId;
-use tracing::info;
+use tracing::debug;
 
 /// Makes due at once, inside the transaction that makes `live_removed_page_schemas` and the
 /// ListingSource's new schemas live, every product page of the ListingSource that:
@@ -45,7 +45,7 @@ pub(super) async fn rearm_pages_for_new_configuration(
     .await?
     .rows_affected();
     if rearmed > 0 {
-        info!(
+        debug!(
             listing_source_id = %listing_source_id,
             rearmed_pages = rearmed,
             "Re-armed pages the new product schema configuration may decide differently"

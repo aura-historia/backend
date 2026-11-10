@@ -24,6 +24,20 @@ pub struct ListingSourceProductSchema {
     pub updated: OffsetDateTime,
 }
 
+/// The product schemas a stored `product_schema` JSON value holds: the list the crawler writes, or
+/// the single schema object an older version wrote. A value that is neither fails, so no reader
+/// shows or scrapes by something else than what is stored.
+pub fn decode_stored_product_schemas(
+    stored: serde_json::Value,
+) -> Result<Vec<ProductCssSelectorSchema>, serde_json::Error> {
+    match serde_json::from_value::<Vec<ProductCssSelectorSchema>>(stored.clone()) {
+        Ok(schemas) => Ok(schemas),
+        Err(_) => {
+            serde_json::from_value::<ProductCssSelectorSchema>(stored).map(|schema| vec![schema])
+        }
+    }
+}
+
 #[cfg(feature = "test-data")]
 mod faker {
     use super::*;
@@ -626,6 +640,33 @@ pub struct RawExtractedProduct {
     pub raw_attributes: BTreeMap<String, Vec<String>>,
 }
 
+impl RawExtractedProduct {
+    /// How many of the extracted fields the page filled: the identity, title, description,
+    /// price, estimate bounds, state, images and each raw attribute that holds a value.
+    pub fn present_field_count(&self) -> usize {
+        let filled = |text: &str| !text.trim().is_empty();
+        let optional = |value: &Option<String>| value.as_deref().is_some_and(filled);
+        [
+            filled(&self.source_listing_id),
+            filled(&self.title),
+            self.description.iter().any(|part| filled(part)),
+            optional(&self.price),
+            optional(&self.price_estimate_min),
+            optional(&self.price_estimate_max),
+            filled(&self.state),
+            !self.images.is_empty(),
+        ]
+        .into_iter()
+        .filter(|present| *present)
+        .count()
+            + self
+                .raw_attributes
+                .values()
+                .filter(|values| values.iter().any(|value| filled(value)))
+                .count()
+    }
+}
+
 /// What [`ProductCssSelectorSchema::extract`] captured from a page.
 #[derive(Debug)]
 pub(crate) struct SchemaExtraction {
@@ -661,6 +702,33 @@ mod tests {
     use crate::scraper::plausibility::{
         PlausibilityCheck, PlausibilityField, PlausibilityFinding, PlausibilityFindings,
     };
+
+    #[test]
+    fn should_decode_a_stored_schema_list_and_the_single_object_an_older_version_wrote() {
+        let schema = ProductCssSelectorSchema {
+            source_listing_id: None,
+            title: text_rule("h1"),
+            description: None,
+            price: None,
+            price_estimate_min: None,
+            price_estimate_max: None,
+            state: text_rule("span.state"),
+            images: text_rule_all("img"),
+            raw_attributes: BTreeMap::new(),
+        };
+        let single = serde_json::to_value(&schema).unwrap_or_else(|error| panic!("{error}"));
+        let list = serde_json::to_value(vec![&schema]).unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(
+            super::decode_stored_product_schemas(list).ok(),
+            Some(vec![schema.clone()])
+        );
+        assert_eq!(
+            super::decode_stored_product_schemas(single).ok(),
+            Some(vec![schema])
+        );
+        assert!(super::decode_stored_product_schemas(serde_json::json!("title")).is_err());
+    }
 
     // -------------------------------------------------------------------------
     // Helpers
@@ -1691,53 +1759,6 @@ mod tests {
         );
     }
 
-    type LoggedEvent = (tracing::Level, BTreeMap<String, String>);
-
-    /// The level and fields of each event logged while it is the default subscriber.
-    #[derive(Clone, Default)]
-    struct LoggedEvents(std::sync::Arc<std::sync::Mutex<Vec<LoggedEvent>>>);
-
-    impl LoggedEvents {
-        fn record(&self, run: impl FnOnce()) -> Vec<LoggedEvent> {
-            use tracing_subscriber::layer::SubscriberExt;
-            tracing::subscriber::with_default(
-                tracing_subscriber::registry().with(self.clone()),
-                || {
-                    tracing::callsite::rebuild_interest_cache();
-                    run();
-                },
-            );
-            self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
-        }
-    }
-
-    struct EventFields(BTreeMap<String, String>);
-
-    impl tracing::field::Visit for EventFields {
-        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-
-        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-    }
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LoggedEvents {
-        fn on_event(
-            &self,
-            event: &tracing::Event<'_>,
-            _: tracing_subscriber::layer::Context<'_, S>,
-        ) {
-            let mut fields = EventFields(BTreeMap::new());
-            event.record(&mut fields);
-            self.0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push((*event.metadata().level(), fields.0));
-        }
-    }
-
     /// A sold page leaves its price out, and many listings their description: neither miss is
     /// a warning.
     #[test]
@@ -1749,15 +1770,15 @@ mod tests {
             ..required_only_schema()
         };
 
-        let events = LoggedEvents::default().record(|| {
-            schema
-                .extract(&html)
-                .unwrap_or_else(|err| panic!("optional misses must not fail the page: {err}"));
-        });
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        schema
+            .extract(&html)
+            .unwrap_or_else(|err| panic!("optional misses must not fail the page: {err}"));
 
         let misses = events
+            .all()
             .iter()
-            .map(|(level, fields)| (*level, fields.get("field").cloned()))
+            .map(|logged| (logged.level, logged.field("field").map(str::to_owned)))
             .collect::<Vec<_>>();
         assert_eq!(
             misses,
@@ -1766,6 +1787,27 @@ mod tests {
                 (tracing::Level::DEBUG, Some("price".to_owned())),
             ]
         );
+    }
+
+    #[test]
+    fn should_count_only_the_extracted_fields_the_page_filled() {
+        let product = RawExtractedProduct {
+            source_listing_id: "SKU-1".to_owned(),
+            title: "Chair".to_owned(),
+            description: vec![String::new(), "  ".to_owned()],
+            price: Some("100 EUR".to_owned()),
+            price_estimate_min: Some(String::new()),
+            price_estimate_max: None,
+            state: "In Stock".to_owned(),
+            images: vec!["/chair.jpg".to_owned()],
+            raw_attributes: BTreeMap::from([
+                ("material".to_owned(), vec!["oak".to_owned()]),
+                ("maker".to_owned(), vec![String::new()]),
+            ]),
+        };
+
+        // Identity, title, price, state, images and the one filled attribute.
+        assert_eq!(product.present_field_count(), 6);
     }
 
     #[test]
@@ -1779,19 +1821,17 @@ mod tests {
             ..required_only_schema()
         };
 
-        let events = LoggedEvents::default().record(|| {
-            let application = schema.extract_keeping_misses(&html);
+        let (events, _guard) = crate::test_support::logged_events::LoggedEvents::capture();
+        let application = schema.extract_keeping_misses(&html);
 
-            let err = application.outcome.unwrap_err();
-            assert_eq!(err.field(), "title");
-            assert_eq!(
-                application.optional_misses.to_string(),
-                "description: no element matched selector `p.desc` (or any additional selectors); \
-                 price: no element matched selector `span.price` (or any additional selectors)"
-            );
-        });
-
-        assert!(events.is_empty(), "the caller logs the kept misses");
+        let err = application.outcome.unwrap_err();
+        assert_eq!(err.field(), "title");
+        assert_eq!(
+            application.optional_misses.to_string(),
+            "description: no element matched selector `p.desc` (or any additional selectors); \
+             price: no element matched selector `span.price` (or any additional selectors)"
+        );
+        assert!(events.all().is_empty(), "the caller logs the kept misses");
     }
 
     // -------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-use crate::review::agent_decisions::AgentDecisionPolicy;
+use crate::review::agent_decisions::{AgentDecisionPolicy, AgentRounds};
 use crate::review::approval_guard::FailedApprovalCheck;
 use crate::review::model::*;
 use crate::review::page_coverage::ReviewPageCoverage;
@@ -15,28 +15,34 @@ use crate::scraper::css_selector::rule::ExtractionRule;
 use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPattern, ProductUrlPatternError,
+};
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
 use listing_source_core::ListingSourceId;
-use regex::Regex;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::info;
+use tracing::debug;
 use url::Url;
 
+mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
 mod missing_value_pages;
+mod no_sold_page;
+mod not_product_pages;
 mod pending_reviews;
 mod rearm;
 mod rejected_pages;
 mod repair_rounds;
 mod restore;
 mod review_events;
+mod review_log;
 mod review_source;
 mod reviewer_page_url;
 mod revocation;
@@ -50,7 +56,7 @@ pub use mass_removal_confirmation::MassRemovalConfirmation;
 pub use missing_value_pages::{
     MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
 };
-pub use pending_reviews::{PendingReviewPageSize, PendingReviewQuery};
+pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
@@ -60,10 +66,16 @@ pub use verdicts::Approval;
 use review_events::{
     ReviewMutation, commit_with_event, fetch_review_events, fetch_review_events_since,
 };
+use review_log::{ReviewLogEntry, log_committed_review};
 
 use crate::review::source_url::is_review_source_url;
-pub(crate) use repair_rounds::agent_repair_rounds;
+use no_sold_page::{MAX_CHECKED_URLS, MAX_NO_SOLD_PAGE_NOTE_CHARS, MIN_CHECKED_URLS};
+use not_product_pages::MAX_NOT_PRODUCT_REASON_CHARS;
 use repair_rounds::refuse_agent_while_human_required;
+pub(crate) use repair_rounds::{
+    after_last_human_event, agent_handed_review_to_human, agent_repair_rounds, agent_round_binds,
+    agent_rounds_of_review,
+};
 use reviewer_page_url::{ReviewPageIdentity, reviewer_page_url, without_credentials};
 use schema_payload::{
     ProductSchemaCandidateEdit, ProductSchemaReviewCandidate, holds_live_schemas,
@@ -81,7 +93,7 @@ pub enum ReviewRepositoryError {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Regex(#[from] regex::Error),
+    Pattern(#[from] ProductUrlPatternError),
     #[error("review not found: {0}")]
     NotFound(CrawlerReviewId),
     #[error("ListingSource not found: {0}")]
@@ -102,6 +114,25 @@ pub enum ReviewRepositoryError {
     AuthorMayNotDecide,
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
+    #[error(
+        "a hand-over to a human needs a note saying why the agent cannot take the review further"
+    )]
+    MissingHandoverNote,
+    #[error("only a review agent hands a review to a human; a human changes or judges it instead")]
+    OnlyAgentsHandOver,
+    #[error(
+        "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
+    )]
+    NoSoldPageUrlCount,
+    #[error(
+        "a review agent's record that no sold or unavailable page was found names only pages it inspected for this review since a human last acted on it, and no agent inspected {}; open each with inspect_page first, or leave it out",
+        .0.join(", ")
+    )]
+    NoSoldPageUrlsNotInspected(Vec<String>),
+    #[error(
+        "a record that no sold or unavailable page was found needs notes of at most {MAX_NO_SOLD_PAGE_NOTE_CHARS} characters saying how the pages were searched"
+    )]
+    InvalidNoSoldPageNote,
     #[error("review {0} has unsupported artifact type {1}")]
     UnsupportedArtifact(CrawlerReviewId, String),
     #[error("invalid schema field `{0}`")]
@@ -187,6 +218,12 @@ pub enum ReviewRepositoryError {
     ReviewPageLimitReached(CrawlerReviewId),
     #[error("URL redirected to `{0}`, which is not a product page")]
     RedirectedToNonProductPage(String),
+    #[error(
+        "the reason a review page is no product page needs 1 to {MAX_NOT_PRODUCT_REASON_CHARS} characters saying what the page shows"
+    )]
+    InvalidNotProductReason,
+    #[error("review page {0} is not marked as no product page")]
+    ReviewPageNotMarkedNotProduct(CrawlerReviewPageId),
     #[error("review page not found: {0}")]
     ReviewPageNotFound(CrawlerReviewPageId),
     #[error("review page {0} is a seed or triggering page of the review and cannot be removed")]
@@ -226,11 +263,15 @@ pub enum ReviewRepositoryError {
         failed_checks: Vec<FailedApprovalCheck>,
     },
     #[error(
-        "review {review_id} waits for a human: the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}; leave it until a human changes or judges it"
+        "review {review_id} waits for a human: {}; leave it until a human changes or judges it",
+        human_required_cause(*agent_rounds, *handed_to_human, *max_repair_rounds)
     )]
     HumanRequired {
         review_id: CrawlerReviewId,
         agent_rounds: u32,
+        /// Whether a review agent handed the review to a human, which it waits for whatever its
+        /// rounds.
+        handed_to_human: bool,
         max_repair_rounds: u32,
     },
     #[error("only a human restores what an approval replaced")]
@@ -266,6 +307,22 @@ pub enum ReviewRepositoryError {
     },
 }
 
+/// Why a review waits for a human, as [`ReviewRepositoryError::HumanRequired`] says it: an agent's
+/// hand-over, or the agents' needs-repair verdicts that reached the cap.
+fn human_required_cause(
+    agent_rounds: u32,
+    handed_to_human: bool,
+    max_repair_rounds: u32,
+) -> String {
+    if handed_to_human {
+        "a review agent handed it to a human since a human last changed or judged it".to_owned()
+    } else {
+        format!(
+            "the review agents gave it {agent_rounds} needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is {max_repair_rounds}"
+        )
+    }
+}
+
 /// Upper bound on the pages a reviewer adds to one review. A live schema-matrix refresh refetches
 /// every page, seed pages included, one by one from the same throttled shop within the review
 /// API's 30-second request deadline, so reviewer pages may only add a few fetches.
@@ -290,6 +347,22 @@ pub struct CrawlerReviewRepository {
     /// How a URL-pattern review's sample and, once a decision goes live, the source's stored URLs
     /// are classified: as the spider classifies them in the configured authoring mode.
     url_classifier: UrlClassifier,
+}
+
+/// How a schema review insert placed its pages: in a review it opened, or in the ListingSource's
+/// pending product-schema review that already existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReviewPlacement {
+    Opened(CrawlerReviewId),
+    Joined(CrawlerReviewId),
+}
+
+impl ReviewPlacement {
+    pub const fn review_id(self) -> CrawlerReviewId {
+        match self {
+            Self::Opened(review_id) | Self::Joined(review_id) => review_id,
+        }
+    }
 }
 
 pub struct SchemaReviewWithStatusInput<'a> {
@@ -410,6 +483,38 @@ impl CrawlerReviewRepository {
         .await
     }
 
+    /// Whether the ListingSource's live URL-pattern decision, which the caller read as
+    /// `NO_PATTERN`, comes from an agent approval older than the agents' `NO_PATTERN` age: its
+    /// latest URL-pattern approval or restore is an `AGENT_REVIEWER` approval made more than
+    /// [`AgentDecisionPolicy::no_pattern_max_age_days`] ago. A human's decision, and every
+    /// decision outside `agent` mode, never expires.
+    pub async fn agent_no_pattern_expired(
+        &self,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<bool, sqlx::Error> {
+        let Some(max_age_days) = self.agent_decisions.no_pattern_max_age_days() else {
+            return Ok(false);
+        };
+        sqlx::query_scalar::<_, bool>(
+            "SELECT COALESCE(( \
+                 SELECT e.actor = $2 AND e.action = $3 \
+                        AND e.created < NOW() - make_interval(days => $5::int) \
+                 FROM crawler_review_events e \
+                 JOIN crawler_reviews r ON r.review_id = e.review_id \
+                 WHERE r.listing_source_id = $1 AND r.artifact_type = 'URL_PATTERN' \
+                   AND e.action IN ($3, $4) \
+                 ORDER BY e.created DESC LIMIT 1 \
+             ), FALSE)",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(ReviewActor::AgentReviewer.as_str())
+        .bind(ReviewEventAction::Approved.as_str())
+        .bind(ReviewEventAction::Restored.as_str())
+        .bind(max_age_days)
+        .fetch_one(&self.pool)
+        .await
+    }
+
     pub async fn latest_pending_url_pattern_review_id(
         &self,
         listing_source_id: &ListingSourceId,
@@ -436,14 +541,15 @@ impl CrawlerReviewRepository {
         pending_reviews::fetch_pending_review_page(&self.pool, &self.agent_decisions, query).await
     }
 
-    /// The events of all reviews created at or after `since`, oldest first, at most `limit`, and
-    /// whether later events were left out.
+    /// The events of all reviews created at or after `since`, in `direction` of their time, at most
+    /// `limit`, and whether events beyond the limit, later ones when oldest first, were left out.
     pub async fn list_review_events_since(
         &self,
         since: OffsetDateTime,
         limit: usize,
+        direction: SortDirection,
     ) -> Result<(Vec<ReviewEventSummary>, bool), sqlx::Error> {
-        fetch_review_events_since(&self.pool, since, limit).await
+        fetch_review_events_since(&self.pool, since, limit, direction).await
     }
 
     /// Adds the URLs the crawl stored since the review opened to the sample of the pending
@@ -475,7 +581,8 @@ impl CrawlerReviewRepository {
             .await?
             .ok_or(ReviewRepositoryError::NotFound(review_id))?;
 
-        let agent_rounds = agent_repair_rounds(&self.pool, &[review_id]).await?;
+        let agent_rounds =
+            agent_repair_rounds(&self.pool, &self.agent_decisions, &[review_id]).await?;
         let review = row_to_review(row, &agent_rounds, &self.agent_decisions)?;
         let candidate_is_live = self.approved_candidate_is_live(&review).await?;
         let candidate_error = changeable_candidate_error(&review, candidate_is_live);
@@ -552,7 +659,7 @@ impl CrawlerReviewRepository {
         review_page_id: CrawlerReviewPageId,
     ) -> Result<Option<CrawlerReviewPage>, sqlx::Error> {
         sqlx::query(
-            "SELECT review_page_id, review_id, url, role, html_hash, fetched
+            "SELECT review_page_id, review_id, url, role, html_hash, fetched, not_product_reason
              FROM crawler_review_pages
              WHERE review_page_id = $1",
         )
@@ -569,12 +676,12 @@ impl CrawlerReviewRepository {
         reason: &str,
         decision: UrlPatternDecision,
         urls: &[String],
-        current_pattern: Option<&Regex>,
+        current_pattern: Option<&ProductUrlPattern>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        let candidate_regex = decision
-            .candidate_regex()
+        let candidate_pattern = decision
+            .candidate_pattern()
             .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-        let candidate_pattern = candidate_regex.as_ref();
+        let candidate_pattern = candidate_pattern.as_ref();
         let candidate_payload =
             serde_json::to_value(UrlPatternReviewCandidate::new(decision, current_pattern))?;
         let validation_summary = json!({
@@ -643,6 +750,9 @@ impl CrawlerReviewRepository {
             }
         }
         transaction.commit().await?;
+        if is_new {
+            log_committed_review(&self.pool, review_id, vec![ReviewLogEntry::opened(reason)]).await;
+        }
         Ok(review_id)
     }
 
@@ -664,19 +774,22 @@ impl CrawlerReviewRepository {
             notes: None,
         })
         .await
+        .map(ReviewPlacement::review_id)
     }
 
     pub async fn create_schema_review_with_status(
         &self,
         input: SchemaReviewWithStatusInput<'_>,
     ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
-        self.insert_schema_review(input).await
+        self.insert_schema_review(input)
+            .await
+            .map(ReviewPlacement::review_id)
     }
 
     async fn insert_schema_review(
         &self,
         input: SchemaReviewWithStatusInput<'_>,
-    ) -> Result<CrawlerReviewId, ReviewRepositoryError> {
+    ) -> Result<ReviewPlacement, ReviewRepositoryError> {
         let SchemaReviewWithStatusInput {
             listing_source_id,
             reason,
@@ -765,7 +878,20 @@ impl CrawlerReviewRepository {
             }
         }
         transaction.commit().await?;
-        Ok(review_id)
+        if is_new {
+            // A review created already decided is not opened: its decision is its only event.
+            let entries = if status == STATUS_PENDING_REVIEW {
+                vec![ReviewLogEntry::opened(reason)]
+            } else {
+                ReviewLogEntry::born_decided(status).into_iter().collect()
+            };
+            log_committed_review(&self.pool, review_id, entries).await;
+        }
+        Ok(if is_new {
+            ReviewPlacement::Opened(review_id)
+        } else {
+            ReviewPlacement::Joined(review_id)
+        })
     }
 
     /// Attaches a page that failed every cached schema to the ListingSource's pending
@@ -850,7 +976,7 @@ impl CrawlerReviewRepository {
         if is_redirect_to_non_product_page(
             requested_url,
             &fetched_url,
-            product_url_pattern.as_deref(),
+            product_url_pattern.as_ref(),
         ) {
             return Err(ReviewRepositoryError::RedirectedToNonProductPage(
                 fetched_url.to_string(),
@@ -860,7 +986,7 @@ impl CrawlerReviewRepository {
         // the redirect only changed the language segment or the trailing slash, and the target
         // without its language segment when the pattern takes that spelling.
         let url = reviewer_page_url(
-            &Redirect::of(requested_url, &fetched_url, product_url_pattern.as_deref()).url,
+            &Redirect::of(requested_url, &fetched_url, product_url_pattern.as_ref()).url,
         );
         if url != fetched_url {
             lock_reviewer_page_target(
@@ -875,7 +1001,7 @@ impl CrawlerReviewRepository {
         let page = sqlx::query(
             "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
              VALUES ($1, $2, $3, $4, $5) \
-             RETURNING review_page_id, review_id, url, role, html_hash, fetched",
+             RETURNING review_page_id, review_id, url, role, html_hash, fetched, not_product_reason",
         )
         .bind(CrawlerReviewPageId::new().as_uuid())
         .bind(review_id.as_uuid())
@@ -896,7 +1022,7 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
             actor = %actor,
             url = %url,
@@ -964,7 +1090,7 @@ impl CrawlerReviewRepository {
             },
         )
         .await?;
-        info!(
+        debug!(
             review_id = %review_id,
             actor = %actor,
             review_page_id = %review_page_id,
@@ -1200,7 +1326,7 @@ fn changeable_candidate_error(review: &CrawlerReview, candidate_is_live: bool) -
 fn url_pattern_candidate_edit(
     posted: serde_json::Value,
     stored: &serde_json::Value,
-) -> Result<(UrlPatternReviewCandidate, Option<Regex>), ReviewRepositoryError> {
+) -> Result<(UrlPatternReviewCandidate, Option<ProductUrlPattern>), ReviewRepositoryError> {
     let candidate = UrlPatternReviewCandidate::decode_edit(posted)
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     if candidate.decision == UrlPatternDecision::Undecided {
@@ -1208,7 +1334,7 @@ fn url_pattern_candidate_edit(
     }
     let pattern = candidate
         .decision
-        .candidate_regex()
+        .candidate_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let stored_labels = serde_json::from_value::<UrlPatternReviewCandidate>(stored.clone())
         .ok()
@@ -1270,6 +1396,27 @@ async fn lock_review_for_edit(
     agent_decisions: &AgentDecisionPolicy,
     expected_candidate_version: i64,
 ) -> Result<ReviewUnderEdit, ReviewRepositoryError> {
+    let (review, candidate_version) =
+        lock_review_for_change(transaction, review_id, actor, agent_decisions).await?;
+    if candidate_version != expected_candidate_version {
+        return Err(ReviewRepositoryError::StaleCandidateVersion {
+            review_id,
+            expected: expected_candidate_version,
+            current: candidate_version,
+        });
+    }
+    Ok(review)
+}
+
+/// Locks the review for a change by `actor` that does not rest on a candidate version, such as a
+/// record of the author's findings, and reads the review with its current candidate version. The
+/// same actors and review states are refused as for an edit of the candidate.
+async fn lock_review_for_change(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review_id: CrawlerReviewId,
+    actor: ReviewActor,
+    agent_decisions: &AgentDecisionPolicy,
+) -> Result<(ReviewUnderEdit, i64), ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT listing_source_id, artifact_type, status, candidate_payload, \
                 candidate_version, validation_summary \
@@ -1282,22 +1429,18 @@ async fn lock_review_for_edit(
     let status: String = review.try_get("status")?;
     check_actor_may_change(transaction, review_id, actor, &status, agent_decisions).await?;
     let candidate_version: i64 = review.try_get("candidate_version")?;
-    if candidate_version != expected_candidate_version {
-        return Err(ReviewRepositoryError::StaleCandidateVersion {
-            review_id,
-            expected: expected_candidate_version,
-            current: candidate_version,
-        });
-    }
-    Ok(ReviewUnderEdit {
-        listing_source_id: listing_source_id_from_uuid(
-            review.try_get::<uuid::Uuid, _>("listing_source_id")?,
-        )?,
-        artifact_type: review.try_get("artifact_type")?,
-        status,
-        candidate_payload: review.try_get("candidate_payload")?,
-        validation_summary: review.try_get("validation_summary")?,
-    })
+    Ok((
+        ReviewUnderEdit {
+            listing_source_id: listing_source_id_from_uuid(
+                review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+            )?,
+            artifact_type: review.try_get("artifact_type")?,
+            status,
+            candidate_payload: review.try_get("candidate_payload")?,
+            validation_summary: review.try_get("validation_summary")?,
+        },
+        candidate_version,
+    ))
 }
 
 /// Refuses `actor`'s change of the candidate or pages of the review `review_id` in `status`
@@ -1435,7 +1578,7 @@ async fn attach_waiting_pages(
     }
     if attached > 0 {
         drop_cached_schema_matrix(transaction, review_id).await?;
-        info!(
+        debug!(
             review_id = %review_id,
             attached_pages = attached,
             waiting_pages,
@@ -1452,9 +1595,12 @@ async fn insert_review_page(
     role: &str,
     raw_html: &str,
 ) -> Result<(), sqlx::Error> {
+    // The time of the write, not of the transaction's start, as the review's events record it: a
+    // page that joins a pending review is written under its row lock, so a page written after a
+    // verdict is stored as fetched after that verdict's event.
     sqlx::query(
-        "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash) \
-         VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO crawler_review_pages (review_page_id, review_id, url, role, html_hash, fetched) \
+         VALUES ($1, $2, $3, $4, $5, clock_timestamp())",
     )
     .bind(CrawlerReviewPageId::new().as_uuid())
     .bind(review_id.as_uuid())
@@ -1472,7 +1618,7 @@ async fn fetch_review_pages<'e>(
     review_id: CrawlerReviewId,
 ) -> Result<Vec<CrawlerReviewPage>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT review_page_id, review_id, url, role, html_hash, fetched
+        "SELECT review_page_id, review_id, url, role, html_hash, fetched, not_product_reason
          FROM crawler_review_pages
          WHERE review_id = $1
          ORDER BY
@@ -1521,7 +1667,7 @@ async fn lock_reviewer_page_target(
     actor: ReviewActor,
     agent_decisions: &AgentDecisionPolicy,
     url: &Url,
-) -> Result<Option<String>, ReviewRepositoryError> {
+) -> Result<Option<ProductUrlPattern>, ReviewRepositoryError> {
     let review = sqlx::query(
         "SELECT listing_source_id, artifact_type, status \
          FROM crawler_reviews WHERE review_id = $1 FOR UPDATE",
@@ -1573,29 +1719,35 @@ async fn lock_reviewer_page_target(
     Ok(product_url_pattern)
 }
 
-/// The approved product URL pattern of the ListingSource, `None` without one. A URL a reviewer may
-/// not add, off the ListingSource's crawl host or not an http(s) URL on the default port without
-/// credentials, is refused.
+/// The approved product URL pattern of the ListingSource, `None` without one or when it does not
+/// decode. A URL a reviewer may not add, off the ListingSource's crawl host or not an http(s) URL
+/// on the default port without credentials, is refused.
 async fn review_source_url_pattern<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     listing_source_id: uuid::Uuid,
     url: &Url,
-) -> Result<Option<String>, ReviewRepositoryError> {
-    let (crawl_host, product_url_pattern) = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        "SELECT crawl_host, \
-                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END \
+) -> Result<Option<ProductUrlPattern>, ReviewRepositoryError> {
+    let (crawl_host, include, exclude) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
+            "SELECT crawl_host, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_exclude END \
          FROM listing_sources WHERE listing_source_id = $1",
-    )
-    .bind(listing_source_id)
-    .fetch_optional(executor)
-    .await?
-    .unwrap_or_default();
+        )
+        .bind(listing_source_id)
+        .fetch_optional(executor)
+        .await?
+        .unwrap_or_default();
     if !is_review_source_url(url, crawl_host.as_deref()) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
     }
-    Ok(product_url_pattern)
+    Ok(
+        ProductUrlPattern::from_stored(include.as_deref(), exclude.as_deref())
+            .ok()
+            .flatten(),
+    )
 }
 
 fn log_approved_schema_edit(
@@ -1604,7 +1756,7 @@ fn log_approved_schema_edit(
     listing_source_id: &ListingSourceId,
     schema_count: usize,
 ) {
-    info!(
+    debug!(
         review_id = %review_id,
         actor = %actor,
         listing_source_id = %listing_source_id,
@@ -1645,12 +1797,12 @@ fn parse_product_schema_payload(
 /// [`agent_repair_rounds`]) and whether it waits for a human by `agent_decisions`.
 fn row_to_review(
     row: sqlx::postgres::PgRow,
-    agent_rounds: &HashMap<CrawlerReviewId, u32>,
+    agent_rounds: &HashMap<CrawlerReviewId, AgentRounds>,
     agent_decisions: &AgentDecisionPolicy,
 ) -> Result<CrawlerReview, sqlx::Error> {
     let review_id = crawler_review_id_from_uuid(row.try_get("review_id")?)?;
     let status: String = row.try_get("status")?;
-    let agent_rounds = agent_rounds.get(&review_id).copied().unwrap_or(0);
+    let rounds = agent_rounds.get(&review_id).copied().unwrap_or_default();
     Ok(CrawlerReview {
         review_id,
         listing_source_id: listing_source_id_from_uuid(
@@ -1660,7 +1812,7 @@ fn row_to_review(
         listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
         listing_source_crawl_host: row.try_get("listing_source_crawl_host")?,
         artifact_type: row.try_get("artifact_type")?,
-        human_required: agent_decisions.waits_for_human(&status, agent_rounds),
+        human_required: agent_decisions.waits_for_human(&status, rounds),
         status,
         reason: row.try_get("reason")?,
         candidate_payload: row.try_get("candidate_payload")?,
@@ -1668,7 +1820,7 @@ fn row_to_review(
         validation_summary: row.try_get("validation_summary")?,
         reviewer_notes: row.try_get("reviewer_notes")?,
         repair_request: row_to_repair_request(&row)?,
-        agent_rounds,
+        agent_rounds: rounds.needs_repair,
         created: row.try_get("created")?,
         updated: row.try_get("updated")?,
         reviewed: row.try_get("reviewed")?,
@@ -1698,6 +1850,7 @@ fn row_to_page(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewPage, sqlx::Er
         role: row.try_get("role")?,
         html_hash: row.try_get("html_hash")?,
         fetched: row.try_get("fetched")?,
+        not_product_reason: row.try_get("not_product_reason")?,
     })
 }
 
@@ -1715,9 +1868,9 @@ fn row_to_review_url(row: sqlx::postgres::PgRow) -> Result<CrawlerReviewUrl, sql
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid persisted {object_type} UUID `{value}`")]
-struct PersistedObjectIdError {
-    object_type: &'static str,
-    value: uuid::Uuid,
+pub(crate) struct PersistedObjectIdError {
+    pub(crate) object_type: &'static str,
+    pub(crate) value: uuid::Uuid,
     #[source]
     source: domain_primitives::object_id::ObjectIdError,
 }
@@ -1798,8 +1951,36 @@ fn append_manual_schema_edit(
 
 #[cfg(test)]
 mod tests {
-    use super::append_manual_schema_edit;
+    use super::{ReviewRepositoryError, append_manual_schema_edit};
+    use crate::CrawlerReviewId;
     use serde_json::json;
+
+    /// A review an agent handed over waits for a human whatever its rounds, so the refusal names
+    /// the hand-over rather than a count of needs-repair verdicts that did not reach the cap.
+    #[test]
+    fn should_name_the_hand_over_or_the_capped_rounds_a_review_waits_for_a_human_after() {
+        let refusal = |agent_rounds, handed_to_human| {
+            ReviewRepositoryError::HumanRequired {
+                review_id: CrawlerReviewId::new(),
+                agent_rounds,
+                handed_to_human,
+                max_repair_rounds: 3,
+            }
+            .to_string()
+        };
+
+        let handed = refusal(1, true);
+        assert!(
+            handed.contains("waits for a human: a review agent handed it to a human since a human last changed or judged it; leave it"),
+            "{handed}"
+        );
+        assert!(!handed.contains("needs-repair"), "{handed}");
+        let capped = refusal(3, false);
+        assert!(
+            capped.contains("the review agents gave it 3 needs-repair verdicts since a human last changed or judged it, and CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS is 3; leave it"),
+            "{capped}"
+        );
+    }
 
     #[test]
     fn appends_manual_schema_edit_audit_entry() {

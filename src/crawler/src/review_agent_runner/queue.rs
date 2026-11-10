@@ -6,10 +6,11 @@
 
 use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, PendingReviewPage,
-    PendingReviewSummary, RepairRequest,
+    PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
+use listing_source_core::ListingSourceId;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -49,9 +50,12 @@ impl fmt::Display for ReviewArtifact {
 pub struct QueuedReview {
     pub review_id: CrawlerReviewId,
     pub artifact_type: ReviewArtifact,
+    pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
     /// When a human last changed or judged the review, which handed it back to the agents.
     pub handed_back: Option<OffsetDateTime>,
+    /// When the review opened, from which the digest tells how long it waits.
+    pub created: OffsetDateTime,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -145,8 +149,10 @@ impl ReviewQueue {
                     Some(QueuedReview {
                         review_id: review.review_id,
                         artifact_type: ReviewArtifact::parse(&review.artifact_type)?,
+                        listing_source_id: review.listing_source_id,
                         listing_source_name: Some(review.listing_source_name),
                         handed_back: review.handed_back,
+                        created: review.created,
                     })
                 })
                 .collect(),
@@ -166,23 +172,127 @@ impl ReviewQueue {
     }
 }
 
-/// `GET /api/reviews/{id}`, of which the runner reads only the review.
+/// `GET /api/reviews/{id}`, of which the runner reads only the review, when its pages joined it
+/// and its event trail.
 #[derive(Debug, Deserialize)]
 struct ReviewDetail {
     review: CrawlerReview,
+    #[serde(default)]
+    pages: Vec<DetailPage>,
+    #[serde(default)]
+    events: Vec<DetailEvent>,
+}
+
+/// A page of the review, with the key the runner reads: `fetched`, when the page was stored on
+/// the review, which no later fetch changes.
+#[derive(Debug, Deserialize)]
+struct DetailPage {
+    #[serde(with = "time::serde::rfc3339")]
+    fetched: OffsetDateTime,
+}
+
+/// An event of a review's trail, with the keys the runner reads.
+#[derive(Debug, Deserialize)]
+struct DetailEvent {
+    actor: String,
+    action: String,
+    candidate_version: i64,
+    #[serde(with = "time::serde::rfc3339")]
+    created: OffsetDateTime,
+}
+
+async fn review_detail(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<ReviewDetail, ConsoleError> {
+    console
+        .get(&format!("/api/reviews/{review_id}"))
+        .await?
+        .decode()
 }
 
 /// Whether the console says `review_id` waits for a human now: the agents' needs-repair rounds
-/// on it reached the cap, so it refuses every agent change and verdict on it.
+/// on it reached the cap or an agent handed it over, so it refuses every agent change and verdict
+/// on it.
 pub async fn waits_for_human(
     console: &ConsoleClient,
     review_id: CrawlerReviewId,
 ) -> Result<bool, ConsoleError> {
-    let detail: ReviewDetail = console
-        .get(&format!("/api/reviews/{review_id}"))
+    Ok(review_detail(console, review_id)
+        .await?
+        .review
+        .human_required)
+}
+
+/// Whether the reviewer agent already judged the review as it is: its trail ends with a
+/// needs-repair verdict of the reviewer at the current candidate version, and no page joined the
+/// review after that verdict. The author's `NOTHING_TO_STAGE` on such a review gives the reviewer
+/// nothing new to judge. A later event, such as a review page the author added or its record that
+/// it found no sold page, and a waiting page the crawler attached without an event, none of which
+/// moves the candidate version, are something the reviewer has not judged.
+pub async fn reviewer_judged_review(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<bool, ConsoleError> {
+    let detail = review_detail(console, review_id).await?;
+    Ok(judged_by_reviewer(
+        &detail.events,
+        &detail.pages,
+        detail.review.candidate_version,
+    ))
+}
+
+fn judged_by_reviewer(
+    events: &[DetailEvent],
+    pages: &[DetailPage],
+    candidate_version: i64,
+) -> bool {
+    events.last().is_some_and(|event| {
+        event.actor == ReviewActor::AgentReviewer.as_str()
+            && event.action == ReviewEventAction::RepairRequested.as_str()
+            && event.candidate_version == candidate_version
+            && pages.iter().all(|page| page.fetched <= event.created)
+    })
+}
+
+/// The approval-guard checks an agent approval of the URL-pattern review `review_id`'s current
+/// candidate would fail now, by their codes, read with the author agent's token; `None` for a
+/// product-schema review, whose checks rest on a live matrix the reviewer refreshes.
+pub async fn approval_failures(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+) -> Result<Option<Vec<String>>, ConsoleError> {
+    #[derive(Deserialize)]
+    struct Answer {
+        failed_checks: Option<Vec<FailedCheck>>,
+    }
+    #[derive(Deserialize)]
+    struct FailedCheck {
+        check: String,
+    }
+    let answer: Answer = console
+        .get(&format!("/api/reviews/{review_id}/approval-checks"))
         .await?
         .decode()?;
-    Ok(detail.review.human_required)
+    Ok(answer
+        .failed_checks
+        .map(|checks| checks.into_iter().map(|check| check.check).collect()))
+}
+
+/// Hands `review_id` to a human at once with the author agent's token, `reasoning` as the note
+/// of the event that records it.
+pub async fn hand_to_human(
+    console: &ConsoleClient,
+    review_id: CrawlerReviewId,
+    reasoning: &str,
+) -> Result<(), ConsoleError> {
+    console
+        .post(
+            &format!("/api/reviews/{review_id}/hand-to-human"),
+            &serde_json::json!({ "notes": reasoning }),
+        )
+        .await
+        .map(|_| ())
 }
 
 /// The `max` reviews of `queue` this pass works, and how many of the others are cooling down.
@@ -192,25 +302,45 @@ pub async fn waits_for_human(
 /// verdicts never keeps the rest of the queue waiting. A review a human handed back after its
 /// last process, such as one that waited for a human at the repair cap, counts as not worked:
 /// the agents answer the human ahead of the reviews they worked since.
+///
+/// `schema_floor` product-schema reviews take slots first, in that order, as far as the queue has
+/// them: a source gets its schema review only after its pattern passed, so the younger schema
+/// reviews would otherwise never win a slot against a large URL-pattern backlog. Slots the floor
+/// leaves unused go to the other reviews in the same order, schema or pattern, so no slot idles.
 pub fn select_reviews(
     queue: Vec<QueuedReview>,
     cooldowns: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
     last_worked: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
     now: OffsetDateTime,
     max: usize,
+    schema_floor: usize,
 ) -> (Vec<QueuedReview>, usize) {
     let (cooling, mut ready): (Vec<_>, Vec<_>) = queue.into_iter().partition(|review| {
         cooldowns
             .get(&review.review_id)
             .is_some_and(|until| *until > now)
     });
-    ready.sort_by_key(|review| {
-        last_worked
-            .get(&review.review_id)
-            .copied()
-            .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
+    ready.sort_by_key(|review| last_worked_for_order(review, last_worked));
+    let mut owed = schema_floor.min(max);
+    let (mut selected, filler): (Vec<_>, Vec<_>) = ready.into_iter().partition(|review| {
+        let owed_schema = owed > 0 && review.artifact_type == ReviewArtifact::ProductSchema;
+        owed -= usize::from(owed_schema);
+        owed_schema
     });
-    (ready.into_iter().take(max).collect(), cooling.len())
+    selected.extend(filler.into_iter().take(max - selected.len()));
+    (selected, cooling.len())
+}
+
+/// When the agents last worked `review`, `None` for one they have not within the ledger's window
+/// or that a human handed back since: the key of the order [`select_reviews`] works them in.
+fn last_worked_for_order(
+    review: &QueuedReview,
+    last_worked: &BTreeMap<CrawlerReviewId, OffsetDateTime>,
+) -> Option<OffsetDateTime> {
+    last_worked
+        .get(&review.review_id)
+        .copied()
+        .filter(|worked| review.handed_back.is_none_or(|handed| handed < *worked))
 }
 
 /// The most pages of `GET /api/review-events` one digest reads.
@@ -237,6 +367,9 @@ pub struct ReviewEventEntry {
     pub action: String,
     pub candidate_version: i64,
     pub notes: Option<String>,
+    /// The URL-pattern state an approval of a URL-pattern review made live, such as `NO_PATTERN`.
+    #[serde(default)]
+    pub approved_url_pattern_state: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
 }
@@ -311,10 +444,84 @@ mod tests {
             .map(|_| QueuedReview {
                 review_id: CrawlerReviewId::new(),
                 artifact_type: ReviewArtifact::ProductSchema,
+                listing_source_id: ListingSourceId::new(),
                 listing_source_name: None,
                 handed_back: None,
+                created: OffsetDateTime::UNIX_EPOCH,
             })
             .collect()
+    }
+
+    fn trail_event(actor: ReviewActor, action: ReviewEventAction, version: i64) -> DetailEvent {
+        DetailEvent {
+            actor: actor.as_str().to_owned(),
+            action: action.as_str().to_owned(),
+            candidate_version: version,
+            created: OffsetDateTime::UNIX_EPOCH + Duration::days(10_000),
+        }
+    }
+
+    fn page_joined(seconds_after_the_verdict: i64) -> DetailPage {
+        DetailPage {
+            fetched: OffsetDateTime::UNIX_EPOCH
+                + Duration::days(10_000)
+                + Duration::seconds(seconds_after_the_verdict),
+        }
+    }
+
+    /// Only the reviewer's needs-repair verdict on the review as it is now counts as judged: a
+    /// later page or no-sold-page record of the author leaves the candidate version as it was but
+    /// gives the reviewer something new.
+    #[test]
+    fn should_count_a_review_as_judged_only_when_the_reviewer_s_verdict_ends_its_trail() {
+        let verdict = || {
+            trail_event(
+                ReviewActor::AgentReviewer,
+                ReviewEventAction::RepairRequested,
+                2,
+            )
+        };
+        let staged = trail_event(
+            ReviewActor::AgentAuthor,
+            ReviewEventAction::CandidateEdited,
+            2,
+        );
+
+        assert!(judged_by_reviewer(&[staged, verdict()], &[], 2));
+        assert!(!judged_by_reviewer(&[verdict()], &[], 3));
+        assert!(!judged_by_reviewer(&[], &[], 2));
+        for change in [
+            ReviewEventAction::NoSoldPageRecorded,
+            ReviewEventAction::PageAdded,
+            ReviewEventAction::PageRemoved,
+            ReviewEventAction::PageMarkedNotProduct,
+            ReviewEventAction::PageNotProductCleared,
+        ] {
+            let trail = [verdict(), trail_event(ReviewActor::AgentAuthor, change, 2)];
+            assert!(!judged_by_reviewer(&trail, &[], 2), "{change:?}");
+        }
+    }
+
+    /// A waiting page the crawler attached after the reviewer's verdict joins without an event,
+    /// so the verdict still ends the trail, but the reviewer never saw that page.
+    #[test]
+    fn should_count_a_review_as_not_judged_when_a_page_joined_it_after_the_verdict() {
+        let verdict = [trail_event(
+            ReviewActor::AgentReviewer,
+            ReviewEventAction::RepairRequested,
+            2,
+        )];
+
+        assert!(judged_by_reviewer(
+            &verdict,
+            &[page_joined(-60), page_joined(0)],
+            2
+        ));
+        assert!(!judged_by_reviewer(
+            &verdict,
+            &[page_joined(-60), page_joined(1)],
+            2
+        ));
     }
 
     #[test]
@@ -327,7 +534,7 @@ mod tests {
         ]);
 
         let (selected, cooling) =
-            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3);
+            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3, 0);
 
         assert_eq!(
             selected,
@@ -345,12 +552,62 @@ mod tests {
             (queue[1].review_id, now - Duration::hours(5)),
         ]);
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3);
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 3, 0);
 
         assert_eq!(
             selected,
             vec![queue[2].clone(), queue[3].clone(), queue[1].clone()]
         );
+    }
+
+    /// A queue of two URL-pattern reviews then two product-schema reviews, in console order.
+    fn patterns_then_schemas() -> Vec<QueuedReview> {
+        let mut queue = queued(4);
+        queue[0].artifact_type = ReviewArtifact::UrlPattern;
+        queue[1].artifact_type = ReviewArtifact::UrlPattern;
+        queue
+    }
+
+    #[test]
+    fn should_reserve_slots_for_product_schema_reviews_when_the_pattern_backlog_is_older() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &BTreeMap::new(), now, 3, 2);
+
+        assert_eq!(
+            selected,
+            vec![queue[2].clone(), queue[3].clone(), queue[0].clone()]
+        );
+    }
+
+    #[test]
+    fn should_give_unused_schema_slots_to_url_pattern_reviews() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+        let cooldowns = BTreeMap::from([(queue[3].review_id, now + Duration::minutes(1))]);
+
+        let (selected, cooling) =
+            select_reviews(queue.clone(), &cooldowns, &BTreeMap::new(), now, 3, 2);
+
+        assert_eq!(
+            selected,
+            vec![queue[2].clone(), queue[0].clone(), queue[1].clone()]
+        );
+        assert_eq!(cooling, 1);
+    }
+
+    #[test]
+    fn should_not_take_more_schema_reviews_than_the_slots_when_the_floor_exceeds_them() {
+        let now = OffsetDateTime::UNIX_EPOCH + Duration::days(10_000);
+        let queue = patterns_then_schemas();
+
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &BTreeMap::new(), now, 1, 2);
+
+        assert_eq!(selected, vec![queue[2].clone()]);
     }
 
     /// A review a human handed back after its last process counts as not worked, in the
@@ -368,7 +625,8 @@ mod tests {
             (queue[2].review_id, now - Duration::hours(1)),
         ]);
 
-        let (selected, _) = select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4);
+        let (selected, _) =
+            select_reviews(queue.clone(), &BTreeMap::new(), &last_worked, now, 4, 0);
 
         assert_eq!(
             selected,
@@ -519,6 +777,7 @@ mod tests {
             action: "APPROVED".to_owned(),
             candidate_version: 2,
             notes: None,
+            approved_url_pattern_state: None,
             created,
         }
     }
