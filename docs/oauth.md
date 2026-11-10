@@ -188,7 +188,9 @@ never served.
 **Validation.** The document must contain `client_id` equal to the document URL,
 `client_name` (at most 128 characters), at least one `redirect_uris` entry,
 `token_endpoint_auth_method: none` and `grant_types` containing `authorization_code`. It must
-not declare a client secret. `response_types`, if present, must contain `code`;
+not declare a client secret. Aura never verifies client assertions, so a document that declares
+`token_endpoint_auth_method: private_key_jwt`, as ChatGPT's does, is accepted only when its
+`token_endpoint_auth_methods_supported` also lists `none`; Aura then treats it as a public client. `response_types`, if present, must contain `code`;
 `client_uri` and `logo_uri`, if present, must be HTTPS URLs. Callbacks must be HTTPS, or
 plain HTTP on the loopback hosts `127.0.0.1`, `[::1]` and `localhost`. An unavailable or
 invalid document makes the client invalid; no error is ever sent to a callback at that
@@ -202,7 +204,8 @@ advertises. Approval records the [connection](#connections) and the authorizatio
 persists the `client_id` URL.
 
 **Token exchange.** The client sends `client_id` without a secret; a `client_secret` from
-it is `invalid_client`. S256 PKCE and the resource rules above apply unchanged, and only the
+it is `invalid_client`. Client assertion parameters are ignored: the client authenticates by
+`client_id` and its PKCE verifier alone. S256 PKCE and the resource rules above apply unchanged, and only the
 `client_id` the code was issued to may exchange it. A rejected exchange consumes the code,
 except when a metadata document client presents another client's code: having proved no
 credential, it cannot burn that code. A code whose connection the user ended in the

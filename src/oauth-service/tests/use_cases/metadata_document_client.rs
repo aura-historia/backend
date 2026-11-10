@@ -21,6 +21,7 @@ fn claims() -> ClientMetadataDocumentClaims {
             "http://localhost/callback".to_owned(),
         ]),
         token_endpoint_auth_method: Some("none".to_owned()),
+        token_endpoint_auth_methods_supported: None,
         grant_types: Some(vec!["authorization_code".to_owned()]),
         response_types: Some(vec!["code".to_owned()]),
         client_uri: Some("https://agent.example".to_owned()),

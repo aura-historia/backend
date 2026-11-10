@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — Client metadata documents may declare `private_key_jwt` and list `none`
+
+- A client metadata document that declares `token_endpoint_auth_method: private_key_jwt` is now accepted when its `token_endpoint_auth_methods_supported` also lists `none`, as the document ChatGPT publishes does. Aura authenticates such a client by `client_id` and its PKCE verifier alone and ignores any client assertion, like every other metadata document client. Documents that declare `none` are unaffected, and a `private_key_jwt` document that does not list `none` is still rejected as an invalid client.
+
 ## 2026-11-10 — Muse domain verification on the MCP host
 
 - The production MCP host serves `GET /.well-known/muse-challenge/<token>` for the Muse connector portal's domain verification: `muse-challenge=<token>` as plain text for the configured token, `404` for any other path below `/.well-known/muse-challenge/`.

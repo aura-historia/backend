@@ -14,6 +14,9 @@ pub struct ClientMetadataDocumentClaims {
     pub client_name: Option<String>,
     pub redirect_uris: Option<Vec<String>>,
     pub token_endpoint_auth_method: Option<String>,
+    /// Methods the client says it can use, a member some clients publish beside
+    /// `token_endpoint_auth_method`.
+    pub token_endpoint_auth_methods_supported: Option<Vec<String>>,
     pub grant_types: Option<Vec<String>>,
     pub response_types: Option<Vec<String>>,
     pub client_uri: Option<String>,
@@ -46,7 +49,7 @@ pub enum InvalidClientMetadataDocument {
     MissingRedirectUris,
     #[error("document redirect URI is invalid")]
     RedirectUri(#[source] InvalidMetadataDocumentRedirectUri),
-    #[error("document token_endpoint_auth_method must be none")]
+    #[error("document must be able to authenticate as a public client with method none")]
     TokenEndpointAuthMethod,
     #[error("document must not declare a client secret")]
     ClientSecret,
@@ -70,7 +73,7 @@ impl ClientMetadataDocument {
         if claims.declares_client_secret {
             return Err(InvalidClientMetadataDocument::ClientSecret);
         }
-        if claims.token_endpoint_auth_method.as_deref() != Some("none") {
+        if !authenticates_as_public_client(&claims) {
             return Err(InvalidClientMetadataDocument::TokenEndpointAuthMethod);
         }
         if !contains(claims.grant_types.as_deref(), "authorization_code") {
@@ -132,6 +135,21 @@ impl ClientMetadataDocument {
 
 fn contains(values: Option<&[String]>, expected: &str) -> bool {
     values.is_some_and(|values| values.iter().any(|value| value == expected))
+}
+
+/// Aura never verifies client assertions, so a document must declare method `none`. One
+/// that declares `private_key_jwt` is accepted only when it also lists `none` as a method it
+/// can use, because the token endpoint then authenticates the client by `client_id` alone,
+/// protected by PKCE like every other metadata document client, and ignores any assertion.
+fn authenticates_as_public_client(claims: &ClientMetadataDocumentClaims) -> bool {
+    match claims.token_endpoint_auth_method.as_deref() {
+        Some("none") => true,
+        Some("private_key_jwt") => contains(
+            claims.token_endpoint_auth_methods_supported.as_deref(),
+            "none",
+        ),
+        _ => false,
+    }
 }
 
 fn client_name(value: Option<&str>) -> Result<OAuthClientName, InvalidClientMetadataDocument> {
@@ -211,6 +229,7 @@ mod tests {
                 "http://127.0.0.1/callback".to_owned(),
             ]),
             token_endpoint_auth_method: Some("none".to_owned()),
+            token_endpoint_auth_methods_supported: None,
             grant_types: Some(vec![
                 "authorization_code".to_owned(),
                 "refresh_token".to_owned(),
@@ -326,6 +345,30 @@ mod tests {
             ),
             (
                 ClientMetadataDocumentClaims {
+                    token_endpoint_auth_method: Some("private_key_jwt".to_owned()),
+                    token_endpoint_auth_methods_supported: Some(vec!["private_key_jwt".to_owned()]),
+                    ..claims()
+                },
+                InvalidClientMetadataDocument::TokenEndpointAuthMethod,
+            ),
+            (
+                ClientMetadataDocumentClaims {
+                    token_endpoint_auth_method: Some("client_secret_post".to_owned()),
+                    token_endpoint_auth_methods_supported: Some(vec!["none".to_owned()]),
+                    ..claims()
+                },
+                InvalidClientMetadataDocument::TokenEndpointAuthMethod,
+            ),
+            (
+                ClientMetadataDocumentClaims {
+                    token_endpoint_auth_method: None,
+                    token_endpoint_auth_methods_supported: Some(vec!["none".to_owned()]),
+                    ..claims()
+                },
+                InvalidClientMetadataDocument::TokenEndpointAuthMethod,
+            ),
+            (
+                ClientMetadataDocumentClaims {
                     declares_client_secret: true,
                     ..claims()
                 },
@@ -355,6 +398,20 @@ mod tests {
         ] {
             assert_eq!(Err(expected), validate(claims));
         }
+    }
+
+    #[test]
+    fn should_accept_a_private_key_jwt_document_that_also_lists_none() {
+        let document = validate(ClientMetadataDocumentClaims {
+            token_endpoint_auth_method: Some("private_key_jwt".to_owned()),
+            token_endpoint_auth_methods_supported: Some(vec![
+                "none".to_owned(),
+                "private_key_jwt".to_owned(),
+            ]),
+            ..claims()
+        });
+
+        assert!(document.is_ok(), "{document:?}");
     }
 
     #[test]

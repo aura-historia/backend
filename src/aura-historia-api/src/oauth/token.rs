@@ -252,6 +252,35 @@ mod tests {
         assert!(matches!(request(&base), Err(OAuthError::InvalidRequest)));
     }
 
+    #[test]
+    fn should_authenticate_a_metadata_document_client_by_client_id_despite_a_client_assertion() {
+        let form = form(&[
+            ("grant_type", "authorization_code".to_owned()),
+            ("code", OAuthAuthorizationCode::new().to_string()),
+            ("redirect_uri", "https://chatgpt.com/callback".to_owned()),
+            (
+                "code_verifier",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned(),
+            ),
+            (
+                "client_id",
+                "https://chatgpt.com/oauth/client.json".to_owned(),
+            ),
+            (
+                "client_assertion_type",
+                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_owned(),
+            ),
+            ("client_assertion", "unverified.assertion.jwt".to_owned()),
+        ]);
+
+        assert_eq!(
+            OAuthTokenClientAuthentication::None {
+                client_id: "https://chatgpt.com/oauth/client.json".parse().unwrap()
+            },
+            request(&form).unwrap().client
+        );
+    }
+
     #[tokio::test]
     async fn should_reject_malformed_client_secret_without_reflecting_it() {
         for client_secret in [
