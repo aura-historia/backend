@@ -42,6 +42,12 @@ pub(super) const MAX_VALUE_CHARS: usize = 300;
 /// context for the rest of its run, so a window holds what a product page's outline usually
 /// needs, and `offset` reads on.
 pub(super) const MAX_PROJECTION_CHARS: usize = 24_000;
+/// The window of a page projection on a URL-pattern review. Labelling a URL needs what makes the
+/// page one product or not, which an outline shows at its start (title, price, cart action) or
+/// not at all, so the agent gets this much of it and reads on with `offset` only when it cannot
+/// tell; the rest of a long page, a listing's repeated items for one, is context cost without a
+/// decision behind it.
+pub(super) const MAX_URL_PATTERN_PROJECTION_CHARS: usize = 4_000;
 /// The most bytes those characters take as a JSON string, so a window of non-Latin or
 /// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
 /// read on from, instead of being cut by it.
@@ -647,7 +653,13 @@ impl PageProjectionView {
     /// The projection's window from `offset` on of at most [`MAX_PROJECTION_CHARS`] characters
     /// and [`MAX_PROJECTION_JSON_BYTES`] as a JSON string, with a marker line where it starts after
     /// the beginning or stops before the end.
+    #[cfg(test)]
     pub(super) fn of(projection: wire::PageProjection, offset: usize) -> Self {
+        Self::window(projection, offset, MAX_PROJECTION_CHARS)
+    }
+
+    /// Like [`Self::of`], with a window of at most `window` characters.
+    pub(super) fn window(projection: wire::PageProjection, offset: usize, window: usize) -> Self {
         let projection_chars = projection.projection.chars().count();
         let offset = offset.min(projection_chars);
         let mut json_bytes_left = MAX_PROJECTION_JSON_BYTES;
@@ -655,7 +667,7 @@ impl PageProjectionView {
             .projection
             .chars()
             .skip(offset)
-            .take(MAX_PROJECTION_CHARS)
+            .take(window.min(MAX_PROJECTION_CHARS))
             .take_while(|character| {
                 let bytes = json_string_bytes(*character);
                 let fits = bytes <= json_bytes_left;
@@ -1160,6 +1172,41 @@ mod tests {
                 &view["sample_urls_next_offset"]
             ),
             (&json!([]), &json!(10), &Value::Null)
+        );
+    }
+
+    #[test]
+    fn should_answer_a_url_pattern_review_the_start_of_the_projection_and_let_it_read_on() {
+        let projection = format!("main\n{}", " p | text\n".repeat(4_000));
+        let page = |offset| {
+            PageProjectionView::window(
+                wire::PageProjection {
+                    review_id: CrawlerReviewId::new(),
+                    review_page_id: None,
+                    url: "https://antiques.example/item/1".to_owned(),
+                    final_url: "https://antiques.example/item/1".to_owned(),
+                    projection: projection.clone(),
+                    describes_one_product: true,
+                    json_ld_product_ids: JsonLdProductIds::default(),
+                },
+                offset,
+                MAX_URL_PATTERN_PROJECTION_CHARS,
+            )
+        };
+
+        let first = page(0);
+        let next = page(MAX_URL_PATTERN_PROJECTION_CHARS);
+
+        assert!(first.projection_truncated);
+        assert!(first.projection.starts_with("main\n"));
+        assert!(first.projection.ends_with(&format!(
+            "more characters; call inspect_page with offset {MAX_URL_PATTERN_PROJECTION_CHARS} to read on]\n"
+        )));
+        assert!(first.projection.chars().count() < MAX_URL_PATTERN_PROJECTION_CHARS + 120);
+        assert_eq!(next.projection_offset, MAX_URL_PATTERN_PROJECTION_CHARS);
+        assert!(
+            next.projection
+                .starts_with("# [continued: the projection from character 4000]")
         );
     }
 
