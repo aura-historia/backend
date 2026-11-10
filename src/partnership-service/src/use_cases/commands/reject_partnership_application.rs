@@ -1028,6 +1028,7 @@ mod tests {
                 name: ListingSourceName::try_from("Existing Source")
                     .unwrap_or_else(|error| panic!("valid test source name: {error}")),
                 listing_source_type: listing_source_core::ListingSourceType::Dealer,
+                purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
                 operator_party_id: party_id,
                 ingestion_methods: std::collections::HashSet::from([
                     ListingIngestionMethod::PartnerApi,

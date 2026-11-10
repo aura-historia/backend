@@ -243,6 +243,8 @@ where
                             id: ListingSourceId::new(),
                             name: listing_source.name,
                             listing_source_type: listing_source.listing_source_type,
+                            purchase_channel:
+                                listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
                             operator_party_id: party.id(),
                             ingestion_methods: config.methods().map_err(|source| {
                                 ApprovePartnershipApplicationError::InvalidPersistedState {
@@ -1293,6 +1295,7 @@ mod tests {
                 name: ListingSourceName::try_from("Existing Source")
                     .unwrap_or_else(|error| panic!("valid test source name: {error}")),
                 listing_source_type: listing_source_core::ListingSourceType::Dealer,
+                purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
                 operator_party_id: party_id,
                 ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
                 presentation: ListingSourcePresentation {
@@ -1427,6 +1430,7 @@ mod tests {
                 name: ListingSourceName::try_from("Existing Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 listing_source_type: listing_source_core::ListingSourceType::Dealer,
+                purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
                 operator_party_id: party_id,
                 ingestion_methods: HashSet::from([ListingIngestionMethod::PartnerApi]),
                 presentation: ListingSourcePresentation {

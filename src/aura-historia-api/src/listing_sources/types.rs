@@ -11,8 +11,8 @@ use crate::{
 };
 use application::patch_field::PatchField;
 use listing_source_core::{
-    Domain, ListingSourceName, ListingSourcePresentation, ListingSourceType, PartnerizeCamref,
-    PlatformTechnology, ReferralConfiguration,
+    Domain, ListingSourceName, ListingSourcePresentation, ListingSourcePurchaseChannel,
+    ListingSourceType, PartnerizeCamref, PlatformTechnology, ReferralConfiguration,
 };
 use listing_source_service::ports::{
     ListingIngestionConfiguration, ListingIngestionConfigurationUpdate,
@@ -36,6 +36,8 @@ use url::Url;
 pub(crate) struct CreateListingSourceData {
     pub(crate) name: String,
     pub(crate) listing_source_type: String,
+    #[serde(default)]
+    pub(crate) purchase_channel: Option<String>,
     pub(crate) operator: ListingSourceOperatorData,
 
     pub(crate) ingestion_configuration: Vec<CreateListingIngestionConfigurationData>,
@@ -67,6 +69,12 @@ impl TryFrom<CreateListingSourceData> for CreateListingSourceCommand {
         Ok(Self {
             name,
             listing_source_type: parse_listing_source_type(&data.listing_source_type)?,
+            purchase_channel: data
+                .purchase_channel
+                .as_deref()
+                .map(parse_purchase_channel)
+                .transpose()?
+                .unwrap_or(ListingSourcePurchaseChannel::OnlineShop),
             operator,
             ingestion_configuration:
                 listing_source_service::ports::ListingSourceIngestionConfigurations(
@@ -131,6 +139,8 @@ pub(crate) struct UpdateListingSourceData {
     pub(crate) name: PatchValue<String>,
     #[serde(default)]
     pub(crate) listing_source_type: PatchValue<String>,
+    #[serde(default)]
+    pub(crate) purchase_channel: PatchValue<String>,
 
     #[serde(default)]
     pub(crate) ingestion_configuration: PatchValue<Vec<UpdateListingIngestionConfigurationData>>,
@@ -158,6 +168,11 @@ impl UpdateListingSourceData {
                 "listingSourceType",
                 |value| parse_listing_source_type(&value),
             )?,
+            purchase_channel: map_required_patch(
+                self.purchase_channel,
+                "purchaseChannel",
+                |value| parse_purchase_channel(&value),
+            )?,
 
             ingestion_configuration: map_required_patch(
                 self.ingestion_configuration,
@@ -181,6 +196,7 @@ impl UpdateListingSourceData {
 pub(crate) struct UpdateListingSourceDataParts {
     pub(crate) name: RequiredPatch<listing_source_core::ListingSourceName>,
     pub(crate) listing_source_type: RequiredPatch<ListingSourceType>,
+    pub(crate) purchase_channel: RequiredPatch<ListingSourcePurchaseChannel>,
 
     pub(crate) ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub(crate) url: PatchField<Url>,
@@ -399,6 +415,10 @@ fn parse_listing_source_type(value: &str) -> Result<ListingSourceType, ApiError>
     value.parse().map_err(|_| invalid_body("listingSourceType"))
 }
 
+fn parse_purchase_channel(value: &str) -> Result<ListingSourcePurchaseChannel, ApiError> {
+    value.parse().map_err(|_| invalid_body("purchaseChannel"))
+}
+
 fn parse_platform_technology(value: String) -> Result<PlatformTechnology, ApiError> {
     PlatformTechnology::try_from(value).map_err(|_| invalid_body("platformTechnology"))
 }
@@ -592,6 +612,56 @@ mod tests {
         ] {
             let data: UpdateListingSourceData =
                 serde_json::from_value(serde_json::json!({"listingSourceType": invalid})).unwrap();
+            assert!(
+                matches!(data.into_parts(), Err(error) if error.code() == BAD_BODY_VALUE),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_default_purchase_channel_on_create_and_reject_unknown_codes() {
+        let create: CreateListingSourceData = serde_json::from_value(create_data()).unwrap();
+        assert_eq!(
+            ListingSourcePurchaseChannel::OnlineShop,
+            CreateListingSourceCommand::try_from(create)
+                .unwrap()
+                .purchase_channel
+        );
+
+        let mut body = create_data();
+        body["purchaseChannel"] = serde_json::json!("ENQUIRY_ONLY");
+        let create: CreateListingSourceData = serde_json::from_value(body).unwrap();
+        assert_eq!(
+            ListingSourcePurchaseChannel::EnquiryOnly,
+            CreateListingSourceCommand::try_from(create)
+                .unwrap()
+                .purchase_channel
+        );
+
+        for invalid in ["enquiry_only", "SHOP", ""] {
+            let mut body = create_data();
+            body["purchaseChannel"] = serde_json::json!(invalid);
+            let create: CreateListingSourceData = serde_json::from_value(body).unwrap();
+            assert!(
+                matches!(CreateListingSourceCommand::try_from(create), Err(error) if error.code() == BAD_BODY_VALUE),
+                "{invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_map_purchase_channel_patch_and_reject_null_or_unknown_values() {
+        let data: UpdateListingSourceData =
+            serde_json::from_value(serde_json::json!({"purchaseChannel": "ENQUIRY_ONLY"})).unwrap();
+        assert!(matches!(
+            data.into_parts().unwrap().purchase_channel,
+            RequiredPatch::Set(ListingSourcePurchaseChannel::EnquiryOnly)
+        ));
+
+        for invalid in [serde_json::json!(null), serde_json::json!("enquiry_only")] {
+            let data: UpdateListingSourceData =
+                serde_json::from_value(serde_json::json!({"purchaseChannel": invalid})).unwrap();
             assert!(
                 matches!(data.into_parts(), Err(error) if error.code() == BAD_BODY_VALUE),
                 "{invalid}"

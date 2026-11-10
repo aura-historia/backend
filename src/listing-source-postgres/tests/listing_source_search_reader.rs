@@ -2,7 +2,9 @@ use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
-use listing_source_core::{ListingSourceId, ListingSourceSearch, SortListingSourceField};
+use listing_source_core::{
+    ListingSourceId, ListingSourcePurchaseChannel, ListingSourceSearch, SortListingSourceField,
+};
 use listing_source_postgres::SqlxListingSourceSearchReaderFactory;
 use listing_source_service::ports::{ListingSourceSearchReader, ListingSourceSearchReaderFactory};
 use listing_source_service::use_cases::queries::search_listing_sources::{
@@ -129,6 +131,40 @@ async fn should_traverse_duplicate_sort_values_deterministically_in_both_directi
         [3, 4, 5, 1, 2].map(ordered_source_id).to_vec(),
         source_ids(&search(&pool, &created_desc).await)
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_filter_sources_by_purchase_channel() {
+    let pool = get_postgres_client().await;
+    let operator = insert_operator(&pool).await;
+    let ids = [1, 2].map(ordered_source_id);
+    for (id, name) in ids.iter().zip(["Shop", "Gallery"]) {
+        insert_source(&pool, *id, name, operator, datetime!(2026-01-01 00:00 UTC)).await;
+    }
+    sqlx::query(
+        "UPDATE listing_sources SET purchase_channel = 'ENQUIRY_ONLY' WHERE listing_source_id = $1",
+    )
+    .bind(ids[1].into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("mark enquiry-only source: {error}"));
+
+    for (channel, expected) in [
+        (ListingSourcePurchaseChannel::OnlineShop, vec![ids[0]]),
+        (ListingSourcePurchaseChannel::EnquiryOnly, vec![ids[1]]),
+    ] {
+        let request = SearchListingSourcesRequest {
+            search: ListingSourceSearch {
+                purchase_channel: Some(channel),
+                ..ListingSourceSearch::default()
+            },
+            sort: None,
+            cursor: None,
+        };
+        let page = search(&pool, &request).await;
+        assert_eq!(expected, source_ids(&page));
+        assert_eq!(channel, page.items[0].purchase_channel);
+    }
 }
 
 async fn search(

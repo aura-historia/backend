@@ -198,6 +198,21 @@ pub(crate) mod listing_source_type {
     }
 }
 
+pub(crate) mod listing_source_purchase_channel {
+    use super::*;
+    use listing_source_core::ListingSourcePurchaseChannel;
+
+    pub(crate) fn serialize<S>(
+        value: &ListingSourcePurchaseChannel,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_code(value, serializer, ListingSourcePurchaseChannel::as_str)
+    }
+}
+
 pub(crate) mod billing_plan {
     use super::*;
     use billing_service::use_cases::BillingPlan;
@@ -351,6 +366,24 @@ mod tests {
             problem(error).await?
         );
         Ok(())
+    }
+
+    #[test]
+    fn should_serialize_every_purchase_channel_as_its_canonical_code() {
+        use listing_source_core::ListingSourcePurchaseChannel;
+        use strum::IntoEnumIterator;
+
+        #[derive(serde::Serialize)]
+        struct Wrapper(
+            #[serde(with = "listing_source_purchase_channel")] ListingSourcePurchaseChannel,
+        );
+
+        for value in ListingSourcePurchaseChannel::iter() {
+            assert_eq!(
+                json!(value.as_str()),
+                serde_json::to_value(Wrapper(value)).unwrap()
+            );
+        }
     }
 
     #[test]

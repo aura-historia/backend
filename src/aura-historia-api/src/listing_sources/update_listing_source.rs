@@ -36,6 +36,7 @@ pub async fn update_listing_source(
         listing_source_id,
         name: parts.name,
         listing_source_type: parts.listing_source_type,
+        purchase_channel: parts.purchase_channel,
         ingestion_configuration: parts.ingestion_configuration,
         url: parts.url,
         image: parts.image,

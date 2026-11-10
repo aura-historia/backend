@@ -5,9 +5,10 @@ use domain_primitives::object_id::ObjectIdError;
 use domain_primitives::sort::{Sort, SortOrder};
 
 use listing_source_core::{
-    InvalidListingIngestionMethod, InvalidListingSourceSlug, InvalidListingSourceType,
-    ListingSourceId, ListingSourceName, ListingSourcePresentation, ListingSourceSearch,
-    ListingSourceSlugId, PlatformTechnology, PlatformTechnologyError, SortListingSourceField,
+    InvalidListingIngestionMethod, InvalidListingSourcePurchaseChannel, InvalidListingSourceSlug,
+    InvalidListingSourceType, ListingSourceId, ListingSourceName, ListingSourcePresentation,
+    ListingSourceSearch, ListingSourceSlugId, PlatformTechnology, PlatformTechnologyError,
+    SortListingSourceField,
 };
 use listing_source_service::ports::{
     ListingSourceSearchReadError, ListingSourceSearchReader, ListingSourceSearchReaderFactory,
@@ -57,6 +58,7 @@ struct ListingSourceSearchRow {
     listing_source_slug_id: String,
     listing_source_name: String,
     listing_source_type: String,
+    purchase_channel: String,
     operator_party_id: uuid::Uuid,
     operator_party_slug_id: String,
     operator_party_name: String,
@@ -81,6 +83,8 @@ enum ListingSourceSearchRowMappingError {
     ListingSourceName(#[source] listing_source_core::ListingSourceNameError),
     #[error("invalid listing source type persisted")]
     ListingSourceType(#[source] InvalidListingSourceType),
+    #[error("invalid listing source purchase channel persisted")]
+    PurchaseChannel(#[source] InvalidListingSourcePurchaseChannel),
     #[error("invalid listing source ingestion method")]
     IngestionMethod(#[source] InvalidListingIngestionMethod),
     #[error("invalid platform technology persisted")]
@@ -110,6 +114,10 @@ impl TryFrom<ListingSourceSearchRow> for ListingSourceSearchSummary {
                 .listing_source_type
                 .parse()
                 .map_err(Self::Error::ListingSourceType)?,
+            purchase_channel: row
+                .purchase_channel
+                .parse()
+                .map_err(Self::Error::PurchaseChannel)?,
             operator: ListingSourceOperatorSummary {
                 party_id: PartyId::try_from(row.operator_party_id)
                     .map_err(Self::Error::OperatorPartyId)?,
@@ -168,12 +176,12 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
         let columns = keyset_columns(sort);
 
         let mut builder = QueryBuilder::<Postgres>::new(
-            "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.listing_source_type, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
+            "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.listing_source_type, s.purchase_channel, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
         );
         push_filters(&mut builder, &request.search);
-        builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.listing_source_type, s.operator_party_id, p.party_slug_id, p.name, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated");
+        builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.listing_source_type, s.purchase_channel, s.operator_party_id, p.party_slug_id, p.name, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated");
         builder.push(
-            ") SELECT listing_source_id, listing_source_slug_id, listing_source_name, listing_source_type, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM filtered WHERE TRUE",
+            ") SELECT listing_source_id, listing_source_slug_id, listing_source_name, listing_source_type, purchase_channel, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM filtered WHERE TRUE",
         );
         if let Some(after) = cursor.search_after {
             keyset::push_after(&mut builder, &columns, position(sort.sort, after)?).map_err(
@@ -305,6 +313,11 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ListingSourceSear
             .push(" AND s.operator_party_id = ")
             .push_bind(operator_party_id.into_uuid());
     }
+    if let Some(purchase_channel) = search.purchase_channel {
+        builder
+            .push(" AND s.purchase_channel = ")
+            .push_bind(purchase_channel.as_str());
+    }
     if let Some(listing_source_type) = search.listing_source_type {
         builder
             .push(" AND s.listing_source_type = ")
@@ -353,6 +366,7 @@ mod tests {
             listing_source_slug_id: "source".to_owned(),
             listing_source_name: "Source".to_owned(),
             listing_source_type: "DEALER".to_owned(),
+            purchase_channel: "ONLINE_SHOP".to_owned(),
             operator_party_id,
             operator_party_slug_id: "operator".to_owned(),
             operator_party_name: "Operator".to_owned(),
@@ -391,6 +405,13 @@ mod tests {
     fn should_reject_unknown_persisted_listing_source_type() {
         let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
         invalid.listing_source_type = "SELLER".to_owned();
+        assert!(ListingSourceSearchSummary::try_from(invalid).is_err());
+    }
+
+    #[test]
+    fn should_reject_unknown_persisted_purchase_channel() {
+        let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        invalid.purchase_channel = "online_shop".to_owned();
         assert!(ListingSourceSearchSummary::try_from(invalid).is_err());
     }
 

@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — ListingSource purchase channel (#2866)
+
+- Administrator ListingSource endpoints carry `purchaseChannel`, `ONLINE_SHOP` or `ENQUIRY_ONLY`. `ListingSourceData` and the search summaries return it; `POST /v1/admin/listing-sources` accepts it (optional, default `ONLINE_SHOP`); `PATCH` accepts it (`null` and unknown values are rejected with `400`); `GET /v1/admin/listing-sources` filters on it with `purchaseChannel`. It is descriptive only and does not change ingestion or the public API. Existing ListingSources start as `ONLINE_SHOP` until an administrator changes them.
+
 ## 2026-11-10 — MCP tool catalogue fixes before directory submission
 
 - **Breaking change (MCP):** the tool `discoverPartyLocations` is removed. Public seller-location discovery stays available on `GET /v1/party-locations`. The tool catalogue now lists 37 tools.

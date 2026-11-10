@@ -25,6 +25,7 @@ pub struct UpdateListingSourceCommand {
     pub listing_source_id: ListingSourceId,
     pub name: RequiredPatch<ListingSourceName>,
     pub listing_source_type: RequiredPatch<ListingSourceType>,
+    pub purchase_channel: RequiredPatch<ListingSourcePurchaseChannel>,
 
     pub ingestion_configuration: RequiredPatch<UpdateListingSourceIngestionConfigurations>,
     pub url: PatchField<url::Url>,
@@ -193,6 +194,9 @@ fn apply_update(
     }
     if let RequiredPatch::Set(listing_source_type) = command.listing_source_type {
         outcome = outcome.combine(source.reclassify(listing_source_type));
+    }
+    if let RequiredPatch::Set(purchase_channel) = command.purchase_channel {
+        outcome = outcome.combine(source.change_purchase_channel(purchase_channel));
     }
     if let RequiredPatch::Set(value) = &command.ingestion_configuration {
         let resolved = value
@@ -427,6 +431,7 @@ mod tests {
                 name: ListingSourceName::try_from("Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 listing_source_type: listing_source_core::ListingSourceType::Dealer,
+                purchase_channel: ListingSourcePurchaseChannel::OnlineShop,
                 operator_party_id: PartyId::new(),
                 ingestion_methods: std::collections::HashSet::from([
                     ListingIngestionMethod::WebCrawl,
@@ -456,6 +461,7 @@ mod tests {
             listing_source_id: id,
             name: RequiredPatch::Unchanged,
             listing_source_type: RequiredPatch::Unchanged,
+            purchase_channel: RequiredPatch::Unchanged,
 
             ingestion_configuration: RequiredPatch::Unchanged,
             url: PatchField::Unchanged,
@@ -606,6 +612,41 @@ mod tests {
                     .changed()
             );
             assert_eq!(expected, source.listing_source_type());
+        }
+    }
+
+    #[test]
+    fn should_change_purchase_channel_only_when_it_differs() {
+        let stored = source();
+        let mut source = stored.source;
+        let mut configuration = stored.configuration;
+        let mut command = command(source.id());
+
+        for (patch, expected, changed) in [
+            (
+                RequiredPatch::Unchanged,
+                ListingSourcePurchaseChannel::OnlineShop,
+                false,
+            ),
+            (
+                RequiredPatch::Set(ListingSourcePurchaseChannel::EnquiryOnly),
+                ListingSourcePurchaseChannel::EnquiryOnly,
+                true,
+            ),
+            (
+                RequiredPatch::Set(ListingSourcePurchaseChannel::EnquiryOnly),
+                ListingSourcePurchaseChannel::EnquiryOnly,
+                false,
+            ),
+        ] {
+            command.purchase_channel = patch;
+            assert_eq!(
+                changed,
+                apply_update(&mut source, &mut configuration, &command)
+                    .unwrap()
+                    .changed()
+            );
+            assert_eq!(expected, source.purchase_channel());
         }
     }
 

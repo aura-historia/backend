@@ -5934,6 +5934,7 @@ paths:
         Creates a ListingSource for an authenticated administrator.
 
         `listingSourceType` is required and records the source's primary sales model.
+        `purchaseChannel` is optional and defaults to `ONLINE_SHOP`.
         `operator` accepts either an existing Party reference (`EXISTING` with `partyId`) or a
         new Party with name and optional contact details (`NEW`). Ingestion configuration,
         provider uniqueness, presentation, and referral validation remain service-owned.
@@ -6021,7 +6022,7 @@ paths:
         `query` performs a case-insensitive substring search across the ListingSource name and
         stable slug, and also the operator Party name and slug. `name` restricts the substring
         match to the ListingSource name. `listingSourceId` and `listingSourceSlugId` are exact
-        identity filters. `operatorPartyId`, `listingSourceType`, `ingestionMethod`, and
+        identity filters. `operatorPartyId`, `listingSourceType`, `purchaseChannel`, `ingestionMethod`, and
         `platformTechnology` are exact filters and can be combined. ListingSource type and platform
         technology are descriptive metadata independent of ingestion.
 
@@ -6087,6 +6088,13 @@ paths:
           schema:
             $ref: "#/components/schemas/ListingSourceType"
           example: AUCTION_HOUSE
+        - name: purchaseChannel
+          in: query
+          required: false
+          description: Optional exact purchase-channel filter, combinable with all other filters.
+          schema:
+            $ref: "#/components/schemas/ListingSourcePurchaseChannel"
+          example: ENQUIRY_ONLY
         - name: ingestionMethod
           in: query
           required: false
@@ -10761,9 +10769,9 @@ paths:
         Updates one ListingSource for an authenticated administrator.
 
         `listingSourceId` must be a valid ListingSource ID. Omitted members remain unchanged; `null` clears only
-        `url`, `image`, `platformTechnology`, and `referralConfiguration`. `name`, `listingSourceType` and
+        `url`, `image`, `platformTechnology`, and `referralConfiguration`. `name`, `listingSourceType`, `purchaseChannel` and
         `ingestionConfiguration` are non-nullable and cannot be cleared; `listingSourceType` reclassifies
-        the ListingSource. Supplying
+        the ListingSource and `purchaseChannel` records whether it sells online. Supplying
         `ingestionConfiguration` replaces the whole configuration list and its methods must match
         the ListingSource ingestion methods. A WooCommerce entry may omit `webhookSecret` only when
         WooCommerce is already configured; omission preserves the existing secret, a string rotates
@@ -25988,6 +25996,18 @@ components:
         Descriptive only: it does not affect ingestion, listing validation or Auction facts. The set
         is closed; a new type is an announced contract change.
       example: DEALER
+    ListingSourcePurchaseChannel:
+      type: string
+      enum:
+        - ONLINE_SHOP
+        - ENQUIRY_ONLY
+      description: |
+        Whether visitors can buy at the ListingSource online, curated by administrators.
+        `ONLINE_SHOP` is the default. `ENQUIRY_ONLY` sells by contact (mail, phone, form), so its
+        listings carry an enquiry action and usually no price. Descriptive only: it does not
+        affect ingestion or crawling. Sources that existed before the field was introduced are
+        `ONLINE_SHOP` until an administrator changes them.
+      example: ONLINE_SHOP
     ListingSourceData:
       type: object
       required:
@@ -25995,6 +26015,7 @@ components:
         - listingSourceSlugId
         - name
         - listingSourceType
+        - purchaseChannel
         - operator
         - ingestionMethods
         - created
@@ -26009,6 +26030,8 @@ components:
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         listingSourceType:
           $ref: "#/components/schemas/ListingSourceType"
+        purchaseChannel:
+          $ref: "#/components/schemas/ListingSourcePurchaseChannel"
         operator:
           $ref: "#/components/schemas/OperatorPartyData"
         platformTechnology:
@@ -26091,6 +26114,7 @@ components:
         - listingSourceSlugId
         - name
         - listingSourceType
+        - purchaseChannel
         - operator
         - ingestionMethods
         - presentation
@@ -26108,6 +26132,8 @@ components:
           description: ListingSource name.
         listingSourceType:
           $ref: "#/components/schemas/ListingSourceType"
+        purchaseChannel:
+          $ref: "#/components/schemas/ListingSourcePurchaseChannel"
         operator:
           $ref: "#/components/schemas/OperatorPartyData"
         platformTechnology:
@@ -26309,6 +26335,10 @@ components:
           description: ListingSource name. Outer Unicode whitespace is trimmed; blank values and values over 255 UTF-8 bytes are rejected.
         listingSourceType:
           $ref: "#/components/schemas/ListingSourceType"
+        purchaseChannel:
+          allOf:
+            - $ref: "#/components/schemas/ListingSourcePurchaseChannel"
+          description: Optional; defaults to `ONLINE_SHOP`.
         operator:
           $ref: "#/components/schemas/ListingSourceOperatorInputData"
         platformTechnology:
@@ -26384,7 +26414,7 @@ components:
     UpdateListingSourceData:
       type: object
       additionalProperties: false
-      description: Omitted fields are unchanged. `null` clears only `url`, `image`, `platformTechnology`, and `referralConfiguration`; `null` for `name`, `listingSourceType` or `ingestionConfiguration` is rejected. Supplying ingestionConfiguration replaces the whole configuration list; a WooCommerce secret may be omitted only when preserving an existing WooCommerce configuration.
+      description: Omitted fields are unchanged. `null` clears only `url`, `image`, `platformTechnology`, and `referralConfiguration`; `null` for `name`, `listingSourceType`, `purchaseChannel` or `ingestionConfiguration` is rejected. Supplying ingestionConfiguration replaces the whole configuration list; a WooCommerce secret may be omitted only when preserving an existing WooCommerce configuration.
       properties:
         name:
           type: string
@@ -26393,6 +26423,10 @@ components:
           allOf:
             - $ref: "#/components/schemas/ListingSourceType"
           description: Reclassifies the ListingSource. Omission preserves the type.
+        purchaseChannel:
+          allOf:
+            - $ref: "#/components/schemas/ListingSourcePurchaseChannel"
+          description: Records whether the ListingSource sells online. Omission preserves the value.
         platformTechnology:
           type: string
           nullable: true

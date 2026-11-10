@@ -37,6 +37,8 @@ struct SearchListingSourcesQuery {
     #[serde(default)]
     listing_source_type: Option<String>,
     #[serde(default)]
+    purchase_channel: Option<String>,
+    #[serde(default)]
     ingestion_method: Option<String>,
     #[serde(default)]
     platform_technology: Option<String>,
@@ -95,6 +97,14 @@ fn parse_search_listing_sources_query(
                 value
                     .parse()
                     .map_err(|error| bad_query("listingSourceType", error))
+            })
+            .transpose()?,
+        purchase_channel: query
+            .purchase_channel
+            .map(|value| {
+                value
+                    .parse()
+                    .map_err(|error| bad_query("purchaseChannel", error))
             })
             .transpose()?,
         ingestion_method: parse_ingestion_method(query.ingestion_method)?,
@@ -285,7 +295,7 @@ mod tests {
         let operator_party_id = PartyId::new();
         let cursor = cursor(ListingSourceSortKey::Created(OffsetDateTime::UNIX_EPOCH));
         let request = parse_search_listing_sources_query(Some(&format!(
-            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&listingSourceType=AUCTION_HOUSE&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={}",
+            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&listingSourceType=AUCTION_HOUSE&purchaseChannel=ENQUIRY_ONLY&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={}",
             encode_search_after(cursor.clone())
         )))?;
 
@@ -303,6 +313,10 @@ mod tests {
         assert_eq!(
             Some(ListingSourceType::AuctionHouse),
             request.search.listing_source_type
+        );
+        assert_eq!(
+            Some(listing_source_core::ListingSourcePurchaseChannel::EnquiryOnly),
+            request.search.purchase_channel
         );
         assert_eq!(
             Some("CUSTOM_PLATFORM_2"),
@@ -375,6 +389,7 @@ mod tests {
             "ingestionMethod=UNKNOWN",
             "listingSourceType=dealer",
             "listingSourceType=",
+            "purchaseChannel=online_shop",
             "platformTechnology=shopify",
             "platformTechnology=",
         ] {

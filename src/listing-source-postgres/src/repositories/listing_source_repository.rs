@@ -19,6 +19,7 @@ struct SourceRow {
     listing_source_slug_id: String,
     name: String,
     listing_source_type: String,
+    purchase_channel: String,
     operator_party_id: uuid::Uuid,
     url: Option<String>,
     image: Option<String>,
@@ -48,7 +49,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         id: ListingSourceId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1",
+            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, purchase_channel, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1",
         )
         .bind(id.into_uuid())
         .fetch_optional(&mut *self.connection)
@@ -64,7 +65,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         slug: &ListingSourceSlugId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_slug_id=$1",
+            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, purchase_channel, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_slug_id=$1",
         )
         .bind(slug.as_ref())
         .fetch_optional(&mut *self.connection)
@@ -80,7 +81,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         id: ListingSourceId,
     ) -> Result<Option<StoredListingSource>, ListingSourceRepositoryError> {
         let row = sqlx::query_as::<_, SourceRow>(
-            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE",
+            "SELECT listing_source_id, listing_source_slug_id, name, listing_source_type, purchase_channel, operator_party_id, url, image, platform_technology, referral_configuration, version, created, updated FROM listing_sources WHERE listing_source_id=$1 FOR UPDATE",
         )
         .bind(id.into_uuid())
         .fetch_optional(&mut *self.connection)
@@ -188,7 +189,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = persisted_referral::to_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
-            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (listing_source_slug_id) DO NOTHING RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+            "INSERT INTO listing_sources (listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,purchase_channel) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (listing_source_slug_id) DO NOTHING RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,purchase_channel,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
         .bind(source.id().into_uuid())
         .bind(source.slug_id().as_ref())
@@ -199,6 +200,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         .bind(source.presentation().image.as_ref().map(Url::as_str))
         .bind(source.platform_technology().map(AsRef::as_ref))
         .bind(referral_configuration)
+        .bind(source.purchase_channel().as_str())
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(db_write)?
@@ -228,7 +230,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         })?;
         let referral_configuration = persisted_referral::to_json(source.referral_configuration());
         let row = sqlx::query_as::<_, SourceRow>(
-            "UPDATE listing_sources SET name=$1,listing_source_type=$2,operator_party_id=$3,url=$4,image=$5,platform_technology=$6,referral_configuration=$7,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$8 AND version=$9 RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
+            "UPDATE listing_sources SET name=$1,listing_source_type=$2,operator_party_id=$3,url=$4,image=$5,platform_technology=$6,referral_configuration=$7,purchase_channel=$10,version=version+1,updated=aura_advance_updated(updated) WHERE listing_source_id=$8 AND version=$9 RETURNING listing_source_id,listing_source_slug_id,name,listing_source_type,purchase_channel,operator_party_id,url,image,platform_technology,referral_configuration,version,created,updated",
         )
         .bind(source.name().as_ref())
         .bind(source.listing_source_type().as_str())
@@ -239,6 +241,7 @@ impl ListingSourceRepository for SqlxListingSourceRepository<'_> {
         .bind(referral_configuration)
         .bind(source.id().into_uuid())
         .bind(expected)
+        .bind(source.purchase_channel().as_str())
         .fetch_optional(&mut *self.connection)
         .await
         .map_err(db_write)?
@@ -306,6 +309,7 @@ async fn load(
         slug_id: row.listing_source_slug_id,
         name: row.name,
         listing_source_type: row.listing_source_type,
+        purchase_channel: row.purchase_channel,
         operator_party_id,
         ingestion_methods: methods,
         presentation: ListingSourcePresentation {
@@ -596,6 +600,7 @@ mod tests {
                 id: source_id,
                 name,
                 listing_source_type: listing_source_core::ListingSourceType::Dealer,
+                purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
                 operator_party_id,
                 ingestion_methods: HashSet::from([method]),
                 presentation: ListingSourcePresentation::default(),
@@ -698,6 +703,7 @@ mod tests {
             name: ListingSourceName::try_from("Shared Source")
                 .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
             listing_source_type: listing_source_core::ListingSourceType::Dealer,
+            purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
             operator_party_id,
             ingestion_methods: HashSet::from([ListingIngestionMethod::WebCrawl]),
             presentation: ListingSourcePresentation::default(),
@@ -775,6 +781,7 @@ mod tests {
                 name: ListingSourceName::try_from("Provider Source")
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 listing_source_type: listing_source_core::ListingSourceType::AuctionHouse,
+                purchase_channel: listing_source_core::ListingSourcePurchaseChannel::EnquiryOnly,
                 operator_party_id,
                 ingestion_methods: HashSet::from([
                     ListingIngestionMethod::WebCrawl,
@@ -890,6 +897,10 @@ mod tests {
         );
         assert_eq!(operator_party_id, details.operator_party_id);
         assert_eq!(ListingSourceType::AuctionHouse, details.listing_source_type);
+        assert_eq!(
+            listing_source_core::ListingSourcePurchaseChannel::EnquiryOnly,
+            details.purchase_channel
+        );
         assert_eq!(source.ingestion_methods(), &details.ingestion_methods);
         assert_eq!(
             source.platform_technology(),

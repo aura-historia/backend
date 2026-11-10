@@ -17,6 +17,7 @@ struct DetailRow {
     listing_source_slug_id: String,
     name: String,
     listing_source_type: String,
+    purchase_channel: String,
     operator_party_id: uuid::Uuid,
     party_slug_id: String,
     operator_name: String,
@@ -44,6 +45,7 @@ fn detail(row: DetailRow) -> Result<ListingSourceDetails, ListingSourceReadError
             }
         })?,
         listing_source_type: row.listing_source_type.parse().map_err(invalid_read)?,
+        purchase_channel: row.purchase_channel.parse().map_err(invalid_read)?,
         operator_party_id: PartyId::try_from(row.operator_party_id)
             .map_err(InvalidDetailObjectId::OperatorParty)
             .map_err(invalid_read)?,
@@ -97,8 +99,8 @@ enum InvalidDetailObjectId {
     OperatorParty(#[source] ObjectIdError),
 }
 
-const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
-const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.purchase_channel,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.purchase_channel,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
 
 #[async_trait::async_trait]
 impl ListingSourceDetailsReader for SqlxListingSourceReaders {
@@ -140,6 +142,7 @@ mod tests {
             listing_source_slug_id: "source".to_owned(),
             name: "Source".to_owned(),
             listing_source_type: "DEALER".to_owned(),
+            purchase_channel: "ONLINE_SHOP".to_owned(),
             operator_party_id,
             party_slug_id: "operator".to_owned(),
             operator_name: "Operator".to_owned(),
@@ -166,6 +169,13 @@ mod tests {
     fn should_reject_unknown_persisted_listing_source_type() {
         let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
         invalid.listing_source_type = "dealer".to_owned();
+        assert!(detail(invalid).is_err());
+    }
+
+    #[test]
+    fn should_reject_unknown_persisted_purchase_channel() {
+        let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        invalid.purchase_channel = "SHOP".to_owned();
         assert!(detail(invalid).is_err());
     }
 

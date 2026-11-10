@@ -954,6 +954,7 @@ async fn should_return_listing_source_detail_for_admin_without_provider_secrets(
     );
     assert_eq!(json!("Detailed Listing Operator"), body["operator"]["name"]);
     assert_eq!(json!(["WOOCOMMERCE"]), body["ingestionMethods"]);
+    assert_eq!(json!("ONLINE_SHOP"), body["purchaseChannel"]);
     assert_eq!(json!("https://listing-source-search.example/"), body["url"]);
     assert_eq!(
         json!("https://listing-source-search.example/image.jpg"),
@@ -1056,6 +1057,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
             "name": "Created Listing Source",
             "platformTechnology": "BIGCOMMERCE",
             "listingSourceType": "AUCTION_HOUSE",
+            "purchaseChannel": "ENQUIRY_ONLY",
             "operator": {"type": "EXISTING", "partyId": party_id.to_string()},
             "ingestionConfiguration": [{"type": "PARTNER_API"}],
             "url": "https://created-listing-source.example/",
@@ -1108,6 +1110,7 @@ async fn should_create_listing_source_for_existing_party_at_admin_route() {
         json!("AUCTION_HOUSE"),
         body["items"][0]["listingSourceType"]
     );
+    assert_eq!(json!("ENQUIRY_ONLY"), body["items"][0]["purchaseChannel"]);
     assert_eq!(
         json!({"type": "PARTNERIZE", "camref": "campaign123"}),
         body["items"][0]["referralConfiguration"]

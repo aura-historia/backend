@@ -5,10 +5,10 @@ use party_core::party_id::PartyId;
 use url::Url;
 
 use crate::{
-    InvalidListingSourceSlug, InvalidListingSourceType, ListingIngestionMethod, ListingSourceId,
-    ListingSourceName, ListingSourceNameError, ListingSourceSlugId, ListingSourceType,
-    PlatformTechnology, PlatformTechnologyError, ReferralConfiguration, ReferralUrlError,
-    outbound_url,
+    InvalidListingSourcePurchaseChannel, InvalidListingSourceSlug, InvalidListingSourceType,
+    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceNameError,
+    ListingSourcePurchaseChannel, ListingSourceSlugId, ListingSourceType, PlatformTechnology,
+    PlatformTechnologyError, ReferralConfiguration, ReferralUrlError, outbound_url,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -22,6 +22,7 @@ pub struct NewListingSource {
     pub id: ListingSourceId,
     pub name: ListingSourceName,
     pub listing_source_type: ListingSourceType,
+    pub purchase_channel: ListingSourcePurchaseChannel,
     pub operator_party_id: PartyId,
     pub ingestion_methods: HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
@@ -36,6 +37,7 @@ pub struct RehydratedListingSourceState {
     pub slug_id: String,
     pub name: String,
     pub listing_source_type: String,
+    pub purchase_channel: String,
     pub operator_party_id: PartyId,
     pub ingestion_methods: HashSet<ListingIngestionMethod>,
     pub presentation: ListingSourcePresentation,
@@ -51,6 +53,8 @@ pub enum RehydrateListingSourceError {
     InvalidName(#[source] ListingSourceNameError),
     #[error("invalid persisted listing source type")]
     InvalidListingSourceType(#[source] InvalidListingSourceType),
+    #[error("invalid persisted listing source purchase channel")]
+    InvalidPurchaseChannel(#[source] InvalidListingSourcePurchaseChannel),
     #[error("invalid persisted platform technology")]
     InvalidPlatformTechnology(#[source] PlatformTechnologyError),
 }
@@ -61,6 +65,7 @@ pub struct ListingSource {
     slug_id: ListingSourceSlugId,
     name: ListingSourceName,
     listing_source_type: ListingSourceType,
+    purchase_channel: ListingSourcePurchaseChannel,
     operator_party_id: PartyId,
     ingestion_methods: HashSet<ListingIngestionMethod>,
     presentation: ListingSourcePresentation,
@@ -78,6 +83,7 @@ impl ListingSource {
             id: input.id,
             name: input.name,
             listing_source_type: input.listing_source_type,
+            purchase_channel: input.purchase_channel,
             operator_party_id: input.operator_party_id,
             ingestion_methods: input.ingestion_methods,
             presentation: input.presentation,
@@ -100,6 +106,10 @@ impl ListingSource {
                 .listing_source_type
                 .parse()
                 .map_err(RehydrateListingSourceError::InvalidListingSourceType)?,
+            purchase_channel: state
+                .purchase_channel
+                .parse()
+                .map_err(RehydrateListingSourceError::InvalidPurchaseChannel)?,
             operator_party_id: state.operator_party_id,
             ingestion_methods: state.ingestion_methods,
             presentation: state.presentation,
@@ -118,6 +128,13 @@ impl ListingSource {
 
     pub fn reclassify(&mut self, listing_source_type: ListingSourceType) -> ChangeOutcome {
         replace(&mut self.listing_source_type, listing_source_type)
+    }
+
+    pub fn change_purchase_channel(
+        &mut self,
+        purchase_channel: ListingSourcePurchaseChannel,
+    ) -> ChangeOutcome {
+        replace(&mut self.purchase_channel, purchase_channel)
     }
 
     pub fn replace_ingestion_methods(
@@ -166,6 +183,10 @@ impl ListingSource {
 
     pub fn listing_source_type(&self) -> ListingSourceType {
         self.listing_source_type
+    }
+
+    pub fn purchase_channel(&self) -> ListingSourcePurchaseChannel {
+        self.purchase_channel
     }
 
     pub fn operator_party_id(&self) -> PartyId {
@@ -218,6 +239,7 @@ mod tests {
                 id: ListingSourceId::new(),
                 name,
                 listing_source_type: ListingSourceType::Dealer,
+                purchase_channel: ListingSourcePurchaseChannel::OnlineShop,
                 operator_party_id: PartyId::new(),
                 ingestion_methods: HashSet::new(),
                 presentation: ListingSourcePresentation::default(),
@@ -244,6 +266,7 @@ mod tests {
             slug_id: "historic--source".to_owned(),
             name: "\u{2003}".to_owned(),
             listing_source_type: "DEALER".to_owned(),
+            purchase_channel: "ONLINE_SHOP".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
@@ -261,6 +284,7 @@ mod tests {
             slug_id: "historic-source".to_owned(),
             name: "\u{2003}".to_owned(),
             listing_source_type: "DEALER".to_owned(),
+            purchase_channel: "ONLINE_SHOP".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
@@ -281,6 +305,7 @@ mod tests {
             slug_id: "historic-source".to_owned(),
             name: "Historic Source".to_owned(),
             listing_source_type: "SELLER".to_owned(),
+            purchase_channel: "ONLINE_SHOP".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
@@ -301,6 +326,7 @@ mod tests {
             slug_id: "historic-source".to_owned(),
             name: "Historic Source".to_owned(),
             listing_source_type: "DEALER".to_owned(),
+            purchase_channel: "ONLINE_SHOP".to_owned(),
             operator_party_id: PartyId::new(),
             ingestion_methods: HashSet::new(),
             presentation: ListingSourcePresentation::default(),
@@ -314,5 +340,63 @@ mod tests {
                 PlatformTechnologyError::InvalidIdentifier
             ))
         ));
+    }
+
+    #[test]
+    fn should_reject_unknown_persisted_purchase_channel() {
+        let state = RehydratedListingSourceState {
+            id: ListingSourceId::new(),
+            slug_id: "historic-source".to_owned(),
+            name: "Historic Source".to_owned(),
+            listing_source_type: "DEALER".to_owned(),
+            purchase_channel: "SHOP".to_owned(),
+            operator_party_id: PartyId::new(),
+            ingestion_methods: HashSet::new(),
+            presentation: ListingSourcePresentation::default(),
+            platform_technology: None,
+            referral_configuration: None,
+        };
+
+        assert!(matches!(
+            ListingSource::rehydrate(state),
+            Err(RehydrateListingSourceError::InvalidPurchaseChannel(_))
+        ));
+    }
+
+    #[test]
+    fn should_report_change_only_when_purchase_channel_differs() {
+        let name = listing_source_name("Antik und Stil");
+        let slug_id = ListingSourceSlugId::candidates(&name)
+            .next()
+            .unwrap_or_else(|| panic!("listing source name has no slug candidate"));
+        let mut source = ListingSource::create(
+            NewListingSource {
+                id: ListingSourceId::new(),
+                name,
+                listing_source_type: ListingSourceType::Dealer,
+                purchase_channel: ListingSourcePurchaseChannel::OnlineShop,
+                operator_party_id: PartyId::new(),
+                ingestion_methods: HashSet::new(),
+                presentation: ListingSourcePresentation::default(),
+                platform_technology: None,
+                referral_configuration: None,
+            },
+            slug_id,
+        );
+
+        assert!(
+            !source
+                .change_purchase_channel(ListingSourcePurchaseChannel::OnlineShop)
+                .changed()
+        );
+        assert!(
+            source
+                .change_purchase_channel(ListingSourcePurchaseChannel::EnquiryOnly)
+                .changed()
+        );
+        assert_eq!(
+            ListingSourcePurchaseChannel::EnquiryOnly,
+            source.purchase_channel()
+        );
     }
 }
