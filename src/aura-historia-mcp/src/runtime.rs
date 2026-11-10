@@ -199,11 +199,23 @@ mod tests {
         }
     }
 
-    /// The Claude and ChatGPT directories require a display title and explicit hints.
+    /// The Claude and ChatGPT directories require a display title and explicit hints, and Claude
+    /// flags an argument without a `type`; a nullable `anyOf` union passes its review.
     fn assert_directory_metadata(tools: &[rmcp::model::Tool]) {
         let mut titles = std::collections::BTreeSet::new();
         for tool in tools {
             let published = serde_json::to_value(tool).unwrap();
+            for (name, argument) in published["inputSchema"]["properties"]
+                .as_object()
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    argument.get("type").is_some() || argument.get("anyOf").is_some(),
+                    "{}.{name}: argument without a type: {argument}",
+                    tool.name
+                );
+            }
             let title = published["title"].as_str().unwrap_or_default();
             assert!(!title.is_empty(), "{}: missing title", tool.name);
             assert!(

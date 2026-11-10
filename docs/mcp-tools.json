@@ -167,7 +167,8 @@
               ],
               "type": "object"
             }
-          ]
+          ],
+          "type": "object"
         },
         "label": {
           "type": "string"
@@ -968,7 +969,8 @@
           "type": "boolean"
         },
         "search": {
-          "$ref": "#/$defs/ProductListingSearchData"
+          "$ref": "#/$defs/ProductListingSearchData",
+          "type": "object"
         }
       },
       "required": [
@@ -1840,7 +1842,8 @@
       "additionalProperties": false,
       "properties": {
         "geography": {
-          "$ref": "#/$defs/GeographicSearchData"
+          "$ref": "#/$defs/GeographicSearchData",
+          "type": "object"
         },
         "searchAfter": {
           "anyOf": [
@@ -20131,7 +20134,8 @@
       "additionalProperties": false,
       "properties": {
         "destination": {
-          "$ref": "#/$defs/DestinationData"
+          "$ref": "#/$defs/DestinationData",
+          "type": "object"
         },
         "expectedVersion": {
           "format": "uint64",
@@ -20573,7 +20577,8 @@
         },
         "created": {
           "$ref": "#/$defs/DateRangeSchema",
-          "default": null
+          "default": null,
+          "type": "object"
         },
         "currency": {
           "default": "EUR",
@@ -20734,11 +20739,13 @@
         },
         "lotBiddingOpens": {
           "$ref": "#/$defs/DateRangeSchema",
-          "default": null
+          "default": null,
+          "type": "object"
         },
         "lotScheduledCloses": {
           "$ref": "#/$defs/DateRangeSchema",
-          "default": null
+          "default": null,
+          "type": "object"
         },
         "order": {
           "anyOf": [
@@ -20835,7 +20842,8 @@
         },
         "updated": {
           "$ref": "#/$defs/DateRangeSchema",
-          "default": null
+          "default": null,
+          "type": "object"
         }
       },
       "title": "SearchInput",
@@ -22306,7 +22314,11 @@
       "additionalProperties": false,
       "properties": {
         "feedback": {
-          "$ref": "#/$defs/PatchValue_boolean"
+          "$ref": "#/$defs/PatchValue_boolean",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "productListingId": {
           "pattern": "^pl_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
@@ -22871,7 +22883,8 @@
               ],
               "type": "object"
             }
-          ]
+          ],
+          "type": "object"
         },
         "label": {
           "type": "string"

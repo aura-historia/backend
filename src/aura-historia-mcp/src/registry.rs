@@ -81,6 +81,7 @@ impl OperationDefinition {
         if !normalize_object_schema(&mut input) {
             return Err(RegistryError::ObjectInput);
         }
+        declare_referenced_property_types(&mut input);
         let mut output = schema::<O>(SchemaSettings::default().for_serialize())?;
         let direct_output = normalize_object_schema(&mut output);
         let output = if direct_output {
@@ -246,6 +247,76 @@ fn has_only_object_variants(schema: &JsonObject) -> bool {
         })
 }
 
+/// Longest `$ref` / `allOf` / `oneOf` chain followed to find a definition's type. Generated
+/// schemas nest only a few levels; the bound exists to end a reference cycle.
+const MAX_TYPE_LOOKUP_DEPTH: usize = 8;
+
+/// Schemars describes an argument whose type is a shared definition as a bare `$ref`, or as an
+/// `allOf` that refines one, and leaves out its `type`. The Claude connector review flags such
+/// arguments, so the type the definition already declares is repeated next to the reference. It
+/// never narrows what the argument accepts. Only the tool's own arguments are completed, not the
+/// properties inside shared definitions. An argument whose type cannot be derived stays as
+/// generated, and the production registry test reports it.
+fn declare_referenced_property_types(schema: &mut JsonObject) {
+    let Some(Value::Object(properties)) = schema.get("properties") else {
+        return;
+    };
+    let declarations: Vec<(String, Value)> = properties
+        .iter()
+        .filter_map(|(name, property)| {
+            let property = property.as_object()?;
+            let is_reference = property.contains_key("$ref") || property.contains_key("allOf");
+            if !is_reference || property.contains_key("type") {
+                return None;
+            }
+            let declared = declared_type(property, schema, 0)?;
+            Some((name.clone(), declared))
+        })
+        .collect();
+    if let Some(Value::Object(properties)) = schema.get_mut("properties") {
+        for (name, declared) in declarations {
+            if let Some(Value::Object(property)) = properties.get_mut(&name) {
+                property.insert("type".into(), declared);
+            }
+        }
+    }
+}
+
+/// The `type` a schema declares itself, through its `$ref` target or `allOf` members, or the one
+/// that every `oneOf` / `anyOf` variant agrees on.
+fn declared_type(schema: &JsonObject, root: &JsonObject, depth: usize) -> Option<Value> {
+    if depth > MAX_TYPE_LOOKUP_DEPTH {
+        return None;
+    }
+    if let Some(declared) = schema.get("type") {
+        return Some(declared.clone());
+    }
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        let definition = reference.strip_prefix("#/$defs/")?;
+        let target = root.get("$defs")?.get(definition)?.as_object()?;
+        return declared_type(target, root, depth + 1);
+    }
+    if let Some(members) = schema.get("allOf").and_then(Value::as_array) {
+        // Every member applies, so the type of any one of them already holds for the whole.
+        return members
+            .iter()
+            .filter_map(Value::as_object)
+            .find_map(|member| declared_type(member, root, depth + 1));
+    }
+    ["oneOf", "anyOf"].iter().find_map(|keyword| {
+        let variants = schema.get(*keyword)?.as_array()?;
+        let mut types = variants.iter().map(|variant| {
+            variant
+                .as_object()
+                .and_then(|variant| declared_type(variant, root, depth + 1))
+        });
+        let shared = types.next()??;
+        types
+            .all(|other| other.as_ref() == Some(&shared))
+            .then_some(shared)
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
     #[error("tool name must be the source operation ID using supported ASCII characters")]
@@ -300,4 +371,139 @@ where
             Ok(result)
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    fn declare(mut schema: Value) -> Value {
+        declare_referenced_property_types(schema.as_object_mut().unwrap());
+        schema
+    }
+
+    #[test]
+    fn should_declare_the_object_type_of_a_referenced_definition() {
+        let schema = declare(json!({
+            "type": "object",
+            "properties": {"range": {"$ref": "#/$defs/Range", "default": null}},
+            "$defs": {"Range": {"type": "object", "properties": {}}}
+        }));
+
+        assert_eq!(
+            json!({"$ref": "#/$defs/Range", "default": null, "type": "object"}),
+            schema["properties"]["range"]
+        );
+    }
+
+    #[test]
+    fn should_declare_the_scalar_type_of_a_referenced_definition() {
+        let schema = declare(json!({
+            "type": "object",
+            "properties": {"feedback": {"$ref": "#/$defs/PatchValue_boolean"}},
+            "$defs": {"PatchValue_boolean": {"type": ["boolean", "null"]}}
+        }));
+
+        assert_eq!(
+            json!(["boolean", "null"]),
+            schema["properties"]["feedback"]["type"]
+        );
+    }
+
+    #[test]
+    fn should_declare_the_type_every_variant_of_a_referenced_definition_shares() {
+        for keyword in ["oneOf", "anyOf"] {
+            let schema = declare(json!({
+                "type": "object",
+                "properties": {"destination": {"$ref": "#/$defs/Destination"}},
+                "$defs": {"Destination": {(keyword): [
+                    {"type": "object", "properties": {"kind": {"const": "NONE"}}},
+                    {"type": "object", "properties": {"kind": {"const": "COUNTRY"}}}
+                ]}}
+            }));
+
+            assert_eq!(
+                json!("object"),
+                schema["properties"]["destination"]["type"],
+                "{keyword}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_declare_the_type_of_a_refined_definition() {
+        let schema = declare(json!({
+            "type": "object",
+            "properties": {"geography": {"allOf": [
+                {"$ref": "#/$defs/Geography"},
+                {"properties": {"addressText": {"type": "string"}}, "required": ["addressText"]}
+            ]}},
+            "$defs": {"Geography": {"type": "object", "properties": {}}}
+        }));
+
+        assert_eq!(json!("object"), schema["properties"]["geography"]["type"]);
+    }
+
+    #[test]
+    fn should_keep_arguments_whose_type_is_declared_or_not_derivable() {
+        let original = json!({
+            "type": "object",
+            "properties": {
+                "declared": {"$ref": "#/$defs/Range", "type": "object"},
+                "nullable": {"anyOf": [{"$ref": "#/$defs/Range"}, {"type": "null"}]},
+                "mixed": {"$ref": "#/$defs/Mixed"},
+                "mostly": {"$ref": "#/$defs/Mostly"},
+                "missing": {"$ref": "#/$defs/Missing"},
+                "foreign": {"$ref": "https://example.test/schema.json"},
+                "loop": {"$ref": "#/$defs/Loop"}
+            },
+            "$defs": {
+                "Range": {"type": "object"},
+                "Mixed": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                "Mostly": {"oneOf": [{"type": "object"}, {"type": "object"}, {"type": "string"}]},
+                "Loop": {"$ref": "#/$defs/Loop"}
+            }
+        });
+
+        assert_eq!(original, declare(original.clone()));
+    }
+
+    #[derive(Deserialize, JsonSchema)]
+    struct Window {
+        #[allow(dead_code)]
+        min: Option<u64>,
+    }
+
+    #[derive(Deserialize, JsonSchema)]
+    struct WindowInput {
+        #[allow(dead_code)]
+        window: Window,
+    }
+
+    #[test]
+    fn should_publish_declared_argument_types_for_a_registered_operation() {
+        let operation = OperationDefinition::new::<WindowInput, Completed, _, _>(
+            "windowOperation",
+            "Window operation",
+            "Takes a window.",
+            OperationPolicy {
+                access: AccessClass::Public,
+                required_scopes: Vec::new(),
+                read_only: true,
+                destructive: false,
+                idempotent: true,
+                open_world: false,
+            },
+            |_, _| async { Ok(Completed {}) },
+        )
+        .unwrap();
+
+        let schema = serde_json::to_value(&operation.tool().input_schema).unwrap();
+
+        assert_eq!(
+            json!({"$ref": "#/$defs/Window", "type": "object"}),
+            schema["properties"]["window"]
+        );
+    }
 }
