@@ -5006,9 +5006,50 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(url["review_page_id"], Value::Null);
             assert_eq!(url["url"], format!("{SHOP}/item/table"));
             assert_eq!(url["final_url"], format!("{SHOP}/item/table"));
+            assert_eq!(url["view"], "OUTLINE");
+
+            // The markdown view answers the same shape, and its fetch counts as an inspection.
+            let bench = format!("{SHOP}/item/bench");
+            let (status, markdown) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("{route}?url={}&view=markdown", encoded(&bench)),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {markdown}");
+            assert_eq!(markdown["view"], "MARKDOWN");
+            assert_eq!(markdown["url"], bench);
+            assert_eq!(markdown["describes_one_product"], true);
+            assert_eq!(
+                markdown["projection"].as_str().unwrap_or_default(),
+                crate::scraper::css_selector::product_schema_service::html_to_agent_page_markdown(
+                    &product_page("bench")
+                )
+            );
+            assert_eq!(
+                markdown["projection"].as_str().unwrap_or_default(),
+                "bench\n# bench\nIn stock\n"
+            );
+            let inspected: Vec<String> = sqlx::query_scalar(
+                "SELECT url FROM crawler_review_inspected_pages WHERE review_id = $1 ORDER BY url",
+            )
+            .bind(review_id.as_uuid())
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("inspected pages: {error}"));
+            assert_eq!(
+                inspected,
+                [
+                    bench.clone(),
+                    format!("{SHOP}/item/chair"),
+                    format!("{SHOP}/item/table")
+                ]
+            );
 
             let foreign = encoded("https://elsewhere.example/item/1");
             for (query, expected) in [
+                (format!("page={page_id}&view=yaml"), "HTTP/1.1 400"),
                 (format!("url={foreign}"), "HTTP/1.1 400"),
                 (String::new(), "HTTP/1.1 400"),
                 (format!("page={page_id}&url={table}"), "HTTP/1.1 400"),
@@ -5024,7 +5065,11 @@ Origin: http://127.0.0.1:7878/x
             }
             assert_eq!(
                 shop.fetched(),
-                [format!("{SHOP}/item/chair"), format!("{SHOP}/item/table")]
+                [
+                    format!("{SHOP}/item/chair"),
+                    format!("{SHOP}/item/table"),
+                    bench
+                ]
             );
         }
 

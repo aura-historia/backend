@@ -467,6 +467,16 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .unwrap();
     assert_eq!(page["describes_one_product"], true);
     assert!(page["projection"].as_str().unwrap().contains("chair"));
+    assert_eq!(page["view"], "OUTLINE");
+    let markdown = reviewer
+        .call(
+            "inspect_page",
+            json!({ "review_id": product_schema.to_string(), "review_page_id": page_id, "view": "MARKDOWN" }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(markdown["view"], "MARKDOWN");
+    assert!(markdown["projection"].as_str().unwrap().contains("chair"));
 
     // Every tool that takes a URL refuses one off the review's ListingSource before a request.
     for (tool, arguments) in [

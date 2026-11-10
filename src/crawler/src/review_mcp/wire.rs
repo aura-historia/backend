@@ -7,6 +7,7 @@ use crate::review::model::{
     CrawlerReview, CrawlerReviewPage, CrawlerReviewUrl, SchemaMatrix, SourceProductUrl,
     UrlPatternReviewCandidate,
 };
+use crate::review::page_projection::PageView;
 use crate::review::product_markup::JsonLdProductIds;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -73,6 +74,9 @@ pub(super) struct PageProjection {
     pub(super) review_page_id: Option<CrawlerReviewPageId>,
     pub(super) url: String,
     pub(super) final_url: String,
+    /// Absent in an answer of a console older than this field, which projects only the outline.
+    #[serde(default)]
+    pub(super) view: PageView,
     pub(super) projection: String,
     pub(super) describes_one_product: bool,
     /// Absent in an answer of a console older than this field.

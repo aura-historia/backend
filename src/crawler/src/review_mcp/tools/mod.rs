@@ -33,11 +33,17 @@ use url::Url;
 pub struct ToolContext {
     pub(super) console: ConsoleClient,
     pub(super) polling: Polling,
+    /// The `inspect_page` calls this process has left.
+    inspections: shared::InspectionBudget,
 }
 
 impl ToolContext {
     pub fn new(console: ConsoleClient, polling: Polling) -> Self {
-        Self { console, polling }
+        Self {
+            console,
+            polling,
+            inspections: shared::InspectionBudget::default(),
+        }
     }
 }
 
