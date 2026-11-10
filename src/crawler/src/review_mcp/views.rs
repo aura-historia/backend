@@ -29,8 +29,11 @@ const MAX_SAMPLE_URLS: usize = 150;
 /// The most bytes the URLs of one sample page take as JSON, so a page of long URLs ends early,
 /// with its `sample_urls_next_offset`, instead of being cut by the answer bound.
 const MAX_SAMPLE_PAGE_BYTES: usize = 30 * 1024;
-/// The most events, the latest ones, `get_review` answers.
-const MAX_EVENTS: usize = 40;
+/// The most events, the latest ones, `get_review` answers. The latest needs-repair request comes
+/// whole as `repair_request`, so the trail is for orientation, not for the repair.
+const MAX_EVENTS: usize = 10;
+/// The longest note of an event in a `get_review` answer, in characters.
+const MAX_EVENT_NOTE_CHARS: usize = 400;
 /// The longest notes, error messages and reasons an answer carries, in characters.
 const MAX_NOTE_CHARS: usize = 1_000;
 /// The longest extracted value a matrix answer carries, in characters.
@@ -116,9 +119,9 @@ pub struct ReviewView {
     /// agent handed it over, and every change, verdict and page fetch of an agent on it is refused
     /// with `HUMAN_REQUIRED` until a human changes or judges it. Leave such a review alone.
     pub human_required: bool,
-    pub candidate: CandidateView,
-    /// The pages a product-schema candidate is evaluated on.
-    pub pages: Vec<ReviewPageView>,
+    /// What only the first page of the URL sample carries; left out from the second page on.
+    #[serde(flatten)]
+    pub body: Option<ReviewBody>,
     /// One page of the URL sample of a URL-pattern review, with how the candidate classifies each
     /// URL: at most 150 URLs from `sample_urls_offset` on.
     pub sample_urls: Vec<SampleUrlView>,
@@ -129,6 +132,17 @@ pub struct ReviewView {
     /// The `offset` that reads the next page of the sample with `get_review`; null on the last
     /// page.
     pub sample_urls_next_offset: Option<usize>,
+    pub truncations: Vec<String>,
+}
+
+/// What a `get_review` answer carries besides the URL sample page. Every answer stays in the
+/// agent's context, so a read of a later sample page leaves it out: the agent has it from the first
+/// read, and the `candidate_version` of the later answer says whether it still holds.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ReviewBody {
+    pub candidate: CandidateView,
+    /// The pages a product-schema candidate is evaluated on.
+    pub pages: Vec<ReviewPageView>,
     /// Product URLs of the review's ListingSource that are not review pages, for picking live,
     /// sold, price-on-application or photo-less pages to test with `evaluate_candidate` or add
     /// with `add_review_page`; empty on a URL-pattern review. At most 40: those that scraped
@@ -140,7 +154,6 @@ pub struct ReviewView {
     /// The latest events of the review's trail, oldest first.
     pub events: Vec<EventView>,
     pub events_total: usize,
-    pub truncations: Vec<String>,
 }
 
 /// A review's candidate.
@@ -411,10 +424,17 @@ impl ReviewView {
             events,
         } = detail;
         let mut truncations = Vec::new();
-        let matrix = stored_matrix(&review, &pages);
         let sample = SamplePage::of(urls, sample_offset, &mut truncations);
-        let events_total = events.len();
-        let events = keep_last(events, MAX_EVENTS, "events", &mut truncations);
+        let body = (sample.offset == 0).then(|| {
+            ReviewBody::of(
+                &review,
+                candidate,
+                pages,
+                source_product_urls,
+                events,
+                &mut truncations,
+            )
+        });
         Self {
             review_id: review.review_id.to_string(),
             status: review.status,
@@ -429,20 +449,38 @@ impl ReviewView {
             repair_request: review.repair_request.map(RepairRequestView::of),
             agent_rounds: review.agent_rounds,
             human_required: review.human_required,
+            body,
+            sample_urls: sample.urls,
+            sample_urls_offset: sample.offset,
+            sample_urls_total: sample.total,
+            sample_urls_next_offset: sample.next_offset,
+            truncations,
+        }
+    }
+}
+
+impl ReviewBody {
+    fn of(
+        review: &CrawlerReview,
+        candidate: wire::Candidate,
+        pages: Vec<CrawlerReviewPage>,
+        source_product_urls: Vec<SourceProductUrl>,
+        events: Vec<wire::ReviewEvent>,
+        truncations: &mut Vec<String>,
+    ) -> Self {
+        let matrix = stored_matrix(review, &pages);
+        let events_total = events.len();
+        let events = keep_last(events, MAX_EVENTS, "events", truncations);
+        Self {
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
             source_product_urls: source_product_urls
                 .into_iter()
                 .map(SourceProductUrlView::of)
                 .collect(),
-            sample_urls: sample.urls,
-            sample_urls_offset: sample.offset,
-            sample_urls_total: sample.total,
-            sample_urls_next_offset: sample.next_offset,
             matrix,
             events: events.into_iter().map(EventView::of).collect(),
             events_total,
-            truncations,
         }
     }
 }
@@ -596,7 +634,10 @@ impl EventView {
             actor: event.actor,
             action: event.action,
             candidate_version: event.candidate_version,
-            notes: event.notes.as_deref().map(note),
+            notes: event
+                .notes
+                .as_deref()
+                .map(|notes| truncated_text(notes, MAX_EVENT_NOTE_CHARS)),
             created: event.created,
         }
     }
@@ -922,13 +963,13 @@ mod tests {
             "the matches unknown before the ListingSource has a pattern are left out"
         );
         assert_eq!(view["sample_urls_total"], 200);
-        assert_eq!(view["events"][0]["candidate_version"], 10);
+        assert_eq!(view["events"][0]["candidate_version"], 40);
         assert_eq!(view["events_total"], 50);
         assert_eq!(
             view["truncations"],
             json!([
                 "sample_urls: URLs 0 to 150 of 200",
-                "events: the last 40 of 50"
+                "events: the last 10 of 50"
             ])
         );
         assert_eq!(view["matrix"], Value::Null);
@@ -1025,6 +1066,60 @@ mod tests {
             pages[2]["truncations"],
             json!(["sample_urls: URLs 300 to 400 of 400"])
         );
+    }
+
+    /// The sample page after the first is what the agent reads on, so it carries the candidate's
+    /// version to compare and none of what the first answer already put in the context.
+    #[test]
+    fn should_leave_the_review_body_out_of_every_sample_page_after_the_first() {
+        let candidate = json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": null,
+        });
+        let page = |offset| {
+            json!(ReviewView::of(
+                url_pattern_detail(&candidate, 400, 5),
+                wire::Candidate::UrlPattern(decoded(candidate.clone())),
+                offset,
+            ))
+        };
+        let body_fields = [
+            "candidate",
+            "pages",
+            "source_product_urls",
+            "matrix",
+            "events",
+            "events_total",
+        ];
+
+        let (first, second) = (page(0), page(150));
+
+        for field in body_fields {
+            assert!(first.get(field).is_some(), "{field} missing from {first}");
+            assert!(second.get(field).is_none(), "{field} in {second}");
+        }
+        assert_eq!(second["candidate_version"], first["candidate_version"]);
+        assert_eq!(second["sample_urls_offset"], 150);
+        assert_eq!(
+            second["truncations"],
+            json!(["sample_urls: URLs 150 to 300 of 400"])
+        );
+    }
+
+    #[test]
+    fn should_cut_the_notes_of_the_events_shorter_than_other_notes() {
+        let candidate = json!({ "decision": { "type": "NO_PATTERN" }, "current_pattern": null });
+        let mut detail = url_pattern_detail(&candidate, 0, 1);
+        detail.events[0].notes = Some("n".repeat(MAX_NOTE_CHARS));
+
+        let view = json!(ReviewView::of(
+            detail,
+            wire::Candidate::UrlPattern(decoded(candidate)),
+            0,
+        ));
+
+        let notes = view["events"][0]["notes"].as_str().unwrap_or_default();
+        assert!(notes.contains("[truncated: 400 of "), "{notes}");
     }
 
     #[test]
