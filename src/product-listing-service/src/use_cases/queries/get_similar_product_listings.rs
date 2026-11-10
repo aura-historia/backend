@@ -4,6 +4,7 @@ use crate::ports::{
     ProductListingEmbeddingReaderFactory, ProductListingPriceFilterPlan,
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
     ProductListingSimilarProductListingsRequest, ProductListingUserStateReader,
+    SimilarProductListingsLimit,
 };
 use crate::use_cases::PersonalizedProductListingSummary;
 use crate::use_cases::queries::product_listing_summary_personalization::{
@@ -30,6 +31,7 @@ pub struct GetSimilarProductListingsRequest {
     pub lookup: ProductListingEmbeddingLookup,
     pub language: Language,
     pub currency: Currency,
+    pub limit: SimilarProductListingsLimit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -232,6 +234,7 @@ where
                 embedding,
                 request.language,
                 price_filter_plan,
+                request.limit,
             ))
             .await?;
         let sourced_products =
@@ -780,6 +783,7 @@ mod tests {
             lookup: ProductListingEmbeddingLookup::ById(ProductListingId::new()),
             language: Language::En,
             currency: Currency::Eur,
+            limit: SimilarProductListingsLimit::default(),
         }
     }
 

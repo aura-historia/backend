@@ -12,7 +12,6 @@ use product_listing_service::ports::{
 use serde_json::json;
 
 const DEFAULT_INDEX: &str = "product-listings";
-const DEFAULT_RESULT_COUNT: u64 = 20;
 
 #[derive(Clone)]
 pub struct OpenSearchProductListingSimilarProductListingsReader {
@@ -81,12 +80,12 @@ pub(crate) fn build_similar_products_request(
 ) -> serde_json::Value {
     json!({
         "_source": { "excludes": [ProductListingDocumentSerdeField::Embedding] },
-        "size": DEFAULT_RESULT_COUNT,
+        "size": request.limit.get(),
         "query": {
             "knn": {
                 ProductListingDocumentSerdeField::Embedding.as_str(): {
                     "vector": request.embedding,
-                    "k": DEFAULT_RESULT_COUNT,
+                    "k": request.limit.get(),
                     "filter": {
                         "bool": {
                             "must_not": [{
@@ -110,7 +109,9 @@ mod tests {
     use money::Currency;
     use opensearch::http::transport::{SingleNodeConnectionPool, TransportBuilder};
     use product_listing_core::product_listing_id::ProductListingId;
-    use product_listing_service::ports::ProductListingPriceFilterPlan;
+    use product_listing_service::ports::{
+        ProductListingPriceFilterPlan, SimilarProductListingsLimit,
+    };
     use serde_json::json;
     use strum::IntoEnumIterator;
     use time::OffsetDateTime;
@@ -138,6 +139,7 @@ mod tests {
             embedding: vec![0.1, 0.2],
             language: Language::De,
             price_filter_plan: test_price_filter_plan(),
+            limit: SimilarProductListingsLimit::default(),
         };
 
         let actual = build_similar_products_request(&request);
@@ -171,6 +173,7 @@ mod tests {
             embedding: vec![0.1, 0.2],
             language: Language::De,
             price_filter_plan: test_price_filter_plan(),
+            limit: SimilarProductListingsLimit::default(),
         };
 
         let result = tokio::time::timeout(

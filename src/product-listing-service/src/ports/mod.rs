@@ -144,7 +144,7 @@ pub use product_listing_search_reader::{
 };
 pub use product_listing_similar_product_listings_reader::{
     ProductListingSimilarProductListingsReadError, ProductListingSimilarProductListingsReader,
-    ProductListingSimilarProductListingsRequest,
+    ProductListingSimilarProductListingsRequest, SimilarProductListingsLimit,
 };
 pub use product_listing_title_translator::{
     ProductListingTitleTranslationError, ProductListingTitleTranslator,

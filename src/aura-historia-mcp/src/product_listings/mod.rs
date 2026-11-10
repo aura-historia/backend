@@ -20,7 +20,7 @@ use product_listing_core::{
     product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
 };
 use product_listing_service::{
-    ports::ProductListingEmbeddingLookup,
+    ports::{ProductListingEmbeddingLookup, SimilarProductListingsLimit},
     use_cases::{
         GetProductListingRequest, GetSimilarProductListingsRequest,
         GetSimilarProductListingsResult, ProductListingLookup,
@@ -191,6 +191,7 @@ fn similar(
                             lookup: ProductListingEmbeddingLookup::ById(input.product_listing_id),
                             language: input.presentation.language,
                             currency: input.presentation.currency,
+                            limit: SimilarProductListingsLimit::default(),
                         },
                     ))
                     .await?
