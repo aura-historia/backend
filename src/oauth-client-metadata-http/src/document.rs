@@ -11,6 +11,7 @@ struct MetadataDocumentWire {
     client_name: Option<String>,
     redirect_uris: Option<Vec<String>>,
     token_endpoint_auth_method: Option<String>,
+    token_endpoint_auth_methods_supported: Option<Vec<String>>,
     grant_types: Option<Vec<String>>,
     response_types: Option<Vec<String>>,
     client_uri: Option<String>,
@@ -54,6 +55,7 @@ pub(crate) fn parse_claims(body: &[u8]) -> Result<ClientMetadataDocumentClaims, 
         client_name: wire.client_name,
         redirect_uris: wire.redirect_uris,
         token_endpoint_auth_method: wire.token_endpoint_auth_method,
+        token_endpoint_auth_methods_supported: wire.token_endpoint_auth_methods_supported,
         grant_types: wire.grant_types,
         response_types: wire.response_types,
         client_uri: wire.client_uri,
@@ -65,6 +67,9 @@ pub(crate) fn parse_claims(body: &[u8]) -> Result<ClientMetadataDocumentClaims, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use credential_core::metadata_document_client_id::MetadataDocumentClientId;
+    use oauth_core::metadata_document_client::ClientMetadataDocument;
+    use url::Url;
 
     #[test]
     fn should_map_the_members_aura_reads_and_ignore_others() {
@@ -74,6 +79,7 @@ mod tests {
                 "client_name": "Agent",
                 "redirect_uris": ["http://127.0.0.1/callback"],
                 "token_endpoint_auth_method": "none",
+                "token_endpoint_auth_methods_supported": ["none"],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
                 "client_uri": "https://agent.example",
@@ -90,6 +96,7 @@ mod tests {
                 client_name: Some("Agent".to_owned()),
                 redirect_uris: Some(vec!["http://127.0.0.1/callback".to_owned()]),
                 token_endpoint_auth_method: Some("none".to_owned()),
+                token_endpoint_auth_methods_supported: Some(vec!["none".to_owned()]),
                 grant_types: Some(vec![
                     "authorization_code".to_owned(),
                     "refresh_token".to_owned()
@@ -105,6 +112,39 @@ mod tests {
             ClientMetadataDocumentClaims::default(),
             parse_claims(b"{}").unwrap()
         );
+    }
+
+    /// The document `https://chatgpt.com/oauth/client.json` served on 2026-11-10.
+    const CHATGPT_DOCUMENT: &[u8] = br#"{
+        "client_id": "https://chatgpt.com/oauth/client.json",
+        "client_uri": "https://chatgpt.com/",
+        "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+        "token_endpoint_auth_method": "private_key_jwt",
+        "token_endpoint_auth_methods_supported": ["none", "private_key_jwt"],
+        "grant_types": [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        ],
+        "response_types": ["code"],
+        "client_name": "ChatGPT",
+        "logo_uri": "https://persistent.oaistatic.com/sonic/misc/openai-logo.png",
+        "token_endpoint_auth_signing_alg": "RS256",
+        "jwks_uri": "https://chatgpt.com/oauth/jwks.json"
+    }"#;
+
+    #[test]
+    fn should_accept_the_document_chatgpt_publishes_for_its_connectors() {
+        let client_id =
+            MetadataDocumentClientId::try_from("https://chatgpt.com/oauth/client.json").unwrap();
+
+        let document =
+            ClientMetadataDocument::validate(&client_id, parse_claims(CHATGPT_DOCUMENT).unwrap())
+                .unwrap();
+
+        assert!(document.admits_redirect_uri(
+            &Url::parse("https://chatgpt.com/connector_platform_oauth_redirect").unwrap()
+        ));
     }
 
     #[test]
@@ -148,6 +188,7 @@ mod tests {
             &br#"{"redirect_uris": "http://127.0.0.1/callback"}"#[..],
             br#"{"client_name": 7}"#,
             br#"{"grant_types": [1]}"#,
+            br#"{"token_endpoint_auth_methods_supported": "none"}"#,
         ] {
             assert!(matches!(
                 parse_claims(body),

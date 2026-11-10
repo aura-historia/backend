@@ -45,6 +45,7 @@ impl ClientMetadataDocumentSource for AgentDocument {
             client_name: Some("Example Agent".to_owned()),
             redirect_uris: Some(vec!["http://127.0.0.1/callback".to_owned()]),
             token_endpoint_auth_method: Some("none".to_owned()),
+            token_endpoint_auth_methods_supported: None,
             grant_types: Some(self.grant_types.iter().map(|&value| value.into()).collect()),
             response_types: None,
             client_uri: None,
