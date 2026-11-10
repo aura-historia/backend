@@ -48,6 +48,37 @@ pub(super) const MAX_PROJECTION_CHARS: usize = 24_000;
 /// tell; the rest of a long page, a listing's repeated items for one, is context cost without a
 /// decision behind it.
 pub(super) const MAX_URL_PATTERN_PROJECTION_CHARS: usize = 4_000;
+
+/// The `meta` properties and names whose lines a URL-pattern outline keeps: what a page says it is
+/// and what it sells.
+const URL_PATTERN_META_SIGNALS: [&str; 8] = [
+    "og:type",
+    "og:title",
+    "og:price",
+    "og:availability",
+    "product:price",
+    "product:availability",
+    "twitter:label",
+    "twitter:data",
+];
+
+/// `outline` of a page for labelling its URL: the `link` and `meta` lines of the document head
+/// leave out, except those naming the page's type, title, price or availability, so the window of
+/// [`MAX_URL_PATTERN_PROJECTION_CHARS`] reaches the body instead of ending in a head that shops
+/// fill with hundreds of characters of tracking and image metadata.
+pub(super) fn url_pattern_outline(outline: &str) -> String {
+    outline
+        .split_inclusive('\n')
+        .filter(|line| {
+            let head_line = line.starts_with("link[") || line.starts_with("meta[");
+            !head_line
+                || (line.starts_with("meta[")
+                    && URL_PATTERN_META_SIGNALS
+                        .iter()
+                        .any(|signal| line.contains(signal)))
+        })
+        .collect()
+}
 /// The most bytes those characters take as a JSON string, so a window of non-Latin or
 /// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
 /// read on from, instead of being cut by it.
@@ -1172,6 +1203,16 @@ mod tests {
                 &view["sample_urls_next_offset"]
             ),
             (&json!([]), &json!(10), &Value::Null)
+        );
+    }
+
+    #[test]
+    fn should_leave_the_head_noise_out_of_a_url_pattern_outline() {
+        let outline = "meta[content='IE=edge']\nlink[href='/x.png'][type='image/png']\ntitle | Chest\nmeta[content='product'][property='og:type']\nmeta[content='1,00'][property='og:price:amount']\nmeta[content='abc'][name='facebook-domain-verification']\nmain\n h1 | Chest\n";
+
+        assert_eq!(
+            url_pattern_outline(outline),
+            "title | Chest\nmeta[content='product'][property='og:type']\nmeta[content='1,00'][property='og:price:amount']\nmain\n h1 | Chest\n"
         );
     }
 
