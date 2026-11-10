@@ -28,7 +28,7 @@ pub const PRODUCT_LISTING_RAW_VALUES_SCHEMA_VERSION: u16 = 1;
 
 /// Provenance version of the raw-values normalization heuristics. Bump it when the decision for
 /// an existing input can change. It never triggers reprocessing of completed revisions.
-pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 2;
+pub const PRODUCT_LISTING_RAW_VALUES_NORMALIZER_VERSION: u16 = 3;
 
 /// Stable provider-neutral encoding for raw price patch values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::EnumIter)]
