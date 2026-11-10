@@ -115,10 +115,7 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
             limit: MAX_SHIPPING_TEXT_BYTES,
         });
     }
-    if fragments
-        .iter()
-        .any(|s| s.contains(['\0', '?', '？', '؟']) || has_greek_question(s))
-    {
+    if fragments.iter().any(|s| s.contains('\0')) {
         return ShippingQuickCheck::Unsupported(Reason::UnsupportedCharacter);
     }
     let Ok(dispatch) = DISPATCH.as_ref() else {
@@ -127,8 +124,22 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
     let mut assertions = ItemShippingAssertions::default();
     let mut collection_label = false;
     let mut found = false;
+    // A question or condition in description prose that never mentions delivery is not itself a
+    // statement, but it may qualify one elsewhere. It vetoes only when a statement is found, so
+    // prose without any shipping statement is no assertion rather than an unsupported one.
+    let mut deferred_veto = None;
     for (index, fragment) in fragments.iter().enumerate() {
+        // Dedicated shipping fields are delivery context even when a clause omits the word.
+        let shipping_field = index < shipping_field_count;
         let normalized = normalize_text(fragment);
+        // Questions are never statements.
+        if fragment.contains(['?', '？', '؟']) || has_greek_question(fragment) {
+            if shipping_field || delivery_related(&normalized) {
+                return ShippingQuickCheck::Unsupported(Reason::UnsupportedCharacter);
+            }
+            deferred_veto = Some(Reason::UnsupportedCharacter);
+            continue;
+        }
         for clause in normalized.split(['.', '!', ';', '\n', '\r', '。', '！', '；', '؛', '।', '॥'])
         {
             let clause = clause.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -167,9 +178,13 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
                 None => {
                     // Conditions are checked first: they explain the abstention most precisely.
                     if conditional(&clause) {
-                        return ShippingQuickCheck::Unsupported(Reason::ConditionalClause);
+                        if shipping_field || delivery_related(&clause) {
+                            return ShippingQuickCheck::Unsupported(Reason::ConditionalClause);
+                        }
+                        deferred_veto.get_or_insert(Reason::ConditionalClause);
+                        continue;
                     }
-                    if index < shipping_field_count {
+                    if shipping_field {
                         return ShippingQuickCheck::Unsupported(Reason::UnrecognizedFieldClause);
                     }
                     if delivery_related(&clause) {
@@ -180,6 +195,9 @@ fn check_shipping(fragments: &[&str], shipping_field_count: usize) -> ShippingQu
             }
             found = true;
         }
+    }
+    if found && let Some(reason) = deferred_veto {
+        return ShippingQuickCheck::Unsupported(reason);
     }
     if contradictory(&assertions, collection_label) {
         ShippingQuickCheck::Unsupported(Reason::ContradictoryAssertions)
@@ -547,6 +565,72 @@ mod tests {
     }
 
     #[test]
+    fn prose_questions_and_conditions_without_delivery_wording_veto_only_a_found_statement() {
+        for description in [
+            "He often used biblical themes in his work but with a distinct modernist styling.",
+            "Who made it? Nobody knows.",
+            "Signed, but undated. Minor wear if viewed closely.",
+        ] {
+            assert_eq!(
+                ShippingQuickCheck::NoAssertion,
+                quick_check_shipping(&[description]),
+                "{description}"
+            );
+        }
+        use ShippingUnsupportedReason as Reason;
+        for (shipping_fields, description, reason) in [
+            (
+                &[][..],
+                &["This item can be shipped worldwide. Signed, but undated."][..],
+                Reason::ConditionalClause,
+            ),
+            (
+                &[][..],
+                &["Signed, but undated. This item can be shipped worldwide."][..],
+                Reason::ConditionalClause,
+            ),
+            (
+                &[][..],
+                &["Who made it?", "This item can be shipped worldwide."][..],
+                Reason::UnsupportedCharacter,
+            ),
+            (
+                &["Shipping for this item is available worldwide"][..],
+                &["Who made it? Signed, but undated."][..],
+                Reason::UnsupportedCharacter,
+            ),
+            // A question or condition that mentions delivery explains the abstention by itself.
+            (
+                &[][..],
+                &["Can this be shipped to France?"][..],
+                Reason::UnsupportedCharacter,
+            ),
+            (
+                &[][..],
+                &["We ship it if you ask."][..],
+                Reason::ConditionalClause,
+            ),
+            // Dedicated shipping fields are delivery context without a delivery word.
+            (
+                &["Only within Europe?"][..],
+                &[][..],
+                Reason::UnsupportedCharacter,
+            ),
+            (
+                &["Only if paid in advance"][..],
+                &[][..],
+                Reason::ConditionalClause,
+            ),
+        ] {
+            assert_eq!(
+                ShippingQuickCheck::Unsupported(reason),
+                quick_check_shipping_with_context(shipping_fields, description),
+                "{shipping_fields:?} {description:?}"
+            );
+        }
+    }
+
+    #[test]
     fn unknown_and_missing_text_produce_no_assertion() {
         for fragments in [
             &[][..],
@@ -760,7 +844,6 @@ mod multilingual_tests {
                 &fixture.unscoped_price,
                 &fixture.arrival,
                 &fixture.boilerplate,
-                &fixture.exception,
             ] {
                 assert_unsupported!(
                     quick_check_shipping(&[text]),
@@ -773,6 +856,20 @@ mod multilingual_tests {
                     fixture.language
                 );
             }
+            // An exception qualifies every statement, but alone there is nothing to qualify.
+            assert_eq!(
+                ShippingQuickCheck::NoAssertion,
+                quick_check_shipping(&[&fixture.exception]),
+                "{}: {}",
+                fixture.language,
+                fixture.exception
+            );
+            assert_unsupported!(
+                quick_check_shipping_with_context(&[&fixture.offered], &[&fixture.exception]),
+                "contradictory description in {}: {}",
+                fixture.language,
+                fixture.exception
+            );
             for text in [
                 format!("{} {}", fixture.exception, fixture.offered),
                 format!(

@@ -15,12 +15,15 @@ const AVAILABLE_REGEX_PATTERNS: &[&str] = &[
     r"\b(quedan|restan|rimangono|resten|bleiben|verbleibend|осталось|залишилось)\s+[1-9][0-9]*\b",
     // A purchase action that repeats the display price (`Buy now — £195`).
     r"\b(buy now|add to cart|add to basket|add to bag)\s+[£$€]?\s?[0-9][0-9.,]*(\s?[£$€])?",
+    // A Japanese stock count with its counter word (`在庫: 1個`, `在庫数1点`).
+    r"在庫数?\s*[:：]?\s*[1-9][0-9]*\s*(個|点)",
 ];
 
 const OUT_OF_STOCK_REGEX_PATTERNS: &[&str] = &[
     r"\b0\s+(available|remaining|left|in stock|on hand)\b",
     r"\b0\s+(verfügbar|vorrätig|auf lager|en stock|disponibles?|disponibili|en existencia|en existencias|em estoque|em stock|op voorraad|i lager|på lager|varastossa|w magazynie|skladem|na sklade|în stoc|raktáron)\b",
     r"\b0\s+(в наличии|на складе|в наявності|на складі|在庫あり|在庫有り|재고 있음|有货|有庫存)\b",
+    r"在庫数?\s*[:：]?\s*0\s*(個|点)",
 ];
 
 // Both results are immutable after their synchronized first construction.
@@ -121,7 +124,9 @@ fn quick_check_availability_with_regex_sets(
     }
 
     let normalized = normalize_availability_text(raw_value);
-    let value = strip_status_label(strip_enclosing_brackets(normalized.as_str()));
+    let value = strip_terminal_punctuation(strip_status_label(strip_enclosing_brackets(
+        normalized.as_str(),
+    )));
     if let Some(result) = exact_availability(value) {
         return Ok(result);
     }
@@ -215,6 +220,13 @@ fn strip_status_label(value: &str) -> &str {
         .unwrap_or(value)
 }
 
+/// Labels written as sentences end in their own punctuation (`This work has been sold.`,
+/// `Make an enquiry about this piece...`). A label that is only punctuation stays as it is.
+fn strip_terminal_punctuation(value: &str) -> &str {
+    let stripped = value.trim_end_matches(['.', '…', '!']).trim_end();
+    if stripped.is_empty() { value } else { stripped }
+}
+
 fn schema_org_availability(value: &str) -> Option<ListingAvailabilityQuickCheck> {
     let tail = value.rsplit('/').next().unwrap_or(value);
     let result = match tail {
@@ -297,10 +309,28 @@ const AVAILABLE: &[&str] = &[
     "カートに入れる",
     "カゴに入れる",
     "かごに入れる",
+    "buy",
+    "buy it now",
+    "order",
+    "add to my shopping bag",
+    "acquire this piece",
+    "zum warenkorb",
+    "toevoegen aan winkelwagen",
+    "toevoegen aan winkelmand",
+    "koop nu",
+    "acquérez cette pièce",
+    "comprar",
+    "añadir al carrito",
+    "añadir a mi bolsa",
+    "加入購物車",
+    "我要买",
+    "구매하기",
     // Enquiry-only dealers show these actions on offered items and a sold label otherwise.
     "enquire",
     "make enquiry",
     "make an enquiry",
+    "make an enquiry about this piece",
+    "contact us to enquire",
     "anfragen",
     "cet objet vous intéresse ?",
     "verfügbar",
@@ -702,6 +732,7 @@ const UNAVAILABLE: &[&str] = &[
 
 const RESERVED: &[&str] = &[
     "reserved",
+    "currently on reserve",
     "on hold",
     "held",
     "pending reservation",
@@ -811,6 +842,9 @@ const SOLD_OUT: &[&str] = &[
     "fully sold",
     "this item has been sold",
     "this item is sold",
+    "this item is now sold",
+    "this work has been sold",
+    "we're sorry, this item has been sold",
     "gone",
     "verkauft",
     "ausverkauft",
@@ -821,6 +855,7 @@ const SOLD_OUT: &[&str] = &[
     "épuisé",
     "epuise",
     "vendu",
+    "cet ouvrage a été vendu",
     "agotado",
     "agotada",
     "vendido",
@@ -1003,6 +1038,39 @@ mod tests {
             ("Make enquiry →", ListingAvailability::Available),
             ("Anfragen", ListingAvailability::Available),
             ("Cet objet vous intéresse ?", ListingAvailability::Available),
+            ("Order", ListingAvailability::Available),
+            ("Buy", ListingAvailability::Available),
+            ("BUY IT NOW", ListingAvailability::Available),
+            ("add to my shopping bag", ListingAvailability::Available),
+            ("Acquire this piece", ListingAvailability::Available),
+            ("Zum Warenkorb", ListingAvailability::Available),
+            ("Toevoegen aan winkelwagen", ListingAvailability::Available),
+            ("toevoegen aan winkelmand", ListingAvailability::Available),
+            ("Koop nu", ListingAvailability::Available),
+            ("Acquérez cette pièce", ListingAvailability::Available),
+            ("Comprar", ListingAvailability::Available),
+            ("Añadir al carrito", ListingAvailability::Available),
+            ("AÑADIR A MI BOLSA", ListingAvailability::Available),
+            ("加入購物車", ListingAvailability::Available),
+            ("我要买", ListingAvailability::Available),
+            ("구매하기", ListingAvailability::Available),
+            (
+                "Make an enquiry about this piece...",
+                ListingAvailability::Available,
+            ),
+            ("Contact Us To Enquire »", ListingAvailability::Available),
+            ("This item is now sold.", ListingAvailability::SoldOut),
+            ("This work has been sold.", ListingAvailability::SoldOut),
+            (
+                "We're sorry, this item has been sold",
+                ListingAvailability::SoldOut,
+            ),
+            ("Cet ouvrage a été vendu", ListingAvailability::SoldOut),
+            ("Currently On Reserve.", ListingAvailability::Reserved),
+            ("在庫: 1個", ListingAvailability::Available),
+            ("在庫数1点", ListingAvailability::Available),
+            ("在庫：12個", ListingAvailability::Available),
+            ("在庫: 0個", ListingAvailability::OutOfStock),
         ] {
             assert_eq!(quick_check_availability(raw), resolved(expected), "{raw}");
         }
@@ -1028,6 +1096,52 @@ mod tests {
                 AvailabilityUnsupportedReason::UnrecognizedLabel,
             ),
             ("1", AvailabilityUnsupportedReason::UnrecognizedLabel),
+            // Contact and enquiry actions resolve only for dealers that label sold items apart.
+            (
+                "Anfrage stellen",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "お問い合わせ",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "Interesse bekunden",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "Reservieren",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "E-Mail us",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "Contact us",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            // Site navigation and form buttons are not purchase actions for the listing.
+            (
+                "Acheter un livre ancien",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            ("Valider", AvailabilityUnsupportedReason::UnrecognizedLabel),
+            // Extraction artefacts and prices belong to the crawler schema.
+            (
+                "https://www.isis-books.nl/img/winkelwagen.png",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (".", AvailabilityUnsupportedReason::UnrecognizedLabel),
+            ("2 800 €", AvailabilityUnsupportedReason::UnrecognizedLabel),
+            (
+                "Disponibilité : 1 d'articles en stock, dépêchez-vous de commander !",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "在庫: 1個 (入荷待ち)",
+                AvailabilityUnsupportedReason::QualifiedQuantity,
+            ),
         ] {
             assert_eq!(
                 quick_check_availability(raw),

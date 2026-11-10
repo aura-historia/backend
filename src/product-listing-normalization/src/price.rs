@@ -55,6 +55,7 @@ pub fn detect_currency(raw: &str) -> Option<Currency> {
 ///   - `"6 900 €"`      (narrow no-break space-thousands)
 ///   - `"1234.5"`       (single decimal digit)
 ///   - `"1'234.56"`     (apostrophe-thousands)
+///   - `"12 € 50"`      (French: the euro sign as decimal separator)
 ///
 /// If no amount is adjacent to a currency marker, the optional `fallback_currency` is used
 /// (e.g. inferred from the ListingSource domain TLD). Ambiguous explicit currency-and-amount
@@ -65,6 +66,9 @@ pub fn parse_price(
     raw: &str,
     fallback_currency: Option<Currency>,
 ) -> Result<(MonetaryAmount, Currency), PriceNormalizationError> {
+    if let Some(number) = euro_sign_decimal_number(raw) {
+        return Ok((parse_price_number(&number, &Currency::Eur)?, Currency::Eur));
+    }
     let pairs = price_currency_pairs(raw);
     let (number, currency) = if let Some(first_pair) = pairs.first() {
         let currency = first_pair.currency;
@@ -115,6 +119,29 @@ pub fn parse_price(
     let amount = parse_price_number(&number.value, &currency)?;
 
     Ok((amount, currency))
+}
+
+/// French price displays write the euro sign in place of the decimal separator (`12 € 50`,
+/// `12€50`). Only a whole amount followed by exactly two cent digits qualifies, so `12 € 500`
+/// and `€ 12 50` stay ambiguous.
+fn euro_sign_decimal_number(raw: &str) -> Option<String> {
+    let (integer, cents) = raw.trim().split_once('€')?;
+    let integer = integer.trim_end();
+    let cents = cents.trim_start();
+    let is_group_separator = |c: char| matches!(c, ' ' | '\u{00a0}' | '\u{202f}');
+    let digits = |group: &str| !group.is_empty() && group.chars().all(|c| c.is_ascii_digit());
+    let mut groups = integer.split(is_group_separator);
+    let first = groups.next()?;
+    let rest = groups.collect::<Vec<_>>();
+    // Thousands groups, when present, follow a leading group of one to three digits.
+    let integer_is_valid = digits(first)
+        && (rest.is_empty() || first.len() <= 3)
+        && rest.iter().all(|group| group.len() == 3 && digits(group));
+    let cents_are_valid = cents.len() == 2 && cents.chars().all(|c| c.is_ascii_digit());
+    (integer_is_valid && cents_are_valid).then(|| {
+        let integer: String = integer.chars().filter(char::is_ascii_digit).collect();
+        format!("{integer}.{cents}")
+    })
 }
 
 fn parse_price_number(number: &str, currency: &Currency) -> Result<MonetaryAmount, PriceError> {
@@ -629,7 +656,8 @@ fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
     currency_marker_spans(raw).into_iter().next()
 }
 
-// Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility. `円` is only JPY.
+// Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility. `円` is only JPY
+// and `원` only KRW.
 const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Eur, "€"),
     (Currency::Gbp, "£"),
@@ -653,6 +681,7 @@ const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Mxn, "MX$"),
     (Currency::Thb, "฿"),
     (Currency::Jpy, "円"),
+    (Currency::Krw, "원"),
 ];
 
 #[derive(Clone, Copy)]
@@ -1035,6 +1064,48 @@ mod tests {
             Ok((MonetaryAmount::from(expected_amount), Currency::Jpy)),
             parse_price(raw, None)
         );
+    }
+
+    #[rstest]
+    #[case("23,800원", 23_800)]
+    #[case("5,000 원", 5_000)]
+    #[case("30% -> 23,800원", 23_800)]
+    fn should_parse_won_hangul_suffix_as_krw(#[case] raw: &str, #[case] expected_amount: u64) {
+        assert_eq!(
+            Ok((MonetaryAmount::from(expected_amount), Currency::Krw)),
+            parse_price(raw, None)
+        );
+    }
+
+    #[rstest]
+    #[case("12 € 50", 1_250)]
+    #[case("12€50", 1_250)]
+    #[case("7 € 50", 750)]
+    #[case("1 250 € 00", 125_000)]
+    #[case("1250€00", 125_000)]
+    fn should_parse_the_euro_sign_as_decimal_separator(
+        #[case] raw: &str,
+        #[case] expected_minor: u64,
+    ) {
+        // The explicit euro sign wins over any fallback currency.
+        for fallback in [None, Some(Currency::Chf)] {
+            assert_eq!(
+                Ok((MonetaryAmount::from(expected_minor), Currency::Eur)),
+                parse_price(raw, fallback),
+                "{raw}"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case("12 € 500")]
+    #[case("12 € 5")]
+    #[case("€ 12 50")]
+    #[case("1250 50 € 00")]
+    #[case("12 € 50 €")]
+    #[case("-12 € 50")]
+    fn should_not_read_other_euro_sign_layouts_as_decimal_separator(#[case] raw: &str) {
+        assert_eq!(None, super::euro_sign_decimal_number(raw), "{raw}");
     }
 
     #[rstest]
