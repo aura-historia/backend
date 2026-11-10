@@ -23,7 +23,6 @@ notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
 party-core = { workspace = true }
-party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
 product-listing-core = { workspace = true }

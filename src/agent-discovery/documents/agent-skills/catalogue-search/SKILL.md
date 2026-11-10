@@ -28,7 +28,7 @@ Use either interface; both return the same catalogue data and need no credential
 | Read a listing's history | `getProductListingHistory` | `GET /v1/product-listings/{productListingId}/history` |
 | Browse auctions and their lots | `listAuctions`, `getAuction`, `getAuctionCatalogue` | `GET /v1/auctions`, `GET /v1/auctions/{auctionId}`, `GET /v1/auctions/{auctionId}/product-listings` |
 | Find sources | `searchPublicListingSources`, `getPublicListingSourceBySlug` | `GET /v1/listing-sources`, `GET /v1/listing-sources/by-slug/{listingSourceSlugId}` |
-| Find seller locations | `discoverPartyLocations` | `GET /v1/party-locations` |
+| Find seller locations | none; REST only | `GET /v1/party-locations` |
 | Read catalogue statistics | `getPublicOverview` | `GET /v1/overview` |
 
 `language` selects the language of localized text and of search matching (default `en`);
@@ -45,8 +45,8 @@ continuation.
   JSON string.
 - **Sources:** pass the returned opaque `searchAfter` cursor unchanged, with the same `query`
   and `size`.
-- **Seller locations:** pass the returned `searchAfter` object unchanged, with the same
-  geography. On REST, send its members as `searchAfter[locationId]` and
+- **Seller locations (REST only):** pass the returned `searchAfter` object unchanged, with the
+  same geography, by sending its members as `searchAfter[locationId]` and
   `searchAfter[distanceKm]`.
 - **History and similar listings** return complete results and have no continuation.
 

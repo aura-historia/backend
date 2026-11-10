@@ -12,7 +12,7 @@ async fn should_publish_exactly_thirty_eight_complete_tools_on_one_page_across_h
 {
     let server = Server::start(test_api::get_postgres_client().await).await;
     let expected = manifest_tools();
-    assert_eq!(38, expected.len());
+    assert_eq!(37, expected.len());
     let response = server.rpc(None, "tools/list", json!({})).await;
     assert_eq!(StatusCode::OK, response.status());
     let bytes = response.bytes().await.unwrap();

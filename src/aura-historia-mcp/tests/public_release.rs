@@ -73,10 +73,6 @@ fn inputs() -> Vec<(&'static str, Value)> {
             "getPublicListingSourceBySlug",
             json!({"listingSourceSlugId":"source"}),
         ),
-        (
-            "discoverPartyLocations",
-            json!({"geography":{"countries":["DE"]}, "size":100}),
-        ),
         ("getPublicOverview", json!({})),
     ]
 }
@@ -103,10 +99,6 @@ fn minimal_inputs() -> Vec<(&'static str, Value)> {
         (
             "getPublicListingSourceBySlug",
             json!({"listingSourceSlugId":"source"}),
-        ),
-        (
-            "discoverPartyLocations",
-            json!({"geography":{"countries":["DE"]}}),
         ),
         ("getPublicOverview", json!({})),
     ]
@@ -176,7 +168,7 @@ async fn should_publish_exactly_the_selected_operations_with_shared_schemas_and_
     let tools = list["result"]["tools"].as_array().unwrap();
     let manifest = manifest();
     let operations = manifest["operations"].as_array().unwrap();
-    assert_eq!(12, tools.len());
+    assert_eq!(11, tools.len());
     assert_eq!(
         10,
         operations
@@ -191,7 +183,7 @@ async fn should_publish_exactly_the_selected_operations_with_shared_schemas_and_
         assert_eq!(tool["name"], operation["name"]);
         assert_eq!(tool["name"], operation["operationId"]);
         assert_eq!(
-            !matches!(name, "discoverPartyLocations" | "getPublicOverview"),
+            name != "getPublicOverview",
             operation["delegatedContext"].as_bool().unwrap()
         );
         if matches!(

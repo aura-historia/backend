@@ -96,7 +96,7 @@ class SmokeTests(unittest.TestCase):
         names = smoke.manifest_operations()
         self.assertIn("getPublicOverview", names)
         self.assertIn("getUserAccount", names)
-        self.assertEqual(38, len(names))
+        self.assertEqual(37, len(names))
         self.assertNotIn(smoke.REMOVED_OPERATION, names)
         self.assertNotIn("submitProductListingDelivery", names)
         self.assertNotIn("protectedFixture", names)
@@ -167,7 +167,7 @@ class SmokeTests(unittest.TestCase):
                 patch.object(smoke, "verify_catalogue", return_value="complete") as verify:
             self.assertEqual("complete", runner.catalogue("local catalogue"))
             self.assertEqual(1, rpc.call_count)
-            self.assertEqual(38, len(verify.call_args.args[0]["tools"]))
+            self.assertEqual(37, len(verify.call_args.args[0]["tools"]))
         with patch.object(runner, "rpc", return_value=({}, {**page, "nextCursor": "more"})):
             with self.assertRaisesRegex(smoke.SmokeFailure, "page bound"):
                 runner.catalogue("local catalogue")

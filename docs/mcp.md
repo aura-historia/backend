@@ -7,7 +7,7 @@ owns hosting, certificates, Origin/CORS and stage verification. Native and Lambd
 points share one registry and authenticate each request independently. Configure a generic
 remote MCP client with this URL and Streamable HTTP transport. Public catalogue discovery and
 public calls require no account; protected operations use opaque Aura access tokens.
-The shared registry contains 38 operations: 12 public catalogue operations and 26 operations
+The shared registry contains 37 operations: 11 public catalogue operations and 26 operations
 for the authenticated user's own account, saved searches, watchlist and notifications. Ten public
 operations forward validated delegated context. MCP is a consumer surface:
 [partner workflows](#partner-workflows-use-rest) use REST.
@@ -84,7 +84,7 @@ shared use case and must never become transport truncation.
 
 The registry rejects duplicate IDs and titles, lists tools lexically by operation ID,
 and returns at most 50 definitions with an explicit continuation cursor. The complete
-38-tool catalogue fits one page without `nextCursor`; generic clients still pass any returned
+37-tool catalogue fits one page without `nextCursor`; generic clients still pass any returned
 `nextCursor` as `cursor` until it is absent. Its
 manifest includes `aura.historia/operationId`, `aura.historia/access` and
 `aura.historia/requiredScopes` metadata. Protected tools remain discoverable.
@@ -226,12 +226,13 @@ contracts and the same typed runtime service family. The
 
 The public subset remains callable without credentials. Its ten listing, history, auction and
 source operations forward a supplied, validated `DelegatedUser` directly to the existing service
-use cases, preserving the same tool names, full contracts, filters and continuations. Location
-discovery and public overview remain anonymous. Public operations require no scopes and advertise
+use cases, preserving the same tool names, full contracts, filters and continuations. The public
+overview remains anonymous. Public operations require no scopes and advertise
 read-only, idempotent, nondestructive behavior against Aura's catalogue. Services remain the
 authorization authority. The public manifest describes this subset of the hybrid endpoint;
 protected families have separate, non-overlapping registrations. Newsletter opt-in/confirmation, health/readiness,
-webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded.
+webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly excluded. Public
+seller-location discovery (`GET /v1/party-locations`) is REST-only.
 
 | Tool / source operation ID | Arguments and result |
 | --- | --- |
@@ -245,7 +246,6 @@ webhooks/simulation and OAuth protocol/control-plane endpoints are explicitly ex
 | `getAuctionCatalogue` | `auctionId`, language/currency, `pageSize`, `searchAfter`; returns public lots with existing listing presentation. |
 | `searchPublicListingSources` | `query`, `size` (default 21, 1–50), `searchAfter`; absent/blank text browses and insufficient text returns no matches. |
 | `getPublicListingSourceBySlug` | `listingSourceSlugId`; returns the public source card, operator name and optional URL, view URL and image. |
-| `discoverPartyLocations` | Complete `geography`, `size` (default 21, 1–100), `searchAfter`; returns public location IDs, basis, geographic context, point, precision and distance. |
 | `getPublicOverview` | Empty object; returns `asOf` and every stored public catalogue aggregate. An uncalculated overview is temporarily unavailable. |
 
 Search retains geography, shipping, all identifier inclusion/exclusion sets, price/date ranges,
@@ -262,7 +262,7 @@ stored destination-derived `shipping` only with `users:read`. Unauthorized secti
 no applicable sections means `userState` itself is omitted. Write scopes do not imply read scopes.
 Stored hidden-item, tier and sensitive-image policy still applies with every scope combination,
 including an empty grant. No stored browsing destination is read without `users:read`.
-Public source/location/auction output excludes management, contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
+Public source/auction output excludes management, contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
 exact JSON integers.
 
 Similarity uses the service's fixed neighbor limit. `EMBEDDING_PENDING` means retry the same
@@ -276,14 +276,12 @@ bodyless pending outcome and introduces no neighbor-count argument.
 | Listing search | Supply the returned `searchAfter` object directly as JSON. Its immutable FX snapshot and complete opaque sort values are retained. REST alone query-encodes that object. |
 | Auction directory/catalogue | Serialize the returned `searchAfter` object as the next argument's JSON string, as on REST. Directory scope includes all filters/sort and nullable schedule instants; catalogue scope includes auction, position and listing identity. |
 | Source search | Return the opaque cursor unchanged with the same canonical query and page size. Encoded/decoded cursor bounds remain 4 KiB/3 KiB. |
-| Location discovery | Supply the returned object containing `locationId` and optional `distanceKm`; preserve the geographic scope. |
 | History and similarity | No paging or continuation arguments. |
 
 Auction scheduled sorting requires `timeRole`; a schedule range requires both bounds. Catalogue
 pricing retains the use case's current/sale-observation FX selection. Source search and slug
 detail share a non-queuing budget of four active reads with a 500 ms source-read timeout, also
-bounded by the invocation deadline. Location validation uses the existing constructors/service;
-no address or profile origin is inferred.
+bounded by the invocation deadline.
 
 History deliberately preserves the full REST array and the existing webapp timeline contract.
 Every event retains its original order, including distinct events sharing a timestamp, discovery
@@ -301,7 +299,7 @@ The [personalization suite](../src/aura-historia-mcp/tests/public_release/person
 exercises real listing and shipping handlers through HTTP, including all read-scope combinations,
 private-section omission and protective policy. The public authentication suite checks all ten
 context paths, including operations with no personalized output.
-Local tests exercise both discovery and initialize lifecycles, all twelve tools, complete search
+Local tests exercise both discovery and initialize lifecycles, all eleven tools, complete search
 continuation, long image URLs, 128-event history and explicit oversize failures. These tests are
 local verification; they do not establish deployment, DNS, WAF behavior or a client-specific bound.
 

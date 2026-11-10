@@ -166,10 +166,10 @@ mod tests {
             }
         }
         let (tools, next) = registry.page(None).unwrap();
-        assert_eq!(38, tools.len());
+        assert_eq!(37, tools.len());
         assert!(next.is_none());
         assert_directory_metadata(&tools);
-        assert_eq!(38, expected.len());
+        assert_eq!(37, expected.len());
         assert_eq!(
             expected.keys().cloned().collect::<Vec<_>>(),
             tools

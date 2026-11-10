@@ -4,6 +4,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 ## 2026-11-10 — MCP tool catalogue fixes before directory submission
 
+- **Breaking change (MCP):** the tool `discoverPartyLocations` is removed. Public seller-location discovery stays available on `GET /v1/party-locations`. The tool catalogue now lists 37 tools.
 - The MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`. `GET` and `PATCH /v1/me/account` are unchanged and still return it, because the webapp maps the field.
 
 ## 2026-11-10 — One approval for every MCP tool

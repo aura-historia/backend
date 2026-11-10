@@ -71,7 +71,7 @@ async fn lambda_composition_probe() -> Result<(), TestError> {
     }
     assert!(listed["result"].get("nextCursor").is_none());
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(38, tools.len());
+    assert_eq!(37, tools.len());
     let actual = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap().to_owned())

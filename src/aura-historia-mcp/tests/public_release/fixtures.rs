@@ -18,7 +18,6 @@ use listing_source_service::use_cases::queries::{
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use party_core::party_name::PartyName;
-use party_service::discovery::*;
 use product_listing_core::{
     listing_availability::ListingAvailability, listing_lifecycle::ListingLifecycle,
     product_listing::ProductListingPricing, product_listing_id::ProductListingId,
@@ -81,9 +80,6 @@ impl Fixture {
                 get_by_slug: self.clone(),
             },
             source_budget: PublicListingSourceReadBudget::default(),
-            locations: PublicPartyLocations {
-                discover: self.clone(),
-            },
             overview: PublicOverview { get: self.clone() },
         }
     }
@@ -285,20 +281,6 @@ impl GetPublicListingSourceBySlugUseCase for Fixture {
         Ok(PublicListingSourceSummary {
             listing_source_slug_id: request.slug_id,
             ..public_source()
-        })
-    }
-}
-#[async_trait]
-impl DiscoverPartyLocationsUseCase for Fixture {
-    async fn execute(
-        &self,
-        request: DiscoverPartyLocationsRequest,
-    ) -> Result<DiscoverPartyLocationsResult, DiscoverPartyLocationsError> {
-        self.calls.lock().unwrap().push("discoverPartyLocations");
-        Ok(CursoredResult {
-            items: vec![],
-            total: None,
-            cursor: request.cursor,
         })
     }
 }
