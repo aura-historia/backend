@@ -23,7 +23,8 @@ use crawler::spider::discovery::website_spider::{
     CrawlCompletion, CrawlDiagnostics, CrawlPace, CrawledPage, MockSpider, SpiderCrawl,
 };
 use crawler::spider::service::{
-    SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceError, SpiderServiceImpl,
+    REVIEW_SAMPLE_URLS, SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceError,
+    SpiderServiceImpl,
 };
 use crawler::spider::utils::url::CrawledUrl;
 use listing_source_core::ListingSourceId;
@@ -40,8 +41,9 @@ use tokio::task::JoinHandle;
 const POSTGRES: Postgres = Postgres::new("src/crawler/migrations");
 const CRAWL_HOST: &str = "mid-crawl.example.com";
 const CRAWL_ROOT_URL: &str = "https://mid-crawl.example.com/";
-/// Pages crawled before the spider classifies, enough for the inference sample.
-const THRESHOLD: usize = 20;
+/// Pages crawled before the spider classifies: a review an operator decides opens on a sample
+/// of the review's size.
+const THRESHOLD: usize = REVIEW_SAMPLE_URLS;
 /// Pages crawled after the operator decided the review.
 const PAGES_AFTER_DECISION: usize = 7;
 
