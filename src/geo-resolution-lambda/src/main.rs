@@ -25,7 +25,7 @@ async fn main() -> Result<(), Error> {
     let started = Instant::now();
     init(logging_config_from_env());
     let postgres = RuntimePostgresConfig::from_env()?;
-    let config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+    let config = aws_config::defaults(BehaviorVersion::v2026_11_10())
         .region(aws_config::Region::new(REGION))
         .load()
         .await;

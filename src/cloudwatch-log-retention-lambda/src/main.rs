@@ -10,7 +10,7 @@ async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
     init(logging_config_from_env());
 
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_10())
         .load()
         .await;
     let client = aws_sdk_cloudwatchlogs::Client::new(&aws_config);
