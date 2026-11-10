@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16
+    # Parallel queries allocate shared memory in /dev/shm; Docker's 64 MB default runs out under crawl + review API load.
+    shm_size: 512mb
     command: ["postgres", "-c", "max_connections=300"]
     environment:
       POSTGRES_USER: postgres
