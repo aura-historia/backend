@@ -1,6 +1,6 @@
 use application::patch_field::PatchField;
 use aura_historia_contracts::users::{
-    account::{OwnUserData, OwnUserRestData, PatchOwnUserData},
+    account::{OwnUserData, PatchOwnUserData},
     addresses::{AddressData, CreateData, PageData, PageQuery, UpdateData},
     destination::{DestinationData, DestinationResponse, SetDestinationData},
 };
@@ -131,17 +131,7 @@ fn details_with_stripe_customer(id: UserId) -> UserDetailsView {
 }
 
 #[test]
-fn should_serialize_the_complete_existing_own_account_contract() {
-    let id = UserId::new();
-    let output = assert_output(OwnUserRestData::from(details_with_stripe_customer(id)));
-    assert_eq!(
-        json!({"userId":id,"email":"ada@example.test","firstName":"Ada","lastName":"Lovelace","language":"de","currency":"EUR","measurementUnit":"METRIC","showUnassessedOrSensitiveContent":true,"marketingEmailConsent":true,"tier":"PRO","role":"USER","stripeCustomerId":"cus_fixture"}),
-        output
-    );
-}
-
-#[test]
-fn should_serialize_the_shared_own_account_without_the_stripe_customer_id() {
+fn should_serialize_the_complete_own_account_contract_without_the_stripe_customer_id() {
     let id = UserId::new();
     let output = assert_output(OwnUserData::from(details_with_stripe_customer(id)));
     assert_eq!(

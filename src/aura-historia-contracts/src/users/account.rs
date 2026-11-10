@@ -68,28 +68,6 @@ impl From<UserDetailsView> for OwnUserData {
     }
 }
 
-/// REST own-account response: the shared account plus the persisted Stripe customer reference
-/// that existing REST clients still receive. Other surfaces use [`OwnUserData`] alone.
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct OwnUserRestData {
-    #[serde(flatten)]
-    pub account: OwnUserData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<String>")]
-    pub stripe_customer_id: Option<user_core::stripe_customer_id::StripeCustomerId>,
-}
-
-impl From<UserDetailsView> for OwnUserRestData {
-    fn from(view: UserDetailsView) -> Self {
-        let stripe_customer_id = view.stripe_customer_id.clone();
-        Self {
-            account: OwnUserData::from(view),
-            stripe_customer_id,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchOwnUserData {

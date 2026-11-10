@@ -114,12 +114,11 @@ async fn should_return_user_when_admin_reads_user() {
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
-async fn should_keep_the_stripe_customer_id_in_the_own_account_rest_response() {
+async fn should_not_return_the_stripe_customer_id_in_the_own_account_rest_response() {
     let user_id = seed_user("USER").await;
     let token =
         seed_access_token_for(user_id, std::collections::HashSet::from([Scope::UsersRead])).await;
-    let stripe_customer_id = format!("cus_own_account_{user_id}");
-    set_user_stripe_customer_id(user_id, &stripe_customer_id).await;
+    set_user_stripe_customer_id(user_id, &format!("cus_own_account_{user_id}")).await;
 
     let response = reqwest::Client::new()
         .get(format!("{}/v1/me/account", AURA_API.base_url()))
@@ -130,10 +129,8 @@ async fn should_keep_the_stripe_customer_id_in_the_own_account_rest_response() {
     let (status, body) = json_response(response).await;
 
     assert_eq!(reqwest::StatusCode::OK, status);
-    assert_eq!(
-        serde_json::json!(stripe_customer_id),
-        body["stripeCustomerId"]
-    );
+    assert_eq!(serde_json::json!(user_id.to_string()), body["userId"]);
+    assert!(body.get("stripeCustomerId").is_none(), "{body}");
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

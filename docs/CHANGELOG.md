@@ -8,7 +8,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - The MCP tool `getSimilarProductListings` takes an optional `size`, the number of neighbours to return: default 20, as before, and clamped to 1 through 50. `GET /v1/product-listings/{productListingId}/similar` is unchanged.
 - Every argument of the MCP tools now has a description. Tools that accept or return prices state that amounts are integers in the currency's minor unit (EUR `119199` = €1,191.99; JPY whole units), and `enhancedSearchDescription` states that it only works together with `productQuery`. No argument or result changed.
 - MCP tool errors say more. `NOT_FOUND` and `CONFLICT` results carry a second text block naming the resource and a next step (for example "Listing is already on the watchlist."); the first block is still the bare code. Invalid arguments (`-32602`) now give the reason and, where known, the argument, without repeating the value you sent: "Invalid tool arguments: productListingId: malformed object ID".
-- The MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`. `GET` and `PATCH /v1/me/account` are unchanged and still return it, because the webapp maps the field.
+- **Breaking change:** `GET` and `PATCH /v1/me/account` and the MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`; the account response is one shared shape. Administrator endpoints still return it. Clients that read the field from `OwnUserAccountData` must stop; billing itself is unaffected.
 
 ## 2026-11-10 — One approval for every MCP tool
 
