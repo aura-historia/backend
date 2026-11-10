@@ -15,7 +15,7 @@ use url::Url;
 
 use super::frontier::FoundLinks;
 use super::robots::CrawlRobots;
-use crate::network::policy::validate_public_http_url;
+use crate::network::policy::{location_text, validate_public_http_url};
 
 /// Redirects one page may be the end of a chain of, as many as the crawl root's own chain.
 pub(super) const MAX_REDIRECT_HOPS: usize = 5;
@@ -74,7 +74,7 @@ impl RedirectFollower {
         headers: Option<&HeaderMap>,
         found: &FoundLinks,
     ) -> Option<String> {
-        let location = headers?.get(LOCATION)?.to_str().ok()?;
+        let location = location_text(headers?.get(LOCATION)?)?;
         let resolved = Url::parse(page_url).ok()?.join(location.trim()).ok()?;
         let hop = self.hops.get(page_url).copied().unwrap_or(0) + 1;
         if hop > MAX_REDIRECT_HOPS || validate_public_http_url(&resolved).is_err() {

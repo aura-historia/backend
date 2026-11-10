@@ -148,7 +148,7 @@ impl ReqwestHtmlFetcher {
         let location = response
             .headers()
             .get(reqwest::header::LOCATION)
-            .and_then(|location| location.to_str().ok());
+            .and_then(crate::network::policy::location_text);
         Ok(RobotsFetchStep::for_unsuccessful(
             status.as_u16(),
             location,

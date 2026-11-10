@@ -220,6 +220,13 @@ pub async fn public_http_client(
         .map_err(CrawlerClientError::Build)
 }
 
+/// A `Location` value as text. Shops send non-ASCII targets as raw UTF-8, which `HeaderValue::to_str`
+/// refuses; `Url::join` percent-encodes them. Bytes that are not UTF-8 yield `None`, so the redirect
+/// is refused rather than guessed.
+pub fn location_text(value: &reqwest::header::HeaderValue) -> Option<&str> {
+    std::str::from_utf8(value.as_bytes()).ok()
+}
+
 pub fn redirect_target(
     current_url: &Url,
     response: &reqwest::Response,
@@ -227,9 +234,8 @@ pub fn redirect_target(
     let location = response
         .headers()
         .get(reqwest::header::LOCATION)
-        .ok_or(PublicTargetError::InvalidRedirect)?
-        .to_str()
-        .map_err(|_| PublicTargetError::InvalidRedirect)?;
+        .and_then(location_text)
+        .ok_or(PublicTargetError::InvalidRedirect)?;
     current_url
         .join(location)
         .map_err(|_| PublicTargetError::InvalidRedirect)
@@ -547,7 +553,28 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::header::HeaderValue;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn location_text_should_join_to_a_percent_encoded_url_when_the_target_is_raw_utf8() {
+        let location = HeaderValue::from_bytes("/products/好樣本".as_bytes()).unwrap();
+        let base = Url::parse("https://shop.example/collections/all/products/x").unwrap();
+
+        let target = base.join(location_text(&location).unwrap()).unwrap();
+
+        assert_eq!(
+            target.as_str(),
+            "https://shop.example/products/%E5%A5%BD%E6%A8%A3%E6%9C%AC"
+        );
+    }
+
+    #[test]
+    fn location_text_should_refuse_the_target_when_it_is_not_utf8() {
+        let location = HeaderValue::from_bytes(b"/products/\xff\xfe").unwrap();
+
+        assert_eq!(location_text(&location), None);
+    }
 
     /// Every crawler request identifies the crawler and sends the crawler
     /// request headers and the transfer encodings the client decodes, nothing else; the scraper, image probes and review
