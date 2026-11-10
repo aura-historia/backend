@@ -122,10 +122,14 @@ server discovery belongs to [the OAuth contract](oauth.md); the server card and 
 discovery document belong to [agent discovery](agent-discovery.md).
 
 Family adapters classify expected input, missing-resource, conflict, forbidden
-and temporary failures into distinct static tool-error codes. Invalid arguments
-are protocol errors; unexpected failures are safe `-32603` errors. Technical
-causes remain attached to internal error types and never appear in client
-messages. No mutation is automatically retried: a timeout or oversized response
+and temporary failures into distinct static tool-error codes. `NOT_FOUND` and
+`CONFLICT` results add a second text block with a static message that names the
+resource and a next step; the first block stays the bare code. Invalid arguments
+are `-32602` protocol errors whose message gives the reason, bounded in length, and
+the failing argument where the validation knows it: the reason is the client-safe text
+REST returns as problem detail, and a member of a flattened input reports its reason
+without a name. Unexpected failures are safe `-32603` errors. Technical causes remain
+attached to internal error types and never appear in client messages. No mutation is automatically retried: a timeout or oversized response
 may follow a completed write, so callers must follow the operation's existing
 idempotency and recovery contract.
 

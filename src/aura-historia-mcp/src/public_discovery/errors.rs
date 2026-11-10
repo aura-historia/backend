@@ -21,7 +21,9 @@ pub(super) fn search(error: SearchPublicListingSourcesError) -> OperationError {
 
 pub(super) fn detail(error: GetPublicListingSourceBySlugError) -> OperationError {
     match error {
-        GetPublicListingSourceBySlugError::NotFound => OperationError::NotFound,
+        GetPublicListingSourceBySlugError::NotFound => {
+            OperationError::NotFound("Listing source not found: check the listingSourceSlugId.")
+        }
         error @ (GetPublicListingSourceBySlugError::TemporarilyUnavailable { .. }
         | GetPublicListingSourceBySlugError::BeginTransaction { .. }
         | GetPublicListingSourceBySlugError::CommitTransaction { .. }) => {

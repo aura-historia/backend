@@ -2,23 +2,44 @@ use super::*;
 
 #[tokio::test]
 async fn should_return_safe_distinct_operation_errors_without_private_failure_causes() {
-    for (error, code, tool_code) in [
-        (OperationError::InvalidInput, None, Some("INVALID_INPUT")),
-        (OperationError::NotFound, None, Some("NOT_FOUND")),
-        (OperationError::Conflict(None), None, Some("CONFLICT")),
+    for (error, code, tool_code, message) in [
         (
-            OperationError::Conflict(Some(std::io::Error::other("private token secret").into())),
+            OperationError::InvalidInput,
+            None,
+            Some("INVALID_INPUT"),
+            None,
+        ),
+        (
+            OperationError::NotFound("Listing not found: check the productListingId."),
+            None,
+            Some("NOT_FOUND"),
+            Some("Listing not found: check the productListingId."),
+        ),
+        (
+            OperationError::conflict("Listing is already on the watchlist."),
             None,
             Some("CONFLICT"),
+            Some("Listing is already on the watchlist."),
+        ),
+        (
+            OperationError::Conflict {
+                message: "Stale expectedVersion: re-read the address and retry.",
+                source: Some(std::io::Error::other("private token secret").into()),
+            },
+            None,
+            Some("CONFLICT"),
+            Some("Stale expectedVersion: re-read the address and retry."),
         ),
         (
             OperationError::Unavailable(std::io::Error::other("private token secret").into()),
             None,
             Some("TEMPORARILY_UNAVAILABLE"),
+            None,
         ),
         (
             OperationError::Internal(std::io::Error::other("private token secret").into()),
             Some(-32603),
+            None,
             None,
         ),
     ] {
@@ -57,6 +78,13 @@ async fn should_return_safe_distinct_operation_errors_without_private_failure_ca
         if let Some(code) = tool_code {
             assert_eq!(true, body["result"]["isError"]);
             assert_eq!(code, body["result"]["content"][0]["text"]);
+            match message {
+                Some(message) => {
+                    assert_eq!(message, body["result"]["content"][1]["text"]);
+                    assert_eq!(2, body["result"]["content"].as_array().unwrap().len());
+                }
+                None => assert_eq!(1, body["result"]["content"].as_array().unwrap().len()),
+            }
         }
     }
 }

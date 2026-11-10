@@ -586,7 +586,7 @@ mod tests {
             ));
             assert_eq!(expected, command.feedback);
         }
-        assert!(matches!(registry.get("updateSearchFilterMatchFeedback").unwrap().call(json!({"userSearchFilterId":fixture.filter,"productListingId":ProductListingId::new(),"feedback":true}),fixture.context(CredentialCapability::SearchFiltersWrite)).await,Err(OperationError::NotFound)));
+        assert!(matches!(registry.get("updateSearchFilterMatchFeedback").unwrap().call(json!({"userSearchFilterId":fixture.filter,"productListingId":ProductListingId::new(),"feedback":true}),fixture.context(CredentialCapability::SearchFiltersWrite)).await,Err(OperationError::NotFound(_))));
     }
     #[tokio::test]
     async fn should_reject_another_users_saved_search_and_caller_selected_owner() {
@@ -631,7 +631,7 @@ mod tests {
                     .unwrap()
                     .call(input.clone(), context.clone())
                     .await,
-                Err(OperationError::NotFound)
+                Err(OperationError::NotFound(_))
             ));
             input["userId"] = json!(UserId::new());
             assert!(matches!(
@@ -715,11 +715,11 @@ mod tests {
         assert!(error.source().unwrap().source().is_some());
         assert!(matches!(
             error::update(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict),
-            OperationError::Conflict(None)
+            OperationError::Conflict { .. }
         ));
         assert!(matches!(
             error::create(CreateSearchFilterError::SearchFilterAlreadyExists),
-            OperationError::Conflict(None)
+            OperationError::Conflict { .. }
         ));
         assert!(matches!(
             error::update(
@@ -794,7 +794,7 @@ mod tests {
             operation.call(input, other)
         );
         assert!(own.is_ok());
-        assert!(matches!(other, Err(OperationError::NotFound)));
+        assert!(matches!(other, Err(OperationError::NotFound(_))));
     }
 
     mod fixtures {

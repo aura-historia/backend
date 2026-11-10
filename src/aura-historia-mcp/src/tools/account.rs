@@ -585,11 +585,11 @@ mod tests {
         }
         assert!(matches!(
             errors::address(AddressBookError::Conflict),
-            OperationError::Conflict(None)
+            OperationError::Conflict { .. }
         ));
         assert!(matches!(
             errors::address(AddressBookError::NotFound),
-            OperationError::NotFound
+            OperationError::NotFound(_)
         ));
         assert!(matches!(
             errors::address(AddressBookError::InvalidState(static_error(
@@ -847,7 +847,7 @@ mod tests {
                 "getUserAddress",
                 json!({"addressId":id}),
                 &both(foreign),
-                |e| matches!(e, OperationError::NotFound),
+                |e| matches!(e, OperationError::NotFound(_)),
             )
             .await;
             for (name, input) in requests(id)
@@ -855,7 +855,7 @@ mod tests {
                 .filter(|(name, _)| matches!(*name, "updateUserAddress" | "deleteUserAddress"))
             {
                 assert_error(&registry, name, input, &both(foreign), |e| {
-                    matches!(e, OperationError::NotFound)
+                    matches!(e, OperationError::NotFound(_))
                 })
                 .await;
             }
@@ -891,7 +891,7 @@ mod tests {
             assert_eq!(json!(2), updated["version"]);
             assert_eq!(json!(2), updated["inputRevision"]);
             assert_error(&registry, "updateUserAddress", replacement, &ctx, |e| {
-                matches!(e, OperationError::Conflict(None))
+                matches!(e, OperationError::Conflict { .. })
             })
             .await;
             assert_error(
@@ -899,7 +899,7 @@ mod tests {
                 "deleteUserAddress",
                 json!({"addressId":id,"expectedVersion":1}),
                 &ctx,
-                |e| matches!(e, OperationError::Conflict(None)),
+                |e| matches!(e, OperationError::Conflict { .. }),
             )
             .await;
             exercise_destinations(&registry, &ctx, id, foreign_address["addressId"].clone()).await;
@@ -936,7 +936,7 @@ mod tests {
                 "getUserAddress",
                 json!({"addressId":id}),
                 &ctx,
-                |e| matches!(e, OperationError::NotFound),
+                |e| matches!(e, OperationError::NotFound(_)),
             )
             .await;
             assert_eq!(
@@ -999,7 +999,7 @@ mod tests {
                 "setBrowsingDestination",
                 json!({"expectedVersion":1,"destination":{"kind":"ADDRESS","addressId":foreign}}),
                 ctx,
-                |e| matches!(e, OperationError::NotFound),
+                |e| matches!(e, OperationError::NotFound(_)),
             )
             .await;
             for (version, destination) in [
@@ -1029,7 +1029,7 @@ mod tests {
                 "setBrowsingDestination",
                 json!({"expectedVersion":1,"destination":{"kind":"NONE"}}),
                 ctx,
-                |e| matches!(e, OperationError::Conflict(None)),
+                |e| matches!(e, OperationError::Conflict { .. }),
             )
             .await;
         }

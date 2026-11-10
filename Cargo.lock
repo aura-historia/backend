@@ -554,6 +554,7 @@ dependencies = [
  "search-filter-service",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "serial_test",
  "shipping-core",
  "shipping-service",

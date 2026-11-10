@@ -21,7 +21,9 @@ pub(super) fn list(error: ListAuctionsError) -> OperationError {
 }
 pub(super) fn get(error: GetPublicAuctionError) -> OperationError {
     match error {
-        GetPublicAuctionError::NotFound => OperationError::NotFound,
+        GetPublicAuctionError::NotFound => {
+            OperationError::NotFound("Auction not found: check the auctionId.")
+        }
         error @ GetPublicAuctionError::TemporarilyUnavailable { .. } => {
             OperationError::Unavailable(box_error(error))
         }
@@ -33,7 +35,9 @@ pub(super) fn get(error: GetPublicAuctionError) -> OperationError {
 pub(super) fn catalogue(error: GetAuctionCatalogueError) -> OperationError {
     match error {
         GetAuctionCatalogueError::Shipping(error) => crate::shipping_error::shipping(error),
-        GetAuctionCatalogueError::AuctionNotFound => OperationError::NotFound,
+        GetAuctionCatalogueError::AuctionNotFound => {
+            OperationError::NotFound("Auction not found: check the auctionId.")
+        }
         error @ GetAuctionCatalogueError::CursorScopeMismatch => {
             OperationError::InvalidArguments(box_error(error))
         }

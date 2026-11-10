@@ -26,7 +26,9 @@ pub(super) fn update_one(error: UpdateNotificationSeenError) -> OperationError {
     match error {
         UpdateNotificationSeenError::AuthenticatedActorRequired
         | UpdateNotificationSeenError::Forbidden => OperationError::Forbidden,
-        UpdateNotificationSeenError::NotFound => OperationError::NotFound,
+        UpdateNotificationSeenError::NotFound => {
+            OperationError::NotFound("Notification not found: check the notificationId.")
+        }
         UpdateNotificationSeenError::UpdateFailed(error) => {
             OperationError::Unavailable(Box::new(error))
         }
@@ -55,7 +57,9 @@ pub(super) fn delete_one(error: DeleteNotificationError) -> OperationError {
     match error {
         DeleteNotificationError::AuthenticatedActorRequired
         | DeleteNotificationError::Forbidden => OperationError::Forbidden,
-        DeleteNotificationError::NotFound => OperationError::NotFound,
+        DeleteNotificationError::NotFound => {
+            OperationError::NotFound("Notification not found: check the notificationId.")
+        }
         DeleteNotificationError::DeleteFailed(error) => {
             OperationError::Unavailable(Box::new(error))
         }
@@ -67,6 +71,27 @@ pub(super) fn delete_all(error: DeleteNotificationsError) -> OperationError {
         | DeleteNotificationsError::Forbidden => OperationError::Forbidden,
         DeleteNotificationsError::DeleteFailed(error) => {
             OperationError::Unavailable(Box::new(error))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_name_the_notification_that_was_not_found() {
+        for texts in [
+            update_one(UpdateNotificationSeenError::NotFound).tool_error_texts(),
+            delete_one(DeleteNotificationError::NotFound).tool_error_texts(),
+        ] {
+            assert_eq!(
+                vec![
+                    "NOT_FOUND",
+                    "Notification not found: check the notificationId."
+                ],
+                texts
+            );
         }
     }
 }

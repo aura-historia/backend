@@ -407,7 +407,7 @@ mod tests {
             .call(json!({"listingSourceSlugId":"missing"}), context())
             .await
             .unwrap_err();
-        assert!(matches!(missing, OperationError::NotFound));
+        assert!(matches!(missing, OperationError::NotFound(_)));
         let missing = registry
             .get("getPublicOverview")
             .unwrap()

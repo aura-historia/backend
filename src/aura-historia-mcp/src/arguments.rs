@@ -10,11 +10,88 @@ use serde::{
 use serde_json::{Error, Value, value::RawValue};
 use std::{collections::HashSet, fmt};
 
-pub(crate) fn decode<T: DeserializeOwned>(raw: Box<RawValue>) -> Result<T, Error> {
+/// Why an argument object was rejected. The path of the failing member is known for members that
+/// are not flattened into another struct; a flattened member reports no path.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DecodeError {
+    /// The document is too deeply nested or is not JSON.
+    #[error(transparent)]
+    Document(Error),
+    /// A member is missing, unknown, mistyped or invalid.
+    #[error(transparent)]
+    Member(serde_path_to_error::Error<Error>),
+}
+
+impl DecodeError {
+    /// What to tell the caller: the failing member where known, and a reason that never repeats a
+    /// supplied value. The decoders quote the offending value in their messages, so only the
+    /// description in front of the quote, or serde's `expected ...` after it, is kept.
+    pub(crate) fn reason(&self) -> String {
+        let (path, inner) = match self {
+            Self::Document(error) => (None, error),
+            Self::Member(error) => {
+                let path = error.path().to_string();
+                (
+                    Some(path).filter(|path| path != "." && !path.contains('?')),
+                    error.inner(),
+                )
+            }
+        };
+        let reason = value_free_reason(&inner.to_string());
+        match path {
+            Some(path) => format!("{path}: {reason}"),
+            None => reason,
+        }
+    }
+}
+
+/// `message` without the `" at line 1 column 7"` tail `serde_json` appends: it points into a
+/// fragment of the arguments that the caller never sees.
+pub(crate) fn without_position(message: &str) -> &str {
+    let is_position = |tail: &str| {
+        let mut parts = tail.split(" column ");
+        let all_digits = |part: Option<&str>| {
+            part.is_some_and(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        };
+        all_digits(parts.next()) && all_digits(parts.next()) && parts.next().is_none()
+    };
+    match message.rsplit_once(" at line ") {
+        Some((message, position)) if is_position(position) => message,
+        _ => message,
+    }
+}
+
+fn value_free_reason(message: &str) -> String {
+    let message = without_position(message);
+    // Names of members come from the schema or the caller's own member names, never from a value.
+    if ["missing field ", "unknown field ", "duplicate field "]
+        .iter()
+        .any(|prefix| message.starts_with(prefix))
+    {
+        return message.to_owned();
+    }
+    if ["invalid type: ", "invalid value: ", "invalid length "]
+        .iter()
+        .any(|prefix| message.starts_with(prefix))
+    {
+        return match message.rsplit_once(", expected ") {
+            Some((_, expected)) => format!("invalid value, expected {expected}"),
+            None => "invalid value".to_owned(),
+        };
+    }
+    let described = message.split(['`', '"']).next().unwrap_or_default().trim();
+    if described.is_empty() {
+        "invalid value".to_owned()
+    } else {
+        described.to_owned()
+    }
+}
+
+pub(crate) fn decode<T: DeserializeOwned>(raw: Box<RawValue>) -> Result<T, DecodeError> {
     // RawValue containers defer their children. Check the complete JSON first so that
     // deferral cannot reset serde_json's recursion limit at every nested container.
-    let _: Value = serde_json::from_str(raw.get())?;
-    T::deserialize(Argument(&raw))
+    let _: Value = serde_json::from_str(raw.get()).map_err(DecodeError::Document)?;
+    serde_path_to_error::deserialize(Argument(&raw)).map_err(DecodeError::Member)
 }
 
 struct Argument<'de>(&'de RawValue);
@@ -253,11 +330,67 @@ mod tests {
         assert!(decode::<Value>(raw(input)).is_err());
     }
 
+    #[derive(Debug, Deserialize)]
+    struct Identified {
+        #[serde(deserialize_with = "reject_id")]
+        id: String,
+    }
+    fn reject_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Err(serde::de::Error::custom(format!(
+            "malformed object ID `{value}`"
+        )))
+    }
+    #[derive(Debug, Deserialize)]
+    struct Sized {
+        #[allow(dead_code)]
+        size: u64,
+    }
+    #[derive(Debug, Deserialize)]
+    struct FlattenedSized {
+        #[allow(dead_code)]
+        #[serde(flatten)]
+        sized: Sized,
+    }
+
+    #[test]
+    fn should_name_a_direct_member_and_never_repeat_its_value() {
+        // The value carries both quote characters the decoders use to delimit it.
+        let input = r#"{"id":"secret`\"tail"}"#;
+
+        let reason = decode::<Identified>(raw(input)).unwrap_err().reason();
+
+        assert_eq!("id: malformed object ID", reason);
+        let reason = decode::<Sized>(raw(r#"{"size":"secret-size"}"#))
+            .unwrap_err()
+            .reason();
+        assert_eq!("size: invalid value, expected u64", reason);
+    }
+
+    #[test]
+    fn should_keep_the_member_names_of_missing_and_unknown_members() {
+        let missing = decode::<Sized>(raw("{}")).unwrap_err().reason();
+        assert_eq!("missing field `size`", missing);
+        let unknown = decode::<Sized>(raw(r#"{"size":1,"extra":true}"#));
+        // Without `deny_unknown_fields` extra members are ignored; the strict inputs report them.
+        assert!(unknown.is_ok());
+    }
+
+    #[test]
+    fn should_give_a_reason_without_a_name_for_a_flattened_member() {
+        let reason = decode::<FlattenedSized>(raw(r#"{"size":"secret-size"}"#))
+            .unwrap_err()
+            .reason();
+
+        assert!(reason.starts_with("invalid value"), "{reason}");
+        assert!(!reason.contains("secret"), "{reason}");
+    }
+
     #[test]
     fn should_keep_the_complete_json_recursion_limit_before_deferred_decoding() {
         let input = format!("{}null{}", "[".repeat(130), "]".repeat(130));
         let error = decode::<Value>(raw(&input)).unwrap_err();
-        assert!(error.is_syntax());
+        assert!(matches!(&error, DecodeError::Document(error) if error.is_syntax()));
         assert!(error.to_string().contains("recursion limit"));
     }
 }

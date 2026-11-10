@@ -112,7 +112,7 @@ fn search(
                 let request = input
                     .options
                     .into_request(input.search)
-                    .map_err(|e| OperationError::InvalidArguments(Box::new(e)))?;
+                    .map_err(|error| OperationError::invalid_argument(error.field, error))?;
                 let result = context
                     .execute(service.execute(&context.operation, request))
                     .await?
@@ -518,7 +518,7 @@ mod tests {
                 context(),
             )
             .await;
-        assert!(matches!(result, Err(OperationError::NotFound)));
+        assert!(matches!(result, Err(OperationError::NotFound(_))));
     }
     #[tokio::test]
     async fn should_distinguish_pending_similarity_from_ready_empty() {
@@ -622,6 +622,113 @@ mod tests {
         }
         assert_eq!(1, calls.lock().unwrap().similar.len());
     }
+    #[tokio::test]
+    async fn should_name_the_rejected_argument_and_reason_in_the_invalid_params_message() {
+        let (registry, _) = setup(false, false);
+        let id = ProductListingId::new();
+        for (name, input, expected) in [
+            (
+                "getProductListing",
+                json!({}),
+                "missing field `productListingId`",
+            ),
+            (
+                "getProductListing",
+                json!({"productListingId":id,"bogus":1}),
+                "unknown field `bogus`",
+            ),
+            (
+                "getProductListing",
+                json!({"productListingId":"pl_bad"}),
+                "productListingId: malformed object ID",
+            ),
+            (
+                "getSimilarProductListings",
+                json!({"productListingId":id,"size":-1}),
+                "size: invalid value, expected u64",
+            ),
+            (
+                "simpleSearchProductListings",
+                json!({"excludeProductListingId":["pl_bad"]}),
+                "excludeProductListingId: must be a valid ProductListing ID",
+            ),
+            (
+                "simpleSearchProductListings",
+                json!({"sort":"price"}),
+                "sort: Expected any of: 'score', 'updated', 'created'. Got: 'price'",
+            ),
+        ] {
+            let error = registry
+                .get(name)
+                .unwrap()
+                .call(input.clone(), context())
+                .await
+                .unwrap_err();
+
+            let rejection = error.into_protocol().unwrap_err();
+
+            assert_eq!(-32602, rejection.code.0, "{name} {input}");
+            assert_eq!(
+                format!("Invalid tool arguments: {expected}"),
+                rejection.message,
+                "{name} {input}"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn should_never_repeat_a_supplied_value_in_the_invalid_params_message() {
+        let (registry, _) = setup(false, false);
+        let id = ProductListingId::new();
+        for (name, input, secret) in [
+            (
+                "getProductListing",
+                json!({"productListingId":"private-malformed"}),
+                "private-malformed",
+            ),
+            (
+                "getProductListing",
+                json!({"productListingId":id,"language":"private-code"}),
+                "private-code",
+            ),
+            (
+                "getSimilarProductListings",
+                json!({"productListingId":id,"size":"private-size"}),
+                "private-size",
+            ),
+            (
+                "simpleSearchProductListings",
+                json!({"price":{"min":"private-price"}}),
+                "private-price",
+            ),
+            (
+                "simpleSearchProductListings",
+                json!({"created":{"min":"private-date"}}),
+                "private-date",
+            ),
+        ] {
+            let error = registry
+                .get(name)
+                .unwrap()
+                .call(input, context())
+                .await
+                .unwrap_err();
+
+            let message = error.into_protocol().unwrap_err().message;
+
+            assert!(message.starts_with("Invalid tool arguments: "), "{message}");
+            assert!(!message.contains(secret), "{name}: {message}");
+        }
+    }
+    #[test]
+    fn should_say_which_listing_was_not_found_and_what_to_check() {
+        let texts =
+            error::details(product_listing_service::use_cases::GetProductListingError::NotFound)
+                .tool_error_texts();
+
+        assert_eq!("NOT_FOUND", texts[0]);
+        assert!(texts[1].starts_with("Listing not found"), "{texts:?}");
+        assert!(texts[1].contains("productListingId"), "{texts:?}");
+    }
     #[test]
     fn should_describe_the_similarity_size_range_default_and_clamping() {
         let (registry, _) = setup(false, false);
@@ -724,7 +831,7 @@ mod tests {
         );
         assert!(matches!(
             error::details(GetProductListingError::NotFound),
-            OperationError::NotFound
+            OperationError::NotFound(_)
         ));
     }
     #[test]
