@@ -104,6 +104,7 @@ fn scoped_listing_source(listing_source_id: ListingSourceId) -> ScopedListingSou
         listing_source_slug: ListingSourceSlugId::raw("crawler-admission-source")
             .unwrap_or_else(|error| panic!("valid test ListingSource slug: {error}")),
         crawl_enabled: true,
+        purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
         crawl_root: Some(
             CrawlRoot::from_presentation_url("https://crawler-admission.example/")
                 .unwrap_or_else(|error| panic!("valid test presentation URL: {error}")),

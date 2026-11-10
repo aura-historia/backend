@@ -58,6 +58,7 @@ mod query_params;
 mod review_list;
 mod schema_matrix;
 mod source_pages;
+mod unscrapable;
 
 use schema_matrix::NoMatrixAnswer;
 use source_pages::{EvaluationPayload, parse_review_evaluation_id};
@@ -259,6 +260,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_unscrapable(&request, actor).await {
             return response;
         }
         // Preview responses, including their errors, are framed by the console.
@@ -5407,7 +5411,7 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        async fn console() -> (ReviewServer, ListingSourceId) {
+        pub(super) async fn console() -> (ReviewServer, ListingSourceId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -5435,7 +5439,10 @@ Origin: http://127.0.0.1:7878/x
             (server, listing_source_id)
         }
 
-        async fn overview_of(server: &ReviewServer, listing_source_id: ListingSourceId) -> Value {
+        pub(super) async fn overview_of(
+            server: &ReviewServer,
+            listing_source_id: ListingSourceId,
+        ) -> Value {
             let (_, sources) = send(server, "GET /api/listing_sources", "").await;
             sources["items"]
                 .as_array()
@@ -5507,6 +5514,74 @@ Origin: http://127.0.0.1:7878/x
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+
+    mod unscrapable {
+        use super::mass_removal_confirmation::{console, overview_of};
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send, send_as};
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_mark_and_clear_unscrapable_for_a_human_only() {
+            let (server, listing_source_id) = console().await;
+            let route = format!("/api/listing-sources/{listing_source_id}/unscrapable");
+            let body = json!({ "reason": "OTHER", "note": " members only " }).to_string();
+
+            let (status, label) = send(&server, &format!("POST {route}"), &body).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {label}");
+            assert_eq!(label["unscrapable_reason"], "OTHER");
+            assert_eq!(label["unscrapable_note"], "members only");
+            assert_eq!(label["unscrapable_by"], "HUMAN");
+            let source = overview_of(&server, listing_source_id).await;
+            assert_eq!(source["unscrapable_since"], label["unscrapable_since"]);
+            assert_eq!(source["unscrapable_reason"], "OTHER");
+            assert_eq!(source["crawl_enabled"], false, "{source}");
+
+            for refused in [
+                json!({ "reason": "OTHER" }),
+                json!({ "reason": "login_required" }),
+                json!({ "reason": "LOGIN_REQUIRED", "extra": true }),
+                json!({ "reason": "LOGIN_REQUIRED", "note": "  " }),
+            ] {
+                let (status, error) =
+                    send(&server, &format!("POST {route}"), &refused.to_string()).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused} {status} {error}"
+                );
+            }
+            let (status, _) = send_as(&server, AUTHOR_TOKEN, &format!("POST {route}"), &body).await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+            let (status, _) =
+                send_as(&server, REVIEWER_TOKEN, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+
+            let (status, cleared) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {cleared}");
+            assert_eq!(cleared, json!({ "ok": true }));
+            let source = overview_of(&server, listing_source_id).await;
+            assert!(source["unscrapable_reason"].is_null(), "{source}");
+            assert_eq!(
+                source["crawl_enabled"], false,
+                "clearing does not enable crawling"
+            );
+            let (status, _) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "clearing an unmarked source succeeds"
+            );
+
+            let unknown = format!(
+                "/api/listing-sources/{}/unscrapable",
+                ListingSourceId::new()
+            );
+            for request in [format!("POST {unknown}"), format!("DELETE {unknown}")] {
+                let (status, missing) = send(&server, &request, &body).await;
+                assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+            }
         }
     }
     mod console_lists {

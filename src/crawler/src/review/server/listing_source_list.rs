@@ -8,11 +8,20 @@ use super::{ReviewServer, read_error};
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{SourceActivity, SourceSort, SourceStatus};
 use crate::review::readers::ListingSourceQuery;
-use listing_source_core::ListingSourceId;
+use listing_source_core::{ListingSourceId, ListingSourcePurchaseChannel};
 use serde_json::json;
 use std::collections::HashMap;
 
-const LIST_PARAMETERS: [&str; 7] = ["q", "status", "activity", "sort", "dir", "limit", "offset"];
+const LIST_PARAMETERS: [&str; 8] = [
+    "q",
+    "status",
+    "activity",
+    "purchase_channel",
+    "sort",
+    "dir",
+    "limit",
+    "offset",
+];
 const DETAIL_PREFIX: &str = "/api/listing-sources/";
 const REVIEWS_SUFFIX: &str = "/reviews";
 
@@ -98,6 +107,7 @@ fn listing_source_query(query: &HashMap<String, String>) -> Result<ListingSource
         search: search_term(query)?,
         activity: named::<SourceActivity>(query, "activity")?,
         status: named::<SourceStatus>(query, "status")?,
+        purchase_channel: named::<ListingSourcePurchaseChannel>(query, "purchase_channel")?,
         sort,
         direction: sort_direction(query, sort.default_direction())?,
         window: list_window(query)?,
@@ -130,6 +140,7 @@ mod tests {
             ("q", "antik.example"),
             ("status", "failing"),
             ("activity", "idle"),
+            ("purchase_channel", "ENQUIRY_ONLY"),
             ("sort", "last_successful_scrape"),
             ("dir", "asc"),
             ("limit", "25"),
@@ -142,6 +153,7 @@ mod tests {
                 search: SearchTerm::new("antik.example"),
                 activity: Some(SourceActivity::Idle),
                 status: Some(SourceStatus::Failing),
+                purchase_channel: Some(ListingSourcePurchaseChannel::EnquiryOnly),
                 sort: SourceSort::LastSuccessfulScrape,
                 direction: SortDirection::Ascending,
                 window: ListWindow::new(25, 50).unwrap_or_default(),
@@ -169,6 +181,8 @@ mod tests {
         for pairs in [
             [("activity", "active")],
             [("status", "sick")],
+            [("purchase_channel", "enquiry_only")],
+            [("purchase_channel", "")],
             [("sort", "updated")],
             [("dir", "up")],
             [("limit", "201")],

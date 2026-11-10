@@ -22,6 +22,9 @@ pub struct ReviewQueueEntry {
     /// Whether the ListingSource is crawled; a pending review of a disabled one holds back no
     /// crawling or scraping.
     pub listing_source_crawl_enabled: bool,
+    /// Whether the ListingSource sells online (`ONLINE_SHOP`) or by enquiry only
+    /// (`ENQUIRY_ONLY`), as the scope sync last mirrored it.
+    pub listing_source_purchase_channel: String,
     pub artifact_type: String,
     pub status: String,
     pub reason: String,
@@ -81,6 +84,7 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: Some("Antiques".to_owned()),
             listing_source_crawl_enabled: true,
+            listing_source_purchase_channel: "ONLINE_SHOP".to_owned(),
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             status: "PENDING_REVIEW".to_owned(),
             reason: "initial_schema_generation".to_owned(),

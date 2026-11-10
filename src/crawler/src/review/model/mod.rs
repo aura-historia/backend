@@ -29,6 +29,7 @@ pub mod sort_direction;
 pub mod source_event;
 pub mod source_product_url;
 pub mod status;
+pub mod unscrapable;
 pub mod url_pattern_candidate;
 
 pub use artifact::*;
@@ -69,4 +70,8 @@ pub use sort_direction::SortDirection;
 pub use source_event::{SourceEvent, SourceEventKind};
 pub use source_product_url::SourceProductUrl;
 pub use status::*;
+pub use unscrapable::{
+    MAX_UNSCRAPABLE_NOTE_CHARS, UnscrapableError, UnscrapableMark, UnscrapableNote,
+    UnscrapableReason,
+};
 pub use url_pattern_candidate::{UrlPatternDecision, UrlPatternReviewCandidate};

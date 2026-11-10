@@ -11,6 +11,9 @@ pub struct CrawlerReview {
     /// Whether the ListingSource is crawled; a pending review of a disabled one holds back no
     /// crawling or scraping.
     pub listing_source_crawl_enabled: bool,
+    /// Whether the ListingSource sells online (`ONLINE_SHOP`) or by enquiry only
+    /// (`ENQUIRY_ONLY`), as the scope sync last mirrored it.
+    pub listing_source_purchase_channel: String,
     /// The host the ListingSource is crawled on (`docs/crawler/README.md#listingsource-scope`),
     /// the only host whose URLs the console fetches for the review; `None` while the source has
     /// no crawl root.

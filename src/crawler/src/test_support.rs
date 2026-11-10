@@ -43,6 +43,7 @@ pub(crate) async fn refresh_scope_with_crawl_root(
             listing_source_slug: listing_source_core::ListingSourceSlugId::raw("test-source")
                 .unwrap_or_else(|error| panic!("valid test slug: {error}")),
             crawl_enabled: true,
+            purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
             crawl_root: Some(crawl_root),
         }])
         .await

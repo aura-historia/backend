@@ -265,6 +265,7 @@ const TONES = {
     crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral',
     crawling: 'info', scraping: 'info',
+    unscrapable: 'neutral', enquiry_only: 'info',
     HUMAN: 'info', AGENT_AUTHOR: 'neutral', AGENT_REVIEWER: 'neutral', SYSTEM: 'neutral',
     applied: 'ok', failed_check: 'bad', did_not_apply: 'bad', not_evaluated: 'warn', changed: 'info'
 };
@@ -319,9 +320,15 @@ function reviewFlags(review, {live = false, revoked = false} = {}) {
         flags.push(badge('Rejected by the model', TONES.rejected_by_model));
     }
     if (pending && review.listing_source_crawl_enabled === false) flags.push(badge('Source disabled', TONES.source_disabled));
+    if (review.listing_source_purchase_channel === 'ENQUIRY_ONLY') flags.push(purchaseChannelBadge(review.listing_source_purchase_channel));
     if (live) flags.push(badge('Live', TONES.live));
     if (revoked) flags.push(badge('Revoked', TONES.rejection_revoked));
     return flags.join(' ');
+}
+
+// The badge of a source that sells by enquiry only; nothing for an online shop.
+function purchaseChannelBadge(channel) {
+    return channel === 'ENQUIRY_ONLY' ? badge('No online shop', TONES.enquiry_only) : '';
 }
 
 function stateBlock(kind, title, text = '', actions = '') {
@@ -543,7 +550,12 @@ function overviewTilesHtml() {
         ['crawl_failing', `${sources.crawl_failing} crawl failing`], ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl stuck`], ['blocked', `${sources.blocked_by_review} blocked`],
         ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`]
     ].map(([status, text]) => `<a href="#sources&status=${status}">${escapeHtml(text)}</a>`).join(' · ') : '';
-    const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need you')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
+    // Marked and enquiry-only sources are not failures; their counts follow the breakdown as links of their own.
+    const labels = sources ? [
+        sources.unscrapable > 0 ? `<a href="#sources&status=unscrapable">${escapeHtml(`${formatCount(sources.unscrapable)} unscrapable`)}</a>` : '',
+        sources.enquiry_only > 0 ? `<a href="#sources&purchase_channel=ENQUIRY_ONLY">${escapeHtml(`${formatCount(sources.enquiry_only)} without online shop`)}</a>` : ''
+    ].filter(Boolean).join(' · ') : '';
+    const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need you')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}${labels ? `<span class="tile-sub">${labels}</span>` : ''}</div>`;
     const byType = reviews?.pending_by_artifact;
     const pending = pendingReviewCount();
     const disabled = reviews?.pending_disabled_sources || 0;
@@ -648,7 +660,7 @@ const lists = {
     reviews: {items: undefined, total: 0, failure: '', sequence: 0, loading: false, unfilteredTotal: null}
 };
 
-const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled']];
+const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['unscrapable', 'Unscrapable']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -668,6 +680,7 @@ function listApiQuery(kind, params) {
     ['q', 'status', 'sort', 'dir'].forEach(copy);
     if (kind === 'sources') {
         copy('activity');
+        copy('purchase_channel');
     } else {
         copy('artifact');
         copy('waiting');
@@ -687,7 +700,7 @@ function listApiPath(kind) {
 }
 
 function listFiltersActive(kind) {
-    const names = kind === 'sources' ? ['q', 'status', 'activity'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
+    const names = kind === 'sources' ? ['q', 'status', 'activity', 'purchase_channel'] : ['q', 'status', 'artifact', 'waiting', 'listing_source'];
     return names.some(name => listParameter(name));
 }
 
@@ -820,6 +833,7 @@ function renderListFilters(kind) {
         return `${search}
           ${renderChips('Status', SOURCE_STATUS_CHIPS, listParameter('status'), 'status')}
           ${renderSelect('Activity', 'activity', [['', 'Any activity'], ['crawling', 'Crawling now'], ['scraping', 'Scraping now'], ['idle', 'Idle']], listParameter('activity'))}
+          ${renderSelect('Shop', 'purchase_channel', [['', 'Any shop'], ['ONLINE_SHOP', 'Online shop'], ['ENQUIRY_ONLY', 'No online shop']], listParameter('purchase_channel'))}
           ${reset}`;
     }
     const sourceId = listParameter('listing_source');
@@ -1031,6 +1045,9 @@ function sourceConditions(source) {
 // The one status a table shows for a ListingSource: its most severe condition, else whether it
 // scrapes yet.
 function primaryStatus(source) {
+    if (source.unscrapable_reason) {
+        return {key: 'unscrapable', text: 'Unscrapable', more: Object.hasOwn(UNSCRAPABLE_REASONS, source.unscrapable_reason) ? UNSCRAPABLE_REASONS[source.unscrapable_reason] : displayName(source.unscrapable_reason)};
+    }
     if (!source.crawl_enabled) return {key: 'crawling_disabled', text: 'Crawling disabled', more: ''};
     const [condition] = sourceConditions(source);
     if (condition) {
@@ -1154,14 +1171,14 @@ function sourceColumns() {
 // condition the rows share, with how many sources have it.
 const SOURCE_GROUP_LABELS = {
     crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
-    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled'
+    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', unscrapable: 'Unscrapable'
 };
 
 function sourceGroupCount(key) {
     const sources = overviewCounts?.sources;
     const counts = {
         crawl_needs_operator: sources?.crawl_needs_operator, crawl_failing: sources?.crawl_failing, failing_to_scrape: sources?.failing_to_scrape,
-        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals
+        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals, unscrapable: sources?.unscrapable
     };
     return counts[key];
 }
@@ -1209,7 +1226,7 @@ function renderSourceRow(source) {
         ? ` · <a href="${reviewHash(blocking)}">its review →</a>` : '';
     return `<tr${rowClasses(source.crawl_enabled ? '' : 'dim', listReturnId() === source.listing_source_id ? 'selected' : '', lists.sources.changes?.added.has(source.listing_source_id) ? 'changed' : '')}>
       <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span><span class="cell-sub">${escapeHtml(sourceHost(source))}</span></a></td>
-      <td>${statusKeyBadge(status)}${status.more ? ` <span class="more">${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}</td>
+      <td>${statusKeyBadge(status)}${status.more ? ` <span class="more">${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}${purchaseChannelBadge(source.purchase_channel) ? ` ${purchaseChannelBadge(source.purchase_channel)}` : ''}</td>
       <td class="num">${pending ? `<a href="${escapeHtmlAttr(pendingHref)}">${formatCount(pending)}</a>` : '<span class="muted">0</span>'}</td>
       <td class="col-md">${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
       <td class="col-md">${nextCrawlText(source)}</td>
@@ -1345,7 +1362,7 @@ function sourcePageHtml() {
         detail.last_successful_scrape ? `last scrape ${timeBadge(detail.last_successful_scrape, 'Last successful scrape')}` : 'never scraped'];
     return `<nav class="crumbs" aria-label="Breadcrumb"><a href="#sources">Sources</a><span class="sep">/</span><span>${escapeHtml(listingSourceName(detail))}</span></nav>
       <div class="page-head"><div>
-        <div class="page-title"><h1>${escapeHtml(listingSourceName(detail))}</h1>${statusKeyBadge(status)}${activityBadges(detail)}</div>
+        <div class="page-title"><h1>${escapeHtml(listingSourceName(detail))}</h1>${statusKeyBadge(status)}${activityBadges(detail)}${purchaseChannelBadge(detail.purchase_channel) ? ` ${purchaseChannelBadge(detail.purchase_channel)}` : ''}</div>
         <div class="page-meta">${meta.map(part => `<span>${part}</span>`).join('<span>·</span>')}</div>
       </div></div>
       <div class="source-grid">
@@ -1407,7 +1424,9 @@ function renderSourceHealth(source) {
         lines.push(`<div class="status-line"><span class="badge badge-neutral">Missing a value</span><div class="status-line-text">${pluralize(missing, 'page', 'pages')} missing a required value · <button class="btn-link" aria-expanded="${open}" onclick="toggleMissingValuePages('${id}')" type="button">${open ? 'hide' : 'show'}</button></div></div>`);
         if (open) lines.push(renderMissingValuePages(source.listing_source_id, expandedMissingValueSources.get(source.listing_source_id)));
     }
-    if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
+    if (source.unscrapable_reason) lines.push(renderUnscrapableLine(source));
+    else if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
+    if (source.purchase_channel === 'ENQUIRY_ONLY') lines.push(`<div class="status-line">${purchaseChannelBadge(source.purchase_channel)}<div class="status-line-text">No online shop — set on the ListingSource in the admin API</div></div>`);
     const crawl = source.last_crawl_outcome
         ? `${escapeHtml(reasonWord(source.last_crawl_outcome))}${source.last_successful_crawl ? ` ${timeBadge(source.last_successful_crawl, 'Last successful crawl')}` : ''}${Number(source.crawl_failure_count) > 0 && source.last_crawl_outcome !== 'NEEDS_OPERATOR' ? ` · ${pluralize(Number(source.crawl_failure_count), 'failed crawl', 'failed crawls')}` : ''}`
         : 'not crawled yet';
@@ -1421,6 +1440,7 @@ function renderSourceHealth(source) {
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
+        ${renderUnscrapableMark(source)}
         <dl class="kv">
           <dt>Crawl</dt><dd>${crawl} · next ${nextCrawlText(source)}</dd>
           <dt>Scrape</dt><dd>${scrape}</dd>
@@ -1627,6 +1647,79 @@ async function revokeMassRemovalConfirmation(listingSourceId) {
     try {
         await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/mass-removal-confirmation`, {method: 'DELETE'});
         await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+// A human marks a source the crawler cannot scrape with a reason and a note (required for Other),
+// which switches its crawling off for good until the mark is cleared. The handlers name the source
+// by the id of the call, never from the page's HTML.
+const UNSCRAPABLE_REASONS = {
+    BOT_PROTECTION: 'Bot protection',
+    JAVASCRIPT_RENDERED: 'JavaScript rendered',
+    LOGIN_REQUIRED: 'Login required',
+    NO_PRODUCT_PAGES: 'No product pages',
+    OTHER: 'Other'
+};
+const openUnscrapableMarks = new Set();
+
+function renderUnscrapableLine(source) {
+    const id = escapeHtmlAttr(source.listing_source_id);
+    const reason = Object.hasOwn(UNSCRAPABLE_REASONS, source.unscrapable_reason) ? UNSCRAPABLE_REASONS[source.unscrapable_reason] : displayName(source.unscrapable_reason);
+    const note = source.unscrapable_note ? ` · ${escapeHtml(source.unscrapable_note)}` : '';
+    const since = source.unscrapable_since ? ` · since ${timeBadge(source.unscrapable_since, 'Marked unscrapable', true)}` : '';
+    const by = source.unscrapable_by ? ` · by ${escapeHtml(actorWord(source.unscrapable_by))}` : '';
+    return `<div class="status-line"><span class="badge badge-${TONES.unscrapable}">Unscrapable</span><div class="status-line-text">${escapeHtml(reason)}${note}${since}${by} · <button class="btn-link" onclick="clearUnscrapable('${id}')" type="button">Clear</button>
+      <div class="status-line-detail">Crawling resumes with the next scope refresh if the source is still in scope.</div></div></div>`;
+}
+
+function renderUnscrapableMark(source) {
+    if (source.unscrapable_reason) return '';
+    const id = escapeHtmlAttr(source.listing_source_id);
+    const open = openUnscrapableMarks.has(source.listing_source_id);
+    return `<div><button class="btn-link" aria-expanded="${open}" onclick="toggleUnscrapableMark('${id}')" type="button">Mark as unscrapable</button></div>${open ? renderUnscrapableForm(source.listing_source_id) : ''}`;
+}
+
+function renderUnscrapableForm(listingSourceId) {
+    const id = escapeHtmlAttr(listingSourceId);
+    return `<div class="list-row">
+      <span>The crawler cannot scrape this source; stop crawling it, because</span>
+      <select class="sm" aria-label="Reason" id="unscrapableReason-${id}">${Object.entries(UNSCRAPABLE_REASONS).map(([reason, label]) =>
+          `<option value="${escapeHtmlAttr(reason)}">${escapeHtml(label)}</option>`).join('')}</select>
+      <input type="text" class="sm" maxlength="500" aria-label="Note, required for Other" placeholder="Note (required for Other)" id="unscrapableNote-${id}">
+      <button class="btn btn-primary btn-sm" onclick="markUnscrapable('${id}')" type="button">Confirm</button>
+      <button class="btn btn-quiet btn-sm" onclick="toggleUnscrapableMark('${id}')" type="button">Cancel</button>
+    </div>`;
+}
+
+function toggleUnscrapableMark(listingSourceId) {
+    if (!openUnscrapableMarks.delete(listingSourceId)) openUnscrapableMarks.add(listingSourceId);
+    updateSourcePage();
+}
+
+async function markUnscrapable(listingSourceId) {
+    const reason = document.getElementById(`unscrapableReason-${listingSourceId}`)?.value;
+    if (!reason) return;
+    const note = (document.getElementById(`unscrapableNote-${listingSourceId}`)?.value || '').trim();
+    if (reason === 'OTHER' && !note) {
+        alert('The reason Other needs a note.');
+        return;
+    }
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/unscrapable`,
+            {method: 'POST', body: JSON.stringify(note ? {reason, note} : {reason})});
+        openUnscrapableMarks.delete(listingSourceId);
+        await Promise.all([loadSourcePage(), loadOverview()]);
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+async function clearUnscrapable(listingSourceId) {
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/unscrapable`, {method: 'DELETE'});
+        await Promise.all([loadSourcePage(), loadOverview()]);
     } catch (error) {
         alert(apiErrorMessage(error));
     }

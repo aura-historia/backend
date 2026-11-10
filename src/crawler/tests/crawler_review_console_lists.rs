@@ -9,19 +9,22 @@ use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
     ArtifactType, ListPage, ListWindow, ListingSourceOverview, PAGE_ROLE_PRIMARY, ReviewActor,
     ReviewQueueEntry, ReviewSort, ReviewStatus, ReviewWaiting, SchemaReviewPageInput, SearchTerm,
-    SortDirection, SourceActivity, SourceEventKind, SourceSort, SourceStatus, UrlPatternDecision,
+    SortDirection, SourceActivity, SourceEventKind, SourceSort, SourceStatus, UnscrapableMark,
+    UnscrapableReason, UrlPatternDecision,
 };
 use crawler::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
     ListingSourceQuery, ReviewQuery, ReviewQueueReader, SourceEventReader,
 };
-use crawler::review::repository::{CrawlerReviewRepository, SchemaReviewWithStatusInput};
+use crawler::review::repository::{
+    CrawlerReviewRepository, PendingReviewQuery, SchemaReviewWithStatusInput,
+};
 use crawler::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crawler::scraper::css_selector::rule::{ExtractionCardinality, ExtractionKind, ExtractionRule};
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::local_lock::{LocalLockManager, WorkLock, WorkLockScope};
-use listing_source_core::ListingSourceId;
+use listing_source_core::{ListingSourceId, ListingSourcePurchaseChannel};
 use serde_json::json;
 use sqlx::PgPool;
 use std::num::NonZeroU32;
@@ -830,7 +833,8 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
             "sources": {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
                 "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
-                "failing_to_scrape": 1, "held_removals": 0
+                "failing_to_scrape": 1, "held_removals": 0,
+                "unscrapable": 0, "enquiry_only": 0
             },
             "reviews": {
                 "pending_total": 3,
@@ -1084,4 +1088,111 @@ async fn should_count_a_failed_crawl_as_needing_attention_and_say_why_a_source_f
         .unwrap()
         .expect("the source exists");
     assert!(healthy_detail.failing_urls.is_empty());
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_marked_sources_apart_from_disabled_ones_and_filter_by_purchase_channel() {
+    let pool = get_postgres_client().await;
+    let repository = agent_repository(&pool, 1);
+    let plain = source(&pool, "Plain Shop", "plain.example.com", true).await;
+    let gallery = source(&pool, "Gallery", "gallery.example.com", true).await;
+    let disabled = source(&pool, "Disabled Shop", "disabled.example.com", false).await;
+    let marked = source(&pool, "Marked Shop", "marked.example.com", true).await;
+    sqlx::query(
+        "UPDATE listing_sources SET purchase_channel = 'ENQUIRY_ONLY' WHERE listing_source_id = $1",
+    )
+    .bind(gallery.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE listing_sources SET last_crawl_outcome = 'FAILED', last_crawl_error_kind = 'CloudflareChallenge', \
+         crawl_failure_count = 3 WHERE listing_source_id = $1",
+    )
+    .bind(marked.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    pending_schema_review(&repository, marked).await;
+    assert_eq!(
+        1,
+        repository
+            .list_pending_reviews(PendingReviewQuery::default())
+            .await
+            .unwrap()
+            .totals
+            .workable
+    );
+    repository
+        .mark_unscrapable(
+            &marked,
+            ReviewActor::Human,
+            &UnscrapableMark::new(UnscrapableReason::BotProtection, None).unwrap(),
+        )
+        .await
+        .unwrap();
+    let with_status = |status| ListingSourceQuery {
+        status: Some(status),
+        ..ListingSourceQuery::default()
+    };
+    let with_channel = |channel| ListingSourceQuery {
+        purchase_channel: Some(channel),
+        ..ListingSourceQuery::default()
+    };
+
+    let unscrapable = list_sources(&pool, with_status(SourceStatus::Unscrapable)).await;
+    let disabled_page = list_sources(&pool, with_status(SourceStatus::Disabled)).await;
+    let attention = list_sources(&pool, with_status(SourceStatus::NeedsAttention)).await;
+    let enquiry = list_sources(
+        &pool,
+        with_channel(ListingSourcePurchaseChannel::EnquiryOnly),
+    )
+    .await;
+    let online = list_sources(
+        &pool,
+        with_channel(ListingSourcePurchaseChannel::OnlineShop),
+    )
+    .await;
+    let ranked = list_sources(&pool, ListingSourceQuery::default()).await;
+    let counts = overview_reader(&pool, &repository)
+        .overview()
+        .await
+        .unwrap();
+    let queue = repository
+        .list_pending_reviews(PendingReviewQuery::default())
+        .await
+        .unwrap();
+
+    assert_eq!(source_ids(&unscrapable), vec![marked]);
+    assert_eq!(source_ids(&disabled_page), vec![disabled]);
+    assert!(
+        source_ids(&attention).is_empty(),
+        "a marked source with a failed crawl does not need attention"
+    );
+    assert_eq!(source_ids(&enquiry), vec![gallery]);
+    assert_eq!(
+        sorted(&source_ids(&online)),
+        sorted(&[plain, disabled, marked])
+    );
+    assert_eq!(
+        source_ids(&ranked)[2..],
+        [disabled, marked],
+        "a plain disabled source ranks before an unscrapable one"
+    );
+    let marked_row = &unscrapable.items[0];
+    assert_eq!(
+        marked_row.unscrapable_reason,
+        Some(UnscrapableReason::BotProtection)
+    );
+    assert_eq!(marked_row.unscrapable_by, Some(ReviewActor::Human));
+    assert!(marked_row.unscrapable_since.is_some() && marked_row.unscrapable_note.is_none());
+    assert!(!marked_row.crawl_enabled);
+    assert_eq!(
+        (counts.sources.unscrapable, counts.sources.enquiry_only),
+        (1, 1)
+    );
+    assert_eq!(
+        queue.totals.workable, 0,
+        "its pending review leaves the agents' queue"
+    );
 }

@@ -45,6 +45,8 @@ impl ConsoleOverviewReader {
                 blocked_by_review: health.blocked_by_review,
                 failing_to_scrape: health.failing_to_scrape,
                 held_removals: health.held_removals,
+                unscrapable: health.unscrapable,
+                enquiry_only: health.enquiry_only,
             },
             reviews,
             agent_mode: self.agent_decisions.repair_rounds_cap().is_some(),

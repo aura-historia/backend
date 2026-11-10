@@ -2,6 +2,14 @@
 //! is in `docs/crawler/operations.md` (review service).
 
 use super::{QueryValue, SortDirection};
+use listing_source_core::ListingSourcePurchaseChannel;
+
+impl QueryValue for ListingSourcePurchaseChannel {
+    const VALUES: &'static [(&'static str, Self)] = &[
+        ("ONLINE_SHOP", Self::OnlineShop),
+        ("ENQUIRY_ONLY", Self::EnquiryOnly),
+    ];
+}
 
 /// Which work of this process a ListingSource is in right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,14 +29,17 @@ impl QueryValue for SourceActivity {
 }
 
 /// How a ListingSource stands. Only a crawl-enabled one can need attention.
+/// `Disabled` and `Unscrapable` are disjoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceStatus {
     /// Any of the five conditions below.
     NeedsAttention,
     /// Crawl-enabled and none of the conditions.
     Healthy,
-    /// Crawling is switched off.
+    /// Crawling is switched off, and no human marked the source as unscrapable.
     Disabled,
+    /// A human marked the source as unscrapable: its crawling is off and stays off.
+    Unscrapable,
     /// Its last crawl failed and is retried by the schedule.
     CrawlFailing,
     /// Its crawl waits for an operator.
@@ -46,6 +57,7 @@ impl QueryValue for SourceStatus {
         ("needs_attention", Self::NeedsAttention),
         ("healthy", Self::Healthy),
         ("disabled", Self::Disabled),
+        ("unscrapable", Self::Unscrapable),
         ("crawl_failing", Self::CrawlFailing),
         ("crawl_needs_operator", Self::CrawlNeedsOperator),
         ("blocked", Self::Blocked),

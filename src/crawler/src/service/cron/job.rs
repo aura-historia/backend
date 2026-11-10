@@ -191,6 +191,8 @@ mod tests {
                                 panic!("valid test listing source slug: {error}")
                             }),
                             crawl_enabled: true,
+                            purchase_channel:
+                                listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
                             presentation_url: None,
                         },
                     ])

@@ -708,6 +708,7 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: Some("Antiques".to_owned()),
             listing_source_crawl_enabled: crawl_enabled,
+            listing_source_purchase_channel: "ONLINE_SHOP".to_owned(),
             listing_source_crawl_host: Some("antiques.example".to_owned()),
             artifact_type: "PRODUCT_SCHEMA".to_owned(),
             status: status.to_owned(),

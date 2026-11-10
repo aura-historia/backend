@@ -274,6 +274,7 @@ async fn register_demo_listing_source(
             listing_source_slug: listing_source_core::ListingSourceSlugId::raw("demo-source")
                 .map_err(|error| DemoError::Demo(error.to_string()))?,
             crawl_enabled: true,
+            purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
             crawl_root: Some(crawl_root.clone()),
         }])
         .await?;

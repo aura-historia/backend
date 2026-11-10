@@ -1,4 +1,4 @@
-use super::ReviewActor;
+use super::{ReviewActor, UnscrapableReason};
 use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
@@ -8,6 +8,17 @@ pub struct ListingSourceOverview {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
     pub crawl_enabled: bool,
+    /// Whether the source sells online, `ONLINE_SHOP` or `ENQUIRY_ONLY`, as the scope sync last
+    /// mirrored it from the business ListingSource. Display and filtering only.
+    pub purchase_channel: String,
+    /// Why a human marked the source as unscrapable; `None` while it is not marked. A marked
+    /// source has crawling disabled and the scope sync keeps it so.
+    pub unscrapable_reason: Option<UnscrapableReason>,
+    /// The note of the mark; `None` without one, never set without a reason.
+    pub unscrapable_note: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub unscrapable_since: Option<time::OffsetDateTime>,
+    pub unscrapable_by: Option<ReviewActor>,
     /// Where the source's crawl starts, derived from its presentation URL; `None` while the scope
     /// gives it no crawl root (`docs/crawler/README.md#listingsource-scope`).
     pub crawl_root_url: Option<String>,
@@ -111,6 +122,11 @@ mod tests {
                 .expect("v7 uuid is a valid listing source id"),
             listing_source_name: None,
             crawl_enabled: true,
+            purchase_channel: "ONLINE_SHOP".to_owned(),
+            unscrapable_reason: None,
+            unscrapable_note: None,
+            unscrapable_since: None,
+            unscrapable_by: None,
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,
             last_successful_scrape: last_successful,
@@ -175,6 +191,29 @@ mod tests {
         assert_eq!(json["held_removal_urls"], 2);
         assert_eq!(json["url_error_kinds"][0]["kind"], "MassRemovalHeld");
         assert_eq!(json["url_error_kinds"][0]["count"], 2);
+    }
+
+    #[test]
+    fn purchase_channel_and_unscrapable_mark_serialize_on_the_source() {
+        let json = serde_json::to_value(overview(None)).unwrap();
+        assert_eq!(json["purchase_channel"], "ONLINE_SHOP");
+        assert!(json["unscrapable_reason"].is_null());
+        assert!(json["unscrapable_note"].is_null());
+        assert!(json["unscrapable_since"].is_null());
+        assert!(json["unscrapable_by"].is_null());
+
+        let mut source = overview(None);
+        source.purchase_channel = "ENQUIRY_ONLY".to_owned();
+        source.unscrapable_reason = Some(UnscrapableReason::LoginRequired);
+        source.unscrapable_note = Some("members only".to_owned());
+        source.unscrapable_since = Some(datetime!(2026-11-10 09:00:00 UTC));
+        source.unscrapable_by = Some(ReviewActor::Human);
+        let json = serde_json::to_value(source).unwrap();
+        assert_eq!(json["purchase_channel"], "ENQUIRY_ONLY");
+        assert_eq!(json["unscrapable_reason"], "LOGIN_REQUIRED");
+        assert_eq!(json["unscrapable_note"], "members only");
+        assert_eq!(json["unscrapable_since"], "2026-11-10T09:00:00Z");
+        assert_eq!(json["unscrapable_by"], "HUMAN");
     }
 
     #[test]

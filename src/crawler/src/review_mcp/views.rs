@@ -103,6 +103,11 @@ pub struct ReviewView {
     /// The host the review's ListingSource is crawled on, the only host whose URLs the review
     /// tools fetch; `None` while the source has no crawl root.
     pub crawl_host: Option<String>,
+    /// `ONLINE_SHOP` or `ENQUIRY_ONLY`. An `ENQUIRY_ONLY` ListingSource concludes no purchase
+    /// online: a product page of it offers an enquiry (mail, phone, form) and usually shows no
+    /// price. For such a source an enquiry action as the listing `state` and absent prices are
+    /// expected, so they are no reason to reject the review or hand it to a human.
+    pub purchase_channel: String,
     /// The candidate's version, which edits and approvals name as `expected_candidate_version`.
     pub candidate_version: i64,
     /// Whether the review is approved and its candidate is the ListingSource's live schema list.
@@ -423,6 +428,7 @@ impl ReviewView {
             listing_source_id: review.listing_source_id.to_string(),
             listing_source_name: review.listing_source_name,
             crawl_host: review.listing_source_crawl_host,
+            purchase_channel: review.listing_source_purchase_channel,
             candidate_version: review.candidate_version,
             candidate_is_live,
             reviewer_notes: review.reviewer_notes.as_deref().map(note),
@@ -690,6 +696,7 @@ mod tests {
             "listing_source_name": "Antiques",
             "listing_source_crawl_enabled": true,
             "listing_source_crawl_host": "antiques.example",
+            "listing_source_purchase_channel": "ENQUIRY_ONLY",
             "artifact_type": artifact_type,
             "status": status,
             "reason": "manual_schema_required",
@@ -800,6 +807,26 @@ mod tests {
             (&view["agent_rounds"], &view["human_required"]),
             (&json!(3), &json!(true))
         );
+    }
+
+    #[test]
+    fn should_carry_the_purchase_channel_of_the_reviews_listing_source() {
+        let view = json!(ReviewView::of(
+            decoded(json!({
+                "review": review("PENDING_REVIEW", "PRODUCT_SCHEMA", json!({})),
+                "candidate_is_live": false,
+                "pages": [],
+                "urls": [],
+                "events": [],
+            })),
+            wire::Candidate::ProductSchema(wire::ProductSchemaCandidate {
+                schemas: vec![],
+                removed_page_schemas: vec![],
+            }),
+            0,
+        ));
+
+        assert_eq!(view["purchase_channel"], "ENQUIRY_ONLY");
     }
 
     fn long_repair_note() -> String {

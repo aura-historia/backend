@@ -42,6 +42,7 @@ async fn apply_scope(
             listing_source_name: ListingSourceName::try_from("Moving shop").unwrap(),
             listing_source_slug: ListingSourceSlugId::raw("moving-shop").unwrap(),
             crawl_enabled: true,
+            purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
             crawl_root: Some(CrawlRoot::from_presentation_url(root).unwrap()),
         }])
         .await

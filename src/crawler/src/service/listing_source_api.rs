@@ -10,7 +10,8 @@ use crate::service::listing_source_registration::{
 };
 use async_trait::async_trait;
 use listing_source_core::{
-    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
+    ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourcePurchaseChannel,
+    ListingSourceSlugId,
 };
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue};
 use serde::Deserialize;
@@ -277,6 +278,9 @@ struct ListingSourceItem {
     listing_source_slug_id: String,
     name: String,
     ingestion_methods: Vec<String>,
+    /// Absent from an API that predates the field: the business default, an online shop.
+    #[serde(default)]
+    purchase_channel: Option<String>,
     #[serde(default)]
     presentation: Option<PresentationItem>,
 }
@@ -314,6 +318,13 @@ impl ListingSourceItem {
             listing_source_slug: ListingSourceSlugId::raw(&self.listing_source_slug_id)
                 .map_err(|_| FetchError::InvalidItem("listingSourceSlugId"))?,
             crawl_enabled: true,
+            purchase_channel: self
+                .purchase_channel
+                .as_deref()
+                .map(str::parse::<ListingSourcePurchaseChannel>)
+                .transpose()
+                .map_err(|_| FetchError::InvalidItem("purchaseChannel"))?
+                .unwrap_or(ListingSourcePurchaseChannel::OnlineShop),
             presentation_url: self.presentation.and_then(|presentation| presentation.url),
         })
     }
@@ -582,6 +593,59 @@ mod tests {
 
         assert!(message.contains("request failed"), "{message}");
         assert!(!message.contains(TOKEN));
+    }
+
+    #[tokio::test]
+    async fn should_map_the_purchase_channel_and_default_an_absent_one_to_an_online_shop() {
+        let ids: Vec<ListingSourceId> = (0..3).map(|_| ListingSourceId::new()).collect();
+        let channels = [Some("ENQUIRY_ONLY"), Some("ONLINE_SHOP"), None];
+        let items = ids
+            .iter()
+            .zip(channels)
+            .map(|(id, channel)| {
+                let mut item = item(id, "shop", "Shop");
+                if let Some(channel) = channel {
+                    item["purchaseChannel"] = serde_json::json!(channel);
+                }
+                item
+            })
+            .collect();
+        let stub = StubApi::serve(vec![page(items, None)]).await;
+
+        let sources = fetch(&stub).await.expect("complete scope");
+
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source.purchase_channel)
+                .collect::<Vec<_>>(),
+            [
+                ListingSourcePurchaseChannel::EnquiryOnly,
+                ListingSourcePurchaseChannel::OnlineShop,
+                ListingSourcePurchaseChannel::OnlineShop,
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_fail_the_refresh_on_an_unknown_purchase_channel() {
+        for channel in [
+            serde_json::json!("enquiry_only"),
+            serde_json::json!("SHOP"),
+            serde_json::json!(""),
+            serde_json::json!(7),
+        ] {
+            let mut invalid = item(&ListingSourceId::new(), "shop", "Shop");
+            invalid["purchaseChannel"] = channel.clone();
+            let stub = StubApi::serve(vec![page(vec![invalid], None)]).await;
+
+            let result = fetch(&stub).await;
+
+            assert!(
+                matches!(result, Err(ListingSourceSyncError::FetchError(_))),
+                "{channel} must fail the refresh, got {result:?}"
+            );
+        }
     }
 
     #[tokio::test]

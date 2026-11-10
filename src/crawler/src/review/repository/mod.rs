@@ -48,6 +48,7 @@ mod reviewer_page_url;
 mod revocation;
 mod sample_labels;
 mod schema_payload;
+mod unscrapable;
 mod url_pattern_sample;
 mod verdicts;
 
@@ -61,6 +62,7 @@ pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
 pub use sample_labels::{MAX_SAMPLE_LABEL_REASON_CHARS, MAX_SAMPLE_LABELS};
 pub use schema_payload::ProductSchemaCandidateFailure;
+pub use unscrapable::UnscrapableLabel;
 pub use verdicts::Approval;
 
 use review_events::{
@@ -569,6 +571,7 @@ impl CrawlerReviewRepository {
         let row = sqlx::query(
             "SELECT r.review_id, r.listing_source_id, s.listing_source_name,
                     COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
+                    COALESCE(s.purchase_channel, 'ONLINE_SHOP') AS listing_source_purchase_channel,
                     s.crawl_host AS listing_source_crawl_host, r.artifact_type, r.status, r.reason,
                     r.candidate_payload, r.candidate_version, r.validation_summary, r.reviewer_notes,
                     r.repair_requested, r.repair_note, r.created, r.updated, r.reviewed
@@ -1810,6 +1813,7 @@ fn row_to_review(
         )?,
         listing_source_name: row.try_get("listing_source_name")?,
         listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
+        listing_source_purchase_channel: row.try_get("listing_source_purchase_channel")?,
         listing_source_crawl_host: row.try_get("listing_source_crawl_host")?,
         artifact_type: row.try_get("artifact_type")?,
         human_required: agent_decisions.waits_for_human(&status, rounds),

@@ -24,12 +24,13 @@ Each spider or scraper pass first refreshes the complete ListingSource scope fro
 
 ## ListingSource scope
 
-A ListingSource is the crawler's only entity. It keeps its business identity from the authoritative source, and the crawler mirrors only its work scope: `WEB_CRAWL` enablement and the crawl root. Nobody configures crawl roots; each scope refresh derives them ([`crawl_root.rs`](../../src/crawler/src/crawl_root.rs)):
+A ListingSource is the crawler's only entity. It keeps its business identity from the authoritative source, and the crawler mirrors only its work scope: `WEB_CRAWL` enablement and the crawl root, and, for display and filtering only, the `purchase_channel` (`ONLINE_SHOP` or `ENQUIRY_ONLY`; absent from the API means `ONLINE_SHOP`, an unknown value fails the refresh). Nobody configures crawl roots; each scope refresh derives them ([`crawl_root.rs`](../../src/crawler/src/crawl_root.rs)):
 
 - The crawl root is the presentation URL the admin API gives the source, on `https`, without credentials, query or fragment. Its path is the start page; its host without one leading `www.` is the crawl host, the scope the spider stays on and the host that owns the source's URLs.
 - A source whose presentation URL is missing or names no domain host on the default port, or whose crawl host another crawl-enabled source of the scope presents (a marketplace), gets no crawl root. It is neither crawled nor scraped, and the refresh warns `crawler.listing_source_crawl_skipped` once per source and reason. Crawling a shared host needs a path-scoped crawl root, which the crawler does not have.
 - A refresh that gives a source another crawl root moves it: the crawl state of the old root (last crawls, failure and truncation counts, rate-limit hold, crawl outcome) and its frontier are cleared, so the next spider cycle crawls the new root in full. The source's URLs, URL pattern and scrape state stay. A run of the old root that is still crawling records nothing over the move.
-- A source that leaves the scope keeps its crawl root and history with `crawl_enabled = false`, and resumes from them when it returns with the same URL.
+- A source that leaves the scope keeps its crawl root, history and last `purchase_channel` with `crawl_enabled = false`, and resumes from them when it returns with the same URL.
+- A source is admitted when it is in the scope and no human marked it unscrapable. The mark is operator state in the crawler's local database (below): marking sets `crawl_enabled = false`, and the refresh never sets it back while the mark stands. A marked source still counts as presenting its host, so a second source on that host stays `SHARED_HOST` until `WEB_CRAWL` is removed from the marked one. `purchase_channel` has no effect on admission or crawling.
 
 Two crawl-enabled sources never share a crawl host; the schema refuses it.
 
@@ -38,6 +39,7 @@ Two crawl-enabled sources never share a crawl host; the schema refuses it.
 Crawler-local Postgres is authoritative for crawler operations:
 
 - crawl roots and the crawl and scrape state of each ListingSource;
+- operator labels of each ListingSource: the mirrored `purchase_channel` and the unscrapable mark (a closed reason, an optional note and who and when), which only a human sets in the review console;
 - discovered URL class, disposition, scrape fingerprint, and retry metadata;
 - cached product and removed-page schemas;
 - LLM budget accounting; and

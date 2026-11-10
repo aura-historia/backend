@@ -113,6 +113,7 @@ fn escape_html_attr(value: &str) -> String {
 mod tests {
     use super::{APP_JS, INSPECTOR_JS, instrument_live_html};
     use crate::network::policy::DomainFailureKind;
+    use crate::review::model::UnscrapableReason;
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck, PlausibilityCheck};
     use crate::spider::discovery::website_spider::{CrawlCooldownProfile, CrawlFailureKind};
 
@@ -316,6 +317,27 @@ mod tests {
             let entry = failure_entry(kind.as_str());
             assert!(entry.contains("profile: 'circuit'"), "{entry}");
         }
+    }
+
+    /// The reasons the console offers, with their labels, are the ones the crawler persists.
+    #[test]
+    fn should_offer_exactly_the_unscrapable_reasons_the_crawler_persists() {
+        let table = APP_JS
+            .split_once("const UNSCRAPABLE_REASONS = {")
+            .and_then(|(_, rest)| rest.split_once("\n};"))
+            .map(|(entries, _)| entries)
+            .unwrap_or_else(|| panic!("app.js must define UNSCRAPABLE_REASONS"));
+        let offered: Vec<&str> = table
+            .lines()
+            .filter_map(|line| line.trim_start().split_once(": '").map(|(key, _)| key))
+            .collect();
+
+        assert_eq!(
+            UnscrapableReason::ALL
+                .map(UnscrapableReason::as_str)
+                .to_vec(),
+            offered
+        );
     }
 
     #[test]

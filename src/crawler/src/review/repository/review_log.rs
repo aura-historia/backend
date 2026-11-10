@@ -6,7 +6,7 @@
 
 use super::review_events::ReviewMutation;
 use crate::CrawlerReviewId;
-use crate::review::model::ReviewActor;
+use crate::review::model::{ReviewActor, UnscrapableReason};
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -23,6 +23,8 @@ pub(super) const REVIEW_URLS_RETIRED_NOT_PRODUCT_EVENT: &str =
     "crawler.review.urls_retired_not_product";
 pub(super) const MASS_REMOVAL_CONFIRMED_EVENT: &str = "crawler.source.mass_removal_confirmed";
 pub(super) const MASS_REMOVAL_REVOKED_EVENT: &str = "crawler.source.mass_removal_revoked";
+pub(super) const MARKED_UNSCRAPABLE_EVENT: &str = "crawler.source.marked_unscrapable";
+pub(super) const UNSCRAPABLE_CLEARED_EVENT: &str = "crawler.source.unscrapable_cleared";
 
 /// What one review state change logs besides the source: which event, who acted, and the one
 /// detail that names the change.
@@ -49,6 +51,8 @@ pub(super) struct ReviewLogEntry {
     rearmed_held_urls: Option<u64>,
     hours: Option<u32>,
     confirmed_until: Option<String>,
+    /// Whether an unscrapable mark carries a note; the note's text is never logged.
+    has_note: Option<bool>,
 }
 
 impl ReviewLogEntry {
@@ -67,6 +71,7 @@ impl ReviewLogEntry {
             rearmed_held_urls: None,
             hours: None,
             confirmed_until: None,
+            has_note: None,
         }
     }
 
@@ -117,6 +122,32 @@ impl ReviewLogEntry {
         Self::new(
             MASS_REMOVAL_REVOKED_EVENT,
             "Mass-removal confirmation revoked; the guard holds removals again",
+            Some(actor),
+        )
+    }
+
+    /// A human marked the source as unscrapable for `reason`; `has_note` says whether a note came
+    /// with it, never what it says.
+    pub(super) fn marked_unscrapable(
+        actor: ReviewActor,
+        reason: UnscrapableReason,
+        has_note: bool,
+    ) -> Self {
+        Self {
+            reason: Some(reason.as_str().to_owned()),
+            has_note: Some(has_note),
+            ..Self::new(
+                MARKED_UNSCRAPABLE_EVENT,
+                "ListingSource marked as unscrapable; crawling is switched off",
+                Some(actor),
+            )
+        }
+    }
+
+    pub(super) fn unscrapable_cleared(actor: ReviewActor) -> Self {
+        Self::new(
+            UNSCRAPABLE_CLEARED_EVENT,
+            "Unscrapable mark cleared; the next scope refresh may enable crawling again",
             Some(actor),
         )
     }
@@ -446,6 +477,7 @@ impl PreparedReviewLog {
                     not_product_labels = entry.not_product_labels,
                     rearmed_held_urls = entry.rearmed_held_urls,
                     confirmed_until = entry.confirmed_until,
+                    has_note = entry.has_note,
                     hours = entry.hours,
                     incomplete_coverage = entry.incomplete_coverage,
                     "{}",
@@ -587,6 +619,29 @@ mod tests {
             ("actor", "HUMAN"),
         ] {
             assert_eq!(confirmed[0].field(field), Some(expected), "{field}");
+        }
+    }
+
+    #[test]
+    fn should_log_the_reason_and_whether_a_note_exists_but_never_the_note() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        prepared(ReviewLogEntry::marked_unscrapable(
+            ReviewActor::Human,
+            UnscrapableReason::LoginRequired,
+            true,
+        ))
+        .emit();
+
+        let marked = events.named(MARKED_UNSCRAPABLE_EVENT);
+        assert_eq!(marked.len(), 1);
+        assert_eq!(marked[0].level, Level::INFO);
+        for (field, expected) in [
+            ("reason", "LOGIN_REQUIRED"),
+            ("has_note", "true"),
+            ("actor", "HUMAN"),
+        ] {
+            assert_eq!(marked[0].field(field), Some(expected), "{field}");
         }
     }
 

@@ -295,6 +295,7 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             listing_source_name: None,
             listing_source_crawl_enabled: true,
+            listing_source_purchase_channel: "ONLINE_SHOP".to_owned(),
             listing_source_crawl_host: None,
             artifact_type: ARTIFACT_PRODUCT_SCHEMA.to_owned(),
             status: STATUS_PENDING_REVIEW.to_owned(),

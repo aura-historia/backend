@@ -3,7 +3,9 @@
 
 use crate::crawl_root::{CrawlRoot, CrawlRootRejection};
 use async_trait::async_trait;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{
+    ListingSourceId, ListingSourceName, ListingSourcePurchaseChannel, ListingSourceSlugId,
+};
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -19,6 +21,8 @@ pub struct RegisteredListingSource {
     pub listing_source_name: ListingSourceName,
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
+    /// Whether the source sells online, mirrored for display; it never affects crawling.
+    pub purchase_channel: ListingSourcePurchaseChannel,
     /// The public site the registration source presents for the shop, untrusted and as given;
     /// `None` when it presents none. The sync derives the source's crawl root from it.
     pub presentation_url: Option<String>,
@@ -32,6 +36,7 @@ pub struct ScopedListingSource {
     pub listing_source_name: ListingSourceName,
     pub listing_source_slug: ListingSourceSlugId,
     pub crawl_enabled: bool,
+    pub purchase_channel: ListingSourcePurchaseChannel,
     pub crawl_root: Option<CrawlRoot>,
 }
 
@@ -230,6 +235,7 @@ fn scope_crawl_roots(
                 listing_source_name: listing_source.listing_source_name,
                 listing_source_slug: listing_source.listing_source_slug,
                 crawl_enabled: listing_source.crawl_enabled,
+                purchase_channel: listing_source.purchase_channel,
                 crawl_root,
             }
         })
@@ -332,12 +338,14 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
             sqlx::query(
                 "INSERT INTO listing_sources \
                     (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
-                     crawl_root_url, crawl_host, created, updated) \
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) \
+                     crawl_root_url, crawl_host, purchase_channel, created, updated) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW()) \
                  ON CONFLICT (listing_source_id) DO UPDATE SET \
                     listing_source_name = EXCLUDED.listing_source_name, \
                     listing_source_slug = EXCLUDED.listing_source_slug, \
-                    crawl_enabled = EXCLUDED.crawl_enabled, \
+                    crawl_enabled = EXCLUDED.crawl_enabled \
+                        AND listing_sources.unscrapable_reason IS NULL, \
+                    purchase_channel = EXCLUDED.purchase_channel, \
                     crawl_root_url = EXCLUDED.crawl_root_url, \
                     crawl_host = EXCLUDED.crawl_host, \
                     updated = NOW()",
@@ -353,6 +361,7 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
                     .map(|root| root.url().as_str()),
             )
             .bind(listing_source.crawl_root.as_ref().map(CrawlRoot::host))
+            .bind(listing_source.purchase_channel.as_str())
             .execute(&mut *transaction)
             .await?;
         }
@@ -377,6 +386,7 @@ mod tests {
             listing_source_slug: ListingSourceSlugId::raw("source")
                 .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
             crawl_enabled: true,
+            purchase_channel: ListingSourcePurchaseChannel::OnlineShop,
             presentation_url: presentation_url.map(str::to_owned),
         }
     }
@@ -486,6 +496,7 @@ mod tests {
             listing_source_name: skipped.listing_source_name.clone(),
             listing_source_slug: skipped.listing_source_slug.clone(),
             crawl_enabled: true,
+            purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
             crawl_root: None,
         }];
         let service = ListingSourceRegistrationService::new(

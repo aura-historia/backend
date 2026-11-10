@@ -5,13 +5,13 @@
 
 use crate::review::model::{
     CrawlStateOverview, ListPage, ListWindow, ListingSourceOverview, ReviewActor, SearchTerm,
-    SortDirection, SourceActivity, SourceSort, SourceStatus, UrlErrorKindCount,
+    SortDirection, SourceActivity, SourceSort, SourceStatus, UnscrapableReason, UrlErrorKindCount,
 };
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
 use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
 use crate::spider::local_lock::{LocalLockManager, RunningWork, WorkLockScope};
-use listing_source_core::ListingSourceId;
+use listing_source_core::{ListingSourceId, ListingSourcePurchaseChannel};
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
@@ -25,6 +25,7 @@ pub struct ListingSourceQuery {
     pub search: Option<SearchTerm>,
     pub activity: Option<SourceActivity>,
     pub status: Option<SourceStatus>,
+    pub purchase_channel: Option<ListingSourcePurchaseChannel>,
     pub sort: SourceSort,
     pub direction: SortDirection,
     pub window: ListWindow,
@@ -39,6 +40,10 @@ pub struct HealthCounts {
     pub blocked_by_review: i64,
     pub failing_to_scrape: i64,
     pub held_removals: i64,
+    /// Sources a human marked as unscrapable, over all sources.
+    pub unscrapable: i64,
+    /// Sources the business ListingSource sells by enquiry only, over all sources.
+    pub enquiry_only: i64,
 }
 
 /// The ListingSources with everything the overview shows, computed in SQL for every ListingSource
@@ -77,6 +82,11 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.listing_source_name,
         s.crawl_host,
         s.crawl_enabled,
+        s.purchase_channel,
+        s.unscrapable_reason,
+        s.unscrapable_note,
+        s.unscrapable_since,
+        s.unscrapable_by,
         s.updated,
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
@@ -236,7 +246,9 @@ impl ListingSourceOverviewReader {
                     COUNT(*) FILTER (WHERE crawl_enabled AND blocked_urls > 0) AS blocked_by_review,
                     COUNT(*) FILTER (WHERE crawl_enabled AND scrape_failure_streak > 0)
                         AS failing_to_scrape,
-                    COUNT(*) FILTER (WHERE crawl_enabled AND held_removal_urls > 0) AS held_removals
+                    COUNT(*) FILTER (WHERE crawl_enabled AND held_removal_urls > 0) AS held_removals,
+                    COUNT(*) FILTER (WHERE unscrapable_reason IS NOT NULL) AS unscrapable,
+                    COUNT(*) FILTER (WHERE purchase_channel = 'ENQUIRY_ONLY') AS enquiry_only
              FROM ranked"
         )))
         .bind(None::<uuid::Uuid>)
@@ -251,6 +263,8 @@ impl ListingSourceOverviewReader {
             blocked_by_review: row.try_get("blocked_by_review")?,
             failing_to_scrape: row.try_get("failing_to_scrape")?,
             held_removals: row.try_get("held_removals")?,
+            unscrapable: row.try_get("unscrapable")?,
+            enquiry_only: row.try_get("enquiry_only")?,
         })
     }
 
@@ -284,6 +298,11 @@ impl ListingSourceOverviewReader {
         .bind(query.status.map(status_name))
         .bind(i64::try_from(query.window.offset()).unwrap_or(i64::MAX))
         .bind(i64::try_from(query.window.limit()).unwrap_or(i64::MAX))
+        .bind(
+            query
+                .purchase_channel
+                .map(ListingSourcePurchaseChannel::as_str),
+        )
         .fetch_all(&self.pool)
         .await?;
 
@@ -348,6 +367,7 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::NeedsAttention => "needs_attention",
         SourceStatus::Healthy => "healthy",
         SourceStatus::Disabled => "disabled",
+        SourceStatus::Unscrapable => "unscrapable",
         SourceStatus::CrawlFailing => "crawl_failing",
         SourceStatus::CrawlNeedsOperator => "crawl_needs_operator",
         SourceStatus::Blocked => "blocked",
@@ -369,7 +389,7 @@ const RANKED_SELECT: &str = "SELECT overview.*,
 /// of them. Binds `$1` to `$3` of [`OVERVIEW_CTES`], `$4` and `$5`, the ListingSources the spider
 /// and the scraper of this process work right now, `$6`, the `ILIKE` pattern of the name or host
 /// or null, `$7`, the activity filter or null, `$8`, the status filter or null, `$9`, the rows to
-/// skip, and `$10`, the most rows to answer. Every row carries the total; an empty window is one
+/// skip, `$10`, the most rows to answer, and `$11`, the purchase-channel filter or null. Every row carries the total; an empty window is one
 /// row with the total and no ListingSource.
 ///
 /// The SQL is assembled from static fragments only, chosen by `sort` and `direction`, never from
@@ -388,10 +408,12 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($7 = 'scraping' AND listing_source_id = ANY($5))
                     OR ($7 = 'idle' AND NOT listing_source_id = ANY($4)
                                     AND NOT listing_source_id = ANY($5)))
+               AND ($11::text IS NULL OR purchase_channel = $11)
                AND ($8::text IS NULL
                     OR ($8 = 'needs_attention' AND needs_attention)
                     OR ($8 = 'healthy' AND crawl_enabled AND NOT needs_attention)
-                    OR ($8 = 'disabled' AND NOT crawl_enabled)
+                    OR ($8 = 'disabled' AND NOT crawl_enabled AND unscrapable_reason IS NULL)
+                    OR ($8 = 'unscrapable' AND unscrapable_reason IS NOT NULL)
                     OR ($8 = 'crawl_failing' AND crawl_enabled AND crawl_failed)
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
@@ -416,6 +438,7 @@ fn order_by(sort: SourceSort, direction: SortDirection) -> String {
     let keys: &[&str] = match sort {
         SourceSort::Attention => &[
             "crawl_enabled",
+            "(unscrapable_reason IS NULL)",
             "needs_operator",
             "crawl_failed",
             "(blocked_urls > 0)",
@@ -449,6 +472,11 @@ fn overview_of_row(
         listing_source_id,
         listing_source_name: row.try_get("listing_source_name")?,
         crawl_enabled: row.try_get("crawl_enabled")?,
+        purchase_channel: row.try_get("purchase_channel")?,
+        unscrapable_reason: unscrapable_reason(row.try_get("unscrapable_reason")?)?,
+        unscrapable_note: row.try_get("unscrapable_note")?,
+        unscrapable_since: row.try_get("unscrapable_since")?,
+        unscrapable_by: persisted_actor("unscrapable_by", row.try_get("unscrapable_by")?)?,
         crawl_root_url: row.try_get("crawl_root_url")?,
         last_successful_crawl: row.try_get("last_successful_crawl")?,
         last_successful_scrape: row.try_get("last_successful_scrape")?,
@@ -463,7 +491,10 @@ fn overview_of_row(
         held_removal_urls: row.try_get("held_removal_urls")?,
         held_since: row.try_get("held_since")?,
         mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
-        mass_removal_confirmed_by: confirming_actor(row.try_get("mass_removal_confirmed_by")?)?,
+        mass_removal_confirmed_by: persisted_actor(
+            "mass_removal_confirmed_by",
+            row.try_get("mass_removal_confirmed_by")?,
+        )?,
         url_error_kinds: Vec::new(),
         missing_value_urls: row.try_get("missing_value_urls")?,
         crawling_since: running_since(running, WorkLockScope::Spider, listing_source_id, now),
@@ -496,14 +527,22 @@ fn running_since(
         .map(|work| now - work.since.elapsed())
 }
 
-/// The actor a persisted confirmation names; an unknown name fails, so the console never shows a
-/// confirmation it cannot attribute.
-fn confirming_actor(name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
+/// The actor a persisted `column` names; an unknown name fails, so the console never shows a
+/// confirmation or mark it cannot attribute.
+fn persisted_actor(column: &str, name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
     name.map(|name| {
         ReviewActor::from_persisted(&name).ok_or_else(|| {
-            sqlx::Error::Decode(
-                format!("invalid persisted mass_removal_confirmed_by `{name}`").into(),
-            )
+            sqlx::Error::Decode(format!("invalid persisted {column} `{name}`").into())
+        })
+    })
+    .transpose()
+}
+
+/// The reason a persisted unscrapable mark names; an unknown name fails.
+fn unscrapable_reason(name: Option<String>) -> Result<Option<UnscrapableReason>, sqlx::Error> {
+    name.map(|name| {
+        UnscrapableReason::from_persisted(&name).ok_or_else(|| {
+            sqlx::Error::Decode(format!("invalid persisted unscrapable_reason `{name}`").into())
         })
     })
     .transpose()

@@ -4,6 +4,8 @@
 
 use async_trait::async_trait;
 use crawler::CrawlRoot;
+use crawler::review::model::{ReviewActor, UnscrapableMark, UnscrapableNote, UnscrapableReason};
+use crawler::review::repository::CrawlerReviewRepository;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ListingSourceRegistrationService, ListingSourceRegistrationSource, ListingSourceSyncError,
@@ -15,7 +17,9 @@ use crawler::spider::crawl_frontier_repository::{
 };
 use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::discovery::frontier::CrawlKind;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{
+    ListingSourceId, ListingSourceName, ListingSourcePurchaseChannel, ListingSourceSlugId,
+};
 use sqlx::PgPool;
 use test_api::*;
 use url::Url;
@@ -58,6 +62,7 @@ fn scoped(
         listing_source_name: ListingSourceName::try_from("Test source").unwrap(),
         listing_source_slug: ListingSourceSlugId::raw("test-source").unwrap(),
         crawl_enabled,
+        purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
         crawl_root: presentation_url.map(crawl_root),
     }
 }
@@ -71,6 +76,7 @@ fn registered(
         listing_source_name: ListingSourceName::try_from("Test source").unwrap(),
         listing_source_slug: ListingSourceSlugId::raw("test-source").unwrap(),
         crawl_enabled: true,
+        purchase_channel: listing_source_core::ListingSourcePurchaseChannel::OnlineShop,
         presentation_url: presentation_url.map(str::to_owned),
     }
 }
@@ -512,4 +518,107 @@ async fn should_roll_back_snapshot_when_final_disable_update_fails_and_retry_aft
         crawl_states_before,
         "neither the kept nor the disabled source's crawl state changes"
     );
+}
+
+async fn purchase_channel(pool: &PgPool, listing_source_id: ListingSourceId) -> String {
+    sqlx::query_scalar("SELECT purchase_channel FROM listing_sources WHERE listing_source_id = $1")
+        .bind(listing_source_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_mirror_the_purchase_channel_and_keep_the_last_value_of_a_source_that_leaves_the_scope()
+ {
+    let pool = get_postgres_client().await;
+    let gallery = ListingSourceId::new();
+    let shop = ListingSourceId::new();
+    let mut enquiry_only = registered(gallery, Some("https://gallery.example/"));
+    enquiry_only.purchase_channel = ListingSourcePurchaseChannel::EnquiryOnly;
+
+    sync(
+        &pool,
+        vec![
+            enquiry_only.clone(),
+            registered(shop, Some("https://shop.example/")),
+        ],
+    )
+    .await;
+    assert_eq!("ENQUIRY_ONLY", purchase_channel(&pool, gallery).await);
+    assert_eq!("ONLINE_SHOP", purchase_channel(&pool, shop).await);
+
+    let mut now_online = enquiry_only;
+    now_online.purchase_channel = ListingSourcePurchaseChannel::OnlineShop;
+    sync(&pool, vec![now_online]).await;
+    assert_eq!("ONLINE_SHOP", purchase_channel(&pool, gallery).await);
+
+    sync(&pool, vec![]).await;
+    assert_eq!(
+        "ONLINE_SHOP",
+        purchase_channel(&pool, gallery).await,
+        "a source that left the scope keeps its last value"
+    );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_not_re_enable_a_marked_source_until_the_mark_is_cleared_and_then_crawl_it_again() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let source = ListingSourceId::new();
+    let scope = || vec![registered(source, Some("https://stuck.example/"))];
+    sync(&pool, scope()).await;
+    crawl_once(&pool, source, "https://stuck.example/").await;
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET last_crawl_outcome = 'NEEDS_OPERATOR', crawl_failure_count = 5, next_crawl_at = NULL, \
+             last_crawl_run_at = NULL \
+         WHERE listing_source_id = $1",
+    )
+    .bind(source.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(due_crawl_roots(&pool).await.is_empty());
+
+    let mark = UnscrapableMark::new(
+        UnscrapableReason::Other,
+        Some(UnscrapableNote::try_from("members only".to_owned()).unwrap()),
+    )
+    .unwrap();
+    repository
+        .mark_unscrapable(&source, ReviewActor::Human, &mark)
+        .await
+        .unwrap();
+    sync(&pool, scope()).await;
+    let enabled = |pool: PgPool| async move {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT crawl_enabled FROM listing_sources WHERE listing_source_id = $1",
+        )
+        .bind(source.as_uuid())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert!(
+        !enabled(pool.clone()).await,
+        "the sync must not re-enable a marked source"
+    );
+
+    repository
+        .clear_unscrapable(&source, ReviewActor::Human)
+        .await
+        .unwrap();
+    assert!(
+        !enabled(pool.clone()).await,
+        "clearing does not enable crawling itself"
+    );
+    sync(&pool, scope()).await;
+    assert!(enabled(pool.clone()).await);
+    assert_eq!(
+        vec![(source, "https://stuck.example/".to_owned())],
+        due_crawl_roots(&pool).await,
+        "the escalation is reset, so the source is due again"
+    );
+    assert_eq!(1, stored_urls(&pool, source).await, "URLs are kept");
 }

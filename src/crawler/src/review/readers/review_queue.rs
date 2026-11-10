@@ -225,6 +225,7 @@ fn queue_entry(row: &PgRow) -> Result<ReviewQueueEntry, sqlx::Error> {
         listing_source_id: listing_source_id_from_uuid(row.try_get("listing_source_id")?)?,
         listing_source_name: row.try_get("listing_source_name")?,
         listing_source_crawl_enabled: row.try_get("listing_source_crawl_enabled")?,
+        listing_source_purchase_channel: row.try_get("listing_source_purchase_channel")?,
         artifact_type: row.try_get("artifact_type")?,
         status: row.try_get("status")?,
         reason: row.try_get("reason")?,
@@ -251,6 +252,7 @@ fn review_page_sql(sort: ReviewSort, direction: SortDirection) -> String {
         "WITH candidates AS (
              SELECT r.review_id, r.listing_source_id, s.listing_source_name,
                     COALESCE(s.crawl_enabled, FALSE) AS listing_source_crawl_enabled,
+                    COALESCE(s.purchase_channel, 'ONLINE_SHOP') AS listing_source_purchase_channel,
                     r.artifact_type, r.status, r.reason,
                     r.repair_requested, r.repair_note,
                     r.validation_summary -> 'auto_schema_evaluation' AS auto_schema_evaluation,
