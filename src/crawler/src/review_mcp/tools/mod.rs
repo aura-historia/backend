@@ -81,7 +81,6 @@ pub(super) enum Artifact {
     /// Reviews of every artifact type.
     Any,
     ProductSchema,
-    UrlPattern,
 }
 
 impl Artifact {
@@ -89,7 +88,6 @@ impl Artifact {
         match self {
             Self::Any => true,
             Self::ProductSchema => artifact_type == ARTIFACT_PRODUCT_SCHEMA,
-            Self::UrlPattern => artifact_type == ARTIFACT_URL_PATTERN,
         }
     }
 }
@@ -534,7 +532,6 @@ mod tests {
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
-            "label_sample_urls",
         ];
         let reviewer = ["approve", "reject"];
 
@@ -662,7 +659,6 @@ mod tests {
                 "check_approval",
                 "mark_needs_repair",
                 "update_candidate",
-                "label_sample_urls",
             ]
         );
         assert_eq!(

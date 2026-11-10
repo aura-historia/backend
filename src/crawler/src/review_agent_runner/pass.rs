@@ -651,7 +651,7 @@ impl Pass<'_> {
             "Starting a review agent process"
         );
         let mut record = ProcessRecord::started(review, role, contract.version);
-        let step = match agent_command(self.settings, &self.limits, role, review) {
+        let step = match agent_command(self.settings, role, review) {
             Ok(command) => {
                 let output = run_agent(
                     &command,

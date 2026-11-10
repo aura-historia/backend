@@ -1565,103 +1565,13 @@ async fn should_keep_the_sample_labels_when_the_decision_changes() {
     );
 }
 
-/// A pattern that follows its labels but takes far fewer of the sample than the pages inspected
-/// as describing one product suggest, a category list that misses other product paths, is
-/// refused with the numbers; the structural pattern is approved.
+/// In `agent` mode the reviewer agent approves a URL pattern on the local checks alone, never on
+/// labels or on what the crawler guesses: a pattern that takes none or all of the review's stored
+/// sample is refused, one that takes some of it is approved without a label, and the approval
+/// classifies the source's URLs by the pattern alone.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_an_agent_url_pattern_narrower_than_the_inspected_product_pages() {
-    let pool = get_postgres_client().await;
-    let repository = guarded(&pool, 20)
-        .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent));
-    let listing_source_id = listing_source_on(&pool, SHOP).await;
-    let items: Vec<String> = (0..6)
-        .map(|n| shop_url(&format!("/item/lamp-{n}")))
-        .collect();
-    let barometers: Vec<String> = (0..14)
-        .map(|n| shop_url(&format!("/clocks/barometers/barometer-{n}")))
-        .collect();
-    let sample: Vec<String> = items.iter().chain(&barometers).cloned().collect();
-    let review_id = repository
-        .create_url_pattern_review(
-            &listing_source_id,
-            "manual_url_pattern_required",
-            UrlPatternDecision::Undecided,
-            &sample,
-            None,
-        )
-        .await
-        .unwrap();
-    let labelled = repository
-        .set_sample_labels(
-            review_id,
-            ReviewActor::AgentAuthor,
-            1,
-            [
-                label("/item/lamp-0", SampleUrlLabel::Product),
-                label("/item/lamp-1", SampleUrlLabel::Product),
-                label("/item/lamp-2", SampleUrlLabel::Product),
-            ]
-            .into_iter()
-            .chain(
-                OTHER_PATHS
-                    .iter()
-                    .map(|path| label(path, SampleUrlLabel::NotProduct)),
-            )
-            .collect(),
-        )
-        .await
-        .unwrap();
-    for url in items.iter().take(3).chain(barometers.iter().take(7)) {
-        repository
-            .record_inspected_page(review_id, &url.parse().unwrap(), true)
-            .await
-            .unwrap();
-    }
-    let narrow = decide(
-        &repository,
-        review_id,
-        ReviewActor::AgentAuthor,
-        labelled,
-        "/item/[^/]+$",
-    )
-    .await;
-
-    let refused = repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(narrow))
-        .await;
-
-    assert!(
-        matches!(
-            failed_checks(refused).as_slice(),
-            [FailedApprovalCheck::PatternTooNarrow {
-                matched: 6,
-                sample_total: 20,
-                product_pages: 10,
-                inspected: 10,
-                ..
-            }]
-        ),
-        "the pattern takes 6 of 20 sample URLs while all 10 inspected pages describe one product"
-    );
-    let structural = decide(
-        &repository,
-        review_id,
-        ReviewActor::AgentAuthor,
-        narrow,
-        "/(item|clocks/barometers)/[^/]+$",
-    )
-    .await;
-    repository
-        .approve_review(review_id, ReviewActor::AgentReviewer, approval(structural))
-        .await
-        .unwrap();
-}
-
-/// In `agent` mode the reviewer agent approves a URL pattern only once it follows the author's
-/// labels, never on what the crawler guesses: the approval classifies the source's URLs by the
-/// pattern alone and keeps the labels it was accepted on.
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follows_the_labels() {
+async fn should_take_the_agent_url_pattern_approval_only_when_the_pattern_takes_some_of_the_sample()
+{
     let pool = get_postgres_client().await;
     let repository = guarded(&pool, 20)
         .with_url_classifier(UrlClassifier::for_authoring(CrawlerAuthoringMode::Agent));
@@ -1680,27 +1590,32 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follo
     };
 
     let undecided = reviewer_approves(1).await;
-    let too_broad = decide(&repository, review_id, ReviewActor::AgentAuthor, 1, "/item").await;
-    let unlabelled = reviewer_approves(too_broad).await;
-    let labelled = repository
-        .set_sample_labels(
-            review_id,
-            ReviewActor::AgentAuthor,
-            too_broad,
-            shop_labels(),
-        )
-        .await
-        .unwrap();
-    let takes_a_category = reviewer_approves(labelled).await;
+    let takes_all = decide(
+        &repository,
+        review_id,
+        ReviewActor::AgentAuthor,
+        1,
+        "^https://",
+    )
+    .await;
+    let every_url = reviewer_approves(takes_all).await;
+    let takes_none = decide(
+        &repository,
+        review_id,
+        ReviewActor::AgentAuthor,
+        takes_all,
+        "/produkt/[^/]+$",
+    )
+    .await;
+    let no_url = reviewer_approves(takes_none).await;
     let fitting = decide(
         &repository,
         review_id,
         ReviewActor::AgentAuthor,
-        labelled,
+        takes_none,
         "/item/[^/]+$",
     )
     .await;
-    let relied_on = candidate_sample_labels(&repository, review_id).await;
     reviewer_approves(fitting).await.unwrap();
 
     assert_eq!(
@@ -1708,18 +1623,12 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follo
         vec![FailedApprovalCheck::CandidateUndecided]
     );
     assert_eq!(
-        failed_checks(unlabelled),
-        vec![FailedApprovalCheck::TooFewLabels {
-            product: 0,
-            not_product: 0,
-            minimum: 3,
-        }]
+        failed_checks(every_url),
+        vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 6 }]
     );
     assert_eq!(
-        failed_checks(takes_a_category),
-        vec![FailedApprovalCheck::NotProductLabelMatched {
-            urls: vec![shop_url("/item-category/chairs")],
-        }]
+        failed_checks(no_url),
+        vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 6 }]
     );
     let mut classes: Vec<(String, String)> = sqlx::query_as(
         "SELECT url, url_class FROM listing_source_urls WHERE listing_source_id = $1",
@@ -1745,10 +1654,6 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_decision_follo
     assert_eq!(
         (approved.actor, approved.action),
         (ReviewActor::AgentReviewer, ReviewEventAction::Approved)
-    );
-    assert_eq!(
-        approved.details["sample_labels"], relied_on,
-        "the approval keeps the labels it was accepted on"
     );
 }
 

@@ -135,7 +135,6 @@ impl ReviewServer {
             agent_access = self.access.agent_access(),
             agent_max_decisions_per_hour = agent_limits.max_decisions_per_hour.get(),
             agent_matrix_max_age_minutes = agent_limits.matrix_max_age_minutes.get(),
-            agent_min_labelled_urls = agent_limits.min_labelled_urls.get(),
             agent_max_repair_rounds = agent_limits.max_repair_rounds.get(),
             agent_repair_round_window_days = agent_limits.repair_round_window_days.get(),
             agent_no_pattern_max_age_days = agent_limits.no_pattern_max_age_days.get(),
@@ -1602,7 +1601,7 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://postgres:postgres@localhost/crawler")?;
         let limits = AgentLimits {
-            min_labelled_urls: std::num::NonZeroU32::new(5).ok_or("five is not zero")?,
+            max_repair_rounds: std::num::NonZeroU32::new(5).ok_or("five is not zero")?,
             ..AgentLimits::default()
         };
         let server = ReviewServer::new(
@@ -4292,9 +4291,9 @@ Origin: http://127.0.0.1:7878/x
         }
     }
 
-    /// The sample labels of a URL-pattern review on the console: the author agent labels, the
-    /// reviewer agent approves once the decision follows the labels and labels nothing itself, and
-    /// a URL-pattern review has no live matrix to evaluate.
+    /// The sample labels of a URL-pattern review on the console: the reviewer agent labels
+    /// nothing, its approval needs no label but a pattern that takes some of the sample's URLs,
+    /// and a URL-pattern review has no live matrix to evaluate.
     mod sample_labels {
         use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send_as};
         use super::{ReviewServer, ReviewServerConfig, agent_mode};
@@ -4372,7 +4371,7 @@ Origin: http://127.0.0.1:7878/x
         }
 
         #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
-        async fn should_take_the_reviewer_approval_once_the_pattern_follows_the_author_labels() {
+        async fn should_take_the_reviewer_approval_of_a_pattern_that_takes_some_sample_urls() {
             let pool = test_api::get_postgres_client().await;
             let (server, listing_source_id, review_id) = url_pattern_review_server(&pool).await;
             let sample_labels = format!("POST /api/reviews/{review_id}/sample-labels");
@@ -4404,52 +4403,42 @@ Origin: http://127.0.0.1:7878/x
                 status.starts_with("HTTP/1.1 400"),
                 "{status} {unknown_label}"
             );
-            let (status, too_few) = send_as(
-                &server,
-                AUTHOR_TOKEN,
-                &sample_labels,
-                &json!({ "expected_candidate_version": 1, "labels": labels(&PRODUCTS, &NOT_PRODUCTS[..2]) })
-                    .to_string(),
-            )
-            .await;
-            assert!(status.starts_with("HTTP/1.1 200"), "{status} {too_few}");
-            let (status, decided) = send_as(
+            let decide = |version: &Value, value: &str| {
+                json!({
+                    "expected_candidate_version": version,
+                    "decision": { "type": "PATTERN", "value": value },
+                    "current_pattern": null,
+                })
+                .to_string()
+            };
+            let (status, no_match) = send_as(
                 &server,
                 AUTHOR_TOKEN,
                 &candidate,
-                &json!({
-                    "expected_candidate_version": too_few["candidate_version"],
-                    "decision": { "type": "PATTERN", "value": "/item/[^/]+$" },
-                    "current_pattern": null,
-                })
-                .to_string(),
+                &decide(&json!(1), "/produkt/[^/]+$"),
             )
             .await;
-            assert!(status.starts_with("HTTP/1.1 200"), "{status} {decided}");
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {no_match}");
             let (status, refused) = send_as(
                 &server,
                 REVIEWER_TOKEN,
                 &approve,
-                &json!({ "expected_candidate_version": decided["candidate_version"] }).to_string(),
+                &json!({ "expected_candidate_version": no_match["candidate_version"] }).to_string(),
             )
             .await;
             assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
             assert_eq!(
                 refused["failed_checks"],
-                json!([{ "check": "TOO_FEW_LABELS", "product": 3, "not_product": 2, "minimum": 3 }])
+                json!([{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 3 }])
             );
-            let (status, labelled) = send_as(
+            let (status, decided) = send_as(
                 &server,
                 AUTHOR_TOKEN,
-                &sample_labels,
-                &json!({
-                    "expected_candidate_version": decided["candidate_version"],
-                    "labels": labels(&PRODUCTS, &NOT_PRODUCTS),
-                })
-                .to_string(),
+                &candidate,
+                &decide(&no_match["candidate_version"], "/item/[^/]+$"),
             )
             .await;
-            assert!(status.starts_with("HTTP/1.1 200"), "{status} {labelled}");
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {decided}");
             let (status, matrix) = send_as(
                 &server,
                 REVIEWER_TOKEN,
@@ -4463,7 +4452,7 @@ Origin: http://127.0.0.1:7878/x
                 &server,
                 REVIEWER_TOKEN,
                 &approve,
-                &json!({ "expected_candidate_version": labelled["candidate_version"] }).to_string(),
+                &json!({ "expected_candidate_version": decided["candidate_version"] }).to_string(),
             )
             .await;
 
@@ -4493,14 +4482,10 @@ Origin: http://127.0.0.1:7878/x
                 [
                     ("AGENT_AUTHOR", "CANDIDATE_EDITED"),
                     ("AGENT_AUTHOR", "CANDIDATE_EDITED"),
-                    ("AGENT_AUTHOR", "CANDIDATE_EDITED"),
                     ("AGENT_REVIEWER", "APPROVED"),
                 ]
                 .map(|(actor, action)| (json!(actor), json!(action)))
             );
-            let relied_on = &detail["events"][3]["details"]["sample_labels"];
-            assert_eq!(relied_on["labels"].as_array().map(Vec::len), Some(6));
-            assert_eq!(relied_on["labels"][0]["label"], "PRODUCT");
         }
 
         /// A label of a URL off the ListingSource's crawl host, which would say nothing about the

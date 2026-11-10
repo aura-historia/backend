@@ -1,13 +1,13 @@
 //! The deterministic checks an approval by a review agent must pass in `agent` authoring mode. A
 //! check reads only what the server itself evaluated and stored, a product-schema review's live
-//! matrix or a URL-pattern candidate's sample labels, never a matrix or a verdict a client sends
+//! matrix or a URL-pattern review's stored sample of crawled URLs, never a matrix or a verdict a client sends
 //! with the approval; the contract is in `docs/crawler/extraction-and-review.md` (approval guard).
 
 use crate::CrawlerReviewPageId;
-use crate::network::policy::{canonical_crawl_host, url_on_crawl_host};
+use crate::network::policy::url_on_crawl_host;
 use crate::review::model::{
-    CrawlerReviewPage, LabelledSampleUrl, LiveMatrixEvaluation, SampleUrlLabel, SchemaMatrix,
-    SchemaPageReference, UrlPatternDecision, UrlPatternReviewCandidate,
+    CrawlerReviewPage, LiveMatrixEvaluation, SchemaMatrix, SchemaPageReference, UrlPatternDecision,
+    UrlPatternReviewCandidate,
 };
 use crate::review::page_content_checks::{
     MissingContentRule, SeenState, missing_content_rules, pages_without_signals,
@@ -18,11 +18,9 @@ use crate::review::schema_evaluation::{
     ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
 };
 use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField};
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::utils::url::CrawledUrl;
 use serde::Serialize;
 use std::fmt;
-use std::num::NonZeroU32;
 use std::time::Duration;
 use time::OffsetDateTime;
 use url::Url;
@@ -68,39 +66,16 @@ pub enum FailedApprovalCheck {
     NoSoldPageTested { states_seen: Vec<SeenState> },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
-    /// The decision takes clearly fewer of the sample's URLs than the share of inspected pages
-    /// that describe one product suggests: a pattern too narrow for the shop's product URLs, such
-    /// as one that lists category slugs one by one.
-    PatternTooNarrow {
-        /// The sample URLs the decision takes, out of `sample_total`.
-        matched: usize,
-        sample_total: usize,
-        /// The sample URLs whose inspection found a page describing exactly one product, out of
-        /// those inspected.
-        product_pages: usize,
-        inspected: usize,
-        /// Some of the inspected product pages the decision does not take.
-        unmatched_product_pages: Vec<String>,
-    },
-    /// The candidate's sample labels on the review's crawl host mark fewer than `minimum` URLs as
-    /// products or fewer than `minimum` as no products, so they cannot show that the decision
-    /// takes the ListingSource's product pages and leaves the rest.
-    TooFewLabels {
-        product: usize,
-        not_product: usize,
-        minimum: u32,
-    },
-    /// A `NO_PATTERN` decision for a sample whose inspected pages include ones that describe one
-    /// product and that no label marks `NOT_PRODUCT`: the shop has product pages.
-    NoPatternContradicted { product_pages: Vec<String> },
-    /// A `NO_PATTERN` decision with fewer inspected sample pages than `required`: labels alone,
-    /// which any shop's legal and cart pages satisfy, show no absence of product pages.
-    NoPatternTooFewInspected { inspected: usize, required: usize },
-    /// URLs labelled `PRODUCT` that the decision does not classify as product pages.
-    ProductLabelNotMatched { urls: Vec<String> },
-    /// URLs labelled `NOT_PRODUCT` that the decision classifies as product pages under a spelling
-    /// the crawler may store them under.
-    NotProductLabelMatched { urls: Vec<String> },
+    /// The candidate's pattern takes none of the review's sample URLs: it describes no product
+    /// URL the crawl found, such as one written for another URL shape or another host, and an
+    /// empty sample shows nothing.
+    PatternMatchesNoSampleUrl { sample_total: usize },
+    /// The candidate's pattern takes every URL of a sample of at least two: it tells no product
+    /// page from the shop's other pages, such as one that takes the whole host.
+    PatternMatchesEverySampleUrl { sample_total: usize },
+    /// A `NO_PATTERN` decision, which an agent never approves: nothing in a review shows that a
+    /// shop has no product URLs, so a human decides it.
+    NoPatternNeedsHuman,
 }
 
 /// The states of a `NO_SOLD_PAGE_TESTED` refusal, each as `'state' → CODE`, `→ CODE mentioned` or
@@ -239,45 +214,17 @@ impl fmt::Display for FailedApprovalCheck {
                 describe_states(states_seen)
             ),
             Self::CandidateUndecided => write!(formatter, "the URL-pattern candidate is undecided"),
-            Self::TooFewLabels {
-                product,
-                not_product,
-                minimum,
-            } => write!(
+            Self::PatternMatchesNoSampleUrl { sample_total } => write!(
                 formatter,
-                "the sample labels mark {product} URL(s) on the review's crawl host PRODUCT and {not_product} NOT_PRODUCT; an agent approval needs at least {minimum} of each, which the author agent or a human labels"
+                "the pattern takes none of the sample's {sample_total} URL(s): it describes no product URL the crawl found; write it for the product URLs the sample shows"
             ),
-            Self::PatternTooNarrow {
-                matched,
-                sample_total,
-                product_pages,
-                inspected,
-                ..
-            } => write!(
+            Self::PatternMatchesEverySampleUrl { sample_total } => write!(
                 formatter,
-                "the decision takes {matched} of the sample's {sample_total} URLs, but {product_pages} of the {inspected} pages inspected describe one product: it is narrower than the shop's product URLs, so use a structural pattern instead of listed categories and check the product pages it misses"
+                "the pattern takes every one of the sample's {sample_total} URLs: it tells no product page from the shop's other pages; write it for the product URLs alone"
             ),
-            Self::NoPatternContradicted { product_pages } => write!(
+            Self::NoPatternNeedsHuman => write!(
                 formatter,
-                "NO_PATTERN is contradicted by {} inspected sample page(s) that describe one product and are not labelled NOT_PRODUCT: label each NOT_PRODUCT after you read it, or decide a pattern",
-                product_pages.len()
-            ),
-            Self::NoPatternTooFewInspected {
-                inspected,
-                required,
-            } => write!(
-                formatter,
-                "NO_PATTERN rests on {inspected} inspected sample page(s); it needs {required}: inspect pages of every path shape in the sample with inspect_page first"
-            ),
-            Self::ProductLabelNotMatched { urls } => write!(
-                formatter,
-                "the decision does not take {} URL(s) labelled PRODUCT",
-                urls.len()
-            ),
-            Self::NotProductLabelMatched { urls } => write!(
-                formatter,
-                "the decision takes {} URL(s) labelled NOT_PRODUCT",
-                urls.len()
+                "an agent does not approve NO_PATTERN; a human decides it"
             ),
         }
     }
@@ -455,248 +402,45 @@ fn empty_required_fields(
     fields
 }
 
-/// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead:
-/// the candidate is decided, and its sample labels, which the author agent or a human set and the
-/// approval rests on alone, are consistent with the decision. Only labels of URLs on `domain`, the
-/// crawl host of the review's ListingSource and the one host the decision applies to, count: a
-/// label on another host says nothing about it. They mark at least `min_labelled_urls` URLs as
-/// products and as many as no products, and the decision classifies every `PRODUCT` URL as a
-/// product page and no `NOT_PRODUCT` URL. Labels belong to the candidate, so the approved candidate
-/// version names the labels it is judged on, and they do not expire. No URL is classified by
-/// keywords or by its page's markup here: Claude decides what a product page is, and the crawler
-/// only checks that the decision follows its labels and, from the review's `sample` of the
-/// crawled URLs, that it is not clearly narrower than the product pages inspected suggest.
+/// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead.
+/// Induction is label-blind, so the checks are the local ones and read no label and no page: the
+/// candidate is decided, its pattern compiles (decoding the candidate guarantees it), and it takes
+/// at least one URL of the review's `sample` of crawled URLs and, on a sample of at least two, not
+/// every one. Only sample URLs on `domain`, the crawl host of the review's ListingSource and the
+/// one host the decision applies to, count. They show the pattern is a usable rule, not that it is right: no URL is classified
+/// by keywords or by its page's markup here, Claude decides what a product page is. A
+/// `NO_PATTERN` decision is a human's to approve.
 pub(crate) fn url_pattern_approval_checks(
     candidate: &UrlPatternReviewCandidate,
     domain: &str,
-    min_labelled_urls: NonZeroU32,
-    sample: &[SampleUrl],
+    sample: &[String],
 ) -> Vec<FailedApprovalCheck> {
     let pattern = match &candidate.decision {
         UrlPatternDecision::Undecided => return vec![FailedApprovalCheck::CandidateUndecided],
         decision => match decision.candidate_pattern() {
-            Ok(pattern) => pattern,
+            Ok(Some(pattern)) => pattern,
+            Ok(None) => return vec![FailedApprovalCheck::NoPatternNeedsHuman],
             // Approval refuses an invalid pattern on its own.
             Err(_) => return Vec::new(),
         },
     };
-    let on_domain: Vec<&LabelledSampleUrl> = candidate
-        .sample_labels
+    let on_domain: Vec<Url> = sample
         .iter()
-        .flat_map(|labels| &labels.labels)
-        .filter(|url| is_on_domain(&url.url, domain))
+        .filter_map(|url| Url::parse(url).ok())
+        .filter(|url| url_on_crawl_host(url, domain))
         .collect();
-    let labelled = |label: SampleUrlLabel| {
-        on_domain
-            .iter()
-            .copied()
-            .filter(move |url| url.label == label)
-    };
-    let mut failed = Vec::new();
-    let minimum = min_labelled_urls.get();
-    let (product, not_product) = (
-        labelled(SampleUrlLabel::Product).count(),
-        labelled(SampleUrlLabel::NotProduct).count(),
-    );
-    // A `NO_PATTERN` decision takes no product URL, so only the labels of non-products show it:
-    // any `PRODUCT` label is refused below as one the decision does not take.
-    let shown = if pattern.is_none() {
-        not_product
-    } else {
-        product.min(not_product)
-    };
-    if shown < usize::try_from(minimum).unwrap_or(usize::MAX) {
-        failed.push(FailedApprovalCheck::TooFewLabels {
-            product,
-            not_product,
-            minimum,
-        });
-    }
-    let missed: Vec<String> = labelled(SampleUrlLabel::Product)
-        .filter(|url| !decision_takes(pattern.as_ref(), &url.url))
-        .map(|url| url.url.clone())
-        .collect();
-    if !missed.is_empty() {
-        failed.push(FailedApprovalCheck::ProductLabelNotMatched { urls: missed });
-    }
-    let taken: Vec<String> = labelled(SampleUrlLabel::NotProduct)
-        .filter(|url| decision_takes_any_spelling(pattern.as_ref(), &url.url))
-        .map(|url| url.url.clone())
-        .collect();
-    if !taken.is_empty() {
-        failed.push(FailedApprovalCheck::NotProductLabelMatched { urls: taken });
-    }
-    let not_product_pages: Vec<PageKey> = labelled(SampleUrlLabel::NotProduct)
-        .filter_map(|url| page_key(&url.url))
-        .collect();
-    if let Some(too_narrow) = pattern_too_narrow(pattern.as_ref(), sample, &not_product_pages) {
-        failed.push(too_narrow);
-    }
-    if pattern.is_none() {
-        failed.extend(no_pattern_checks(sample, &not_product_pages));
-    }
-    failed
-}
-
-/// A page as the label checks tell pages apart: its crawler page spelling, with or without its
-/// trailing slash, on the crawl host with or without `www.`, on http or https.
-type PageKey = (String, String, Option<String>);
-
-fn page_key(url: &str) -> Option<PageKey> {
-    let page = CrawledUrl::new(Url::parse(url).ok()?).page_spelling();
-    Some((
-        canonical_crawl_host(page.host_str()?),
-        page.path().to_owned(),
-        page.query().map(str::to_owned),
-    ))
-}
-
-/// A URL of a URL-pattern review's sample, with what inspecting its page found, if it was
-/// inspected.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SampleUrl {
-    pub url: String,
-    /// Whether the inspected page's structured data describes exactly one schema.org `Product`;
-    /// `None` for a URL nobody inspected.
-    pub describes_one_product: Option<bool>,
-}
-
-/// The fewest inspected sample pages the share of product pages rests on.
-const MIN_INSPECTED_PAGES: usize = 8;
-
-/// The refusal of a `pattern` that takes less than half of the share of the sample that the
-/// inspected pages suggest is product pages, and misses at least one inspected page that describes
-/// one product. The share is a heuristic: inspected pages are not a random draw, and a page's
-/// structured data is a hint, so the check needs [`MIN_INSPECTED_PAGES`] pages, a pattern that
-/// takes under half the product share, and a missed product page as direct evidence. A page
-/// labelled `NOT_PRODUCT` is no product page whatever its markup, such as a gift card a shop marks
-/// up as a `Product`: the label decides, and the decision must not take it. `NO_PATTERN` takes
-/// nothing by design and has no share to compare.
-fn pattern_too_narrow(
-    pattern: Option<&ProductUrlPattern>,
-    sample: &[SampleUrl],
-    not_product_pages: &[PageKey],
-) -> Option<FailedApprovalCheck> {
-    let pattern = pattern?;
-    let takes = |url: &SampleUrl| decision_takes(Some(pattern), &url.url);
-    let inspected: Vec<&SampleUrl> = sample
-        .iter()
-        .filter(|url| url.describes_one_product.is_some())
-        .collect();
-    let product_pages: Vec<&SampleUrl> = inspected
-        .iter()
-        .copied()
-        .filter(|url| {
-            url.describes_one_product == Some(true)
-                && page_key(&url.url).is_none_or(|page| !not_product_pages.contains(&page))
-        })
-        .collect();
-    let unmatched_product_pages: Vec<String> = product_pages
-        .iter()
-        .filter(|url| !takes(url))
-        .map(|url| url.url.clone())
-        .take(10)
-        .collect();
-    let matched = sample.iter().filter(|url| takes(url)).count();
-    // matched / sample < product_pages / inspected / 2, in whole numbers.
-    let narrower_than_half_the_share =
-        matched * inspected.len() * 2 < product_pages.len() * sample.len();
-    (inspected.len() >= MIN_INSPECTED_PAGES
-        && narrower_than_half_the_share
-        && !unmatched_product_pages.is_empty())
-    .then_some(FailedApprovalCheck::PatternTooNarrow {
-        matched,
-        sample_total: sample.len(),
-        product_pages: product_pages.len(),
-        inspected: inspected.len(),
-        unmatched_product_pages,
-    })
-}
-
-/// The refusals of a `NO_PATTERN` decision. Absence of product pages cannot be proven from a
-/// sample, so it must rest on inspected sample pages, at least [`MIN_INSPECTED_PAGES`] or the
-/// whole sample when it is smaller, and never fewer than one, so an empty sample shows nothing;
-/// and one inspected page that describes one product without a `NOT_PRODUCT` label refuses it,
-/// unlike the share a pattern is compared with.
-fn no_pattern_checks(
-    sample: &[SampleUrl],
-    not_product_pages: &[PageKey],
-) -> Vec<FailedApprovalCheck> {
-    let mut failed = Vec::new();
-    let inspected = sample
-        .iter()
-        .filter(|url| url.describes_one_product.is_some())
-        .count();
-    let required = MIN_INSPECTED_PAGES.min(sample.len()).max(1);
-    if inspected < required {
-        failed.push(FailedApprovalCheck::NoPatternTooFewInspected {
-            inspected,
-            required,
-        });
-    }
-    let product_pages: Vec<String> = sample
-        .iter()
-        .filter(|url| {
-            url.describes_one_product == Some(true)
-                && page_key(&url.url).is_none_or(|page| !not_product_pages.contains(&page))
-        })
-        .map(|url| url.url.clone())
-        .take(10)
-        .collect();
-    if !product_pages.is_empty() {
-        failed.push(FailedApprovalCheck::NoPatternContradicted { product_pages });
-    }
-    failed
-}
-
-/// Whether the labelled `url` is on `domain`, under the crawler's host identity, which treats
-/// `www.` and the bare host as one domain.
-fn is_on_domain(url: &str, domain: &str) -> bool {
-    Url::parse(url).is_ok_and(|url| url_on_crawl_host(&url, domain))
-}
-
-/// Whether the decision's `pattern` takes the labelled `url` as a product page, matched in the
-/// crawler's URL spelling, with or without its trailing slash, as the spider matches it;
-/// `NO_PATTERN` takes none.
-fn decision_takes(pattern: Option<&ProductUrlPattern>, url: &str) -> bool {
-    pattern.is_some_and(|pattern| {
-        Url::parse(url).is_ok_and(|url| CrawledUrl::new(url).matches_pattern(pattern))
-    })
-}
-
-/// Whether the decision's `pattern` takes the page the labelled `url` names under any spelling the
-/// crawler may store it under: the crawler's spelling of the URL on http or https, with or without
-/// `www.`, which the crawler treats as one domain, each with or without its trailing slash and in
-/// its [legacy spellings](CrawledUrl::legacy_spellings), under which an earlier row stays until the
-/// spider rediscovers the page and which approval classifies as it is stored. A decision that
-/// takes only one of them would otherwise pass a `NOT_PRODUCT` label in another and still take the
-/// page as the crawler stored it.
-fn decision_takes_any_spelling(pattern: Option<&ProductUrlPattern>, url: &str) -> bool {
-    let Some(pattern) = pattern else {
-        return false;
-    };
-    let Ok(url) = Url::parse(url) else {
-        return false;
-    };
-    let url = CrawledUrl::new(url).as_url().clone();
-    let Some(domain) = url.host_str().map(canonical_crawl_host) else {
-        return CrawledUrl::new(url).matches_pattern(pattern);
-    };
-    let www = format!("www.{domain}");
-    ["https", "http"]
+    let sample_total = on_domain.len();
+    let matched = on_domain
         .into_iter()
-        .flat_map(|scheme| [(scheme, domain.as_str()), (scheme, www.as_str())])
-        .filter_map(|(scheme, host)| {
-            let mut spelling = url.clone();
-            (spelling.set_scheme(scheme).is_ok() && spelling.set_host(Some(host)).is_ok())
-                .then_some(spelling)
-        })
-        .chain(std::iter::once(url.clone()))
-        .flat_map(|spelling| {
-            let legacy = CrawledUrl::new(spelling.clone()).legacy_spellings();
-            std::iter::once(spelling).chain(legacy)
-        })
-        .any(|spelling| CrawledUrl::new(spelling).matches_pattern(pattern))
+        .filter(|url| CrawledUrl::new(url.clone()).matches_pattern(&pattern))
+        .count();
+    if matched == 0 {
+        vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total }]
+    } else if sample_total >= 2 && matched == sample_total {
+        vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total }]
+    } else {
+        Vec::new()
+    }
 }
 
 /// The refusal of a live matrix whose pages were fetched more than `max_age` before `now`.
@@ -714,7 +458,7 @@ fn expired_check(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review::model::{PAGE_ROLE_PRIMARY, SampleLabels};
+    use crate::review::model::PAGE_ROLE_PRIMARY;
     use crate::review::schema_evaluation::{
         evaluate_schema_matrix_for_live_review_pages, schema_matrix_deterministic_approval_ok,
     };
@@ -1593,511 +1337,111 @@ mod tests {
         }
     }
 
-    const MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
-    /// The crawl host of the URL-pattern review, on which [`PRODUCTS`] and [`NOT_PRODUCTS`] are.
-    const REVIEW_CRAWL_HOST: &str = "antique-shop.example";
-    const PRODUCTS: [&str; 3] = [
+    /// A sample of a shop with product URLs under `/item/` and other pages besides.
+    const SAMPLE: [&str; 5] = [
         "https://antique-shop.example/item/oak-chair",
-        "https://antique-shop.example/item/pine-table",
         "https://antique-shop.example/item/brass-lamp/",
-    ];
-    const NOT_PRODUCTS: [&str; 3] = [
         "https://antique-shop.example/item-category/chairs",
         "https://antique-shop.example/shop/",
         "https://antique-shop.example/impressum",
     ];
 
-    /// `decision` with `products` labelled `PRODUCT` and `not_products` labelled `NOT_PRODUCT`,
-    /// the labels set a year before now: labels do not expire.
-    fn labelled(
-        decision: UrlPatternDecision,
-        products: &[&str],
-        not_products: &[&str],
-    ) -> UrlPatternReviewCandidate {
-        let label = |url: &&str, label: SampleUrlLabel| LabelledSampleUrl {
-            url: (*url).to_owned(),
-            label,
-            reason: "seen on the page".to_owned(),
-        };
-        UrlPatternReviewCandidate {
-            sample_labels: Some(SampleLabels {
-                labelled_at: OffsetDateTime::now_utc() - Duration::from_secs(365 * 24 * 60 * 60),
-                labels: products
-                    .iter()
-                    .map(|url| label(url, SampleUrlLabel::Product))
-                    .chain(
-                        not_products
-                            .iter()
-                            .map(|url| label(url, SampleUrlLabel::NotProduct)),
-                    )
-                    .collect(),
-            }),
-            ..UrlPatternReviewCandidate::new(decision, None)
-        }
+    fn sample_checks(decision: UrlPatternDecision, sample: &[&str]) -> Vec<FailedApprovalCheck> {
+        let sample: Vec<String> = sample.iter().map(|url| (*url).to_owned()).collect();
+        url_pattern_approval_checks(
+            &UrlPatternReviewCandidate::new(decision, None),
+            "antique-shop.example",
+            &sample,
+        )
     }
 
-    fn url_checks(candidate: &UrlPatternReviewCandidate) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &[])
-    }
-
-    /// A decision that takes every URL labelled `PRODUCT`, in the crawler's spelling of it, and no
-    /// URL labelled `NOT_PRODUCT` passes on a shop whose domain the keywords read as a category,
-    /// however long ago the labels were set.
+    /// A pattern that takes some of the sample's URLs and leaves others passes without a single
+    /// sample label: induction is label-blind, and the guard reads none. A trailing slash the
+    /// spider stored does not keep the pattern from taking a URL.
     #[test]
-    fn should_pass_a_decision_consistent_with_the_labels() {
-        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
-
-        assert_eq!(url_checks(&candidate), Vec::new());
+    fn should_pass_a_pattern_that_takes_some_but_not_all_sample_urls_without_labels() {
+        assert_eq!(sample_checks(pattern("/item/[^/]+$"), &SAMPLE), Vec::new());
     }
 
     #[test]
     fn should_refuse_an_undecided_url_pattern() {
-        let candidate = labelled(UrlPatternDecision::Undecided, &PRODUCTS, &NOT_PRODUCTS);
-
         assert_eq!(
-            url_checks(&candidate),
+            sample_checks(UrlPatternDecision::Undecided, &SAMPLE),
             vec![FailedApprovalCheck::CandidateUndecided]
         );
     }
 
-    /// Fewer than the minimum of either label shows too little, whatever the decision; without
-    /// labels nothing shows anything.
+    /// A pattern that takes no sample URL describes no product URL the crawl found, and an empty
+    /// sample shows nothing, so it is refused too.
     #[test]
-    fn should_refuse_too_few_labels_of_either_kind() {
-        let too_few = |candidate: UrlPatternReviewCandidate, product, not_product| {
-            assert_eq!(
-                url_checks(&candidate),
-                vec![FailedApprovalCheck::TooFewLabels {
-                    product,
-                    not_product,
-                    minimum: 3,
-                }]
-            );
-        };
-
-        too_few(
-            labelled(pattern("/item/[^/]+$"), &PRODUCTS[..2], &NOT_PRODUCTS),
-            2,
-            3,
+    fn should_refuse_a_pattern_that_takes_no_sample_url() {
+        assert_eq!(
+            sample_checks(pattern("/produkt/[^/]+$"), &SAMPLE),
+            vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 5 }]
         );
-        too_few(labelled(pattern("/item/[^/]+$"), &PRODUCTS, &[]), 3, 0);
-        too_few(
-            UrlPatternReviewCandidate::new(pattern("/item/[^/]+$"), None),
-            0,
-            0,
+        assert_eq!(
+            sample_checks(pattern("/item/[^/]+$"), &[]),
+            vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 0 }]
         );
     }
 
-    /// The decision applies to the review's crawl host alone, so labels on another host, such as
-    /// another domain of the same shop, say nothing about it: they do not count towards the
-    /// minimum, however many there are and however well the decision follows them.
+    /// A pattern that takes every URL of a sample of two or more tells no product page apart; on
+    /// a sample of one URL, taking it is no evidence of that.
     #[test]
-    fn should_count_only_labels_on_the_review_crawl_host() {
-        let elsewhere =
-            |urls: [&str; 3]| urls.map(|url| url.replace(REVIEW_CRAWL_HOST, "antique-shop.de"));
-        let (other_products, other_not_products) = (elsewhere(PRODUCTS), elsewhere(NOT_PRODUCTS));
-        let products: Vec<&str> = std::iter::once(PRODUCTS[0])
-            .chain(other_products.iter().map(String::as_str))
-            .collect();
-        let not_products: Vec<&str> = std::iter::once(NOT_PRODUCTS[0])
-            .chain(other_not_products.iter().map(String::as_str))
-            .collect();
-        let candidate = labelled(pattern("/item/[^/]+$"), &products, &not_products);
-
+    fn should_refuse_a_pattern_that_takes_every_url_of_a_sample_of_at_least_two() {
         assert_eq!(
-            url_checks(&candidate),
-            vec![FailedApprovalCheck::TooFewLabels {
-                product: 1,
-                not_product: 1,
-                minimum: 3,
-            }]
-        );
-    }
-
-    #[test]
-    fn should_refuse_a_decision_that_misses_a_url_labelled_product() {
-        let candidate = labelled(pattern("/item/(oak|pine)-"), &PRODUCTS, &NOT_PRODUCTS);
-
-        assert_eq!(
-            url_checks(&candidate),
-            vec![FailedApprovalCheck::ProductLabelNotMatched {
-                urls: vec![PRODUCTS[2].to_owned()],
-            }]
-        );
-    }
-
-    #[test]
-    fn should_refuse_a_decision_that_takes_a_url_labelled_not_product() {
-        let candidate = labelled(pattern("/item"), &PRODUCTS, &NOT_PRODUCTS);
-
-        assert_eq!(
-            url_checks(&candidate),
-            vec![FailedApprovalCheck::NotProductLabelMatched {
-                urls: vec![NOT_PRODUCTS[0].to_owned()],
-            }]
-        );
-    }
-
-    /// The crawler treats `www.` and the bare host, http and https as one page and stores
-    /// whichever spelling it found, so a decision anchored on a spelling the label does not use
-    /// still takes the page labelled `NOT_PRODUCT`; one that takes no spelling of it passes.
-    #[test]
-    fn should_refuse_a_decision_that_takes_a_url_labelled_not_product_in_another_spelling() {
-        let www_products = PRODUCTS.map(|url| url.replace("https://", "https://www."));
-        let www_products: Vec<&str> = www_products.iter().map(String::as_str).collect();
-        let on_www = |value: &str| labelled(pattern(value), &www_products, &NOT_PRODUCTS);
-
-        assert_eq!(
-            url_checks(&on_www(r"^https://www\.antique-shop\.example/")),
-            vec![FailedApprovalCheck::NotProductLabelMatched {
-                urls: NOT_PRODUCTS.map(str::to_owned).to_vec(),
-            }]
+            sample_checks(pattern("antique-shop"), &SAMPLE),
+            vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 5 }]
         );
         assert_eq!(
-            url_checks(&on_www(r"^http://antique-shop\.example/")),
-            vec![
-                FailedApprovalCheck::ProductLabelNotMatched {
-                    urls: www_products.iter().map(|url| (*url).to_owned()).collect(),
-                },
-                FailedApprovalCheck::NotProductLabelMatched {
-                    urls: NOT_PRODUCTS.map(str::to_owned).to_vec(),
-                },
-            ]
-        );
-        assert_eq!(
-            url_checks(&on_www(r"^https://www\.antique-shop\.example/item/[^/]+$")),
+            sample_checks(pattern("/item/[^/]+$"), &SAMPLE[..1]),
             Vec::new()
         );
     }
 
-    /// The spider stores a URL with the trailing slash it fetched it with, and a pattern takes a
-    /// page with or without its slash: one written for the slashed spelling takes `PRODUCT`
-    /// labels without it, and a `NOT_PRODUCT` label without it as well.
+    /// The decision applies to the review's crawl host alone, `www.` or not, so a sample URL on
+    /// another host, such as another domain of the same shop, neither counts as taken nor makes
+    /// the sample larger.
     #[test]
-    fn should_match_labels_with_or_without_their_trailing_slash() {
-        let gift_card = "https://antique-shop.example/item/gift-card";
-        let not_products = [gift_card, NOT_PRODUCTS[1], NOT_PRODUCTS[2]];
-        let candidate = labelled(pattern(r"/item/[^/]+/$"), &PRODUCTS, &not_products);
+    fn should_count_only_sample_urls_on_the_review_crawl_host() {
+        let elsewhere = SAMPLE.map(|url| url.replace("antique-shop.example", "antique-shop.de"));
+        let elsewhere: Vec<&str> = elsewhere.iter().map(String::as_str).collect();
+        let www_item = "https://www.antique-shop.example/item/pine-table";
 
         assert_eq!(
-            url_checks(&candidate),
-            vec![FailedApprovalCheck::NotProductLabelMatched {
-                urls: vec![gift_card.to_owned()],
-            }]
+            sample_checks(pattern("/item/[^/]+$"), &elsewhere),
+            vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 0 }]
+        );
+        assert_eq!(
+            sample_checks(
+                pattern("/item/[^/]+$"),
+                &[SAMPLE[0], www_item, elsewhere[2], elsewhere[3]]
+            ),
+            vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 2 }]
         );
     }
 
-    /// Rows stored while the crawler sorted query parameters keep that spelling until the spider
-    /// rediscovers them, and approval classifies them as stored: a decision that takes the
-    /// labelled `NOT_PRODUCT` page only in its legacy spelling still takes that row.
+    /// A URL the exclusion takes is no URL the decision takes, in either trailing-slash spelling:
+    /// an exclusion of every URL the pattern takes leaves it taking none.
     #[test]
-    fn should_refuse_a_decision_that_takes_a_url_labelled_not_product_in_its_legacy_spelling() {
-        let products = [1, 2, 3].map(|id| {
-            format!("https://antique-shop.example/index.php?controller=product&id_product={id}")
-        });
-        let products: Vec<&str> = products.iter().map(String::as_str).collect();
-        let category = "https://antique-shop.example/index.php?id_category=3&controller=category";
-        let not_products = [category, NOT_PRODUCTS[1], NOT_PRODUCTS[2]];
-        let deciding = |value: &str| labelled(pattern(value), &products, &not_products);
-
+    fn should_count_only_urls_the_pattern_takes_and_the_exclusion_does_not() {
         assert_eq!(
-            url_checks(&deciding(r"/index\.php\?controller=")),
-            vec![FailedApprovalCheck::NotProductLabelMatched {
-                urls: vec![category.to_owned()],
-            }]
+            sample_checks(excluding("/item/[^/]+$", "oak-chair|brass-lamp/$"), &SAMPLE),
+            vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 5 }]
         );
         assert_eq!(
-            url_checks(&deciding(r"/index\.php\?controller=product&")),
+            sample_checks(excluding(".", "/impressum$"), &SAMPLE),
             Vec::new()
         );
     }
 
-    /// Sample URLs of a shop whose products sit under `/item/` and under category paths a pattern
-    /// may list one by one, `inspected` of them with what their inspection found.
-    fn shop_sample(inspected: usize, describes_one_product: bool) -> Vec<SampleUrl> {
-        let url = |index: usize| {
-            if index < 6 {
-                format!("https://antique-shop.example/item/lamp-{index}")
-            } else {
-                format!("https://antique-shop.example/clocks/barometers/barometer-{index}")
-            }
-        };
-        (0..20)
-            .map(|index| SampleUrl {
-                url: url(index),
-                describes_one_product: (index % 2 == 0 && index / 2 < inspected)
-                    .then_some(describes_one_product),
-            })
-            .collect()
-    }
-
-    /// A pattern that takes 6 of 20 sample URLs while every inspected page describes one product,
-    /// some of them under a path it misses, is narrower than the shop's product URLs.
+    /// Nothing in a review shows that a shop has no product URLs, so an agent never approves
+    /// `NO_PATTERN`, whatever the sample.
     #[test]
-    fn should_refuse_a_pattern_that_takes_clearly_fewer_urls_than_the_product_share_suggests() {
-        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
-
-        let refused = url_pattern_approval_checks(
-            &candidate,
-            REVIEW_CRAWL_HOST,
-            MIN_LABELLED_URLS,
-            &shop_sample(10, true),
-        );
-
+    fn should_refuse_no_pattern_as_a_human_decision() {
         assert_eq!(
-            refused,
-            vec![FailedApprovalCheck::PatternTooNarrow {
-                matched: 6,
-                sample_total: 20,
-                product_pages: 10,
-                inspected: 10,
-                unmatched_product_pages: [6, 8, 10, 12, 14, 16, 18]
-                    .map(|index| format!(
-                        "https://antique-shop.example/clocks/barometers/barometer-{index}"
-                    ))
-                    .to_vec(),
-            }]
-        );
-    }
-
-    #[test]
-    fn should_pass_a_structural_pattern_and_a_sample_too_thin_or_without_missed_products() {
-        let narrow = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
-        let structural = labelled(
-            pattern("/(item|clocks/barometers)/[^/]+$"),
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-        );
-        let check = |candidate: &UrlPatternReviewCandidate, sample: &[SampleUrl]| {
-            url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, sample)
-        };
-
-        // The pattern takes every product page the inspection found.
-        assert_eq!(check(&structural, &shop_sample(10, true)), Vec::new());
-        // Too few pages were inspected to say what share of the shop is products.
-        assert_eq!(check(&narrow, &shop_sample(7, true)), Vec::new());
-        // The inspected pages are no products, so the pattern misses none.
-        assert_eq!(check(&narrow, &shop_sample(10, false)), Vec::new());
-        // No sample, as on a review nobody inspected.
-        assert_eq!(check(&narrow, &[]), Vec::new());
-    }
-
-    /// A page labelled `NOT_PRODUCT` is no missed product page whatever its markup: shops mark up
-    /// gift cards and vouchers as a `Product`, and the decision must leave them out. The label
-    /// counts under any spelling of the page.
-    #[test]
-    fn should_pass_a_pattern_that_leaves_out_inspected_pages_labelled_not_product() {
-        let sample = shop_sample(10, true);
-        let vouchers: Vec<String> = sample
-            .iter()
-            .filter(|url| url.url.contains("/barometers/") && url.describes_one_product.is_some())
-            .map(|url| url.url.replacen("https://", "http://www.", 1) + "/")
-            .collect();
-        let not_products: Vec<&str> = NOT_PRODUCTS
-            .into_iter()
-            .chain(vouchers.iter().map(String::as_str))
-            .collect();
-        let candidate = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &not_products);
-
-        assert_eq!(
-            url_pattern_approval_checks(&candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample),
-            Vec::new()
-        );
-    }
-
-    const GIFT_CARD: &str = "https://antique-shop.example/item/the-antique-shop-gift-card";
-
-    /// A gift card has the product URL shape: the pattern alone takes it, and the exclusion that
-    /// takes it out of the pattern lets the decision follow its `NOT_PRODUCT` label.
-    #[test]
-    fn should_pass_a_not_product_url_the_exclusion_takes_and_refuse_it_without_the_exclusion() {
-        let not_products = [NOT_PRODUCTS[0], NOT_PRODUCTS[1], GIFT_CARD];
-
-        assert_eq!(
-            url_checks(&labelled(pattern("/item/[^/]+$"), &PRODUCTS, &not_products)),
-            vec![FailedApprovalCheck::NotProductLabelMatched {
-                urls: vec![GIFT_CARD.to_owned()],
-            }]
-        );
-        assert_eq!(
-            url_checks(&labelled(
-                excluding("/item/[^/]+$", "gift-card"),
-                &PRODUCTS,
-                &not_products
-            )),
-            Vec::new()
-        );
-    }
-
-    /// The exclusion is matched in the crawler's spelling of the URL, with or without the
-    /// trailing slash, as the pattern is.
-    #[test]
-    fn should_match_the_exclusion_in_either_trailing_slash_spelling() {
-        let not_products = [NOT_PRODUCTS[0], NOT_PRODUCTS[1], GIFT_CARD];
-
-        assert_eq!(
-            url_checks(&labelled(
-                excluding("/item/[^/]+$", "gift-card/$"),
-                &PRODUCTS,
-                &not_products
-            )),
-            Vec::new()
-        );
-    }
-
-    #[test]
-    fn should_refuse_an_exclusion_that_takes_a_url_labelled_product() {
-        let candidate = labelled(
-            excluding("/item/[^/]+$", "oak-chair|pine-table"),
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-        );
-
-        assert_eq!(
-            url_checks(&candidate),
-            vec![FailedApprovalCheck::ProductLabelNotMatched {
-                urls: PRODUCTS[..2].iter().map(|url| (*url).to_owned()).collect(),
-            }]
-        );
-    }
-
-    /// A page the exclusion takes is not one the pattern takes: an exclusion that removes the
-    /// shop's product URLs leaves the pattern as narrow as one that never matched them.
-    #[test]
-    fn should_count_only_the_urls_the_pattern_takes_and_the_exclusion_does_not_as_taken() {
-        let narrow = labelled(pattern("/item/[^/]+$"), &PRODUCTS, &NOT_PRODUCTS);
-        let excluded = labelled(
-            excluding("/(item|clocks/barometers)/[^/]+$", "/barometers/"),
-            &PRODUCTS,
-            &NOT_PRODUCTS,
-        );
-        let sample = shop_sample(10, true);
-        let checks = |candidate| {
-            url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, &sample)
-        };
-
-        assert!(matches!(
-            checks(&excluded).as_slice(),
-            [FailedApprovalCheck::PatternTooNarrow { matched: 6, .. }]
-        ));
-        assert_eq!(checks(&excluded), checks(&narrow));
-    }
-
-    /// A sample URL of the review's crawl host whose inspection found `describes_one_product`.
-    fn sampled(path: &str, describes_one_product: Option<bool>) -> SampleUrl {
-        SampleUrl {
-            url: format!("https://{REVIEW_CRAWL_HOST}{path}"),
-            describes_one_product,
-        }
-    }
-
-    /// `count` sample pages inspected and found to describe no single product.
-    fn inspected_non_products(count: usize) -> Vec<SampleUrl> {
-        (0..count)
-            .map(|index| sampled(&format!("/blog/{index}"), Some(false)))
-            .collect()
-    }
-
-    fn no_pattern_checks_on(
-        candidate: &UrlPatternReviewCandidate,
-        sample: &[SampleUrl],
-    ) -> Vec<FailedApprovalCheck> {
-        url_pattern_approval_checks(candidate, REVIEW_CRAWL_HOST, MIN_LABELLED_URLS, sample)
-    }
-
-    /// `NO_PATTERN` takes no product URL, so the labels of non-products show it with the pages
-    /// inspected: no `PRODUCT` label is needed, and the minimum counts `NOT_PRODUCT` URLs only.
-    #[test]
-    fn should_pass_no_pattern_on_enough_not_product_labels_and_inspected_pages() {
-        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS);
-
-        assert_eq!(
-            no_pattern_checks_on(&candidate, &inspected_non_products(MIN_INSPECTED_PAGES)),
-            Vec::new()
-        );
-    }
-
-    #[test]
-    fn should_refuse_no_pattern_on_too_few_not_product_labels() {
-        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS[..2]);
-
-        assert_eq!(
-            no_pattern_checks_on(&candidate, &inspected_non_products(MIN_INSPECTED_PAGES)),
-            vec![FailedApprovalCheck::TooFewLabels {
-                product: 0,
-                not_product: 2,
-                minimum: 3,
-            }]
-        );
-    }
-
-    /// Labels alone, which any shop's legal and cart pages satisfy, show no absence of products:
-    /// `NO_PATTERN` needs the minimum of inspected sample pages, the whole sample when it is
-    /// smaller, and at least one, so an empty sample never shows it.
-    #[test]
-    fn should_refuse_no_pattern_resting_on_too_few_inspected_pages() {
-        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS);
-        let mut sample = inspected_non_products(MIN_INSPECTED_PAGES - 1);
-        sample.push(sampled("/about", None));
-
-        assert_eq!(
-            no_pattern_checks_on(&candidate, &sample),
-            vec![FailedApprovalCheck::NoPatternTooFewInspected {
-                inspected: MIN_INSPECTED_PAGES - 1,
-                required: MIN_INSPECTED_PAGES,
-            }]
-        );
-        assert_eq!(
-            no_pattern_checks_on(&candidate, &inspected_non_products(2)),
-            Vec::new()
-        );
-        assert_eq!(
-            no_pattern_checks_on(&candidate, &[]),
-            vec![FailedApprovalCheck::NoPatternTooFewInspected {
-                inspected: 0,
-                required: 1,
-            }]
-        );
-    }
-
-    /// A page that describes one product contradicts `NO_PATTERN` unless the label marks it
-    /// `NOT_PRODUCT`: absence of product pages is not provable from a sample, so one is enough.
-    #[test]
-    fn should_refuse_no_pattern_when_an_unlabelled_inspected_page_describes_a_product() {
-        let candidate = labelled(UrlPatternDecision::NoPattern, &[], &NOT_PRODUCTS);
-        let with = |page: SampleUrl| {
-            let mut sample = inspected_non_products(MIN_INSPECTED_PAGES);
-            sample.push(page);
-            no_pattern_checks_on(&candidate, &sample)
-        };
-        let product = sampled("/item/oak-chair", Some(true));
-
-        assert_eq!(
-            with(product.clone()),
-            vec![FailedApprovalCheck::NoPatternContradicted {
-                product_pages: vec![product.url.clone()],
-            }]
-        );
-        assert_eq!(with(sampled("/item/oak-chair", None)), Vec::new());
-        assert_eq!(
-            with(SampleUrl {
-                url: NOT_PRODUCTS[0].to_owned(),
-                describes_one_product: Some(true),
-            }),
-            Vec::new()
-        );
-    }
-
-    /// Labelled products still refuse `NO_PATTERN`: the decision takes none of them.
-    #[test]
-    fn should_refuse_no_pattern_against_urls_labelled_product() {
-        let candidate = labelled(UrlPatternDecision::NoPattern, &PRODUCTS, &NOT_PRODUCTS);
-
-        assert_eq!(
-            no_pattern_checks_on(&candidate, &inspected_non_products(MIN_INSPECTED_PAGES)),
-            vec![FailedApprovalCheck::ProductLabelNotMatched {
-                urls: PRODUCTS.map(str::to_owned).to_vec(),
-            }]
+            sample_checks(UrlPatternDecision::NoPattern, &SAMPLE),
+            vec![FailedApprovalCheck::NoPatternNeedsHuman]
         );
     }
 
@@ -2148,68 +1492,28 @@ mod tests {
             Some(serde_json::json!({ "check": "APPROVER_IS_AUTHOR" }))
         );
         assert_eq!(
-            serde_json::to_value(FailedApprovalCheck::TooFewLabels {
-                product: 1,
-                not_product: 0,
-                minimum: 3,
-            })
-            .ok(),
-            Some(serde_json::json!({
-                "check": "TOO_FEW_LABELS",
-                "product": 1,
-                "not_product": 0,
-                "minimum": 3,
-            }))
-        );
-        assert_eq!(
-            serde_json::to_value(FailedApprovalCheck::PatternTooNarrow {
-                matched: 6,
+            serde_json::to_value(FailedApprovalCheck::PatternMatchesNoSampleUrl {
                 sample_total: 20,
-                product_pages: 10,
-                inspected: 10,
-                unmatched_product_pages: vec!["https://antiques.example/b/1".to_owned()],
             })
             .ok(),
             Some(serde_json::json!({
-                "check": "PATTERN_TOO_NARROW",
-                "matched": 6,
+                "check": "PATTERN_MATCHES_NO_SAMPLE_URL",
                 "sample_total": 20,
-                "product_pages": 10,
-                "inspected": 10,
-                "unmatched_product_pages": ["https://antiques.example/b/1"],
             }))
         );
         assert_eq!(
-            serde_json::to_value(FailedApprovalCheck::NoPatternContradicted {
-                product_pages: vec!["https://antiques.example/a/1".to_owned()],
+            serde_json::to_value(FailedApprovalCheck::PatternMatchesEverySampleUrl {
+                sample_total: 20,
             })
             .ok(),
             Some(serde_json::json!({
-                "check": "NO_PATTERN_CONTRADICTED",
-                "product_pages": ["https://antiques.example/a/1"],
+                "check": "PATTERN_MATCHES_EVERY_SAMPLE_URL",
+                "sample_total": 20,
             }))
         );
         assert_eq!(
-            serde_json::to_value(FailedApprovalCheck::NoPatternTooFewInspected {
-                inspected: 2,
-                required: 8,
-            })
-            .ok(),
-            Some(serde_json::json!({
-                "check": "NO_PATTERN_TOO_FEW_INSPECTED",
-                "inspected": 2,
-                "required": 8,
-            }))
-        );
-        assert_eq!(
-            serde_json::to_value(FailedApprovalCheck::NotProductLabelMatched {
-                urls: vec!["https://antiques.example/shop".to_owned()],
-            })
-            .ok(),
-            Some(serde_json::json!({
-                "check": "NOT_PRODUCT_LABEL_MATCHED",
-                "urls": ["https://antiques.example/shop"],
-            }))
+            serde_json::to_value(FailedApprovalCheck::NoPatternNeedsHuman).ok(),
+            Some(serde_json::json!({ "check": "NO_PATTERN_NEEDS_HUMAN" }))
         );
     }
 }

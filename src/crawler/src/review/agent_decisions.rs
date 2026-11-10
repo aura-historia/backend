@@ -1,7 +1,6 @@
 //! What the review agents may decide on their own in `agent` authoring mode: how many approvals
 //! and rejections per hour, how recent the live matrix a product-schema approval rests on must
-//! be, how many sample URLs of each label a URL-pattern approval needs, and how many needs-repair
-//! rounds the agents give one review before it waits for a human. The composition root builds the
+//! be, and how many needs-repair rounds the agents give one review before it waits for a human. The composition root builds the
 //! one [`AgentDecisionPolicy`] of a start from the authoring mode and these settings, and the
 //! review console, the scraper's review gate and the spider share it through the one review
 //! repository. The console answers the limits at [`AGENT_LIMITS_ROUTE`], so the review agent runner
@@ -18,7 +17,6 @@ use std::time::Duration;
 
 pub const AGENT_MAX_DECISIONS_PER_HOUR_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_DECISIONS_PER_HOUR";
 pub const AGENT_MATRIX_MAX_AGE_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES";
-pub const AGENT_MIN_LABELLED_URLS_ENV: &str = "CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS";
 pub const AGENT_MAX_REPAIR_ROUNDS_ENV: &str = "CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS";
 pub const AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV: &str =
     "CRAWLER_REVIEW_AGENT_REPAIR_ROUND_WINDOW_DAYS";
@@ -31,7 +29,6 @@ pub const AGENT_LIMITS_ROUTE: &str = "/api/review-agent-limits";
 /// throttling the runner's default capacity.
 const DEFAULT_MAX_DECISIONS_PER_HOUR: NonZeroU32 = NonZeroU32::new(300).unwrap();
 const DEFAULT_MATRIX_MAX_AGE_MINUTES: NonZeroU32 = NonZeroU32::new(30).unwrap();
-const DEFAULT_MIN_LABELLED_URLS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_MAX_REPAIR_ROUNDS: NonZeroU32 = NonZeroU32::new(3).unwrap();
 const DEFAULT_REPAIR_ROUND_WINDOW_DAYS: NonZeroU32 = NonZeroU32::new(7).unwrap();
 const DEFAULT_NO_PATTERN_MAX_AGE_DAYS: NonZeroU32 = NonZeroU32::new(30).unwrap();
@@ -44,12 +41,8 @@ pub struct AgentLimits {
     /// The agent's approvals plus rejections taken within any rolling hour.
     pub max_decisions_per_hour: NonZeroU32,
     /// How many minutes ago the review pages of the live schema matrix an agent approval rests on
-    /// may have been fetched. A URL pattern's sample labels do not expire: they belong to the
-    /// candidate version an approval names.
+    /// may have been fetched.
     pub matrix_max_age_minutes: NonZeroU32,
-    /// How many URLs an agent approval of a URL pattern needs labelled `PRODUCT`, and how many
-    /// labelled `NOT_PRODUCT`.
-    pub min_labelled_urls: NonZeroU32,
     /// How many needs-repair verdicts the agents give a pending review, counted since a human last
     /// changed or judged it and within `repair_round_window_days`, before it waits for a human and
     /// the agents may change or decide nothing on it.
@@ -69,7 +62,6 @@ impl Default for AgentLimits {
         Self {
             max_decisions_per_hour: DEFAULT_MAX_DECISIONS_PER_HOUR,
             matrix_max_age_minutes: DEFAULT_MATRIX_MAX_AGE_MINUTES,
-            min_labelled_urls: DEFAULT_MIN_LABELLED_URLS,
             max_repair_rounds: DEFAULT_MAX_REPAIR_ROUNDS,
             repair_round_window_days: DEFAULT_REPAIR_ROUND_WINDOW_DAYS,
             no_pattern_max_age_days: DEFAULT_NO_PATTERN_MAX_AGE_DAYS,
@@ -93,7 +85,6 @@ impl AgentLimits {
                 AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
                 defaults.matrix_max_age_minutes,
             )?,
-            min_labelled_urls: read(AGENT_MIN_LABELLED_URLS_ENV, defaults.min_labelled_urls)?,
             max_repair_rounds: read(AGENT_MAX_REPAIR_ROUNDS_ENV, defaults.max_repair_rounds)?,
             repair_round_window_days: read(
                 AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV,
@@ -193,10 +184,9 @@ impl AgentDecisionPolicy {
 mod tests {
     use super::*;
 
-    const SETTINGS: [&str; 6] = [
+    const SETTINGS: [&str; 5] = [
         AGENT_MAX_DECISIONS_PER_HOUR_ENV,
         AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
-        AGENT_MIN_LABELLED_URLS_ENV,
         AGENT_MAX_REPAIR_ROUNDS_ENV,
         AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV,
         AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV,
@@ -230,7 +220,6 @@ mod tests {
             &[
                 (AGENT_MAX_DECISIONS_PER_HOUR_ENV, " "),
                 (AGENT_MATRIX_MAX_AGE_MINUTES_ENV, ""),
-                (AGENT_MIN_LABELLED_URLS_ENV, "\t"),
                 (AGENT_MAX_REPAIR_ROUNDS_ENV, "  "),
             ][..],
         ] {
@@ -239,7 +228,6 @@ mod tests {
             assert_eq!(limits, AgentLimits::default(), "{env:?}");
             assert_eq!(limits.max_decisions_per_hour.get(), 300);
             assert_eq!(limits.max_matrix_age(), Duration::from_secs(30 * 60));
-            assert_eq!(limits.min_labelled_urls.get(), 3);
             assert_eq!(limits.max_repair_rounds.get(), 3);
             assert_eq!(limits.repair_round_window_days.get(), 7);
             assert_eq!(limits.no_pattern_max_age_days.get(), 30);
@@ -252,8 +240,7 @@ mod tests {
         let limits = limits_from(&[
             (AGENT_MAX_DECISIONS_PER_HOUR_ENV, "5"),
             (AGENT_MATRIX_MAX_AGE_MINUTES_ENV, "10"),
-            (AGENT_MIN_LABELLED_URLS_ENV, " 4 "),
-            (AGENT_MAX_REPAIR_ROUNDS_ENV, "2"),
+            (AGENT_MAX_REPAIR_ROUNDS_ENV, " 2 "),
             (AGENT_REPAIR_ROUND_WINDOW_DAYS_ENV, "14"),
             (AGENT_NO_PATTERN_MAX_AGE_DAYS_ENV, "60"),
         ])
@@ -264,7 +251,6 @@ mod tests {
             AgentLimits {
                 max_decisions_per_hour: NonZeroU32::new(5).unwrap(),
                 matrix_max_age_minutes: NonZeroU32::new(10).unwrap(),
-                min_labelled_urls: NonZeroU32::new(4).unwrap(),
                 max_repair_rounds: NonZeroU32::new(2).unwrap(),
                 repair_round_window_days: NonZeroU32::new(14).unwrap(),
                 no_pattern_max_age_days: NonZeroU32::new(60).unwrap(),
@@ -289,11 +275,6 @@ mod tests {
         AGENT_MATRIX_MAX_AGE_MINUTES_ENV,
         "-1",
         "invalid CRAWLER_REVIEW_AGENT_MATRIX_MAX_AGE_MINUTES value \"-1\"; expected a whole number of at least 1"
-    )]
-    #[case::no_labelled_urls(
-        AGENT_MIN_LABELLED_URLS_ENV,
-        "0",
-        "invalid CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS value \"0\"; expected a whole number of at least 1"
     )]
     #[case::no_repair_rounds(
         AGENT_MAX_REPAIR_ROUNDS_ENV,
@@ -329,7 +310,6 @@ mod tests {
             serde_json::json!({
                 "max_decisions_per_hour": 300,
                 "matrix_max_age_minutes": 30,
-                "min_labelled_urls": 3,
                 "max_repair_rounds": 3,
                 "repair_round_window_days": 7,
                 "no_pattern_max_age_days": 30,
@@ -339,9 +319,9 @@ mod tests {
             serde_json::from_value::<AgentLimits>(answered.clone()).unwrap(),
             AgentLimits::default()
         );
-        let mut no_labels = answered;
-        no_labels["min_labelled_urls"] = serde_json::json!(0);
-        assert!(serde_json::from_value::<AgentLimits>(no_labels).is_err());
+        let mut no_rounds = answered;
+        no_rounds["max_repair_rounds"] = serde_json::json!(0);
+        assert!(serde_json::from_value::<AgentLimits>(no_rounds).is_err());
     }
 
     fn capped_at_three(authoring: CrawlerAuthoringMode) -> AgentDecisionPolicy {
