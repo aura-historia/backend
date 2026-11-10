@@ -31,7 +31,6 @@
 //! | `CRAWLER_VERTEX_AI_URL_CLASSIFICATION_MODEL` | Optional URL classification model override       |
 //! | `CRAWLER_LLM_MAX_CONCURRENT_REQUESTS` | Max in-flight crawler LLM calls (default: `1`)          |
 //! | `CRAWLER_LLM_MIN_REQUEST_INTERVAL_MS` | Minimum delay between crawler LLM request starts (default: `2000`) |
-//! | `CRAWLER_LOCAL_MAX_PUSHED_LISTINGS` | Local only: stop gracefully after this many observations reached the queue. Debug builds only; a release build refuses to start while it is set |
 //! | `CRAWLER_START_REVIEW_AGENT_RUNNER` | `true` starts `review-agent-runner` from next to this binary as its child in `agent` mode, as `dev` does; unset or `false` leaves it to its own service. Never set it next to a runner service: two runners would work the same reviews. Any other value fails startup |
 //! | `CRAWLER_CLOUDWATCH_LOG_GROUP`  | Optional CloudWatch Logs group name for crawler server logs    |
 //! | `CRAWLER_CLOUDWATCH_LOG_STREAM` | Optional CloudWatch Logs stream name; defaults to host name    |
@@ -75,8 +74,7 @@ use crawler::service::listing_source_api::{
     ApiListingSourceRegistrationSource, ListingSourceApiConfig,
 };
 use crawler::service::raw_capture::{
-    LOCAL_MAX_PUSHED_LISTINGS_ENV, LimitedRawCapture, ProductListingRawCaptureService,
-    ProductListingRawCaptureServiceImpl, local_push_limit,
+    ProductListingRawCaptureService, ProductListingRawCaptureServiceImpl,
 };
 use product_listing_ingestion_sqs::SqsProductListingIngestionPublisher;
 use product_listing_service::use_cases::SubmitInternalProductListingIngestionHandler;
@@ -244,17 +242,6 @@ fn start_review_agent_runner_child(console_port: u16) -> Option<RunnerChild> {
     )
 }
 
-/// Starts the graceful stop of the local push cap: the same path as a SIGTERM from outside.
-fn stop_gracefully() {
-    #[cfg(unix)]
-    // SAFETY: raising a signal in the current process has no memory-safety preconditions.
-    unsafe {
-        libc::raise(libc::SIGTERM);
-    }
-    #[cfg(not(unix))]
-    std::process::exit(0);
-}
-
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -381,22 +368,6 @@ async fn main() {
                 )),
                 config.effective_push_max_concurrency(),
             ));
-        let raw_capture = match local_push_limit(
-            std::env::var(LOCAL_MAX_PUSHED_LISTINGS_ENV).ok().as_deref(),
-            cfg!(debug_assertions),
-        )
-        .unwrap_or_else(|error| panic!("invalid crawler local push cap: {error}"))
-        {
-            Some(limit) => {
-                info!(
-                    limit,
-                    "Local push cap active: the crawler stops after the cap"
-                );
-                Box::new(LimitedRawCapture::new(raw_capture, limit, stop_gracefully))
-                    as Box<dyn ProductListingRawCaptureService>
-            }
-            None => raw_capture,
-        };
 
         // 6. Wire the shared crawler pipeline and run until stopped.
         // Building the runtime writes the agents' token file the runner reads.
