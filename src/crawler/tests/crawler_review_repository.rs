@@ -41,7 +41,7 @@ use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, NEEDS_OPERATOR_CRAWL_OUTCOME,
     SpiderCandidateService, SpiderCandidateServiceImpl, UrlPatternReviewWaitWrite,
 };
-use crawler::spider::classification::product_url_pattern::ProductUrlPattern;
+use crawler::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use crawler::spider::classification::url_classifier::UrlClassifier;
 use crawler::spider::classification::url_metadata::{
     CrawlerDisposition, CrawlerUrlWriteOutcome, UrlClass,
@@ -2302,9 +2302,11 @@ async fn invalid_edited_url_pattern_is_rejected_without_changing_live_pattern() 
                 decision: UrlPatternDecision::Pattern {
                     value: "[".to_owned(),
                     exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: None,
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )
@@ -2506,6 +2508,7 @@ async fn should_keep_the_sample_classification_when_a_url_pattern_edit_is_refuse
             UrlPatternDecision::Pattern {
                 value: "/product/".to_owned(),
                 exclude: None,
+                matching: UrlPatternMatching::FullUrlSearch,
             },
             &["https://refused.example.com/product/chair".to_owned()],
             None,
@@ -2614,7 +2617,7 @@ async fn should_roll_back_pattern_approval_when_status_update_fails() {
     insert_listing_source(&pool, listing_source_id).await;
     set_crawl_root(&pool, listing_source_id, "atomic-pattern.example.com").await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -2752,7 +2755,7 @@ async fn approved_no_pattern_clears_stale_live_pattern_and_sets_no_pattern_state
     insert_listing_source(&pool, listing_source_id).await;
     set_crawl_root(&pool, listing_source_id, "no-pattern.example.com").await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/stale/', url_pattern_state = 'MATCHED' \
+        "UPDATE listing_sources SET url_pattern = '/stale/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -2828,9 +2831,11 @@ async fn should_approve_manual_url_pattern_review_only_after_operator_decides() 
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
                     exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: None,
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )
@@ -3928,9 +3933,11 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
                     exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: None,
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )
@@ -4003,9 +4010,11 @@ async fn should_classify_stored_urls_and_release_waiting_crawl_when_url_pattern_
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
                     exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: None,
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )
@@ -4063,7 +4072,7 @@ async fn should_store_the_exclusion_and_reclassify_the_urls_it_takes_when_a_url_
     insert_listing_source(&pool, listing_source_id).await;
     set_crawl_root(&pool, listing_source_id, "excluding.example.com").await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/item/', url_pattern_state = 'MATCHED' \
+        "UPDATE listing_sources SET url_pattern = '/item/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -4097,9 +4106,11 @@ async fn should_store_the_exclusion_and_reclassify_the_urls_it_takes_when_a_url_
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
                     exclude: Some("gift-card".to_owned()),
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: Some("/item/".to_owned()),
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )
@@ -4294,9 +4305,11 @@ async fn crawl_schedule_after_url_pattern_restore(wait: WaitAtRestore) -> CrawlS
                 decision: UrlPatternDecision::Pattern {
                     value: "/item/".to_owned(),
                     exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: None,
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )

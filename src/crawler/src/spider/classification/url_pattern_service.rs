@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use crate::review::page_coverage::IncompleteCoverage;
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
+#[cfg(test)]
+use crate::spider::classification::product_url_pattern::UrlPatternMatching;
 use crate::spider::classification::product_url_pattern::{
     ProductUrlPattern, ProductUrlPatternError,
 };
@@ -209,11 +211,11 @@ impl UrlPatternService for UrlPatternServiceImpl {
             return Ok(None);
         };
 
-        let Some(raw_pattern) = record.url_pattern else {
-            return Ok(None);
-        };
-
-        Ok(Some(ProductUrlPattern::parse(&raw_pattern)?))
+        Ok(ProductUrlPattern::from_stored(
+            record.url_pattern.as_deref(),
+            record.url_pattern_exclude.as_deref(),
+            record.url_pattern_matching,
+        )?)
     }
 
     async fn store_pattern(
@@ -252,6 +254,7 @@ impl UrlPatternService for UrlPatternServiceImpl {
             UrlPatternState::Matched => ProductUrlPattern::from_stored(
                 record.url_pattern.as_deref(),
                 record.url_pattern_exclude.as_deref(),
+                record.url_pattern_matching,
             )?,
             _ => None,
         };
@@ -425,6 +428,7 @@ mod tests {
                     listing_source_id,
                     url_pattern: Some("/item/".to_owned()),
                     url_pattern_exclude: Some("gift-card".to_owned()),
+                    url_pattern_matching: Some(UrlPatternMatching::FullUrlSearch),
                     url_pattern_state: UrlPatternState::Matched,
                     last_crawled: None,
                 }))
@@ -474,6 +478,7 @@ mod tests {
                         listing_source_id,
                         url_pattern: None,
                         url_pattern_exclude: None,
+                        url_pattern_matching: None,
                         url_pattern_state: UrlPatternState::NoPattern,
                         last_crawled: None,
                     }))

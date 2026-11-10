@@ -18,6 +18,7 @@ use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::spider::classification::product_url_pattern::UrlPatternMatching;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -175,6 +176,10 @@ pub enum CandidateView {
         /// The exclusion of the ListingSource's pattern when the review opened, when it had one.
         #[serde(skip_serializing_if = "Option::is_none")]
         current_exclude: Option<String>,
+        /// What the ListingSource's pattern was matched against when the review opened, when it
+        /// had one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_matching: Option<UrlPatternMatching>,
         sample_labels: Vec<SampleLabelView>,
         labelled_at: Option<String>,
     },
@@ -183,12 +188,14 @@ pub enum CandidateView {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UrlPatternDecisionView {
-    /// A regex; a URL it matches anywhere is a product URL unless the exclusion, a regex matched
-    /// anywhere too, takes it.
+    /// A regex; a URL it matches is a product URL unless the exclusion, a regex matched anywhere
+    /// in what `matching` names, takes it. Under PATH_AND_QUERY_FULL_MATCH the regex matches the
+    /// whole path and query; under FULL_URL_SEARCH anywhere in the whole URL.
     Pattern {
         value: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         exclude: Option<String>,
+        matching: UrlPatternMatching,
     },
     /// The ListingSource has no product URLs.
     NoPattern,
@@ -525,6 +532,7 @@ impl CandidateView {
             decision,
             current_pattern,
             current_exclude,
+            current_matching,
             sample_labels,
         } = candidate;
         let (sample_labels, labelled_at) = match sample_labels {
@@ -549,12 +557,19 @@ impl CandidateView {
         };
         Self::UrlPattern {
             decision: match decision {
-                UrlPatternDecision::Pattern { value, exclude } => {
-                    UrlPatternDecisionView::Pattern { value, exclude }
-                }
+                UrlPatternDecision::Pattern {
+                    value,
+                    exclude,
+                    matching,
+                } => UrlPatternDecisionView::Pattern {
+                    value,
+                    exclude,
+                    matching,
+                },
                 UrlPatternDecision::NoPattern => UrlPatternDecisionView::NoPattern,
                 UrlPatternDecision::Undecided => UrlPatternDecisionView::Undecided,
             },
+            current_matching: current_pattern.as_ref().map(|_| current_matching),
             current_pattern,
             current_exclude,
             sample_labels,
@@ -974,12 +989,13 @@ mod tests {
 
         assert_eq!(
             excluding["decision"],
-            json!({ "type": "PATTERN", "value": "/item/", "exclude": "gift-card" })
+            json!({ "type": "PATTERN", "value": "/item/", "exclude": "gift-card", "matching": "FULL_URL_SEARCH" })
         );
         assert_eq!(excluding["current_exclude"], "voucher");
+        assert_eq!(excluding["current_matching"], "FULL_URL_SEARCH");
         assert_eq!(
             plain["decision"],
-            json!({ "type": "PATTERN", "value": "/item/" })
+            json!({ "type": "PATTERN", "value": "/item/", "matching": "FULL_URL_SEARCH" })
         );
         assert!(plain.get("current_exclude").is_none(), "{plain}");
     }
@@ -1003,7 +1019,7 @@ mod tests {
             view["candidate"],
             json!({
                 "kind": "URL_PATTERN",
-                "decision": { "type": "PATTERN", "value": "/item/" },
+                "decision": { "type": "PATTERN", "value": "/item/", "matching": "FULL_URL_SEARCH" },
                 "current_pattern": null,
                 "sample_labels": [{ "url": "https://antiques.example/item/1", "label": "PRODUCT", "reason": "one chair" }],
                 "labelled_at": "2026-10-27T12:00:00Z",

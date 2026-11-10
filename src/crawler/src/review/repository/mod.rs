@@ -16,7 +16,7 @@ use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
 use crate::spider::classification::product_url_pattern::{
-    ProductUrlPattern, ProductUrlPatternError,
+    ProductUrlPattern, ProductUrlPatternError, UrlPatternMatching,
 };
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
@@ -1731,24 +1731,35 @@ async fn review_source_url_pattern<'e>(
     listing_source_id: uuid::Uuid,
     url: &Url,
 ) -> Result<Option<ProductUrlPattern>, ReviewRepositoryError> {
-    let (crawl_host, include, exclude) =
-        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
-            "SELECT crawl_host, \
+    let (crawl_host, include, exclude, matching) = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT crawl_host, \
                 CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END, \
-                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_exclude END \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_exclude END, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_matching END \
          FROM listing_sources WHERE listing_source_id = $1",
-        )
-        .bind(listing_source_id)
-        .fetch_optional(executor)
-        .await?
-        .unwrap_or_default();
+    )
+    .bind(listing_source_id)
+    .fetch_optional(executor)
+    .await?
+    .unwrap_or_default();
     if !is_review_source_url(url, crawl_host.as_deref()) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
     }
     Ok(
-        ProductUrlPattern::from_stored(include.as_deref(), exclude.as_deref())
+        UrlPatternMatching::from_persisted_column(matching.as_deref())
+            .and_then(|matching| {
+                ProductUrlPattern::from_stored(include.as_deref(), exclude.as_deref(), matching)
+            })
             .ok()
             .flatten(),
     )

@@ -70,9 +70,11 @@ async fn review_of_source_with_crawl_host(
     sqlx::query(
         "INSERT INTO listing_sources \
          (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
-          crawl_root_url, crawl_host, url_pattern, url_pattern_state, created, updated) \
+          crawl_root_url, crawl_host, url_pattern, url_pattern_state, url_pattern_matching, \
+          created, updated) \
          VALUES ($1, 'Test source', 'test-source', TRUE, \
                  'https://www.example.com/', $2, '/[0-9]+-[a-z-]+/item$', 'MATCHED', \
+                 'FULL_URL_SEARCH', \
                  NOW(), NOW())",
     )
     .bind(listing_source_id.as_uuid())

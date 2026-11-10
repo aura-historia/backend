@@ -3872,7 +3872,7 @@ mod tests {
             refresh_scope_with_crawl_root(&pool, listing_source_id, OLD_ROOT).await;
             sqlx::query(
                 "UPDATE listing_sources \
-                 SET url_pattern = '/item/', url_pattern_state = 'MATCHED', \
+                 SET url_pattern = '/item/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH', \
                      crawl_failure_count = 1, last_crawl_error_kind = 'ConnectError', \
                      last_crawl_outcome = 'FAILED', last_crawl_run_at = NOW() - INTERVAL '1 day' \
                  WHERE listing_source_id = $1",

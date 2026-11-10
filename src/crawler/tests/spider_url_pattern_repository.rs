@@ -1,4 +1,4 @@
-use crawler::spider::classification::product_url_pattern::ProductUrlPattern;
+use crawler::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use crawler::spider::classification::url_pattern_repository::{
     ListingSourceUrlPatternRepository, ListingSourceUrlPatternRepositoryImpl, UrlPatternState,
 };
@@ -232,6 +232,10 @@ async fn should_save_read_and_clear_the_exclusion_with_its_pattern() {
         Some("gift-card|-service$")
     );
     assert_eq!(saved.url_pattern_state, UrlPatternState::Matched);
+    assert_eq!(
+        saved.url_pattern_matching,
+        Some(UrlPatternMatching::FullUrlSearch)
+    );
 
     repository
         .save_pattern(&listing_source_id, Some(&pattern(r"/objects/")))
@@ -259,6 +263,7 @@ async fn should_save_read_and_clear_the_exclusion_with_its_pattern() {
         .unwrap();
     assert!(no_pattern.url_pattern.is_none());
     assert!(no_pattern.url_pattern_exclude.is_none());
+    assert!(no_pattern.url_pattern_matching.is_none());
 
     repository
         .save_pattern(&listing_source_id, Some(&excluding))
@@ -274,33 +279,73 @@ async fn should_save_read_and_clear_the_exclusion_with_its_pattern() {
         .unwrap()
         .unwrap();
     assert!(cleared.url_pattern_exclude.is_none());
+    assert!(cleared.url_pattern_matching.is_none());
     assert_eq!(cleared.url_pattern_state, UrlPatternState::Unknown);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_refuse_an_exclusion_without_a_pattern_or_a_blank_one() {
+async fn should_refuse_an_exclusion_or_matching_without_a_pattern_and_a_pattern_without_matching() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
     insert_source(&pool, listing_source_id, "shape.example.com").await;
-    let write = |state: &'static str, include: Option<&'static str>, exclude: &'static str| {
+    let write = |state: &'static str,
+                 include: Option<&'static str>,
+                 exclude: Option<&'static str>,
+                 matching: Option<&'static str>| {
         let pool = pool.clone();
         async move {
             sqlx::query(
                 "UPDATE listing_sources \
-                 SET url_pattern_state = $2, url_pattern = $3, url_pattern_exclude = $4 \
+                 SET url_pattern_state = $2, url_pattern = $3, url_pattern_exclude = $4, \
+                     url_pattern_matching = $5 \
                  WHERE listing_source_id = $1",
             )
             .bind(listing_source_id.as_uuid())
             .bind(state)
             .bind(include)
             .bind(exclude)
+            .bind(matching)
             .execute(&pool)
             .await
         }
     };
+    let search = Some("FULL_URL_SEARCH");
 
-    assert!(write("UNKNOWN", None, "gift-card").await.is_err());
-    assert!(write("NO_PATTERN", None, "gift-card").await.is_err());
-    assert!(write("MATCHED", Some("/p/"), "  ").await.is_err());
-    assert!(write("MATCHED", Some("/p/"), "gift-card").await.is_ok());
+    assert!(
+        write("UNKNOWN", None, Some("gift-card"), None)
+            .await
+            .is_err()
+    );
+    assert!(
+        write("NO_PATTERN", None, Some("gift-card"), None)
+            .await
+            .is_err()
+    );
+    assert!(write("NO_PATTERN", None, None, search).await.is_err());
+    assert!(
+        write("MATCHED", Some("/p/"), Some("  "), search)
+            .await
+            .is_err()
+    );
+    assert!(write("MATCHED", Some("/p/"), None, None).await.is_err());
+    assert!(
+        write("MATCHED", Some("/p/"), None, Some("full_url_search"))
+            .await
+            .is_err()
+    );
+    assert!(
+        write("MATCHED", Some("/p/"), Some("gift-card"), search)
+            .await
+            .is_ok()
+    );
+    assert!(
+        write(
+            "MATCHED",
+            Some("/p/.+"),
+            None,
+            Some("PATH_AND_QUERY_FULL_MATCH")
+        )
+        .await
+        .is_ok()
+    );
 }

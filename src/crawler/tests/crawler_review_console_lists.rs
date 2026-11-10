@@ -631,7 +631,7 @@ async fn should_read_a_listing_source_with_its_live_configuration() {
         .unwrap();
     let approved_schema = closed_schema_review(&repository, shop, "APPROVED").await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern = '/item/\\d+',          url_pattern_exclude = '/item/0' WHERE listing_source_id = $1",
+        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH', url_pattern = '/item/\\d+',          url_pattern_exclude = '/item/0' WHERE listing_source_id = $1",
     )
     .bind(shop.as_uuid())
     .execute(&pool)
@@ -658,6 +658,7 @@ async fn should_read_a_listing_source_with_its_live_configuration() {
     assert_eq!(json["listing_source_id"], shop.to_string());
     assert_eq!(json["url_pattern"]["value"], "/item/\\d+");
     assert_eq!(json["url_pattern"]["exclude"], "/item/0");
+    assert_eq!(json["url_pattern"]["matching"], "FULL_URL_SEARCH");
     assert_eq!(
         json["url_pattern"]["approved_review_id"],
         json!(null),
@@ -682,7 +683,7 @@ async fn should_name_who_approved_the_live_url_pattern() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let shop = source(&pool, "Antik", "antik.example.com", true).await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern = '/item/'          WHERE listing_source_id = $1",
+        "UPDATE listing_sources SET url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH', url_pattern = '/item/'          WHERE listing_source_id = $1",
     )
     .bind(shop.as_uuid())
     .execute(&pool)

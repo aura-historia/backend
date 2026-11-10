@@ -403,7 +403,7 @@ async fn should_keep_the_url_pattern_decision_an_approval_replaced() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = listing_source(&pool).await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -439,8 +439,16 @@ async fn should_keep_the_url_pattern_decision_an_approval_replaced() {
     assert_eq!(
         events[0].details,
         json!({
-            "replaced_url_pattern": { "url_pattern": "/old/", "url_pattern_state": "MATCHED" },
-            "approved_url_pattern": { "url_pattern": "/new/", "url_pattern_state": "MATCHED" },
+            "replaced_url_pattern": {
+                "url_pattern": "/old/",
+                "url_pattern_matching": "FULL_URL_SEARCH",
+                "url_pattern_state": "MATCHED",
+            },
+            "approved_url_pattern": {
+                "url_pattern": "/new/",
+                "url_pattern_matching": "FULL_URL_SEARCH",
+                "url_pattern_state": "MATCHED",
+            },
         })
     );
 }

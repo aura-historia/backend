@@ -1171,7 +1171,7 @@ async fn should_restore_the_url_pattern_an_approval_replaced() {
     let repository = CrawlerReviewRepository::new(pool.clone());
     let listing_source_id = listing_source(&pool).await;
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED' \
+        "UPDATE listing_sources SET url_pattern = '/old/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())

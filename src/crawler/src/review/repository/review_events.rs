@@ -12,7 +12,7 @@ use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::spider::classification::product_url_pattern::{
-    ProductUrlPattern, ProductUrlPatternError,
+    ProductUrlPattern, ProductUrlPatternError, UrlPatternMatching,
 };
 use crate::{CrawlerReviewEventId, CrawlerReviewId, CrawlerReviewPageId};
 use serde::{Deserialize, Serialize};
@@ -143,17 +143,53 @@ pub(super) struct LiveUrlPattern {
     /// The exclusion of the pattern, kept out of the event when the pattern has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) url_pattern_exclude: Option<String>,
+    /// What the pattern is matched against, kept out of the event without a pattern. An event
+    /// recorded before the matching existed has none for its pattern, which was matched anywhere
+    /// in the URL; [`Self::normalized`] says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) url_pattern_matching: Option<UrlPatternMatching>,
     pub(super) url_pattern_state: String,
 }
 
 impl LiveUrlPattern {
+    /// The decision `listing_sources` stores for `pattern`: `MATCHED` with it, or `NO_PATTERN`.
+    pub(super) fn of(pattern: Option<&ProductUrlPattern>) -> Self {
+        Self {
+            url_pattern: pattern.map(|pattern| pattern.include_source().to_owned()),
+            url_pattern_exclude: pattern
+                .and_then(ProductUrlPattern::exclude_source)
+                .map(str::to_owned),
+            url_pattern_matching: pattern.map(ProductUrlPattern::matching),
+            url_pattern_state: if pattern.is_some() {
+                "MATCHED"
+            } else {
+                "NO_PATTERN"
+            }
+            .to_owned(),
+        }
+    }
+
+    /// This decision with the matching a pattern recorded without one has: `FULL_URL_SEARCH`,
+    /// the only matching before it was recorded, and none without a pattern.
+    pub(super) fn normalized(self) -> Self {
+        Self {
+            url_pattern_matching: self.url_pattern.as_ref().map(|_| {
+                self.url_pattern_matching
+                    .unwrap_or(UrlPatternMatching::FullUrlSearch)
+            }),
+            ..self
+        }
+    }
+
     /// The pattern that classifies the source's URLs as products: only a `MATCHED` decision has
     /// one.
     pub(super) fn live_pattern(&self) -> Result<Option<ProductUrlPattern>, ProductUrlPatternError> {
         let matched = self.url_pattern_state == "MATCHED";
+        let decision = self.clone().normalized();
         ProductUrlPattern::from_stored(
-            self.url_pattern.as_deref().filter(|_| matched),
-            self.url_pattern_exclude.as_deref(),
+            decision.url_pattern.as_deref().filter(|_| matched),
+            decision.url_pattern_exclude.as_deref(),
+            decision.url_pattern_matching,
         )
     }
 }
@@ -451,14 +487,53 @@ mod tests {
             replaced_url_pattern: LiveUrlPattern {
                 url_pattern: None,
                 url_pattern_exclude: None,
+                url_pattern_matching: None,
                 url_pattern_state: "UNKNOWN".to_owned(),
             },
             approved_url_pattern: LiveUrlPattern {
                 url_pattern: Some("/item/".to_owned()),
                 url_pattern_exclude: None,
+                url_pattern_matching: Some(UrlPatternMatching::PathAndQueryFullMatch),
                 url_pattern_state: "MATCHED".to_owned(),
             },
         }
+    }
+
+    /// A pattern an event recorded before the matching existed was matched anywhere in the URL,
+    /// so it reads as the `FULL_URL_SEARCH` decision the migration made of it; a decision without
+    /// a pattern has no matching.
+    #[test]
+    fn should_read_a_recorded_pattern_without_a_matching_as_a_full_url_search() {
+        let recorded: LiveUrlPattern = serde_json::from_value(
+            json!({ "url_pattern": "/item/", "url_pattern_state": "MATCHED" }),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let path_and_query = ProductUrlPattern::parse_matching(
+            "/item/[0-9]+",
+            UrlPatternMatching::PathAndQueryFullMatch,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(
+            recorded.clone().normalized(),
+            LiveUrlPattern::of(Some(&ProductUrlPattern::parse("/item/").unwrap()))
+        );
+        assert_eq!(
+            recorded
+                .live_pattern()
+                .ok()
+                .flatten()
+                .map(|pattern| pattern.matching()),
+            Some(UrlPatternMatching::FullUrlSearch)
+        );
+        assert_eq!(
+            LiveUrlPattern::of(Some(&path_and_query)).url_pattern_matching,
+            Some(UrlPatternMatching::PathAndQueryFullMatch)
+        );
+        assert_eq!(
+            LiveUrlPattern::of(None).normalized().url_pattern_matching,
+            None
+        );
     }
 
     fn sample_labels() -> SampleLabels {
@@ -576,7 +651,11 @@ mod tests {
                 None,
                 json!({
                     "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" },
-                    "approved_url_pattern": { "url_pattern": "/item/", "url_pattern_state": "MATCHED" },
+                    "approved_url_pattern": {
+                        "url_pattern": "/item/",
+                        "url_pattern_matching": "PATH_AND_QUERY_FULL_MATCH",
+                        "url_pattern_state": "MATCHED",
+                    },
                 }),
             ),
             (
@@ -597,7 +676,11 @@ mod tests {
                         }],
                     },
                     "replaced_url_pattern": { "url_pattern": null, "url_pattern_state": "UNKNOWN" },
-                    "approved_url_pattern": { "url_pattern": "/item/", "url_pattern_state": "MATCHED" },
+                    "approved_url_pattern": {
+                        "url_pattern": "/item/",
+                        "url_pattern_matching": "PATH_AND_QUERY_FULL_MATCH",
+                        "url_pattern_state": "MATCHED",
+                    },
                 }),
             ),
             (
@@ -607,6 +690,7 @@ mod tests {
                     replaced_url_pattern: LiveUrlPattern {
                         url_pattern: Some("/item/".to_owned()),
                         url_pattern_exclude: None,
+                        url_pattern_matching: None,
                         url_pattern_state: "MATCHED".to_owned(),
                     },
                 },
