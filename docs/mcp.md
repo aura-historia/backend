@@ -154,6 +154,14 @@ there are no per-directory variants. Check new or changed tools against the
   generated; give its field an explicit schema. The
   [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on any argument that
   has neither a `type` nor an `anyOf`.
+- **Argument descriptions.** Every input property, nested ones included, has a one-sentence
+  description that states what the services do with the value. It is a doc comment or a shared
+  constant (`wire::description`) on the contract, so REST and MCP agree, and the
+  [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on any undescribed
+  argument or tagged-union variant. The registry appends the shared minor-unit rule for amounts
+  to the description of every tool whose input or output schema contains a money amount (an
+  object with `amount` and `currency`), and the `price` and `maximumPerItem` arguments state it
+  themselves.
 - **Server identity.** `initialize` and `server/discover` report the name `aura-historia-mcp`,
   the title `Aura Historia`, a description, the environment's website as `websiteUrl` and its
   PNG icons. `version` is the deployed release's source commit (`COMMIT_SHA`), or `unreleased`

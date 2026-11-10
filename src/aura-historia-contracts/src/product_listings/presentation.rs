@@ -8,8 +8,10 @@ use serde::Deserialize;
 pub struct ProductListingPresentationData {
     #[serde(default, with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::LANGUAGE)]
     pub language: Language,
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::CURRENCY)]
     pub currency: Currency,
 }

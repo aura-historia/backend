@@ -22,9 +22,10 @@ pub struct SearchPublicListingSourcesData {
     /// Optional source-name text; omission or whitespace browses, insufficient text returns no matches.
     #[serde(default)]
     pub query: Option<String>,
-    /// Page size from 1 through 50. Continuations are bound to the query and page size.
+    /// Number of providers per page, from 1 to 50 (default 21); continuations are bound to the query and page size.
     #[serde(default = "default_size")]
     pub size: u8,
+    /// Continuation from the previous page: pass back exactly as returned, with the same `query` and `size`.
     #[serde(default)]
     pub search_after: Option<String>,
 }
@@ -77,6 +78,7 @@ impl TryFrom<SearchPublicListingSourcesData> for SearchPublicListingSourcesReque
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GetPublicListingSourceBySlugData {
+    /// Slug ID of the provider, the last segment of an Aura Historia provider page URL.
     pub listing_source_slug_id: String,
 }
 

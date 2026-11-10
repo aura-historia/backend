@@ -82,16 +82,20 @@ fn watchlist_state(state: PatchWatchlistStateData) -> WatchlistState {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PostWatchlistData {
+    /// ID of the listing (`pl_…`) to add.
     #[schemars(schema_with = "crate::wire::schema::product_listing_id")]
     pub product_listing_id: String,
+    /// Whether to be notified about changes to the listing (default true).
     pub notifications: Option<bool>,
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchWatchlistData {
+    /// Whether to be notified about changes to the listing; omit to keep the current setting, null is rejected.
     #[serde(default)]
     #[schemars(schema_with = "bool::json_schema")]
     pub notifications: PatchValue<bool>,
+    /// `ACTIVE` or `INACTIVE_BY_USER`; omit to keep the current state, null is rejected.
     #[serde(default)]
     #[schemars(schema_with = "PatchWatchlistStateData::json_schema")]
     pub state: PatchValue<PatchWatchlistStateData>,
@@ -102,13 +106,16 @@ pub struct PatchWatchlistData {
 pub struct ListWatchlistQueryData {
     #[serde(default, with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::LANGUAGE)]
     pub language: localization::Language,
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::CURRENCY)]
     pub currency: money::Currency,
+    #[schemars(description = crate::wire::description::PAGE_SIZE)]
     #[schemars(range(max = u64::MAX))]
     pub size: Option<u64>,
-    /// JSON encoded [RFC3339 watchlist creation timestamp, ProductListing ID].
+    /// Continuation from the previous page: its `searchAfter` array of [RFC 3339 watchlist creation time, listing ID] serialized as a JSON string, passed back exactly as returned.
     pub search_after: Option<String>,
 }
 

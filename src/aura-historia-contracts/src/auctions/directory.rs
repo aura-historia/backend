@@ -16,32 +16,42 @@ use time::OffsetDateTime;
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DirectoryQuery {
+    /// Only auctions of this provider, as a listing source ID (`ls_…`).
     #[schemars(schema_with = "crate::wire::schema::optional_listing_source_id")]
     #[serde(default)]
     pub listing_source_id: Option<String>,
+    /// Only auctions of this format.
     #[schemars(schema_with = "super::format_schema")]
     #[serde(default)]
     pub format: Option<String>,
+    /// Only auctions with this status as the provider reports it.
     #[schemars(schema_with = "super::status_schema")]
     #[serde(default)]
     pub reported_status: Option<String>,
+    /// Schedule instant that `from` and `to` filter on and `sort=scheduled` orders by; required with `from`/`to` and with `sort=scheduled`.
     #[schemars(schema_with = "schedule_role_schema")]
     #[serde(default)]
     pub time_role: Option<String>,
+    /// `created` (default) orders by creation time; `scheduled` orders by the `timeRole` instant and requires `timeRole`.
     #[schemars(schema_with = "sort_schema")]
     #[serde(default)]
     pub sort: Option<String>,
+    /// Sort direction, `asc` or `desc`.
     #[schemars(schema_with = "super::optional_order_schema")]
     #[serde(default)]
     pub order: Option<String>,
+    /// Start of the schedule period for `timeRole`, as an ISO 8601 date-time with offset; give it together with `to` and `timeRole`.
     #[serde(default, with = "time::serde::rfc3339::option")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     pub from: Option<OffsetDateTime>,
+    /// End of the schedule period for `timeRole`, as an ISO 8601 date-time with offset; give it together with `from` and `timeRole`.
     #[serde(default, with = "time::serde::rfc3339::option")]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     pub to: Option<OffsetDateTime>,
+    /// Number of auctions per page, from 1 to 100 (default 21); values outside that range are clamped.
     #[schemars(range(max = u64::MAX))]
     pub page_size: Option<u64>,
+    /// Continuation from the previous page: its `searchAfter` object serialized as a JSON string, passed back exactly as returned with the same filters and sort.
     pub search_after: Option<String>,
 }
 

@@ -34,6 +34,7 @@ struct EmptyArguments {}
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FilterArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
 }
@@ -46,6 +47,7 @@ struct CreateArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdateArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
     #[serde(flatten)]
@@ -54,10 +56,12 @@ struct UpdateArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MatchesArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
     #[serde(flatten)]
     query: SearchFilterMatchesQuery,
+    /// Continuation from the previous page: its `searchAfter` array of [RFC 3339 match time, listing ID], passed back exactly as returned.
     #[serde(default)]
     #[schemars(schema_with = "match_cursor_schema")]
     search_after: Option<Value>,
@@ -65,8 +69,10 @@ struct MatchesArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct FeedbackArguments {
+    /// ID of the saved search (`sf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_search_filter_id")]
     user_search_filter_id: UserSearchFilterId,
+    /// ID of the listing (`pl_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(flatten)]

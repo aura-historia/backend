@@ -6,12 +6,16 @@ use serde::{Deserialize, Serialize};
 pub struct CatalogueQuery {
     #[serde(default, with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::LANGUAGE)]
     pub language: localization::Language,
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::CURRENCY)]
     pub currency: money::Currency,
+    /// Number of lots per page, from 1 to 100 (default 21); values outside that range are clamped.
     #[schemars(range(max = u64::MAX))]
     pub page_size: Option<u64>,
+    /// Continuation from the previous page: its `searchAfter` object serialized as a JSON string, passed back exactly as returned.
     pub search_after: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]

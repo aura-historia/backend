@@ -30,6 +30,7 @@ struct OwnAccountArguments {}
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AddressArguments {
+    /// ID of the saved address (`uaddr_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_address_id")]
     address_id: UserAddressId,
 }
@@ -37,6 +38,7 @@ struct AddressArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdateAddressArguments {
+    /// ID of the saved address (`uaddr_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_address_id")]
     address_id: UserAddressId,
     #[serde(flatten)]
@@ -46,6 +48,7 @@ struct UpdateAddressArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DeleteAddressArguments {
+    /// ID of the saved address (`uaddr_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_address_id")]
     address_id: UserAddressId,
     #[serde(flatten)]

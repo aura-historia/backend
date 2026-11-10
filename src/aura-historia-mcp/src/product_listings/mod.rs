@@ -40,6 +40,7 @@ struct SearchInput {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ListingInput {
+    /// ID of the listing (`pl_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(flatten)]
@@ -48,6 +49,7 @@ struct ListingInput {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SimilarInput {
+    /// ID of the listing (`pl_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(flatten)]
@@ -59,6 +61,7 @@ struct SimilarInput {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SlugInput {
+    /// Slug ID of the listing, the last segment of an Aura Historia listing page URL.
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::slug")]
     product_listing_title_slug_id: ProductListingSlugId,
     #[serde(flatten)]

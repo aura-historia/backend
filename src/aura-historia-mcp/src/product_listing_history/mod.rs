@@ -15,6 +15,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct HistoryInput {
+    /// ID of the listing (`pl_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
     product_listing_id: ProductListingId,
     #[serde(flatten)]

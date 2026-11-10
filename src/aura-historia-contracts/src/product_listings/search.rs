@@ -35,67 +35,85 @@ use schemars::JsonSchema;
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingSearchData {
     #[serde(default)]
+    #[schemars(description = crate::wire::description::GEOGRAPHY)]
     pub geography: Option<crate::geographic_search::GeographicSearchData>,
     #[serde(default)]
+    #[schemars(description = crate::wire::description::SHIPPING)]
     pub shipping: Option<crate::shipping_search::ShippingSearchData>,
     #[serde(default)]
     #[serde(with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::SEARCH_LANGUAGE)]
     pub language: Language,
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::SEARCH_CURRENCY)]
     pub currency: Currency,
     #[serde(default, rename = "productQuery")]
     #[schemars(schema_with = "text_queries_schema")]
+    #[schemars(description = crate::wire::description::PRODUCT_QUERY)]
     pub product_listing_query: Vec<TextQuery<1>>,
     #[serde(default)]
+    #[schemars(description = crate::wire::description::ENHANCED_SEARCH_DESCRIPTION)]
     pub enhanced_search_description: Option<String>,
     #[serde(default)]
     #[schemars(schema_with = "crate::wire::schema::product_listing_ids")]
+    #[schemars(description = crate::wire::description::EXCLUDE_PRODUCT_LISTING_ID)]
     pub exclude_product_listing_id: HashSet<String>,
     #[serde(default)]
     #[schemars(schema_with = "crate::wire::schema::listing_source_ids")]
+    #[schemars(description = crate::wire::description::LISTING_SOURCE_ID)]
     pub listing_source_id: HashSet<String>,
     #[serde(default)]
     #[schemars(schema_with = "crate::wire::schema::listing_source_ids")]
+    #[schemars(description = crate::wire::description::EXCLUDE_LISTING_SOURCE_ID)]
     pub exclude_listing_source_id: HashSet<String>,
     #[serde(default)]
     #[schemars(schema_with = "crate::wire::schema::auction_ids")]
+    #[schemars(description = crate::wire::description::AUCTION_ID)]
     pub auction_id: HashSet<String>,
     #[serde(default)]
     #[schemars(with = "Option<NumberRangeSchema>")]
+    #[schemars(description = crate::wire::description::PRICE_RANGE)]
     pub price: Option<RangeQuery<u64>>,
     #[serde(default, deserialize_with = "crate::wire::listing::availability_set")]
     #[schemars(schema_with = "crate::wire::listing::availability_set_schema")]
+    #[schemars(description = crate::wire::description::AVAILABILITY)]
     pub availability: Option<HashSet<ListingAvailability>>,
     #[serde(default, deserialize_with = "crate::wire::listing::orderability_set")]
     #[schemars(schema_with = "crate::wire::listing::orderability_set_schema")]
+    #[schemars(description = crate::wire::description::ORDERABILITY)]
     pub orderability: Option<HashSet<ListingOrderability>>,
     #[serde(default)]
+    #[schemars(description = crate::wire::description::INCLUDE_UNSPECIFIED_AVAILABILITY)]
     pub include_unspecified_availability: Option<bool>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     #[schemars(with = "DateRangeSchema")]
+    #[schemars(description = crate::wire::description::CREATED)]
     pub created: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     #[schemars(with = "DateRangeSchema")]
+    #[schemars(description = crate::wire::description::UPDATED)]
     pub updated: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     #[schemars(with = "DateRangeSchema")]
+    #[schemars(description = crate::wire::description::LOT_BIDDING_OPENS)]
     pub lot_bidding_opens: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         with = "domain_primitives::query::range_query::range_rfc3339::option",
         default
     )]
     #[schemars(with = "DateRangeSchema")]
+    #[schemars(description = crate::wire::description::LOT_SCHEDULED_CLOSES)]
     pub lot_scheduled_closes: Option<RangeQuery<OffsetDateTime>>,
 }
 
@@ -251,8 +269,10 @@ pub struct ProductListingSearchCursorData {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingSearchCursorInputData {
+    /// Exchange-rate snapshot ID (`fx_…`) from the previous page's `searchAfter`, passed back unchanged.
     #[schemars(schema_with = "crate::wire::schema::fx_rate_id")]
     pub fx_rate_id: String,
+    /// Opaque sort values from the previous page's `searchAfter`, passed back unchanged.
     pub search_after: Value,
 }
 
@@ -269,14 +289,17 @@ impl From<ProductListingSearchCursor> for ProductListingSearchCursorData {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingSearchOptionsData {
+    /// Field to order results by: `score` (relevance), `updated` or `created`; cannot be combined with `geography.distanceOrder`.
     #[schemars(with = "Option<SortProductListingFieldData>")]
     pub sort: Option<String>,
+    /// Sort direction, `asc` or `desc` (default `desc`); only valid together with `sort`.
     #[serde(default)]
     #[schemars(schema_with = "sort_order_schema")]
     pub order: Option<String>,
-    /// Values are clamped to the existing service-supported range 1..=100.
+    #[schemars(description = crate::wire::description::PAGE_SIZE)]
     #[schemars(range(max = u64::MAX))]
     pub size: Option<u64>,
+    /// Continuation from the previous page: pass back exactly as returned by the previous page, with the same filters and sort.
     pub search_after: Option<ProductListingSearchCursorInputData>,
 }
 impl ProductListingSearchOptionsData {
@@ -407,15 +430,19 @@ fn sort_order_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
 }
 #[derive(JsonSchema)]
 pub struct NumberRangeSchema {
+    #[schemars(description = crate::wire::description::PRICE_MIN)]
     #[schemars(range(max = u64::MAX))]
     pub min: Option<u64>,
+    #[schemars(description = crate::wire::description::PRICE_MAX)]
     #[schemars(range(max = u64::MAX))]
     pub max: Option<u64>,
 }
 #[derive(JsonSchema)]
 pub struct DateRangeSchema {
+    #[schemars(description = crate::wire::description::DATE_RANGE_MIN)]
     #[schemars(default, schema_with = "crate::wire::schema::optional_datetime")]
     pub min: Option<String>,
+    #[schemars(description = crate::wire::description::DATE_RANGE_MAX)]
     #[schemars(default, schema_with = "crate::wire::schema::optional_datetime")]
     pub max: Option<String>,
 }

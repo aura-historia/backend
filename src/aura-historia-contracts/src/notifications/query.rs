@@ -14,13 +14,14 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ListNotificationsQuery {
+    /// Language of the returned notification text, as an ISO 639-1 code (default `en`).
     #[serde(default, with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
     pub language: Language,
-    /// Defaults to 21 and is clamped to 1 through 100, as on REST.
+    #[schemars(description = crate::wire::description::PAGE_SIZE)]
     #[schemars(range(max = u64::MAX))]
     pub size: Option<u64>,
-    /// JSON string of the returned [created, notificationId] array.
+    /// Continuation from the previous page: its `searchAfter` array of [created time, notification ID] serialized as a JSON string, passed back exactly as returned.
     pub search_after: Option<String>,
 }
 

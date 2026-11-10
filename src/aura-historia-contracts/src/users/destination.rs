@@ -10,17 +10,24 @@ pub struct InvalidDestinationData;
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+#[schemars(transform = crate::wire::schema::describe_kind)]
 pub enum DestinationData {
     // A struct variant so `deny_unknown_fields` applies; serde lets internally tagged unit
     // variants ignore extra members.
+    /// No browsing destination.
     None {},
+    /// One of the user's saved addresses.
     Address {
+        /// ID of the saved address (`uaddr_…`).
         #[serde(rename = "addressId")]
         #[schemars(schema_with = "crate::wire::schema::user_address_id")]
         address_id: UserAddressId,
     },
+    /// A country, optionally with a postal code.
     CountryPostal {
+        /// ISO 3166-1 alpha-2 country code.
         country: String,
+        /// Postal code within the country.
         #[serde(
             rename = "postalCode",
             default,
@@ -66,8 +73,10 @@ impl From<BrowsingDestination> for DestinationData {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetDestinationData {
+    /// Current version from the last read; a stale version returns CONFLICT.
     #[schemars(range(min = 1, max = i64::MAX as u64))]
     pub expected_version: u64,
+    /// The browsing destination to store, replacing the current one.
     pub destination: DestinationData,
 }
 #[derive(Serialize, JsonSchema)]

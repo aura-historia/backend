@@ -93,30 +93,36 @@ impl From<UserDetailsView> for OwnUserRestData {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchOwnUserData {
+    /// First name; omit to keep it, null clears it.
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub first_name: PatchValue<user_core::first_name::FirstName>,
+    /// Last name; omit to keep it, null clears it.
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub last_name: PatchValue<user_core::last_name::LastName>,
+    /// Preferred language, as an ISO 639-1 code; omit to keep it, null clears it.
     #[serde(
         default,
         deserialize_with = "crate::wire::language::patch::deserialize"
     )]
     #[schemars(schema_with = "crate::wire::language::option::schema")]
     pub language: PatchValue<Language>,
+    /// Preferred currency, as an ISO 4217 code; omit to keep it, null clears it.
     #[serde(
         default,
         deserialize_with = "crate::wire::currency::patch::deserialize"
     )]
     #[schemars(schema_with = "crate::wire::currency::option::schema")]
     pub currency: PatchValue<Currency>,
+    /// Preferred measurement unit system; omit to keep it, null clears it.
     #[serde(
         default,
         deserialize_with = "crate::wire::measurement_unit::patch::deserialize"
     )]
     #[schemars(schema_with = "crate::wire::measurement_unit::option::schema")]
     pub measurement_unit: PatchValue<MeasurementUnit>,
+    /// Whether listings with unassessed or sensitive content are shown; omit to keep it, null is rejected.
     #[serde(default)]
     #[schemars(with = "bool")]
     pub show_unassessed_or_sensitive_content: PatchValue<bool>,

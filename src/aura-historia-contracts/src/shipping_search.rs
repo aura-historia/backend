@@ -9,30 +9,44 @@ use shipping_core::terms::ShippingServiceCode;
 #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ShippingSearchData {
+    /// Country the listing must ship to, as `{"kind":"COUNTRY","country":"DE"}`; `{"kind":"NONE"}` sets no destination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     destination: Option<DestinationData>,
+    /// Version of the ISO 3166 code list the country code comes from; `iso-codes-4.20.1` is the only accepted value and the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reference_release: Option<String>,
+    /// `WHOLE_COUNTRY_PER_ITEM_V1` (default) or `WHOLE_COUNTRY_PER_ITEM_FX_V1`, which values `maximumPerItem` in its own currency at the request's exchange rates and requires `maximumPerItem`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     interpretation: Option<String>,
+    /// Shipping service code the terms must include, as free text of at most 128 characters; requires a `destination` country.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     service: Option<String>,
+    #[schemars(description = crate::wire::description::SHIPPING_MAXIMUM_PER_ITEM)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     maximum_per_item: Option<AmountData>,
+    /// Only listings that offer collection in person; the only shipping condition that works without a destination country.
     #[serde(default, skip_serializing_if = "is_false")]
     collection_offered: bool,
 }
 #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+#[schemars(transform = crate::wire::schema::describe_kind)]
 enum DestinationData {
+    /// No destination country.
     None {},
-    Country { country: String },
+    /// A destination country.
+    Country {
+        /// ISO 3166-1 alpha-2 country code.
+        country: String,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct AmountData {
+    /// Amount as an integer in the currency's minor unit (EUR cents; JPY whole yen).
     #[schemars(range(max = i64::MAX))]
     amount: u64,
+    /// ISO 4217 code of the currency the amount is in.
     #[serde(with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
     currency: Currency,

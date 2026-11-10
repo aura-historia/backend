@@ -6,6 +6,7 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - **Breaking change (MCP):** the tool `discoverPartyLocations` is removed. Public seller-location discovery stays available on `GET /v1/party-locations`. The tool catalogue now lists 37 tools.
 - The MCP tool `getSimilarProductListings` takes an optional `size`, the number of neighbours to return: default 20, as before, and clamped to 1 through 50. `GET /v1/product-listings/{productListingId}/similar` is unchanged.
+- Every argument of the MCP tools now has a description. Tools that accept or return prices state that amounts are integers in the currency's minor unit (EUR `119199` = €1,191.99; JPY whole units), and `enhancedSearchDescription` states that it only works together with `productQuery`. No argument or result changed.
 - The MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`. `GET` and `PATCH /v1/me/account` are unchanged and still return it, because the webapp maps the field.
 
 ## 2026-11-10 — One approval for every MCP tool

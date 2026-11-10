@@ -21,6 +21,7 @@ use url::Url;
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductListingHistoryQueryData {
+    /// Currency to also show each price in, converted at the exchange rate of its event, as an ISO 4217 code; without it only the source prices are returned.
     #[serde(default, with = "crate::wire::currency::option")]
     #[schemars(schema_with = "crate::wire::currency::option::schema")]
     pub currency: Option<money::Currency>,

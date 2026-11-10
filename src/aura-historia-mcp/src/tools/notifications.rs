@@ -53,6 +53,7 @@ struct AllSeenArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SingleSeenArguments {
+    /// ID of the notification (`ntf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::notification_id")]
     notification_id: NotificationId,
     #[serde(flatten)]
@@ -62,6 +63,7 @@ struct SingleSeenArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NotificationArguments {
+    /// ID of the notification (`ntf_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::notification_id")]
     notification_id: NotificationId,
 }

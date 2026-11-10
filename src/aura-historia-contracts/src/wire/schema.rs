@@ -1,5 +1,6 @@
 //! Schema descriptions for public codecs whose semantic owners do not depend on Schemars.
 use schemars::{Schema, SchemaGenerator, json_schema};
+use strum::IntoEnumIterator;
 
 pub fn object_id(prefix: &str) -> Schema {
     // UUIDv7 version and RFC variant bits in the canonical Crockford base32 suffix.
@@ -30,11 +31,35 @@ pub fn notification_ids(generator: &mut SchemaGenerator) -> Schema {
     json_schema!({"type":"array", "items":notification_id(generator)})
 }
 pub fn optional_distance(_: &mut SchemaGenerator) -> Schema {
+    let units = geo::DistanceUnit::iter()
+        .map(geo::DistanceUnit::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
     nullable(
         json_schema!({"type":"object", "additionalProperties":false,"required":["amount","unit"],"properties":{
-            "amount":{"type":"number"},"unit":{"type":"string"}
+            "amount":{"type":"number","description":"Distance in `unit`; greater than 0."},
+            "unit":{"type":"string","description":format!("Unit of `amount`: one of {units}.")}
         }}),
     )
+}
+/// Describes the `kind` discriminator of an internally tagged enum, which a doc comment cannot
+/// reach: every variant of the `oneOf` names the code that selects it.
+pub fn describe_kind(schema: &mut Schema) {
+    let Some(variants) = schema
+        .as_object_mut()
+        .and_then(|object| object.get_mut("oneOf"))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for variant in variants {
+        let Some(kind) = variant.pointer_mut("/properties/kind") else {
+            continue;
+        };
+        if let Some(code) = kind.get("const").and_then(serde_json::Value::as_str) {
+            kind["description"] = format!("Selects this variant; always `{code}` here.").into();
+        }
+    }
 }
 pub fn slug(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type":"string","maxLength":120,"pattern":"^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{6}$"})

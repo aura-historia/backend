@@ -17,12 +17,14 @@ use std::sync::Arc;
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuctionArguments {
+    /// ID of the auction (`auc_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::auction_id")]
     auction_id: AuctionId,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CatalogueArguments {
+    /// ID of the auction (`auc_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::auction_id")]
     auction_id: AuctionId,
     #[serde(flatten)]
