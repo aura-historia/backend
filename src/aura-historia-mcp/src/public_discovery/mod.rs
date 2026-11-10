@@ -1,22 +1,11 @@
-//! Public source reads with optional delegated context, anonymous locations and overview.
+//! Public source reads with optional delegated context, and the anonymous overview.
 mod errors;
 mod sources;
 
-use crate::{
-    AccessClass, InvocationContext, OperationDefinition, OperationError, OperationPolicy,
-    RegistryError,
-};
-use application::{
-    error::static_error,
-    operation_context::{OperationContext, Principal},
-};
-use aura_historia_contracts::{
-    party_locations::{DiscoverPartyLocationsData, DiscoverPartyLocationsResultData},
-    public_overview::PublicOverviewData,
-};
-use aura_historia_runtime::{
-    PublicListingSourceReadBudget, PublicListingSources, PublicOverview, PublicPartyLocations,
-};
+use crate::{AccessClass, InvocationContext, OperationDefinition, OperationPolicy, RegistryError};
+use application::operation_context::{OperationContext, Principal};
+use aura_historia_contracts::public_overview::PublicOverviewData;
+use aura_historia_runtime::{PublicListingSourceReadBudget, PublicListingSources, PublicOverview};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -24,11 +13,9 @@ use serde::Deserialize;
 pub fn operations(
     sources: PublicListingSources,
     source_budget: PublicListingSourceReadBudget,
-    locations: PublicPartyLocations,
     overview: PublicOverview,
 ) -> Result<Vec<OperationDefinition>, RegistryError> {
     let mut operations = sources::operations(sources, source_budget)?;
-    operations.push(location_operation(locations)?);
     operations.push(overview_operation(overview)?);
     Ok(operations)
 }
@@ -49,30 +36,6 @@ fn anonymous_context(invocation: &InvocationContext) -> OperationContext {
         principal: Principal::Anonymous,
         ..invocation.operation.clone()
     }
-}
-
-fn location_operation(
-    services: PublicPartyLocations,
-) -> Result<OperationDefinition, RegistryError> {
-    OperationDefinition::new(
-        "discoverPartyLocations",
-        "Find seller locations",
-        "Find the public locations, such as shops and showrooms, of the dealers and auction houses that Aura Historia indexes, within countries or subdivisions or within a radius around a point. Returns each location's business, label, country, coordinates and precision, and with distanceOrder its distance from the point. Returns 1 to 100 locations per page (default 21); pass the returned searchAfter object unchanged to get the next page.",
-        read_policy(),
-        move |input: DiscoverPartyLocationsData, invocation| {
-            let discover = services.discover.clone();
-            async move {
-                let request = input
-                    .try_into()
-                    .map_err(|detail| OperationError::InvalidArguments(static_error(detail)))?;
-                let result = invocation
-                    .execute(discover.execute(request))
-                    .await?
-                    .map_err(errors::location)?;
-                Ok(DiscoverPartyLocationsResultData::from(result))
-            }
-        },
-    )
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -102,7 +65,8 @@ fn overview_operation(services: PublicOverview) -> Result<OperationDefinition, R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MAX_RESPONSE_BYTES, Registry};
+    use crate::{MAX_RESPONSE_BYTES, OperationError, Registry};
+    use application::error::static_error;
     use application::operation_context::{CorrelationId, RequestId};
     use rmcp::model::CallToolResult;
     use serde_json::{Value, json};
@@ -110,7 +74,7 @@ mod tests {
     use tokio::time::Instant;
     use tokio_util::sync::CancellationToken;
 
-    use fixtures::{Fixture, Outcome, Request, location_id, party_id, source_id};
+    use fixtures::{Fixture, Outcome, Request, source_id};
 
     fn context() -> InvocationContext {
         InvocationContext {
@@ -291,133 +255,6 @@ mod tests {
         assert_eq!("museum-source", request.slug_id.as_ref());
     }
 
-    fn full_location_arguments() -> Value {
-        json!({"geography":{"countries":["DE"],"subdivisions":["DE-BY"],"origin":{"latitude":48.137,"longitude":11.575},"radius":{"amount":25.0,"unit":"KILOMETERS"},"mode":"APPROXIMATE","distanceOrder":"DESC"},"size":100,"searchAfter":{"locationId":location_id(),"distanceKm":42.25}})
-    }
-
-    #[tokio::test]
-    async fn should_pass_complete_geography_paging_and_public_location_fields() {
-        let fixture = Arc::new(Fixture::default());
-        let registry = fixture.registry(PublicListingSourceReadBudget::default());
-        let result = call(
-            &registry,
-            "discoverPartyLocations",
-            full_location_arguments(),
-        )
-        .await
-        .structured_content
-        .unwrap();
-        assert_eq!(
-            json!({"items":[{"partyId":party_id(),"partyName":"Museum Operator","locationId":location_id(),"label":"Gallery","basis":"ACCEPTED_DERIVED","country":"DE","subdivision":"DE-BY","point":{"latitude":48.137,"longitude":11.575},"precision":"LOCALITY","distanceKm":23.5}],"size":1,"searchAfter":{"locationId":location_id(),"distanceKm":23.5}}),
-            result
-        );
-        let requests = fixture.requests.lock().unwrap();
-        let Request::Location(request) = &requests[0] else {
-            panic!("location discovery request")
-        };
-        assert_eq!(100, request.cursor.size);
-        assert_eq!(
-            Some(42.25),
-            request.cursor.search_after.unwrap().distance_km
-        );
-        assert_eq!(
-            Some(location_id()),
-            request.cursor.search_after.map(|cursor| cursor.location_id)
-        );
-        assert!(
-            request
-                .geography
-                .countries()
-                .contains(&geo::CountryCode::DEU)
-        );
-        assert!(
-            request
-                .geography
-                .subdivisions()
-                .contains(&geo::SubdivisionCode::new("DE-BY").unwrap())
-        );
-        assert_eq!(
-            Some(geo::GeoPoint::new(48.137, 11.575).unwrap()),
-            request.geography.origin()
-        );
-        assert_eq!(
-            Some(25.0),
-            request
-                .geography
-                .radius()
-                .map(|radius| radius.to_kilometers())
-        );
-        assert_eq!(
-            geo::core::discovery::ProximityMode::Approximate,
-            request.geography.mode()
-        );
-        assert_eq!(
-            Some(geo::core::discovery::DistanceOrder::Desc),
-            request.geography.distance_order()
-        );
-    }
-
-    #[tokio::test]
-    async fn should_retain_country_only_defaults_and_omit_absent_distance() {
-        let fixture = Arc::new(Fixture::default());
-        let registry = fixture.registry(PublicListingSourceReadBudget::default());
-        let result = call(
-            &registry,
-            "discoverPartyLocations",
-            json!({"geography":{"countries":["DE"]}}),
-        )
-        .await
-        .structured_content
-        .unwrap();
-        assert!(result["items"][0].get("distanceKm").is_none());
-        assert_eq!(json!({"locationId":location_id()}), result["searchAfter"]);
-        let requests = fixture.requests.lock().unwrap();
-        let Request::Location(request) = &requests[0] else {
-            panic!("location request")
-        };
-        assert_eq!(21, request.cursor.size);
-        assert!(request.cursor.search_after.is_none());
-    }
-
-    #[tokio::test]
-    async fn should_reject_invalid_geography_and_service_cursor_bounds() {
-        let fixture = Arc::new(Fixture::default());
-        let registry = fixture.registry(PublicListingSourceReadBudget::default());
-        for geography in [
-            json!({}),
-            json!({"countries":["XX"]}),
-            json!({"countries":["DE"],"subdivisions":["FR-IDF"]}),
-            json!({"radius":{"amount":25,"unit":"KILOMETERS"}}),
-            json!({"origin":{"latitude":91,"longitude":0},"distanceOrder":"ASC"}),
-            json!({"origin":{"address":"Munich"},"distanceOrder":"ASC"}),
-            json!({"countries":["DE"],"disclosure":"PUBLIC"}),
-        ] {
-            invalid(
-                &registry,
-                "discoverPartyLocations",
-                json!({"geography":geography}),
-            )
-            .await;
-        }
-        for input in [
-            json!({"geography":{"countries":["DE"]},"size":0}),
-            json!({"geography":{"countries":["DE"]},"size":101}),
-            json!({"geography":{"countries":["DE"]},"searchAfter":{"locationId":location_id(),"distanceKm":1}}),
-            json!({"geography":{"countries":["DE"]},"searchAfter":{"locationId":source_id()}}),
-        ] {
-            invalid(&registry, "discoverPartyLocations", input).await;
-        }
-        let mut input = full_location_arguments();
-        input["searchAfter"]["distanceKm"] = json!(-1);
-        invalid(&registry, "discoverPartyLocations", input).await;
-        let mut input = full_location_arguments();
-        input["searchAfter"]
-            .as_object_mut()
-            .unwrap()
-            .remove("distanceKm");
-        invalid(&registry, "discoverPartyLocations", input).await;
-    }
-
     #[tokio::test]
     async fn should_return_every_public_overview_aggregate_anonymously() {
         let fixture = Arc::new(Fixture::default());
@@ -520,16 +357,12 @@ mod tests {
         assert!(fixture.requests.lock().unwrap().is_empty());
     }
 
-    fn operation_arguments() -> [(&'static str, Value); 4] {
+    fn operation_arguments() -> [(&'static str, Value); 3] {
         [
             ("searchPublicListingSources", json!({})),
             (
                 "getPublicListingSourceBySlug",
                 json!({"listingSourceSlugId":"museum-source"}),
-            ),
-            (
-                "discoverPartyLocations",
-                json!({"geography":{"countries":["DE"]}}),
             ),
             ("getPublicOverview", json!({})),
         ]
@@ -574,7 +407,7 @@ mod tests {
             .call(json!({"listingSourceSlugId":"missing"}), context())
             .await
             .unwrap_err();
-        assert!(matches!(missing, OperationError::NotFound));
+        assert!(matches!(missing, OperationError::NotFound(_)));
         let missing = registry
             .get("getPublicOverview")
             .unwrap()
@@ -588,10 +421,7 @@ mod tests {
     async fn should_preserve_source_context_and_keep_overview_anonymous() {
         let fixture = Arc::new(Fixture::default());
         let registry = fixture.registry(PublicListingSourceReadBudget::default());
-        for (name, arguments) in operation_arguments()
-            .into_iter()
-            .filter(|(name, _)| *name != "discoverPartyLocations")
-        {
+        for (name, arguments) in operation_arguments() {
             let mut invocation = context();
             invocation.operation.principal = Principal::System;
             registry
@@ -607,17 +437,13 @@ mod tests {
                     assert_eq!(Principal::System, context.principal);
                 }
                 Request::Overview(context) => assert_eq!(Principal::Anonymous, context.principal),
-                Request::Location(_) => unreachable!(),
             }
         }
     }
 
     mod fixtures {
         use super::*;
-        use application::{
-            pagination::{Cursor, CursoredResult},
-            transaction::{Transaction, TransactionError, UnitOfWork},
-        };
+        use application::transaction::{Transaction, TransactionError, UnitOfWork};
         use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
         use listing_source_service::{
             ports::{PublicListingSourceSearchReader, PublicListingSourceSearchReaderFactory},
@@ -638,10 +464,7 @@ mod tests {
                 },
             },
         };
-        use party_core::{
-            party_id::PartyId, party_location_id::PartyLocationId, party_name::PartyName,
-        };
-        use party_service::discovery::*;
+        use party_core::party_name::PartyName;
         use product_listing_service::use_cases::{
             GetPublicCatalogueOverviewError, GetPublicCatalogueOverviewUseCase,
             PublicCatalogueOverview,
@@ -662,7 +485,6 @@ mod tests {
         pub enum Request {
             Search(OperationContext, SearchPublicListingSourcesRequest),
             Detail(OperationContext, GetPublicListingSourceBySlugRequest),
-            Location(DiscoverPartyLocationsRequest),
             Overview(OperationContext),
         }
 
@@ -681,9 +503,6 @@ mod tests {
                             get_by_slug: self.clone(),
                         },
                         budget,
-                        PublicPartyLocations {
-                            discover: self.clone(),
-                        },
                         PublicOverview { get: self.clone() },
                     )
                     .unwrap(),
@@ -753,30 +572,6 @@ mod tests {
         }
 
         #[async_trait::async_trait]
-        impl DiscoverPartyLocationsUseCase for Fixture {
-            async fn execute(
-                &self,
-                request: DiscoverPartyLocationsRequest,
-            ) -> Result<DiscoverPartyLocationsResult, DiscoverPartyLocationsError> {
-                self.record(Request::Location(request.clone()));
-                match self.outcome {
-                    Outcome::Pending => std::future::pending().await,
-                    Outcome::Unavailable => Err(DiscoverPartyLocationsError::Read(static_error(
-                        "private provider detail",
-                    ))),
-                    Outcome::Internal => Err(DiscoverPartyLocationsError::InvalidState(
-                        static_error("private provider detail"),
-                    )),
-                    _ => {
-                        DiscoverPartyLocationsHandler::new(NoopUnitOfWork, LocationReader)
-                            .execute(request)
-                            .await
-                    }
-                }
-            }
-        }
-
-        #[async_trait::async_trait]
         impl GetPublicCatalogueOverviewUseCase for Fixture {
             async fn execute(
                 &self,
@@ -817,12 +612,6 @@ mod tests {
 
         pub fn source_id() -> ListingSourceId {
             "ls_01h455vb4pex5vy7enb1p677vn".parse().unwrap()
-        }
-        pub fn party_id() -> PartyId {
-            "pty_01h455vb4pex5vy7enb1p677vn".parse().unwrap()
-        }
-        pub fn location_id() -> PartyLocationId {
-            "ploc_01h455vb4pex5vy7enb1p677vn".parse().unwrap()
         }
 
         fn source() -> PublicListingSourceSummary {
@@ -889,54 +678,6 @@ mod tests {
                         )
                         .unwrap()
                     }),
-                })
-            }
-        }
-
-        #[derive(Clone, Copy)]
-        struct LocationReader;
-        impl PartyLocationDiscoveryReaderFactory<NoopTransaction> for LocationReader {
-            fn in_transaction<'tx>(
-                &'tx self,
-                _: &'tx mut NoopTransaction,
-            ) -> impl PartyLocationDiscoveryReader + 'tx {
-                *self
-            }
-        }
-        #[async_trait::async_trait]
-        impl PartyLocationDiscoveryReader for LocationReader {
-            async fn discover(
-                &mut self,
-                request: &DiscoverPartyLocationsRequest,
-            ) -> Result<DiscoverPartyLocationsResult, DiscoverPartyLocationsError> {
-                let distance_km = request.geography.distance_order().map(|_| 23.5);
-                Ok(CursoredResult {
-                    items: vec![PublicPartyLocation {
-                        party_id: party_id(),
-                        party_name: "Museum Operator".into(),
-                        location_id: location_id(),
-                        label: "Gallery".into(),
-                        country: Some(geo::CountryCode::DEU),
-                        subdivision: Some(geo::SubdivisionCode::new("DE-BY").unwrap()),
-                        position: Some(
-                            geo::SpatialPosition::new(
-                                geo::GeoPoint::new(48.137, 11.575).unwrap(),
-                                geo::SpatialPrecision::Locality,
-                                None,
-                            )
-                            .unwrap(),
-                        ),
-                        basis: "ACCEPTED_DERIVED",
-                        distance_km,
-                    }],
-                    total: None,
-                    cursor: Cursor {
-                        size: request.cursor.size,
-                        search_after: Some(PartyLocationDiscoveryCursor {
-                            location_id: location_id(),
-                            distance_km,
-                        }),
-                    },
                 })
             }
         }

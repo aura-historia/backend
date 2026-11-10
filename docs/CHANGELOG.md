@@ -2,6 +2,14 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — MCP tool catalogue fixes before directory submission
+
+- **Breaking change (MCP):** the tool `discoverPartyLocations` is removed. Public seller-location discovery stays available on `GET /v1/party-locations`. The tool catalogue now lists 37 tools.
+- The MCP tool `getSimilarProductListings` takes an optional `size`, the number of neighbours to return: default 20, as before, and clamped to 1 through 50. `GET /v1/product-listings/{productListingId}/similar` is unchanged.
+- Every argument of the MCP tools now has a description. Tools that accept or return prices state that amounts are integers in the currency's minor unit (EUR `119199` = €1,191.99; JPY whole units), and `enhancedSearchDescription` states that it only works together with `productQuery`. No argument or result changed.
+- MCP tool errors say more. `NOT_FOUND` and `CONFLICT` results carry a second text block naming the resource and a next step (for example "Listing is already on the watchlist."); the first block is still the bare code. Invalid arguments (`-32602`) now give the reason and, where known, the argument, without repeating the value you sent: "Invalid tool arguments: productListingId: malformed object ID".
+- **Breaking change:** `GET` and `PATCH /v1/me/account` and the MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`; the account response is one shared shape. Administrator endpoints still return it. Clients that read the field from `OwnUserAccountData` must stop; billing itself is unaffected.
+
 ## 2026-11-10 — One approval for every MCP tool
 
 - The `WWW-Authenticate` challenge of a protected MCP call (`401`, and `403` with `error="insufficient_scope"`) now names all eight ordinary-user scopes in `scope`, not only the scopes the called tool needs. A client that follows the challenge, such as Claude, asks the user once instead of once per tool family. Each tool still requires its own scopes, and a token that lacks them still receives `403`.

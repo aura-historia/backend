@@ -1,10 +1,12 @@
 use crate::{InvocationContext, OperationError, bounded_json};
 use application::operation_context::CredentialCapability;
+use aura_historia_contracts::wire::description::MINOR_UNIT_RULE;
 use rmcp::model::{CallToolResult, JsonObject, MetaObject, Tool, ToolAnnotations};
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json, value::RawValue};
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     future::Future,
     pin::Pin,
@@ -89,6 +91,7 @@ impl OperationDefinition {
         } else {
             schema::<ToolOutput<O>>(SchemaSettings::default().for_serialize())?
         };
+        let description = with_amount_rule(description, &input, &output);
         let mut tool = Tool::new(operation_id, description, input).with_title(title);
         tool.output_schema = Some(Arc::new(output));
         tool.annotations = Some(
@@ -245,6 +248,40 @@ fn has_only_object_variants(schema: &JsonObject) -> bool {
                         })
                 })
         })
+}
+
+/// A tool whose arguments or result contain a money amount states how amounts are encoded, from
+/// the one shared rule, so no price-handling tool can leave it out.
+fn with_amount_rule(
+    description: &'static str,
+    input: &JsonObject,
+    output: &JsonObject,
+) -> Cow<'static, str> {
+    if object_declares_money(input) || object_declares_money(output) {
+        Cow::Owned(format!("{description} {MINOR_UNIT_RULE}"))
+    } else {
+        Cow::Borrowed(description)
+    }
+}
+
+/// A money amount is an object with `amount` and `currency` members; a distance has `unit`
+/// instead of `currency` and is not one.
+pub(crate) fn declares_money(schema: &Value) -> bool {
+    match schema {
+        Value::Object(object) => object_declares_money(object),
+        Value::Array(items) => items.iter().any(declares_money),
+        _ => false,
+    }
+}
+
+fn object_declares_money(object: &JsonObject) -> bool {
+    object
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|properties| {
+            properties.contains_key("amount") && properties.contains_key("currency")
+        })
+        || object.values().any(declares_money)
 }
 
 /// Longest `$ref` / `allOf` / `oneOf` chain followed to find a definition's type. Generated

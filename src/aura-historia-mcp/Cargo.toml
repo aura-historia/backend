@@ -23,7 +23,6 @@ notification-core = { workspace = true }
 notification-service = { workspace = true }
 oauth-core = { workspace = true }
 party-core = { workspace = true }
-party-service = { workspace = true }
 platform-lambda-bootstrap = { workspace = true }
 platform-observability = { workspace = true }
 product-listing-core = { workspace = true }
@@ -33,6 +32,7 @@ schemars = { workspace = true }
 search-filter-core = { workspace = true }
 search-filter-service = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_path_to_error = { workspace = true }
 serde_json = { workspace = true }
 shipping-core = { workspace = true }
 shipping-service = { workspace = true }

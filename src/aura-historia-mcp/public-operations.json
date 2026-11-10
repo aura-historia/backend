@@ -15,12 +15,6 @@
   },
   "operations": [
     {
-      "name": "discoverPartyLocations",
-      "operationId": "discoverPartyLocations",
-      "family": "public_discovery",
-      "delegatedContext": false
-    },
-    {
       "name": "getAuction",
       "operationId": "getAuction",
       "family": "auctions",

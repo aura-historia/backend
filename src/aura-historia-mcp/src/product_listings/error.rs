@@ -7,7 +7,7 @@ pub(crate) fn details(error: GetProductListingError) -> OperationError {
     use GetProductListingError::*;
     match error {
         Shipping(error) => shipping(error),
-        NotFound => OperationError::NotFound,
+        NotFound => OperationError::NotFound("Listing not found: check the productListingId."),
         error @ (ProductListingDetailsQueryFailed
         | PricingFxSnapshotMissing
         | PricingFxSnapshotUnavailable { .. }
@@ -47,7 +47,7 @@ pub(super) fn similar(error: GetSimilarProductListingsError) -> OperationError {
     use GetSimilarProductListingsError::*;
     match error {
         Shipping(error) => shipping(error),
-        NotFound => OperationError::NotFound,
+        NotFound => OperationError::NotFound("Listing not found: check the productListingId."),
         error @ (ProductListingEmbeddingQueryFailed { .. }
         | SimilaritySearchUnavailable { .. }
         | BeginTransactionFailed(_)

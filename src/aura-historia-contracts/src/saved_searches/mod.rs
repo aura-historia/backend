@@ -54,12 +54,16 @@ pub enum PatchSearchFilterStateData {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSearchFilterData {
+    /// Optional guard confirming the shipping destination: the filter's shipping country must equal the country of the referenced address or browsing preference.
     #[serde(default)]
     pub accept_shipping_destination: Option<AcceptShippingDestinationData>,
+    /// Name of the saved search, at most 255 characters (longer names are cut off).
     #[schemars(with = "String")]
     pub name: UserSearchFilterName,
+    /// Whether matches trigger notifications (default true).
     #[serde(default = "default_notifications")]
     pub notifications: bool,
+    /// Criteria a listing must meet to match this saved search; the members are those of the listing search.
     pub search: ProductListingSearchData,
 }
 
@@ -84,15 +88,20 @@ pub type UpdateSearchFilterFields = (
 #[derive(Debug, Clone, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSearchFilterData {
+    /// Optional guard confirming the shipping destination: the filter's shipping country must equal the country of the referenced address or browsing preference.
     #[serde(default)]
     pub accept_shipping_destination: Option<AcceptShippingDestinationData>,
+    /// New name, at most 255 characters (longer names are cut off); omit to keep the current name.
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub name: Option<UserSearchFilterName>,
+    /// Whether matches trigger notifications; omit to keep the current setting.
     #[serde(default)]
     pub notifications: Option<bool>,
+    /// `ACTIVE` or `INACTIVE_BY_USER`; omit to keep the current state, and activating a filter checks all its criteria against the current tier.
     #[serde(default)]
     pub state: Option<PatchSearchFilterStateData>,
+    /// Partial criteria: omitted members stay unchanged, null clears `enhancedSearchDescription`, `auctionId`, `price`, the date ranges and the availability query, and `availability`, `orderability` and `includeUnspecifiedAvailability` are given together or all null.
     #[serde(default)]
     pub search: Option<ProductListingSearchPatchData>,
 }
@@ -121,43 +130,56 @@ impl UpdateSearchFilterData {
 #[schemars(transform = code_sets::atomic_availability_patch)]
 pub struct ProductListingSearchPatchData {
     #[serde(default)]
+    #[schemars(description = crate::wire::description::GEOGRAPHY)]
     geography: PatchValue<crate::geographic_search::GeographicSearchData>,
     #[serde(default)]
+    #[schemars(description = crate::wire::description::SHIPPING)]
     shipping: PatchValue<crate::shipping_search::ShippingSearchData>,
     #[serde(default)]
     #[serde(deserialize_with = "code_sets::language_patch")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::SEARCH_LANGUAGE)]
     language: PatchValue<Language>,
     #[serde(default)]
     #[serde(deserialize_with = "code_sets::currency_patch")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::SEARCH_CURRENCY)]
     currency: PatchValue<Currency>,
     #[serde(rename = "productQuery", default)]
     #[schemars(schema_with = "code_sets::text_queries")]
+    #[schemars(description = crate::wire::description::PRODUCT_QUERY)]
     product_listing_query: PatchValue<Vec<TextQuery<1>>>,
     #[serde(rename = "enhancedSearchDescription", default)]
+    #[schemars(description = crate::wire::description::ENHANCED_SEARCH_DESCRIPTION)]
     enhanced_search_description: PatchValue<String>,
     #[serde(rename = "listingSourceId", default)]
     #[schemars(schema_with = "crate::wire::schema::listing_source_ids")]
+    #[schemars(description = crate::wire::description::LISTING_SOURCE_ID)]
     listing_source_id_query: PatchValue<HashSet<String>>,
     #[serde(rename = "excludeListingSourceId", default)]
     #[schemars(schema_with = "crate::wire::schema::listing_source_ids")]
+    #[schemars(description = crate::wire::description::EXCLUDE_LISTING_SOURCE_ID)]
     exclude_listing_source_id_query: PatchValue<HashSet<String>>,
     #[serde(rename = "auctionId", default)]
     #[schemars(schema_with = "code_sets::nullable_auction_ids")]
+    #[schemars(description = crate::wire::description::AUCTION_ID)]
     auction_id_query: PatchValue<HashSet<String>>,
     #[serde(rename = "price", default)]
     #[schemars(with = "Option<crate::product_listings::search::NumberRangeSchema>")]
+    #[schemars(description = crate::wire::description::PRICE_RANGE)]
     price_query: PatchValue<RangeQuery<u64>>,
     #[serde(rename = "availability", default)]
     #[serde(deserialize_with = "code_sets::availability_patch")]
     #[schemars(schema_with = "crate::wire::listing::availability_set_schema")]
+    #[schemars(description = crate::wire::description::AVAILABILITY)]
     availability_query: PatchValue<HashSet<ListingAvailability>>,
     #[serde(rename = "orderability", default)]
     #[serde(deserialize_with = "code_sets::listing_orderability_patch_set::deserialize")]
     #[schemars(schema_with = "crate::wire::listing::orderability_set_schema")]
+    #[schemars(description = crate::wire::description::ORDERABILITY)]
     orderability_query: PatchValue<HashSet<ListingOrderability>>,
     #[serde(rename = "includeUnspecifiedAvailability", default)]
+    #[schemars(description = crate::wire::description::INCLUDE_UNSPECIFIED_AVAILABILITY)]
     include_unspecified_availability: PatchValue<bool>,
     #[serde(
         rename = "created",
@@ -165,6 +187,7 @@ pub struct ProductListingSearchPatchData {
         deserialize_with = "crate::patch_value::rfc3339_range::deserialize"
     )]
     #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(description = crate::wire::description::CREATED)]
     created_query: PatchValue<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
@@ -172,6 +195,7 @@ pub struct ProductListingSearchPatchData {
         deserialize_with = "crate::patch_value::rfc3339_range::deserialize"
     )]
     #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(description = crate::wire::description::UPDATED)]
     updated_query: PatchValue<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "lotBiddingOpens",
@@ -179,6 +203,7 @@ pub struct ProductListingSearchPatchData {
         deserialize_with = "crate::patch_value::rfc3339_range::deserialize"
     )]
     #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(description = crate::wire::description::LOT_BIDDING_OPENS)]
     lot_bidding_opens_query: PatchValue<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "lotScheduledCloses",
@@ -186,6 +211,7 @@ pub struct ProductListingSearchPatchData {
         deserialize_with = "crate::patch_value::rfc3339_range::deserialize"
     )]
     #[schemars(with = "Option<crate::product_listings::search::DateRangeSchema>")]
+    #[schemars(description = crate::wire::description::LOT_SCHEDULED_CLOSES)]
     lot_scheduled_closes_query: PatchValue<RangeQuery<OffsetDateTime>>,
 }
 
@@ -337,6 +363,7 @@ fn availability_query_patch(
 #[derive(Debug, Clone, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSearchFilterMatchFeedbackData {
+    /// Feedback on the match, `true` or `false`; omit to keep the stored value, null clears it.
     #[serde(default)]
     pub feedback: PatchValue<bool>,
 }
@@ -355,14 +382,18 @@ impl UpdateSearchFilterMatchFeedbackData {
 pub struct ProductListingSearchData<ProductId = String, SourceId = String, AuctionIdValue = String>
 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = crate::wire::description::GEOGRAPHY)]
     geography: Option<crate::geographic_search::GeographicSearchData>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = crate::wire::description::SHIPPING)]
     shipping: Option<crate::shipping_search::ShippingSearchData>,
     #[serde(default, with = "crate::wire::language")]
     #[schemars(schema_with = "crate::wire::language::schema")]
+    #[schemars(description = crate::wire::description::SEARCH_LANGUAGE)]
     language: Language,
     #[serde(default, with = "crate::wire::currency")]
     #[schemars(schema_with = "crate::wire::currency::schema")]
+    #[schemars(description = crate::wire::description::SEARCH_CURRENCY)]
     currency: Currency,
     #[serde(
         rename = "productQuery",
@@ -370,12 +401,14 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default
     )]
     #[schemars(schema_with = "code_sets::text_queries")]
+    #[schemars(description = crate::wire::description::PRODUCT_QUERY)]
     product_listing_query: Vec<TextQuery<1>>,
     #[serde(
         rename = "enhancedSearchDescription",
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[schemars(description = crate::wire::description::ENHANCED_SEARCH_DESCRIPTION)]
     enhanced_search_description: Option<String>,
     #[serde(
         rename = "excludeProductListingId",
@@ -383,6 +416,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default
     )]
     #[schemars(schema_with = "crate::wire::schema::product_listing_ids")]
+    #[schemars(description = crate::wire::description::EXCLUDE_PRODUCT_LISTING_ID)]
     exclude_product_listing_id_query: HashSet<ProductId>,
     #[serde(
         rename = "listingSourceId",
@@ -390,6 +424,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default
     )]
     #[schemars(schema_with = "crate::wire::schema::listing_source_ids")]
+    #[schemars(description = crate::wire::description::LISTING_SOURCE_ID)]
     listing_source_id_query: HashSet<SourceId>,
     #[serde(
         rename = "excludeListingSourceId",
@@ -397,6 +432,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default
     )]
     #[schemars(schema_with = "crate::wire::schema::listing_source_ids")]
+    #[schemars(description = crate::wire::description::EXCLUDE_LISTING_SOURCE_ID)]
     exclude_listing_source_id_query: HashSet<SourceId>,
     #[serde(
         rename = "auctionId",
@@ -404,9 +440,11 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         default
     )]
     #[schemars(schema_with = "crate::wire::schema::auction_ids")]
+    #[schemars(description = crate::wire::description::AUCTION_ID)]
     auction_id_query: HashSet<AuctionIdValue>,
     #[serde(rename = "price", skip_serializing_if = "Option::is_none", default)]
     #[schemars(with = "Option<crate::product_listings::search::NumberRangeSchema>")]
+    #[schemars(description = crate::wire::description::PRICE_RANGE)]
     price_query: Option<RangeQuery<u64>>,
     #[serde(
         rename = "availability",
@@ -415,6 +453,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         with = "code_sets::listing_availability_set_option"
     )]
     #[schemars(schema_with = "crate::wire::listing::availability_set_schema")]
+    #[schemars(description = crate::wire::description::AVAILABILITY)]
     availability_query: Option<HashSet<ListingAvailability>>,
     #[serde(
         rename = "orderability",
@@ -423,12 +462,14 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         with = "code_sets::listing_orderability_set_option"
     )]
     #[schemars(schema_with = "crate::wire::listing::orderability_set_schema")]
+    #[schemars(description = crate::wire::description::ORDERABILITY)]
     orderability_query: Option<HashSet<ListingOrderability>>,
     #[serde(
         rename = "includeUnspecifiedAvailability",
         skip_serializing_if = "Option::is_none",
         default
     )]
+    #[schemars(description = crate::wire::description::INCLUDE_UNSPECIFIED_AVAILABILITY)]
     include_unspecified_availability: Option<bool>,
     #[serde(
         rename = "created",
@@ -437,6 +478,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
+    #[schemars(description = crate::wire::description::CREATED)]
     created_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "updated",
@@ -445,6 +487,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
+    #[schemars(description = crate::wire::description::UPDATED)]
     updated_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "lotBiddingOpens",
@@ -453,6 +496,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
+    #[schemars(description = crate::wire::description::LOT_BIDDING_OPENS)]
     lot_bidding_opens_query: Option<RangeQuery<OffsetDateTime>>,
     #[serde(
         rename = "lotScheduledCloses",
@@ -461,6 +505,7 @@ pub struct ProductListingSearchData<ProductId = String, SourceId = String, Aucti
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(with = "crate::product_listings::search::DateRangeSchema")]
+    #[schemars(description = crate::wire::description::LOT_SCHEDULED_CLOSES)]
     lot_scheduled_closes_query: Option<RangeQuery<OffsetDateTime>>,
 }
 
@@ -585,12 +630,16 @@ fn search_filter_state(state: PatchSearchFilterStateData) -> SearchFilterState {
 /// preference's asserted country. Neither the reference nor provider evidence is retained.
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
+#[schemars(transform = crate::wire::schema::describe_kind)]
 pub enum AcceptShippingDestinationData {
+    /// Compare with the country of one of the user's saved addresses.
     Address {
+        /// ID of the saved address (`uaddr_…`).
         #[serde(rename = "addressId")]
         #[schemars(schema_with = "code_sets::address_id")]
         address_id: user_core::user_address::UserAddressId,
     },
+    /// Compare with the country of the user's stored browsing destination.
     Preference {},
 }
 impl std::fmt::Debug for AcceptShippingDestinationData {

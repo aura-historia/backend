@@ -250,7 +250,7 @@ fn should_name_only_operations_that_the_api_and_mcp_server_offer() {
         }
     }
     assert!(routes >= 15, "{routes}");
-    assert_eq!(12, named_tools);
+    assert_eq!(11, named_tools);
 }
 
 /// Stands in for the website's Worker: serves each website path from the API path below

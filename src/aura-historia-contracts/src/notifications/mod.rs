@@ -36,14 +36,17 @@ use url::Url;
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNotificationSeenData {
+    /// `true` marks as seen, `false` as unseen.
     pub seen: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNotificationsSeenData {
+    /// IDs (`ntf_…`) of the notifications to update; unknown or foreign IDs are ignored and an empty list is rejected.
     #[schemars(schema_with = "crate::wire::schema::notification_ids")]
     pub notification_ids: Vec<String>,
+    /// `true` marks as seen, `false` as unseen.
     pub seen: bool,
 }
 

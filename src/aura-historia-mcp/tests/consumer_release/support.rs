@@ -240,7 +240,7 @@ pub fn manifest_tools() -> BTreeMap<String, Value> {
 /// The complete catalogue fits one page: no continuation is ever returned.
 pub async fn catalogue(client: &Client) -> BTreeMap<String, Value> {
     let page = client.list_tools(None).await.unwrap();
-    assert_eq!(38, page.tools.len());
+    assert_eq!(37, page.tools.len());
     assert!(page.next_cursor.is_none());
     let mut tools = BTreeMap::new();
     for tool in page.tools {

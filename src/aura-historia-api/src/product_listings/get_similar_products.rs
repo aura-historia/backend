@@ -9,7 +9,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
 use product_listing_core::product_listing_id::ProductListingId;
-use product_listing_service::ports::ProductListingEmbeddingLookup;
+use product_listing_service::ports::{ProductListingEmbeddingLookup, SimilarProductListingsLimit};
 use product_listing_service::use_cases::{
     GetSimilarProductListingsRequest, GetSimilarProductListingsResult,
 };
@@ -77,6 +77,7 @@ async fn similar_response(
                 lookup: lookup.clone(),
                 language: query.language,
                 currency: query.currency,
+                limit: SimilarProductListingsLimit::default(),
             },
         )
         .await

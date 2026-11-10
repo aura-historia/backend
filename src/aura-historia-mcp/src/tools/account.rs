@@ -30,6 +30,7 @@ struct OwnAccountArguments {}
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AddressArguments {
+    /// ID of the saved address (`uaddr_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_address_id")]
     address_id: UserAddressId,
 }
@@ -37,6 +38,7 @@ struct AddressArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct UpdateAddressArguments {
+    /// ID of the saved address (`uaddr_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_address_id")]
     address_id: UserAddressId,
     #[serde(flatten)]
@@ -46,6 +48,7 @@ struct UpdateAddressArguments {
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DeleteAddressArguments {
+    /// ID of the saved address (`uaddr_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::user_address_id")]
     address_id: UserAddressId,
     #[serde(flatten)]
@@ -582,11 +585,11 @@ mod tests {
         }
         assert!(matches!(
             errors::address(AddressBookError::Conflict),
-            OperationError::Conflict(None)
+            OperationError::Conflict { .. }
         ));
         assert!(matches!(
             errors::address(AddressBookError::NotFound),
-            OperationError::NotFound
+            OperationError::NotFound(_)
         ));
         assert!(matches!(
             errors::address(AddressBookError::InvalidState(static_error(
@@ -683,6 +686,36 @@ mod tests {
         ) {
             let result = registry.get(name).unwrap().call(input, ctx.clone()).await;
             assert!(result.as_ref().is_err_and(expected), "{name}: {result:?}");
+        }
+
+        #[aura_integration_test(services = [SCHEMA], isolated = true)]
+        async fn should_omit_the_stripe_customer_id_from_account_results() {
+            let pool = get_postgres_client().await;
+            let owner = seed(&pool).await;
+            sqlx::query("UPDATE users SET stripe_customer_id = $2 WHERE user_id = $1")
+                .bind(owner.into_uuid())
+                .bind("cus_mcp_account")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let runtime = Runtime::from_pool(pool);
+            let registry = registry(&runtime);
+            let ctx = both(owner);
+
+            for (name, input) in [
+                ("getUserAccount", json!({})),
+                ("updateUserAccount", json!({"firstName": "Ada"})),
+            ] {
+                let result = invoke(&registry, name, input, &ctx).await;
+                assert!(result.get("stripeCustomerId").is_none(), "{name}: {result}");
+                let output =
+                    serde_json::to_value(registry.get(name).unwrap().tool().output_schema.as_ref())
+                        .unwrap();
+                assert!(
+                    output["properties"].get("stripeCustomerId").is_none(),
+                    "{name}: {output}"
+                );
+            }
         }
 
         #[aura_integration_test(services = [SCHEMA], isolated = true)]
@@ -814,7 +847,7 @@ mod tests {
                 "getUserAddress",
                 json!({"addressId":id}),
                 &both(foreign),
-                |e| matches!(e, OperationError::NotFound),
+                |e| matches!(e, OperationError::NotFound(_)),
             )
             .await;
             for (name, input) in requests(id)
@@ -822,7 +855,7 @@ mod tests {
                 .filter(|(name, _)| matches!(*name, "updateUserAddress" | "deleteUserAddress"))
             {
                 assert_error(&registry, name, input, &both(foreign), |e| {
-                    matches!(e, OperationError::NotFound)
+                    matches!(e, OperationError::NotFound(_))
                 })
                 .await;
             }
@@ -858,7 +891,7 @@ mod tests {
             assert_eq!(json!(2), updated["version"]);
             assert_eq!(json!(2), updated["inputRevision"]);
             assert_error(&registry, "updateUserAddress", replacement, &ctx, |e| {
-                matches!(e, OperationError::Conflict(None))
+                matches!(e, OperationError::Conflict { .. })
             })
             .await;
             assert_error(
@@ -866,7 +899,7 @@ mod tests {
                 "deleteUserAddress",
                 json!({"addressId":id,"expectedVersion":1}),
                 &ctx,
-                |e| matches!(e, OperationError::Conflict(None)),
+                |e| matches!(e, OperationError::Conflict { .. }),
             )
             .await;
             exercise_destinations(&registry, &ctx, id, foreign_address["addressId"].clone()).await;
@@ -903,7 +936,7 @@ mod tests {
                 "getUserAddress",
                 json!({"addressId":id}),
                 &ctx,
-                |e| matches!(e, OperationError::NotFound),
+                |e| matches!(e, OperationError::NotFound(_)),
             )
             .await;
             assert_eq!(
@@ -966,7 +999,7 @@ mod tests {
                 "setBrowsingDestination",
                 json!({"expectedVersion":1,"destination":{"kind":"ADDRESS","addressId":foreign}}),
                 ctx,
-                |e| matches!(e, OperationError::NotFound),
+                |e| matches!(e, OperationError::NotFound(_)),
             )
             .await;
             for (version, destination) in [
@@ -996,7 +1029,7 @@ mod tests {
                 "setBrowsingDestination",
                 json!({"expectedVersion":1,"destination":{"kind":"NONE"}}),
                 ctx,
-                |e| matches!(e, OperationError::Conflict(None)),
+                |e| matches!(e, OperationError::Conflict { .. }),
             )
             .await;
         }

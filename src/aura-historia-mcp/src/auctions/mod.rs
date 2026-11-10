@@ -6,7 +6,8 @@ use application::error::box_error;
 use auction_core::AuctionId;
 use auction_service::use_cases::{GetPublicAuctionUseCase, ListAuctionsUseCase};
 use aura_historia_contracts::auctions::{
-    CatalogueData, CatalogueQuery, DirectoryQuery, PublicAuctionData, PublicAuctionDirectoryData,
+    AuctionQueryError, CatalogueData, CatalogueQuery, DirectoryQuery, PublicAuctionData,
+    PublicAuctionDirectoryData,
 };
 use aura_historia_runtime::PublicAuctions;
 use product_listing_service::use_cases::GetAuctionCatalogueUseCase;
@@ -17,12 +18,14 @@ use std::sync::Arc;
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuctionArguments {
+    /// ID of the auction (`auc_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::auction_id")]
     auction_id: AuctionId,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CatalogueArguments {
+    /// ID of the auction (`auc_…`).
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::auction_id")]
     auction_id: AuctionId,
     #[serde(flatten)]
@@ -47,9 +50,7 @@ fn list(service: Arc<dyn ListAuctionsUseCase>) -> Result<OperationDefinition, Re
         move |query: DirectoryQuery, invocation| {
             let service = Arc::clone(&service);
             async move {
-                let request = query
-                    .try_into_request()
-                    .map_err(|error| OperationError::InvalidArguments(box_error(error)))?;
+                let request = query.try_into_request().map_err(invalid_query)?;
                 invocation
                     .execute(service.execute(&invocation.operation, request))
                     .await?
@@ -94,7 +95,7 @@ fn catalogue(
                 let request = input
                     .query
                     .try_into_request(input.auction_id)
-                    .map_err(|error| OperationError::InvalidArguments(box_error(error)))?;
+                    .map_err(invalid_query)?;
                 invocation
                     .execute(service.execute(&invocation.operation, request))
                     .await?
@@ -103,6 +104,18 @@ fn catalogue(
             }
         },
     )
+}
+
+/// Names the argument when the validation knows it; the other messages already name theirs,
+/// such as "sort=scheduled requires timeRole.".
+fn invalid_query(error: AuctionQueryError) -> OperationError {
+    match &error {
+        AuctionQueryError::InvalidObjectId { field, .. } => {
+            let field = *field;
+            OperationError::invalid_argument(field, error)
+        }
+        _ => OperationError::InvalidArguments(box_error(error)),
+    }
 }
 
 fn policy() -> OperationPolicy {
@@ -604,15 +617,54 @@ mod tests {
             Err(OperationError::InvalidArguments(_))
         ));
     }
+    #[tokio::test]
+    async fn should_name_the_rule_or_argument_behind_an_invalid_auction_request() {
+        let (services, _, _, _) = services();
+        let ops = operations(services).unwrap();
+        for (name, args, expected) in [
+            (
+                "listAuctions",
+                json!({"sort":"scheduled"}),
+                "sort=scheduled requires timeRole.",
+            ),
+            (
+                "listAuctions",
+                json!({"timeRole":"LIVE_STARTS","from":"2026-10-01T00:00:00Z"}),
+                "timeRole, from, and to must be supplied together unless sorting by scheduled.",
+            ),
+            (
+                "listAuctions",
+                json!({"listingSourceId":ListingSourceId::new(),"sort":"newest"}),
+                "sort must be created or scheduled.",
+            ),
+            (
+                "getAuction",
+                json!({"auctionId":"auc_bad"}),
+                "auctionId: malformed object ID",
+            ),
+        ] {
+            let op = ops.iter().find(|op| op.name() == name).unwrap();
+            let error = op.call(args.clone(), context()).await.unwrap_err();
+
+            let rejection = error.into_protocol().unwrap_err();
+
+            assert_eq!(-32602, rejection.code.0, "{args}");
+            assert!(
+                rejection.message.contains(expected),
+                "{args}: {}",
+                rejection.message
+            );
+        }
+    }
     #[test]
     fn should_classify_application_failures_without_losing_technical_causes() {
         assert!(matches!(
             get_error(GetPublicAuctionError::NotFound),
-            OperationError::NotFound
+            OperationError::NotFound(_)
         ));
         assert!(matches!(
             catalogue_error(GetAuctionCatalogueError::AuctionNotFound),
-            OperationError::NotFound
+            OperationError::NotFound(_)
         ));
         assert!(matches!(
             catalogue_error(GetAuctionCatalogueError::PricingFxSnapshotMissing),
