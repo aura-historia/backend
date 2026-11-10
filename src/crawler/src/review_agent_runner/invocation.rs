@@ -132,17 +132,17 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v11",
-            prompt: include_str!("prompts/author.v11.md"),
-            product_schema_rules: include_str!("prompts/author.v11.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/author.v11.url-pattern.md"),
+            version: "author.v12",
+            prompt: include_str!("prompts/author.v12.md"),
+            product_schema_rules: include_str!("prompts/author.v12.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/author.v12.url-pattern.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v8",
-            prompt: include_str!("prompts/reviewer.v8.md"),
-            product_schema_rules: include_str!("prompts/reviewer.v8.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/reviewer.v8.url-pattern.md"),
+            version: "reviewer.v9",
+            prompt: include_str!("prompts/reviewer.v9.md"),
+            product_schema_rules: include_str!("prompts/reviewer.v9.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/reviewer.v9.url-pattern.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn should_tell_each_agent_the_console_s_refusals_and_the_reviewer_what_a_rejection_does() {
         for role in [AgentRole::Author, AgentRole::Reviewer] {
-            let prompt = role_contract(role).prompt(&review(), &AgentLimits::default());
+            let prompt = prompt_of(role, ReviewArtifact::ProductSchema);
             for term in [
                 "human_required",
                 "HUMAN_REQUIRED",
@@ -668,7 +668,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v11", "reviewer.v8"]
+            ["author.v12", "reviewer.v9"]
         );
     }
 

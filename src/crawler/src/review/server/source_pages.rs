@@ -35,6 +35,10 @@ impl ReviewServer {
             .check_live_job(review_id, actor)
             .await
             .map_err(review_error)?;
+        self.repository
+            .check_page_inspection(review_id, actor)
+            .await
+            .map_err(review_error)?;
         let (review_page_id, url) = match (request.query.get("page"), request.query.get("url")) {
             (Some(page), None) => {
                 let page_id = page

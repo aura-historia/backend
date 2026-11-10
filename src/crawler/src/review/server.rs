@@ -1196,6 +1196,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             forbidden(&error, "REVIEWER_CANNOT_CHANGE_CANDIDATES")
         }
         ReviewRepositoryError::AuthorMayNotDecide => forbidden(&error, "AUTHOR_CANNOT_DECIDE"),
+        ReviewRepositoryError::AgentsMayNotInspectUrlPatternPages => {
+            forbidden(&error, "AGENTS_CANNOT_INSPECT_URL_PATTERN_PAGES")
+        }
         ReviewRepositoryError::OnlyAgentsHandOver => forbidden(&error, "HAND_OVER_NEEDS_AGENT"),
         ReviewRepositoryError::AgentCoverageAcknowledgement => {
             forbidden(&error, "AGENT_COVERAGE_ACKNOWLEDGEMENT")

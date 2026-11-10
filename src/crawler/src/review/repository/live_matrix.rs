@@ -312,6 +312,29 @@ impl CrawlerReviewRepository {
         Ok(())
     }
 
+    /// Refuses a review agent a page projection of a URL-pattern review: the author finds the
+    /// pattern in the sample's URLs and the reviewer checks it against them; only a human opens
+    /// the pages.
+    pub async fn check_page_inspection(
+        &self,
+        review_id: CrawlerReviewId,
+        actor: ReviewActor,
+    ) -> Result<(), ReviewRepositoryError> {
+        if !actor.is_agent() {
+            return Ok(());
+        }
+        let artifact_type: String =
+            sqlx::query_scalar("SELECT artifact_type FROM crawler_reviews WHERE review_id = $1")
+                .bind(review_id.as_uuid())
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        if artifact_type == crate::review::model::ARTIFACT_URL_PATTERN {
+            return Err(ReviewRepositoryError::AgentsMayNotInspectUrlPatternPages);
+        }
+        Ok(())
+    }
+
     /// Stores the matrix of `actor`'s refresh as the review's cached matrix while the review still
     /// holds the candidate it evaluated and every page it evaluated, and returns it with the
     /// review's pages it did not evaluate. Pages that joined the review while it was evaluated are

@@ -112,6 +112,10 @@ pub enum ReviewRepositoryError {
         "the author agent neither approves nor rejects; the reviewer agent or a human decides what it staged"
     )]
     AuthorMayNotDecide,
+    #[error(
+        "the review agents read no page of a URL-pattern review: the author finds the pattern in the URLs of the sample and the reviewer checks it against them"
+    )]
+    AgentsMayNotInspectUrlPatternPages,
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
     #[error(

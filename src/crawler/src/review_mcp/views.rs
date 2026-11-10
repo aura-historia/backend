@@ -25,7 +25,7 @@ use time::format_description::well_known::Rfc3339;
 /// The most pending reviews one answer of `list_pending_reviews` lists.
 pub(super) const MAX_PENDING_REVIEWS: usize = 50;
 /// The most URLs of a URL-pattern review's sample one `get_review` answer lists.
-const MAX_SAMPLE_URLS: usize = 150;
+const MAX_SAMPLE_URLS: usize = 200;
 /// The most bytes the URLs of one sample page take as JSON, so a page of long URLs ends early,
 /// with its `sample_urls_next_offset`, instead of being cut by the answer bound.
 const MAX_SAMPLE_PAGE_BYTES: usize = 30 * 1024;
@@ -42,43 +42,6 @@ pub(super) const MAX_VALUE_CHARS: usize = 300;
 /// context for the rest of its run, so a window holds what a product page's outline usually
 /// needs, and `offset` reads on.
 pub(super) const MAX_PROJECTION_CHARS: usize = 24_000;
-/// The window of a page projection on a URL-pattern review. Labelling a URL needs what makes the
-/// page one product or not, which an outline shows at its start (title, price, cart action) or
-/// not at all, so the agent gets this much of it and reads on with `offset` only when it cannot
-/// tell; the rest of a long page, a listing's repeated items for one, is context cost without a
-/// decision behind it.
-pub(super) const MAX_URL_PATTERN_PROJECTION_CHARS: usize = 4_000;
-
-/// The `meta` properties and names whose lines a URL-pattern outline keeps: what a page says it is
-/// and what it sells.
-const URL_PATTERN_META_SIGNALS: [&str; 8] = [
-    "og:type",
-    "og:title",
-    "og:price",
-    "og:availability",
-    "product:price",
-    "product:availability",
-    "twitter:label",
-    "twitter:data",
-];
-
-/// `outline` of a page for labelling its URL: the `link` and `meta` lines of the document head
-/// leave out, except those naming the page's type, title, price or availability, so the window of
-/// [`MAX_URL_PATTERN_PROJECTION_CHARS`] reaches the body instead of ending in a head that shops
-/// fill with hundreds of characters of tracking and image metadata.
-pub(super) fn url_pattern_outline(outline: &str) -> String {
-    outline
-        .split_inclusive('\n')
-        .filter(|line| {
-            let head_line = line.starts_with("link[") || line.starts_with("meta[");
-            !head_line
-                || (line.starts_with("meta[")
-                    && URL_PATTERN_META_SIGNALS
-                        .iter()
-                        .any(|signal| line.contains(signal)))
-        })
-        .collect()
-}
 /// The most bytes those characters take as a JSON string, so a window of non-Latin or
 /// escape-heavy text still fits the answer bound whole, with its marker line and the `offset` to
 /// read on from, instead of being cut by it.
@@ -461,7 +424,12 @@ impl ReviewView {
             events,
         } = detail;
         let mut truncations = Vec::new();
-        let sample = SamplePage::of(urls, sample_offset, &mut truncations);
+        let sample = SamplePage::of(
+            urls,
+            sample_offset,
+            review.listing_source_crawl_host.as_deref(),
+            &mut truncations,
+        );
         let body = (sample.offset == 0).then(|| {
             ReviewBody::of(
                 &review,
@@ -613,7 +581,12 @@ struct SamplePage {
 impl SamplePage {
     /// The URLs from `offset` on, at most [`MAX_SAMPLE_URLS`] of them and [`MAX_SAMPLE_PAGE_BYTES`]
     /// as JSON, naming in `truncations` the part of the sample the page shows when it is not all.
-    fn of(urls: Vec<CrawlerReviewUrl>, offset: usize, truncations: &mut Vec<String>) -> Self {
+    fn of(
+        urls: Vec<CrawlerReviewUrl>,
+        offset: usize,
+        crawl_host: Option<&str>,
+        truncations: &mut Vec<String>,
+    ) -> Self {
         let total = urls.len();
         let offset = offset.min(total);
         let mut bytes_left = MAX_SAMPLE_PAGE_BYTES;
@@ -621,7 +594,7 @@ impl SamplePage {
             .into_iter()
             .skip(offset)
             .take(MAX_SAMPLE_URLS)
-            .map(SampleUrlView::of)
+            .map(|url| SampleUrlView::of(url, crawl_host))
             .take_while(|url| {
                 let bytes = serde_json::to_vec(url).map_or(0, |json| json.len() + 1);
                 let fits = bytes <= bytes_left;
@@ -653,10 +626,38 @@ impl SourceProductUrlView {
     }
 }
 
+/// `url` without its scheme and host, as path and query, when it is a URL of the crawl host (with
+/// or without `www.`); any other URL stays whole. Every sample URL of a ListingSource names the
+/// same host, so the host is cost in the agent's context and a literal it may copy into a pattern.
+pub(super) fn relative_url(url: &str, crawl_host: Option<&str>) -> String {
+    let Some(crawl_host) = crawl_host else {
+        return url.to_owned();
+    };
+    let bare = |host: &str| {
+        host.strip_prefix("www.")
+            .unwrap_or(host)
+            .to_ascii_lowercase()
+    };
+    match url::Url::parse(url) {
+        Ok(parsed)
+            if matches!(parsed.scheme(), "http" | "https")
+                && parsed
+                    .host_str()
+                    .is_some_and(|host| bare(host) == bare(crawl_host)) =>
+        {
+            match parsed.query() {
+                Some(query) => format!("{}?{query}", parsed.path()),
+                None => parsed.path().to_owned(),
+            }
+        }
+        _ => url.to_owned(),
+    }
+}
+
 impl SampleUrlView {
-    fn of(url: CrawlerReviewUrl) -> Self {
+    fn of(url: CrawlerReviewUrl, crawl_host: Option<&str>) -> Self {
         Self {
-            url: url.url,
+            url: relative_url(&url.url, crawl_host),
             previous_class: url.previous_class,
             current_pattern_match: url.current_pattern_match,
             candidate_pattern_match: url.candidate_pattern_match,
@@ -684,13 +685,7 @@ impl PageProjectionView {
     /// The projection's window from `offset` on of at most [`MAX_PROJECTION_CHARS`] characters
     /// and [`MAX_PROJECTION_JSON_BYTES`] as a JSON string, with a marker line where it starts after
     /// the beginning or stops before the end.
-    #[cfg(test)]
     pub(super) fn of(projection: wire::PageProjection, offset: usize) -> Self {
-        Self::window(projection, offset, MAX_PROJECTION_CHARS)
-    }
-
-    /// Like [`Self::of`], with a window of at most `window` characters.
-    pub(super) fn window(projection: wire::PageProjection, offset: usize, window: usize) -> Self {
         let projection_chars = projection.projection.chars().count();
         let offset = offset.min(projection_chars);
         let mut json_bytes_left = MAX_PROJECTION_JSON_BYTES;
@@ -698,7 +693,7 @@ impl PageProjectionView {
             .projection
             .chars()
             .skip(offset)
-            .take(window.min(MAX_PROJECTION_CHARS))
+            .take(MAX_PROJECTION_CHARS)
             .take_while(|character| {
                 let bytes = json_string_bytes(*character);
                 let fits = bytes <= json_bytes_left;
@@ -999,7 +994,7 @@ mod tests {
         assert_eq!(
             view["sample_urls"][0],
             json!({
-                "url": "https://antiques.example/item/0",
+                "url": "/item/0",
                 "candidate_pattern_match": true,
                 "candidate_class": "product",
             }),
@@ -1008,13 +1003,7 @@ mod tests {
         assert_eq!(view["sample_urls_total"], 200);
         assert_eq!(view["events"][0]["candidate_version"], 40);
         assert_eq!(view["events_total"], 50);
-        assert_eq!(
-            view["truncations"],
-            json!([
-                "sample_urls: URLs 0 to 150 of 200",
-                "events: the last 10 of 50"
-            ])
-        );
+        assert_eq!(view["truncations"], json!(["events: the last 10 of 50"]));
         assert_eq!(view["matrix"], Value::Null);
     }
 
@@ -1074,13 +1063,13 @@ mod tests {
         });
         let page = |offset| {
             json!(ReviewView::of(
-                url_pattern_detail(&candidate, 400, 0),
+                url_pattern_detail(&candidate, 500, 0),
                 wire::Candidate::UrlPattern(decoded(candidate.clone())),
                 offset,
             ))
         };
 
-        let pages: Vec<Value> = [0, 150, 300].map(page).into();
+        let pages: Vec<Value> = [0, 200, 400].map(page).into();
 
         let shown: Vec<(u64, u64, Value, u64)> = pages
             .iter()
@@ -1096,18 +1085,15 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (0, 150, json!(150), 400),
-                (150, 150, json!(300), 400),
-                (300, 100, Value::Null, 400)
+                (0, 200, json!(200), 500),
+                (200, 200, json!(400), 500),
+                (400, 100, Value::Null, 500)
             ]
         );
-        assert_eq!(
-            pages[2]["sample_urls"][0]["url"],
-            "https://antiques.example/item/300"
-        );
+        assert_eq!(pages[2]["sample_urls"][0]["url"], "/item/400");
         assert_eq!(
             pages[2]["truncations"],
-            json!(["sample_urls: URLs 300 to 400 of 400"])
+            json!(["sample_urls: URLs 400 to 500 of 500"])
         );
     }
 
@@ -1135,17 +1121,17 @@ mod tests {
             "events_total",
         ];
 
-        let (first, second) = (page(0), page(150));
+        let (first, second) = (page(0), page(200));
 
         for field in body_fields {
             assert!(first.get(field).is_some(), "{field} missing from {first}");
             assert!(second.get(field).is_none(), "{field} in {second}");
         }
         assert_eq!(second["candidate_version"], first["candidate_version"]);
-        assert_eq!(second["sample_urls_offset"], 150);
+        assert_eq!(second["sample_urls_offset"], 200);
         assert_eq!(
             second["truncations"],
-            json!(["sample_urls: URLs 150 to 300 of 400"])
+            json!(["sample_urls: URLs 200 to 400 of 400"])
         );
     }
 
@@ -1207,47 +1193,27 @@ mod tests {
     }
 
     #[test]
-    fn should_leave_the_head_noise_out_of_a_url_pattern_outline() {
-        let outline = "meta[content='IE=edge']\nlink[href='/x.png'][type='image/png']\ntitle | Chest\nmeta[content='product'][property='og:type']\nmeta[content='1,00'][property='og:price:amount']\nmeta[content='abc'][name='facebook-domain-verification']\nmain\n h1 | Chest\n";
+    fn should_list_the_urls_of_the_crawl_host_as_path_and_query() {
+        let host = Some("antiques.example");
 
+        for (url, relative) in [
+            ("https://antiques.example/item/1", "/item/1"),
+            (
+                "http://www.antiques.example/item/1?page=2&sort=a#top",
+                "/item/1?page=2&sort=a",
+            ),
+            ("https://antiques.example", "/"),
+            (
+                "https://other.example/item/1",
+                "https://other.example/item/1",
+            ),
+            ("not a url", "not a url"),
+        ] {
+            assert_eq!(relative_url(url, host), relative, "{url}");
+        }
         assert_eq!(
-            url_pattern_outline(outline),
-            "title | Chest\nmeta[content='product'][property='og:type']\nmeta[content='1,00'][property='og:price:amount']\nmain\n h1 | Chest\n"
-        );
-    }
-
-    #[test]
-    fn should_answer_a_url_pattern_review_the_start_of_the_projection_and_let_it_read_on() {
-        let projection = format!("main\n{}", " p | text\n".repeat(4_000));
-        let page = |offset| {
-            PageProjectionView::window(
-                wire::PageProjection {
-                    review_id: CrawlerReviewId::new(),
-                    review_page_id: None,
-                    url: "https://antiques.example/item/1".to_owned(),
-                    final_url: "https://antiques.example/item/1".to_owned(),
-                    projection: projection.clone(),
-                    describes_one_product: true,
-                    json_ld_product_ids: JsonLdProductIds::default(),
-                },
-                offset,
-                MAX_URL_PATTERN_PROJECTION_CHARS,
-            )
-        };
-
-        let first = page(0);
-        let next = page(MAX_URL_PATTERN_PROJECTION_CHARS);
-
-        assert!(first.projection_truncated);
-        assert!(first.projection.starts_with("main\n"));
-        assert!(first.projection.ends_with(&format!(
-            "more characters; call inspect_page with offset {MAX_URL_PATTERN_PROJECTION_CHARS} to read on]\n"
-        )));
-        assert!(first.projection.chars().count() < MAX_URL_PATTERN_PROJECTION_CHARS + 120);
-        assert_eq!(next.projection_offset, MAX_URL_PATTERN_PROJECTION_CHARS);
-        assert!(
-            next.projection
-                .starts_with("# [continued: the projection from character 4000]")
+            relative_url("https://antiques.example/a", None),
+            "https://antiques.example/a"
         );
     }
 
