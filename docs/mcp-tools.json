@@ -9585,7 +9585,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Find listings similar to one listing, identified by its productListingId. Returns up to a fixed number of neighbours in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
+    "description": "Find listings similar to one listing, identified by its productListingId. Returns up to `size` neighbours (default 20; values outside 1 to 50 are clamped) in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -9702,12 +9702,22 @@
         "productListingId": {
           "pattern": "^pl_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
           "type": "string"
+        },
+        "size": {
+          "description": "Number of similar listings to return, from 1 to 50 (default 20); values outside that range are clamped.",
+          "format": "uint64",
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
         "productListingId"
       ],
-      "title": "ListingInput",
+      "title": "SimilarInput",
       "type": "object"
     },
     "name": "getSimilarProductListings",
@@ -10960,7 +10970,7 @@
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "The REST pending response has no body. MCP needs an explicit result distinct from\na completed computation with zero neighbors; the service's fixed neighbor limit applies.",
+      "description": "The REST pending response has no body. MCP needs an explicit result distinct from\na completed computation with zero neighbors.",
       "oneOf": [
         {
           "properties": {

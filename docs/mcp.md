@@ -239,7 +239,7 @@ seller-location discovery (`GET /v1/party-locations`) is REST-only.
 | `simpleSearchProductListings` | Complete existing filters, language/currency, `sort`, `order`, `size`, `searchAfter`; returns the cursored personalized summary collection and service-supplied totals. |
 | `getProductListing` | `productListingId`, language/currency; returns the complete public detail envelope. |
 | `getProductListingByTitleSlug` | `productListingTitleSlugId`, language/currency; returns the same detail envelope. |
-| `getSimilarProductListings` | `productListingId`, language/currency; returns `EMBEDDING_PENDING` or `READY` with `items`. |
+| `getSimilarProductListings` | `productListingId`, language/currency, optional `size` (default 20, clamped to 1–50); returns `EMBEDDING_PENDING` or `READY` with `items`. |
 | `getProductListingHistory` | `productListingId`, optional `currency`; returns every shared history entry inside `{ "result": [...] }`. |
 | `listAuctions` | Source, format, reported status, schedule range, `timeRole`, sort/order, `pageSize`, `searchAfter`; returns the public auction directory. |
 | `getAuction` | `auctionId`; returns source metadata, schedule, reported status/counts, visible count and catalogue/outbound links. |
@@ -265,9 +265,9 @@ including an empty grant. No stored browsing destination is read without `users:
 Public source/auction output excludes management, contact, grant and provider configuration. Unsigned amounts and opaque integer sort values remain
 exact JSON integers.
 
-Similarity uses the service's fixed neighbor limit. `EMBEDDING_PENDING` means retry the same
-operation later; `READY` with an empty array is a completed result. The envelope represents REST's
-bodyless pending outcome and introduces no neighbor-count argument.
+Similarity returns up to `size` neighbors; out-of-range values are clamped, and REST keeps the
+default of 20. `EMBEDDING_PENDING` means retry the same operation later; `READY` with an empty
+array is a completed result. The envelope represents REST's bodyless pending outcome.
 
 ### Continuations and complete history
 
@@ -276,7 +276,7 @@ bodyless pending outcome and introduces no neighbor-count argument.
 | Listing search | Supply the returned `searchAfter` object directly as JSON. Its immutable FX snapshot and complete opaque sort values are retained. REST alone query-encodes that object. |
 | Auction directory/catalogue | Serialize the returned `searchAfter` object as the next argument's JSON string, as on REST. Directory scope includes all filters/sort and nullable schedule instants; catalogue scope includes auction, position and listing identity. |
 | Source search | Return the opaque cursor unchanged with the same canonical query and page size. Encoded/decoded cursor bounds remain 4 KiB/3 KiB. |
-| History and similarity | No paging or continuation arguments. |
+| History and similarity | No paging or continuation arguments; similarity takes only a neighbor count. |
 
 Auction scheduled sorting requires `timeRole`; a schedule range requires both bounds. Catalogue
 pricing retains the use case's current/sale-observation FX selection. Source search and slug

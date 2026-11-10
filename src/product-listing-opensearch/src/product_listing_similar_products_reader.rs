@@ -161,6 +161,31 @@ mod tests {
         assert!(actual.pointer("/query/bool").is_none());
     }
 
+    #[test]
+    fn should_size_the_knn_query_by_the_requested_limit() {
+        for limit in [
+            SimilarProductListingsLimit::MIN,
+            20,
+            SimilarProductListingsLimit::MAX,
+        ] {
+            let request = ProductListingSimilarProductListingsRequest {
+                product_listing_id: ProductListingId::new(),
+                embedding: vec![0.1, 0.2],
+                language: Language::De,
+                price_filter_plan: test_price_filter_plan(),
+                limit: SimilarProductListingsLimit::clamped(limit),
+            };
+
+            let actual = build_similar_products_request(&request);
+
+            assert_eq!(actual.pointer("/size"), Some(&json!(limit)));
+            assert_eq!(
+                actual.pointer("/query/knn/embedding/k"),
+                Some(&json!(limit))
+            );
+        }
+    }
+
     #[tokio::test]
     async fn should_preserve_transport_failure_when_similar_search_cannot_connect()
     -> Result<(), Box<dyn std::error::Error>> {

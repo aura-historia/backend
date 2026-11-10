@@ -47,6 +47,17 @@ struct ListingInput {
 }
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SimilarInput {
+    #[schemars(schema_with = "aura_historia_contracts::wire::schema::product_listing_id")]
+    product_listing_id: ProductListingId,
+    #[serde(flatten)]
+    presentation: ProductListingPresentationData,
+    /// Number of similar listings to return, from 1 to 50 (default 20); values outside that range are clamped.
+    #[schemars(range(max = u64::MAX))]
+    size: Option<u64>,
+}
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SlugInput {
     #[schemars(schema_with = "aura_historia_contracts::wire::schema::slug")]
     product_listing_title_slug_id: ProductListingSlugId,
@@ -54,7 +65,7 @@ struct SlugInput {
     presentation: ProductListingPresentationData,
 }
 /// The REST pending response has no body. MCP needs an explicit result distinct from
-/// a completed computation with zero neighbors; the service's fixed neighbor limit applies.
+/// a completed computation with zero neighbors.
 #[derive(Serialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "SCREAMING_SNAKE_CASE")]
 enum SimilarOutput {
@@ -179,9 +190,9 @@ fn similar(
     OperationDefinition::new(
         "getSimilarProductListings",
         "Find similar listings",
-        "Find listings similar to one listing, identified by its productListingId. Returns up to a fixed number of neighbours in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
+        "Find listings similar to one listing, identified by its productListingId. Returns up to `size` neighbours (default 20; values outside 1 to 50 are clamped) in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read.",
         policy(),
-        move |input: ListingInput, context| {
+        move |input: SimilarInput, context| {
             let service = service.clone();
             async move {
                 let result = context
@@ -191,7 +202,10 @@ fn similar(
                             lookup: ProductListingEmbeddingLookup::ById(input.product_listing_id),
                             language: input.presentation.language,
                             currency: input.presentation.currency,
-                            limit: SimilarProductListingsLimit::default(),
+                            limit: input.size.map_or_else(
+                                Default::default,
+                                SimilarProductListingsLimit::clamped,
+                            ),
                         },
                     ))
                     .await?
@@ -504,7 +518,7 @@ mod tests {
         assert!(matches!(result, Err(OperationError::NotFound)));
     }
     #[tokio::test]
-    async fn should_distinguish_pending_similarity_from_ready_empty_and_keep_fixed_limit() {
+    async fn should_distinguish_pending_similarity_from_ready_empty() {
         let id = ProductListingId::new();
         let (ready, _) = setup(false, false);
         let output = call(
@@ -545,19 +559,84 @@ mod tests {
                 assert_eq!(Currency::Eur, calls.similar[0].1.currency);
                 assert!(matches!(calls.similar[0].0.principal, Principal::Anonymous));
             }
-            let op = registry.get("getSimilarProductListings").unwrap();
-            assert!(matches!(
-                op.call(json!({"productListingId":id,"size":1}), context())
-                    .await,
-                Err(OperationError::InvalidArguments(_))
-            ));
-            assert!(
-                !op.tool().input_schema["properties"]
-                    .as_object()
-                    .unwrap()
-                    .contains_key("size")
+        }
+    }
+    #[tokio::test]
+    async fn should_request_twenty_neighbours_unless_a_size_is_given() {
+        let (registry, calls) = setup(false, false);
+
+        call(
+            &registry,
+            "getSimilarProductListings",
+            json!({"productListingId":ProductListingId::new()}),
+        )
+        .await
+        .unwrap();
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(
+            SimilarProductListingsLimit::default(),
+            calls.similar[0].1.limit
+        );
+        assert_eq!(20, calls.similar[0].1.limit.get());
+    }
+    #[tokio::test]
+    async fn should_pass_the_requested_size_and_clamp_it_to_one_through_fifty() {
+        for (requested, expected) in [(1, 1), (20, 20), (50, 50), (0, 1), (51, 50), (u64::MAX, 50)]
+        {
+            let (registry, calls) = setup(false, false);
+
+            call(
+                &registry,
+                "getSimilarProductListings",
+                json!({"productListingId":ProductListingId::new(),"size":requested}),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(
+                expected,
+                calls.lock().unwrap().similar[0].1.limit.get(),
+                "size {requested}"
             );
         }
+    }
+    #[tokio::test]
+    async fn should_reject_a_size_that_is_not_a_non_negative_integer() {
+        let (registry, calls) = setup(false, false);
+        let op = registry.get("getSimilarProductListings").unwrap();
+
+        for size in [json!(-1), json!(1.5), json!("5"), json!(null)] {
+            let result = op
+                .call(
+                    json!({"productListingId":ProductListingId::new(),"size":size}),
+                    context(),
+                )
+                .await;
+            // A null size means "not given"; every other value is not an unsigned integer.
+            let rejected = matches!(result, Err(OperationError::InvalidArguments(_)));
+            assert_eq!(!size.is_null(), rejected, "size {size}");
+        }
+        assert_eq!(1, calls.lock().unwrap().similar.len());
+    }
+    #[test]
+    fn should_describe_the_similarity_size_range_default_and_clamping() {
+        let (registry, _) = setup(false, false);
+        let tool = registry.get("getSimilarProductListings").unwrap().tool();
+
+        let description = tool.input_schema["properties"]["size"]["description"]
+            .as_str()
+            .unwrap();
+
+        for fact in ["1 to 50", "default 20", "clamped"] {
+            assert!(description.contains(fact), "{fact}: {description}");
+        }
+        assert!(
+            tool.description
+                .as_deref()
+                .unwrap()
+                .contains("up to `size` neighbours")
+        );
     }
     #[tokio::test]
     async fn should_reject_invalid_identifiers_enums_ranges_sort_and_cursor() {
