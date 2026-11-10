@@ -6,7 +6,7 @@
 //! changed prompt or schema gets a new version so the process ledger names what each report
 //! answered. The flags are the contract in `docs/crawler/operations.md` (review agent runner).
 
-use super::queue::QueuedReview;
+use super::queue::{QueuedReview, ReviewArtifact};
 use super::settings::{RunnerSettings, effort_flag};
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
@@ -122,19 +122,27 @@ pub(super) struct RoleContract {
     /// prompt or the report schema.
     pub(super) version: &'static str,
     prompt: &'static str,
+    /// The rules of one artifact type, which replace `{artifact_rules}` in the prompt, so an agent
+    /// reads only the rules of the review it works.
+    product_schema_rules: &'static str,
+    url_pattern_rules: &'static str,
     report_schema: &'static str,
 }
 
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v10",
-            prompt: include_str!("prompts/author.v10.md"),
+            version: "author.v11",
+            prompt: include_str!("prompts/author.v11.md"),
+            product_schema_rules: include_str!("prompts/author.v11.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/author.v11.url-pattern.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v7",
-            prompt: include_str!("prompts/reviewer.v7.md"),
+            version: "reviewer.v8",
+            prompt: include_str!("prompts/reviewer.v8.md"),
+            product_schema_rules: include_str!("prompts/reviewer.v8.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/reviewer.v8.url-pattern.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -147,9 +155,16 @@ impl RoleContract {
     }
 
     /// The prompt for `review` under the console's `limits`. It names the review and nothing of
-    /// its content: the agent reads that through its tools, as data.
+    /// its content: the agent reads that through its tools, as data. The review comes last, so the
+    /// prompt before it is the same for every review of an artifact type and the model's prompt
+    /// cache serves it across processes.
     pub(super) fn prompt(&self, review: &QueuedReview, limits: &AgentLimits) -> String {
+        let rules = match review.artifact_type {
+            ReviewArtifact::ProductSchema => self.product_schema_rules,
+            ReviewArtifact::UrlPattern => self.url_pattern_rules,
+        };
         self.prompt
+            .replace("{artifact_rules}", rules)
             .replace("{review_id}", &review.review_id.to_string())
             .replace("{artifact_type}", review.artifact_type.as_str())
             .replace("{min_labelled_urls}", &limits.min_labelled_urls.to_string())
@@ -248,7 +263,6 @@ fn mcp_config(settings: &RunnerSettings, role: AgentRole, review_id: CrawlerRevi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::review_agent_runner::queue::ReviewArtifact;
     use crate::review_agent_runner::settings::{RunnerLocation, RunnerSettings};
     use crate::review_mcp::tools_for;
     use std::collections::HashMap;
@@ -282,6 +296,13 @@ mod tests {
             handed_back: None,
             created: time::OffsetDateTime::UNIX_EPOCH,
         }
+    }
+
+    /// The prompt of `role` for a review of `artifact`.
+    fn prompt_of(role: AgentRole, artifact: ReviewArtifact) -> String {
+        let mut review = review();
+        review.artifact_type = artifact;
+        role_contract(role).prompt(&review, &AgentLimits::default())
     }
 
     fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
@@ -529,7 +550,7 @@ mod tests {
     /// `source_listing_id` null, and to leave it null rather than take a variant's ID.
     #[test]
     fn should_tell_the_author_to_look_for_a_listing_id_before_leaving_the_rule_out() {
-        let prompt = role_contract(AgentRole::Author).prompt(&review(), &AgentLimits::default());
+        let prompt = prompt_of(AgentRole::Author, ReviewArtifact::ProductSchema);
         for term in [
             "source_listing_id",
             "input[name=product-id]",
@@ -551,9 +572,9 @@ mod tests {
     /// reads URL patterns structurally, and the reviewer keeps its note short.
     #[test]
     fn should_state_the_state_contract_and_the_sold_page_and_url_pattern_rules() {
-        let author = role_contract(AgentRole::Author).prompt(&review(), &AgentLimits::default());
-        let reviewer =
-            role_contract(AgentRole::Reviewer).prompt(&review(), &AgentLimits::default());
+        let artifact = ReviewArtifact::ProductSchema;
+        let author = prompt_of(AgentRole::Author, artifact);
+        let reviewer = prompt_of(AgentRole::Reviewer, artifact);
         for (role, prompt) in [("author", &author), ("reviewer", &reviewer)] {
             for term in [
                 "schema.org availability",
@@ -564,10 +585,14 @@ mod tests {
                 "status slot",
                 "state_mentions",
                 "PRODUCT_STILL_EXTRACTS",
-                "NOT_PRODUCT",
-                "valuation service",
-                "structural pattern",
             ] {
+                assert!(prompt.contains(term), "{role}: {term}");
+            }
+        }
+        let url_author = prompt_of(AgentRole::Author, ReviewArtifact::UrlPattern);
+        let url_reviewer = prompt_of(AgentRole::Reviewer, ReviewArtifact::UrlPattern);
+        for (role, prompt) in [("author", &url_author), ("reviewer", &url_reviewer)] {
+            for term in ["NOT_PRODUCT", "valuation service", "structural pattern"] {
                 assert!(prompt.contains(term), "{role}: {term}");
             }
         }
@@ -585,6 +610,36 @@ mod tests {
         assert!(
             reviewer.contains("give NEEDS_REPAIR naming the page when it is a product after all")
         );
+    }
+
+    /// An agent reads the rules of its review's artifact type only, and the review comes last, so
+    /// the prompt before it is the same for every review of the type and the prompt cache serves it
+    /// across processes.
+    #[test]
+    fn should_give_each_artifact_type_its_own_rules_and_name_the_review_last() {
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            let product = prompt_of(role, ReviewArtifact::ProductSchema);
+            let url = prompt_of(role, ReviewArtifact::UrlPattern);
+            assert!(!product.contains("label_sample_urls"), "{role}");
+            assert!(!url.contains("source_listing_id"), "{role}");
+            assert!(!product.contains("{artifact_rules}"), "{role}");
+            for (prompt, artifact) in [(&product, "PRODUCT_SCHEMA"), (&url, "URL_PATTERN")] {
+                let (rules, named) = prompt
+                    .rsplit_once("\n\nYour review: ")
+                    .unwrap_or_else(|| panic!("{role}: no review line in {prompt}"));
+                assert!(named.contains(&format!("a {artifact} review")), "{role}");
+                assert!(
+                    !rules.contains("cr_"),
+                    "{role}: the id is in the shared prefix"
+                );
+            }
+            let again = role_contract(role).prompt(&review(), &AgentLimits::default());
+            let of_first = url.rsplit_once("\n\nYour review: ").map(|(rules, _)| rules);
+            let of_again = again
+                .rsplit_once("\n\nYour review: ")
+                .map(|(rules, _)| rules);
+            assert_eq!(of_first, of_again, "{role}");
+        }
     }
 
     /// Both agents know what `human_required` and the console's refusals of live work mean
@@ -605,8 +660,7 @@ mod tests {
             }
         }
         assert!(
-            role_contract(AgentRole::Reviewer)
-                .prompt(&review(), &AgentLimits::default())
+            prompt_of(AgentRole::Reviewer, ReviewArtifact::ProductSchema)
                 .contains("whose reason is manual_schema_required, as the crawler opens them in agent mode, classifies its seed and triggering pages as non-product pages until a human revokes the rejection")
         );
         assert_eq!(
@@ -614,7 +668,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v10", "reviewer.v7"]
+            ["author.v11", "reviewer.v8"]
         );
     }
 

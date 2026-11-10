@@ -1273,8 +1273,8 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v10");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v7");
+        assert_eq!(ledger[0]["prompt_version"], "author.v11");
+        assert_eq!(ledger[1]["prompt_version"], "reviewer.v8");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);
@@ -2268,7 +2268,11 @@ echo "end $role $review" >> "$dir/order.log"
     /// runner's own environment; a run that cannot read the console's limits starts no agent.
     #[tokio::test]
     async fn should_tell_the_agents_the_console_s_limits_and_run_none_without_them() {
-        let fixture = Fixture::new(vec![review("PENDING_REVIEW", true)]).await;
+        let url_pattern = CrawlerReview {
+            artifact_type: "URL_PATTERN".to_owned(),
+            ..review("PENDING_REVIEW", true)
+        };
+        let fixture = Fixture::new(vec![url_pattern]).await;
         let settings = fixture.settings(
             &["--once"],
             &[("CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS", "4")],
