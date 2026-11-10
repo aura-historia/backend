@@ -55,9 +55,9 @@ fn assert_release_counts(
     tools: &[Value],
     expected: &BTreeMap<&str, (&Value, &Value)>,
 ) {
-    assert_eq!(12, public["operations"].as_array().unwrap().len());
+    assert_eq!(11, public["operations"].as_array().unwrap().len());
     assert_eq!(26, protected["operations"].as_array().unwrap().len());
-    assert_eq!(38, tools.len());
+    assert_eq!(37, tools.len());
     let mut family_counts = BTreeMap::new();
     let mut access_counts = BTreeMap::new();
     for tool in tools {
@@ -77,17 +77,17 @@ fn assert_release_counts(
             ("notifications", 6),
             ("product_listing_history", 1),
             ("product_listings", 4),
-            ("public_discovery", 4),
+            ("public_discovery", 3),
             ("saved_searches", 7),
             ("watchlist", 4),
         ]),
         family_counts
     );
     assert_eq!(
-        BTreeMap::from([("public", 12), ("protected", 26)]),
+        BTreeMap::from([("public", 11), ("protected", 26)]),
         access_counts
     );
-    for (delegated, count) in [(true, 10), (false, 2)] {
+    for (delegated, count) in [(true, 10), (false, 1)] {
         assert_eq!(
             count,
             public["operations"]
