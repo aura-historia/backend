@@ -139,13 +139,23 @@ async fn server_card_document(State(state): State<HttpState>, headers: HeaderMap
 
 /// OpenAI verifies the MCP host by fetching exactly the token issued in its portal.
 async fn openai_apps_challenge(State(state): State<HttpState>, headers: HeaderMap) -> Response {
-    if let Err(status) = validate_origin_and_host(&headers, &state.config) {
+    verification_document(&state, &headers, state.config.openai_apps_challenge.clone())
+}
+
+/// A directory's domain-verification document: the exact text its portal issued, or `404`
+/// while none is configured. The Host and Origin allowlists apply as for other metadata.
+fn verification_document(
+    state: &HttpState,
+    headers: &HeaderMap,
+    document: Option<String>,
+) -> Response {
+    if let Err(status) = validate_origin_and_host(headers, &state.config) {
         return status.into_response();
     }
-    match &state.config.openai_apps_challenge {
-        Some(token) => (
+    match document {
+        Some(document) => (
             [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-            token.clone(),
+            document,
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
