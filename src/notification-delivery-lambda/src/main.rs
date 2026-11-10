@@ -26,7 +26,7 @@ async fn main() -> Result<(), Error> {
 
     let postgres = RuntimePostgresConfig::from_env()?;
     let email = email_config()?;
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_10())
         .timeout_config(
             TimeoutConfig::builder()
                 .connect_timeout(std::time::Duration::from_secs(5))

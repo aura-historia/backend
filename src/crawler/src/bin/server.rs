@@ -261,7 +261,7 @@ async fn main() {
 
     let cloudwatch_logging = cloudwatch_logging_config()
         .expect("Failed to parse crawler CloudWatch logging configuration");
-    let aws_config = aws_config::defaults(BehaviorVersion::v2026_01_12())
+    let aws_config = aws_config::defaults(BehaviorVersion::v2026_11_10())
         .load()
         .await;
     let cloudwatch_client = cloudwatch_logging

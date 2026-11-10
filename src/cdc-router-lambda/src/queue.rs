@@ -191,7 +191,7 @@ mod tests {
         .unwrap();
         let client = Client::from_conf(
             aws_sdk_sqs::Config::builder()
-                .behavior_version(aws_sdk_sqs::config::BehaviorVersion::v2026_01_12())
+                .behavior_version(aws_sdk_sqs::config::BehaviorVersion::v2026_11_10())
                 .region(Region::new("eu-central-1"))
                 .build(),
         );
