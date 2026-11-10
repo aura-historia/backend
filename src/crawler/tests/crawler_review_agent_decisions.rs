@@ -477,6 +477,20 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
     );
     assert!(
         matches!(
+            repository
+                .approval_failures(review_id)
+                .await
+                .unwrap()
+                .as_slice(),
+            [
+                FailedApprovalCheck::PagesNotCovered { .. },
+                FailedApprovalCheck::NoSoldPageTested { .. }
+            ]
+        ),
+        "the dry run answers what the approval refused with"
+    );
+    assert!(
+        matches!(
             acknowledged,
             Err(ReviewRepositoryError::AgentCoverageAcknowledgement)
         ),
@@ -529,6 +543,17 @@ async fn should_take_the_agent_approval_only_once_a_current_live_matrix_passes_t
             [FailedApprovalCheck::LiveMatrixExpired { .. }]
         ),
         "an evaluation older than the allowed age vouches for nothing"
+    );
+    assert!(
+        matches!(
+            repository
+                .approval_failures(review_id)
+                .await
+                .unwrap()
+                .as_slice(),
+            [FailedApprovalCheck::LiveMatrixExpired { .. }]
+        ),
+        "the dry run says the same of an expired matrix"
     );
     assert_eq!(
         trail(&repository, review_id).await,

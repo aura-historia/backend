@@ -684,19 +684,19 @@ mod tests {
         events
     }
 
-    /// `GET /api/reviews/{id}/approval-checks`: `null` for a product-schema review, and for a
-    /// URL-pattern review the guard's refusal when the review is marked `guard_refused/<id>`.
+    /// `GET /api/reviews/{id}/approval-checks`: the guard's refusal when the review is marked
+    /// `guard_refused/<id>`, otherwise none.
     fn approval_checks(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
-        let failed = if review.artifact_type != "URL_PATTERN" {
-            json!(null)
-        } else if claude_dir
+        let refused = claude_dir
             .join("guard_refused")
             .join(review.review_id.to_string())
-            .exists()
-        {
-            json!([{ "check": "TOO_FEW_LABELS", "product": 1, "not_product": 3, "minimum": 3 }])
-        } else {
-            json!([])
+            .exists();
+        let failed = match (refused, review.artifact_type.as_str()) {
+            (false, _) => json!([]),
+            (true, "URL_PATTERN") => {
+                json!([{ "check": "TOO_FEW_LABELS", "product": 1, "not_product": 3, "minimum": 3 }])
+            }
+            (true, _) => json!([{ "check": "NO_SOLD_PAGE_TESTED", "states_seen": [] }]),
         };
         (200, json!({ "failed_checks": failed }).to_string())
     }
@@ -1461,16 +1461,23 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(state.cooldowns.is_empty(), "{state:?}");
     }
 
-    /// A URL-pattern candidate the approval guard already refuses gets no reviewer process, which
-    /// could only be refused: the review cools down, while one the guard passes gets its reviewer.
+    /// A candidate the approval guard already refuses gets no reviewer process, which could only
+    /// be refused: the review cools down, while one the guard passes gets its reviewer. Both
+    /// artifact types are guarded.
     #[tokio::test]
-    async fn should_start_no_reviewer_for_a_url_pattern_candidate_the_guard_refuses() {
-        let url_pattern = |review: CrawlerReview| CrawlerReview {
-            artifact_type: "URL_PATTERN".to_owned(),
+    async fn should_start_no_reviewer_for_a_candidate_the_guard_refuses() {
+        for artifact_type in ["URL_PATTERN", "PRODUCT_SCHEMA"] {
+            guard_blocks_the_reviewer_of(artifact_type).await;
+        }
+    }
+
+    async fn guard_blocks_the_reviewer_of(artifact_type: &str) {
+        let of_type = |review: CrawlerReview| CrawlerReview {
+            artifact_type: artifact_type.to_owned(),
             ..review
         };
-        let refused = url_pattern(review("PENDING_REVIEW", true));
-        let passing = url_pattern(review("PENDING_REVIEW", true));
+        let refused = of_type(review("PENDING_REVIEW", true));
+        let passing = of_type(review("PENDING_REVIEW", true));
         let fixture = Fixture::new(vec![refused.clone(), passing.clone()]).await;
         fixture.claude.guard_refuses(refused.review_id);
 

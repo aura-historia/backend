@@ -397,6 +397,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "get_review",
             "inspect_page",
             "refresh_matrix",
+            "check_approval",
             "mark_needs_repair",
             "approve",
             "reject",

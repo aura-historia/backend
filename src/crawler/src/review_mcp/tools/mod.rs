@@ -656,6 +656,7 @@ mod tests {
                 "get_review",
                 "inspect_page",
                 "refresh_matrix",
+                "check_approval",
                 "mark_needs_repair",
                 "evaluate_candidate",
                 "update_candidate",
@@ -685,6 +686,7 @@ mod tests {
                 "list_pending_reviews",
                 "get_review",
                 "inspect_page",
+                "check_approval",
                 "mark_needs_repair",
                 "update_candidate"
             ]

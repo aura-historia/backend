@@ -337,11 +337,7 @@ impl ReviewServer {
             else {
                 return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
             };
-            return match self
-                .repository
-                .url_pattern_approval_failures(review_id)
-                .await
-            {
+            return match self.repository.approval_failures(review_id).await {
                 Ok(failed_checks) => {
                     HttpResponse::json(200, &json!({ "failed_checks": failed_checks }))
                 }
