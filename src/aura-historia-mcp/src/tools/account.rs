@@ -686,6 +686,36 @@ mod tests {
         }
 
         #[aura_integration_test(services = [SCHEMA], isolated = true)]
+        async fn should_omit_the_stripe_customer_id_from_account_results() {
+            let pool = get_postgres_client().await;
+            let owner = seed(&pool).await;
+            sqlx::query("UPDATE users SET stripe_customer_id = $2 WHERE user_id = $1")
+                .bind(owner.into_uuid())
+                .bind("cus_mcp_account")
+                .execute(&pool)
+                .await
+                .unwrap();
+            let runtime = Runtime::from_pool(pool);
+            let registry = registry(&runtime);
+            let ctx = both(owner);
+
+            for (name, input) in [
+                ("getUserAccount", json!({})),
+                ("updateUserAccount", json!({"firstName": "Ada"})),
+            ] {
+                let result = invoke(&registry, name, input, &ctx).await;
+                assert!(result.get("stripeCustomerId").is_none(), "{name}: {result}");
+                let output =
+                    serde_json::to_value(registry.get(name).unwrap().tool().output_schema.as_ref())
+                        .unwrap();
+                assert!(
+                    output["properties"].get("stripeCustomerId").is_none(),
+                    "{name}: {output}"
+                );
+            }
+        }
+
+        #[aura_integration_test(services = [SCHEMA], isolated = true)]
         async fn should_apply_profile_patches_only_to_the_delegated_owner_and_preserve_scope_checks()
          {
             let pool = get_postgres_client().await;

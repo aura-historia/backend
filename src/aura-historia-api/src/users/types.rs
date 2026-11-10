@@ -1,5 +1,5 @@
 use crate::patch_value::PatchValue;
-pub(crate) use aura_historia_contracts::users::account::{OwnUserData, PatchOwnUserData};
+pub(crate) use aura_historia_contracts::users::account::{OwnUserRestData, PatchOwnUserData};
 use localization::Language;
 use money::Currency;
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-use super::types::{OwnUserData, PatchOwnUserData};
+use super::types::{OwnUserRestData, PatchOwnUserData};
 use super::util::{no_store, parse_json};
 use crate::auth::protected_context;
 use crate::error::ApiError;
@@ -17,7 +17,7 @@ pub async fn get_me(State(state): State<UsersState>, headers: HeaderMap) -> Resp
         Err(r) => return *r,
     };
     match state.get_own_user.execute(&ctx, GetOwnUserRequest).await {
-        Ok(view) => no_store(Json(OwnUserData::from(view)).into_response()),
+        Ok(view) => no_store(Json(OwnUserRestData::from(view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
@@ -63,7 +63,7 @@ pub(crate) async fn patch_user(
         Err(error) => return ApiError::from(error).into_response(),
     };
     match state.update_user_profile.execute(&ctx, command).await {
-        Ok(result) => no_store(Json(OwnUserData::from(result.view)).into_response()),
+        Ok(result) => no_store(Json(OwnUserRestData::from(result.view)).into_response()),
         Err(error) => ApiError::from(error).into_response(),
     }
 }

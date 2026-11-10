@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — MCP tool catalogue fixes before directory submission
+
+- The MCP tools `getUserAccount` and `updateUserAccount` no longer return `stripeCustomerId`. `GET` and `PATCH /v1/me/account` are unchanged and still return it, because the webapp maps the field.
+
 ## 2026-11-10 — One approval for every MCP tool
 
 - The `WWW-Authenticate` challenge of a protected MCP call (`401`, and `403` with `error="insufficient_scope"`) now names all eight ordinary-user scopes in `scope`, not only the scopes the called tool needs. A client that follows the challenge, such as Claude, asks the user once instead of once per tool family. Each tool still requires its own scopes, and a token that lacks them still receives `403`.

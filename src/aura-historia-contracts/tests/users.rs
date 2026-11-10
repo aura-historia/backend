@@ -1,6 +1,6 @@
 use application::patch_field::PatchField;
 use aura_historia_contracts::users::{
-    account::{OwnUserData, PatchOwnUserData},
+    account::{OwnUserData, OwnUserRestData, PatchOwnUserData},
     addresses::{AddressData, CreateData, PageData, PageQuery, UpdateData},
     destination::{DestinationData, DestinationResponse, SetDestinationData},
 };
@@ -113,10 +113,8 @@ fn should_preserve_every_profile_patch_state_and_non_nullable_boolean() {
     }
 }
 
-#[test]
-fn should_serialize_the_complete_existing_own_account_contract() {
-    let id = UserId::new();
-    let output = assert_output(OwnUserData::from(UserDetailsView {
+fn details_with_stripe_customer(id: UserId) -> UserDetailsView {
+    UserDetailsView {
         user_id: id,
         email: "ada@example.test".parse().unwrap(),
         first_name: Some("Ada".into()),
@@ -129,11 +127,35 @@ fn should_serialize_the_complete_existing_own_account_contract() {
         tier: UserTier::Pro,
         role: UserRole::User,
         stripe_customer_id: Some("cus_fixture".into()),
-    }));
+    }
+}
+
+#[test]
+fn should_serialize_the_complete_existing_own_account_contract() {
+    let id = UserId::new();
+    let output = assert_output(OwnUserRestData::from(details_with_stripe_customer(id)));
     assert_eq!(
         json!({"userId":id,"email":"ada@example.test","firstName":"Ada","lastName":"Lovelace","language":"de","currency":"EUR","measurementUnit":"METRIC","showUnassessedOrSensitiveContent":true,"marketingEmailConsent":true,"tier":"PRO","role":"USER","stripeCustomerId":"cus_fixture"}),
         output
     );
+}
+
+#[test]
+fn should_serialize_the_shared_own_account_without_the_stripe_customer_id() {
+    let id = UserId::new();
+    let output = assert_output(OwnUserData::from(details_with_stripe_customer(id)));
+    assert_eq!(
+        json!({"userId":id,"email":"ada@example.test","firstName":"Ada","lastName":"Lovelace","language":"de","currency":"EUR","measurementUnit":"METRIC","showUnassessedOrSensitiveContent":true,"marketingEmailConsent":true,"tier":"PRO","role":"USER"}),
+        output
+    );
+    let schema = serde_json::to_value(
+        SchemaSettings::default()
+            .for_serialize()
+            .into_generator()
+            .into_root_schema_for::<OwnUserData>(),
+    )
+    .unwrap();
+    assert!(schema["properties"].get("stripeCustomerId").is_none());
 }
 
 fn geography() -> Value {

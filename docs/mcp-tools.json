@@ -11428,12 +11428,6 @@
         "showUnassessedOrSensitiveContent": {
           "type": "boolean"
         },
-        "stripeCustomerId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "tier": {
           "enum": [
             "FREE",
@@ -22765,12 +22759,6 @@
         },
         "showUnassessedOrSensitiveContent": {
           "type": "boolean"
-        },
-        "stripeCustomerId": {
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "tier": {
           "enum": [

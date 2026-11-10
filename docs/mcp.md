@@ -342,7 +342,8 @@ Address creation assigns a new identity on every accepted call, including equal 
 Its annotations mark it non-idempotent; an ambiguous timeout requires reconciliation before a
 retry, as described in [command retries](command-retries.md). Replacements/deletion advertise
 destructive effects and preserve service CAS behavior. The transport does not retry mutations.
-Credential management, billing and account deletion have no tools in this family.
+Credential management, billing and account deletion have no tools in this family, and the account
+result omits the persisted Stripe customer reference that REST `/v1/me/account` still returns.
 
 ## Saved searches and match feedback
 
