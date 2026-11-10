@@ -56,8 +56,9 @@ Worker health measures whether the deployed workers work, not whether they keep 
 ingestion. A queue with a backlog passes while its worker acknowledges at least half of the
 records it receives in the observed window; SQS throttling of a saturated function returns
 records unacknowledged, while a failing worker acknowledges almost none. Backlog age is
-reported but not gated. A dead-letter queue fails only when it holds more messages than when
-the operation started; without a sample from that start, any dead letter fails. Earlier dead
+reported but not gated. A dead-letter queue fails only when it holds more messages than its
+latest sample before the observed window, which starts after the stack updates; without such a
+sample, any dead letter fails. Earlier dead
 letters stay with [failure custody](durable-worker-runbook.md#failure-custody-and-controlled-redrive)
 and the DLQ alarm.
 

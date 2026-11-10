@@ -37,6 +37,19 @@ async function metricTotal(api, spec, since, now) {
   return points.length ? points.reduce((total, point) => total + point.Sum, 0) : null;
 }
 
+/** The most recent sample in the window: the value as the window closes, or null without one. */
+async function metricLatest(api, spec, since, now) {
+  const result = await api('cloudwatch', 'get-metric-statistics', {
+    Namespace: spec.namespace, MetricName: spec.name,
+    Dimensions: Object.entries(spec.dimensions).map(([Name, Value]) => ({ Name, Value })),
+    StartTime: since, EndTime: now, Period: 60, Statistics: ['Maximum'],
+  });
+  const points = (result.Datapoints ?? []).filter((point) =>
+    Date.parse(point.Timestamp) >= Date.parse(since) && Date.parse(point.Timestamp) <= Date.parse(now)
+      && Number.isFinite(point.Maximum)).sort((a, b) => Date.parse(a.Timestamp) - Date.parse(b.Timestamp));
+  return points.length ? points.at(-1).Maximum : null;
+}
+
 // A worker that acknowledges at least half of what it receives is processing: SQS throttling of a
 // saturated function returns messages unacknowledged, but a failing worker acknowledges almost none.
 const MINIMUM_DELETED_SHARE = 0.5;
@@ -154,8 +167,10 @@ async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = (
     if (dlq === 0) add(`dlq:${queue.name}`, 'PASS', 'Visible dead letters: 0.');
     else {
       const startedAt = context.startedAt;
-      const before = await metric(api, { namespace: 'AWS/SQS', name: 'ApproximateNumberOfMessagesVisible',
-        statistic: 'Minimum', dimensions: { QueueName: String(queue.dlqUrl).split('/').at(-1) } },
+      // The count as the observed window starts: dead letters that the previous version produced
+      // while a deployment was still rolling out are not attributable to the deployed workers.
+      const before = await metricLatest(api, { namespace: 'AWS/SQS', name: 'ApproximateNumberOfMessagesVisible',
+        dimensions: { QueueName: String(queue.dlqUrl).split('/').at(-1) } },
       new Date(Date.parse(startedAt) - 600000).toISOString(), startedAt);
       add(`dlq:${queue.name}`, before !== null && dlq <= before ? 'PASS' : 'FAIL', before === null
         ? `Visible dead letters: ${dlq}; none is attributable to before the operation.`
@@ -205,4 +220,4 @@ async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = (
     'SQL, messages, external effects and completed stacks cannot be undone by alias rollback.'] };
 }
 
-module.exports = { verifyHealth, metric, metricTotal, fingerprint };
+module.exports = { verifyHealth, metric, metricTotal, metricLatest, fingerprint };

@@ -73,3 +73,13 @@ test('only dead letters added since the operation started fail, and an unsampled
   assert.equal(check(await run(2), `dlq:${QUEUE}`).status, 'FAIL');
   assert.equal(check(await run(0), `dlq:${QUEUE}`).status, 'PASS');
 });
+
+test('dead letters the previous version added during the rollout count as already present', async () => {
+  const before = (minutes) => new Date(Date.parse(STARTED) - minutes * 60000).toISOString();
+  const run = (dead) => observe({ visible: 0, inflight: 0, dead, metrics: {
+    [`${DLQ}:ApproximateNumberOfMessagesVisible`]: [[before(1), 5], [before(8), 1], [before(4), 3]],
+  } });
+  assert.equal(check(await run(5), `dlq:${QUEUE}`).status, 'PASS');
+  assert.match(check(await run(5), `dlq:${QUEUE}`).detail, /no more than 5 when the operation started/);
+  assert.equal(check(await run(6), `dlq:${QUEUE}`).status, 'FAIL');
+});
