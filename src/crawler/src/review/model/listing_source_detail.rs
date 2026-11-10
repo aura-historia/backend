@@ -6,6 +6,7 @@ use super::ReviewActor;
 use crate::CrawlerReviewId;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::spider::classification::product_url_pattern::UrlPatternMatching;
 use serde::Serialize;
 use time::OffsetDateTime;
 
@@ -59,6 +60,8 @@ pub struct UrlPatternOverview {
     pub value: String,
     /// The regex that takes a URL out of the pattern's matches; `None` without one.
     pub exclude: Option<String>,
+    /// What the pattern and its exclusion are matched against.
+    pub matching: UrlPatternMatching,
     /// The latest approved URL-pattern review, with when and by whom it was approved; `None`
     /// when no approval is recorded.
     pub approved_review_id: Option<CrawlerReviewId>,

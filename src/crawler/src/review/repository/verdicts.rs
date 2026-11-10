@@ -35,7 +35,7 @@ use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
@@ -570,21 +570,7 @@ async fn make_reviewed_url_pattern_live(
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let replaced = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
-    let approved = LiveUrlPattern {
-        url_pattern: pattern
-            .as_ref()
-            .map(|pattern| pattern.include_source().to_owned()),
-        url_pattern_exclude: pattern
-            .as_ref()
-            .and_then(|pattern| pattern.exclude_source())
-            .map(str::to_owned),
-        url_pattern_state: if pattern.is_some() {
-            "MATCHED"
-        } else {
-            "NO_PATTERN"
-        }
-        .to_owned(),
-    };
+    let approved = LiveUrlPattern::of(pattern.as_ref());
     let reclassified = make_url_pattern_live(
         transaction,
         &review.listing_source_id,
@@ -609,10 +595,10 @@ pub(super) async fn lock_live_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<LiveUrlPattern, ReviewRepositoryError> {
-    let (url_pattern, url_pattern_exclude, url_pattern_state) =
-        sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
-            "SELECT url_pattern, url_pattern_exclude, url_pattern_state FROM listing_sources \
-         WHERE listing_source_id = $1 FOR UPDATE",
+    let (url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, String)>(
+            "SELECT url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state \
+             FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .fetch_one(&mut **transaction)
@@ -620,6 +606,10 @@ pub(super) async fn lock_live_url_pattern(
     Ok(LiveUrlPattern {
         url_pattern,
         url_pattern_exclude,
+        url_pattern_matching: UrlPatternMatching::from_persisted_column(
+            url_pattern_matching.as_deref(),
+        )
+        .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
         url_pattern_state,
     })
 }
@@ -633,14 +623,21 @@ pub(super) async fn make_url_pattern_live(
     decision: &LiveUrlPattern,
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
+    let decision = decision.clone().normalized();
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = $2, url_pattern_exclude = $3, url_pattern_state = $4 \
+         SET url_pattern = $2, url_pattern_exclude = $3, url_pattern_matching = $4, \
+             url_pattern_state = $5 \
          WHERE listing_source_id = $1",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(decision.url_pattern.as_deref())
     .bind(decision.url_pattern_exclude.as_deref())
+    .bind(
+        decision
+            .url_pattern_matching
+            .map(UrlPatternMatching::as_str),
+    )
     .bind(&decision.url_pattern_state)
     .execute(&mut **transaction)
     .await?;

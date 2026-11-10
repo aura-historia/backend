@@ -10,6 +10,7 @@ use crawler::spider::candidate_service::{
     SPIDER_RECRAWL_INTERVAL, SpiderCandidateService, SpiderCandidateServiceImpl,
     UrlPatternReviewWaitWrite,
 };
+use crawler::spider::classification::product_url_pattern::UrlPatternMatching;
 use crawler::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use crawler::spider::classification::url_pattern_repository::ListingSourceUrlPatternRepositoryImpl;
 use crawler::spider::classification::url_pattern_service::{
@@ -266,9 +267,11 @@ async fn stage_pattern(
                 decision: UrlPatternDecision::Pattern {
                     value: pattern.to_owned(),
                     exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 current_pattern: None,
                 current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
                 sample_labels: None,
             }),
         )

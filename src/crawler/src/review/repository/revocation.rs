@@ -16,6 +16,7 @@ use crate::review::model::{
     ARTIFACT_PRODUCT_SCHEMA, ReviewActor, ReviewEventAction, STATUS_REJECTED,
 };
 use crate::scraper::scraper_service::extraction::manual_schema_review::MANUAL_SCHEMA_REASON;
+use crate::spider::classification::product_url_pattern::UrlPatternMatching;
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
@@ -124,7 +125,8 @@ async fn classify_rejected_pages_again(
     let other_rejections =
         RejectedPages::load_without(&mut **transaction, listing_source_id, review_id).await?;
     let stored = sqlx::query(
-        "SELECT u.url, u.url_class, s.url_pattern, s.url_pattern_exclude, s.url_pattern_state \
+        "SELECT u.url, u.url_class, s.url_pattern, s.url_pattern_exclude, s.url_pattern_matching, \
+                s.url_pattern_state \
          FROM listing_source_urls u \
          JOIN listing_sources s ON s.listing_source_id = u.listing_source_id \
          WHERE u.listing_source_id = $1 AND u.url = ANY($2::text[]) \
@@ -142,6 +144,10 @@ async fn classify_rejected_pages_again(
         let decision = LiveUrlPattern {
             url_pattern: row.try_get("url_pattern")?,
             url_pattern_exclude: row.try_get("url_pattern_exclude")?,
+            url_pattern_matching: UrlPatternMatching::from_persisted_column(
+                row.try_get::<Option<&str>, _>("url_pattern_matching")?,
+            )
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
             url_pattern_state: row.try_get("url_pattern_state")?,
         };
         let class = if other_rejections.covers(&url) {

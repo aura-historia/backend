@@ -169,14 +169,9 @@ pub(super) async fn refresh_sample(
     else {
         return Ok(());
     };
-    let (Ok(candidate_pattern), Ok(current_pattern)) = (
-        candidate.decision.candidate_pattern(),
-        candidate
-            .current_pattern
-            .as_deref()
-            .map(ProductUrlPattern::parse)
-            .transpose(),
-    ) else {
+    let (Ok(candidate_pattern), Ok(current_pattern)) =
+        (candidate.decision.candidate_pattern(), candidate.current())
+    else {
         return Ok(());
     };
     let present: i64 =

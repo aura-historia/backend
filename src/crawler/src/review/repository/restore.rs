@@ -188,7 +188,9 @@ async fn restore_url_pattern<'a>(
 ) -> Result<ReviewMutation<'a>, ReviewRepositoryError> {
     let record: UrlPatternApprovalRecord = approval_record(review_id, approval)?;
     let live = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
-    if live != record.approved_url_pattern {
+    // An approval recorded before the matching existed made its pattern live matched anywhere in
+    // the URL, as the migration that added the matching stored it.
+    if live.normalized() != record.approved_url_pattern.clone().normalized() {
         return Err(ReviewRepositoryError::LiveConfigurationChangedSinceApproval(review_id));
     }
     let reclassified = make_url_pattern_live(

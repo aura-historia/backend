@@ -711,7 +711,12 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .unwrap();
     assert_eq!(
         staged["candidate"]["decision"],
-        json!({ "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" }),
+        json!({
+            "type": "PATTERN",
+            "value": "/item/[^/]+$",
+            "exclude": "-gift-card$",
+            "matching": "PATH_AND_QUERY_FULL_MATCH",
+        }),
         "{staged}"
     );
     // The guard's dry run answers what an approval would fail, before anyone approves.
@@ -759,6 +764,17 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .await
         .unwrap();
     assert_eq!(approved["verdict"], "APPROVED");
+    // An agent's pattern goes live matched against the path and query.
+    let live_matching: Option<String> = sqlx::query_scalar(
+        "SELECT s.url_pattern_matching FROM listing_sources s \
+         JOIN crawler_reviews r ON r.listing_source_id = s.listing_source_id \
+         WHERE r.review_id = $1",
+    )
+    .bind(url_pattern.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(live_matching.as_deref(), Some("PATH_AND_QUERY_FULL_MATCH"));
 
     let trail = reviewer
         .call(

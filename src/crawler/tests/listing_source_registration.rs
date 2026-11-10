@@ -132,7 +132,7 @@ async fn crawl_state(pool: &PgPool, listing_source_id: ListingSourceId) -> Crawl
 async fn crawl_once(pool: &PgPool, listing_source_id: ListingSourceId, root: &str) {
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = '/item/', url_pattern_state = 'MATCHED', \
+         SET url_pattern = '/item/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH', \
              last_crawled = NOW() - INTERVAL '1 day', crawl_failure_count = 2, \
              last_crawl_error_kind = 'HTTP_500', next_crawl_at = NOW() + INTERVAL '1 hour', \
              last_crawl_outcome = 'FAILED', last_crawl_run_at = NOW() - INTERVAL '1 hour' \
@@ -422,14 +422,15 @@ async fn should_roll_back_snapshot_when_final_disable_update_fails_and_retry_aft
     sqlx::query(
         "INSERT INTO listing_sources \
          (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
-          crawl_root_url, crawl_host, url_pattern, url_pattern_state, last_crawled, \
+          crawl_root_url, crawl_host, url_pattern, url_pattern_state, url_pattern_matching, \
+          last_crawled, \
           crawl_failure_count, last_crawl_error_kind, next_crawl_at, created, updated) \
          VALUES \
          ($1, 'Old kept source', 'old-kept-source', TRUE, \
-          'https://kept.example.com/', 'kept.example.com', '/products/', 'MATCHED', \
+          'https://kept.example.com/', 'kept.example.com', '/products/', 'MATCHED', 'FULL_URL_SEARCH', \
           NOW() - INTERVAL '1 day', 3, 'HTTP_500', NOW() + INTERVAL '1 hour', NOW(), NOW()), \
          ($2, 'Removed source', 'removed-source', TRUE, \
-          'https://removed.example.com/', 'removed.example.com', '/stock/', 'MATCHED', \
+          'https://removed.example.com/', 'removed.example.com', '/stock/', 'MATCHED', 'FULL_URL_SEARCH', \
           NOW() - INTERVAL '2 days', 4, 'TIMEOUT', NOW() + INTERVAL '2 hours', NOW(), NOW())",
     )
     .bind(kept.as_uuid())

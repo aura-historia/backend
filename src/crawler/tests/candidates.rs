@@ -1414,7 +1414,7 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
 
 async fn match_url_pattern(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
     sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/p/', url_pattern_state = 'MATCHED' \
+        "UPDATE listing_sources SET url_pattern = '/p/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())

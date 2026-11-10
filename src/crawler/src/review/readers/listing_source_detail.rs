@@ -11,6 +11,9 @@ use crate::review::repository::crawler_review_id_from_uuid;
 use crate::scraper::css_selector::product_schema::decode_stored_product_schemas;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
+use crate::spider::classification::product_url_pattern::{
+    ProductUrlPatternError, UrlPatternMatching,
+};
 use listing_source_core::ListingSourceId;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -26,7 +29,7 @@ pub struct ListingSourceDetailReader {
 /// read. An approval is the latest one by the time it was reviewed; it is the live one unless a
 /// live edit or a restore replaced it since. Binds `$1`, the ListingSource.
 const LIVE_CONFIGURATION: &str = "
-    SELECT s.url_pattern_state, s.url_pattern, s.url_pattern_exclude,
+    SELECT s.url_pattern_state, s.url_pattern, s.url_pattern_exclude, s.url_pattern_matching,
            ps.product_schema, ps.updated AS schemas_updated,
            rp.removed_page_schema,
            pattern_review.review_id AS pattern_review_id,
@@ -135,6 +138,11 @@ fn detail_of_row(
             Ok::<_, sqlx::Error>(UrlPatternOverview {
                 value,
                 exclude: row.try_get("url_pattern_exclude")?,
+                matching: UrlPatternMatching::from_persisted_column(
+                    row.try_get::<Option<&str>, _>("url_pattern_matching")?,
+                )
+                .and_then(|matching| matching.ok_or(ProductUrlPatternError::MissingMatching))
+                .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
                 approved_review_id: row
                     .try_get::<Option<uuid::Uuid>, _>("pattern_review_id")?
                     .map(crawler_review_id_from_uuid)

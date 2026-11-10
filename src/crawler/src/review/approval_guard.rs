@@ -724,6 +724,7 @@ mod tests {
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck};
+    use crate::spider::classification::product_url_pattern::UrlPatternMatching;
     use crate::{CrawlerReviewId, CrawlerReviewPageId};
     use std::collections::HashMap;
 
@@ -1583,6 +1584,7 @@ mod tests {
         UrlPatternDecision::Pattern {
             value: value.to_owned(),
             exclude: None,
+            matching: UrlPatternMatching::FullUrlSearch,
         }
     }
 
@@ -1590,6 +1592,7 @@ mod tests {
         UrlPatternDecision::Pattern {
             value: value.to_owned(),
             exclude: Some(exclude.to_owned()),
+            matching: UrlPatternMatching::FullUrlSearch,
         }
     }
 

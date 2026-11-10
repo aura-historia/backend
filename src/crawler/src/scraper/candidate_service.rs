@@ -5,7 +5,7 @@
 //! observe a later removal or restock. Page and schema hashes avoid needless extraction; the shared raw
 //! normalization-input hash avoids needless operational raw captures.
 
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
@@ -606,6 +606,7 @@ struct ScraperCandidateRow {
 
     url_pattern: Option<String>,
     url_pattern_exclude: Option<String>,
+    url_pattern_matching: Option<String>,
     url: String,
     source_record_key: String,
     last_scraped_hash: Option<String>,
@@ -683,7 +684,8 @@ macro_rules! eligible_scraper_urls_cte {
     WITH eligible_urls AS (
         SELECT
             su.listing_source_id, s.crawl_host,
-            s.listing_source_name, s.url_pattern, s.url_pattern_exclude, su.url,
+            s.listing_source_name, s.url_pattern, s.url_pattern_exclude, s.url_pattern_matching,
+            su.url,
             su.raw_source_record_key AS source_record_key,
             su.last_scraped,
             su.last_scraped_hash,
@@ -747,7 +749,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
     )
     SELECT
         listing_source_id, crawl_host, listing_source_name,
-        url_pattern, url_pattern_exclude, url,
+        url_pattern, url_pattern_exclude, url_pattern_matching, url,
         source_record_key,
         last_scraped_hash,
         last_scraped_schema_fingerprint,
@@ -832,10 +834,16 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
                 crawl_host: row.crawl_host,
                 listing_source_name: row.listing_source_name,
-                url_pattern: ProductUrlPattern::from_stored(
-                    row.url_pattern.as_deref(),
-                    row.url_pattern_exclude.as_deref(),
+                url_pattern: UrlPatternMatching::from_persisted_column(
+                    row.url_pattern_matching.as_deref(),
                 )
+                .and_then(|matching| {
+                    ProductUrlPattern::from_stored(
+                        row.url_pattern.as_deref(),
+                        row.url_pattern_exclude.as_deref(),
+                        matching,
+                    )
+                })
                 .ok()
                 .flatten(),
                 url,

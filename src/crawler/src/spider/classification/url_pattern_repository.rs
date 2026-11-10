@@ -1,6 +1,6 @@
 //! Repository for ListingSource URL patterns and crawl scheduling state.
 
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
@@ -43,6 +43,8 @@ pub struct ListingSourceUrlPatternRecord {
     pub listing_source_id: ListingSourceId,
     pub url_pattern: Option<String>,
     pub url_pattern_exclude: Option<String>,
+    /// What the pattern is matched against; `None` without a pattern.
+    pub url_pattern_matching: Option<UrlPatternMatching>,
     pub url_pattern_state: UrlPatternState,
     pub last_crawled: Option<OffsetDateTime>,
 }
@@ -55,6 +57,10 @@ impl FromRow<'_, sqlx::postgres::PgRow> for ListingSourceUrlPatternRecord {
                 .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
             url_pattern: row.try_get("url_pattern")?,
             url_pattern_exclude: row.try_get("url_pattern_exclude")?,
+            url_pattern_matching: UrlPatternMatching::from_persisted_column(
+                row.try_get::<Option<&str>, _>("url_pattern_matching")?,
+            )
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
             url_pattern_state: UrlPatternState::from_persisted(
                 row.try_get::<String, _>("url_pattern_state")?,
             )
@@ -108,8 +114,8 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
         listing_source_id: &ListingSourceId,
     ) -> Result<Option<ListingSourceUrlPatternRecord>, sqlx::Error> {
         sqlx::query_as::<_, ListingSourceUrlPatternRecord>(
-            "SELECT listing_source_id, url_pattern, url_pattern_exclude, url_pattern_state, \
-                    last_crawled \
+            "SELECT listing_source_id, url_pattern, url_pattern_exclude, url_pattern_matching, \
+                    url_pattern_state, last_crawled \
              FROM listing_sources \
              WHERE listing_source_id = $1",
         )
@@ -127,12 +133,14 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
             "UPDATE listing_sources \
              SET url_pattern = $2, \
                  url_pattern_exclude = $3, \
+                 url_pattern_matching = $4, \
                  url_pattern_state = CASE WHEN $2 IS NULL THEN 'UNKNOWN' ELSE 'MATCHED' END \
              WHERE listing_source_id = $1",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(pattern.map(ProductUrlPattern::include_source))
         .bind(pattern.and_then(ProductUrlPattern::exclude_source))
+        .bind(pattern.map(|pattern| pattern.matching().as_str()))
         .execute(&self.pool)
         .await?;
         if result.rows_affected() == 0 {
@@ -147,7 +155,7 @@ impl ListingSourceUrlPatternRepository for ListingSourceUrlPatternRepositoryImpl
     ) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             "UPDATE listing_sources \
-             SET url_pattern = NULL, url_pattern_exclude = NULL, \
+             SET url_pattern = NULL, url_pattern_exclude = NULL, url_pattern_matching = NULL, \
                  url_pattern_state = 'NO_PATTERN' \
              WHERE listing_source_id = $1",
         )
