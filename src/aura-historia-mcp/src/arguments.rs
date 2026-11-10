@@ -332,6 +332,7 @@ mod tests {
 
     #[derive(Debug, Deserialize)]
     struct Identified {
+        #[allow(dead_code)]
         #[serde(deserialize_with = "reject_id")]
         id: String,
     }
