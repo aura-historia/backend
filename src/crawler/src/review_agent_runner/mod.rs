@@ -238,7 +238,7 @@ fn log_login(
                 subscription = login.subscription.as_deref().unwrap_or(""),
                 console_url = %settings.console.console_url,
                 state_dir = %settings.state_dir.display(),
-                agent_min_labelled_urls = limits.min_labelled_urls.get(),
+                agent_max_decisions_per_hour = limits.max_decisions_per_hour.get(),
                 "Review agent runner started with the CLI's Claude login"
             )
         };
@@ -392,9 +392,6 @@ mod tests {
         ("NODE_OPTIONS", "--require /tmp/decoy.js"),
     ];
 
-    /// The label minimum the fake console applies, which no runner setting names.
-    const CONSOLE_MIN_LABELLED_URLS: u32 = 5;
-
     /// A review console that answers the review queue, a review, the event list and its agent
     /// limits to the author's token. The event list holds `events` and, as `AGENT_REVIEWER` events,
     /// the decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
@@ -496,14 +493,7 @@ mod tests {
                         } else if path == AGENT_LIMITS_ROUTE
                             && !claude_dir.join("limits_unreadable").exists()
                         {
-                            let limits = AgentLimits {
-                                min_labelled_urls: std::num::NonZeroU32::new(
-                                    CONSOLE_MIN_LABELLED_URLS,
-                                )
-                                .unwrap_or(std::num::NonZeroU32::MIN),
-                                ..AgentLimits::default()
-                            };
-                            (200, json!(limits).to_string())
+                            (200, json!(AgentLimits::default()).to_string())
                         } else {
                             (404, "{\"error\":\"not found\"}".to_owned())
                         };
@@ -694,7 +684,7 @@ mod tests {
         let failed = match (refused, review.artifact_type.as_str()) {
             (false, _) => json!([]),
             (true, "URL_PATTERN") => {
-                json!([{ "check": "TOO_FEW_LABELS", "product": 1, "not_product": 3, "minimum": 3 }])
+                json!([{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 3 }])
             }
             (true, _) => json!([{ "check": "NO_SOLD_PAGE_TESTED", "states_seen": [] }]),
         };
@@ -2271,19 +2261,16 @@ echo "end $role $review" >> "$dir/order.log"
         assert!((1..=2).contains(&most), "{most}");
     }
 
-    /// A run reads the agents' limits from the console, not from the runner's own environment,
-    /// and one that cannot read them starts no agent.
+    /// The limits of the agents' decisions are the console's: a run that cannot read them starts
+    /// no agent.
     #[tokio::test]
-    async fn should_read_the_console_s_limits_and_run_no_agent_without_them() {
+    async fn should_run_no_agent_without_the_console_s_limits() {
         let url_pattern = CrawlerReview {
             artifact_type: "URL_PATTERN".to_owned(),
             ..review("PENDING_REVIEW", true)
         };
         let fixture = Fixture::new(vec![url_pattern]).await;
-        let settings = fixture.settings(
-            &["--once"],
-            &[("CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS", "4")],
-        );
+        let settings = fixture.settings(&["--once"], &[]);
 
         run_with(&settings).await;
         std::fs::write(

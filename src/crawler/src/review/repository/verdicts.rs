@@ -102,7 +102,6 @@ impl CrawlerReviewRepository {
                 Ok(url_pattern_approval_checks(
                     &candidate,
                     &crawl_host,
-                    self.agent_decisions.limits().min_labelled_urls,
                     &sample,
                 ))
             }
@@ -171,12 +170,7 @@ impl CrawlerReviewRepository {
                     let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
-                        url_pattern_approval_checks(
-                            &candidate,
-                            &crawl_host,
-                            self.agent_decisions.limits().min_labelled_urls,
-                            &sample,
-                        ),
+                        url_pattern_approval_checks(&candidate, &crawl_host, &sample),
                     )?;
                 }
                 let configuration = make_reviewed_url_pattern_live(

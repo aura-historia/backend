@@ -305,17 +305,6 @@ impl Drop for StateDirectory {
     }
 }
 
-fn labels(products: &[&str], not_products: &[&str]) -> Value {
-    let label = |path: &&str, label: &str| json!({ "url": format!("{SHOP}{path}"), "label": label, "reason": "what the page shows" });
-    Value::Array(
-        products
-            .iter()
-            .map(|path| label(path, "PRODUCT"))
-            .chain(not_products.iter().map(|path| label(path, "NOT_PRODUCT")))
-            .collect(),
-    )
-}
-
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_rules() {
     set_env("CRAWLER_REVIEW_BIND_ADDR", "127.0.0.1:0");
@@ -356,7 +345,6 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
-            "label_sample_urls",
         ]
     );
     assert_eq!(
@@ -485,10 +473,6 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (
             "record_no_sold_page",
             json!({ "review_id": product_schema.to_string(), "urls": [format!("{SHOP}/item/a"), format!("{SHOP}/item/b"), "https://elsewhere.example/item/c"], "notes": "searched" }),
-        ),
-        (
-            "label_sample_urls",
-            json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": 1, "labels": [{ "url": "https://elsewhere.example/", "label": "PRODUCT", "reason": "x" }] }),
         ),
     ] {
         let refused = author.call(tool, arguments).await.unwrap_err();
@@ -668,35 +652,56 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .unwrap();
     assert_eq!(approved["verdict"], "APPROVED");
 
-    // The author labels the URL sample and stages the pattern the labels call for.
-    let labelled = author
-        .call(
-            "label_sample_urls",
-            json!({
-                "review_id": url_pattern.to_string(),
-                "expected_candidate_version": 1,
-                "labels": labels(&["/item/chair"], &["/shop/chairs"]),
-            }),
-        )
-        .await
-        .unwrap();
-    let pattern = author
+    // The author stages a pattern from the sample's URLs alone; one that takes none of them is
+    // no usable rule, and the guard's dry run says so before anyone approves.
+    let no_match = author
         .call(
             "update_candidate",
             json!({
                 "review_id": url_pattern.to_string(),
-                "expected_candidate_version": labelled["candidate_version"],
-                "candidate": { "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/[^/]+$" } },
+                "expected_candidate_version": 1,
+                "candidate": { "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/produkt/[^/]+$" } },
             }),
         )
         .await
         .unwrap();
+    let checked = author
+        .call(
+            "check_approval",
+            json!({ "review_id": url_pattern.to_string() }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        checked["failed_checks"],
+        json!([{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 6 }]),
+        "{checked}"
+    );
+    let refused = reviewer
+        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": no_match["candidate_version"] }))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused["failed_checks"][0]["check"], "PATTERN_MATCHES_NO_SAMPLE_URL",
+        "{refused}"
+    );
+
+    // A console restart rotates the agents' tokens; each server reads its new token on the 401.
+    running_console.abort();
+    let _ = running_console.await;
+    let old_tokens = std::fs::read(&token_file).unwrap();
+    let listener = TcpListener::bind(console).await.unwrap();
+    let running_console = start_console(&pool, &state.0, listener);
+    assert_ne!(std::fs::read(&token_file).unwrap(), old_tokens);
+
+    // A pattern that takes some of the sample's URLs and leaves others is approved without a
+    // single sample label.
     let excluded = author
         .call(
             "update_candidate",
             json!({
                 "review_id": url_pattern.to_string(),
-                "expected_candidate_version": pattern["candidate_version"],
+                "expected_candidate_version": no_match["candidate_version"],
                 "candidate": { "kind": "URL_PATTERN", "decision": { "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" } },
             }),
         )
@@ -714,48 +719,8 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         json!({ "type": "PATTERN", "value": "/item/[^/]+$", "exclude": "-gift-card$" }),
         "{staged}"
     );
-    // The guard's dry run answers what an approval would fail, before anyone approves.
-    let checked = author
-        .call(
-            "check_approval",
-            json!({ "review_id": url_pattern.to_string() }),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        checked["failed_checks"][0]["check"], "TOO_FEW_LABELS",
-        "{checked}"
-    );
-    let too_few = reviewer
-        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": excluded["candidate_version"] }))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        too_few["failed_checks"][0]["check"], "TOO_FEW_LABELS",
-        "{too_few}"
-    );
-
-    // A console restart rotates the agents' tokens; each server reads its new token on the 401.
-    running_console.abort();
-    let _ = running_console.await;
-    let old_tokens = std::fs::read(&token_file).unwrap();
-    let listener = TcpListener::bind(console).await.unwrap();
-    let running_console = start_console(&pool, &state.0, listener);
-    assert_ne!(std::fs::read(&token_file).unwrap(), old_tokens);
-
-    let relabelled = author
-        .call(
-            "label_sample_urls",
-            json!({
-                "review_id": url_pattern.to_string(),
-                "expected_candidate_version": excluded["candidate_version"],
-                "labels": labels(&["/item/chair", "/item/table", "/item/lamp"], &["/shop/chairs", "/about", "/impressum"]),
-            }),
-        )
-        .await
-        .unwrap();
     let approved = reviewer
-        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": relabelled["candidate_version"] }))
+        .call("approve", json!({ "review_id": url_pattern.to_string(), "expected_candidate_version": excluded["candidate_version"] }))
         .await
         .unwrap();
     assert_eq!(approved["verdict"], "APPROVED");
@@ -775,8 +740,6 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
     assert_eq!(
         trail,
         [
-            (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
-            (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_AUTHOR"), json!("CANDIDATE_EDITED")),
             (json!("AGENT_REVIEWER"), json!("APPROVED")),
