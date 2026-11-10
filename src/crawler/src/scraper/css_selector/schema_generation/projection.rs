@@ -55,9 +55,9 @@ pub fn html_to_schema_prompt_dsl(input: &str) -> String {
     serialize_within_limits(project_page(input), DSL_NODE_LIMIT, DSL_CHAR_BUDGET)
 }
 
-/// The elements of the page `input` the projection shows, without scripts, styles, navigation,
-/// header, footer, comments and layout-only wrappers, before any size limit.
-pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
+/// The parsed page `input` without the scripts, styles, navigation, header, footer and comments
+/// the projection leaves out.
+pub(super) fn cleaned_page(input: &str) -> NodeRef {
     let document = parse_html().one(input);
 
     for selector in REMOVED_DSL_TAGS {
@@ -68,8 +68,13 @@ pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
         }
     }
     remove_comments(&document);
+    document
+}
 
-    project_children(&document)
+/// The elements of the page `input` the projection shows, without scripts, styles, navigation,
+/// header, footer, comments and layout-only wrappers, before any size limit.
+pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
+    project_children(&cleaned_page(input))
 }
 
 /// The YAML of the longest document-order prefix of `nodes` of at most `node_limit` elements

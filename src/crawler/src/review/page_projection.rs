@@ -7,8 +7,11 @@
 //! (`docs/crawler/extraction-and-review.md`, approval guard). The console's browser preview is
 //! another view: the instrumented page of `/api/review-pages/{id}/inspect`.
 
+use crate::review::model::artifact::ARTIFACT_URL_PATTERN;
 use crate::review::product_markup::{JsonLdProductIds, describes_one_product, json_ld_product_ids};
-use crate::scraper::css_selector::product_schema_service::html_to_agent_page_outline;
+use crate::scraper::css_selector::product_schema_service::{
+    html_to_agent_page_markdown, html_to_agent_page_outline,
+};
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Serialize;
 
@@ -45,12 +48,34 @@ pub struct ProjectedHtml {
     pub json_ld_product_ids: JsonLdProductIds,
 }
 
+/// How a page's text is projected: the CSS-notation outline a product-schema review writes
+/// selectors from, or the Markdown a URL-pattern review reads, where selectors are no use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectionForm {
+    Outline,
+    Markdown,
+}
+
+impl ProjectionForm {
+    /// The form the reviews of `artifact_type` read their pages in.
+    pub fn of_artifact(artifact_type: &str) -> Self {
+        if artifact_type == ARTIFACT_URL_PATTERN {
+            Self::Markdown
+        } else {
+            Self::Outline
+        }
+    }
+}
+
 impl ProjectedHtml {
     /// Projects `html`. Parsing a shop's page costs more than its size on deeply nested markup,
     /// so callers on the async runtime run this on a blocking thread.
-    pub fn of(html: &str) -> Self {
+    pub fn of(html: &str, form: ProjectionForm) -> Self {
         Self {
-            projection: html_to_agent_page_outline(html),
+            projection: match form {
+                ProjectionForm::Outline => html_to_agent_page_outline(html),
+                ProjectionForm::Markdown => html_to_agent_page_markdown(html),
+            },
             describes_one_product: describes_one_product(html),
             json_ld_product_ids: json_ld_product_ids(html),
         }
@@ -68,7 +93,7 @@ mod tests {
             </head><body><nav>Menu</nav><h1 class="product-title">Oak chair</h1>
             <span class="price">£120</span></body></html>"#;
 
-        let projected = ProjectedHtml::of(html);
+        let projected = ProjectedHtml::of(html, ProjectionForm::Outline);
 
         assert_eq!(projected.projection, html_to_agent_page_outline(html));
         assert!(
@@ -88,21 +113,38 @@ mod tests {
             {"@type":"Product","productID":"9441317814427","sku":"R-1"}</script></head>
             <body><h1>Ring</h1></body></html>"#;
 
-        let ids = ProjectedHtml::of(html).json_ld_product_ids;
+        let ids = ProjectedHtml::of(html, ProjectionForm::Outline).json_ld_product_ids;
 
         assert_eq!(ids.product_id.as_deref(), Some("9441317814427"));
         assert_eq!(ids.sku.as_deref(), Some("R-1"));
         assert_eq!(
-            ProjectedHtml::of("<html><body><h1>Ring</h1></body></html>").json_ld_product_ids,
+            ProjectedHtml::of(
+                "<html><body><h1>Ring</h1></body></html>",
+                ProjectionForm::Outline
+            )
+            .json_ld_product_ids,
             JsonLdProductIds::default()
         );
     }
 
     #[test]
     fn should_report_no_product_markup_on_a_page_without_structured_data() {
-        let projected = ProjectedHtml::of("<html><body><h1>Our journal</h1></body></html>");
+        let projected = ProjectedHtml::of(
+            "<html><body><h1>Our journal</h1></body></html>",
+            ProjectionForm::Outline,
+        );
 
         assert!(!projected.describes_one_product);
         assert!(projected.projection.contains("Our journal"));
+    }
+
+    #[test]
+    fn should_read_a_url_pattern_review_page_as_markdown() {
+        let html = "<html><body><h1>Our journal</h1><p>News</p></body></html>";
+
+        let projected = ProjectedHtml::of(html, ProjectionForm::of_artifact(ARTIFACT_URL_PATTERN));
+
+        assert_eq!(projected.projection, html_to_agent_page_markdown(html));
+        assert!(projected.projection.contains("# Our journal"));
     }
 }

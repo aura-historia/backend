@@ -14,7 +14,7 @@ use super::{
 use crate::review::candidate_evaluations::CandidateEvaluationOutcome;
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{PAGE_ROLE_EVALUATED_URL, ReviewActor, SchemaReviewPageInput};
-use crate::review::page_projection::{PageProjection, ProjectedHtml};
+use crate::review::page_projection::{PageProjection, ProjectedHtml, ProjectionForm};
 use crate::review::repository::{CandidateProposal, ReviewRepositoryError};
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Deserialize;
@@ -65,6 +65,15 @@ impl ReviewServer {
                 ));
             }
         };
+        let form = ProjectionForm::of_artifact(
+            &self
+                .repository
+                .get_review(review_id)
+                .await
+                .map_err(review_error)?
+                .review
+                .artifact_type,
+        );
         let live_job = self.live_jobs.try_start().map_err(live_jobs_busy)?;
         let fetched = self
             .fetch_live(&url)
@@ -75,7 +84,7 @@ impl ReviewServer {
             // The projection keeps its place under the limit while it parses, even when the
             // request stops waiting for it at its deadline.
             let _live_job = live_job;
-            ProjectedHtml::of(&html)
+            ProjectedHtml::of(&html, form)
         })
         .await
         .map_err(internal_error)?;
