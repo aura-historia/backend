@@ -1,4 +1,4 @@
-use crate::{AccessClass, AdmissionGate, AdmissionRejection, AdmissionRequest, OperationPolicy};
+use crate::{AccessClass, AdmissionGate, AdmissionRejection, AdmissionRequest};
 use application::{error::box_error, operation_context::Principal};
 use async_trait::async_trait;
 use aura_historia_auth::{AccessTokenAuthenticationError, authenticate_access_token};
@@ -6,6 +6,18 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use oauth_core::{ordinary_user_scopes::ORDINARY_USER_SCOPES, resource::AuraResourcePolicy};
 use std::sync::Arc;
 use user_service::use_cases::AuthenticateAccessTokenUseCase;
+
+/// The `scope` a Bearer challenge asks the client to approve.
+///
+/// A client requests what the challenge names, so naming only the called operation's scopes
+/// costs one consent per tool family. A protected call therefore names the whole ordinary-user
+/// vocabulary; `AdmissionGate::admit` still enforces each operation's own scopes.
+#[derive(Clone, Copy)]
+enum ChallengeScope {
+    /// Discovery and public calls need no approval.
+    Omitted,
+    OrdinaryUser,
+}
 
 /// Validates every supplied Aura credential against the current authoritative token store.
 /// This object caches use-case handles, never credentials, principals or session authority.
@@ -29,7 +41,7 @@ impl AuraTokenGate {
         &self,
         status: StatusCode,
         error: Option<&str>,
-        policy: Option<&OperationPolicy>,
+        scope: ChallengeScope,
     ) -> AdmissionRejection {
         let mut value = format!(
             "Bearer resource_metadata=\"{}\"",
@@ -38,10 +50,7 @@ impl AuraTokenGate {
         if let Some(error) = error {
             value.push_str(&format!(", error=\"{error}\""));
         }
-        if policy.is_some() {
-            // A client requests what the challenge names, so naming only the called operation's
-            // scopes costs one consent per tool family. `admit` still enforces each operation's
-            // own scopes; this only widens what a client is invited to approve at once.
+        if let ChallengeScope::OrdinaryUser = scope {
             let scopes = ORDINARY_USER_SCOPES.map(|scope| scope.as_str()).join(" ");
             value.push_str(&format!(", scope=\"{scopes}\""));
         }
@@ -61,12 +70,12 @@ impl AuraTokenGate {
     fn authentication_failure(
         &self,
         error: AccessTokenAuthenticationError,
-        policy: Option<&OperationPolicy>,
+        scope: ChallengeScope,
     ) -> AdmissionRejection {
         match error {
             AccessTokenAuthenticationError::MalformedCredentials { .. }
             | AccessTokenAuthenticationError::InvalidCredentials => {
-                self.challenge(StatusCode::UNAUTHORIZED, Some("invalid_token"), policy)
+                self.challenge(StatusCode::UNAUTHORIZED, Some("invalid_token"), scope)
             }
             AccessTokenAuthenticationError::TemporarilyUnavailable { .. } => {
                 let mut rejection = AdmissionRejection::new(StatusCode::SERVICE_UNAVAILABLE)
@@ -91,26 +100,26 @@ impl AdmissionGate for AuraTokenGate {
             .operation
             .map(|operation| operation.policy())
             .filter(|policy| policy.access == AccessClass::Protected);
-        let token = bearer_token(request.headers).map_err(|()| {
-            self.challenge(StatusCode::UNAUTHORIZED, Some("invalid_token"), policy)
-        })?;
+        let scope = policy.map_or(ChallengeScope::Omitted, |_| ChallengeScope::OrdinaryUser);
+        let token = bearer_token(request.headers)
+            .map_err(|()| self.challenge(StatusCode::UNAUTHORIZED, Some("invalid_token"), scope))?;
         let Some(token) = token else {
             return match policy {
-                Some(_) => Err(self.challenge(StatusCode::UNAUTHORIZED, None, policy)),
+                Some(_) => Err(self.challenge(StatusCode::UNAUTHORIZED, None, scope)),
                 None => Ok(Principal::Anonymous),
             };
         };
         let identity =
             authenticate_access_token(self.authentication.as_ref(), token, request.context)
                 .await
-                .map_err(|error| self.authentication_failure(error, policy))?;
+                .map_err(|error| self.authentication_failure(error, scope))?;
         if policy.is_some_and(|policy| {
             policy
                 .required_scopes
                 .iter()
                 .any(|scope| !identity.capabilities.contains(scope))
         }) {
-            return Err(self.challenge(StatusCode::FORBIDDEN, Some("insufficient_scope"), policy));
+            return Err(self.challenge(StatusCode::FORBIDDEN, Some("insufficient_scope"), scope));
         }
         Ok(Principal::DelegatedUser {
             user_id: identity.user_id,
