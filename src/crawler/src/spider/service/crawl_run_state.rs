@@ -30,6 +30,10 @@ pub struct CrawlRunState {
     /// Set once classification stops at a pending URL-pattern review; the crawl then keeps
     /// `pattern` as it is and asks no further, until it finds the review decided.
     pub url_pattern_review_wait: Option<UrlPatternReviewWait>,
+    /// Set when the crawl ended without a URL-pattern review because it neither completed nor
+    /// gathered enough URLs to open one: its URLs are stored unclassified and a later crawl adds
+    /// to them.
+    pub awaiting_review_sample: bool,
     /// The shop system a crawled page showed the markers of; its product URL rules then apply to
     /// every page the crawl stores.
     pub shop_platform: Option<ShopPlatform>,
@@ -98,6 +102,7 @@ impl CrawlRunState {
             page_buffer: Vec::new(),
             inference_sample: Vec::new(),
             url_pattern_review_wait: None,
+            awaiting_review_sample: false,
             shop_platform: None,
         }
     }
