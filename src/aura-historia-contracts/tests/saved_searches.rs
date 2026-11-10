@@ -269,3 +269,38 @@ fn should_retain_exact_json_match_cursor_and_page_size_semantics() {
         assert!(parse_matches_cursor(bad).is_err());
     }
 }
+
+#[test]
+fn should_preview_the_same_criteria_a_search_filter_saves() {
+    let fixture = fixture();
+    let body = json!({ "search": fixture["search"].clone() });
+    assert!(validator::<PreviewSearchFilterMatchesData>(true).is_valid(&body));
+    let user_id = UserId::new();
+
+    let preview = serde_json::from_value::<PreviewSearchFilterMatchesData>(body)
+        .unwrap()
+        .into_command(user_id)
+        .unwrap();
+    let create = serde_json::from_value::<CreateSearchFilterData>(fixture)
+        .unwrap()
+        .into_command(user_id)
+        .unwrap();
+
+    assert_eq!(user_id, preview.user_id);
+    assert_eq!(create.search, preview.search);
+}
+
+#[test]
+fn should_serialize_an_empty_preview_with_its_candidate_limit() {
+    let data = SearchFilterMatchPreviewData::from(
+        search_filter_service::use_cases::SearchFilterMatchPreview {
+            items: Vec::new(),
+            candidate_limit_reached: true,
+        },
+    );
+
+    let value = serde_json::to_value(&data).unwrap();
+
+    assert_eq!(json!({ "items": [], "candidateLimitReached": true }), value);
+    assert!(validator::<SearchFilterMatchPreviewData>(false).is_valid(&value));
+}

@@ -372,6 +372,10 @@ export class Lambdas extends Construct {
       emailConfigurationSet: props.emailConfigurationSet,
       commitSha: props.parameters.commitSha,
       mailTemplatePrefix: props.parameters.mailTemplatePrefix,
+      searchFilterClassifier: {
+        model: props.parameters.searchFilterClassifierModel,
+        shouldShowThresholdBps: props.parameters.searchFilterMatchShouldShowThresholdBps,
+      },
       postgres: props.postgres,
       search: props.search,
       queues: props.queues,

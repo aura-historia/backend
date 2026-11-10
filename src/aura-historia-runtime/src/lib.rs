@@ -22,6 +22,7 @@ mod public_overview;
 mod public_party_locations;
 mod public_product_listing_history;
 mod public_product_listings;
+mod saved_search_previews;
 mod saved_searches;
 mod shipping_management;
 mod source_location_defaults;
@@ -49,6 +50,12 @@ pub use public_overview::PublicOverview;
 pub use public_party_locations::PublicPartyLocations;
 pub use public_product_listing_history::PublicProductListingHistory;
 pub use public_product_listings::{ProductListingDependencies, PublicProductListings};
+pub use saved_search_previews::{
+    CLASSIFIER_MODEL_ENV, CLASSIFIER_MODEL_PROVIDER_ENV, CLOUDFLARE_ACCOUNT_ID_ENV,
+    CLOUDFLARE_API_TOKEN_ENV, SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS_ENV,
+    SavedSearchPreviewConfig, SavedSearchPreviewConfigError, SavedSearchPreviewDependencies,
+    SavedSearchPreviews,
+};
 pub use saved_searches::SavedSearches;
 pub use shipping_management::ShippingManagement;
 pub use source_location_defaults::SourceLocationDefaults;
@@ -80,6 +87,7 @@ pub struct Runtime {
     public_party_locations: OnceLock<PublicPartyLocations>,
     public_overview: OnceLock<PublicOverview>,
     saved_searches: OnceLock<SavedSearches>,
+    saved_search_previews: OnceLock<SavedSearchPreviews>,
     watchlist: OnceLock<Watchlist>,
     shipping_management: OnceLock<ShippingManagement>,
 }
@@ -106,6 +114,7 @@ impl Runtime {
             public_party_locations: OnceLock::new(),
             public_overview: OnceLock::new(),
             saved_searches: OnceLock::new(),
+            saved_search_previews: OnceLock::new(),
             watchlist: OnceLock::new(),
             shipping_management: OnceLock::new(),
         }
@@ -185,6 +194,22 @@ impl Runtime {
     ) -> &SavedSearches {
         self.saved_searches.get_or_init(|| {
             SavedSearches::compose(&self.postgres, self.listing_shipping().clone(), embeddings)
+        })
+    }
+
+    /// REST-only: previews classify candidates, so MCP does not compose them.
+    pub fn saved_search_previews(
+        &self,
+        listing: &ProductListingDependencies,
+        dependencies: SavedSearchPreviewDependencies,
+    ) -> &SavedSearchPreviews {
+        self.saved_search_previews.get_or_init(|| {
+            SavedSearchPreviews::compose(
+                &self.postgres,
+                self.listing_shipping().clone(),
+                listing,
+                dependencies,
+            )
         })
     }
 

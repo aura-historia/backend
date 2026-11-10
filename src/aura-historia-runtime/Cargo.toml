@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 aws-sdk-sqs = { workspace = true }
 auction-postgres = { workspace = true }
 auction-service = { workspace = true }
+classifier-model = { workspace = true }
 embedding = { workspace = true }
 fxrate-postgres = { workspace = true }
 fxrate-service = { workspace = true }

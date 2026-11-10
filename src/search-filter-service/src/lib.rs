@@ -1,3 +1,5 @@
+mod match_candidates;
+pub mod match_classification;
 pub mod ports;
 mod product_match_evaluator;
 pub mod shipping_destination;

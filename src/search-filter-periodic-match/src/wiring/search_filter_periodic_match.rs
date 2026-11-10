@@ -1,6 +1,4 @@
-use classifier_model::{
-    CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel, Probability,
-};
+use classifier_model::{CloudflareClassifierConfig, CloudflareClassifierModel, CloudflareModel};
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
 use notification_postgres::SqlxSavedSearchDigestStoreFactory;
 use opensearch::{
@@ -21,6 +19,7 @@ use search_filter_postgres::{
     SqlxPeriodicSearchFilterMatchingRunLock, SqlxPeriodicSearchFilterProgressFactory,
     SqlxSearchFilterMatchWriterFactory,
 };
+use search_filter_service::match_classification::MatchClassificationSettings;
 use search_filter_service::use_cases::{
     PeriodicSearchFilterMatchingPolicy, RunPeriodicSearchFilterMatchingHandler,
     RunPeriodicSearchFilterMatchingUseCase,
@@ -98,8 +97,7 @@ impl PeriodicMatchConfig {
         let hybrid_scan_limit = nonzero("PERIODIC_MATCH_HYBRID_SCAN_LIMIT", 100)?;
         let evaluation_limit = nonzero("PERIODIC_MATCH_EVALUATION_LIMIT", 50)?;
         let classification_concurrency = nonzero("PERIODIC_MATCH_CLASSIFICATION_CONCURRENCY", 8)?;
-        let classification_batch_candidates =
-            batch_candidates(number("PERIODIC_MATCH_BATCH_CANDIDATES", 1)?)?;
+        let batch_candidates = number("PERIODIC_MATCH_BATCH_CANDIDATES", 1)?;
         let provider = std::env::var("CLASSIFIER_MODEL_PROVIDER")
             .unwrap_or_else(|_| DEFAULT_CLASSIFIER_PROVIDER.to_owned());
         if provider != "cloudflare" {
@@ -109,10 +107,14 @@ impl PeriodicMatchConfig {
             .unwrap_or_else(|_| DEFAULT_CLASSIFIER_MODEL.to_owned());
         let classifier_model = CloudflareModel::from_str(classifier_model_name.trim())
             .map_err(|_| WiringError::ClassifierConfig)?;
-        let should_show_threshold = threshold(number(
-            "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS",
-            DEFAULT_SHOULD_SHOW_THRESHOLD_BPS,
-        )?)?;
+        let classification = MatchClassificationSettings::new(
+            number(
+                "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS",
+                DEFAULT_SHOULD_SHOW_THRESHOLD_BPS,
+            )?,
+            batch_candidates,
+        )
+        .map_err(|_| WiringError::InvalidPolicy)?;
         let max_attempts = nonzero("PERIODIC_MATCH_MAX_ATTEMPTS", 3)?;
         validate_limits(hybrid_scan_limit, evaluation_limit, max_attempts)?;
         let endpoint_raw = required("OPENSEARCH_ENDPOINT_URL")?;
@@ -154,8 +156,8 @@ impl PeriodicMatchConfig {
                 hybrid_scan_limit,
                 evaluation_limit,
                 classification_concurrency,
-                classification_batch_candidates,
-                should_show_threshold,
+                classification_batch_candidates: classification.batch_candidates(),
+                should_show_threshold: classification.should_show_threshold(),
                 max_attempts,
                 projection_lag: periodic_duration(
                     "PERIODIC_MATCH_PROJECTION_LAG_SECONDS",
@@ -169,12 +171,6 @@ impl PeriodicMatchConfig {
         })
     }
 }
-fn batch_candidates(value: usize) -> Result<NonZeroUsize, WiringError> {
-    NonZeroUsize::new(value)
-        .filter(|value| value.get() <= 50)
-        .ok_or(WiringError::InvalidPolicy)
-}
-
 fn validate_limits(
     hybrid_scan_limit: NonZeroUsize,
     evaluation_limit: NonZeroUsize,
@@ -228,13 +224,6 @@ where
 }
 fn nonzero(name: &'static str, default: usize) -> Result<NonZeroUsize, WiringError> {
     NonZeroUsize::new(number(name, default)?).ok_or(WiringError::InvalidPolicy)
-}
-
-fn threshold(basis_points: u16) -> Result<Probability, WiringError> {
-    if basis_points > 10_000 {
-        return Err(WiringError::InvalidPolicy);
-    }
-    Probability::new(f64::from(basis_points) / 10_000.0).map_err(|_| WiringError::InvalidPolicy)
 }
 
 fn periodic_duration(name: &'static str, seconds: u64) -> Result<time::Duration, WiringError> {

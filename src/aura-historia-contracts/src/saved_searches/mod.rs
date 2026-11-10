@@ -10,7 +10,9 @@ pub use matches::{
     MatchCursorOutputError, SearchFilterMatchesData, SearchFilterMatchesQuery, match_cursor_schema,
     matches_cursor_value, parse_matches_cursor,
 };
-pub use presentation::{PaginatedData, SearchFilterData, SearchFilterMatchData};
+pub use presentation::{
+    PaginatedData, SearchFilterData, SearchFilterMatchData, SearchFilterMatchPreviewData,
+};
 use schemars::JsonSchema;
 
 use application::patch_field::PatchField;
@@ -63,6 +65,13 @@ pub struct CreateSearchFilterData {
 
 fn default_notifications() -> bool {
     true
+}
+
+/// Search-filter criteria to preview before they are saved.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewSearchFilterMatchesData {
+    pub search: ProductListingSearchData,
 }
 
 pub type UpdateSearchFilterFields = (
@@ -632,6 +641,22 @@ impl CreateSearchFilterData {
                 accept_shipping_destination: self.accept_shipping_destination.map(Into::into),
                 name: self.name,
                 notifications: self.notifications,
+                search: self.search.try_into()?,
+            },
+        )
+    }
+}
+impl PreviewSearchFilterMatchesData {
+    pub fn into_command(
+        self,
+        user_id: user_core::user_id::UserId,
+    ) -> Result<
+        search_filter_service::use_cases::PreviewSearchFilterMatchesCommand,
+        SavedSearchInputError,
+    > {
+        Ok(
+            search_filter_service::use_cases::PreviewSearchFilterMatchesCommand {
+                user_id,
                 search: self.search.try_into()?,
             },
         )

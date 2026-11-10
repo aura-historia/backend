@@ -4,12 +4,14 @@ use crate::ports::{
     ProductListingPriceFilterPlan, ProductListingSearchMode, ProductListingSearchReadError,
     ProductListingSearchReadRequest, ProductListingSearchReader, ProductListingUserStateReader,
 };
+use crate::use_cases::queries::product_listing_search_presentation::{
+    ProductListingSearchPresentation, ProductListingSearchPresenter,
+};
 use crate::use_cases::queries::product_listing_summary_personalization::{
-    ProductListingSummaryPersonalizationError, apply_product_user_states, attach_listing_sources,
-    listing_source_ids, product_listing_ids, product_listing_user_state_lookup,
+    ProductListingSummaryPersonalizationError, listing_source_ids,
 };
 use application::error::{BoxError, box_error};
-use application::operation_context::{OperationContext, Principal};
+use application::operation_context::OperationContext;
 use application::pagination::{Cursor, CursoredResult};
 use application::personalized::Personalized;
 use auction_core::AuctionId;
@@ -34,9 +36,7 @@ use crate::ports::ListingSourceSummary;
 use listing_source_core::ListingSourceId;
 use product_listing_core::source_listing_id::SourceListingId;
 
-use crate::user_state::{
-    ProductListingUserState, ProductListingUserStateDisclosure, ProductListingUserStateView,
-};
+use crate::user_state::{ProductListingUserState, ProductListingUserStateView};
 use indexmap::IndexSet;
 
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -246,14 +246,10 @@ pub trait SearchProductListingsUseCase: Send + Sync {
 }
 
 pub struct SearchProductListingsHandler<R, F, E, L, U, A> {
-    shipping: crate::shipping::ShippingEnrichment,
     reader: R,
     fx_rates: F,
     embeddings: E,
-    listing_sources: L,
-    user_states: U,
-    assessments: A,
-    read_execution_policy: ProductListingSearchReadExecutionPolicy,
+    presentation: ProductListingSearchPresentation<L, U, A>,
 }
 
 impl<R, F, E, L, U, A> SearchProductListingsHandler<R, F, E, L, U, A> {
@@ -268,14 +264,15 @@ impl<R, F, E, L, U, A> SearchProductListingsHandler<R, F, E, L, U, A> {
         shipping: crate::shipping::ShippingEnrichment,
     ) -> Self {
         Self {
-            shipping,
             reader,
             fx_rates,
             embeddings,
-            listing_sources,
-            user_states,
-            assessments,
-            read_execution_policy: ProductListingSearchReadExecutionPolicy::Sequential,
+            presentation: ProductListingSearchPresentation::new(
+                listing_sources,
+                user_states,
+                assessments,
+                shipping,
+            ),
         }
     }
 }
@@ -285,7 +282,9 @@ impl<R, F, E, L, U, A> SearchProductListingsHandler<R, F, E, L, U, A> {
         mut self,
         read_execution_policy: ProductListingSearchReadExecutionPolicy,
     ) -> Self {
-        self.read_execution_policy = read_execution_policy;
+        self.presentation = self
+            .presentation
+            .with_read_execution_policy(read_execution_policy);
         self
     }
 }
@@ -424,119 +423,20 @@ where
         };
         let result_count = result.items.len();
         let distinct_source_count = listing_source_ids(&result.items).len();
-        let mut items = if result.items.is_empty() {
-            Vec::new()
-        } else {
-            let source_ids = listing_source_ids(&result.items);
-            let listing_ids = product_listing_ids(&result.items);
-            let user_state_lookup = personalization_user_id(&context.principal)
-                .map(|user_id| product_listing_user_state_lookup(user_id, &listing_ids));
-
-            let enrichment_started = Instant::now();
-            let summaries = match self.read_execution_policy {
-                ProductListingSearchReadExecutionPolicy::Sequential => {
-                    let sources = measure_search_stage(
-                        "source_resolution",
-                        self.listing_sources.find_summaries(&source_ids),
-                    )
-                    .await
-                    .map_err(ProductListingSummaryPersonalizationError::from)?;
-                    let sourced_items = attach_listing_sources(result.items, &sources)?;
-                    let mut items = sourced_items
-                        .into_iter()
-                        .map(|item| Personalized {
-                            item,
-                            user_state: None,
-                        })
-                        .collect::<Vec<_>>();
-
-                    if let Some(lookup) = user_state_lookup.as_ref() {
-                        let user_states = measure_search_stage(
-                            "user_state_resolution",
-                            self.user_states.find_for_user(lookup),
-                        )
-                        .await
-                        .map_err(ProductListingSummaryPersonalizationError::from)?;
-                        apply_product_user_states(&mut items, &user_states)?;
-                    }
-
-                    let assessments = measure_search_stage(
-                        "assessment_resolution",
-                        self.assessments.find_current_assessments(&listing_ids),
-                    )
-                    .await?;
-                    present_product_summaries_from_assessments(items, &assessments)
-                }
-                ProductListingSearchReadExecutionPolicy::Concurrent => {
-                    let (source_result, user_state_result, assessment_result) = tokio::join!(
-                        measure_search_stage(
-                            "source_resolution",
-                            self.listing_sources.find_summaries(&source_ids),
-                        ),
-                        async {
-                            match user_state_lookup.as_ref() {
-                                Some(lookup) => measure_search_stage(
-                                    "user_state_resolution",
-                                    self.user_states.find_for_user(lookup),
-                                )
-                                .await
-                                .map(Some),
-                                None => Ok(None),
-                            }
-                        },
-                        measure_search_stage(
-                            "assessment_resolution",
-                            self.assessments.find_current_assessments(&listing_ids),
-                        ),
-                    );
-                    let sources =
-                        source_result.map_err(ProductListingSummaryPersonalizationError::from)?;
-                    let sourced_items = attach_listing_sources(result.items, &sources)?;
-                    let mut items = sourced_items
-                        .into_iter()
-                        .map(|item| Personalized {
-                            item,
-                            user_state: None,
-                        })
-                        .collect::<Vec<_>>();
-
-                    if let Some(user_states) = user_state_result
-                        .map_err(ProductListingSummaryPersonalizationError::from)?
-                        .as_ref()
-                    {
-                        apply_product_user_states(&mut items, user_states)?;
-                    }
-
-                    let assessments = assessment_result?;
-                    present_product_summaries_from_assessments(items, &assessments)
-                }
-            };
-            record_search_stage("enrichment_and_presentation", enrichment_started, "success");
-            summaries
-        };
-        self.shipping
-            .summaries(
+        let items = self
+            .presentation
+            .present(
                 context,
-                &mut items,
-                read_request.compiled_search.search.currency,
+                result.items,
+                &read_request.compiled_search.search,
                 read_request.compiled_search.price_filter_plan.snapshot(),
             )
             .await?;
-        let disclosure = ProductListingUserStateDisclosure::for_principal(&context.principal);
-        let items = items
-            .into_iter()
-            .map(|mut item| {
-                if let Some(geography) = &mut item.item.geography {
-                    geography.set_distance(&read_request.compiled_search.search);
-                }
-                disclosure.disclose(item)
-            })
-            .collect();
         tracing::info!(
             metric = "product_listing_search_result",
             result_count,
             distinct_source_count,
-            enrichment_execution = ?self.read_execution_policy,
+            enrichment_execution = ?self.presentation.read_execution_policy(),
             total_duration_ms = total_started.elapsed().as_millis() as u64,
         );
         Ok(CursoredResult {
@@ -622,7 +522,7 @@ pub(crate) fn present_product_summaries_from_assessments(
         .collect()
 }
 
-async fn measure_search_stage<T, E, F>(stage: &'static str, future: F) -> Result<T, E>
+pub(crate) async fn measure_search_stage<T, E, F>(stage: &'static str, future: F) -> Result<T, E>
 where
     F: Future<Output = Result<T, E>>,
 {
@@ -636,7 +536,7 @@ where
     result
 }
 
-fn record_search_stage(stage: &'static str, started: Instant, outcome: &'static str) {
+pub(crate) fn record_search_stage(stage: &'static str, started: Instant, outcome: &'static str) {
     tracing::info!(
         metric = "product_listing_search_stage",
         stage,
@@ -714,13 +614,6 @@ fn hybrid_embedding_query(request: &SearchProductListingsRequest) -> Option<Embe
     };
 
     Some(text)
-}
-
-fn personalization_user_id(principal: &Principal) -> Option<user_core::user_id::UserId> {
-    match principal {
-        Principal::User(user_id) | Principal::DelegatedUser { user_id, .. } => Some(*user_id),
-        Principal::Anonymous | Principal::Service(_) | Principal::System => None,
-    }
 }
 
 impl From<ProductListingSearchReadError> for SearchProductListingsError {

@@ -1,3 +1,7 @@
+use crate::match_candidates::{
+    CandidateEligibility, candidate_eligibility, has_semantic_intent, retrieve_candidates,
+    retrieves_with_embedding,
+};
 use crate::ports::{
     ExistingSearchFilterMatchReader, PeriodicSearchFilterCandidate,
     PeriodicSearchFilterCandidatePageRequest, PeriodicSearchFilterCandidateReadError,
@@ -12,7 +16,6 @@ use crate::product_match_evaluator::{
     evaluate_product_matches,
 };
 use application::error::{BoxError, box_error};
-use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
 use classifier_model::{ClassifierModel, Probability};
 
@@ -36,11 +39,11 @@ use product_listing_service::ports::{
     ProductListingPriceFilterPlan, ProductListingSearchFilterMatchSource,
     ProductListingSearchFilterMatchSourceReadError, ProductListingSearchFilterMatchSourceReader,
     ProductListingSearchFilterMatchSourceReaderFactory, ProductListingSearchFilterMatchSourceRef,
-    ProductListingSearchReadError, ProductListingSearchReadRequest, ProductListingSearchReader,
+    ProductListingSearchReadError, ProductListingSearchReader,
 };
 
 use search_filter_core::{PriceMatchValuation, SearchFilterProductListingMatch};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use time::{Duration, OffsetDateTime};
 use tracing::Instrument;
@@ -658,8 +661,7 @@ where
             return Ok(FilterOutcome::AlreadyCovered);
         }
         let semantic = has_semantic_intent(&filter.search);
-        let enhanced = filter.search.enhanced_search_description.is_some();
-        let embedding = if enhanced {
+        let embedding = if retrieves_with_embedding(&filter.search) {
             match filter_embedding(filter) {
                 Ok(embedding) => Some(embedding),
                 Err(outcome) => return Ok(outcome),
@@ -688,46 +690,23 @@ where
                     source: box_error(source),
                 },
             )?;
-        let request = ProductListingSearchReadRequest {
-            compiled_search,
-            sort: None,
-            cursor: Some(Cursor {
-                size: self.policy.hybrid_scan_limit.get() as u64,
-                search_after: None,
-            }),
-        };
         let sources = if let Some(refs) = selected.as_ref() {
             self.load_sources(refs).await?
         } else {
-            let result = match embedding {
-                Some(embedding) => {
-                    self.product_listings
-                        .search_hybrid(&request, embedding)
-                        .await
-                }
-                None => self.product_listings.search(&request).await,
-            }
+            let retrieved = retrieve_candidates(
+                &self.product_listings,
+                compiled_search,
+                embedding,
+                self.policy.hybrid_scan_limit,
+            )
+            .await
             .map_err(product_search_error)?;
-            let scan_count = result.items.len().min(self.policy.hybrid_scan_limit.get());
+            let scan_count = retrieved.scanned;
+            let scan_cap = retrieved.scan_limit_reached;
             report.candidates_scanned += scan_count;
-            let scan_cap = scan_count == self.policy.hybrid_scan_limit.get();
-            let mut seen = HashSet::new();
-            let candidates = result
-                .items
-                .into_iter()
-                .take(scan_count)
-                .filter(|item| {
-                    if !seen.insert(item.product_listing_id) {
-                        report.candidates_duplicate += 1;
-                        false
-                    } else if is_withdrawn_candidate(item.lifecycle) {
-                        report.candidates_withdrawn += 1;
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .collect::<Vec<_>>();
+            report.candidates_duplicate += retrieved.duplicates;
+            report.candidates_withdrawn += retrieved.withdrawn;
+            let candidates = retrieved.items;
             let ids = candidates
                 .iter()
                 .map(|item| item.product_listing_id)
@@ -1118,14 +1097,6 @@ async fn retry_delay(attempt: usize) {
     tokio::time::sleep(delay).await;
 }
 
-fn has_semantic_intent(search: &ProductListingSearch) -> bool {
-    search.enhanced_search_description.is_some()
-        || search
-            .product_listing_query
-            .iter()
-            .any(|query| !query.trim().is_empty())
-}
-
 fn eligible_source<'a>(
     reference: &ProductListingSearchFilterMatchSourceRef,
     sources: &'a HashMap<
@@ -1135,27 +1106,15 @@ fn eligible_source<'a>(
     report: &mut FilterAttemptReport,
 ) -> Result<Option<&'a ProductListingSearchFilterMatchSource>, RunPeriodicSearchFilterMatchingError>
 {
-    match sources.get(reference) {
-        None => {
-            report.candidates_missing_source += 1;
-            Ok(None)
-        }
-        Some(source)
-            if source.product_listing_id != reference.product_listing_id
-                || source.event_id != reference.event_id =>
-        {
-            Err(RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch)
-        }
-        Some(source) if source.current_event_id != reference.event_id => {
-            report.candidates_stale += 1;
-            Ok(None)
-        }
-        Some(source) if is_withdrawn_candidate(source.lifecycle) => {
-            report.candidates_withdrawn += 1;
-            Ok(None)
-        }
-        Some(source) => Ok(Some(source)),
+    let eligibility = candidate_eligibility(reference, sources)
+        .map_err(|_| RunPeriodicSearchFilterMatchingError::ProductListingSourceMismatch)?;
+    match eligibility {
+        CandidateEligibility::Eligible(source) => return Ok(Some(source)),
+        CandidateEligibility::MissingSource => report.candidates_missing_source += 1,
+        CandidateEligibility::Stale => report.candidates_stale += 1,
+        CandidateEligibility::Withdrawn => report.candidates_withdrawn += 1,
     }
+    Ok(None)
 }
 
 fn filter_embedding(filter: &PeriodicSearchFilterCandidate) -> Result<&[f32], FilterOutcome> {
@@ -1288,10 +1247,6 @@ fn product_search_error(
         }
     }
 }
-fn is_withdrawn_candidate(lifecycle: ListingLifecycle) -> bool {
-    lifecycle == ListingLifecycle::Withdrawn
-}
-
 fn applicable_sale_observation(
     source: &ProductListingSearchFilterMatchSource,
 ) -> Option<product_listing_core::product_listing::ListingSaleObservation> {
@@ -1363,6 +1318,7 @@ mod tests {
         listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
         product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
     };
+    use product_listing_service::ports::ProductListingSearchReadRequest;
     use product_listing_service::use_cases::queries::search_product_listings::{
         ProductListingSearchItem, ProductListingSearchReadResult,
         ProductListingSummaryPriceValuation,

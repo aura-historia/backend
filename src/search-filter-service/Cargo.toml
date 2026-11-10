@@ -13,6 +13,7 @@ domain-primitives = { workspace = true }
 embedding = { workspace = true }
 fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
+futures = { workspace = true }
 listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }

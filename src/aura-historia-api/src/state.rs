@@ -89,7 +89,8 @@ use product_listing_service::use_cases::{
 };
 use search_filter_service::use_cases::{
     CreateSearchFilterUseCase, DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterUseCase,
-    ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
+    ListOwnedSearchFiltersUseCase, ListSearchFilterMatchesUseCase,
+    PreviewSearchFilterMatchesUseCase, UpdateOwnedSearchFilterUseCase,
     UpdateSearchFilterMatchFeedbackUseCase,
 };
 use woocommerce_service::WoocommerceWebhookIntakeUseCase;
@@ -600,6 +601,7 @@ pub struct SearchFiltersState {
     pub(crate) delete_owned_search_filter: Arc<dyn DeleteOwnedSearchFilterUseCase>,
     pub(crate) list_search_filter_matches: Arc<dyn ListSearchFilterMatchesUseCase>,
     pub(crate) update_search_filter_match_feedback: Arc<dyn UpdateSearchFilterMatchFeedbackUseCase>,
+    pub(crate) preview_search_filter_matches: Arc<dyn PreviewSearchFilterMatchesUseCase>,
     pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
 }
 
@@ -613,6 +615,7 @@ impl SearchFiltersState {
         delete_owned_search_filter: Arc<dyn DeleteOwnedSearchFilterUseCase>,
         list_search_filter_matches: Arc<dyn ListSearchFilterMatchesUseCase>,
         update_search_filter_match_feedback: Arc<dyn UpdateSearchFilterMatchFeedbackUseCase>,
+        preview_search_filter_matches: Arc<dyn PreviewSearchFilterMatchesUseCase>,
         authenticator: Arc<dyn TokenAuthenticator>,
     ) -> Self {
         Self {
@@ -623,6 +626,7 @@ impl SearchFiltersState {
             delete_owned_search_filter,
             list_search_filter_matches,
             update_search_filter_match_feedback,
+            preview_search_filter_matches,
             authenticator,
         }
     }

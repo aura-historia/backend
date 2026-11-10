@@ -65,6 +65,11 @@ existing lazy embedding provider. Selecting the family requires only its explici
 handle; it does not load unrelated provider settings. Services own tier/ownership checks,
 transactions, destination acceptance and materialized match semantics.
 
+`Runtime::saved_search_previews(listing, dependencies)` supplies the REST-only match preview. It
+reuses the listing family's OpenSearch client and embedding provider and needs a
+`SavedSearchPreviewConfig` (Cloudflare account and token, classifier model and `should_show`
+threshold, the same deployment values as scheduled matching); MCP does not select it.
+
 `Runtime::notifications()` supplies the six existing notification inbox use-case handles against
 one warm pool. REST and MCP reuse this family without loading delivery, email or other provider
 configuration. Notification ownership, delegated scopes and presentation preferences stay with
