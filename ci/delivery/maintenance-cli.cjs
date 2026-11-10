@@ -238,9 +238,12 @@ async function execute(action, ctx, config, evidence, deps = {}) {
         throw new Error(
           'Native work remains active or unverified; hold retained',
         );
+      const manual = state.active.executionId.startsWith('maintenance:');
       await (
-        deps.verifyMaintenanceCompletion ||
-        maintenance.verifyMaintenanceCompletion
+        manual
+          ? deps.verifyMaintenanceCompletion ||
+            maintenance.verifyMaintenanceCompletion
+          : deps.verifyNativeCompletion || maintenance.verifyNativeCompletion
       )(ctx, state, config, read);
       const inspection = (deps.inspectDatabase || inspectDatabase)(
         ctx,

@@ -113,3 +113,61 @@ test('manual reconciliation checks native work without inventing a pipeline and 
   assert.equal(result.state.lastVerified.bundleDigest, f.hash);
   assert.equal(result.state.observedSchema.migrations[0].version, '2');
 });
+test('reconciling a held routine execution verifies from its admitted evidence, not maintenance records', async () => {
+  const p = fixture();
+  const execution = { executionId: 'native-execution', requestDigest: f.hash, bundleDigest: f.hash };
+  p.store.write({ ...p.get(), revision: 2, state: 'NEEDS_ATTENTION', active: execution, holdReason: 'Health failed' });
+  const calls = [];
+  const result = await execute('reconcile', p.ctx, p.config, {
+    expectedStateDigest: digest(p.get()),
+    reason: 'Routine execution settled; health now passes',
+    operator: 'reviewer',
+    migrationInvocationSettled: true,
+    migrationEvidenceUri: 's3://delivery/reports/executions/native-execution/migration-result.json',
+  }, {
+    ...p,
+    inspectNative: () => ({ executionId: 'native-execution', nativeWorkSettled: true }),
+    verifyMaintenanceCompletion: async () => { throw new Error('maintenance records do not exist'); },
+    verifyNativeCompletion: async (_ctx, held) => { calls.push(held.active.executionId); return {}; },
+    inspectDatabase: () => ({ ledger: [], schema: [] }),
+  });
+  assert.deepEqual(calls, ['native-execution']);
+  assert.equal(result.state.state, 'READY');
+  assert.equal(result.state.lastVerified.bundleDigest, f.hash);
+});
+test('admitted evidence must belong to the held execution and bundle', async () => {
+  const { verifyNativeCompletion } = require('./maintenance.cjs');
+  const { createHash } = require('node:crypto');
+  const held = { active: { executionId: 'native-execution', requestDigest: f.hash, bundleDigest: 'b'.repeat(64) } };
+  const inventoryBody = JSON.stringify({
+    candidateBundleDigest: 'b'.repeat(64),
+    dmsBaseline: { arn: 'task', status: 'running' },
+    aws: { activation: [{ id: 'mapping', source: 'arn:aws:kinesis:stream' }] },
+  });
+  const report = {
+    evidence: [{ kind: 'INVENTORY', uri: 's3://delivery/reports/evidence/i.json?versionId=v1',
+      sha256: createHash('sha256').update(inventoryBody).digest('hex') }],
+  };
+  const objects = (admissionExecution) => ({
+    'reports/executions/native-execution/admission.json': {
+      execution: admissionExecution, reportDigest: digest(report), startedAt: f.time,
+    },
+    [`reports/${digest(report)}.json`]: report,
+  });
+  const store = (records) => ({
+    readJson: (_bucket, key) => records[key],
+    readObject: () => ({ body: inventoryBody }),
+  });
+  const ctx = { bucket: 'delivery' };
+  const seen = [];
+  const verifyCurrentHealth = async (_ctx, _config, dms, startedAt, options) => {
+    seen.push({ dms, startedAt, router: options.routerBaseline.id });
+    return { status: 'PASS' };
+  };
+  await verifyNativeCompletion(ctx, held, {}, null, null, { store: store(objects(held.active)), verifyCurrentHealth });
+  assert.deepEqual(seen, [{ dms: { arn: 'task', status: 'running' }, startedAt: f.time, router: 'mapping' }]);
+  await assert.rejects(() => verifyNativeCompletion(ctx, held, {}, null, null, {
+    store: store(objects({ ...held.active, executionId: 'other' })), verifyCurrentHealth }), /another execution/);
+  await assert.rejects(() => verifyNativeCompletion(ctx, { active: { ...held.active, bundleDigest: 'c'.repeat(64) } }, {}, null, null, {
+    store: store(objects({ ...held.active, bundleDigest: 'c'.repeat(64) })), verifyCurrentHealth }), /another bundle/);
+});

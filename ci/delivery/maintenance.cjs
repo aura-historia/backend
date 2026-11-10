@@ -449,6 +449,43 @@ async function verifyMaintenanceCompletion(
   );
   return { actual, health };
 }
+/**
+ * A held routine execution has no maintenance records. Its admitted report carries the reviewed
+ * pre-operation DMS and router baseline, which routine verification compares against too, so
+ * reconciliation repeats that verification from the same immutable evidence.
+ */
+async function verifyNativeCompletion(ctx, held, config, _recordReader, api = aws, options = {}) {
+  const store = options.store || require("./storage.cjs");
+  const execution = require("./execution.cjs");
+  const verifyCurrentHealth = options.verifyCurrentHealth || execution.verifyCurrentHealth;
+  const admission = store.readJson(
+    ctx.bucket,
+    `reports/executions/${held.active.executionId}/admission.json`,
+  );
+  if (digest(admission.execution) !== digest(held.active))
+    throw new Error("Admission record belongs to another execution");
+  const report = store.readJson(ctx.bucket, `reports/${admission.reportDigest}.json`);
+  if (digest(report) !== admission.reportDigest)
+    throw new Error("Admitted report identity changed");
+  const references = report.evidence.filter((item) => item.kind === "INVENTORY");
+  if (references.length !== 1) throw new Error("Admitted inventory evidence required");
+  const inventory = execution.evidenceObject(references[0], store);
+  if (inventory.candidateBundleDigest !== held.active.bundleDigest)
+    throw new Error("Admitted inventory belongs to another bundle");
+  const health = await verifyCurrentHealth(
+    ctx,
+    config,
+    inventory.dmsBaseline,
+    admission.startedAt,
+    {
+      api,
+      routerBaseline: inventory.aws.activation.find((item) =>
+        item.source?.startsWith("arn:aws:kinesis:"),
+      ),
+    },
+  );
+  return { health };
+}
 function reconcileObserved(store, expected, evidence, observations) {
   if (
     !evidence.migrationInvocationSettled ||
@@ -470,6 +507,7 @@ module.exports = {
   inspectNative,
   inspectManualNative,
   verifyMaintenanceCompletion,
+  verifyNativeCompletion,
   enterMaintenance,
   reconcileObserved,
 };

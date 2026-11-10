@@ -52,6 +52,15 @@ Healthy idle CDC requires fresh successful polling, explicit zero returned recor
 and zero reader age. Missing metric samples remain unknown; an absent producer
 metric alone does not establish idleness.
 
+Worker health measures whether the deployed workers work, not whether they keep up with
+ingestion. A queue with a backlog passes while its worker acknowledges at least half of the
+records it receives in the observed window; SQS throttling of a saturated function returns
+records unacknowledged, while a failing worker acknowledges almost none. Backlog age is
+reported but not gated. A dead-letter queue fails only when it holds more messages than when
+the operation started; without a sample from that start, any dead letter fails. Earlier dead
+letters stay with [failure custody](durable-worker-runbook.md#failure-custody-and-controlled-redrive)
+and the DLQ alarm.
+
 The environment record holds only its last verified application bundle, separately
 observed SQL state, active execution and an explicit operational hold. Successful
 SQL followed by failed application deployment updates schema evidence and preserves
@@ -542,7 +551,9 @@ Dispatch `status` first to obtain the current state digest. Mutations require an
 pause record. Retries reconcile retained intent/results and never issue a blind
 second stop/start. `reconcile` additionally requires `migrationInvocationSettled:true`
 and a restricted `migrationEvidenceUri`; native settlement, actual schema and restored
-intended DMS/capture state plus health are checked before clearing the hold.
+intended DMS/capture state plus health are checked before clearing the hold. A held routine
+execution has no maintenance records: its health is checked against the DMS and router
+baseline in its admitted report, the same evidence routine verification uses.
 
 Before the first routine request, associate `migrate` with the delivery stack's
 migration CloudFormation service role, and `compute`, `api` and `observability` with

@@ -24,6 +24,23 @@ async function metric(api, spec, since, now) {
   return key === 'Minimum' ? Math.min(...points.map((point) => point[key])) : Math.max(...points.map((point) => point[key]));
 }
 
+/** Total of a Sum metric over the window: `metric` keeps the busiest minute, which cannot be compared. */
+async function metricTotal(api, spec, since, now) {
+  const result = await api('cloudwatch', 'get-metric-statistics', {
+    Namespace: spec.namespace, MetricName: spec.name,
+    Dimensions: Object.entries(spec.dimensions).map(([Name, Value]) => ({ Name, Value })),
+    StartTime: since, EndTime: now, Period: 60, Statistics: ['Sum'],
+  });
+  const points = (result.Datapoints ?? []).filter((point) =>
+    Date.parse(point.Timestamp) >= Date.parse(since) && Date.parse(point.Timestamp) <= Date.parse(now)
+      && Number.isFinite(point.Sum));
+  return points.length ? points.reduce((total, point) => total + point.Sum, 0) : null;
+}
+
+// A worker that acknowledges at least half of what it receives is processing: SQS throttling of a
+// saturated function returns messages unacknowledged, but a failing worker acknowledges almost none.
+const MINIMUM_DELETED_SHARE = 0.5;
+
 /** Read-only observation. An idle queue is explicit evidence; missing CloudWatch samples are not zero. */
 async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = () => new Date().toISOString() }) {
   const checks = [];
@@ -132,12 +149,32 @@ async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = (
     if (visible === null || inflight === null || dlq === null) {
       add(`queue:${queue.name}`, 'UNVERIFIED', 'Explicit queue counters missing.'); return;
     }
-    add(`dlq:${queue.name}`, dlq === 0 ? 'PASS' : 'FAIL', `Visible dead letters: ${dlq}.`);
-    const age = await metric(api, { namespace: 'AWS/SQS', name: 'ApproximateAgeOfOldestMessage',
-      dimensions: { QueueName: queue.name } }, since, observedAt);
-    add(`queue:${queue.name}`, visible === 0 && inflight === 0 ? 'PASS' :
-      age === null ? 'UNVERIFIED' : age <= 300 ? 'PASS' : 'FAIL',
-    visible === 0 && inflight === 0 ? 'Explicitly empty; worker processing was not exercised.' : `Backlog ${visible}, in flight ${inflight}, maximum age ${age}.`);
+    // Dead letters that predate the observed operation belong to failure custody and the DLQ alarm;
+    // only new ones are attributable to it. Without a sample from its start, any dead letter fails.
+    if (dlq === 0) add(`dlq:${queue.name}`, 'PASS', 'Visible dead letters: 0.');
+    else {
+      const startedAt = context.startedAt;
+      const before = await metric(api, { namespace: 'AWS/SQS', name: 'ApproximateNumberOfMessagesVisible',
+        statistic: 'Minimum', dimensions: { QueueName: String(queue.dlqUrl).split('/').at(-1) } },
+      new Date(Date.parse(startedAt) - 600000).toISOString(), startedAt);
+      add(`dlq:${queue.name}`, before !== null && dlq <= before ? 'PASS' : 'FAIL', before === null
+        ? `Visible dead letters: ${dlq}; none is attributable to before the operation.`
+        : `Visible dead letters: ${dlq}, ${dlq <= before ? 'no more than' : 'up from'} ${before} when the operation started.`);
+    }
+    if (visible === 0 && inflight === 0) {
+      add(`queue:${queue.name}`, 'PASS', 'Explicitly empty; worker processing was not exercised.');
+    } else {
+      // Backlog age measures ingestion load against worker capacity, not whether the deployed worker
+      // works. Progress does: the worker must keep acknowledging the records it receives.
+      const sqs = (name) => ({ namespace: 'AWS/SQS', name, dimensions: { QueueName: queue.name } });
+      const received = await metricTotal(api, sqs('NumberOfMessagesReceived'), since, observedAt);
+      const deleted = await metricTotal(api, sqs('NumberOfMessagesDeleted'), since, observedAt);
+      const age = await metric(api, sqs('ApproximateAgeOfOldestMessage'), since, observedAt);
+      const progressing = received !== null && deleted !== null && deleted > 0 &&
+        deleted >= received * MINIMUM_DELETED_SHARE;
+      add(`queue:${queue.name}`, received === null || deleted === null ? 'UNVERIFIED' : progressing ? 'PASS' : 'FAIL',
+        `Backlog ${visible}, in flight ${inflight}, oldest ${age ?? 'unknown'} s; deleted ${deleted ?? 'unknown'} of ${received ?? 'unknown'} received.`);
+    }
     if (queue.workerFunctionName && visible + inflight > 0) {
       const invocations = await metric(api, { namespace: 'AWS/Lambda', name: 'Invocations', statistic: 'Sum',
         dimensions: { FunctionName: queue.workerFunctionName } }, since, observedAt);
@@ -168,4 +205,4 @@ async function verifyHealth(context, { api, fetch: fetchRequest = fetch, now = (
     'SQL, messages, external effects and completed stacks cannot be undone by alias rollback.'] };
 }
 
-module.exports = { verifyHealth, metric, fingerprint };
+module.exports = { verifyHealth, metric, metricTotal, fingerprint };
