@@ -155,7 +155,7 @@ async fn robots_txt_step(
     let location = response
         .headers()
         .get("location")
-        .and_then(|location| location.to_str().ok());
+        .and_then(crate::network::policy::location_text);
     Ok(RobotsFetchStep::for_unsuccessful(
         status.as_u16(),
         location,

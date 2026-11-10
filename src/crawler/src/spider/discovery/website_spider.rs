@@ -23,7 +23,7 @@ use crate::network::bot_challenge::{
 };
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
-    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host,
+    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host, location_text,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
@@ -1087,22 +1087,18 @@ async fn follow_crawl_root(
             break;
         }
 
-        let location = response
-            .headers()
-            .get("location")
-            .ok_or_else(|| {
-                SpiderDiscoveryError::preflight(
-                    CrawlFailureKind::RedirectProblem,
-                    "crawl-root redirect response has no location",
-                )
-            })?
-            .to_str()
-            .map_err(|_| {
-                SpiderDiscoveryError::preflight(
-                    CrawlFailureKind::RedirectProblem,
-                    "crawl-root redirect location is invalid",
-                )
-            })?;
+        let location = response.headers().get("location").ok_or_else(|| {
+            SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RedirectProblem,
+                "crawl-root redirect response has no location",
+            )
+        })?;
+        let location = location_text(location).ok_or_else(|| {
+            SpiderDiscoveryError::preflight(
+                CrawlFailureKind::RedirectProblem,
+                "crawl-root redirect location is invalid",
+            )
+        })?;
         chain.current = root_redirect_target(&chain.configured, &chain.current, location)?;
         chain.arrival = RootArrival::Redirect;
     }
