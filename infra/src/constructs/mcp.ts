@@ -5,21 +5,30 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import type * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
-import type { StageConfig } from "../config";
+import { validatedMuseChallenge, type McpConfig, type StageConfig } from "../config";
 import { createMcpWebAcl } from "./mcp-web-acl";
 
 /** The public, credential-free Server Card; the only MCP path that may be cached. */
 export const MCP_SERVER_CARD_PATH = "/.well-known/mcp/server-card.json";
 
-/** Exact paths only. ANY /v1 lets the transport return its deliberate 405/Allow response. */
-export const MCP_ROUTE_CATALOG = [
-  { method: apigwv2.HttpMethod.ANY, path: "/v1" },
-  ...[
-    "/health", "/ready", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1",
-    "/.well-known/openai-apps-challenge", MCP_SERVER_CARD_PATH,
-  ]
-    .flatMap((path) => [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.HEAD].map((method) => ({ method, path }))),
+const MCP_DISCOVERY_PATHS = [
+  "/health", "/ready", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/v1",
+  "/.well-known/openai-apps-challenge", MCP_SERVER_CARD_PATH,
 ] as const;
+
+/**
+ * Exact paths only. ANY /v1 lets the transport return its deliberate 405/Allow response. The
+ * configured Muse token names its challenge path, so that path is exact too, never a wildcard.
+ */
+export function mcpRouteCatalog(mcp: McpConfig): { readonly method: apigwv2.HttpMethod; readonly path: string }[] {
+  const museToken = validatedMuseChallenge(mcp);
+  const museChallengePaths = museToken === undefined ? [] : [`/.well-known/muse-challenge/${museToken}`];
+  const readOnlyPaths = [...MCP_DISCOVERY_PATHS, ...museChallengePaths];
+  return [
+    { method: apigwv2.HttpMethod.ANY, path: "/v1" },
+    ...readOnlyPaths.flatMap((path) => [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.HEAD].map((method) => ({ method, path }))),
+  ];
+}
 
 export const MCP_CORS_ALLOW_HEADERS = [
   "Authorization", "Content-Type", "Accept", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name",
@@ -85,7 +94,7 @@ function createGateway(scope: Construct, props: McpHttpApiProps) {
     scopePermissionToRoute: false,
     timeout: cdk.Duration.seconds(29),
   });
-  for (const route of MCP_ROUTE_CATALOG) {
+  for (const route of mcpRouteCatalog(config.mcp)) {
     api.addRoutes({ path: route.path, methods: [route.method], integration });
   }
   return { api, stage };

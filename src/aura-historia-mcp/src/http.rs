@@ -19,7 +19,7 @@ use application::operation_context::{CorrelationId, OperationContext, Principal,
 use axum::{
     Router,
     body::{Body, Bytes, to_bytes},
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{any, get},
@@ -100,6 +100,7 @@ pub fn router(
             "/.well-known/openai-apps-challenge",
             get(openai_apps_challenge),
         )
+        .route("/.well-known/muse-challenge/{token}", get(muse_challenge))
         .route("/health", get(probe))
         .route("/ready", get(probe))
         .with_state(state)
@@ -140,6 +141,22 @@ async fn server_card_document(State(state): State<HttpState>, headers: HeaderMap
 /// OpenAI verifies the MCP host by fetching exactly the token issued in its portal.
 async fn openai_apps_challenge(State(state): State<HttpState>, headers: HeaderMap) -> Response {
     verification_document(&state, &headers, state.config.openai_apps_challenge.clone())
+}
+
+/// Muse verifies the MCP host by fetching `muse-challenge=<token>` from a path named by that
+/// token. Any other token is not found, however the front door admitted the request.
+async fn muse_challenge(
+    State(state): State<HttpState>,
+    Path(token): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let document = state
+        .config
+        .muse_challenge
+        .as_deref()
+        .filter(|configured| *configured == token)
+        .map(|configured| format!("muse-challenge={configured}"));
+    verification_document(&state, &headers, document)
 }
 
 /// A directory's domain-verification document: the exact text its portal issued, or `404`

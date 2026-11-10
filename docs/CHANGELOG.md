@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — Muse domain verification on the MCP host
+
+- The production MCP host serves `GET /.well-known/muse-challenge/<token>` for the Muse connector portal's domain verification: `muse-challenge=<token>` as plain text for the configured token, `404` for any other path below `/.well-known/muse-challenge/`.
+
 ## 2026-11-10 — MCP tool catalogue fixes before directory submission
 
 - **Breaking change (MCP):** the tool `discoverPartyLocations` is removed. Public seller-location discovery stays available on `GET /v1/party-locations`. The tool catalogue now lists 37 tools.

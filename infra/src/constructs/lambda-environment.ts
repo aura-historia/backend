@@ -1,5 +1,5 @@
 import type * as ses from "aws-cdk-lib/aws-ses";
-import { ARTIFACT_BUCKET_NAME, ssmValue, type McpConfig, type StageConfig } from "../config";
+import { ARTIFACT_BUCKET_NAME, ssmValue, validatedMuseChallenge, type McpConfig, type StageConfig } from "../config";
 import { credentialSecrets, type CredentialResolver } from "../credentials";
 import type { Search } from "./opensearch";
 import type { QueueCatalog } from "./queues";
@@ -77,6 +77,7 @@ export function mcpEnvironment(context: LambdaEnvironmentContext): Record<string
     MCP_ALLOWED_HOSTS: context.config.mcp.domainName,
     MCP_ALLOWED_ORIGINS: context.config.mcp.allowedOrigins.join(","),
     ...openAiAppsChallengeEnvironment(context.config.mcp),
+    ...museChallengeEnvironment(context.config.mcp),
   };
 }
 
@@ -88,6 +89,12 @@ export function openAiAppsChallengeEnvironment(mcp: McpConfig): Record<string, s
     throw new Error("mcp.openAiAppsChallenge must be one visible ASCII token of at most 512 characters.");
   }
   return { MCP_OPENAI_APPS_CHALLENGE: token };
+}
+
+/** The MCP server refuses to start with an invalid token, so synthesis rejects it first. */
+export function museChallengeEnvironment(mcp: McpConfig): Record<string, string> {
+  const token = validatedMuseChallenge(mcp);
+  return token === undefined ? {} : { MCP_MUSE_CHALLENGE: token };
 }
 
 export function apiEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
