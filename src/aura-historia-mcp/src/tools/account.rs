@@ -1159,7 +1159,7 @@ mod tests {
                         response.headers()["www-authenticate"]
                             .to_str()
                             .unwrap()
-                            .contains("scope=\"users:write\"")
+                            .contains("error=\"insufficient_scope\"")
                     );
                 }
             }

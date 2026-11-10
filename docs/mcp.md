@@ -103,8 +103,10 @@ Absent credentials permit discovery and public operations. Supplied malformed, e
 revoked or invalid credentials receive HTTP `401` with `error="invalid_token"`, including on
 public calls. Protected calls without credentials receive HTTP `401`; insufficient grants
 receive HTTP `403` with `error="insufficient_scope"`. Their Bearer challenges include
-`resource_metadata` and every scope required by the selected operation, rather than only the
-missing subset. Authentication-store outages receive bounded HTTP `503` with `Retry-After: 1`;
+`resource_metadata` and the whole ordinary-user scope vocabulary, whatever the selected
+operation needs: a client requests what the challenge names, so naming only the operation's
+scopes would cost one approval per tool family. Admission still enforces each operation's own
+scopes. Authentication-store outages receive bounded HTTP `503` with `Retry-After: 1`;
 invalid persisted/internal authentication state receives `500`. Neither becomes anonymous
 success or an invalid-token challenge. Rejected requests never execute a tool. Use cases
 remain the authority for scope, role, partnership and ownership checks.
@@ -113,9 +115,9 @@ Both `/.well-known/oauth-protected-resource` and
 `/.well-known/oauth-protected-resource/v1` serve credential-free RFC 9728 metadata. They
 identify the exact canonical MCP resource and configured Aura issuer, and advertise only header
 bearer credentials and the ordinary-user scopes, like the REST protected-resource metadata. A
-client that signs in without a challenge requests these, so one approval covers every personal
-tool. Operation challenges still name the required scope set of each protected call. Host/Origin checks and `Cache-Control: no-store`
-apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
+client that signs in without a challenge requests these, and protected-call challenges name the
+same vocabulary, so one approval covers every personal tool. Host/Origin checks and
+`Cache-Control: no-store` apply to both routes. Challenges point to the path-suffixed metadata URL. Aura authorization
 server discovery belongs to [the OAuth contract](oauth.md); the server card and every other
 discovery document belong to [agent discovery](agent-discovery.md).
 
@@ -425,7 +427,7 @@ sign in without registration where the environment enables
 confidential client per environment with an exact HTTPS callback and a scope ceiling, then
 follow the [generic OAuth setup](oauth.md#fixed-confidential-client-setup). The same MCP URL supports anonymous discovery and public calls before, during and after a
 connection. Protected tools remain listed; their HTTP `401`/`403` challenges identify the
-resource metadata and required scopes. To add scopes, start a new authorization with a fresh
+resource metadata and the ordinary-user scopes to approve. To add scopes, start a new authorization with a fresh
 state and S256 verifier, obtain human approval and exchange its single-use code. A client
 must validate the exact callback and state, handle `access_denied` without exchanging a
 code, and keep its secret and verifier out of browser URLs and logs.

@@ -3,8 +3,8 @@ use application::{error::box_error, operation_context::Principal};
 use async_trait::async_trait;
 use aura_historia_auth::{AccessTokenAuthenticationError, authenticate_access_token};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use oauth_core::resource::AuraResourcePolicy;
-use std::{collections::BTreeSet, sync::Arc};
+use oauth_core::{ordinary_user_scopes::ORDINARY_USER_SCOPES, resource::AuraResourcePolicy};
+use std::sync::Arc;
 use user_service::use_cases::AuthenticateAccessTokenUseCase;
 
 /// Validates every supplied Aura credential against the current authoritative token store.
@@ -38,18 +38,12 @@ impl AuraTokenGate {
         if let Some(error) = error {
             value.push_str(&format!(", error=\"{error}\""));
         }
-        if let Some(policy) = policy {
-            let scopes = policy
-                .required_scopes
-                .iter()
-                .map(|scope| scope.as_scope_str())
-                .collect::<BTreeSet<_>>();
-            if !scopes.is_empty() {
-                value.push_str(&format!(
-                    ", scope=\"{}\"",
-                    scopes.into_iter().collect::<Vec<_>>().join(" ")
-                ));
-            }
+        if policy.is_some() {
+            // A client requests what the challenge names, so naming only the called operation's
+            // scopes costs one consent per tool family. `admit` still enforces each operation's
+            // own scopes; this only widens what a client is invited to approve at once.
+            let scopes = ORDINARY_USER_SCOPES.map(|scope| scope.as_str()).join(" ");
+            value.push_str(&format!(", scope=\"{scopes}\""));
         }
         let mut rejection = AdmissionRejection::new(status);
         match HeaderValue::from_str(&value) {

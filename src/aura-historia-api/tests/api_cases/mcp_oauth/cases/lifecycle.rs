@@ -1,6 +1,7 @@
 use super::*;
 use aura_historia_contracts::{public_overview::PublicOverviewData, users::account::OwnUserData};
 use mcp::assert_shared_output;
+use oauth_core::ordinary_user_scopes::ORDINARY_USER_SCOPES;
 use reqwest::Method;
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
@@ -14,11 +15,12 @@ async fn should_link_reauthorize_and_disconnect_at_the_same_public_url() {
 
     let missing = mcp.call("getUserAccount", json!({}), None).await;
     assert_eq!(StatusCode::UNAUTHORIZED, missing.status());
+    let ordinary_user_scopes = ORDINARY_USER_SCOPES.map(|scope| scope.as_str()).join(" ");
     assert!(
         missing.headers()["www-authenticate"]
             .to_str()
             .unwrap()
-            .contains("scope=\"users:read\"")
+            .contains(&format!("scope=\"{ordinary_user_scopes}\""))
     );
     let read = client.link(user, "users:read").await;
     let read_token = read["access_token"].as_str().unwrap();
@@ -51,7 +53,7 @@ async fn should_link_reauthorize_and_disconnect_at_the_same_public_url() {
     assert_eq!(StatusCode::FORBIDDEN, denied.status());
     let challenge = denied.headers()["www-authenticate"].to_str().unwrap();
     assert!(challenge.contains("error=\"insufficient_scope\""));
-    assert!(challenge.contains("scope=\"users:write\""));
+    assert!(challenge.contains(&format!("scope=\"{ordinary_user_scopes}\"")));
     assert!(challenge.contains("resource_metadata=\"https://mcp.aura-historia.com/.well-known/oauth-protected-resource/v1\""));
     assert_eq!(
         StatusCode::FORBIDDEN,

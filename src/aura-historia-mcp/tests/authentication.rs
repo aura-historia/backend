@@ -123,6 +123,10 @@ fn policy(access: AccessClass, scopes: Vec<CredentialCapability>) -> OperationPo
         open_world: false,
     }
 }
+/// What every protected-call challenge asks for: the eight ordinary-user scopes, in the order
+/// the protected-resource metadata lists them, whatever the called operation needs.
+const ORDINARY_USER_SCOPE_CHALLENGE: &str = "users:read users:write search-filters:read search-filters:write watchlist:read watchlist:write notifications:read notifications:write";
+
 fn config() -> TransportConfig {
     TransportConfig {
         allowed_hosts: vec!["mcp.example.test".into()],
@@ -253,7 +257,9 @@ async fn assert_rejection(
         assert!(!challenge.contains("error="));
     }
     if scopes {
-        assert!(challenge.contains("scope=\"users:read users:write\""));
+        assert!(challenge.contains(&format!("scope=\"{ORDINARY_USER_SCOPE_CHALLENGE}\"")));
+    } else {
+        assert!(!challenge.contains("scope="));
     }
     assert!(
         to_bytes(response.into_body(), 1024)
@@ -353,7 +359,31 @@ async fn should_reject_supplied_invalid_credentials_for_every_protocol_method() 
 }
 
 #[tokio::test]
-async fn should_preserve_exact_delegated_identity_and_all_required_scope_challenges() {
+async fn should_challenge_with_the_ordinary_user_vocabulary_whatever_scope_the_operation_needs() {
+    let fixture = Fixture::new();
+    assert_rejection(
+        fixture.call("serviceDeniedFixture", None).await,
+        StatusCode::UNAUTHORIZED,
+        None,
+        true,
+    )
+    .await;
+    let token = fixture
+        .store
+        .insert(UserId::new(), &[Scope::NotificationsRead]);
+    assert_rejection(
+        fixture
+            .call("serviceDeniedFixture", Some(&format!("Bearer {token}")))
+            .await,
+        StatusCode::FORBIDDEN,
+        Some("insufficient_scope"),
+        true,
+    )
+    .await;
+    assert_eq!(0, fixture.calls.load(Ordering::SeqCst));
+}
+#[tokio::test]
+async fn should_preserve_exact_delegated_identity_and_reject_insufficient_scope() {
     let fixture = Fixture::new();
     let user = UserId::new();
     let token = fixture.store.insert(user, &[Scope::UsersRead]);
