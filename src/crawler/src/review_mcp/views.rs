@@ -123,7 +123,8 @@ pub struct ReviewView {
     #[serde(flatten)]
     pub body: Option<ReviewBody>,
     /// One page of the URL sample of a URL-pattern review, with how the candidate classifies each
-    /// URL: at most 150 URLs from `sample_urls_offset` on.
+    /// URL: at most 200 URLs from `sample_urls_offset` on, in the fixed order of a hash of the
+    /// URL, each as path and query.
     pub sample_urls: Vec<SampleUrlView>,
     /// The position in the whole sample of the first URL of `sample_urls`.
     pub sample_urls_offset: usize,
@@ -579,14 +580,16 @@ struct SamplePage {
 }
 
 impl SamplePage {
-    /// The URLs from `offset` on, at most [`MAX_SAMPLE_URLS`] of them and [`MAX_SAMPLE_PAGE_BYTES`]
-    /// as JSON, naming in `truncations` the part of the sample the page shows when it is not all.
+    /// The URLs from `offset` on in [`sample_order`], at most [`MAX_SAMPLE_URLS`] of them and
+    /// [`MAX_SAMPLE_PAGE_BYTES`] as JSON, naming in `truncations` the part of the sample the page
+    /// shows when it is not all.
     fn of(
-        urls: Vec<CrawlerReviewUrl>,
+        mut urls: Vec<CrawlerReviewUrl>,
         offset: usize,
         crawl_host: Option<&str>,
         truncations: &mut Vec<String>,
     ) -> Self {
+        urls.sort_by_cached_key(|url| sample_order(&url.url));
         let total = urls.len();
         let offset = offset.min(total);
         let mut bytes_left = MAX_SAMPLE_PAGE_BYTES;
@@ -614,6 +617,16 @@ impl SamplePage {
             next_offset,
         }
     }
+}
+
+/// Where `url` stands in the order the agents read a sample in: by the SHA-256 of the URL, which
+/// only the same URL shares. The order is a fixed pseudorandom shuffle that ignores labels, classes and the order the
+/// crawl found the URLs in, so the first page is a spread over every path shape rather than the
+/// crawl's first section, as the seed of an induced pattern should be, and the same sample always
+/// pages the same way.
+fn sample_order(url: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(url.as_bytes()).into()
 }
 
 impl SourceProductUrlView {
@@ -994,7 +1007,7 @@ mod tests {
         assert_eq!(
             view["sample_urls"][0],
             json!({
-                "url": "/item/0",
+                "url": hash_ordered(200)[0],
                 "candidate_pattern_match": true,
                 "candidate_class": "product",
             }),
@@ -1055,6 +1068,65 @@ mod tests {
         }))
     }
 
+    /// The paths of the first `count` sample URLs of [`url_pattern_detail`] in the order of the
+    /// SHA-256 of their URL.
+    fn hash_ordered(count: usize) -> Vec<String> {
+        use sha2::{Digest, Sha256};
+        let mut urls: Vec<String> = (0..count)
+            .map(|index| format!("https://antiques.example/item/{index}"))
+            .collect();
+        urls.sort_by_key(|url| Sha256::digest(url.as_bytes()));
+        urls.iter()
+            .map(|url| {
+                url.trim_start_matches("https://antiques.example")
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// The sample is read in a fixed shuffle, the seed order of an induced pattern: whatever order
+    /// the console answers the URLs in, and whatever their classes, the pages list them the same.
+    #[test]
+    fn should_list_the_sample_in_a_fixed_hash_order_whatever_the_console_s_order_and_classes() {
+        let candidate = json!({
+            "decision": { "type": "PATTERN", "value": "^/item/[^/?#]+$" },
+            "current_pattern": null,
+        });
+        let first_page = |reverse: bool| {
+            let mut detail = url_pattern_detail(&candidate, 300, 0);
+            if reverse {
+                detail.urls.reverse();
+                for url in &mut detail.urls {
+                    url.candidate_pattern_match = Some(false);
+                    url.candidate_class = Some("other".to_owned());
+                }
+            }
+            let view = json!(ReviewView::of(
+                detail,
+                wire::Candidate::UrlPattern(decoded(candidate.clone())),
+                0,
+            ));
+            view["sample_urls"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|url| url["url"].as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
+
+        let (crawl_order, reversed) = (first_page(false), first_page(true));
+
+        assert_eq!(crawl_order, reversed);
+        assert_eq!(crawl_order, hash_ordered(300)[..MAX_SAMPLE_URLS]);
+        assert!(
+            crawl_order.iter().any(|url| url
+                .trim_start_matches("/item/")
+                .parse::<usize>()
+                .is_ok_and(|index| index >= MAX_SAMPLE_URLS)),
+            "the first page reaches past the crawl's first 200 URLs"
+        );
+    }
+
     #[test]
     fn should_page_through_the_whole_sample_by_offset() {
         let candidate = json!({
@@ -1090,7 +1162,16 @@ mod tests {
                 (400, 100, Value::Null, 500)
             ]
         );
-        assert_eq!(pages[2]["sample_urls"][0]["url"], "/item/400");
+        let listed: Vec<&str> = pages
+            .iter()
+            .flat_map(|view| view["sample_urls"].as_array().into_iter().flatten())
+            .filter_map(|url| url["url"].as_str())
+            .collect();
+        assert_eq!(
+            listed,
+            hash_ordered(500),
+            "every URL once, in the hash order"
+        );
         assert_eq!(
             pages[2]["truncations"],
             json!(["sample_urls: URLs 400 to 500 of 500"])

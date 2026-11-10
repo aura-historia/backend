@@ -1273,8 +1273,8 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v12");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v9");
+        assert_eq!(ledger[0]["prompt_version"], "author.v13");
+        assert_eq!(ledger[1]["prompt_version"], "reviewer.v10");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);
@@ -2271,10 +2271,10 @@ echo "end $role $review" >> "$dir/order.log"
         assert!((1..=2).contains(&most), "{most}");
     }
 
-    /// The author's prompt asks for the label minimum the console applies, not for one in the
-    /// runner's own environment; a run that cannot read the console's limits starts no agent.
+    /// A run reads the agents' limits from the console, not from the runner's own environment,
+    /// and one that cannot read them starts no agent.
     #[tokio::test]
-    async fn should_tell_the_agents_the_console_s_limits_and_run_none_without_them() {
+    async fn should_read_the_console_s_limits_and_run_no_agent_without_them() {
         let url_pattern = CrawlerReview {
             artifact_type: "URL_PATTERN".to_owned(),
             ..review("PENDING_REVIEW", true)
@@ -2298,14 +2298,6 @@ echo "end $role $review" >> "$dir/order.log"
             calls.len(),
             2,
             "one author and one reviewer of the first run"
-        );
-        let minimum = format!(
-            "at least {CONSOLE_MIN_LABELLED_URLS} URLs PRODUCT and at least {CONSOLE_MIN_LABELLED_URLS} NOT_PRODUCT"
-        );
-        assert!(
-            calls[0]["stdin"].contains(&minimum),
-            "{}",
-            calls[0]["stdin"]
         );
         assert!(matches!(without_limits, Err(RunnerError::AgentLimits(_))));
     }

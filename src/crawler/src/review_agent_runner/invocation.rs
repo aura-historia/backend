@@ -132,17 +132,17 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v12",
-            prompt: include_str!("prompts/author.v12.md"),
-            product_schema_rules: include_str!("prompts/author.v12.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/author.v12.url-pattern.md"),
+            version: "author.v13",
+            prompt: include_str!("prompts/author.v13.md"),
+            product_schema_rules: include_str!("prompts/author.v13.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/author.v13.url-pattern.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v9",
-            prompt: include_str!("prompts/reviewer.v9.md"),
-            product_schema_rules: include_str!("prompts/reviewer.v9.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/reviewer.v9.url-pattern.md"),
+            version: "reviewer.v10",
+            prompt: include_str!("prompts/reviewer.v10.md"),
+            product_schema_rules: include_str!("prompts/reviewer.v10.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/reviewer.v10.url-pattern.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -535,15 +535,6 @@ mod tests {
                 "{role}"
             );
         }
-        let four_labels = AgentLimits {
-            min_labelled_urls: std::num::NonZeroU32::new(4).unwrap_or(std::num::NonZeroU32::MIN),
-            ..AgentLimits::default()
-        };
-        assert!(
-            role_contract(AgentRole::Author)
-                .prompt(&review(), &four_labels)
-                .contains("at least 4 URLs PRODUCT and at least 4 NOT_PRODUCT")
-        );
     }
 
     /// The author is told to look for a listing ID, in markup and in JSON-LD, before it leaves
@@ -568,8 +559,8 @@ mod tests {
     }
 
     /// Both agents judge `state` against the contract: an availability label, or a cart or enquiry
-    /// action when the page shows none, never price text; the author tests a sold page first and
-    /// reads URL patterns structurally, and the reviewer keeps its note short.
+    /// action when the page shows none, never price text; the author tests a sold page first, and
+    /// the reviewer keeps its note short.
     #[test]
     fn should_state_the_state_contract_and_the_sold_page_and_url_pattern_rules() {
         let artifact = ReviewArtifact::ProductSchema;
@@ -589,13 +580,6 @@ mod tests {
                 assert!(prompt.contains(term), "{role}: {term}");
             }
         }
-        let url_author = prompt_of(AgentRole::Author, ReviewArtifact::UrlPattern);
-        let url_reviewer = prompt_of(AgentRole::Reviewer, ReviewArtifact::UrlPattern);
-        for (role, prompt) in [("author", &url_author), ("reviewer", &url_reviewer)] {
-            for term in ["NOT_PRODUCT", "valuation service", "structural pattern"] {
-                assert!(prompt.contains(term), "{role}: {term}");
-            }
-        }
         assert!(author.contains("sold or unavailable product page"));
         assert!(author.contains("the summary says why"));
         assert!(reviewer.contains("Do not give NEEDS_REPAIR because a state is a call to action"));
@@ -610,6 +594,65 @@ mod tests {
         assert!(
             reviewer.contains("give NEEDS_REPAIR naming the page when it is a product after all")
         );
+    }
+
+    /// Both agents work a URL-pattern review as the fetch-free pattern induction of #2835: from the
+    /// unlabelled sample's path and query alone, by route families with delimiter-bounded segments
+    /// and an anchored full match, audited for coverage and collisions. The author abstains as
+    /// NEEDS_HUMAN, the reviewer names the URLs a repair is about, and neither decides NO_PATTERN.
+    #[test]
+    fn should_have_both_agents_induce_and_audit_a_url_pattern_from_the_sample_alone() {
+        let author = prompt_of(AgentRole::Author, ReviewArtifact::UrlPattern);
+        let reviewer = prompt_of(AgentRole::Reviewer, ReviewArtifact::UrlPattern);
+        for (role, prompt) in [("author", &author), ("reviewer", &reviewer)] {
+            for term in [
+                "you read no page",
+                "use no external knowledge",
+                "path and ?query",
+                "full match",
+                "sample_urls_next_offset",
+                "route famil",
+                "locale",
+                "trailing slash",
+                "valuation service",
+                "exclude",
+                "NO_PATTERN",
+            ] {
+                assert!(prompt.contains(term), "{role}: {term}");
+            }
+            for absent in ["label_sample_urls", "{min_labelled_urls}", "NOT_PRODUCT"] {
+                assert!(!prompt.contains(absent), "{role}: {absent}");
+            }
+        }
+        for term in [
+            "you label no URL",
+            "Infer route structure before interpreting slug wording",
+            "`[^/?#]+`",
+            "by alternation",
+            "anchored with `^` and `$`",
+            "leave matching at its default",
+            "no lookaround or backreferences",
+            "audit the pattern against the sample",
+            "structural collisions",
+            "check_approval",
+            "matches no sample URL or every one",
+            "report NEEDS_HUMAN",
+            "Never stage NO_PATTERN",
+            "fix the family or the restriction it points at",
+        ] {
+            assert!(author.contains(term), "author: {term}");
+        }
+        for term in [
+            "candidate_pattern_match and candidate_class",
+            "judge every URL",
+            "names a scheme or host",
+            "Prefer a structural pattern",
+            "NEEDS_REPAIR naming each URL it misses or takes wrongly",
+            "Do not reject a URL_PATTERN review",
+            "report SKIP and say in the summary that a human decides it",
+        ] {
+            assert!(reviewer.contains(term), "reviewer: {term}");
+        }
     }
 
     /// An agent reads the rules of its review's artifact type only, and the review comes last, so
@@ -668,7 +711,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v12", "reviewer.v9"]
+            ["author.v13", "reviewer.v10"]
         );
     }
 
