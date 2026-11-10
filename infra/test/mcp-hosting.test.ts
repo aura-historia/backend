@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import { STAGES, stageConfig } from "../src/config";
-import { openAiAppsChallengeEnvironment } from "../src/constructs/lambda-environment";
-import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_ROUTE_CATALOG, MCP_SERVER_CARD_PATH } from "../src/constructs/mcp";
+import { museChallengeEnvironment, openAiAppsChallengeEnvironment } from "../src/constructs/lambda-environment";
+import { MCP_CORS_ALLOW_HEADERS, MCP_CORS_EXPOSE_HEADERS, MCP_SERVER_CARD_PATH, mcpRouteCatalog } from "../src/constructs/mcp";
 import { MCP_MAX_REQUEST_BODY_BYTES, MCP_OVERSIZED_CONTENT_LENGTH_PATTERN } from "../src/constructs/mcp-web-acl";
 import { templateForConstruct } from "./construct-template";
 import { credentialSecrets } from "../src/credentials";
@@ -39,8 +39,12 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "GET /.well-known/oauth-protected-resource/v1", "HEAD /.well-known/oauth-protected-resource/v1",
       "GET /.well-known/openai-apps-challenge", "HEAD /.well-known/openai-apps-challenge",
       "GET /.well-known/mcp/server-card.json", "HEAD /.well-known/mcp/server-card.json",
+      ...(config.mcp.museChallenge === undefined ? [] : [
+        `GET /.well-known/muse-challenge/${config.mcp.museChallenge}`,
+        `HEAD /.well-known/muse-challenge/${config.mcp.museChallenge}`,
+      ]),
     ].sort());
-    expect(MCP_ROUTE_CATALOG.map((route) => `${route.method} ${route.path}`).sort())
+    expect(mcpRouteCatalog(config.mcp).map((route) => `${route.method} ${route.path}`).sort())
       .toEqual(routes.map((route) => route.Properties.RouteKey).sort());
     for (const route of routes) {
       expect(route.Properties.ApiId).toEqual({ Ref: apiId });
@@ -217,6 +221,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
       ...(config.mcp.openAiAppsChallenge === undefined ? [] : ["MCP_OPENAI_APPS_CHALLENGE"]),
+      ...(config.mcp.museChallenge === undefined ? [] : ["MCP_MUSE_CHALLENGE"]),
       "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
@@ -225,6 +230,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     ].sort());
     expect(environment.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     expect(environment.MCP_OPENAI_APPS_CHALLENGE).toEqual(config.mcp.openAiAppsChallenge);
+    expect(environment.MCP_MUSE_CHALLENGE).toEqual(config.mcp.museChallenge);
     const budget = fn.Properties.ReservedConcurrentExecutions * Number(environment.POSTGRES_MAX_CONNECTIONS);
     expect(budget).toBe(stage === "prod" ? 5 : 2);
     const rest = Object.values(compute.findResources("AWS::Lambda::Function"))
@@ -345,4 +351,24 @@ test("passes only a token the MCP server accepts for OpenAI domain verification"
   for (const token of ["", "token\n", " token", "two words", "tökén", "x".repeat(513)]) {
     expect(() => openAiAppsChallengeEnvironment({ ...mcp, openAiAppsChallenge: token })).toThrow(/openAiAppsChallenge/);
   }
+});
+
+test("passes and routes only a Muse token the MCP server accepts", () => {
+  const mcp = stageConfig("prod").mcp;
+  expect(museChallengeEnvironment({ ...mcp, museChallenge: undefined })).toEqual({});
+  expect(museChallengeEnvironment({ ...mcp, museChallenge: "token-1_A" })).toEqual({ MCP_MUSE_CHALLENGE: "token-1_A" });
+  const routes = mcpRouteCatalog({ ...mcp, museChallenge: "token-1_A" }).map((route) => `${route.method} ${route.path}`);
+  expect(routes).toEqual(expect.arrayContaining([
+    "GET /.well-known/muse-challenge/token-1_A", "HEAD /.well-known/muse-challenge/token-1_A",
+  ]));
+  expect(mcpRouteCatalog({ ...mcp, museChallenge: undefined }).some((route) => route.path.includes("muse-challenge"))).toBe(false);
+  for (const token of ["", "token\n", " token", "two words", "tökén", "a/b", "{token}", "*", "key=value", "x".repeat(129)]) {
+    expect(() => museChallengeEnvironment({ ...mcp, museChallenge: token })).toThrow(/museChallenge/);
+    expect(() => mcpRouteCatalog({ ...mcp, museChallenge: token })).toThrow(/museChallenge/);
+  }
+});
+
+test("serves the Muse challenge only on the production host", () => {
+  expect(stageConfig("prod").mcp.museChallenge).toBe("a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11");
+  expect(stageConfig("dev").mcp.museChallenge).toBeUndefined();
 });

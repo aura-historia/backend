@@ -178,6 +178,13 @@ there are no per-directory variants. Check new or changed tools against the
   The token is public by design; set it per stage as `mcp.openAiAppsChallenge` in the
   [infrastructure configuration](../infra/src/config.ts) once OpenAI's portal issues it.
   Synthesis rejects a token the server would refuse at startup.
+- **Muse domain verification.** `GET`/`HEAD /.well-known/muse-challenge/<token>` returns
+  `muse-challenge=<token>` as `text/plain` when `<token>` is exactly the configured
+  `MCP_MUSE_CHALLENGE`, and `404` for any other token or while none is configured. Host/Origin
+  checks and `no-store` apply as above. Muse issues a token per submission and expires it, so the
+  stage sets `mcp.museChallenge` in the [infrastructure configuration](../infra/src/config.ts)
+  when a submission needs it. The token names the path, so the gateway route is that exact
+  path, never a wildcard.
 
 Apart from those argument types, schemas stay as generated. Models load at most each tool's name,
 title, description and input schema: the tool definitions of the Claude and OpenAI model APIs
@@ -540,6 +547,7 @@ MCP catalogue/discovery cache hints remain private with zero lifetime.
 | `OAUTH_ISSUER_URL` | Required exact Aura issuer: `https://api.aura-historia.com` or `https://api.stage.aura-historia.com`; selects the matching shared resource policy and website |
 | `COMMIT_SHA` | Deployed release's full lowercase source commit, reported as `serverInfo.version`; defaults to `unreleased` |
 | `MCP_OPENAI_APPS_CHALLENGE` | Optional OpenAI domain verification token: one visible ASCII word of at most 512 bytes |
+| `MCP_MUSE_CHALLENGE` | Optional Muse domain verification token: at most 128 ASCII letters, digits, `-` or `_` |
 | `MCP_BIND_ADDR` | Native listener; defaults to `127.0.0.1:8080` |
 | `MCP_ALLOWED_HOSTS` | Comma-separated exact allowed HTTP authorities; defaults to `localhost:8080,127.0.0.1:8080` |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated exact HTTP origins; unset rejects every present Origin |
