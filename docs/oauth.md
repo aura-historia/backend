@@ -124,6 +124,11 @@ server-side credential configuration. Register each environment separately. Sche
 port, path and query must match the registered callback exactly; registering a prefix,
 wildcard or the consent URL does not authorize the client's callback.
 
+MCP challenges name the whole ordinary-user vocabulary, and an authorization request above the
+registered ceiling returns `invalid_scope`. A client that requests what a challenge names
+therefore needs the full vocabulary as its ceiling; with a narrower ceiling it must clamp its
+request to the ceiling itself.
+
 Configure any generic OAuth test client with that registration, its exact callback and the
 issuer. Read discovery, generate an S256 challenge/verifier pair, and request `response_type=code`,
 the chosen registered scopes, a fresh `state`, and the environment's canonical MCP `resource`.

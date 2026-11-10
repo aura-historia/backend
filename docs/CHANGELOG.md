@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-10 — One approval for every MCP tool
+
+- The `WWW-Authenticate` challenge of a protected MCP call (`401`, and `403` with `error="insufficient_scope"`) now names all eight ordinary-user scopes in `scope`, not only the scopes the called tool needs. A client that follows the challenge, such as Claude, asks the user once instead of once per tool family. Each tool still requires its own scopes, and a token that lacks them still receives `403`.
+- A fixed registered client that requests what the challenge names needs the full ordinary-user vocabulary in its scope ceiling; a request above the ceiling returns `invalid_scope`. Metadata document clients are unaffected.
+
 ## 2026-11-09 — Search-filter match previews (#2849)
 
 - New `POST /v1/me/search-filters/preview` takes `{ "search": ... }` with the same criteria as `POST /v1/me/search-filters` and returns `{ "items": [...], "candidateLimitReached": boolean }` without saving anything. Items have the `GET /v1/product-listings` item shape, at most four, most relevant first, with no paging. It requires `search-filters:write` and applies the same tier field restrictions as creating a filter.
