@@ -13,6 +13,7 @@ use crate::review::model::{
     RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, SourceProductUrl,
     UrlPatternDecision, UrlPatternReviewCandidate,
 };
+use crate::review::page_projection::PageView;
 use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -274,10 +275,13 @@ pub struct PageProjectionView {
     /// reads, each cut to [`MAX_VALUE_CHARS`] so the projection window keeps its share of the answer
     /// bound. The projection strips the script they are in, so they show nowhere else.
     pub json_ld_product_ids: JsonLdProductIds,
-    /// The page's outline: one element per line in CSS notation, indented by depth, with its
-    /// text after ` | `; the elements, attributes and text the schema generation prompt shows,
-    /// without scripts, styles, navigation, header and footer, and runs of same-structure
-    /// siblings counted.
+    /// The view `projection` shows: `OUTLINE` or `MARKDOWN`.
+    pub view: PageView,
+    /// The page in `view`, without scripts, styles, navigation, header and footer. The outline
+    /// shows one element per line in CSS notation, indented by depth, with its text after ` | `:
+    /// the elements, attributes and text the schema generation prompt shows, with runs of
+    /// same-structure siblings counted. The markdown shows the readable content, with no tags,
+    /// attributes or URLs.
     pub projection: String,
     /// The character of the whole projection this answer starts at.
     pub projection_offset: usize,
@@ -731,8 +735,12 @@ impl PageProjectionView {
             );
         }
         if end < projection_chars {
+            let view = match projection.view {
+                PageView::Outline => "",
+                PageView::Markdown => " and view MARKDOWN",
+            };
             text.push_str(&format!(
-                "\n# [truncated: {} more characters; call inspect_page with offset {end} to read on]\n",
+                "\n# [truncated: {} more characters; call inspect_page with offset {end}{view} to read on]\n",
                 projection_chars - end
             ));
         }
@@ -750,6 +758,7 @@ impl PageProjectionView {
                     .map(value),
                 sku: projection.json_ld_product_ids.sku.as_deref().map(value),
             },
+            view: projection.view,
             projection: text,
             projection_offset: offset,
             projection_chars,
@@ -1301,6 +1310,7 @@ mod tests {
     #[test]
     fn should_answer_a_long_projection_in_marked_windows() {
         let projection = format!("main\n{}", " p | text\n".repeat(4_000));
+        let view = PageView::Outline;
         let page = |offset| {
             PageProjectionView::of(
                 wire::PageProjection {
@@ -1308,6 +1318,7 @@ mod tests {
                     review_page_id: None,
                     url: "https://antiques.example/item/1".to_owned(),
                     final_url: "https://antiques.example/item/1".to_owned(),
+                    view,
                     projection: projection.clone(),
                     describes_one_product: true,
                     json_ld_product_ids: JsonLdProductIds::default(),
@@ -1349,6 +1360,7 @@ mod tests {
                 review_page_id: None,
                 url: String::new(),
                 final_url: String::new(),
+                view: PageView::Outline,
                 projection: "page_dsl: {}\n".to_owned(),
                 describes_one_product: false,
                 json_ld_product_ids: JsonLdProductIds::default(),
@@ -1359,9 +1371,54 @@ mod tests {
         assert_eq!(short.projection, "page_dsl: {}\n");
     }
 
+    /// The markdown is windowed as the outline is, and its read-on marker names the view, so the
+    /// next call reads on in the same text.
+    #[test]
+    fn should_answer_a_long_markdown_view_in_the_same_windows_and_read_on_in_markdown() {
+        let markdown = format!("# Chair\n{}", "A paragraph of text.\n".repeat(2_000));
+        let page = |view, offset| {
+            PageProjectionView::of(
+                wire::PageProjection {
+                    review_id: CrawlerReviewId::new(),
+                    review_page_id: None,
+                    url: "https://antiques.example/item/1".to_owned(),
+                    final_url: "https://antiques.example/item/1".to_owned(),
+                    view,
+                    projection: markdown.clone(),
+                    describes_one_product: false,
+                    json_ld_product_ids: JsonLdProductIds::default(),
+                },
+                offset,
+            )
+        };
+
+        let first = page(PageView::Markdown, 0);
+        let as_outline = page(PageView::Outline, 0);
+        let next = page(PageView::Markdown, MAX_PROJECTION_CHARS);
+
+        assert_eq!(first.view, PageView::Markdown);
+        assert_eq!(json!(first)["view"], "MARKDOWN");
+        assert!(first.projection.ends_with(&format!(
+            "call inspect_page with offset {MAX_PROJECTION_CHARS} and view MARKDOWN to read on]\n"
+        )));
+        assert_eq!(
+            (first.projection_chars, first.truncations.clone()),
+            (as_outline.projection_chars, as_outline.truncations.clone())
+        );
+        assert_eq!(
+            first.projection.split("\n# [truncated:").next(),
+            as_outline.projection.split("\n# [truncated:").next()
+        );
+        assert!(next.projection.starts_with(&format!(
+            "# [continued: the projection from character {MAX_PROJECTION_CHARS}]\n"
+        )));
+        assert!(!next.projection.contains("[truncated:"));
+    }
+
     #[test]
     fn should_keep_a_window_of_wide_text_whole_within_the_answer_bound_and_read_on_exactly() {
         let projection = format!("page_dsl:\n{}", "  - text: \"日本の椅子\"\n".repeat(5_000));
+        let view = PageView::Outline;
         let page = |offset| {
             PageProjectionView::of(
                 wire::PageProjection {
@@ -1369,6 +1426,7 @@ mod tests {
                     review_page_id: None,
                     url: "https://antiques.example/item/1".to_owned(),
                     final_url: "https://antiques.example/item/1".to_owned(),
+                    view,
                     projection: projection.clone(),
                     describes_one_product: false,
                     json_ld_product_ids: JsonLdProductIds::default(),
@@ -1419,6 +1477,7 @@ mod tests {
                 review_page_id: None,
                 url: "https://antiques.example/item/1".to_owned(),
                 final_url: "https://antiques.example/item/1".to_owned(),
+                view: PageView::Outline,
                 projection,
                 describes_one_product: true,
                 json_ld_product_ids: JsonLdProductIds {

@@ -23,12 +23,17 @@ const SIBLING_RUN_SHOWN: usize = 2;
 pub fn html_to_agent_page_outline(input: &str) -> String {
     let mut lines = Vec::new();
     outline_nodes(&project_page(input), 0, &mut lines);
-    within_limits(lines, OUTLINE_LINE_LIMIT, OUTLINE_CHAR_BUDGET)
+    within_limits(lines, OUTLINE_LINE_LIMIT, OUTLINE_CHAR_BUDGET, "outline")
 }
 
 /// The first `line_limit` lines that fit in `budget` characters, and a last line counting the
-/// lines left out when any is.
-fn within_limits(lines: Vec<String>, line_limit: usize, budget: usize) -> String {
+/// lines left out when any is, naming the `view` whose limit left them out.
+pub(super) fn within_limits(
+    lines: Vec<String>,
+    line_limit: usize,
+    budget: usize,
+    view: &str,
+) -> String {
     let mut outline = String::new();
     let mut kept = 0;
     for line in &lines {
@@ -41,7 +46,7 @@ fn within_limits(lines: Vec<String>, line_limit: usize, budget: usize) -> String
     }
     if kept < lines.len() {
         outline.push_str(&format!(
-            "… {} more lines of the page are not shown: the outline's size limit\n",
+            "… {} more lines of the page are not shown: the {view}'s size limit\n",
             lines.len() - kept
         ));
     }
@@ -272,14 +277,17 @@ mod tests {
         let lines: Vec<String> = (0..10).map(|index| format!("p | {index}")).collect();
 
         assert_eq!(
-            within_limits(lines.clone(), 3, 1_000),
+            within_limits(lines.clone(), 3, 1_000, "outline"),
             "p | 0\np | 1\np | 2\n… 7 more lines of the page are not shown: the outline's size limit\n"
         );
         assert_eq!(
-            within_limits(lines.clone(), 100, 17),
+            within_limits(lines.clone(), 100, 17, "outline"),
             "p | 0\np | 1\n… 8 more lines of the page are not shown: the outline's size limit\n"
         );
-        assert_eq!(within_limits(lines, 100, 1_000).lines().count(), 10);
+        assert_eq!(
+            within_limits(lines, 100, 1_000, "outline").lines().count(),
+            10
+        );
     }
 
     #[test]

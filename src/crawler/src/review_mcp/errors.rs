@@ -51,6 +51,10 @@ pub enum ToolError {
     NotApplicable(String),
     #[error("the answer is too large to return even after cutting it; leave the review to a human")]
     AnswerTooLarge,
+    #[error(
+        "inspect_page answers at most {0} calls per agent process and this process has made them all; work with the pages you have read"
+    )]
+    InspectLimitReached(usize),
 }
 
 #[derive(Serialize)]
@@ -101,6 +105,7 @@ impl ToolError {
             Self::UndecodableCandidate(_) => "UNDECODABLE_CANDIDATE",
             Self::NotApplicable(_) => "NOT_APPLICABLE",
             Self::AnswerTooLarge => "ANSWER_TOO_LARGE",
+            Self::InspectLimitReached(_) => "INSPECT_LIMIT_REACHED",
         }
     }
 
@@ -283,6 +288,7 @@ mod tests {
                 "CONSOLE_UNAVAILABLE",
             ),
             (ToolError::StillRunning("matrix refresh"), "STILL_RUNNING"),
+            (ToolError::InspectLimitReached(12), "INSPECT_LIMIT_REACHED"),
             (
                 refused(
                     502,
