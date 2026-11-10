@@ -110,6 +110,23 @@ export interface McpConfig {
    * public by design: the host serves it at /.well-known/openai-apps-challenge. Undefined serves 404.
    */
   readonly openAiAppsChallenge: string | undefined;
+  /**
+   * Domain verification token that the Muse connector portal issues per submission and expires. It
+   * is public by design: the host serves `muse-challenge=<token>` at the exact path
+   * /.well-known/muse-challenge/<token>. Undefined exposes no such path.
+   */
+  readonly museChallenge: string | undefined;
+}
+
+const MUSE_CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** The Muse token, rejected at synthesis unless the MCP server would accept it at startup. */
+export function validatedMuseChallenge(mcp: McpConfig): string | undefined {
+  const token = mcp.museChallenge;
+  if (token !== undefined && !MUSE_CHALLENGE_PATTERN.test(token)) {
+    throw new Error("mcp.museChallenge must be one token of at most 128 ASCII letters, digits, '-' or '_'.");
+  }
+  return token;
 }
 
 export interface StageConfig {
@@ -238,6 +255,7 @@ export function stageConfig(stage: StageName): StageConfig {
         : ["https://stage.aura-historia.com", LOCALHOST_CALLBACK_URL],
       reservedConcurrency: isProd ? 5 : 2,
       openAiAppsChallenge: undefined,
+      museChallenge: isProd ? "a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11" : undefined,
     },
     cognitoCustomDomain: isProd ? {
       domainName: "auth.aura-historia.com",

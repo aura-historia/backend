@@ -180,7 +180,9 @@ Four further exact `GET`/`HEAD` paths serve discovery documents:
 [protected-resource metadata](mcp.md#operation-families-and-admission),
 `/.well-known/openai-apps-challenge` the
 [OpenAI domain verification token](mcp.md#directory-metadata), and
-`/.well-known/mcp/server-card.json` the [server card](agent-discovery.md#mcp-server-card). No proxy,
+`/.well-known/mcp/server-card.json` the [server card](agent-discovery.md#mcp-server-card).
+While a stage configures a [Muse token](mcp.md#directory-metadata), the exact path
+`/.well-known/muse-challenge/<token>` is a fifth. No proxy,
 REST handlers, sessions or SSE service are exposed on this host.
 
 The regional custom-domain mapping has no path key or origin rewrite. CloudFront
@@ -273,6 +275,7 @@ these checks before approving traffic:
 | `GET`/`HEAD /health` and `/ready` | `204`; readiness confirms the shell, not future tool dependencies |
 | Both `/.well-known/oauth-protected-resource` paths (root and `/v1` suffix) | Public `200` metadata identifies the exact MCP resource and Aura issuer; no-store |
 | `GET`/`HEAD /.well-known/openai-apps-challenge` | `200` `text/plain` with exactly the configured token, or `404` while none is configured; no-store |
+| `GET`/`HEAD /.well-known/muse-challenge/<token>` | With a configured token: `200` `text/plain` with exactly `muse-challenge=<token>`, no redirect, no-store; any other token is `404` |
 | `GET`/`HEAD /.well-known/mcp/server-card.json` with a foreign Origin | `200` `application/mcp-server-card+json`, `Access-Control-Allow-Origin: *`, `Cache-Control: public, max-age=300`; the stage `/v1` remote, the `serverInfo` title and release version, and the supported protocol versions |
 | API `GET`/`HEAD /.well-known/api-catalog` | `200` RFC 9727 Linkset with stage URLs only and `Link: <…/.well-known/api-catalog>; rel="api-catalog"`; a repeat is an edge hit; with `Authorization`, `private, no-store` |
 | API `GET`/`HEAD` on each [website document](agent-discovery.md#website-documents) below `/v1/site-discovery/`, with a foreign Origin | `200` with the document's media type, `Access-Control-Allow-Origin: *` and stage URLs only; a repeat is an edge hit; the index digests match the served skills; an unlisted skill name is `404` no-store |

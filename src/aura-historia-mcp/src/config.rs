@@ -8,6 +8,7 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
 /// `serverInfo.version` of a server that is not a deployed release, such as a local one.
 pub const UNRELEASED_SERVER_VERSION: &str = "unreleased";
 const MAX_OPENAI_APPS_CHALLENGE_BYTES: usize = 512;
+const MAX_MUSE_CHALLENGE_BYTES: usize = 128;
 
 #[derive(Clone)]
 pub struct TransportConfig {
@@ -23,6 +24,9 @@ pub struct TransportConfig {
     pub server_version: String,
     /// OpenAI's domain verification token; absent means the challenge path is not found.
     pub openai_apps_challenge: Option<String>,
+    /// Muse's domain verification token; it names the challenge path as well as its body.
+    /// Absent means no challenge path exists.
+    pub muse_challenge: Option<String>,
 }
 
 impl Default for TransportConfig {
@@ -38,6 +42,7 @@ impl Default for TransportConfig {
             max_concurrent_requests: 64,
             server_version: UNRELEASED_SERVER_VERSION.to_owned(),
             openai_apps_challenge: None,
+            muse_challenge: None,
         }
     }
 }
@@ -64,6 +69,7 @@ impl TransportConfig {
             config.server_version = value;
         }
         config.openai_apps_challenge = env("MCP_OPENAI_APPS_CHALLENGE")?;
+        config.muse_challenge = env("MCP_MUSE_CHALLENGE")?;
         config.validate()?;
         Ok(config)
     }
@@ -102,6 +108,13 @@ impl TransportConfig {
         {
             return Err(ConfigError::OpenAiAppsChallenge);
         }
+        if self
+            .muse_challenge
+            .as_deref()
+            .is_some_and(|token| !valid_muse_challenge(token))
+        {
+            return Err(ConfigError::MuseChallenge);
+        }
         Ok(())
     }
 }
@@ -120,6 +133,15 @@ fn valid_openai_apps_challenge(token: &str) -> bool {
     !token.is_empty()
         && token.len() <= MAX_OPENAI_APPS_CHALLENGE_BYTES
         && token.bytes().all(|byte| byte.is_ascii_graphic())
+}
+
+/// The token is a path segment, so it is limited to unreserved URL characters.
+fn valid_muse_challenge(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= MAX_MUSE_CHALLENGE_BYTES
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 pub(crate) fn normalized_origin(value: &str) -> Option<String> {
@@ -173,6 +195,10 @@ pub enum ConfigError {
     ServerVersion,
     #[error("MCP_OPENAI_APPS_CHALLENGE must be one visible ASCII token of at most 512 bytes")]
     OpenAiAppsChallenge,
+    #[error(
+        "MCP_MUSE_CHALLENGE must be one token of at most 128 ASCII letters, digits, '-' or '_'"
+    )]
+    MuseChallenge,
     #[error("invalid environment encoding for {0}")]
     Encoding(&'static str),
     #[error("MCP server card cannot be serialized")]
