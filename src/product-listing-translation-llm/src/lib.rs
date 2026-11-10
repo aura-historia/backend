@@ -12,6 +12,12 @@ use product_listing_service::ports::{
 use serde::Deserialize;
 use std::{collections::BTreeMap, time::Duration};
 
+/// Output budget for one title translated into every target. A dense Chinese or Japanese title
+/// of up to [`Title::MAX_CHARS`] characters expands to several hundred characters in each of up
+/// to five Latin-script targets, about 900 tokens with the JSON. 512 tokens truncated such
+/// replies, which then failed on every attempt. Output is billed only for the tokens produced.
+const TRANSLATION_MAX_OUTPUT_TOKENS: u16 = 2048;
+
 const TRANSLATION_SYSTEM_INSTRUCTION: &str = "Translate antique product titles faithfully. Preserve proper nouns, periods, dimensions, and material names.";
 
 pub struct LargeLanguageModelProductListingTitleTranslator<L> {
@@ -109,7 +115,7 @@ fn translation_request(
         }),
         options: GenerationOptions {
             temperature: 0.0,
-            max_output_tokens: 512,
+            max_output_tokens: TRANSLATION_MAX_OUTPUT_TOKENS,
             request_timeout: Duration::from_secs(30),
         },
     }
@@ -155,5 +161,26 @@ mod tests {
         );
         assert!(request.prompt.contains("Antiker Stuhl"));
         assert!(!request.prompt.contains("de, de"));
+    }
+
+    #[test]
+    fn should_budget_room_for_a_maximal_dense_title_in_every_target() {
+        let title = Title::from("宋".repeat(Title::MAX_CHARS).as_str());
+        let targets = [
+            Language::De,
+            Language::En,
+            Language::Fr,
+            Language::Es,
+            Language::It,
+        ];
+        let request = translation_request(&title, Language::Zh, &targets);
+
+        // Two output tokens per source character and target exceeds the observed expansion.
+        let worst_case = Title::MAX_CHARS * targets.len() * 2;
+        assert!(
+            usize::from(request.options.max_output_tokens) >= worst_case,
+            "budget {} below the {worst_case}-token worst case",
+            request.options.max_output_tokens
+        );
     }
 }
