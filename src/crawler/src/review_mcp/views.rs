@@ -599,9 +599,11 @@ struct SamplePage {
 }
 
 impl SamplePage {
-    /// The URLs from `offset` on in [`sample_order`], at most [`MAX_SAMPLE_URLS`] of them and
-    /// [`MAX_SAMPLE_PAGE_BYTES`] as JSON, naming in `truncations` the part of the sample the page
-    /// shows when it is not all.
+    /// The agents' seed of the sample, its first [`MAX_SAMPLE_URLS`] URLs in [`sample_order`],
+    /// from `offset` on within at most [`MAX_SAMPLE_PAGE_BYTES`] as JSON, naming in `truncations`
+    /// what the page leaves out. The fetch-free method induces a pattern from a seed of that size,
+    /// and more URLs add context cost without reliably better patterns, so the rest of the sample
+    /// is never listed; the approval guard still checks a pattern against all of it.
     fn of(
         mut urls: Vec<CrawlerReviewUrl>,
         offset: usize,
@@ -610,12 +612,13 @@ impl SamplePage {
     ) -> Self {
         urls.sort_by_cached_key(|url| sample_order(&url.url));
         let total = urls.len();
-        let offset = offset.min(total);
+        urls.truncate(MAX_SAMPLE_URLS);
+        let seed = urls.len();
+        let offset = offset.min(seed);
         let mut bytes_left = MAX_SAMPLE_PAGE_BYTES;
         let urls: Vec<SampleUrlView> = urls
             .into_iter()
             .skip(offset)
-            .take(MAX_SAMPLE_URLS)
             .map(|url| SampleUrlView::of(url, crawl_host))
             .take_while(|url| {
                 let bytes = serde_json::to_vec(url).map_or(0, |json| json.len() + 1);
@@ -625,9 +628,11 @@ impl SamplePage {
             })
             .collect();
         let end = offset + urls.len();
-        let next_offset = (end < total).then_some(end);
-        if offset > 0 || next_offset.is_some() {
-            truncations.push(format!("sample_urls: URLs {offset} to {end} of {total}"));
+        let next_offset = (end < seed).then_some(end);
+        if offset > 0 || next_offset.is_some() || seed < total {
+            truncations.push(format!(
+                "sample_urls: URLs {offset} to {end} of the first {seed} of {total} in hash order"
+            ));
         }
         Self {
             urls,
@@ -1153,7 +1158,7 @@ mod tests {
     }
 
     #[test]
-    fn should_page_through_the_whole_sample_by_offset() {
+    fn should_list_only_the_seed_of_a_larger_sample() {
         let candidate = json!({
             "decision": { "type": "NO_PATTERN" },
             "current_pattern": null,
@@ -1166,41 +1171,29 @@ mod tests {
             ))
         };
 
-        let pages: Vec<Value> = [0, 200, 400].map(page).into();
+        let (seed, past_it) = (page(0), page(MAX_SAMPLE_URLS));
 
-        let shown: Vec<(u64, u64, Value, u64)> = pages
-            .iter()
-            .map(|view| {
-                (
-                    view["sample_urls_offset"].as_u64().unwrap_or(u64::MAX),
-                    view["sample_urls"].as_array().map_or(0, Vec::len) as u64,
-                    view["sample_urls_next_offset"].clone(),
-                    view["sample_urls_total"].as_u64().unwrap_or(0),
-                )
-            })
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                (0, 200, json!(200), 500),
-                (200, 200, json!(400), 500),
-                (400, 100, Value::Null, 500)
-            ]
-        );
-        let listed: Vec<&str> = pages
-            .iter()
-            .flat_map(|view| view["sample_urls"].as_array().into_iter().flatten())
+        let listed: Vec<&str> = seed["sample_urls"]
+            .as_array()
+            .into_iter()
+            .flatten()
             .filter_map(|url| url["url"].as_str())
             .collect();
         assert_eq!(
             listed,
-            hash_ordered(500),
-            "every URL once, in the hash order"
+            hash_ordered(500)[..MAX_SAMPLE_URLS],
+            "the seed in hash order"
         );
         assert_eq!(
-            pages[2]["truncations"],
-            json!(["sample_urls: URLs 400 to 500 of 500"])
+            (&seed["sample_urls_next_offset"], &seed["sample_urls_total"]),
+            (&Value::Null, &json!(500))
         );
+        assert_eq!(
+            seed["truncations"],
+            json!(["sample_urls: URLs 0 to 200 of the first 200 of 500 in hash order"])
+        );
+        assert_eq!(past_it["sample_urls"], json!([]), "nothing past the seed");
+        assert_eq!(past_it["sample_urls_next_offset"], Value::Null);
     }
 
     /// The sample page after the first is what the agent reads on, so it carries the candidate's
@@ -1227,17 +1220,17 @@ mod tests {
             "events_total",
         ];
 
-        let (first, second) = (page(0), page(200));
+        let (first, second) = (page(0), page(150));
 
         for field in body_fields {
             assert!(first.get(field).is_some(), "{field} missing from {first}");
             assert!(second.get(field).is_none(), "{field} in {second}");
         }
         assert_eq!(second["candidate_version"], first["candidate_version"]);
-        assert_eq!(second["sample_urls_offset"], 200);
+        assert_eq!(second["sample_urls_offset"], 150);
         assert_eq!(
             second["truncations"],
-            json!(["sample_urls: URLs 200 to 400 of 400"])
+            json!(["sample_urls: URLs 150 to 200 of the first 200 of 400 in hash order"])
         );
     }
 
