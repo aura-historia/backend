@@ -635,7 +635,7 @@ impl Pass<'_> {
         }
         let started = OffsetDateTime::now_utc();
         let contract = role_contract(role);
-        let process = self.settings.role(role);
+        let process = self.settings.process(role, review.artifact_type);
         if role == AgentRole::Author {
             self.with(|shared| shared.summary.worked += 1);
         }

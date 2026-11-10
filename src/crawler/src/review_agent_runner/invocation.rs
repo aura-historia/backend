@@ -197,7 +197,7 @@ pub(super) fn agent_command(
     review: &QueuedReview,
 ) -> Result<AgentCommand, ReportSchemaError> {
     let contract = role_contract(role);
-    let process = settings.role(role);
+    let process = settings.process(role, review.artifact_type);
     let report_schema = contract
         .report_schema()
         .map_err(|source| ReportSchemaError { role, source })?;

@@ -248,6 +248,7 @@ The process prints its messages as JSON lines. The runner keeps the end of that 
 | `CRAWLER_REVIEW_AGENT_RUNNER_REVIEW_MCP_BIN` | The `review-mcp` binary | the one next to the runner |
 | `CRAWLER_REVIEW_AGENT_RUNNER_STATE_DIR` | Lock, state, process ledger and digests | the working directory |
 | `CRAWLER_REVIEW_AGENT_AUTHOR_MODEL`, `CRAWLER_REVIEW_AGENT_REVIEWER_MODEL` | Model alias or name per role | author `claude-sonnet-5-5`, reviewer `claude-haiku-5-5`: the configuration without findings at the lowest cost in the agent comparison of [#2835](https://github.com/aura-historia/backend/issues/2835) |
+| `CRAWLER_REVIEW_AGENT_AUTHOR_URL_PATTERN_MODEL` | Model of the author process on a URL-pattern review only, for the cost experiment of #2835; the process ledger records the models each process ran | the author's model |
 | `CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT`, `CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT` | `low`, `medium`, `high`, `xhigh` or `max` | `medium` |
 | `CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS`, `CRAWLER_REVIEW_AGENT_REVIEWER_MAX_TURNS` | Turn cap per process | `80`, `50` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS` | Rest between the end of one run and the start of the next; `--once` ignores it | `60` |
