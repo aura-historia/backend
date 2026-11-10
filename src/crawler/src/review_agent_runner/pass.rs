@@ -821,6 +821,8 @@ impl Pass<'_> {
             total_cost_usd = record.total_cost_usd,
             cost_charged = record.cost_charged,
             opening_tokens = record.context.opening_tokens,
+            opening_cache_read_tokens = record.context.opening_cache_read_tokens,
+            opening_cache_write_tokens = record.context.opening_cache_write_tokens,
             tool_answer_chars = record
                 .context
                 .tool_answers
