@@ -639,12 +639,15 @@ mod tests {
             "report NEEDS_HUMAN",
             "Never stage NO_PATTERN",
             "fix the family or the restriction it points at",
+            "whenever URLs of the same family appear without it",
+            "take the wider",
         ] {
             assert!(author.contains(term), "author: {term}");
         }
         for term in [
             "candidate_pattern_match and candidate_class",
             "judge every URL",
+            "Look for misses first",
             "names a scheme or host",
             "Prefer a structural pattern",
             "NEEDS_REPAIR naming each URL it misses or takes wrongly",
