@@ -131,10 +131,10 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v13",
-            prompt: include_str!("prompts/author.v13.md"),
-            product_schema_rules: include_str!("prompts/author.v13.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/author.v13.url-pattern.md"),
+            version: "author.v14",
+            prompt: include_str!("prompts/author.v14.md"),
+            product_schema_rules: include_str!("prompts/author.v14.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/author.v14.url-pattern.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
@@ -706,7 +706,7 @@ mod tests {
                 role_contract(AgentRole::Author).version,
                 role_contract(AgentRole::Reviewer).version
             ],
-            ["author.v13", "reviewer.v10"]
+            ["author.v14", "reviewer.v10"]
         );
     }
 
