@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-11 — `expires_in` rounds up
+
+- `POST /v1/oauth/token` now rounds `expires_in` up to the next whole second. A metadata document client's one-hour access token reports `3600` instead of `3599`, so clients that require a lifetime of at least one hour, such as Muse, accept it. The token's actual lifetime is unchanged.
+
 ## 2026-11-10 — Client metadata documents may declare `private_key_jwt` and list `none`
 
 - A client metadata document that declares `token_endpoint_auth_method: private_key_jwt` is now accepted when its `token_endpoint_auth_methods_supported` also lists `none`, as the document ChatGPT publishes does. Aura authenticates such a client by `client_id` and its PKCE verifier alone and ignores any client assertion, like every other metadata document client. Documents that declare `none` are unaffected, and a `private_key_jwt` document that does not list `none` is still rejected as an invalid client.

@@ -24031,7 +24031,7 @@ components:
           type: integer
           format: int64
           minimum: 0
-          description: Seconds until expiry; omitted when the token does not expire.
+          description: Whole seconds until expiry, rounded up so that a token with a one-hour lifetime reports `3600`; omitted when the token does not expire.
           example: 3600
         scope:
           type: string
