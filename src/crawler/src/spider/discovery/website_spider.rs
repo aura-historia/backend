@@ -23,8 +23,8 @@ use crate::network::bot_challenge::{
 };
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
-    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host, location_text,
-    network_error_kind_for_public_target_error, resolve_public_http_target,
+    classify_reqwest_error, inline_retry_backoff_for, is_page_error_status, is_same_or_www_host,
+    location_text, network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
@@ -332,6 +332,9 @@ pub struct CrawlDiagnostics {
     /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
+    /// Pages below the crawl root that answered a page error, such as HTTP 500, after Spider's
+    /// retries, and so are not stored (`docs/crawler/networking.md#stored-urls`).
+    pub rejected_page_error: usize,
     /// Redirects pages answered whose target the crawl followed, each requested as a page of
     /// its own (`docs/crawler/networking.md#destination-policy`).
     pub redirects_followed: usize,
@@ -396,6 +399,7 @@ impl CrawlDiagnostics {
             LocalRejection::Host => self.rejected_host += 1,
             LocalRejection::Blacklist => self.rejected_blacklist += 1,
             LocalRejection::Duplicate => self.rejected_duplicate += 1,
+            LocalRejection::PageError => self.rejected_page_error += 1,
         }
     }
 }
@@ -1363,6 +1367,8 @@ enum LocalRejection {
     Host,
     Blacklist,
     Duplicate,
+    /// A page below the crawl root answered a [page error](is_page_error_status).
+    PageError,
 }
 
 /// Local admission of the pages Spider delivers: the configured host only,
@@ -1874,7 +1880,8 @@ async fn relay_library_pages(
             diagnostics.bot_challenge_pages += 1;
         }
 
-        if !first_page_seen {
+        let is_root = !first_page_seen;
+        if is_root {
             // A block page refuses the crawl at its root only; below the root it
             // is the 403 it was answered with, like any other.
             let hard_block = challenge
@@ -1937,6 +1944,14 @@ async fn relay_library_pages(
             }
             RedirectAnswer::Rejected => diagnostics.redirects_rejected += 1,
             RedirectAnswer::NotARedirect => {}
+        }
+
+        // A page below the root that still answers a page error after Spider's retries, such as
+        // a link the shop builds wrongly, is not stored: the scraper would fetch it in vain. Its
+        // links are kept, and the next crawl that finds it again asks for it again.
+        if !is_root && is_page_error_status(status_code) {
+            diagnostics.count_rejection(LocalRejection::PageError);
+            continue;
         }
 
         match filter.admit(page.get_url()) {
@@ -4586,6 +4601,46 @@ mod tests {
             self.builds.fetch_add(1, Ordering::Relaxed);
             self.inner.client_for(url, timeout).await
         }
+    }
+
+    /// A link the shop builds wrongly, such as `/collection//<slug>/new-arrivals` on a shop that
+    /// answers it with HTTP 500 while it serves `/collection//<slug>`, is not stored (#2890).
+    #[tokio::test]
+    async fn should_not_store_a_page_that_answers_a_page_error() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/collection//miroir-7005945/new-arrivals">new</a>
+                   <a href="/collection//miroir-7005945">product</a>
+                   <a href="/collection/bad-request-1">bad</a>"#
+                    .to_string(),
+            ),
+            "/collection//miroir-7005945/new-arrivals" => {
+                SiteResponse::Html("500 Internal Server Error", String::new())
+            }
+            "/collection/bad-request-1" => SiteResponse::Html("400 Bad Request", String::new()),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert!(
+            discovered.contains("http://example.com/collection//miroir-7005945"),
+            "{discovered:?}"
+        );
+        assert!(
+            !discovered.contains("http://example.com/collection//miroir-7005945/new-arrivals"),
+            "{discovered:?}"
+        );
+        assert!(
+            !discovered.contains("http://example.com/collection/bad-request-1"),
+            "{discovered:?}"
+        );
+        assert_eq!(diagnostics.rejected_page_error, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.failure_kind, None);
     }
 
     #[tokio::test]
