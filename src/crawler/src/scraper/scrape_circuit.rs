@@ -5,7 +5,9 @@
 //! decision per failure and persists its outcome; `docs/crawler/scheduling-and-retries.md`
 //! (scraper circuits) owns the durable contract.
 
-use crate::network::policy::{DomainFailureKind, NetworkErrorKind, domain_failure_kind};
+use crate::network::policy::{
+    DomainFailureKind, NetworkErrorKind, domain_failure_kind, is_crawler_rejection_status,
+};
 use crate::scraper::candidate_service::{ScrapeHealthSnapshot, next_scrape_failure_streak};
 use crate::scraper::scraper_service::DomainFetchHealth;
 use std::collections::HashSet;
@@ -25,14 +27,6 @@ pub const SERVER_FAILURE_BURST_URLS: usize = 3;
 /// or a bot challenge with the same status, in a row before the
 /// `HTTP_STATUS_BURST` circuit opens; a single such answer stays URL-scoped.
 pub const REJECTION_STATUS_BURST_URLS: usize = 3;
-
-/// Terminal statuses that reject the crawler or its request as such rather
-/// than one page, so the same answer from several distinct URLs means the
-/// ListingSource fails uniformly. HTTP 404 and 410 are product removals and never
-/// belong here.
-pub fn is_crawler_rejection_status(status: u16) -> bool {
-    matches!(status, 401 | 403 | 405 | 418 | 421 | 451 | 501)
-}
 
 /// The HTTP answer a failed fetch got, as the trip rules read it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -550,6 +550,14 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     }
 }
 
+/// Terminal statuses that reject the crawler or its request as such rather
+/// than one page, so the same answer from several distinct URLs means the
+/// ListingSource fails uniformly. HTTP 404 and 410 are product removals and never
+/// belong here.
+pub fn is_crawler_rejection_status(status: u16) -> bool {
+    matches!(status, 401 | 403 | 405 | 418 | 421 | 451 | 501)
+}
+
 /// The server errors a product page answers on its own rather than for the whole shop: they stay
 /// URL-scoped unless a burst of them opens the `HTTP_5XX_BURST` scrape circuit, while 503 and 504
 /// open the circuit at once (`docs/crawler/scheduling-and-retries.md#scraper-circuits`).
