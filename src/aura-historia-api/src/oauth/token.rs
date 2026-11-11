@@ -43,7 +43,7 @@ impl From<TokenResponse> for TokenResponseData {
             token_type,
             expires_in: response
                 .expires
-                .map(|expires| (expires - OffsetDateTime::now_utc()).whole_seconds().max(0)),
+                .map(|expires| expires_in_seconds(expires, OffsetDateTime::now_utc())),
             scope: scope_string(&response.scopes),
             third_party_exchange_code: response
                 .third_party_exchange_code
@@ -51,6 +51,15 @@ impl From<TokenResponse> for TokenResponseData {
             refresh_token: response.refresh_token.map(String::from),
         }
     }
+}
+
+/// Whole seconds left until `expires`, rounded up. The token was stamped with its lifetime a
+/// moment before this is read, so truncating would report a one-hour token as 3599 seconds,
+/// which clients that require a minimum lifetime of an hour reject.
+fn expires_in_seconds(expires: OffsetDateTime, now: OffsetDateTime) -> i64 {
+    let remaining = expires - now;
+    let partial_second = i64::from(remaining.subsec_nanoseconds() > 0);
+    (remaining.whole_seconds() + partial_second).max(0)
 }
 
 pub(crate) async fn token(State(state): State<OAuthState>, OAuthForm(form): OAuthForm) -> Response {
@@ -168,7 +177,7 @@ pub(crate) fn client_authentication(
 
 #[cfg(test)]
 mod tests {
-    use super::request;
+    use super::{expires_in_seconds, request};
     use crate::oauth::error::OAuthError;
     use crate::oauth::test_support::{SECRET_MARKER, form, secret_free_problem};
     use credential_core::oauth_client_id::OAuthClientId;
@@ -176,6 +185,41 @@ mod tests {
     use oauth_service::use_cases::OAuthTokenClientAuthentication;
     use serde_json::json;
     use user_core::access_token::RawAccessToken;
+
+    #[test]
+    fn should_report_a_one_hour_token_as_3600_seconds_despite_elapsed_time() {
+        let now = time::OffsetDateTime::now_utc();
+        let expires = now + time::Duration::hours(1);
+
+        for elapsed in [
+            time::Duration::ZERO,
+            time::Duration::milliseconds(3),
+            time::Duration::milliseconds(999),
+        ] {
+            assert_eq!(
+                3_600,
+                expires_in_seconds(expires, now + elapsed),
+                "{elapsed}"
+            );
+        }
+        assert_eq!(
+            3_599,
+            expires_in_seconds(expires, now + time::Duration::milliseconds(1_001))
+        );
+    }
+
+    #[test]
+    fn should_report_zero_seconds_for_an_expired_token() {
+        let now = time::OffsetDateTime::now_utc();
+
+        for expired_for in [time::Duration::ZERO, time::Duration::milliseconds(500)] {
+            assert_eq!(
+                0,
+                expires_in_seconds(now - expired_for, now),
+                "{expired_for}"
+            );
+        }
+    }
 
     #[test]
     fn should_forward_the_exact_optional_resource_to_the_service() {
