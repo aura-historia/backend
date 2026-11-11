@@ -891,6 +891,7 @@ mod tests {
             review_id: review_id.to_string(),
             action: AuthorAction::Staged,
             candidate_version: 4,
+            handover_category: crate::review::model::HandoverCategory::None,
             summary: "Staged the pattern /item/.".to_owned(),
             risks: vec!["two labels only".to_owned()],
         }));

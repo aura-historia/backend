@@ -226,6 +226,49 @@ impl HandoverReason {
     }
 }
 
+/// What the author agent names as the obstacle a human must take over, as its report's
+/// `handover_category` says. It is the agent's own account, so the reasons that are the runner's
+/// decision stay in [`HandoverReason`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum HandoverCategory {
+    /// The author named none: it staged or skipped, or its report predates the category.
+    #[default]
+    None,
+    /// The pages or the URL sample cannot be read, such as behind a login wall or bot challenge.
+    PagesUnreadable,
+    /// The URL sample supports no defensible shop-wide distinction of product URLs.
+    NoShopWidePattern,
+    /// The current candidate is right; the reviewer's verdict asks for nothing the author can
+    /// change.
+    CandidateAlreadyHolds,
+    /// No candidate can work, such as a required value missing from the pages.
+    NoWorkableCandidate,
+    Other,
+}
+
+impl HandoverCategory {
+    /// The name the logs carry, as [`HandoverReason::log_name`].
+    pub const fn log_name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::PagesUnreadable => "pages_unreadable",
+            Self::NoShopWidePattern => "no_shop_wide_pattern",
+            Self::CandidateAlreadyHolds => "candidate_already_holds",
+            Self::NoWorkableCandidate => "no_workable_candidate",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Why a review agent handed a review to a human: the runner's reason and the author's category,
+/// which `POST /api/reviews/{id}/hand-to-human` takes and the `HANDED_TO_HUMAN` event keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HandoverCause {
+    pub reason: HandoverReason,
+    pub category: HandoverCategory,
+}
+
 impl std::fmt::Display for ReviewActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
@@ -358,5 +401,34 @@ mod tests {
             );
         }
         assert!(serde_json::from_value::<HandoverReason>("needs_human".into()).is_err());
+    }
+
+    #[test]
+    fn should_persist_hand_over_categories_in_screaming_snake_case() {
+        for (category, persisted) in [
+            (HandoverCategory::None, "NONE"),
+            (HandoverCategory::PagesUnreadable, "PAGES_UNREADABLE"),
+            (HandoverCategory::NoShopWidePattern, "NO_SHOP_WIDE_PATTERN"),
+            (
+                HandoverCategory::CandidateAlreadyHolds,
+                "CANDIDATE_ALREADY_HOLDS",
+            ),
+            (
+                HandoverCategory::NoWorkableCandidate,
+                "NO_WORKABLE_CANDIDATE",
+            ),
+            (HandoverCategory::Other, "OTHER"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(category).ok(),
+                Some(serde_json::Value::from(persisted))
+            );
+            assert_eq!(
+                category.log_name(),
+                persisted.to_ascii_lowercase(),
+                "{persisted}"
+            );
+        }
+        assert!(serde_json::from_value::<HandoverCategory>("LOGIN_WALL".into()).is_err());
     }
 }

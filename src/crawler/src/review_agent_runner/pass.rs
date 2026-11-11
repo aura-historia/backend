@@ -40,7 +40,7 @@ use super::usage_pacing::UsageWindows;
 use super::wire_name as name;
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
-use crate::review::model::{HandoverReason, ReviewActor, ReviewEventAction};
+use crate::review::model::{HandoverCause, HandoverReason, ReviewActor, ReviewEventAction};
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -415,11 +415,16 @@ impl Pass<'_> {
         report: &AuthorReport,
     ) {
         let note = handover_note(reason, report);
-        match hand_to_human(self.console, review.review_id, reason, &note).await {
+        let cause = HandoverCause {
+            reason,
+            category: report.handover_category,
+        };
+        match hand_to_human(self.console, review.review_id, cause, &note).await {
             Ok(()) => {
                 info!(
                     event = "crawler.review_agent.handed_to_human",
                     reason = reason.log_name(),
+                    handover_category = cause.category.log_name(),
                     review_id = %review.review_id,
                     listing_source_id = %review.listing_source_id,
                     listing_source_name = review.listing_source_name.as_deref(),

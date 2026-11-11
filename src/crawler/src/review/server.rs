@@ -10,8 +10,8 @@ use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    CrawlerReviewPage, HandoverReason, RawAttributeKey, ReviewActor, ReviewDetail,
-    SampleLabelInput, SourceProductUrl,
+    CrawlerReviewPage, HandoverCause, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
+    SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -560,7 +560,7 @@ impl ReviewServer {
                 };
             return verdict_answer(
                 self.repository
-                    .hand_to_human(review_id, actor, payload.reason, payload.notes.as_deref())
+                    .hand_to_human(review_id, actor, payload.cause, payload.notes.as_deref())
                     .await,
             );
         }
@@ -958,12 +958,13 @@ struct ActionPayload {
 }
 
 /// A hand-over of `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning as `notes` and
-/// its cause as `reason`, which every hand-over names, so that every logged hand-over can be
-/// grouped by it.
+/// its cause as `reason` and `category`, which every hand-over names, so that every logged
+/// hand-over can be grouped by them.
 #[derive(Deserialize)]
 struct HandoverPayload {
     notes: Option<String>,
-    reason: HandoverReason,
+    #[serde(flatten)]
+    cause: HandoverCause,
 }
 
 /// An approval of `POST /api/reviews/{id}/approve`. `expected_candidate_version` is the
@@ -2252,11 +2253,13 @@ Origin: http://127.0.0.1:7878/x
 
     /// Every hand-over names its cause, so every logged hand-over can be grouped by it.
     #[test]
-    fn should_refuse_a_hand_over_that_names_no_known_reason() {
+    fn should_refuse_a_hand_over_that_names_no_known_reason_or_category() {
         for body in [
             "",
             r#"{"notes": "behind a login wall"}"#,
-            r#"{"notes": "behind a login wall", "reason": "LOGIN_WALL"}"#,
+            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN"}"#,
+            r#"{"notes": "behind a login wall", "reason": "LOGIN_WALL", "category": "OTHER"}"#,
+            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN", "category": "WALL"}"#,
         ] {
             assert!(
                 parse_verdict_payload::<HandoverPayload>(body).is_err(),
@@ -2264,10 +2267,16 @@ Origin: http://127.0.0.1:7878/x
             );
         }
         let payload = parse_verdict_payload::<HandoverPayload>(
-            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN"}"#,
+            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN", "category": "PAGES_UNREADABLE"}"#,
         )
         .unwrap_or_else(|error| panic!("hand-over with a reason: {error}"));
-        assert_eq!(payload.reason, HandoverReason::NeedsHuman);
+        assert_eq!(
+            payload.cause,
+            HandoverCause {
+                reason: crate::review::model::HandoverReason::NeedsHuman,
+                category: crate::review::model::HandoverCategory::PagesUnreadable,
+            }
+        );
         assert_eq!(payload.notes.as_deref(), Some("behind a login wall"));
     }
 

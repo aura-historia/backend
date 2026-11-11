@@ -36,6 +36,8 @@ pub(super) struct ReviewLogEntry {
     reason: Option<String>,
     /// How a review was decided: `approved`, `rejected`, `needs_repair` or `handed_to_human`.
     decision: Option<&'static str>,
+    /// What the author named as the obstacle of a hand-over (`HandoverCategory::log_name`).
+    handover_category: Option<&'static str>,
     /// What changed on a pending review's candidate.
     change: Option<&'static str>,
     /// The URLs the change retired, reclassified or recorded.
@@ -60,6 +62,7 @@ impl ReviewLogEntry {
             actor,
             reason: None,
             decision: None,
+            handover_category: None,
             change: None,
             affected_urls: None,
             incomplete_coverage: None,
@@ -168,8 +171,9 @@ impl ReviewLogEntry {
                 "needs_repair",
                 "Reviewer asked for a review to be repaired",
             )],
-            ReviewMutation::HandedToHuman { reason, .. } => vec![Self {
-                reason: Some(reason.log_name().to_owned()),
+            ReviewMutation::HandedToHuman { cause, .. } => vec![Self {
+                reason: Some(cause.reason.log_name().to_owned()),
+                handover_category: Some(cause.category.log_name()),
                 ..decided("handed_to_human", "Review agent handed a review to a human")
             }],
             ReviewMutation::CandidateEdited { .. } => {
@@ -441,6 +445,7 @@ impl PreparedReviewLog {
                     actor = entry.actor.map(ReviewActor::as_str),
                     reason = entry.reason,
                     decision = entry.decision,
+                    handover_category = entry.handover_category,
                     change = entry.change,
                     affected_urls = entry.affected_urls,
                     product_labels = entry.product_labels,
@@ -520,7 +525,10 @@ mod tests {
         let (events, _guard) = LoggedEvents::capture();
         let mutation = ReviewMutation::HandedToHuman {
             note: "the sample is behind a bot challenge",
-            reason: crate::review::model::HandoverReason::NeedsHuman,
+            cause: crate::review::model::HandoverCause {
+                reason: crate::review::model::HandoverReason::NeedsHuman,
+                category: crate::review::model::HandoverCategory::PagesUnreadable,
+            },
         };
 
         for entry in ReviewLogEntry::of_mutation(ReviewActor::AgentAuthor, &mutation) {
@@ -533,6 +541,7 @@ mod tests {
             ("actor", "AGENT_AUTHOR"),
             ("decision", "handed_to_human"),
             ("reason", "needs_human"),
+            ("handover_category", "pages_unreadable"),
         ] {
             assert_eq!(decided[0].field(field), Some(expected), "{field}");
         }

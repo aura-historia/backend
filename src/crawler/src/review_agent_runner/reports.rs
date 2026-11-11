@@ -6,6 +6,7 @@
 //! server's answer a report claims is the agent's account, the event trail's is [`TrailVerdict`].
 
 use crate::CrawlerReviewId;
+use crate::review::model::HandoverCategory;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -34,6 +35,10 @@ pub struct AuthorReport {
     pub review_id: String,
     pub action: AuthorAction,
     pub candidate_version: i64,
+    /// What the author names as the obstacle a human must take over; `NONE` in a report written
+    /// before the report schema asked for it.
+    #[serde(default)]
+    pub handover_category: HandoverCategory,
     pub summary: String,
     pub risks: Vec<String>,
 }
@@ -287,6 +292,40 @@ mod tests {
         extra["token"] = json!("x");
         assert!(matches!(
             AgentReport::reviewer(extra, review_id),
+            Err(ReportError::Malformed(_))
+        ));
+    }
+
+    /// A report written before the schema asked for the category reads as naming none, so the
+    /// ledger's older records stay readable.
+    #[test]
+    fn should_read_the_author_s_hand_over_category_and_default_it_to_none() {
+        let review_id = CrawlerReviewId::new();
+        let report = |category: Option<&str>| {
+            let mut output = json!({
+                "review_id": review_id.to_string(),
+                "action": "NEEDS_HUMAN",
+                "candidate_version": 1,
+                "summary": "The sample is behind a bot challenge.",
+                "risks": [],
+            });
+            if let Some(category) = category {
+                output["handover_category"] = json!(category);
+            }
+            match AgentReport::author(output, review_id) {
+                Ok(AgentReport::Author(report)) => Ok(report.handover_category),
+                Ok(other) => panic!("{other:?}"),
+                Err(error) => Err(error),
+            }
+        };
+
+        assert_eq!(
+            report(Some("PAGES_UNREADABLE")),
+            Ok(HandoverCategory::PagesUnreadable)
+        );
+        assert_eq!(report(None), Ok(HandoverCategory::None));
+        assert!(matches!(
+            report(Some("LOGIN_WALL")),
             Err(ReportError::Malformed(_))
         ));
     }

@@ -5,8 +5,8 @@
 //! the runner only picks which reviews this pass works.
 
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, HandoverReason,
-    PendingReviewPage, PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
+    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, HandoverCause, PendingReviewPage,
+    PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
@@ -282,18 +282,22 @@ pub async fn approval_failures(
         .map(|checks| checks.into_iter().map(|check| check.check).collect()))
 }
 
-/// Hands `review_id` to a human at once with the author agent's token, `reason` as its cause and
-/// `reasoning` as the note of the event that records it.
+/// Hands `review_id` to a human at once with the author agent's token, `cause` as its reason and
+/// category and `reasoning` as the note of the event that records it.
 pub async fn hand_to_human(
     console: &ConsoleClient,
     review_id: CrawlerReviewId,
-    reason: HandoverReason,
+    cause: HandoverCause,
     reasoning: &str,
 ) -> Result<(), ConsoleError> {
     console
         .post(
             &format!("/api/reviews/{review_id}/hand-to-human"),
-            &serde_json::json!({ "notes": reasoning, "reason": reason }),
+            &serde_json::json!({
+                "notes": reasoning,
+                "reason": cause.reason,
+                "category": cause.category,
+            }),
         )
         .await
         .map(|_| ())

@@ -5,7 +5,7 @@
 use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, HandoverReason, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
+    CrawlerReviewEvent, HandoverCause, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
     ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
@@ -77,11 +77,12 @@ pub(super) enum ReviewMutation<'a> {
         note: &'a str,
     },
     /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note, its
-    /// cause the details' `reason`.
+    /// cause the details' `reason` and `category`.
     HandedToHuman {
         #[serde(skip)]
         note: &'a str,
-        reason: HandoverReason,
+        #[serde(flatten)]
+        cause: HandoverCause,
     },
     ProductSchemasApproved {
         #[serde(skip)]
@@ -615,11 +616,17 @@ mod tests {
             (
                 ReviewMutation::HandedToHuman {
                     note: "nothing to change",
-                    reason: HandoverReason::NothingToStageAfterReview,
+                    cause: HandoverCause {
+                        reason: crate::review::model::HandoverReason::NothingToStageAfterReview,
+                        category: crate::review::model::HandoverCategory::CandidateAlreadyHolds,
+                    },
                 },
                 ReviewEventAction::HandedToHuman,
                 Some("nothing to change"),
-                json!({ "reason": "NOTHING_TO_STAGE_AFTER_REVIEW" }),
+                json!({
+                    "reason": "NOTHING_TO_STAGE_AFTER_REVIEW",
+                    "category": "CANDIDATE_ALREADY_HOLDS",
+                }),
             ),
             (
                 ReviewMutation::ProductSchemasApproved {
