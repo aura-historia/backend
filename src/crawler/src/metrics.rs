@@ -31,6 +31,7 @@ const EMF_FIELD: &str = "emf";
 pub(crate) enum MetricUnit {
     Count,
     Milliseconds,
+    Seconds,
 }
 
 impl MetricUnit {
@@ -38,6 +39,7 @@ impl MetricUnit {
         match self {
             Self::Count => "Count",
             Self::Milliseconds => "Milliseconds",
+            Self::Seconds => "Seconds",
         }
     }
 }
@@ -75,6 +77,10 @@ pub(crate) enum CrawlerMetric {
     SpiderPassDuration,
     /// URLs due for scraping when a scraper pass starts.
     ScraperDueUrls,
+    /// Pending reviews that wait for a human in `agent` mode, per report of the review console.
+    ReviewsWaitingForHuman,
+    /// How long ago the oldest pending review that waits for a human opened, 0 when none waits.
+    OldestReviewWaitingForHumanAge,
 }
 
 impl CrawlerMetric {
@@ -94,12 +100,15 @@ impl CrawlerMetric {
             Self::ScraperPassDuration => "ScraperPassDuration",
             Self::SpiderPassDuration => "SpiderPassDuration",
             Self::ScraperDueUrls => "ScraperDueUrls",
+            Self::ReviewsWaitingForHuman => "ReviewsWaitingForHuman",
+            Self::OldestReviewWaitingForHumanAge => "OldestReviewWaitingForHumanAge",
         }
     }
 
     const fn unit(self) -> MetricUnit {
         match self {
             Self::ScraperPassDuration | Self::SpiderPassDuration => MetricUnit::Milliseconds,
+            Self::OldestReviewWaitingForHumanAge => MetricUnit::Seconds,
             _ => MetricUnit::Count,
         }
     }
@@ -366,6 +375,28 @@ mod tests {
         MetricRecord::for_listing_source(&ListingSourceId::new())
             .with_value(CrawlerMetric::ScrapesSucceeded, 3)
             .with_value(CrawlerMetric::ScrapesFailed, 1)
+    }
+
+    #[test]
+    fn should_describe_the_human_queue_without_dimensions_and_its_age_in_seconds() {
+        let timestamp =
+            time::OffsetDateTime::from_unix_timestamp(1_793_016_000).expect("valid test timestamp");
+        let record = MetricRecord::global()
+            .with_value(CrawlerMetric::ReviewsWaitingForHuman, 182)
+            .with_value(CrawlerMetric::OldestReviewWaitingForHumanAge, 3_600)
+            .to_emf(timestamp);
+
+        let directive = &record["_aws"]["CloudWatchMetrics"][0];
+        assert_eq!(directive["Dimensions"], json!([[]]));
+        assert_eq!(
+            directive["Metrics"],
+            json!([
+                { "Name": "ReviewsWaitingForHuman", "Unit": "Count" },
+                { "Name": "OldestReviewWaitingForHumanAge", "Unit": "Seconds" },
+            ])
+        );
+        assert_eq!(record["ReviewsWaitingForHuman"], 182);
+        assert_eq!(record["OldestReviewWaitingForHumanAge"], 3_600);
     }
 
     #[test]
