@@ -46,6 +46,9 @@ pub struct PolitenessGroup {
     pub key: String,
     /// The spacing between request starts the group never drops below.
     pub min_spacing: Duration,
+    /// Whether the group is a listed shared platform, whose shops are known to
+    /// be rate-limited together.
+    pub shared_platform: bool,
 }
 
 /// The politeness group of `host`: its shared platform when it is one of a
@@ -61,11 +64,13 @@ pub fn politeness_group(host: &str) -> PolitenessGroup {
         return PolitenessGroup {
             key: (*platform).to_owned(),
             min_spacing: *min_spacing,
+            shared_platform: true,
         };
     }
     PolitenessGroup {
         key: registrable_domain(&host).unwrap_or(host),
         min_spacing: Duration::ZERO,
+        shared_platform: false,
     }
 }
 
@@ -265,7 +270,9 @@ impl PolitenessGroups {
 
     /// The gate of `host`'s group, created on first use and marked as accessed.
     fn gate(&self, host: &str) -> Option<RefMut<'_, String, GroupGate>> {
-        let PolitenessGroup { key, min_spacing } = politeness_group(host);
+        let PolitenessGroup {
+            key, min_spacing, ..
+        } = politeness_group(host);
         if key.is_empty() {
             return None;
         }
@@ -333,6 +340,8 @@ mod tests {
         assert_eq!(shop.key, "shopnetzwerk.com");
         assert_eq!(other_shop, shop);
         assert!(shop.min_spacing > Duration::ZERO);
+        assert!(shop.shared_platform);
+        assert!(!politeness_group("catalog.example.com").shared_platform);
     }
 
     #[test]

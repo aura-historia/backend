@@ -1394,9 +1394,25 @@ async fn persist_http_failure(
         &candidate.url,
         failure.kind,
         status_code,
+        failure.retry_after,
     );
     let (circuit_opened, persisted_scrape_health) = match decision {
         ScrapeCircuitDecision::UrlLocal => {
+            persist_url_failure(ctx, url_failure).await;
+            (false, None)
+        }
+        ScrapeCircuitDecision::DeferRateLimited => {
+            info!(
+                event = "crawler.scraper.rate_limit_deferred",
+                listing_source_id = %candidate.listing_source_id,
+                listing_source_name = %candidate.listing_source_name,
+                domain = %candidate.crawl_host,
+                politeness_group = %politeness_group(&candidate.crawl_host).key,
+                url = %candidate.url,
+                retry_after_seconds = failure.retry_after.map(|value| value.as_secs()),
+                next_retry_at = %url_failure.next_retry_at,
+                "Deferred a rate-limited URL without opening the scrape circuit"
+            );
             persist_url_failure(ctx, url_failure).await;
             (false, None)
         }
