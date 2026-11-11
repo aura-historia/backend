@@ -376,6 +376,21 @@ impl UrlMetadataRepositoryImpl {
         transaction.commit().await.map_err(database_error)
     }
 
+    /// Collapses those of `reclassified`, rows of the ListingSource that `transaction` just
+    /// classified as products, that are stored under a spelling the crawler no longer produces,
+    /// as [`Self::collapse_unnormalized_product_urls`] does at a spider pass: an approved URL
+    /// pattern can make a product of a row stored before its spelling changed, which that pass
+    /// already left alone as no product. The caller holds the ListingSource row locked in
+    /// `transaction`; [`Self::collapse_duplicate_rows`] locks and re-reads the rows it changes.
+    pub(crate) async fn collapse_reclassified_product_urls(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        reclassified: Vec<String>,
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        let unnormalized = unnormalized_rows(reclassified)?;
+        Self::collapse_duplicate_rows(transaction, listing_source_id, &unnormalized).await
+    }
+
     /// Moves or retires the rows a canonicalized page was stored under before
     /// (`docs/crawler/networking.md#canonical-product-urls`). While no spelling of the canonical
     /// URL has a row, the first such row moves there and keeps its scrape state and raw-capture

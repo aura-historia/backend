@@ -94,6 +94,11 @@ pub enum ReviewRepositoryError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Pattern(#[from] ProductUrlPatternError),
+    /// Collapsing stored URLs onto their current spelling failed.
+    #[error(transparent)]
+    StoredUrls(
+        #[from] crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError,
+    ),
     #[error("review not found: {0}")]
     NotFound(CrawlerReviewId),
     #[error("ListingSource not found: {0}")]
