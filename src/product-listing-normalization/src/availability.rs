@@ -17,6 +17,8 @@ const AVAILABLE_REGEX_PATTERNS: &[&str] = &[
     r"\b(buy now|add to cart|add to basket|add to bag)\s+[£$€]?\s?[0-9][0-9.,]*(\s?[£$€])?",
     // A Japanese stock count with its counter word (`在庫: 1個`, `在庫数1点`).
     r"在庫数?\s*[:：]?\s*[1-9][0-9]*\s*(個|点)",
+    // A German piece count, optionally after `Unikat` (`Unikat 1 Stück verfügbar`).
+    r"\b(unikat\s+)?[1-9][0-9]*\s+stück\s+(verfügbar|vorrätig|auf lager)\b",
 ];
 
 const OUT_OF_STOCK_REGEX_PATTERNS: &[&str] = &[
@@ -24,6 +26,7 @@ const OUT_OF_STOCK_REGEX_PATTERNS: &[&str] = &[
     r"\b0\s+(verfügbar|vorrätig|auf lager|en stock|disponibles?|disponibili|en existencia|en existencias|em estoque|em stock|op voorraad|i lager|på lager|varastossa|w magazynie|skladem|na sklade|în stoc|raktáron)\b",
     r"\b0\s+(в наличии|на складе|в наявності|на складі|在庫あり|在庫有り|재고 있음|有货|有庫存)\b",
     r"在庫数?\s*[:：]?\s*0\s*(個|点)",
+    r"\b(unikat\s+)?0\s+stück\s+(verfügbar|vorrätig|auf lager)\b",
 ];
 
 // Both results are immutable after their synchronized first construction.
@@ -162,6 +165,8 @@ fn normalize_availability_text(raw: &str) -> String {
                     | '→'
                     | '›'
                     | '»'
+                    | '>'
+                    | '✉'
                     | '\u{e000}'..='\u{f8ff}'
             )
         {
@@ -325,8 +330,32 @@ const AVAILABLE: &[&str] = &[
     "加入購物車",
     "我要买",
     "구매하기",
+    "장바구니 담기",
+    "장바구니담기",
+    "kopen",
+    "kaufen",
+    "acheter",
+    "acquistare",
+    "购买",
+    "agregar al carrito",
+    "añadir a la cesta",
+    "aggiungi al carrello",
+    "in the cart",
+    "in het mandje",
+    "bestel deze prent",
+    "bestel deze kaart",
+    "bestel deze kuyperkaart",
+    "bestel deze plattegrond",
+    "bestel deze vogelvlucht",
     // Enquiry-only dealers show these actions on offered items and a sold label otherwise.
     "enquire",
+    "enquire by email",
+    // Price-on-request dealers show these on offered items and a sold label otherwise.
+    "poa",
+    "price on request",
+    "prijs op aanvraag",
+    "ask for price",
+    "demander le prix",
     "make enquiry",
     "make an enquiry",
     "make an enquiry about this piece",
@@ -739,6 +768,7 @@ const RESERVED: &[&str] = &[
     "reserviert",
     "zurückgelegt",
     "réservé",
+    "pièce réservée",
     "reserve",
     "reservado",
     "reservada",
@@ -852,6 +882,7 @@ const SOLD_OUT: &[&str] = &[
     "leider verkauft",
     "leider ausverkauft",
     "leider vergriffen",
+    "objekt bereits verkauft",
     "épuisé",
     "epuise",
     "vendu",
@@ -922,6 +953,7 @@ const NO_ASSERTION: &[&str] = &[
     "cataloged",
     "online only",
     "in store only",
+    "disponible sólo en tienda",
     "discontinued",
     "eingestellt",
     "arrêté",
@@ -1071,9 +1103,44 @@ mod tests {
             ("在庫数1点", ListingAvailability::Available),
             ("在庫：12個", ListingAvailability::Available),
             ("在庫: 0個", ListingAvailability::OutOfStock),
+            ("장바구니담기", ListingAvailability::Available),
+            ("장바구니 담기", ListingAvailability::Available),
+            ("Kopen", ListingAvailability::Available),
+            ("Kaufen", ListingAvailability::Available),
+            ("Acheter", ListingAvailability::Available),
+            ("Acquistare", ListingAvailability::Available),
+            ("购买", ListingAvailability::Available),
+            ("Agregar al carrito", ListingAvailability::Available),
+            ("Añadir a la cesta", ListingAvailability::Available),
+            ("Aggiungi al carrello", ListingAvailability::Available),
+            ("In the cart", ListingAvailability::Available),
+            ("In het mandje", ListingAvailability::Available),
+            ("bestel deze prent", ListingAvailability::Available),
+            ("bestel deze Kuyperkaart", ListingAvailability::Available),
+            ("カートに入れる\u{3000}>", ListingAvailability::Available),
+            ("SOLDOUT\u{3000}>", ListingAvailability::SoldOut),
+            ("✉  Enquire by Email", ListingAvailability::Available),
+            ("POA", ListingAvailability::Available),
+            ("Price\non\nRequest", ListingAvailability::Available),
+            ("prijs op aanvraag", ListingAvailability::Available),
+            ("Ask for price", ListingAvailability::Available),
+            ("Demander le prix", ListingAvailability::Available),
+            ("Pièce réservée", ListingAvailability::Reserved),
+            ("Objekt bereits verkauft", ListingAvailability::SoldOut),
+            ("Unikat 1 Stück verfügbar", ListingAvailability::Available),
+            ("3 Stück auf Lager", ListingAvailability::Available),
+            ("Unikat 0 Stück verfügbar", ListingAvailability::OutOfStock),
         ] {
             assert_eq!(quick_check_availability(raw), resolved(expected), "{raw}");
         }
+    }
+
+    #[test]
+    fn should_not_assert_availability_for_store_only_labels() {
+        assert_eq!(
+            quick_check_availability("DISPONIBLE SÓLO EN TIENDA"),
+            Ok(ListingAvailabilityQuickCheck::NoAssertion)
+        );
     }
 
     #[test]
@@ -1119,6 +1186,37 @@ mod tests {
             ),
             (
                 "Contact us",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            ("Enquiry", AvailabilityUnsupportedReason::UnrecognizedLabel),
+            (
+                "→ Anfrage",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "Consultar disponibilidad",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            // `Hold` alone is a reservation action as often as a reserved state.
+            (
+                "HOLD\u{3000}>",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            // A sold label followed by a contact sentence is prose.
+            (
+                "Leider verkauft! Kontaktieren Sie uns, um diesen Artikel zu finden",
+                AvailabilityUnsupportedReason::UnrecognizedLabel,
+            ),
+            (
+                "Unikat 1 Stück verfügbar ab März",
+                AvailabilityUnsupportedReason::QualifiedQuantity,
+            ),
+            (
+                "nicht 1 Stück verfügbar",
+                AvailabilityUnsupportedReason::QualifiedQuantity,
+            ),
+            (
+                "bestel deze prent later",
                 AvailabilityUnsupportedReason::UnrecognizedLabel,
             ),
             // Site navigation and form buttons are not purchase actions for the listing.

@@ -1,6 +1,7 @@
 use money::{Currency, HasMinorUnitExponent, MonetaryAmount, Price};
 use product_listing_core::product_listing_price::ProductListingPrice;
 use regex::regex;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use strum::IntoEnumIterator;
 
@@ -196,6 +197,7 @@ pub fn normalize_price(
         return Ok(None);
     }
 
+    let trimmed = &*expand_zero_cents_dash(trimmed);
     let request_evidence = price_on_request_evidence(trimmed);
     match parse_display_price(trimmed, fallback_currency) {
         Ok(_) if request_evidence == PriceOnRequestEvidence::Explicit => Ok(None),
@@ -219,6 +221,7 @@ pub fn normalize_product_listing_price(
         return Ok(None);
     }
 
+    let trimmed = &*expand_zero_cents_dash(trimmed);
     let request_evidence = price_on_request_evidence(trimmed);
     let has_explicit_monetary_evidence = !price_currency_pairs(trimmed).is_empty();
     match parse_display_price(trimmed, fallback_currency) {
@@ -237,6 +240,19 @@ pub fn normalize_product_listing_price(
             Ok(Some(ProductListingPrice::OnRequest))
         }
         Err(error) => Err(error),
+    }
+}
+
+/// German, Swiss and Dutch displays write whole amounts with a dash in place of the cents
+/// (`2490,- €`, `1250.- €`). The dash means exactly `00`, so it is expanded before any other
+/// rule reads the amount. A dash followed by a digit is a range or a sign (`100,-200`) and stays.
+/// Several dash amounts list several prices (`Bank 850.-, Stuhl 350.- €`) and stay ambiguous.
+fn expand_zero_cents_dash(raw: &str) -> Cow<'_, str> {
+    let dash = regex!(r"([0-9][.,])-([^0-9]|$)");
+    if dash.find_iter(raw).count() == 1 {
+        dash.replace(raw, "${1}00${2}")
+    } else {
+        Cow::Borrowed(raw)
     }
 }
 
@@ -657,7 +673,7 @@ fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
 }
 
 // Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility. `円` is only JPY
-// and `원` only KRW.
+// and `원` only KRW. Symbols match anywhere, so currency words are matched separately as tokens.
 const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Eur, "€"),
     (Currency::Gbp, "£"),
@@ -716,6 +732,19 @@ fn currency_markers(raw: &str) -> Vec<CurrencyMarker> {
                 }),
         );
     }
+
+    // Currency names are words, so they need the same token boundaries as ISO codes: `30 euro`
+    // and `30 Euros` are EUR, `Europe` is not.
+    markers.extend(
+        regex!(r"(?i)euros?")
+            .find_iter(raw)
+            .filter(|word| is_currency_code_token(raw, word.start(), word.len()))
+            .map(|word| CurrencyMarker {
+                currency: Currency::Eur,
+                start: word.start(),
+                end: word.end(),
+            }),
+    );
 
     markers.sort_by(|left, right| {
         left.start
@@ -837,13 +866,15 @@ fn price_on_request_evidence(raw: &str) -> PriceOnRequestEvidence {
         \b(?:prijs\s+op\s+aanvraag|op\s+aanvraag)\b|
         \b(?:cena\s+na\s+zapytanie|na\s+zapytanie)\b|
         цена\s+по\s+запросу|по\s+запросу|询价|面议|
-        価格(?:は)?(?:お問い合わせ|要問い合わせ)|بالتفاوض|عند\s+الطلب
+        価格(?:は)?(?:お問い合わせ|要問い合わせ)|가격\s*문의|بالتفاوض|عند\s+الطلب
     "
     );
     if explicit.is_match(raw) {
         PriceOnRequestEvidence::Explicit
-    } else if regex!(r"(?i)\b(?:contact\s+us|please\s+contact|enquir(?:e|ies)|inquir(?:e|ies))\b")
-        .is_match(raw)
+    } else if regex!(
+        r"(?i)\b(?:contact\s+us|please\s+contact|enquir(?:e|ies)|inquir(?:e|ies))\b|お問い合わせ"
+    )
+    .is_match(raw)
     {
         PriceOnRequestEvidence::GenericContact
     } else {
@@ -1109,6 +1140,74 @@ mod tests {
     }
 
     #[rstest]
+    #[case("30 euro", 3_000)]
+    #[case("Originele kaart: 45 euro", 4_500)]
+    #[case("Prix : 120 euros", 12_000)]
+    #[case("EURO 1.250,00", 125_000)]
+    fn should_read_the_euro_word_as_eur(#[case] raw: &str, #[case] expected_minor: u64) {
+        assert_eq!(
+            Ok((MonetaryAmount::from(expected_minor), Currency::Eur)),
+            parse_price(raw, None),
+            "{raw}"
+        );
+    }
+
+    #[rstest]
+    #[case("Europe 1950")]
+    #[case("Europa 30")]
+    #[case("30 eurostar")]
+    #[case("neuro 30")]
+    fn should_not_read_euro_inside_another_word(#[case] raw: &str) {
+        assert_eq!(None, detect_currency(raw), "{raw}");
+        assert_eq!(
+            Err(PriceError::UnknownCurrency),
+            parse_price(raw, None),
+            "{raw}"
+        );
+    }
+
+    #[rstest]
+    #[case("2490,- €", 249_000)]
+    #[case("Preis: 2490,- €", 249_000)]
+    #[case("Preis: 1290,- € (differenzbesteuert gemäß §25a UStG)", 129_000)]
+    #[case("Preis: 1690,-€ - RESERVIERT", 169_000)]
+    #[case("1250.- €", 125_000)]
+    #[case("1.250,- €", 125_000)]
+    #[case("€ 195,-", 19_500)]
+    #[case("2200,00/jetzt 1950.-€ €", 195_000)]
+    fn should_read_a_dash_in_place_of_the_cents_as_zero_cents(
+        #[case] raw: &str,
+        #[case] expected_minor: u64,
+    ) {
+        assert_eq!(
+            Ok(Some(Price::new(expected_minor.into(), Currency::Eur))),
+            normalize_price(Some(raw), None),
+            "{raw}"
+        );
+    }
+
+    #[rstest]
+    // A dash before digits is a range or a sign, never cents.
+    #[case("100,-200 €")]
+    #[case("400,00 -1.650,00 €")]
+    #[case("-195 €")]
+    #[case("Art.-Nr. 12")]
+    // Several dash amounts are several prices.
+    #[case("Bank 850.-€, Stuhl 350.-e €")]
+    #[case("natur 1950.-, weiß 2250.- €")]
+    fn should_not_read_other_dashes_as_zero_cents(#[case] raw: &str) {
+        assert_eq!(raw, super::expand_zero_cents_dash(raw), "{raw}");
+    }
+
+    #[test]
+    fn should_not_infer_a_currency_from_a_zero_cents_dash() {
+        assert_eq!(
+            Err(PriceError::UnknownCurrency),
+            normalize_price(Some("195,-"), None)
+        );
+    }
+
+    #[rstest]
     #[case("")]
     #[case("   ")]
     #[case("no numbers here")]
@@ -1367,6 +1466,19 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case("가격문의")]
+    #[case("お問い合わせください")]
+    fn should_read_korean_and_japanese_request_wording_as_on_request(#[case] raw: &str) {
+        use product_listing_core::product_listing_price::ProductListingPrice;
+
+        assert_eq!(
+            Ok(Some(ProductListingPrice::OnRequest)),
+            normalize_product_listing_price(Some(raw), None),
+            "{raw}"
+        );
+    }
+
     #[test]
     fn should_clear_monetary_only_price_when_display_text_is_request_marker() {
         assert_eq!(Ok(None), normalize_price(Some("Price on request"), None));
@@ -1404,6 +1516,10 @@ mod tests {
     #[case("面议", true)]
     // Japanese
     #[case("価格はお問い合わせ", true)]
+    #[case("お問い合わせください", false)]
+    // Korean
+    #[case("가격문의", true)]
+    #[case("가격 문의", true)]
     // Arabic
     #[case("عند الطلب", true)]
     // Generic request or contact wording is not enough evidence.

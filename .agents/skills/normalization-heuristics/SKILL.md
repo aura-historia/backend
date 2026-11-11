@@ -1,6 +1,6 @@
 ---
 name: normalization-heuristics
-description: "Export the production normalization diagnostic corpus (product_listing_normalization_diagnostic_cases) read-only, replay it offline, extend the deterministic availability/price/shipping/text heuristics for every unresolved reason the evidence supports, prove there are no regressions case by case, and open a pull request. Invoke only on request; it reads production data and opens a PR."
+description: "Export the production normalization diagnostic corpus (product_listing_normalization_diagnostic_cases) read-only, replay it offline, extend the deterministic availability/price/shipping/text heuristics for every unresolved reason the evidence supports, prove there are no regressions case by case, open a GitHub issue for every crawler extraction error, and open a pull request. Invoke only on request; it reads production data and opens issues and a PR."
 disable-model-invocation: true
 ---
 
@@ -9,7 +9,8 @@ disable-model-invocation: true
 This runs one turn of the loop in [normalization diagnostics and replay](../../../docs/normalization-replay.md):
 **export the unresolved inputs → replay → extend the heuristics → replay the whole corpus → PR.**
 The outcome is one pull request against `develop` that resolves every recorded issue the evidence
-supports. It names everything else it leaves unresolved, and why. Previous turns: #2840, #2858.
+supports. It names everything else it leaves unresolved, and why. Every crawler error found
+along the way gets a GitHub issue. Previous turns: #2840, #2858, #2875.
 
 Read [the decision policy](references/policy.md) before changing any rule. It holds what
 was learned about which labels, formats and vetoes are safe to resolve.
@@ -23,7 +24,7 @@ Optional inputs (natural language, never interpolated into commands):
 - **Read-only production access.** Only [`scripts/prod_corpus.py`](scripts/prod_corpus.py) touches
   AWS. It runs SQL inside a read-only transaction and refuses writes, transaction control and psql
   meta-commands. Never run SQL against production any other way, and never write to it.
-- **Listing content never reaches logs or the repository.** Only aggregates, counts, hashes, UUIDs,
+- **Listing content never reaches logs, the repository or GitHub.** Only aggregates, counts, hashes, UUIDs,
   dealer hosts and slugs may pass through CloudWatch (`query`, `size`, `sources`). The corpus moves
   only over ECS Exec into a `0600` file. The S3 gateway endpoint allows no uploads; never route
   around it (for example through the public subnets) and never widen its policy.
@@ -95,7 +96,7 @@ always reproduces its own issue.
 
 Work through **every** `FIELD/REASON` in the summary that has `UNRESOLVED` or `INVALID` cases,
 largest first, and give each a disposition for the PR (implemented, needs evidence,
-crawler, configuration, prose, not expressible). For each one:
+crawler (an issue in step 9), configuration, prose, not expressible). For each one:
 
 ```sh
 python3 -I $S/analyze.py tally --work "$W" "$W/baseline.jsonl" AVAILABILITY AVAILABILITY_UNRECOGNIZED --limit 120
@@ -167,7 +168,35 @@ python3 -m unittest discover -s $S                                              
 If a durable contract changes, update its owning document. For example, the shipping diagnostic
 boundary is in `docs/shipping.md`.
 
-### 9. Clean up, commit, open the PR
+### 9. Open an issue for every crawler error
+
+Every value classified as a crawler error in step 4 gets a GitHub issue. This applies even when no
+PR follows. Open one issue per error class: the same field with the same kind of wrong
+content, such as a URL in `state` or a status label in `price`. List every affected source in it.
+Before you write an issue:
+
+1. **Confirm the error is current.** Raw revision IDs are UUIDv7, so the corpus dates each capture:
+
+   ```sh
+   python3 -I $S/analyze.py captured --work "$W" www.dealer.example AVAILABILITY --match '^javascript:'
+   ```
+
+   An artefact whose last capture predates the deploy of a crawler fix needs no issue. Name it in the
+   PR instead. For example, mojibake prices stopped with #2826.
+2. **Find duplicates.** Run `gh issue list --state open --search "<host>"` for each host and search
+   for the artefact class. If an open issue already covers it, comment with the new counts instead.
+3. **Explain why the crawler accepted it.** Look up the field's check in
+   `src/crawler/src/scraper/plausibility.rs`. The check may be missing, `ReportOnly`, or only
+   `LowersRank`. If no check covers the class, the issue also asks for one.
+
+Each issue has the labels `crawler`, `scraper` and `bug`. It states the field, the artefact class,
+and a table of host, case count and last capture. It ends with the expected fix: re-review that
+source's schema, a new or stricter plausibility check, or both. The repository is public. An issue
+may show hosts, counts, dates and the short wrong value itself (`.`, an image path, a button label).
+Never put a listing title, description, listing URL or ID in it. Link the issues from the PR's
+crawler follow-ups.
+
+### 10. Clean up, commit, open the PR
 
 ```sh
 python3 -I $S/prod_corpus.py teardown --work "$W" && python3 -I $S/prod_corpus.py status
@@ -175,10 +204,10 @@ python3 -I $S/prod_corpus.py teardown --work "$W" && python3 -I $S/prod_corpus.p
 
 Commit with a conventional message and push the branch. Open the PR against `develop` with
 [the template](references/pr-template.md). If no change is backed by evidence, open no PR; report the
-dispositions instead.
+dispositions and the crawler issues instead.
 
-### 10. Report to the user
+### 11. Report to the user
 
-Give the PR link and the before/after statuses. Name the largest remaining buckets and who owns them
-(crawler, configuration, product decision). Say that the corpus stays at `$W/corpus.jsonl` (`0600`)
-until they delete it.
+Give the PR link, the crawler issue links and the before/after statuses. Name the largest remaining
+buckets and who owns them (crawler, configuration, product decision). Say that the corpus stays at
+`$W/corpus.jsonl` (`0600`) until they delete it.

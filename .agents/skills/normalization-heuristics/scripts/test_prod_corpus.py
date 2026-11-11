@@ -2,8 +2,11 @@
 
 import unittest
 
+from pathlib import Path
+
 from prod_corpus import (
-    EXPORT_SQL, SIZE_SQL, SOURCES_SQL, CorpusError, checked_sql, extract_chunk, parse_export_report,
+    EXPORT_SQL, SIZE_SQL, SOURCES_SQL, CorpusError, argument_parser, checked_sql, extract_chunk,
+    parse_export_report,
 )
 
 
@@ -50,6 +53,14 @@ class TransferParsingTest(unittest.TestCase):
             "lines=37741 gz_bytes=23829386 sha256=0ae19032b975e9744c096915c1f28b91\nb64_lines=418060\nREADY")
         self.assertEqual({"lines": 37741, "gz_bytes": 23829386,
                           "sha256": "0ae19032b975e9744c096915c1f28b91", "b64_lines": 418060}, report)
+
+
+class ArgumentsTest(unittest.TestCase):
+    def test_should_accept_the_work_directory_before_or_after_the_sql_file(self):
+        for argv in (["query", "--work", "/w", "q.sql"], ["query", "q.sql", "--work", "/w"],
+                     ["--work", "/w", "query", "q.sql"]):
+            args = argument_parser().parse_intermixed_args(argv)
+            self.assertEqual(("query", "q.sql", Path("/w")), (args.command, args.sql_file, args.work), argv)
 
 
 if __name__ == "__main__":
