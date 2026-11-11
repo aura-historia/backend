@@ -372,6 +372,15 @@ current response terms may already reflect a change. Never generate a canonical 
 availability event to force discovery, or reset saved destination snapshots after an
 address/preference change. See [shipping search](shipping.md#shipping-search-and-saved-destinations).
 
+Saved-filter writes, previews and each run's translation backfill translate semantic intent
+with the listing-title translator's Anthropic key (`ANTHROPIC_API_KEY`). An outage never fails a
+write or a run: affected filters match their text as written (`intentSource=ORIGINAL`) and the
+next run translates them. Each run attempts at most 500 translations before freezing its filters,
+so a large first backfill completes over several runs; follow the
+`search_filter.intent_translation_backfill.completed` counts and `SEARCH_INTENT_TRANSLATION`
+outcomes. Logs carry only outcomes and categories, never intent text. Do not clear
+`intent_translation` to force a retranslation of current text; editing the text replaces it.
+
 The API's search-filter previews use the same Workers AI account. A classifier outage or rate
 limit also fails previews with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`, logged by the API as
 `search_filter.preview.failed`; preview traffic counts against the same provider limits as runs.
@@ -401,6 +410,14 @@ Attach the reviewed dataset revision, benchmark report, reconciled costs and acc
 quality thresholds for the configured model to the release/issue before increasing the
 deployment setting. Every image-containing request remains a singleton regardless
 of this setting.
+
+Groups may carry an `intent_translation` (`base_queries` and nullable `enhanced_description`)
+to classify the English pivot instead of the authored intent; compare such runs against the
+same groups without it on the same day and model. Case `title` and `description` are the
+evidence the classifier receives, so supply the English title and the original description.
+The [multilingual pivot fixtures](../src/search-filter-service/benchmarks/clef-should-show/multilingual-pivot-fixtures.json)
+cover Latin and non-Latin scripts, explicit preferences and sparse listings with agent-authored
+labels.
 
 The opt-in [benchmark runner](../src/search-filter-service/src/product_match_evaluator/batching/benchmark.rs)
 first compares the old two-question schema (A) with the one-question singleton schema

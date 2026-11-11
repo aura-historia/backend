@@ -1,3 +1,4 @@
+mod intent_translation;
 mod match_candidates;
 pub mod match_classification;
 pub mod ports;
@@ -5,6 +6,8 @@ mod product_match_evaluator;
 pub mod shipping_destination;
 mod tier_policy;
 pub mod use_cases;
+
+pub use intent_translation::SEARCH_INTENT_TRANSLATION_DEADLINE;
 
 #[cfg(test)]
 mod test_digests {

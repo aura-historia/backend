@@ -291,6 +291,39 @@ impl EmbeddingGenerator for TestEmbeddingGenerator {
     }
 }
 
+/// Translates every semantic text to `ENGLISH <text>`, so API tests prove the internal
+/// translation never reaches a response.
+#[derive(Clone, Copy)]
+struct TestSearchIntentTranslator;
+
+#[async_trait::async_trait]
+impl search_filter_service::ports::SearchIntentTranslator for TestSearchIntentTranslator {
+    async fn translate(
+        &self,
+        search: &product_listing_core::product_listing_search::ProductListingSearch,
+    ) -> Result<
+        search_filter_core::SearchIntentTranslation,
+        search_filter_service::ports::SearchIntentTranslatorError,
+    > {
+        let english = search_filter_core::EnglishSearchIntent::new(
+            search
+                .product_listing_query
+                .iter()
+                .map(|query| format!("ENGLISH {}", query.as_ref()).try_into().unwrap())
+                .collect(),
+            search
+                .enhanced_search_description
+                .as_ref()
+                .map(|description| {
+                    format!("ENGLISH {}", description.as_ref())
+                        .try_into()
+                        .unwrap()
+                }),
+        );
+        Ok(search_filter_core::SearchIntentTranslation::english(search, english).unwrap())
+    }
+}
+
 #[derive(Clone, Copy)]
 struct TestStripeBilling;
 
@@ -1783,6 +1816,7 @@ async fn test_state(
                 unit_of_work.clone(),
                 SqlxSearchFilterRepositoryFactory,
                 TestEmbeddingGenerator::Success,
+                TestSearchIntentTranslator,
                 SqlxSearchFilterQuotaReaderFactory,
                 user_postgres::SqlxUserTierEntitlementsFactory::new(),
             )
@@ -1796,6 +1830,7 @@ async fn test_state(
                 unit_of_work.clone(),
                 SqlxSearchFilterRepositoryFactory,
                 TestEmbeddingGenerator::Success,
+                TestSearchIntentTranslator,
                 search_filter_reader.clone(),
                 SqlxSearchFilterQuotaReaderFactory,
                 user_postgres::SqlxUserTierEntitlementsFactory::new(),
@@ -1822,6 +1857,7 @@ async fn test_state(
             unit_of_work.clone(),
             user_postgres::SqlxUserTierEntitlementsFactory::new(),
             TestEmbeddingGenerator::Success,
+            TestSearchIntentTranslator,
             SqlxFxRateSnapshotReader::new(pool.clone()),
             OpenSearchProductListingSearchReader::with_index(
                 opensearch_client.clone(),

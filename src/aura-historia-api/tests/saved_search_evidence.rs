@@ -85,6 +85,7 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
         unit,
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
     );
@@ -134,6 +135,7 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
         SqlxUnitOfWork::new(pool.clone()),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
     );
@@ -174,6 +176,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
     );
@@ -181,6 +184,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterReader::new(pool.clone()),
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
@@ -278,6 +282,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
     );
@@ -341,6 +346,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         unit,
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterReader::new(pool.clone()),
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
@@ -435,6 +441,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
     )
@@ -527,6 +534,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         unit,
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         reader,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,

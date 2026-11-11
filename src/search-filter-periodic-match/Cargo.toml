@@ -16,6 +16,7 @@ product-listing-opensearch = { workspace = true }
 product-listing-postgres = { workspace = true }
 search-filter-postgres = { workspace = true }
 search-filter-service = { workspace = true }
+search-filter-translation-llm = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 url = { workspace = true }

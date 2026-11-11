@@ -606,12 +606,15 @@ dependencies = [
  "party-postgres",
  "party-service",
  "platform-postgres",
+ "product-listing-core",
  "product-listing-ingestion-sqs",
  "product-listing-opensearch",
  "product-listing-postgres",
  "product-listing-service",
+ "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
+ "search-filter-translation-llm",
  "serial_test",
  "shipping-postgres",
  "shipping-service",
@@ -7929,8 +7932,10 @@ dependencies = [
  "money",
  "product-listing-core",
  "serde",
+ "sha2 0.11.1",
  "strum 0.28.0",
  "strum_macros 0.28.0",
+ "thiserror 2.0.21",
  "time",
  "user-core",
  "uuid",
@@ -7986,6 +7991,7 @@ dependencies = [
  "product-listing-postgres",
  "search-filter-postgres",
  "search-filter-service",
+ "search-filter-translation-llm",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -8057,6 +8063,24 @@ dependencies = [
  "url",
  "user-core",
  "user-service",
+]
+
+[[package]]
+name = "search-filter-translation-llm"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "large-language-model",
+ "localization",
+ "money",
+ "product-listing-core",
+ "search-filter-core",
+ "search-filter-service",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -1,5 +1,6 @@
+use crate::intent_translation::intent_translation_to_json;
 use crate::mapping::{
-    FILTER_COLUMNS, FilterRow, ProductListingSearchJsonMappingError, product_search_to_json,
+    AGGREGATE_COLUMNS, AggregateRow, ProductListingSearchJsonMappingError, product_search_to_json,
 };
 use application::error::box_error;
 use platform_postgres::SqlxTransaction;
@@ -101,15 +102,15 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
         let id = id.into_uuid();
         let mut query = QueryBuilder::<Postgres>::new("SELECT ");
         query
-            .push(FILTER_COLUMNS)
+            .push(AGGREGATE_COLUMNS)
             .push(" FROM search_filters WHERE user_search_filter_id=$1");
         query
-            .build_query_as::<FilterRow>()
+            .build_query_as::<AggregateRow>()
             .bind(id)
             .fetch_optional(self.tx.connection())
             .await
             .map_err(SearchFilterRepositoryAdapterError::LookupSqlx)?
-            .map(FilterRow::into_persisted)
+            .map(AggregateRow::into_persisted)
             .transpose()
     }
     async fn insert(
@@ -120,11 +121,11 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::InsertSearchSerialization)?;
         let id = filter.id().into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "INSERT INTO search_filters (user_search_filter_id,user_id,name,notifications,state,search,enhanced_search_description,embedding,language,currency,matching_evidence_policy) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ",
+            "INSERT INTO search_filters (user_search_filter_id,user_id,name,notifications,state,search,enhanced_search_description,embedding,language,currency,matching_evidence_policy,intent_translation) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING ",
         );
-        query.push(FILTER_COLUMNS);
+        query.push(AGGREGATE_COLUMNS);
         let row = query
-            .build_query_as::<FilterRow>()
+            .build_query_as::<AggregateRow>()
             .bind(id)
             .bind(filter.user_id().into_uuid())
             .bind(filter.name().as_ref())
@@ -142,6 +143,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .bind(filter.search().language.as_str())
             .bind(filter.search().currency.as_str())
             .bind(filter.matching_evidence_policy().as_str())
+            .bind(filter.intent_translation().map(intent_translation_to_json))
             .fetch_one(self.tx.connection())
             .await
             .map_err(|source| {
@@ -164,11 +166,11 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .map_err(SearchFilterRepositoryAdapterError::UpdateSearchSerialization)?;
         let id = filter.id().into_uuid();
         let mut query = QueryBuilder::<Postgres>::new(
-            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,matching_evidence_policy=$11,version=version+1,updated=aura_advance_updated(updated) WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
+            "UPDATE search_filters SET name=$2,notifications=$3,state=$4,search=$5,enhanced_search_description=$6,embedding=$7,language=$8,currency=$9,matching_evidence_policy=$11,intent_translation=$12,version=version+1,updated=aura_advance_updated(updated) WHERE user_search_filter_id=$1 AND version=$10 RETURNING ",
         );
-        query.push(FILTER_COLUMNS);
+        query.push(AGGREGATE_COLUMNS);
         let row = query
-            .build_query_as::<FilterRow>()
+            .build_query_as::<AggregateRow>()
             .bind(id)
             .bind(filter.name().as_ref())
             .bind(filter.notifications())
@@ -186,6 +188,7 @@ impl SearchFilterRepository for SqlxSearchFilterRepository<'_> {
             .bind(filter.search().currency.as_str())
             .bind(expected_version)
             .bind(filter.matching_evidence_policy().as_str())
+            .bind(filter.intent_translation().map(intent_translation_to_json))
             .fetch_optional(self.tx.connection())
             .await
             .map_err(SearchFilterRepositoryAdapterError::UpdateSqlx)?

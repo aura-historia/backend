@@ -4,6 +4,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmOperation {
     ProductTitleTranslation,
+    SearchIntentTranslation,
     ProductEmbedding,
     ProductQueryEmbedding,
     SellerShopDisambiguation,
@@ -19,6 +20,7 @@ impl LlmOperation {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ProductTitleTranslation => "PRODUCT_TITLE_TRANSLATION",
+            Self::SearchIntentTranslation => "SEARCH_INTENT_TRANSLATION",
             Self::ProductEmbedding => "PRODUCT_EMBEDDING",
             Self::ProductQueryEmbedding => "PRODUCT_QUERY_EMBEDDING",
             Self::SellerShopDisambiguation => "SELLER_SHOP_DISAMBIGUATION",

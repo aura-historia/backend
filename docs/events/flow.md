@@ -335,6 +335,21 @@ cannot establish authenticity, provenance, authorship or age without supporting 
 Every listing has exactly one `should_show` question. Text-only, one-image and four-image
 requests may have different score behavior and require separate evaluation fixtures.
 
+The classifier enforces intent more reliably in English, so it receives an English pivot:
+the internal English translation of the filter's base queries and enhanced description, the
+listing's English title (its original title until one exists) and the original, untranslated
+description. Saved-filter writes translate changed semantic text before their transaction and
+store the translation beside the embedding with a fingerprint of its source text; changing
+other criteria keeps it. The translation is matching state, never part of the authored search,
+any response, notification or log. A stale translation (fingerprint mismatch) is never used,
+an invalid persisted one fails its filter closed, and without a current translation the
+classifier receives the text as written. A failed translation never fails the write: each run
+first translates active filters that lack one under a version guard that advances neither
+version nor `updated`, which also covers filters saved before translations existed.
+Retrieval keeps using the authored text. Previews translate their unsaved intent the same way.
+Decisions log `intentSource` (`ENGLISH_TRANSLATION` or `ORIGINAL`); prompt versions changed with
+this pivot, so scores before and after are not comparable.
+
 Text candidates from one saved filter may share one model request with a single canonical
 intent/policy and separately delimited evidence. Request-local candidate/question IDs map
 back to the application's frozen listing/event references; response order never supplies

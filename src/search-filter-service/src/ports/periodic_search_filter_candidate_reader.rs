@@ -1,8 +1,8 @@
 use application::error::BoxError;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use search_filter_core::{
-    search_filter_state::SearchFilterState, user_search_filter_id::UserSearchFilterId,
-    user_search_filter_name::UserSearchFilterName,
+    SearchIntentTranslation, search_filter_state::SearchFilterState,
+    user_search_filter_id::UserSearchFilterId, user_search_filter_name::UserSearchFilterName,
 };
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
@@ -23,10 +23,17 @@ pub struct PeriodicSearchFilterCandidate {
     pub state: SearchFilterState,
     pub search: ProductListingSearch,
     pub embedding: Option<Vec<f32>>,
+    /// Invalid persisted state fails this filter closed instead of the whole page.
+    pub intent_translation:
+        Result<Option<SearchIntentTranslation>, InvalidPersistedIntentTranslation>,
     pub matching_evidence_policy: search_filter_core::MatchingEvidencePolicy,
     pub created: OffsetDateTime,
     pub matched_through: OffsetDateTime,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("persisted search intent translation is invalid")]
+pub struct InvalidPersistedIntentTranslation;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PeriodicSearchFilterCandidateReadError {

@@ -33,6 +33,9 @@ use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, matching_evidence_policy, created, updated, version";
+/// The aggregate's columns; presentation readers select [`FILTER_COLUMNS`] and never the
+/// internal intent translation.
+pub(crate) const AGGREGATE_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, matching_evidence_policy, created, updated, version, intent_translation";
 pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency, shipping_maximum_minor, user_search_filter_name, feedback, created, updated";
 
 #[derive(Debug)]
@@ -153,8 +156,9 @@ pub(crate) struct FilterRow {
     pub version: i64,
 }
 impl FilterRow {
-    pub(crate) fn into_persisted(
+    fn into_persisted(
         self,
+        intent_translation: Option<search_filter_core::SearchIntentTranslation>,
     ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
         let created = self.created;
         let updated = self.updated;
@@ -193,6 +197,7 @@ impl FilterRow {
                         source: box_error(source),
                     },
                 )?,
+            intent_translation,
         });
         Ok(PersistedSearchFilter {
             filter,
@@ -222,6 +227,30 @@ impl FilterRow {
         })
     }
 }
+#[derive(Debug, FromRow)]
+pub(crate) struct AggregateRow {
+    #[sqlx(flatten)]
+    filter: FilterRow,
+    intent_translation: Option<serde_json::Value>,
+}
+
+impl AggregateRow {
+    pub(crate) fn into_persisted(
+        self,
+    ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
+        let intent_translation = self
+            .intent_translation
+            .map(crate::intent_translation::intent_translation_from_json)
+            .transpose()
+            .map_err(
+                |source| SearchFilterRepositoryError::InvalidPersistedState {
+                    source: box_error(source),
+                },
+            )?;
+        self.filter.into_persisted(intent_translation)
+    }
+}
+
 #[derive(Debug, FromRow)]
 pub(crate) struct MatchRow {
     pub user_id: uuid::Uuid,
@@ -905,7 +934,7 @@ mod tests {
         let user_id = UserId::new();
 
         let persisted =
-            filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_persisted()?;
+            filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_persisted(None)?;
         let view = filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_view()?;
 
         assert_eq!(search_filter_id, persisted.filter.id());
@@ -918,7 +947,7 @@ mod tests {
     #[test]
     fn should_reject_v4_filter_row_ids() -> Result<(), Box<dyn Error>> {
         assert!(matches!(
-            filter_row(uuid::Uuid::new_v4(), UserId::new().into_uuid())?.into_persisted(),
+            filter_row(uuid::Uuid::new_v4(), UserId::new().into_uuid())?.into_persisted(None),
             Err(SearchFilterRepositoryError::InvalidPersistedState { .. })
         ));
         assert!(matches!(
@@ -1421,7 +1450,7 @@ mod tests {
             updated: OffsetDateTime::UNIX_EPOCH,
             version: 1,
         })
-        .into_persisted()
+        .into_persisted(None)
         {
             Ok(_) => panic!("overlong persisted filter name must fail"),
             Err(error) => error,

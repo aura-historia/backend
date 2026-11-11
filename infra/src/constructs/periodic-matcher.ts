@@ -51,6 +51,8 @@ export class PeriodicMatcher extends ScheduledEcsJob {
         OPENSEARCH_USERNAME: ssmValue(`/opensearch/${config.stage}/reader/username`),
         OPENSEARCH_PASSWORD: credential(secrets.openSearch, "readerPassword"),
         CLOUDFLARE_API_TOKEN: credential(secrets.cloudflare, "workersAiApiToken"),
+        // Translates the intent of filters saved without a translation before each run.
+        ANTHROPIC_API_KEY: credential(secrets.anthropic, "apiKey"),
         CLASSIFIER_MODEL_PROVIDER: config.searchFilterClassifier.provider,
         CLASSIFIER_MODEL: props.classifierModel,
         PERIODIC_MATCH_BATCH_CANDIDATES: props.batchCandidates,

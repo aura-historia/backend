@@ -1293,10 +1293,14 @@ async fn app_state_from_config_and_runtime(
     let listing_dependencies = ProductListingDependencies::from_env(&config.product_listings)?;
     let opensearch_client = listing_dependencies.opensearch.clone();
     let embeddings = Arc::clone(&listing_dependencies.embeddings);
+    let search_intent_translator = aura_historia_runtime::search_intent_translator_from_env()?;
     let saved_search_previews = runtime.saved_search_previews(
         &listing_dependencies,
-        SavedSearchPreviewDependencies::from_config(config.saved_search_previews())
-            .map_err(ApiConfigError::SavedSearchPreviews)?,
+        SavedSearchPreviewDependencies::from_config(
+            config.saved_search_previews(),
+            Arc::clone(&search_intent_translator),
+        )
+        .map_err(ApiConfigError::SavedSearchPreviews)?,
     );
 
     let get_admin_overview = GetAdminOverviewHandler::new(
@@ -1848,7 +1852,7 @@ async fn app_state_from_config_and_runtime(
         )),
         authenticator: Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
     };
-    let saved_searches = runtime.saved_searches(Arc::clone(&embeddings));
+    let saved_searches = runtime.saved_searches(Arc::clone(&embeddings), search_intent_translator);
     let search_filters_state = SearchFiltersState::new(
         Arc::clone(&saved_searches.list),
         Arc::clone(&saved_searches.create),
@@ -2127,6 +2131,8 @@ pub enum ApiStateError {
     InvalidIngestionQueueUrl,
     #[error(transparent)]
     ListingProviders(#[from] aura_historia_runtime::ProductListingProviderError),
+    #[error(transparent)]
+    SearchIntentTranslator(#[from] aura_historia_runtime::SearchIntentTranslatorConfigError),
     #[error("failed to configure Cognito JWT authentication: {0}")]
     CognitoJwt(AuthError),
     #[error("failed to build JWKS HTTP client: {0}")]
