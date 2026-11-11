@@ -564,9 +564,9 @@ impl ScraperCandidateServiceImpl {
 
 /// The consecutive page errors a stored URL answered: its `failure_count`, the fetch failures
 /// since its last completed scrape, when the latest of them was a page error, and none otherwise.
-/// The run so includes failures of other kinds before it since that scrape: a URL that has failed
-/// every fetch since its last scrape is parked no later than one that failed only with page
-/// errors.
+/// The run so includes failures of other kinds before it since that scrape: a URL with eight or
+/// more of them is parked by its second page error in a row, not its tenth
+/// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
 /// A negative count is invalid persisted state and fails closed.
 fn page_error_streak_from_row(
     failure_count: i32,
