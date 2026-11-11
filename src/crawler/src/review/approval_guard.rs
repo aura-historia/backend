@@ -37,7 +37,9 @@ pub enum FailedApprovalCheck {
     /// The stored live matrix evaluated another candidate version, or another configuration than
     /// approval would make live now: another schema list or other removed-page templates; or a
     /// page that left the review.
-    LiveMatrixOutdated { reason: String },
+    LiveMatrixOutdated {
+        reason: String,
+    },
     /// The stored live matrix's pages were fetched longer ago than allowed.
     LiveMatrixExpired {
         #[serde(with = "time::serde::rfc3339")]
@@ -45,34 +47,55 @@ pub enum FailedApprovalCheck {
         max_age_minutes: u64,
     },
     /// Review pages the stored live matrix did not evaluate, such as pages that joined since.
-    PagesNotEvaluated { pages: Vec<GuardedPage> },
+    PagesNotEvaluated {
+        pages: Vec<GuardedPage>,
+    },
     /// Review pages no candidate schema applies to and no removed-page template captures as
     /// removed.
-    PagesNotCovered { pages: Vec<GuardedPage> },
+    PagesNotCovered {
+        pages: Vec<GuardedPage>,
+    },
     /// Product pages on which a candidate schema leaves `title` or `state` empty and no other
     /// schema applies.
-    RequiredFieldEmpty { fields: Vec<EmptyRequiredField> },
+    RequiredFieldEmpty {
+        fields: Vec<EmptyRequiredField>,
+    },
     /// Rules of a candidate schema that match nothing on every page the schema applies to.
-    RuleMatchesNothing { rules: Vec<OptionalRuleTotalMiss> },
+    RuleMatchesNothing {
+        rules: Vec<OptionalRuleTotalMiss>,
+    },
     /// Candidate extractions that fail a per-page, cross-page or identity agreement plausibility
     /// check, which deterministic approval in `auto` mode refuses too, on any page.
-    ImplausibleExtraction { pages: Vec<ImplausiblePage> },
+    ImplausibleExtraction {
+        pages: Vec<ImplausiblePage>,
+    },
     /// Review pages that show a price or a description block while no schema applying to them
     /// has a `price` or a `description` rule.
-    ContentRuleMissing { rules: Vec<MissingContentRule> },
+    ContentRuleMissing {
+        rules: Vec<MissingContentRule>,
+    },
     /// No review page shows a sold or unavailable product, and the review records no search for
     /// one that found none. `states_seen` lists what the candidate schemas extract as `state` on
     /// the pages they apply to, and what the normalization resolves each to.
-    NoSoldPageTested { states_seen: Vec<SeenState> },
+    NoSoldPageTested {
+        states_seen: Vec<SeenState>,
+    },
     /// The URL-pattern candidate decides nothing yet.
     CandidateUndecided,
     /// The candidate's pattern takes none of the review's sample URLs: it describes no product
     /// URL the crawl found, such as one written for another URL shape or another host, and an
     /// empty sample shows nothing.
-    PatternMatchesNoSampleUrl { sample_total: usize },
+    PatternMatchesNoSampleUrl {
+        sample_total: usize,
+    },
     /// The candidate's pattern takes every URL of a sample of at least two: it tells no product
     /// page from the shop's other pages, such as one that takes the whole host.
-    PatternMatchesEverySampleUrl { sample_total: usize },
+    PatternMatchesEverySampleUrl {
+        sample_total: usize,
+    },
+    PatternTakesProbePaths {
+        paths: Vec<&'static str>,
+    },
     /// A `NO_PATTERN` decision, which an agent never approves: nothing in a review shows that a
     /// shop has no product URLs, so a human decides it.
     NoPatternNeedsHuman,
@@ -221,6 +244,11 @@ impl fmt::Display for FailedApprovalCheck {
             Self::PatternMatchesEverySampleUrl { sample_total } => write!(
                 formatter,
                 "the pattern takes every one of the sample's {sample_total} URLs: it tells no product page from the shop's other pages; write it for the product URLs alone"
+            ),
+            Self::PatternTakesProbePaths { paths } => write!(
+                formatter,
+                "the pattern takes made-up paths no product URL has ({}): it describes the shop's URLs in general, not its product URLs; anchor it on what only the product URLs share, such as a path prefix, an id or a file extension",
+                paths.join(", ")
             ),
             Self::NoPatternNeedsHuman => write!(
                 formatter,
@@ -424,23 +452,54 @@ pub(crate) fn url_pattern_approval_checks(
             Err(_) => return Vec::new(),
         },
     };
+    let takes = |url: &Url| CrawledUrl::new(url.clone()).matches_pattern(&pattern);
+    sample_share_check(&takes, domain, sample)
+        .into_iter()
+        .chain(probe_path_check(&takes, domain))
+        .collect()
+}
+
+/// The refusal of a decision that takes none, or on a sample of two or more every one, of the
+/// sample's URLs on the crawl host `domain`.
+fn sample_share_check(
+    takes: &impl Fn(&Url) -> bool,
+    domain: &str,
+    sample: &[String],
+) -> Option<FailedApprovalCheck> {
     let on_domain: Vec<Url> = sample
         .iter()
         .filter_map(|url| Url::parse(url).ok())
         .filter(|url| url_on_crawl_host(url, domain))
         .collect();
     let sample_total = on_domain.len();
-    let matched = on_domain
-        .into_iter()
-        .filter(|url| CrawledUrl::new(url.clone()).matches_pattern(&pattern))
-        .count();
+    let matched = on_domain.iter().filter(|url| takes(url)).count();
     if matched == 0 {
-        vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total }]
+        Some(FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total })
     } else if sample_total >= 2 && matched == sample_total {
-        vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total }]
+        Some(FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total })
     } else {
-        Vec::new()
+        None
     }
+}
+
+/// Paths on a shop's crawl host that no product URL has: its root and made-up words without a
+/// digit, in one and two segments and with a query. A decision that takes one constrains no more
+/// than a URL's shape, such as `^/.+$`, or `.*` with the root excluded, which the sample checks
+/// let through as soon as the sample holds one URL the decision leaves out.
+const PROBE_PATHS: [&str; 4] = [
+    "/",
+    "/aura-historia-probe",
+    "/aura-historia-probe/aura-historia-probe",
+    "/aura-historia-probe?aura-historia=probe",
+];
+
+/// The refusal of a decision that takes any of the [`PROBE_PATHS`] on the crawl host `domain`.
+fn probe_path_check(takes: &impl Fn(&Url) -> bool, domain: &str) -> Option<FailedApprovalCheck> {
+    let paths: Vec<&'static str> = PROBE_PATHS
+        .into_iter()
+        .filter(|path| Url::parse(&format!("https://{domain}{path}")).is_ok_and(|url| takes(&url)))
+        .collect();
+    (!paths.is_empty()).then_some(FailedApprovalCheck::PatternTakesProbePaths { paths })
 }
 
 /// The refusal of a live matrix whose pages were fetched more than `max_age` before `now`.
@@ -1393,8 +1452,8 @@ mod tests {
     #[test]
     fn should_refuse_a_pattern_that_takes_every_url_of_a_sample_of_at_least_two() {
         assert_eq!(
-            sample_checks(pattern("antique-shop"), &SAMPLE),
-            vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 5 }]
+            sample_checks(pattern("/[a-z]"), &SAMPLE)[0],
+            FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 5 }
         );
         assert_eq!(
             sample_checks(pattern("/item/[^/]+$"), &SAMPLE[..1]),
@@ -1433,9 +1492,64 @@ mod tests {
             vec![FailedApprovalCheck::PatternMatchesNoSampleUrl { sample_total: 5 }]
         );
         assert_eq!(
-            sample_checks(excluding(".", "/impressum$"), &SAMPLE),
+            sample_checks(excluding("/item|/shop/", "/shop/$"), &SAMPLE),
             Vec::new()
         );
+    }
+
+    /// A decision that constrains no more than a URL's shape takes made-up paths, the root among
+    /// them, whatever the sample: these pass the sample checks once the sample holds one URL they
+    /// leave out. A decision anchored on what product URLs share takes none.
+    #[test]
+    fn should_refuse_a_pattern_that_takes_made_up_paths() {
+        let path_and_query = |value: &str, exclude: Option<&str>| UrlPatternDecision::Pattern {
+            value: value.to_owned(),
+            exclude: exclude.map(str::to_owned),
+            matching: UrlPatternMatching::PathAndQueryFullMatch,
+        };
+        let probes = |decision| {
+            sample_checks(decision, &SAMPLE)
+                .into_iter()
+                .filter(|check| matches!(check, FailedApprovalCheck::PatternTakesProbePaths { .. }))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            probes(path_and_query("/.+", None)),
+            vec![FailedApprovalCheck::PatternTakesProbePaths {
+                paths: PROBE_PATHS[1..].to_vec(),
+            }]
+        );
+        assert_eq!(
+            sample_checks(path_and_query(".*", Some("^/$|impressum")), &SAMPLE),
+            vec![FailedApprovalCheck::PatternTakesProbePaths {
+                paths: PROBE_PATHS[1..].to_vec(),
+            }]
+        );
+        assert_eq!(
+            probes(path_and_query("/[^/?#]+/?", None)),
+            vec![FailedApprovalCheck::PatternTakesProbePaths {
+                paths: vec![PROBE_PATHS[1]],
+            }]
+        );
+        assert_eq!(
+            probes(pattern(".")),
+            vec![FailedApprovalCheck::PatternTakesProbePaths {
+                paths: PROBE_PATHS.to_vec(),
+            }]
+        );
+        for anchored in [
+            r"/item/[^/?#]+/?",
+            r"/[^/?#]+-a\d+/?",
+            r"/us/[^/?#]+/[^/?#]*\d[^/?#]*\.html(?:\?.*)?",
+            r"/p\?id=\d+",
+        ] {
+            assert_eq!(
+                probes(path_and_query(anchored, None)),
+                Vec::new(),
+                "{anchored}"
+            );
+        }
     }
 
     /// Nothing in a review shows that a shop has no product URLs, so an agent never approves
@@ -1512,6 +1626,14 @@ mod tests {
             Some(serde_json::json!({
                 "check": "PATTERN_MATCHES_EVERY_SAMPLE_URL",
                 "sample_total": 20,
+            }))
+        );
+        assert_eq!(
+            serde_json::to_value(FailedApprovalCheck::PatternTakesProbePaths { paths: vec!["/"] })
+                .ok(),
+            Some(serde_json::json!({
+                "check": "PATTERN_TAKES_PROBE_PATHS",
+                "paths": ["/"],
             }))
         );
         assert_eq!(

@@ -1567,7 +1567,7 @@ async fn should_keep_the_sample_labels_when_the_decision_changes() {
 
 /// In `agent` mode the reviewer agent approves a URL pattern on the local checks alone, never on
 /// labels or on what the crawler guesses: a pattern that takes none or all of the review's stored
-/// sample is refused, one that takes some of it is approved without a label, and the approval
+/// sample, or made-up paths, is refused, one that takes some of it is approved without a label, and the approval
 /// classifies the source's URLs by the pattern alone.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_take_the_agent_url_pattern_approval_only_when_the_pattern_takes_some_of_the_sample()
@@ -1624,7 +1624,17 @@ async fn should_take_the_agent_url_pattern_approval_only_when_the_pattern_takes_
     );
     assert_eq!(
         failed_checks(every_url),
-        vec![FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 6 }]
+        vec![
+            FailedApprovalCheck::PatternMatchesEverySampleUrl { sample_total: 6 },
+            FailedApprovalCheck::PatternTakesProbePaths {
+                paths: vec![
+                    "/",
+                    "/aura-historia-probe",
+                    "/aura-historia-probe/aura-historia-probe",
+                    "/aura-historia-probe?aura-historia=probe",
+                ],
+            },
+        ]
     );
     assert_eq!(
         failed_checks(no_url),
