@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use url::Url;
 
 use crate::spider::classification::url_metadata::{CrawlerDisposition, UrlClass};
@@ -19,6 +19,10 @@ use crate::spider::utils::url::CrawledUrl;
 /// Most known product URLs an incremental crawl skips; a larger shop's further product pages are
 /// fetched again, which costs requests but loses nothing.
 pub const MAX_KNOWN_URLS: i64 = 100_000;
+
+/// Most frontier URLs one statement deletes or inserts, so a large frontier is written in short
+/// statements instead of one that holds its connection for seconds.
+const FRONTIER_WRITE_CHUNK: usize = 1_000;
 
 /// The stored URLs an incremental crawl does not fetch again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -69,6 +73,31 @@ pub struct CrawlFrontierRepositoryImpl {
 impl CrawlFrontierRepositoryImpl {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+}
+
+/// What turns a stored frontier into the one a crawl left: the URLs to delete and to insert, each
+/// sorted. URLs in both stay as they are.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct FrontierChange<'a> {
+    removed: Vec<&'a str>,
+    added: Vec<&'a str>,
+}
+
+impl<'a> FrontierChange<'a> {
+    fn between(stored: &'a BTreeSet<String>, left: &'a BTreeSet<&'a str>) -> Self {
+        Self {
+            removed: stored
+                .iter()
+                .map(String::as_str)
+                .filter(|url| !left.contains(url))
+                .collect(),
+            added: left
+                .iter()
+                .copied()
+                .filter(|url| !stored.contains(*url))
+                .collect(),
+        }
     }
 }
 
@@ -160,13 +189,14 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
 
     /// The share lock on the source row holds back a move to another root, which updates that
     /// row and drops the frontier, until the new frontier is committed; a move that committed
-    /// first leaves no row on the crawled root to lock.
+    /// first leaves no row on the crawled root to lock. Only the URLs that changed are written,
+    /// at most [`FRONTIER_WRITE_CHUNK`] per statement.
     async fn replace_frontier(
         &self,
         root: &CrawledRoot,
         frontier: &[Url],
     ) -> Result<CrawlOutcomeWrite, sqlx::Error> {
-        let urls: Vec<&str> = frontier.iter().map(Url::as_str).collect();
+        let left: BTreeSet<&str> = frontier.iter().map(Url::as_str).collect();
         let mut transaction = self.pool.begin().await?;
         let source_has_root = sqlx::query_scalar::<_, i32>(
             "SELECT 1 FROM listing_sources
@@ -181,19 +211,36 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         if !source_has_root {
             return Ok(CrawlOutcomeWrite::RootMoved);
         }
-        sqlx::query("DELETE FROM listing_source_crawl_frontier WHERE listing_source_id = $1")
-            .bind(root.listing_source_id.as_uuid())
-            .execute(&mut *transaction)
-            .await?;
-        sqlx::query(
-            "INSERT INTO listing_source_crawl_frontier (listing_source_id, url)
-             SELECT $1, url FROM UNNEST($2::text[]) AS frontier(url)
-             ON CONFLICT DO NOTHING",
+        let stored: BTreeSet<String> = sqlx::query_scalar(
+            "SELECT url FROM listing_source_crawl_frontier WHERE listing_source_id = $1",
         )
         .bind(root.listing_source_id.as_uuid())
-        .bind(urls)
-        .execute(&mut *transaction)
-        .await?;
+        .fetch_all(&mut *transaction)
+        .await?
+        .into_iter()
+        .collect();
+        let change = FrontierChange::between(&stored, &left);
+        for removed in change.removed.chunks(FRONTIER_WRITE_CHUNK) {
+            sqlx::query(
+                "DELETE FROM listing_source_crawl_frontier
+                 WHERE listing_source_id = $1 AND url = ANY($2::text[])",
+            )
+            .bind(root.listing_source_id.as_uuid())
+            .bind(removed)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        for added in change.added.chunks(FRONTIER_WRITE_CHUNK) {
+            sqlx::query(
+                "INSERT INTO listing_source_crawl_frontier (listing_source_id, url)
+                 SELECT $1, url FROM UNNEST($2::text[]) AS frontier(url)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(root.listing_source_id.as_uuid())
+            .bind(added)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         Ok(CrawlOutcomeWrite::Recorded)
     }
@@ -214,5 +261,32 @@ mod tests {
         ])
         .unwrap_err();
         assert!(matches!(error, sqlx::Error::Decode(_)), "{error:?}");
+    }
+
+    #[test]
+    fn should_write_only_changed_urls_when_a_crawl_replaces_the_frontier() {
+        let stored: BTreeSet<String> = ["https://shop.example/a", "https://shop.example/b"]
+            .map(String::from)
+            .into();
+        let left: BTreeSet<&str> = ["https://shop.example/c", "https://shop.example/b"].into();
+
+        assert_eq!(
+            FrontierChange::between(&stored, &left),
+            FrontierChange {
+                removed: vec!["https://shop.example/a"],
+                added: vec!["https://shop.example/c"],
+            }
+        );
+    }
+
+    #[test]
+    fn should_write_nothing_when_the_frontier_is_unchanged() {
+        let stored: BTreeSet<String> = ["https://shop.example/a".to_string()].into();
+        let left: BTreeSet<&str> = ["https://shop.example/a"].into();
+
+        assert_eq!(
+            FrontierChange::between(&stored, &left),
+            FrontierChange::default()
+        );
     }
 }

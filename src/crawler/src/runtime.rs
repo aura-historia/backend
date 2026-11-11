@@ -49,13 +49,17 @@ use std::time::Duration;
 use tracing::info;
 
 mod config;
+mod db_pools;
 mod shutdown;
 
 pub use config::{
     ConfigSource, CrawlerLlmConfig, CrawlerRuntimeConfig, CrawlerRuntimeConfigError,
     CrawlerVertexAiLlmConfig,
 };
+pub use db_pools::REVIEW_DB_MAX_CONNECTIONS;
 pub use shutdown::DEFAULT_SHUTDOWN_GRACE_PERIOD;
+
+use db_pools::CrawlerPools;
 
 /// What a crawler entry point supplies; everything else is shared wiring.
 pub struct CrawlerRuntimeProfile {
@@ -131,11 +135,13 @@ pub async fn apply_local_migrations(pool: &PgPool) {
 pub struct CrawlerRuntime {
     review_server: ReviewServer,
     cron_job: CrawlerCronJob,
+    pools: CrawlerPools,
     shutdown_grace_period: Duration,
 }
 
 /// Wires the crawler pipeline on a migrated crawler-local `pool`, creating the LLM models that
-/// `config` selects and, in `agent` authoring mode, the review agents' tokens.
+/// `config` selects and, in `agent` authoring mode, the review agents' tokens. The review console
+/// gets its own small pool on the same database.
 pub fn build(
     pool: PgPool,
     mut profile: CrawlerRuntimeProfile,
@@ -152,12 +158,13 @@ pub fn build(
             .unwrap_or_else(|error| {
                 panic!("invalid crawler review console configuration: {error}")
             });
+    let pools = CrawlerPools::beside(pool);
     let (review_server, cron_job) = match llm {
         CrawlerLlmConfig::VertexAi(vertex) => {
             let governor = Arc::new(CrawlerLlmGovernor::new(vertex.rate_limit));
             let models = CrawlerLlmModels::vertex_ai(&vertex);
             wire(
-                pool,
+                &pools,
                 profile,
                 authoring,
                 agent_limits,
@@ -166,7 +173,7 @@ pub fn build(
             )
         }
         CrawlerLlmConfig::Disabled => wire(
-            pool,
+            &pools,
             profile,
             authoring,
             agent_limits,
@@ -177,12 +184,13 @@ pub fn build(
     CrawlerRuntime {
         review_server,
         cron_job,
+        pools,
         shutdown_grace_period,
     }
 }
 
 fn wire<Llm>(
-    pool: PgPool,
+    pools: &CrawlerPools,
     profile: CrawlerRuntimeProfile,
     authoring: CrawlerAuthoringMode,
     agent_limits: AgentLimits,
@@ -192,6 +200,7 @@ fn wire<Llm>(
 where
     Llm: LargeLanguageModel + 'static,
 {
+    let pool = pools.crawl.clone();
     let CrawlerRuntimeProfile {
         cron_config,
         review_config,
@@ -201,7 +210,7 @@ where
     } = profile;
     // The spider and the review rail classify URLs alike, as the authoring mode selects. The
     // console, the scraper's review gate and the spider share this one repository and with it the
-    // one agent decision policy of the start.
+    // one agent decision policy of the start; the console's copy persists through its own pool.
     let url_classifier = UrlClassifier::for_authoring(authoring);
     let review_repo = CrawlerReviewRepository::new(pool.clone())
         .with_url_classifier(url_classifier)
@@ -319,6 +328,7 @@ where
 
     info!(
         db_max_connections,
+        review_db_max_connections = REVIEW_DB_MAX_CONNECTIONS,
         scraper_max_llm_calls_per_listing_source,
         push_batch_size,
         push_queue_capacity,
@@ -328,8 +338,9 @@ where
         review_bind_addr = %review_config.bind_addr,
         "Crawler Server is fully initialized. Starting background tasks..."
     );
+    let console_repo = review_repo.with_pool(pools.review.clone());
     let review_server =
-        ReviewServer::new(review_repo, review_config, fetcher).with_work_locks(work_locks);
+        ReviewServer::new(console_repo, review_config, fetcher).with_work_locks(work_locks);
 
     (review_server, cron_job)
 }
@@ -342,8 +353,10 @@ impl CrawlerRuntime {
         let Self {
             review_server,
             cron_job,
+            pools,
             shutdown_grace_period,
         } = self;
+        let pool_usage = tokio::spawn(pools.report_usage());
         let cron_stop = cron_job.stop_handle();
         let exit = shutdown::supervise(
             async move {
@@ -358,6 +371,7 @@ impl CrawlerRuntime {
             shutdown::os_stop_signals(),
         )
         .await;
+        pool_usage.abort();
         if let shutdown::RuntimeExit::Forced(signal) = exit {
             std::process::exit(signal.forced_exit_code());
         }

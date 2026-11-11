@@ -406,6 +406,12 @@ impl CrawlerReviewRepository {
         }
     }
 
+    /// This repository persisting through `pool`, with the same decision policy and URL
+    /// classifier: the review console's copy on its own pool.
+    pub fn with_pool(self, pool: PgPool) -> Self {
+        Self { pool, ..self }
+    }
+
     /// The review agents' decision policy this repository applies.
     pub fn agent_decisions(&self) -> AgentDecisionPolicy {
         self.agent_decisions

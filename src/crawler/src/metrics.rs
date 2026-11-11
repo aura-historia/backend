@@ -75,6 +75,12 @@ pub(crate) enum CrawlerMetric {
     SpiderPassDuration,
     /// URLs due for scraping when a scraper pass starts.
     ScraperDueUrls,
+    /// The most connections of one Postgres pool in use at once during a usage window.
+    DbPoolInUsePeak,
+    /// The connection limit of one Postgres pool.
+    DbPoolMaxConnections,
+    /// The samples of a usage window that found every connection of one Postgres pool in use.
+    DbPoolSaturatedSamples,
 }
 
 impl CrawlerMetric {
@@ -94,6 +100,9 @@ impl CrawlerMetric {
             Self::ScraperPassDuration => "ScraperPassDuration",
             Self::SpiderPassDuration => "SpiderPassDuration",
             Self::ScraperDueUrls => "ScraperDueUrls",
+            Self::DbPoolInUsePeak => "DbPoolInUsePeak",
+            Self::DbPoolMaxConnections => "DbPoolMaxConnections",
+            Self::DbPoolSaturatedSamples => "DbPoolSaturatedSamples",
         }
     }
 
@@ -112,6 +121,8 @@ pub(crate) enum MetricDimension {
     FailureKind,
     /// A persisted `last_crawl_outcome` value.
     CrawlOutcome,
+    /// The crawler's Postgres pool a value describes: `crawl` or `review`.
+    DbPool,
 }
 
 impl MetricDimension {
@@ -120,6 +131,7 @@ impl MetricDimension {
             Self::ListingSourceId => "listing_source_id",
             Self::FailureKind => "failure_kind",
             Self::CrawlOutcome => "crawl_outcome",
+            Self::DbPool => "db_pool",
         }
     }
 }
