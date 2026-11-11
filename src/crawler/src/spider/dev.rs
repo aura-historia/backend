@@ -37,7 +37,10 @@ use std::sync::Arc;
 use crawler::CrawlRoot;
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SPIDER_DB_NAME, DevDatabase};
-use crawler::logging::{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE};
+use crawler::logging::{
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE,
+    tls_verifier_handshake_error_filter,
+};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ScopedListingSource,
@@ -61,6 +64,8 @@ use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use thiserror::Error;
 use tracing::{Instrument, error, info};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Debug, Error)]
 enum DemoError {
@@ -302,6 +307,8 @@ fn init_logging() {
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(filter)
+        .finish()
+        .with(tls_verifier_handshake_error_filter())
         .init();
 }
 

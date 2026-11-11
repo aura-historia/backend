@@ -40,7 +40,7 @@ use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, DevDatabase};
-use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
+use crawler::logging::{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, tls_verifier_handshake_error_filter};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
@@ -50,6 +50,8 @@ use crawler::scraper::scraper_service::{
     ScraperService, ScraperServiceImpl,
 };
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -202,7 +204,11 @@ fn init_logging() {
         "{log_level},{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
     ));
 
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .finish()
+        .with(tls_verifier_handshake_error_filter())
+        .init();
 }
 
 // ---------------------------------------------------------------------------

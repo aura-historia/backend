@@ -31,7 +31,6 @@ use tracing::{Instrument, debug, error, info, warn};
 const CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
 const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
-const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
 const TRUNCATED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
 const TRUNCATED_CRAWL_CONTINUATION_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
@@ -40,18 +39,16 @@ const TRUNCATED_CRAWL_CONTINUATION_COOLDOWN: Duration = Duration::from_secs(6 * 
 const STOPPED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60);
 const RATE_LIMITED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60 * 60);
 
-fn long_cooldown(profile: CrawlCooldownProfile) -> Duration {
-    match profile {
-        CrawlCooldownProfile::Transient => TRANSIENT_CRAWL_LONG_COOLDOWN,
-        CrawlCooldownProfile::Recoverable => RECOVERABLE_CRAWL_LONG_COOLDOWN,
-        CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
-    }
-}
-
+/// The cooldown after the `failure_count`th failure of a streak that does not wait for an
+/// operator yet: two short retries, then the profile's long cooldown. A durable block waits for
+/// an operator before its long cooldown would begin
+/// ([`DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT`]), so it only ever takes the short retry.
 fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32) -> Duration {
-    match failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
-        true => long_cooldown(profile),
-        false => CRAWL_RETRY_COOLDOWN,
+    let long = failure_count >= LONG_COOLDOWN_FAILURE_COUNT;
+    match profile {
+        CrawlCooldownProfile::Transient if long => TRANSIENT_CRAWL_LONG_COOLDOWN,
+        CrawlCooldownProfile::Recoverable if long => RECOVERABLE_CRAWL_LONG_COOLDOWN,
+        _ => CRAWL_RETRY_COOLDOWN,
     }
 }
 
@@ -208,21 +205,37 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
     crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile)
 }
 
-/// Consecutive failures of one streak ([`continues_failure_streak`]) after
-/// which a ListingSource stops retrying and waits for an operator. Failures that
-/// need a site or configuration change (the recoverable profile) escalate:
-/// with two short retries and then the long cooldown, the fifth failure comes
-/// about a week after the first. So does `BotProtection`, which keeps its
-/// transient cooldown until then: only a person can resolve a shop's block,
-/// and each retry spends a crawl budget on challenge pages. Other transient
-/// failures keep retrying because the site may recover, durable blocks
-/// already cool for a month.
+/// Consecutive failures of one streak ([`continues_failure_streak`]) after which a ListingSource
+/// stops retrying and waits for an operator. Every classified failure escalates, since a shop
+/// that keeps failing the same way costs a crawl preflight every few days and only a person can
+/// tell whether it recovers, needs another crawl root or should stop being crawled. With two
+/// short retries and then the long cooldown, the fifth failure comes about two and a half days
+/// after the first for a transient kind (`ConnectError`, `CloudflareChallenge`,
+/// `BotProtection`, ...) and about a week after it for a recoverable one (a TLS, robots.txt or
+/// redirect problem, or a crawl without product URLs).
 const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
 
+/// A shop that refuses the crawler (`AccessDenied`, `JavascriptRequired`) does not let it in
+/// by itself, so its second failure in a row, one short retry after the first, already waits
+/// for an operator instead of cooling down for long.
+const DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT: i32 = 2;
+const _: () = assert!(DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT <= LONG_COOLDOWN_FAILURE_COUNT);
+
+const fn needs_operator_failure_count(profile: CrawlCooldownProfile) -> i32 {
+    match profile {
+        CrawlCooldownProfile::Transient | CrawlCooldownProfile::Recoverable => {
+            NEEDS_OPERATOR_FAILURE_COUNT
+        }
+        CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT,
+    }
+}
+
+/// Whether the failure, the `failure_count`th of its streak, stops the ListingSource for an
+/// operator. Unclassified internal or configuration faults are the crawler's own and never do:
+/// they keep their capped exponential retry ([`unclassified_cooldown_for_failure_count`]).
 fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
-    let escalates = crawl_cooldown_profile(error) == Some(CrawlCooldownProfile::Recoverable)
-        || crawl_failure_kind(error) == Some(CrawlFailureKind::BotProtection);
-    escalates && failure_count >= NEEDS_OPERATOR_FAILURE_COUNT
+    crawl_cooldown_profile(error)
+        .is_some_and(|profile| failure_count >= needs_operator_failure_count(profile))
 }
 
 /// Cooldown for the catch-all `spider_run_error` case (internal or config
@@ -277,7 +290,7 @@ enum SpiderSlotStatus {
     /// wait. The decision released the ListingSource, so the run records no outcome over it.
     ReviewDecided,
     Failed,
-    /// Repeated deterministic failures; the ListingSource is not retried until an
+    /// A failure streak reached its escalation count; the ListingSource is not retried until an
     /// operator acts.
     StoppedForOperator,
     /// The ListingSource moved to another crawl root while the run crawled the old one, so the run
@@ -1061,6 +1074,11 @@ fn emit_crawl_metrics(
         record()
             .with_dimension(MetricDimension::CrawlOutcome, outcome)
             .with_value(CrawlerMetric::CrawlOutcome, 1)
+            .emit();
+    }
+    if matches!(status, SpiderSlotStatus::StoppedForOperator) {
+        MetricRecord::global()
+            .with_value(CrawlerMetric::CrawlsStoppedForOperator, 1)
             .emit();
     }
     if let Some((product_urls, completion)) = classified_crawl(run) {
@@ -1906,16 +1924,20 @@ mod tests {
         }
     }
 
+    /// A durable block waits for an operator on its second failure, so the one retry it gets is
+    /// the short one.
     #[test]
-    fn cooldown_should_use_durable_block_long_cooldown_for_explicit_blocks() {
+    fn cooldown_should_retry_an_explicit_block_once_after_the_short_cooldown() {
         for kind in [
             CrawlFailureKind::AccessDenied,
             CrawlFailureKind::JavascriptRequired,
         ] {
-            assert_eq!(
-                cooldown_for_spider_failure(&crawl_failed(kind), LONG_COOLDOWN_FAILURE_COUNT),
-                DURABLE_BLOCK_CRAWL_LONG_COOLDOWN
-            );
+            let error = crawl_failed(kind);
+            assert_eq!(cooldown_for_spider_failure(&error, 1), CRAWL_RETRY_COOLDOWN);
+            assert!(needs_operator(
+                &error,
+                DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT
+            ));
         }
     }
 
@@ -2018,17 +2040,31 @@ mod tests {
         }
     }
 
+    /// Every classified failure kind, from the spider or from the root preflight, reaches the
+    /// operator: a refusing shop on its second failure in a row, every other kind on its fifth.
     #[test]
-    fn needs_operator_should_keep_retrying_transient_blocked_and_unclassified_failures() {
-        for error in ALL_KINDS
-            .into_iter()
-            .filter(|kind| {
-                kind.cooldown_profile() != CrawlCooldownProfile::Recoverable
-                    && *kind != CrawlFailureKind::BotProtection
-            })
-            .map(crawl_failed)
-            .chain(unclassified_errors())
-        {
+    fn needs_operator_should_stop_every_classified_failure_kind_at_its_escalation_count() {
+        for kind in ALL_KINDS {
+            let escalation_count = match kind {
+                CrawlFailureKind::AccessDenied | CrawlFailureKind::JavascriptRequired => 2,
+                _ => 5,
+            };
+            for error in [crawl_failed(kind), preflight_failed(kind)] {
+                assert!(
+                    !needs_operator(&error, escalation_count - 1),
+                    "{kind} retries below {escalation_count}"
+                );
+                assert!(
+                    needs_operator(&error, escalation_count),
+                    "{kind} waits for an operator at {escalation_count}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn needs_operator_should_keep_retrying_unclassified_failures() {
+        for error in unclassified_errors() {
             assert!(!needs_operator(&error, i32::MAX));
         }
     }
@@ -3932,6 +3968,56 @@ mod tests {
         .await;
     }
 
+    /// Runs the scheduler once on a ListingSource one failure short of `escalation_count` in a
+    /// streak of `expected_kind`, whose run fails with `failure`, and expects the run to stop it
+    /// for an operator instead of scheduling a retry.
+    async fn expect_stop_for_operator(
+        failure: fn() -> SpiderServiceError,
+        expected_kind: &'static str,
+        escalation_count: i32,
+    ) {
+        let expected_listing_source_id = ListingSourceId::new();
+        let mut spider_candidates = failing_candidate_service(
+            expected_listing_source_id,
+            escalation_count - 1,
+            expected_kind,
+        );
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(1)
+            .withf(move |root, error_kind, failure_count| {
+                root.listing_source_id == expected_listing_source_id
+                    && error_kind == expected_kind
+                    && *failure_count == escalation_count
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        spider_job(spider_candidates, spider_service_failing_with(failure), 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_stop_an_unreachable_shop_for_an_operator_at_the_escalation_count() {
+        expect_stop_for_operator(
+            || preflight_failed(CrawlFailureKind::ConnectError),
+            "ConnectError",
+            NEEDS_OPERATOR_FAILURE_COUNT,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn should_stop_a_refusing_shop_for_an_operator_on_its_second_failure() {
+        expect_stop_for_operator(
+            || crawl_failed(CrawlFailureKind::AccessDenied),
+            "AccessDenied",
+            DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT,
+        )
+        .await;
+    }
+
     mod crawl_metrics {
         use super::*;
         use crate::metrics::test_support::capture_metrics;
@@ -3990,6 +4076,67 @@ mod tests {
                 vec![1]
             );
             assert_eq!(metrics.values(CrawlerMetric::SpiderPassDuration).len(), 1);
+        }
+
+        /// A crawl that stops its source for an operator counts once in the crawler-wide metric
+        /// the escalation alarm reads, and records its `NEEDS_OPERATOR` outcome per source.
+        #[tokio::test]
+        async fn should_count_a_source_stopped_for_an_operator_crawler_wide() {
+            let (metrics, _guard) = capture_metrics();
+            let listing_source_id = ListingSourceId::new();
+            let mut spider_candidates = failing_candidate_service(
+                listing_source_id,
+                NEEDS_OPERATOR_FAILURE_COUNT - 1,
+                "NoUrlPattern",
+            );
+            spider_candidates
+                .expect_mark_crawl_needs_operator()
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+            spider_job(
+                spider_candidates,
+                spider_service_failing_with(no_url_pattern),
+                1,
+            )
+            .run_spider_once()
+            .await;
+
+            assert_eq!(
+                metrics.values(CrawlerMetric::CrawlsStoppedForOperator),
+                vec![(vec![], 1)]
+            );
+            assert_eq!(
+                metrics.values_with(
+                    CrawlerMetric::CrawlOutcome,
+                    MetricDimension::CrawlOutcome,
+                    NEEDS_OPERATOR_CRAWL_OUTCOME
+                ),
+                vec![1]
+            );
+        }
+
+        #[tokio::test]
+        async fn should_count_no_stop_for_an_operator_when_a_failed_crawl_is_retried() {
+            let (metrics, _guard) = capture_metrics();
+            let mut spider_candidates =
+                failing_candidate_service(ListingSourceId::new(), 0, "NoUrlPattern");
+            spider_candidates
+                .expect_mark_crawl_failure()
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+            spider_job(
+                spider_candidates,
+                spider_service_failing_with(no_url_pattern),
+                1,
+            )
+            .run_spider_once()
+            .await;
+
+            assert!(
+                metrics
+                    .values(CrawlerMetric::CrawlsStoppedForOperator)
+                    .is_empty()
+            );
         }
 
         #[tokio::test]

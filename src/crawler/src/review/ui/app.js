@@ -979,7 +979,7 @@ function sourceConditions(source) {
             key: 'crawl_needs_operator', text: 'Crawl needs operator',
             more: `${failure.label} · ${pluralize(Number(source.crawl_failure_count) || 0, 'failed crawl', 'failed crawls')}`,
             detail: failure.cause,
-            title: 'The crawl is not retried until the presentation URL changes in the admin API or crawling is disabled'
+            title: 'The crawl is not retried until an operator resumes it, the presentation URL changes in the admin API or crawling is disabled'
         });
     }
     if (source.last_crawl_outcome === 'FAILED') {
@@ -1057,9 +1057,9 @@ function activityBadges(source) {
 // the crawler persists (crawl kinds, scrape-circuit kinds and per-page kinds); `profile` says what
 // happens next. A test keeps the crawl and circuit kinds in step with the crawler.
 const FAILURE_NEXT = {
-    transient: 'Retried automatically; the delay grows with each failure.',
+    transient: 'Retried automatically with a growing delay; after five failures in a row it waits for an operator.',
     recoverable: 'Retried with a growing delay; after five failures in a row it waits for an operator.',
-    durable: 'Retried rarely, with long delays; the shop has to let the crawler in.',
+    durable: 'Retried once; after two failures in a row it waits for an operator, since the shop has to let the crawler in.',
     internal: 'Retried automatically; the delay doubles up to 24 hours.',
     circuit: 'The scraper pauses this source, then probes one page and resumes once the shop answers.',
     page: 'The page is retried after its cooldown.'
@@ -1369,6 +1369,9 @@ function conditionLines(source) {
                 ? `<a href="${reviewHash(source.blocking_review_id)}">the pending product-schema review</a>` : 'a pending review';
             return conditionLine(condition, {text: `${escapeHtml(condition.more)} wait on ${review}`});
         }
+        if (condition.key === 'crawl_needs_operator') {
+            return conditionLine(condition, {trail: ` · <button class="btn-link" onclick="resumeCrawl('${id}')" title="Crawl the source again on its schedule, with a new failure streak" type="button">Resume crawl</button>`});
+        }
         if (condition.key !== 'removals_held') return conditionLine(condition);
         if (source.mass_removal_confirmed_until) {
             return conditionLine(condition, {trail: ` · by ${escapeHtml(actorWord(source.mass_removal_confirmed_by))} · <button class="btn-link" onclick="revokeMassRemovalConfirmation('${id}')" type="button">Revoke</button>`});
@@ -1626,6 +1629,17 @@ async function confirmMassRemoval(listingSourceId) {
 async function revokeMassRemovalConfirmation(listingSourceId) {
     try {
         await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/mass-removal-confirmation`, {method: 'DELETE'});
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+// A source whose crawl waits for an operator returns to the spider's schedule once the operator
+// has fixed what kept it failing.
+async function resumeCrawl(listingSourceId) {
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/crawl-resumption`, {method: 'POST'});
         await loadSourcePage();
     } catch (error) {
         alert(apiErrorMessage(error));

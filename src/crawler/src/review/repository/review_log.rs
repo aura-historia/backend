@@ -23,6 +23,7 @@ pub(super) const REVIEW_URLS_RETIRED_NOT_PRODUCT_EVENT: &str =
     "crawler.review.urls_retired_not_product";
 pub(super) const MASS_REMOVAL_CONFIRMED_EVENT: &str = "crawler.source.mass_removal_confirmed";
 pub(super) const MASS_REMOVAL_REVOKED_EVENT: &str = "crawler.source.mass_removal_revoked";
+pub(super) const CRAWL_RESUMED_EVENT: &str = "crawler.source.crawl_resumed";
 
 /// What one review state change logs besides the source: which event, who acted, and the one
 /// detail that names the change.
@@ -52,6 +53,9 @@ pub(super) struct ReviewLogEntry {
     rearmed_held_urls: Option<u64>,
     hours: Option<u32>,
     confirmed_until: Option<String>,
+    /// The failure kind and streak a resumed crawl waited for an operator with.
+    crawl_error_kind: Option<String>,
+    crawl_failure_count: Option<i32>,
 }
 
 impl ReviewLogEntry {
@@ -71,6 +75,8 @@ impl ReviewLogEntry {
             rearmed_held_urls: None,
             hours: None,
             confirmed_until: None,
+            crawl_error_kind: None,
+            crawl_failure_count: None,
         }
     }
 
@@ -123,6 +129,22 @@ impl ReviewLogEntry {
             "Mass-removal confirmation revoked; the guard holds removals again",
             Some(actor),
         )
+    }
+
+    pub(super) fn crawl_resumed(
+        actor: ReviewActor,
+        crawl_error_kind: Option<String>,
+        crawl_failure_count: i32,
+    ) -> Self {
+        Self {
+            crawl_error_kind,
+            crawl_failure_count: Some(crawl_failure_count),
+            ..Self::new(
+                CRAWL_RESUMED_EVENT,
+                "Crawl that waited for an operator resumed; the spider schedules it again",
+                Some(actor),
+            )
+        }
     }
 
     pub(super) fn with_affected_urls(mut self, urls: usize) -> Self {
@@ -453,6 +475,8 @@ impl PreparedReviewLog {
                     rearmed_held_urls = entry.rearmed_held_urls,
                     confirmed_until = entry.confirmed_until,
                     hours = entry.hours,
+                    crawl_error_kind = entry.crawl_error_kind,
+                    crawl_failure_count = entry.crawl_failure_count,
                     incomplete_coverage = entry.incomplete_coverage,
                     "{}",
                     entry.message
@@ -629,6 +653,29 @@ mod tests {
             ("actor", "HUMAN"),
         ] {
             assert_eq!(confirmed[0].field(field), Some(expected), "{field}");
+        }
+    }
+
+    #[test]
+    fn should_log_the_failure_kind_and_streak_a_resumed_crawl_waited_with() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        prepared(ReviewLogEntry::crawl_resumed(
+            ReviewActor::Human,
+            Some("ConnectError".to_owned()),
+            5,
+        ))
+        .emit();
+
+        let resumed = events.named(CRAWL_RESUMED_EVENT);
+        assert_eq!(resumed.len(), 1);
+        assert_eq!(resumed[0].level, Level::INFO);
+        for (field, expected) in [
+            ("crawl_error_kind", "ConnectError"),
+            ("crawl_failure_count", "5"),
+            ("actor", "HUMAN"),
+        ] {
+            assert_eq!(resumed[0].field(field), Some(expected), "{field}");
         }
     }
 

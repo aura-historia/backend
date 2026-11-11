@@ -28,8 +28,8 @@ pub const RATE_LIMITED_CRAWL_OUTCOME: &str = "RATE_LIMITED";
 /// clears this outcome.
 pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
 
-/// Persisted `last_crawl_outcome` of a ListingSource whose deterministic failures
-/// kept repeating. It is not selected again until an operator changes its
+/// Persisted `last_crawl_outcome` of a ListingSource whose crawl failures
+/// kept repeating. It is not selected again until an operator resumes its crawl or changes its
 /// presentation URL, which moves it to another crawl root and clears its crawl state.
 pub const NEEDS_OPERATOR_CRAWL_OUTCOME: &str = "NEEDS_OPERATOR";
 
@@ -163,7 +163,7 @@ pub trait SpiderCandidateService: Send + Sync {
         root: &CrawledRoot,
         completion: CrawlCompletion,
     ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
-    /// Records a repeated deterministic failure and takes the ListingSource out of
+    /// Records a failure that reached its escalation count and takes the ListingSource out of
     /// the schedule until an operator acts.
     async fn mark_crawl_needs_operator(
         &self,
