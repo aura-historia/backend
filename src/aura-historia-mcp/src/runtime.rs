@@ -171,6 +171,7 @@ mod tests {
         assert_directory_metadata(&tools);
         assert_described_arguments(&tools);
         assert_amount_tools_state_the_minor_unit_rule(&tools);
+        assert_link_tools_state_the_link_rule(&tools);
         assert_eq!(37, expected.len());
         assert_eq!(
             expected.keys().cloned().collect::<Vec<_>>(),
@@ -381,7 +382,60 @@ mod tests {
         }
     }
 
-    use crate::registry::declares_money;
+    use crate::registry::{declares_money, declares_view_url};
+
+    /// Every tool that returns a provider link says to share `viewUrl` unchanged, and every
+    /// `viewUrl` and its paired `url` describe which one to give people.
+    fn assert_link_tools_state_the_link_rule(tools: &[rmcp::model::Tool]) {
+        use aura_historia_contracts::wire::description::{LINK_RULE, SOURCE_URL, VIEW_URL};
+        let mut with_links = 0;
+        for tool in tools {
+            let output = serde_json::to_value(&tool.output_schema).unwrap();
+            if !declares_view_url(&output) {
+                continue;
+            }
+            with_links += 1;
+            assert!(
+                tool.description
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(LINK_RULE),
+                "{}: returns viewUrl without stating the link rule",
+                tool.name
+            );
+            let mut objects = vec![&output];
+            objects.extend(
+                output["$defs"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(_, d)| d),
+            );
+            for object in objects {
+                let Some(properties) = object["properties"].as_object() else {
+                    continue;
+                };
+                let Some(view_url) = properties.get("viewUrl") else {
+                    continue;
+                };
+                assert_eq!(
+                    Some(VIEW_URL),
+                    view_url["description"].as_str(),
+                    "{}",
+                    tool.name
+                );
+                if let Some(url) = properties.get("url") {
+                    assert_eq!(
+                        Some(SOURCE_URL),
+                        url["description"].as_str(),
+                        "{}",
+                        tool.name
+                    );
+                }
+            }
+        }
+        assert!(with_links > 0);
+    }
 
     /// Every tool that accepts or returns a money amount states how amounts are encoded, and the
     /// price and per-item shipping arguments state it themselves.

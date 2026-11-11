@@ -14,6 +14,16 @@ macro_rules! minor_unit_rule {
 /// description of each tool whose schemas contain a money amount.
 pub const MINOR_UNIT_RULE: &str = minor_unit_rule!();
 
+/// The link people should follow to a provider's page. Shared by every result that pairs `url`
+/// with `viewUrl`, so agents read the same rule wherever a link appears.
+pub const VIEW_URL: &str = "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.";
+/// The provider's own address next to `viewUrl`.
+pub const SOURCE_URL: &str = "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.";
+
+/// Which provider link a result means to be shared, stated as a fact about the result. The MCP
+/// registry appends it to the description of each tool whose result contains a `viewUrl`.
+pub const LINK_RULE: &str = "Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address.";
+
 pub const PRODUCT_QUERY: &str = "Keyword phrases matched against listing titles; every word of one phrase must match, and a listing matches when any phrase does.";
 pub const ENHANCED_SEARCH_DESCRIPTION: &str = "Optional natural-language description that refines the ranking of `productQuery` results. Only effective together with `productQuery`; on its own it returns unranked, unrelated results.";
 pub const EXCLUDE_PRODUCT_LISTING_ID: &str = "Listing IDs (`pl_…`) to leave out of the results.";

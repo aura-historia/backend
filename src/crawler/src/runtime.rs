@@ -278,7 +278,10 @@ where
     };
     let cron_stop = CronStop::default();
     let website_spider = Box::new(
-        SpiderImpl::new(cron_config.spider_website_config()).with_shutdown(cron_stop.subscribe()),
+        SpiderImpl::new(cron_config.spider_website_config())
+            .with_shutdown(cron_stop.subscribe())
+            // Spider and scraper count against the same politeness groups.
+            .with_politeness_groups(fetcher.politeness_groups()),
     );
 
     let spider_svc = Box::new(SpiderServiceImpl::new(
