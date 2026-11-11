@@ -31,7 +31,6 @@ use tracing::{Instrument, debug, error, info, warn};
 const CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 const TRANSIENT_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
 const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 60 * 60);
-const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
 const TRUNCATED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
 /// A crawl the crawler's shutdown ended is due again once the crawler is back: the hold only
@@ -39,18 +38,16 @@ const TRUNCATED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 6
 const STOPPED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60);
 const RATE_LIMITED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60 * 60);
 
-fn long_cooldown(profile: CrawlCooldownProfile) -> Duration {
-    match profile {
-        CrawlCooldownProfile::Transient => TRANSIENT_CRAWL_LONG_COOLDOWN,
-        CrawlCooldownProfile::Recoverable => RECOVERABLE_CRAWL_LONG_COOLDOWN,
-        CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_CRAWL_LONG_COOLDOWN,
-    }
-}
-
+/// The cooldown after the `failure_count`th failure of a streak that does not wait for an
+/// operator yet: two short retries, then the profile's long cooldown. A durable block waits for
+/// an operator before its long cooldown would begin
+/// ([`DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT`]), so it only ever takes the short retry.
 fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32) -> Duration {
-    match failure_count >= LONG_COOLDOWN_FAILURE_COUNT {
-        true => long_cooldown(profile),
-        false => CRAWL_RETRY_COOLDOWN,
+    let long = failure_count >= LONG_COOLDOWN_FAILURE_COUNT;
+    match profile {
+        CrawlCooldownProfile::Transient if long => TRANSIENT_CRAWL_LONG_COOLDOWN,
+        CrawlCooldownProfile::Recoverable if long => RECOVERABLE_CRAWL_LONG_COOLDOWN,
+        _ => CRAWL_RETRY_COOLDOWN,
     }
 }
 
@@ -170,8 +167,9 @@ const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
 
 /// A shop that refuses the crawler (`AccessDenied`, `JavascriptRequired`) does not let it in
 /// by itself, so its second failure in a row, one short retry after the first, already waits
-/// for an operator instead of cooling down for a month.
+/// for an operator instead of cooling down for long.
 const DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT: i32 = 2;
+const _: () = assert!(DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT <= LONG_COOLDOWN_FAILURE_COUNT);
 
 const fn needs_operator_failure_count(profile: CrawlCooldownProfile) -> i32 {
     match profile {
@@ -1640,16 +1638,20 @@ mod tests {
         }
     }
 
+    /// A durable block waits for an operator on its second failure, so the one retry it gets is
+    /// the short one.
     #[test]
-    fn cooldown_should_use_durable_block_long_cooldown_for_explicit_blocks() {
+    fn cooldown_should_retry_an_explicit_block_once_after_the_short_cooldown() {
         for kind in [
             CrawlFailureKind::AccessDenied,
             CrawlFailureKind::JavascriptRequired,
         ] {
-            assert_eq!(
-                cooldown_for_spider_failure(&crawl_failed(kind), LONG_COOLDOWN_FAILURE_COUNT),
-                DURABLE_BLOCK_CRAWL_LONG_COOLDOWN
-            );
+            let error = crawl_failed(kind);
+            assert_eq!(cooldown_for_spider_failure(&error, 1), CRAWL_RETRY_COOLDOWN);
+            assert!(needs_operator(
+                &error,
+                DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT
+            ));
         }
     }
 
