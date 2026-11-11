@@ -263,45 +263,6 @@ pub fn canonical_crawl_host(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(&host).to_owned()
 }
 
-/// Multi-tenant shop platforms whose shops, each on its own subdomain, sit
-/// behind one rate limit, with the minimum spacing between request starts the
-/// whole platform gets ([politeness groups](../../../../docs/crawler/networking.md#politeness-groups)).
-const SHARED_RATE_LIMIT_PLATFORMS: &[(&str, Duration)] =
-    &[("shopnetzwerk.com", Duration::from_millis(250))];
-
-/// The hosts whose requests share one request budget and one rate-limit
-/// backoff.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PolitenessGroup {
-    /// The platform domain for a shop on a shared platform, otherwise the
-    /// canonical crawl host.
-    pub key: String,
-    /// The spacing between request starts the group never drops below.
-    pub min_spacing: Duration,
-}
-
-/// The politeness group of `host`: its shared platform when it is one of that
-/// platform's subdomains, otherwise the canonical crawl host alone.
-pub fn politeness_group(host: &str) -> PolitenessGroup {
-    let host = canonical_crawl_host(host);
-    SHARED_RATE_LIMIT_PLATFORMS
-        .iter()
-        .find(|(platform, _)| {
-            host.strip_suffix(platform)
-                .is_some_and(|prefix| prefix.is_empty() || prefix.ends_with('.'))
-        })
-        .map_or_else(
-            || PolitenessGroup {
-                key: host.clone(),
-                min_spacing: Duration::ZERO,
-            },
-            |(platform, min_spacing)| PolitenessGroup {
-                key: (*platform).to_owned(),
-                min_spacing: *min_spacing,
-            },
-        )
-}
-
 /// Compatibility name for the shared outbound HTTP destination policy.
 pub fn is_publicly_routable_ip(address: IpAddr) -> bool {
     public_network_policy::is_safe_public_http_destination(address)
@@ -1044,26 +1005,5 @@ mod tests {
         assert!(url_on_crawl_host(&www, "example.com"));
         assert!(!is_same_or_www_host(&bare, &subdomain));
         assert!(!url_on_crawl_host(&subdomain, "example.com"));
-    }
-
-    #[test]
-    fn should_group_shared_platform_shops_under_the_platform_domain() {
-        let shop = politeness_group("Paulvankuik.Shopnetzwerk.com.");
-        let other_shop = politeness_group("www.antiquariat-zorn.shopnetzwerk.com");
-
-        assert_eq!(shop.key, "shopnetzwerk.com");
-        assert_eq!(other_shop, shop);
-        assert!(shop.min_spacing > Duration::ZERO);
-    }
-
-    #[test]
-    fn should_keep_unrelated_hosts_in_their_own_group() {
-        let lookalike = politeness_group("notshopnetzwerk.com");
-        let subdomain = politeness_group("catalog.example.com");
-
-        assert_eq!(lookalike.key, "notshopnetzwerk.com");
-        assert_eq!(lookalike.min_spacing, Duration::ZERO);
-        assert_eq!(politeness_group("www.example.com").key, "example.com");
-        assert_eq!(subdomain.key, "catalog.example.com");
     }
 }

@@ -5,8 +5,9 @@ use crate::network::policy::{
     CrawlerClientError, NetworkAction, NetworkErrorKind, PublicTargetError, RequestTimeouts,
     RetryPolicy, action_for, classify_reqwest_error, error_with_sources, inline_retry_backoff_for,
     is_same_or_www_host, network_error_kind_for_public_target_error, parse_retry_after,
-    politeness_group, public_http_client, redirect_target,
+    public_http_client, redirect_target,
 };
+use crate::network::politeness::politeness_group;
 use crate::network::robots::RobotsRefusal;
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,

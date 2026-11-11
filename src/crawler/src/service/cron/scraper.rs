@@ -6,8 +6,8 @@ use crate::logging::{SourceLogContext, error_in_source, warn_in_source};
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
     DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
-    politeness_group,
 };
+use crate::network::politeness::politeness_group;
 use crate::scraper::candidate_service::{
     FetchFailureRequest, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
     ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot, ScraperCandidate,
