@@ -1,13 +1,14 @@
 //! How `review-agent-runner` is started: whether it runs every interval until stopped or once
 //! (`--once`), and from its environment the review console, the CLI and `review-mcp` it starts, its
-//! state directory, each agent role's model, effort and turn cap, the run's limits and the
-//! interval between runs. The limits of the agents' decisions are the console's, which each run
+//! state directory, each agent role's model, effort and turn cap and its model on URL-pattern
+//! reviews, the run's limits and the interval between runs. The limits of the agents' decisions are the console's, which each run
 //! reads from it; the runner reads none from its environment.
 //! An empty or whitespace-only setting counts as unset; any other value that is not accepted fails
 //! startup with the variable's name, so a mistyped limit never silently widens what the agents
 //! may do.
 
 use super::invocation::ChildEnvironment;
+use super::queue::ReviewArtifact;
 use super::usage_pacing::UsagePacing;
 use crate::review_mcp::{AgentRole, ReviewConsoleAccess, ReviewMcpSettingsError};
 use large_language_model::ClaudeEffort;
@@ -25,10 +26,19 @@ pub const PROCESS_TIMEOUT_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_PROCE
 pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS";
 pub const FIVE_HOUR_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT";
 pub const WEEKLY_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PERCENT";
+/// The model of an author process on a URL-pattern review, in place of the author's model, for
+/// the experiment of #2835 whether a cheaper author induces a pattern as well. Unset, a URL-pattern
+/// review gets the author's model.
+pub const AUTHOR_URL_PATTERN_MODEL_ENV: &str = "CRAWLER_REVIEW_AGENT_AUTHOR_URL_PATTERN_MODEL";
+/// The model of a reviewer process on a URL-pattern review, in place of the reviewer's model.
+/// Unset, a URL-pattern review gets the reviewer's model.
+pub const REVIEWER_URL_PATTERN_MODEL_ENV: &str = "CRAWLER_REVIEW_AGENT_REVIEWER_URL_PATTERN_MODEL";
 
 /// What each role runs with unless its settings say otherwise: the configuration that showed no
 /// finding in the agent comparison of #2835 at the lowest cost, a Sonnet-class author and a
-/// Haiku-class reviewer, both at `medium` effort.
+/// Haiku-class reviewer, both at `medium` effort. A Haiku-class reviewer also judges a URL-pattern
+/// review: given good, too narrow, too broad and locale-less patterns for 12 shops, it sent back
+/// every one of the 27 bad ones, as the Sonnet-class reviewer did, at a fifteenth of the cost.
 const AUTHOR_DEFAULTS: RoleDefaults = RoleDefaults {
     model: "claude-sonnet-5-5",
     effort: ClaudeEffort::Medium,
@@ -85,7 +95,11 @@ pub struct RunnerSettings {
     /// Where the runner keeps its lock, state, process ledger and digests.
     pub state_dir: PathBuf,
     pub author: AgentProcessSettings,
+    /// The model of an author process on a URL-pattern review when it is not the author's.
+    pub author_url_pattern_model: Option<String>,
     pub reviewer: AgentProcessSettings,
+    /// The model of a reviewer process on a URL-pattern review when it is not the reviewer's.
+    pub reviewer_url_pattern_model: Option<String>,
     pub max_reviews_per_run: NonZeroU32,
     /// How many agent processes run at once.
     pub max_processes: NonZeroU32,
@@ -104,6 +118,32 @@ impl RunnerSettings {
         match role {
             AgentRole::Author => &self.author,
             AgentRole::Reviewer => &self.reviewer,
+        }
+    }
+
+    /// The model of `role` on a URL-pattern review in place of the role's model, if any.
+    pub fn url_pattern_model(&self, role: AgentRole) -> Option<&str> {
+        match role {
+            AgentRole::Author => self.author_url_pattern_model.as_deref(),
+            AgentRole::Reviewer => self.reviewer_url_pattern_model.as_deref(),
+        }
+    }
+
+    /// What a process of `role` on a review of `artifact` is started with: the role's settings,
+    /// on a URL-pattern review with the role's [`url_pattern_model`](Self::url_pattern_model) when
+    /// it has one.
+    pub fn process(&self, role: AgentRole, artifact: ReviewArtifact) -> AgentProcessSettings {
+        let settings = self.role(role).clone();
+        let model = match artifact {
+            ReviewArtifact::ProductSchema => None,
+            ReviewArtifact::UrlPattern => self.url_pattern_model(role),
+        };
+        match model {
+            Some(model) => AgentProcessSettings {
+                model: model.to_owned(),
+                ..settings
+            },
+            None => settings,
         }
     }
 }
@@ -182,7 +222,9 @@ impl RunnerSettings {
             review_mcp_bin,
             state_dir,
             author: read.agent(AgentRole::Author, &AUTHOR_DEFAULTS)?,
+            author_url_pattern_model: read.url_pattern_model(AgentRole::Author)?,
             reviewer: read.agent(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
+            reviewer_url_pattern_model: read.url_pattern_model(AgentRole::Reviewer)?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -235,18 +277,9 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
         role: AgentRole,
         defaults: &RoleDefaults,
     ) -> Result<AgentProcessSettings, RunnerSettingsError> {
-        let model_name = role_setting(role, "MODEL");
-        let model = match (self.setting)(&model_name) {
-            Some(model) if is_model_name(&model) => model,
-            Some(model) => {
-                return Err(invalid(
-                    model_name,
-                    model,
-                    "a model alias or name of letters, digits, '.', '-', '_', '[' and ']' that starts with a letter or digit",
-                ));
-            }
-            None => defaults.model.to_owned(),
-        };
+        let model = self
+            .model(&role_setting(role, "MODEL"))?
+            .unwrap_or_else(|| defaults.model.to_owned());
         let effort_name = role_setting(role, "EFFORT");
         let effort = match (self.setting)(&effort_name) {
             Some(effort) => parse_effort(&effort).ok_or_else(|| {
@@ -261,6 +294,28 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
                 .positive(&role_setting(role, "MAX_TURNS"))?
                 .unwrap_or(defaults.max_turns),
         })
+    }
+
+    /// The model of `role` on a URL-pattern review: [`AUTHOR_URL_PATTERN_MODEL_ENV`] or
+    /// [`REVIEWER_URL_PATTERN_MODEL_ENV`], `None` when the role's setting names none.
+    fn url_pattern_model(&self, role: AgentRole) -> Result<Option<String>, RunnerSettingsError> {
+        self.model(match role {
+            AgentRole::Author => AUTHOR_URL_PATTERN_MODEL_ENV,
+            AgentRole::Reviewer => REVIEWER_URL_PATTERN_MODEL_ENV,
+        })
+    }
+
+    /// The model alias or name `name` sets, `None` when it is unset.
+    fn model(&self, name: &str) -> Result<Option<String>, RunnerSettingsError> {
+        match (self.setting)(name) {
+            Some(model) if is_model_name(&model) => Ok(Some(model)),
+            Some(model) => Err(invalid(
+                name.to_owned(),
+                model,
+                "a model alias or name of letters, digits, '.', '-', '_', '[' and ']' that starts with a letter or digit",
+            )),
+            None => Ok(None),
+        }
     }
 
     /// A percentage from 1 to 100 as a share from 0.01 to 1, [`DEFAULT_SHARE_PERCENT`] unless set.
@@ -514,6 +569,63 @@ mod tests {
         assert_eq!(read.pacing.weekly_share, 1.0);
     }
 
+    /// By default every process runs on its role's model, a URL-pattern review's included; each
+    /// role's URL-pattern model replaces only the model, and only there.
+    #[test]
+    fn should_run_each_role_on_its_url_pattern_model_on_a_url_pattern_review_only() {
+        let models = |settings: &RunnerSettings| {
+            [
+                (AgentRole::Author, ReviewArtifact::ProductSchema),
+                (AgentRole::Author, ReviewArtifact::UrlPattern),
+                (AgentRole::Reviewer, ReviewArtifact::ProductSchema),
+                (AgentRole::Reviewer, ReviewArtifact::UrlPattern),
+            ]
+            .map(|(role, artifact)| settings.process(role, artifact).model)
+        };
+        let defaults = settings(&[], &[]).unwrap_or_else(|error| panic!("{error}"));
+        let set = settings(
+            &[],
+            &[
+                (AUTHOR_URL_PATTERN_MODEL_ENV, "claude-haiku-5-5"),
+                (REVIEWER_URL_PATTERN_MODEL_ENV, "claude-opus-5-5"),
+                ("CRAWLER_REVIEW_AGENT_REVIEWER_MODEL", "claude-sonnet-5-5"),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(
+            models(&defaults),
+            [
+                "claude-sonnet-5-5",
+                "claude-sonnet-5-5",
+                "claude-haiku-5-5",
+                "claude-haiku-5-5"
+            ]
+        );
+        assert_eq!(
+            models(&set),
+            [
+                "claude-sonnet-5-5",
+                "claude-haiku-5-5",
+                "claude-sonnet-5-5",
+                "claude-opus-5-5"
+            ]
+        );
+        assert_eq!(
+            set.process(AgentRole::Reviewer, ReviewArtifact::UrlPattern),
+            AgentProcessSettings {
+                model: "claude-opus-5-5".to_owned(),
+                ..set.reviewer.clone()
+            },
+            "only the model changes"
+        );
+        assert_eq!(
+            [AgentRole::Author, AgentRole::Reviewer]
+                .map(|role| role_setting(role, "URL_PATTERN_MODEL")),
+            [AUTHOR_URL_PATTERN_MODEL_ENV, REVIEWER_URL_PATTERN_MODEL_ENV]
+        );
+    }
+
     #[test]
     fn should_refuse_any_argument_but_once() {
         for args in [&["--once", "--once"][..], &["--loop"][..], &["once"][..]] {
@@ -535,6 +647,11 @@ mod tests {
                 "CRAWLER_REVIEW_AGENT_REVIEWER_MODEL",
                 "--dangerously-skip-permissions",
             ),
+            (
+                AUTHOR_URL_PATTERN_MODEL_ENV,
+                "haiku --dangerously-skip-permissions",
+            ),
+            (REVIEWER_URL_PATTERN_MODEL_ENV, "-p"),
             ("CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT", "extreme"),
             ("CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS", "0"),
             (MAX_PROCESSES_ENV, "two"),

@@ -51,6 +51,10 @@ pub enum ToolError {
     NotApplicable(String),
     #[error("the answer is too large to return even after cutting it; leave the review to a human")]
     AnswerTooLarge,
+    #[error(
+        "inspect_page answers at most {0} calls per agent process and this process has made them all; work with the pages you have read"
+    )]
+    InspectLimitReached(usize),
 }
 
 #[derive(Serialize)]
@@ -101,6 +105,7 @@ impl ToolError {
             Self::UndecodableCandidate(_) => "UNDECODABLE_CANDIDATE",
             Self::NotApplicable(_) => "NOT_APPLICABLE",
             Self::AnswerTooLarge => "ANSWER_TOO_LARGE",
+            Self::InspectLimitReached(_) => "INSPECT_LIMIT_REACHED",
         }
     }
 
@@ -198,7 +203,7 @@ mod tests {
             409,
             json!({
                 "error": "the review agent's approval fails the approval guard",
-                "failed_checks": [{ "check": "TOO_FEW_LABELS", "product": 1 }],
+                "failed_checks": [{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 1 }],
                 "internal": "not passed",
             }),
         ));
@@ -230,7 +235,7 @@ mod tests {
                 "kind": "CONFLICT",
                 "error": "the review agent's approval fails the approval guard",
                 "status": 409,
-                "failed_checks": [{ "check": "TOO_FEW_LABELS", "product": 1 }],
+                "failed_checks": [{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 1 }],
             })
         );
         assert_eq!(role["kind"], "FORBIDDEN");
@@ -283,6 +288,7 @@ mod tests {
                 "CONSOLE_UNAVAILABLE",
             ),
             (ToolError::StillRunning("matrix refresh"), "STILL_RUNNING"),
+            (ToolError::InspectLimitReached(12), "INSPECT_LIMIT_REACHED"),
             (
                 refused(
                     502,

@@ -337,7 +337,7 @@ mod tests {
     async fn should_answer_a_refusal_with_the_console_body() {
         let directory = TokenDirectory::new();
         directory.write_tokens("token", "reviewer");
-        let body = json!({ "error": "guard", "failed_checks": [{ "check": "TOO_FEW_LABELS" }] });
+        let body = json!({ "error": "guard", "failed_checks": [{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL" }] });
         let console = FakeConsole::start("token", 409, body.clone()).await;
 
         let refused = client(&console, &directory)

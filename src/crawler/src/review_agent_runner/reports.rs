@@ -218,7 +218,7 @@ mod tests {
             "server_answer": {
                 "outcome": outcome,
                 "kind": if outcome == "REFUSED" { "CONFLICT" } else { "" },
-                "failed_checks": if outcome == "REFUSED" { json!(["TOO_FEW_LABELS"]) } else { json!([]) },
+                "failed_checks": if outcome == "REFUSED" { json!(["PATTERN_MATCHES_NO_SAMPLE_URL"]) } else { json!([]) },
                 "detail": "",
             },
         })

@@ -105,6 +105,14 @@ pub trait UrlMetadataRepository: Send + Sync {
         url: &url::Url,
         disposition: CrawlerDisposition,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+
+    /// Up to `limit` of the URLs the ListingSource stores, in a stable order by a hash of the
+    /// URL, so a sample drawn from them reaches every part of what earlier crawls found.
+    async fn stored_sample_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+        limit: usize,
+    ) -> Result<Vec<String>, sqlx::Error>;
 }
 
 pub struct UrlMetadataRepositoryImpl {
@@ -511,6 +519,21 @@ impl UrlMetadataRepositoryImpl {
 
 #[async_trait]
 impl UrlMetadataRepository for UrlMetadataRepositoryImpl {
+    async fn stored_sample_urls(
+        &self,
+        listing_source_id: &ListingSourceId,
+        limit: usize,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT url FROM listing_source_urls WHERE listing_source_id = $1 \
+             ORDER BY md5(url), url LIMIT $2",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(i64::try_from(limit).unwrap_or(i64::MAX))
+        .fetch_all(&self.pool)
+        .await
+    }
+
     async fn upsert_link(
         &self,
         listing_source_id: &ListingSourceId,

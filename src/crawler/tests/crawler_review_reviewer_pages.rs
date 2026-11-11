@@ -643,7 +643,7 @@ async fn should_refuse_reviewer_page_when_shop_redirects_it_to_a_non_product_pag
         .await;
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = '/products/', url_pattern_state = 'MATCHED' \
+         SET url_pattern = '/products/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -696,7 +696,7 @@ async fn should_store_reviewer_page_without_the_language_segment_the_shop_redire
     let (listing_source_id, review_id) = pending_schema_review(&pool).await;
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = '/products/', url_pattern_state = 'MATCHED' \
+         SET url_pattern = '/products/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -1055,7 +1055,7 @@ async fn should_keep_a_page_other_when_another_rejection_still_covers_it() {
         .unwrap();
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
+         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -1127,7 +1127,7 @@ async fn should_classify_rejected_pages_again_once_a_human_revokes_the_rejection
         .unwrap();
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
+         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())
@@ -1389,7 +1389,7 @@ async fn should_classify_revoked_pages_by_a_pattern_change_that_commits_meanwhil
     let mut pattern_change = pool.begin().await.unwrap();
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED' \
+         SET url_pattern = '/products/[0-9]+', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
          WHERE listing_source_id = $1",
     )
     .bind(listing_source_id.as_uuid())

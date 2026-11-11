@@ -238,7 +238,7 @@ fn log_login(
                 subscription = login.subscription.as_deref().unwrap_or(""),
                 console_url = %settings.console.console_url,
                 state_dir = %settings.state_dir.display(),
-                agent_min_labelled_urls = limits.min_labelled_urls.get(),
+                agent_max_decisions_per_hour = limits.max_decisions_per_hour.get(),
                 "Review agent runner started with the CLI's Claude login"
             )
         };
@@ -392,9 +392,6 @@ mod tests {
         ("NODE_OPTIONS", "--require /tmp/decoy.js"),
     ];
 
-    /// The label minimum the fake console applies, which no runner setting names.
-    const CONSOLE_MIN_LABELLED_URLS: u32 = 5;
-
     /// A review console that answers the review queue, a review, the event list and its agent
     /// limits to the author's token. The event list holds `events` and, as `AGENT_REVIEWER` events,
     /// the decisions the fake `claude` logged to its `decided.log`, as the review MCP server would
@@ -496,14 +493,7 @@ mod tests {
                         } else if path == AGENT_LIMITS_ROUTE
                             && !claude_dir.join("limits_unreadable").exists()
                         {
-                            let limits = AgentLimits {
-                                min_labelled_urls: std::num::NonZeroU32::new(
-                                    CONSOLE_MIN_LABELLED_URLS,
-                                )
-                                .unwrap_or(std::num::NonZeroU32::MIN),
-                                ..AgentLimits::default()
-                            };
-                            (200, json!(limits).to_string())
+                            (200, json!(AgentLimits::default()).to_string())
                         } else {
                             (404, "{\"error\":\"not found\"}".to_owned())
                         };
@@ -684,19 +674,19 @@ mod tests {
         events
     }
 
-    /// `GET /api/reviews/{id}/approval-checks`: `null` for a product-schema review, and for a
-    /// URL-pattern review the guard's refusal when the review is marked `guard_refused/<id>`.
+    /// `GET /api/reviews/{id}/approval-checks`: the guard's refusal when the review is marked
+    /// `guard_refused/<id>`, otherwise none.
     fn approval_checks(review: &CrawlerReview, claude_dir: &Path) -> (u16, String) {
-        let failed = if review.artifact_type != "URL_PATTERN" {
-            json!(null)
-        } else if claude_dir
+        let refused = claude_dir
             .join("guard_refused")
             .join(review.review_id.to_string())
-            .exists()
-        {
-            json!([{ "check": "TOO_FEW_LABELS", "product": 1, "not_product": 3, "minimum": 3 }])
-        } else {
-            json!([])
+            .exists();
+        let failed = match (refused, review.artifact_type.as_str()) {
+            (false, _) => json!([]),
+            (true, "URL_PATTERN") => {
+                json!([{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 3 }])
+            }
+            (true, _) => json!([{ "check": "NO_SOLD_PAGE_TESTED", "states_seen": [] }]),
         };
         (200, json!({ "failed_checks": failed }).to_string())
     }
@@ -1273,8 +1263,8 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v10");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v7");
+        assert_eq!(ledger[0]["prompt_version"], "author.v14");
+        assert_eq!(ledger[1]["prompt_version"], "reviewer.v10");
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);
@@ -1461,16 +1451,23 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(state.cooldowns.is_empty(), "{state:?}");
     }
 
-    /// A URL-pattern candidate the approval guard already refuses gets no reviewer process, which
-    /// could only be refused: the review cools down, while one the guard passes gets its reviewer.
+    /// A candidate the approval guard already refuses gets no reviewer process, which could only
+    /// be refused: the review cools down, while one the guard passes gets its reviewer. Both
+    /// artifact types are guarded.
     #[tokio::test]
-    async fn should_start_no_reviewer_for_a_url_pattern_candidate_the_guard_refuses() {
-        let url_pattern = |review: CrawlerReview| CrawlerReview {
-            artifact_type: "URL_PATTERN".to_owned(),
+    async fn should_start_no_reviewer_for_a_candidate_the_guard_refuses() {
+        for artifact_type in ["URL_PATTERN", "PRODUCT_SCHEMA"] {
+            guard_blocks_the_reviewer_of(artifact_type).await;
+        }
+    }
+
+    async fn guard_blocks_the_reviewer_of(artifact_type: &str) {
+        let of_type = |review: CrawlerReview| CrawlerReview {
+            artifact_type: artifact_type.to_owned(),
             ..review
         };
-        let refused = url_pattern(review("PENDING_REVIEW", true));
-        let passing = url_pattern(review("PENDING_REVIEW", true));
+        let refused = of_type(review("PENDING_REVIEW", true));
+        let passing = of_type(review("PENDING_REVIEW", true));
         let fixture = Fixture::new(vec![refused.clone(), passing.clone()]).await;
         fixture.claude.guard_refuses(refused.review_id);
 
@@ -2264,15 +2261,16 @@ echo "end $role $review" >> "$dir/order.log"
         assert!((1..=2).contains(&most), "{most}");
     }
 
-    /// The author's prompt asks for the label minimum the console applies, not for one in the
-    /// runner's own environment; a run that cannot read the console's limits starts no agent.
+    /// The limits of the agents' decisions are the console's: a run that cannot read them starts
+    /// no agent.
     #[tokio::test]
-    async fn should_tell_the_agents_the_console_s_limits_and_run_none_without_them() {
-        let fixture = Fixture::new(vec![review("PENDING_REVIEW", true)]).await;
-        let settings = fixture.settings(
-            &["--once"],
-            &[("CRAWLER_REVIEW_AGENT_MIN_LABELLED_URLS", "4")],
-        );
+    async fn should_run_no_agent_without_the_console_s_limits() {
+        let url_pattern = CrawlerReview {
+            artifact_type: "URL_PATTERN".to_owned(),
+            ..review("PENDING_REVIEW", true)
+        };
+        let fixture = Fixture::new(vec![url_pattern]).await;
+        let settings = fixture.settings(&["--once"], &[]);
 
         run_with(&settings).await;
         std::fs::write(
@@ -2287,14 +2285,6 @@ echo "end $role $review" >> "$dir/order.log"
             calls.len(),
             2,
             "one author and one reviewer of the first run"
-        );
-        let minimum = format!(
-            "at least {CONSOLE_MIN_LABELLED_URLS} URLs PRODUCT and at least {CONSOLE_MIN_LABELLED_URLS} NOT_PRODUCT"
-        );
-        assert!(
-            calls[0]["stdin"].contains(&minimum),
-            "{}",
-            calls[0]["stdin"]
         );
         assert!(matches!(without_limits, Err(RunnerError::AgentLimits(_))));
     }

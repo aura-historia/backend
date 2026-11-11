@@ -6,6 +6,7 @@
 //! `docs/crawler/extraction-and-review.md` (review rail) and `docs/crawler/operations.md` (review
 //! service, review agents).
 
+use super::query_params::named;
 use super::schema_matrix::{matrix_refresh_deadline, matrix_refresh_timeout};
 use super::{
     ReviewServer, internal_error, live_jobs_busy, live_url_fetch_error, review_error,
@@ -14,7 +15,7 @@ use super::{
 use crate::review::candidate_evaluations::CandidateEvaluationOutcome;
 use crate::review::http::{HttpResponse, ParsedRequest};
 use crate::review::model::{PAGE_ROLE_EVALUATED_URL, ReviewActor, SchemaReviewPageInput};
-use crate::review::page_projection::{PageProjection, ProjectedHtml};
+use crate::review::page_projection::{PageProjection, PageView, ProjectedHtml};
 use crate::review::repository::{CandidateProposal, ReviewRepositoryError};
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
 use serde::Deserialize;
@@ -24,7 +25,8 @@ use tracing::warn;
 
 impl ReviewServer {
     /// Fetches the review page or the URL of the review's ListingSource that `request`'s `page` or
-    /// `url` query names and answers its projection, as a live job of `actor`'s.
+    /// `url` query names and answers its projection in the `view` it names, the outline by
+    /// default, as a live job of `actor`'s. Either view is recorded as an inspection.
     pub(super) async fn project_review_source_page(
         &self,
         review_id: CrawlerReviewId,
@@ -35,6 +37,13 @@ impl ReviewServer {
             .check_live_job(review_id, actor)
             .await
             .map_err(review_error)?;
+        self.repository
+            .check_page_inspection(review_id, actor)
+            .await
+            .map_err(review_error)?;
+        let view = named::<PageView>(&request.query, "view")
+            .map_err(|error| HttpResponse::json(400, &json!({ "error": error })))?
+            .unwrap_or_default();
         let (review_page_id, url) = match (request.query.get("page"), request.query.get("url")) {
             (Some(page), None) => {
                 let page_id = page
@@ -75,7 +84,7 @@ impl ReviewServer {
             // The projection keeps its place under the limit while it parses, even when the
             // request stops waiting for it at its deadline.
             let _live_job = live_job;
-            ProjectedHtml::of(&html)
+            ProjectedHtml::of(&html, view)
         })
         .await
         .map_err(internal_error)?;
@@ -98,6 +107,7 @@ impl ReviewServer {
             review_page_id,
             url: url.to_string(),
             final_url: fetched.final_url.to_string(),
+            view: projected.view,
             projection: projected.projection,
             describes_one_product: projected.describes_one_product,
             json_ld_product_ids: projected.json_ld_product_ids,

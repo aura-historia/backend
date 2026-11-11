@@ -1,12 +1,23 @@
-//! What a review page shows that a candidate schema should capture: an amount with its currency
-//! in a price element, and a block of prose in a description element. Both are conservative
-//! markup heuristics over the page's own content, so a shop that shows neither never needs the
-//! rule; the approval guard (`docs/crawler/extraction-and-review.md`) compares them with the
-//! rules of the candidate.
+//! What a review page shows that a candidate schema should capture: a price, as an amount with its
+//! currency in a price element or as a price above zero the offers of the page's own JSON-LD item
+//! state and its content shows, and a block of prose in a description element. They are conservative heuristics over the
+//! page's own content, so a shop that shows neither never needs the rule; the approval guard
+//! (`docs/crawler/extraction-and-review.md`) compares them with the rules of the candidate.
 
 use crate::review::model::{PageSignals, SchemaPageReference};
+use crate::review::product_markup::json_ld_scripts;
+use crate::scraper::css_selector::rule::{JsonLdOfferProperty, json_ld_offer_value};
 use crate::scraper::plausibility::is_price_text;
+use regex::Regex;
 use scraper::{ElementRef, Html, node::Element};
+use std::sync::LazyLock;
+
+/// A number as a page writes it, its thousands grouped by an apostrophe, a dot, a comma or a
+/// space, or not at all; decimals are a separate match.
+static SHOWN_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\d{1,3}(?:[’'., \u{a0}\u{202f}]\d{3})+|\d+")
+        .unwrap_or_else(|error| panic!("{error}"))
+});
 
 /// The fewest words and characters a description element holds to count as a block of prose, so a
 /// label or a heading in a `description` class does not.
@@ -54,7 +65,56 @@ pub(crate) fn page_signals(
         signals.shows_price_text |= is_price_element(element) && holds_price_text(element);
         signals.shows_description_block |= is_description_element(element) && holds_prose(element);
     }
+    signals.shows_price_text = signals.shows_price_text || offers_a_shown_price(html);
     signals
+}
+
+/// Whether the offers of the item a JSON-LD script of the page is about state a price above zero,
+/// as a `json_ld_offer` price rule would read it, whose amount the page's own content shows too: a
+/// theme that shows the price in no element named for it, such as in a product attribute row,
+/// still shows a price. A price only the structured data holds, as a price-on-request shop that
+/// hides it from visitors publishes it, is no price the page shows, and offers of other products
+/// the page lists are not followed.
+fn offers_a_shown_price(html: &Html) -> bool {
+    let offered: Vec<String> = json_ld_scripts(html)
+        .filter_map(|json| json_ld_offer_value(&json, JsonLdOfferProperty::Price))
+        .filter_map(|price| whole_amount(&price))
+        .collect();
+    if offered.is_empty() {
+        return false;
+    }
+    let shown = content_text(html);
+    SHOWN_NUMBER
+        .find_iter(&shown)
+        .map(|number| digits_of(number.as_str()))
+        .any(|number| offered.contains(&number))
+}
+
+/// The whole units of a JSON-LD price such as `7900`, `5600.00` or `5600.00 CHF`, as digits.
+fn whole_amount(price: &str) -> Option<String> {
+    let number = price.split_whitespace().next()?;
+    let whole = number.split(['.', ',']).next()?;
+    Some(digits_of(whole)).filter(|digits| !digits.is_empty())
+}
+
+fn digits_of(text: &str) -> String {
+    text.chars().filter(char::is_ascii_digit).collect()
+}
+
+/// The text of the page's own content, without site chrome, carts and lists of other products.
+fn content_text(html: &Html) -> String {
+    html.root_element()
+        .descendants()
+        .filter(|node| {
+            node.value().is_text()
+                && node
+                    .parent()
+                    .and_then(ElementRef::wrap)
+                    .is_some_and(is_page_content)
+        })
+        .filter_map(|node| node.value().as_text().map(|text| text.to_string()))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Whether `element` is part of the page's own content: none of its ancestors, itself included,
@@ -158,6 +218,77 @@ mod tests {
         assert_eq!(
             signals_of("<span class=\"price\">Sold for £500</span>"),
             (true, false)
+        );
+    }
+
+    /// A theme that shows the price in no element named for it, as a Divi poster shop does in a
+    /// product attribute row, still shows a price when its own JSON-LD item offers one above zero
+    /// and its content shows the amount, in whatever grouping; a zero price, as templates publish
+    /// for sold or price-on-request items, and another product's offer in a list do not.
+    #[test]
+    fn should_see_a_price_the_page_s_own_json_ld_offers_and_shows() {
+        let shown = |json: &str, content: &str| {
+            format!(r#"<h1>Poster</h1>{content}<script type="application/ld+json">{json}</script>"#)
+        };
+        let row = "<table><tr><td>Angebotspreis</td><td><p>7900</p></td></tr></table>";
+
+        assert_eq!(
+            signals_of(&shown(
+                r#"{"@type":"Product","offers":{"@type":"Offer","price":7900,"priceCurrency":"CHF"}}"#,
+                row
+            )),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of(&shown(
+                r#"{"@graph":[{"@type":"WebPage"},{"@type":"Product","offers":[{"price":"5600.00"}]}]}"#,
+                "<p>Preis: 5.600,00 €</p>"
+            )),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of(&shown(
+                r#"{"@type":"Product","offers":{"price":"7900"}}"#,
+                "<p>CHF 7'900.–</p>"
+            )),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of(&shown(
+                r#"{"@type":"Product","offers":{"price":"0","priceCurrency":"CHF"}}"#,
+                row
+            )),
+            (false, false)
+        );
+        assert_eq!(
+            signals_of(&shown(
+                r#"{"@type":"ItemList","itemListElement":[{"@type":"Product","offers":{"price":7900}}]}"#,
+                row
+            )),
+            (false, false)
+        );
+        assert_eq!(signals_of(&shown("not json", row)), (false, false));
+    }
+
+    /// A price-on-request shop that publishes the price in its JSON-LD but shows visitors none, or
+    /// shows the amount only in site chrome, shows no price the candidate must capture.
+    #[test]
+    fn should_not_see_a_price_only_the_structured_data_holds() {
+        let page = |content: &str| {
+            format!(
+                r#"<h1>Dragon andirons</h1>{content}<script type="application/ld+json">{{"@type":"Product","offers":{{"price":"850"}}}}</script>"#
+            )
+        };
+
+        assert_eq!(
+            signals_of(&page(
+                "<p>Precio a consultar en el telefono: 952 802 162</p>"
+            )),
+            (false, false)
+        );
+        assert_eq!(
+            signals_of(&page("<footer>Free shipping above 850 EUR</footer>")),
+            (false, false)
         );
     }
 

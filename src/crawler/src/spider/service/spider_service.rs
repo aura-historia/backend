@@ -72,6 +72,11 @@ impl EndedCrawl {
     }
 }
 
+/// How many URLs a URL-pattern review an operator or agent decides opens with, unless the crawl
+/// completed with fewer: the seed size of the fetch-free URL-pattern method. A crawl that ends
+/// early with fewer stores its URLs unclassified, and a later crawl adds to them.
+pub const REVIEW_SAMPLE_URLS: usize = 200;
+
 #[derive(Debug, Clone)]
 pub struct SpiderServiceConfig {
     pub db_batch_size: usize,
@@ -578,10 +583,13 @@ impl SpiderServiceImpl {
         // A sample that is mostly challenges is no evidence of the shop's URLs: the crawl waits,
         // asks again with every page it receives and leaves the verdict to the end of the crawl
         // ([`Self::classify_at_end_if_needed`]), which knows its diagnostics.
-        if !state.classification_done
-            && state.total_crawled >= classify_threshold
-            && !state.mostly_bot_challenges()
-        {
+        // A review an operator or agent decides opens on a sample of the review's size, earlier
+        // crawls' stored URLs included; LLM inference asks after `classify_threshold` pages.
+        let threshold_reached = match self.pattern_service.infers_pattern() {
+            true => state.total_crawled >= classify_threshold,
+            false => state.inference_sample.len() >= REVIEW_SAMPLE_URLS,
+        };
+        if !state.classification_done && threshold_reached && !state.mostly_bot_challenges() {
             debug!(
                 url_count = state.inference_sample.len(),
                 "Threshold reached, requesting product URL pattern"
@@ -648,7 +656,8 @@ impl SpiderServiceImpl {
                     crawl_root_url: crawl_root_url.to_string(),
                     stage: "end_of_crawl",
                     // Nothing is flushed before the first classification, so the buffer
-                    // still holds every page of the sample, in sample order.
+                    // still holds every page this crawl fetched; URLs earlier crawls stored
+                    // are no pages of it and are not counted.
                     sample_size: state
                         .page_buffer
                         .iter()
@@ -658,6 +667,20 @@ impl SpiderServiceImpl {
                     min_sample_size: self.config.min_inference_sample_urls,
                     diagnostics: Box::default(),
                 });
+            }
+            if self
+                .defers_review_to_a_larger_sample(state, listing_source_id, diagnostics)
+                .await?
+            {
+                tracing::info!(
+                    sample_size = state.inference_sample.len(),
+                    review_sample_size = REVIEW_SAMPLE_URLS,
+                    completion = ?diagnostics.completion,
+                    "Crawl ended early with too few URLs for a URL-pattern review; it stores them unclassified and a later crawl adds to them"
+                );
+                state.awaiting_review_sample = true;
+                state.classification_done = true;
+                return Ok(());
             }
             debug!(
                 url_count = state.inference_sample.len(),
@@ -676,6 +699,63 @@ impl SpiderServiceImpl {
             state.classification_done = true;
         }
         Ok(())
+    }
+
+    /// Adds the URLs earlier crawls stored for the ListingSource to the sample of a crawl whose
+    /// pattern an operator or agent decides, so a shop whose crawls each end early still reaches
+    /// a review's sample.
+    async fn preload_review_sample(
+        &self,
+        state: &mut CrawlRunState,
+        listing_source_id: &ListingSourceId,
+    ) -> Result<(), SpiderServiceError> {
+        let stored = self
+            .url_metadata_repository
+            .stored_sample_urls(listing_source_id, self.config.max_sample_urls)
+            .await?;
+        if !stored.is_empty() {
+            debug!(
+                stored_urls = stored.len(),
+                "Starting the URL-pattern review sample from stored URLs"
+            );
+        }
+        state.preloaded_sample_urls = stored.len();
+        state.inference_sample = stored;
+        Ok(())
+    }
+
+    /// Whether the end of a crawl whose pattern an operator or agent decides opens no review
+    /// yet: the crawl did not complete, its sample is short of [`REVIEW_SAMPLE_URLS`] but grew
+    /// beyond the URLs earlier crawls stored, and the ListingSource is still undecided. A crawl
+    /// that added no URL shows that waiting gathers no more, so it classifies what it has, which
+    /// opens the review or fails visibly below the minimum; a decision stored meanwhile classifies
+    /// as before.
+    async fn defers_review_to_a_larger_sample(
+        &self,
+        state: &CrawlRunState,
+        listing_source_id: &ListingSourceId,
+        diagnostics: &CrawlDiagnostics,
+    ) -> Result<bool, SpiderServiceError> {
+        if self.pattern_service.infers_pattern()
+            || matches!(diagnostics.completion, CrawlCompletion::Completed)
+            || state.inference_sample.len() >= REVIEW_SAMPLE_URLS
+        {
+            return Ok(false);
+        }
+        if state.inference_sample.len() <= state.preloaded_sample_urls {
+            tracing::info!(
+                sample_size = state.inference_sample.len(),
+                review_sample_size = REVIEW_SAMPLE_URLS,
+                completion = ?diagnostics.completion,
+                "Crawl ended early without adding a URL to the stored URL-pattern review sample; it classifies the sample it has"
+            );
+            return Ok(false);
+        }
+        Ok(self
+            .pattern_service
+            .decision_stored_during_crawl(listing_source_id, None)
+            .await?
+            .is_none())
     }
 
     /// The fewest URLs the end of the crawl classifies. A crawl that completed, so that the
@@ -783,6 +863,10 @@ impl SpiderServiceImpl {
         if state.pattern_loaded_from_store {
             debug!("Loaded persisted product URL pattern");
         }
+        if !state.classification_done && !self.pattern_service.infers_pattern() {
+            self.preload_review_sample(&mut state, listing_source_id)
+                .await?;
+        }
 
         while let Some(page) = crawl_rx.recv().await {
             if !is_same_or_www_host(configured_root, page.url.as_url()) {
@@ -795,7 +879,10 @@ impl SpiderServiceImpl {
             state.shop_platform = state.shop_platform.or(page.identity.platform);
 
             if state.inference_sample.len() < self.config.max_sample_urls {
-                state.inference_sample.push(page.url.to_string());
+                let url = page.url.to_string();
+                if !state.inference_sample.contains(&url) {
+                    state.inference_sample.push(url);
+                }
             }
 
             state.page_buffer.push(page.clone());
@@ -940,6 +1027,7 @@ impl SpiderServiceImpl {
 
         // URLs stay stored either way; only the recorded outcome differs.
         if state.pending_url_pattern_review().is_none()
+            && !state.awaiting_review_sample
             && judged_on_fetched_pages
             && let Some(error) =
                 no_product_urls_error(crawl_root_url, &state, diagnostics.completion)
@@ -1304,6 +1392,14 @@ mod tests {
 #[cfg(test)]
 mod service_tests {
     use super::*;
+
+    /// A pattern service whose pattern the LLM infers, as the tests that do not say otherwise
+    /// assume: the threshold counts crawled pages and nothing is preloaded.
+    fn llm_pattern_service() -> MockUrlPatternService {
+        let mut service = MockUrlPatternService::new();
+        service.expect_infers_pattern().return_const(true);
+        service
+    }
     use crate::spider::classification::url_classifier::UrlClassifier;
     use crate::spider::classification::url_metadata::CrawlerDisposition;
     use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
@@ -1531,7 +1627,7 @@ mod service_tests {
     }
 
     fn pattern_service_with_stored_pattern() -> MockUrlPatternService {
-        let mut service = MockUrlPatternService::new();
+        let mut service = llm_pattern_service();
         service.expect_load_pattern().returning(|_| {
             Box::pin(async { Ok(Some(ProductUrlPattern::parse(r"/product/").unwrap())) })
         });
@@ -1914,7 +2010,7 @@ mod service_tests {
     fn classifying_pattern_service(
         classified: Option<Result<Option<ProductUrlPattern>, UrlPatternServiceError>>,
     ) -> MockUrlPatternService {
-        let mut service = MockUrlPatternService::new();
+        let mut service = llm_pattern_service();
         service
             .expect_load_pattern()
             .returning(|_| Box::pin(async { Ok(None) }));
@@ -2139,7 +2235,7 @@ mod service_tests {
                 .map(|i| format!("/challenge/{i}"))
                 .chain((0..4).map(|i| format!("/item/{i}"))),
         );
-        let mut pattern_service = MockUrlPatternService::new();
+        let mut pattern_service = llm_pattern_service();
         pattern_service
             .expect_load_pattern()
             .returning(|_| Box::pin(async { Ok(None) }));
@@ -2365,7 +2461,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_run_spider_and_classify_urls() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2422,7 +2518,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_keep_urls_but_not_mark_crawled_when_crawl_hits_hard_timeout() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2499,7 +2595,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_keep_urls_and_mark_crawled_when_pattern_review_is_pending_at_threshold() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2566,7 +2662,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_keep_urls_but_not_mark_crawled_when_truncated_crawl_waits_for_pattern_review() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2628,7 +2724,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_wait_for_review_when_refresh_of_persisted_pattern_opens_one() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2686,7 +2782,7 @@ mod service_tests {
         decision: DecidedUrlPattern,
     ) -> (Result<SpiderRunResult, SpiderServiceError>, StoredBatches) {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
         let crawl_root_url = "https://example.com";
@@ -2818,7 +2914,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_fail_with_no_product_urls_when_pattern_matches_no_crawled_page() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2870,7 +2966,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_fail_with_no_url_pattern_when_classification_is_complete_without_one() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -2927,7 +3023,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_report_page_budget_and_mark_crawled_when_crawl_is_bounded() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3030,7 +3126,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_only_after_the_library_crawl_stopped_when_the_run_fails_early() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
         let crawl_root_url = "https://example.com";
@@ -3109,7 +3205,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_classify_at_end_if_threshold_not_reached() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3163,7 +3259,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_reclassify_if_persisted_pattern_fails() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3216,7 +3312,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_keep_persisted_pattern_when_crawl_smaller_than_one_batch_matches_it() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3259,7 +3355,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_count_a_product_page_once_when_the_shop_links_both_trailing_slash_spellings() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3324,7 +3420,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_store_each_duplicate_product_page_under_its_canonical_url() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
         let crawl_root_url = "https://example.com";
@@ -3457,7 +3553,7 @@ mod service_tests {
     /// answers the next `retired` pages with rows retired as duplicates.
     async fn crawl_with_pages_kept_other(kept_other: usize, retired: usize) -> SpiderRunResult {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
         let crawl_root_url = "https://example.com";
@@ -3541,7 +3637,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_empty_crawl_error_without_classifying_or_marking_crawled() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3604,7 +3700,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_tiny_crawl_error_for_one_url_without_classifying_or_marking_crawled() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3653,7 +3749,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_insufficient_inference_sample_error_for_two_url_crawl() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3703,14 +3799,34 @@ mod service_tests {
         ));
     }
 
+    /// The URLs earlier crawls stored for the ListingSource of a small crawl.
+    #[derive(Clone, Copy)]
+    enum StoredUrls {
+        /// This many URLs the crawl does not deliver again.
+        Elsewhere(usize),
+        /// Exactly the URLs the crawl delivers, so it adds none to the sample.
+        TheCrawledOnes,
+    }
+
+    /// What a small first crawl's run is expected to do with its pages.
+    enum SmallCrawlOutcome {
+        /// Opens the review `CrawlerReviewId` and waits on it.
+        Review(CrawlerReviewId),
+        /// Opens no review and stores its pages unclassified.
+        Deferred,
+        /// Fails before storing anything.
+        Fails,
+    }
+
     /// A first crawl of `url_count` pages that ended as `completion`, for a pattern service that
-    /// `infers` the pattern or opens a manual review, which `reviews` is asked to answer with.
-    /// A run that classifies stores the pages; one that does not stores nothing.
+    /// `infers` the pattern or opens a review an operator or agent decides, on a ListingSource
+    /// that stores `stored_urls` from earlier crawls.
     async fn run_small_first_crawl(
         url_count: usize,
         completion: CrawlCompletion,
         infers: bool,
-        classification_answer: Option<CrawlerReviewId>,
+        stored: StoredUrls,
+        outcome: SmallCrawlOutcome,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let mut mock_spider = MockSpider::new();
         let mut mock_pattern_service = MockUrlPatternService::new();
@@ -3733,26 +3849,58 @@ mod service_tests {
         mock_pattern_service
             .expect_infers_pattern()
             .return_const(infers);
-        match classification_answer {
-            Some(review_id) => {
+        mock_url_repo
+            .expect_stored_sample_urls()
+            .returning(move |_, _| {
+                let stored = match stored {
+                    StoredUrls::Elsewhere(count) => (0..count)
+                        .map(|index| format!("{crawl_root_url}/stored/{index}"))
+                        .collect(),
+                    StoredUrls::TheCrawledOnes => (0..url_count)
+                        .map(|index| format!("{crawl_root_url}/category/{index}"))
+                        .collect(),
+                };
+                Box::pin(async move { Ok(stored) })
+            });
+        let stores_pages = |mock_url_repo: &mut MockUrlMetadataRepository| {
+            mock_url_repo
+                .expect_upsert_links_batch()
+                .times(1)
+                .returning(|listing_source_id, links| {
+                    let stored = stored_as_given(listing_source_id, links);
+                    Box::pin(async move { Ok(stored) })
+                });
+        };
+        match outcome {
+            SmallCrawlOutcome::Review(review_id) => {
                 mock_pattern_service
                     .expect_classify_and_save()
                     .times(1)
-                    .returning(move |_, _, _, _| {
+                    .returning(move |_, _, _, urls| {
+                        assert!(
+                            urls.len() >= url_count.min(REVIEW_SAMPLE_URLS),
+                            "{}",
+                            urls.len()
+                        );
                         Box::pin(async move { Err(pending_review(listing_source_id, review_id)) })
                     });
                 setup_mock_review_still_pending(&mut mock_pattern_service);
                 setup_mock_mark_as_crawled(&mut mock_pattern_service, crawl_root_url);
-                mock_url_repo
-                    .expect_upsert_links_batch()
-                    .times(1)
-                    .returning(|listing_source_id, links| {
-                        let stored = stored_as_given(listing_source_id, links);
-                        Box::pin(async move { Ok(stored) })
-                    });
+                stores_pages(&mut mock_url_repo);
             }
-            None => {
+            SmallCrawlOutcome::Deferred => {
                 mock_pattern_service.expect_classify_and_save().times(0);
+                setup_mock_review_still_pending(&mut mock_pattern_service);
+                // A crawl that reached its page budget is a full one and is recorded as such.
+                mock_pattern_service
+                    .expect_mark_as_crawled()
+                    .times(usize::from(completion.is_full()))
+                    .returning(|_| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+                stores_pages(&mut mock_url_repo);
+            }
+            SmallCrawlOutcome::Fails => {
+                mock_pattern_service.expect_classify_and_save().times(0);
+                setup_mock_review_still_pending(&mut mock_pattern_service);
                 mock_pattern_service.expect_mark_as_crawled().times(0);
                 mock_url_repo.expect_upsert_links_batch().times(0);
             }
@@ -3779,9 +3927,15 @@ mod service_tests {
     async fn should_open_a_manual_review_when_a_completed_crawl_is_below_the_inference_minimum() {
         let review_id = CrawlerReviewId::new();
 
-        let run = run_small_first_crawl(14, CrawlCompletion::Completed, false, Some(review_id))
-            .await
-            .expect("a small completed crawl opens a review");
+        let run = run_small_first_crawl(
+            14,
+            CrawlCompletion::Completed,
+            false,
+            StoredUrls::Elsewhere(0),
+            SmallCrawlOutcome::Review(review_id),
+        )
+        .await
+        .expect("a small completed crawl opens a review");
 
         assert_eq!(run.pending_url_pattern_review, Some(review_id));
         assert_eq!(run.total_links, 14);
@@ -3789,9 +3943,15 @@ mod service_tests {
 
     #[tokio::test]
     async fn should_fail_a_small_crawl_when_the_pattern_is_inferred_by_the_llm() {
-        let error = run_small_first_crawl(14, CrawlCompletion::Completed, true, None)
-            .await
-            .expect_err("inference needs its minimum");
+        let error = run_small_first_crawl(
+            14,
+            CrawlCompletion::Completed,
+            true,
+            StoredUrls::Elsewhere(0),
+            SmallCrawlOutcome::Fails,
+        )
+        .await
+        .expect_err("inference needs its minimum");
 
         assert!(matches!(
             error,
@@ -3803,35 +3963,100 @@ mod service_tests {
         ));
     }
 
+    /// A crawl that ended early opens no review on fewer URLs than a review's sample: it stores
+    /// them unclassified, without failing, for a later crawl to add to. A completed crawl below
+    /// the review floor still fails.
     #[tokio::test]
-    async fn should_fail_a_small_crawl_that_was_cut_short_or_has_fewer_urls_than_the_review_floor()
+    async fn should_store_a_cut_short_small_crawl_unclassified_and_fail_one_below_the_review_floor()
     {
-        for (url_count, completion) in [
-            (14, CrawlCompletion::HardTimeoutTruncated),
-            (14, CrawlCompletion::PageBudgetReached),
-            (4, CrawlCompletion::Completed),
+        for completion in [
+            CrawlCompletion::HardTimeoutTruncated,
+            CrawlCompletion::PageBudgetReached,
         ] {
-            let error = run_small_first_crawl(url_count, completion, false, None)
-                .await
-                .expect_err("the crawl is not a review");
+            let run = run_small_first_crawl(
+                14,
+                completion,
+                false,
+                StoredUrls::Elsewhere(0),
+                SmallCrawlOutcome::Deferred,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{completion:?}: {error:?}"));
 
-            assert!(
-                matches!(
-                    error,
-                    SpiderServiceError::InsufficientInferenceSample {
-                        min_sample_size: 20,
-                        ..
-                    }
-                ),
-                "{url_count} {completion:?}: {error:?}"
-            );
+            assert_eq!(run.pending_url_pattern_review, None, "{completion:?}");
+            assert_eq!(run.total_links, 14, "{completion:?}");
         }
+        let error = run_small_first_crawl(
+            4,
+            CrawlCompletion::Completed,
+            false,
+            StoredUrls::Elsewhere(0),
+            SmallCrawlOutcome::Fails,
+        )
+        .await
+        .expect_err("a completed crawl below the review floor is no review");
+        assert!(matches!(
+            error,
+            SpiderServiceError::InsufficientInferenceSample { .. }
+        ));
+    }
+
+    /// Earlier crawls' stored URLs count toward a review's sample: a cut-short crawl that brings
+    /// it to [`REVIEW_SAMPLE_URLS`] opens the review.
+    #[tokio::test]
+    async fn should_open_a_review_once_stored_and_crawled_urls_reach_the_review_sample() {
+        let review_id = CrawlerReviewId::new();
+
+        let run = run_small_first_crawl(
+            14,
+            CrawlCompletion::PageBudgetReached,
+            false,
+            StoredUrls::Elsewhere(REVIEW_SAMPLE_URLS - 10),
+            SmallCrawlOutcome::Review(review_id),
+        )
+        .await
+        .expect("the sample reached the review's size");
+
+        assert_eq!(run.pending_url_pattern_review, Some(review_id));
+    }
+
+    /// A cut-short crawl that adds no URL to the ones earlier crawls stored defers no longer: it
+    /// opens the review on the sample it has, or fails visibly when that is below the minimum,
+    /// instead of waiting for a sample that never grows.
+    #[tokio::test]
+    async fn should_classify_a_cut_short_crawl_that_adds_no_url_to_the_stored_sample() {
+        let review_id = CrawlerReviewId::new();
+
+        let error = run_small_first_crawl(
+            14,
+            CrawlCompletion::HardTimeoutTruncated,
+            false,
+            StoredUrls::TheCrawledOnes,
+            SmallCrawlOutcome::Fails,
+        )
+        .await
+        .expect_err("a sample below the minimum fails");
+        let run = run_small_first_crawl(
+            30,
+            CrawlCompletion::PageBudgetReached,
+            false,
+            StoredUrls::TheCrawledOnes,
+            SmallCrawlOutcome::Review(review_id),
+        )
+        .await
+        .expect("a sample above the minimum opens the review");
+
+        assert!(matches!(
+            error,
+            SpiderServiceError::InsufficientInferenceSample { .. }
+        ));
+        assert_eq!(run.pending_url_pattern_review, Some(review_id));
     }
 
     #[tokio::test]
     async fn should_carry_the_rate_limit_answer_on_a_failure_after_a_rate_limited_crawl() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let crawl_root_url = "https://example.com";
         let rate_limit = RateLimitSignal {
@@ -3890,7 +4115,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_diagnostic_crawl_failure_for_rate_limited_tiny_crawl() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -3950,7 +4175,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_prefer_local_filter_diagnostic_over_empty_crawl() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -4008,7 +4233,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_keep_insufficient_inference_sample_when_diagnostic_has_multiple_urls() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -4060,7 +4285,7 @@ mod service_tests {
     #[tokio::test]
     async fn should_return_insufficient_inference_sample_error_for_refresh_with_small_sample() {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
 
         let listing_source_id = ListingSourceId::new();
@@ -4143,7 +4368,7 @@ mod service_tests {
             CrawlDiscovery::default(),
             ended,
         );
-        let mut pattern_service = MockUrlPatternService::new();
+        let mut pattern_service = llm_pattern_service();
         pattern_service.expect_load_pattern().return_once(move |_| {
             Box::pin(async move {
                 Ok(stored_pattern.map(|pattern| ProductUrlPattern::parse(pattern).unwrap()))
@@ -4282,7 +4507,7 @@ mod service_tests {
         stored_pattern: Option<&'static str>,
     ) -> Vec<(String, UrlClass)> {
         let mut mock_spider = MockSpider::new();
-        let mut mock_pattern_service = MockUrlPatternService::new();
+        let mut mock_pattern_service = llm_pattern_service();
         let mut mock_url_repo = MockUrlMetadataRepository::new();
         let listing_source_id = ListingSourceId::new();
         let crawl_root_url = "https://example.com";

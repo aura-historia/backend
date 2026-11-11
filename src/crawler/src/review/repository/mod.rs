@@ -16,7 +16,7 @@ use crate::scraper::scraper_service::pipeline::scrape_product::{
     Redirect, is_redirect_to_non_product_page,
 };
 use crate::spider::classification::product_url_pattern::{
-    ProductUrlPattern, ProductUrlPatternError,
+    ProductUrlPattern, ProductUrlPatternError, UrlPatternMatching,
 };
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::{CrawlerReviewId, CrawlerReviewPageId, CrawlerReviewUrlId};
@@ -112,6 +112,10 @@ pub enum ReviewRepositoryError {
         "the author agent neither approves nor rejects; the reviewer agent or a human decides what it staged"
     )]
     AuthorMayNotDecide,
+    #[error(
+        "the review agents read no page of a URL-pattern review: the author finds the pattern in the URLs of the sample and the reviewer checks it against them"
+    )]
+    AgentsMayNotInspectUrlPatternPages,
     #[error("a needs-repair verdict needs a note saying what to repair")]
     MissingRepairNote,
     #[error(
@@ -1354,13 +1358,40 @@ async fn lock_live_product_schemas(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
-    let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
+    read_live_product_schemas(
+        transaction,
+        listing_source_id,
         "SELECT product_schema FROM listing_source_product_schemas \
          WHERE listing_source_id = $1 FOR UPDATE",
     )
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .fetch_optional(&mut **transaction)
-    .await?;
+    .await
+}
+
+/// Reads the ListingSource's live product schemas without a lock, for a read that only reports
+/// on them.
+async fn live_product_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
+    read_live_product_schemas(
+        transaction,
+        listing_source_id,
+        "SELECT product_schema FROM listing_source_product_schemas WHERE listing_source_id = $1",
+    )
+    .await
+}
+
+/// Reads the ListingSource's live product schemas with `query`, which selects the stored
+/// payload of the ListingSource bound as `$1`.
+async fn read_live_product_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    query: &'static str,
+) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
+    let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(query)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_optional(&mut **transaction)
+        .await?;
     existing_payload
         .map(|payload| {
             parse_product_schema_payload(payload).map(|product_schemas| {
@@ -1727,24 +1758,35 @@ async fn review_source_url_pattern<'e>(
     listing_source_id: uuid::Uuid,
     url: &Url,
 ) -> Result<Option<ProductUrlPattern>, ReviewRepositoryError> {
-    let (crawl_host, include, exclude) =
-        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>)>(
-            "SELECT crawl_host, \
+    let (crawl_host, include, exclude, matching) = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT crawl_host, \
                 CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern END, \
-                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_exclude END \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_exclude END, \
+                CASE WHEN url_pattern_state = 'MATCHED' THEN url_pattern_matching END \
          FROM listing_sources WHERE listing_source_id = $1",
-        )
-        .bind(listing_source_id)
-        .fetch_optional(executor)
-        .await?
-        .unwrap_or_default();
+    )
+    .bind(listing_source_id)
+    .fetch_optional(executor)
+    .await?
+    .unwrap_or_default();
     if !is_review_source_url(url, crawl_host.as_deref()) {
         return Err(ReviewRepositoryError::ReviewPageUrlNotAllowed(
             without_credentials(url).to_string(),
         ));
     }
     Ok(
-        ProductUrlPattern::from_stored(include.as_deref(), exclude.as_deref())
+        UrlPatternMatching::from_persisted_column(matching.as_deref())
+            .and_then(|matching| {
+                ProductUrlPattern::from_stored(include.as_deref(), exclude.as_deref(), matching)
+            })
             .ok()
             .flatten(),
     )

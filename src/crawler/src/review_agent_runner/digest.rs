@@ -890,7 +890,7 @@ mod tests {
         refused.report = Some(reviewer(
             review_id,
             ServerOutcome::Refused,
-            &["TOO_FEW_LABELS", "PRODUCT_LABEL_NOT_MATCHED"],
+            &["PATTERN_MATCHES_NO_SAMPLE_URL", "PATTERN_TAKES_PROBE_PATHS"],
         ));
         let mut limited = record(at, 2.0);
         limited.end = ProcessEnd::LimitReached;
@@ -947,8 +947,8 @@ mod tests {
         assert_eq!(
             digest.refusals_by_check,
             BTreeMap::from([
-                ("PRODUCT_LABEL_NOT_MATCHED".to_owned(), 1),
-                ("TOO_FEW_LABELS".to_owned(), 1)
+                ("PATTERN_TAKES_PROBE_PATHS".to_owned(), 1),
+                ("PATTERN_MATCHES_NO_SAMPLE_URL".to_owned(), 1)
             ])
         );
         assert_eq!(
@@ -956,7 +956,10 @@ mod tests {
             BTreeMap::from([("limit reached", 1), ("reported", 2)])
         );
         let markdown = digest.markdown();
-        assert!(markdown.contains("| TOO_FEW_LABELS | 1 |"), "{markdown}");
+        assert!(
+            markdown.contains("| PATTERN_MATCHES_NO_SAMPLE_URL | 1 |"),
+            "{markdown}"
+        );
         assert!(markdown.contains("later ones are missing"), "{markdown}");
         assert!(markdown.contains(
             "author STAGED at version 4: Staged the pattern /item/. Risks: two labels only"

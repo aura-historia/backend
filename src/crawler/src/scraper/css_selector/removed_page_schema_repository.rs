@@ -94,6 +94,22 @@ pub(crate) async fn share_stored_removed_page_schemas(
     .await
 }
 
+/// Reads the ListingSource's stored removed-page templates without a lock, for a read that only
+/// reports on them. `None` when it stores none; a stored row that no longer decodes fails the
+/// read.
+pub(crate) async fn stored_removed_page_schemas(
+    connection: &mut sqlx::PgConnection,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<Vec<RemovedPageSchema>>, sqlx::Error> {
+    read_stored_removed_page_schemas(
+        connection,
+        listing_source_id,
+        "SELECT removed_page_schema FROM listing_source_removed_page_schemas
+         WHERE listing_source_id = $1",
+    )
+    .await
+}
+
 async fn read_stored_removed_page_schemas(
     connection: &mut sqlx::PgConnection,
     listing_source_id: &ListingSourceId,

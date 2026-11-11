@@ -1492,7 +1492,7 @@ function renderSourceUrlPattern(source) {
     return `<div class="card">
       <div class="card-head"><h2>URL pattern</h2><span class="badge badge-ok">Live</span></div>
       <div class="card-body stack">
-        <div class="decision"><code>${escapeHtml(pattern.value)}</code>${pattern.exclude ? `<span class="small muted">excluding</span><code>${escapeHtml(pattern.exclude)}</code>` : ''}</div>
+        <div class="decision"><code>${escapeHtml(pattern.value)}</code>${pattern.exclude ? `<span class="small muted">excluding</span><code>${escapeHtml(pattern.exclude)}</code>` : ''}${matchingNote(pattern.matching)}</div>
         ${approved ? `<div class="small muted">${approved}</div>` : ''}
       </div>
     </div>`;
@@ -2665,6 +2665,17 @@ function decisionExclude(decision) {
     return decision?.type === 'PATTERN' ? (decision.exclude || '') : '';
 }
 
+// What a PATTERN decision is matched against: PATH_AND_QUERY_FULL_MATCH, the whole path and query,
+// or FULL_URL_SEARCH, anywhere in the URL, which a decision without one has. The console keeps it
+// across a save of the pattern, and the agent or the API sets it.
+function decisionMatching(decision) {
+    return decision?.type === 'PATTERN' && decision.matching ? decision.matching : 'FULL_URL_SEARCH';
+}
+
+function matchingNote(matching) {
+    return matching === 'PATH_AND_QUERY_FULL_MATCH' ? ' <span class="small muted">whole path and query</span>' : '';
+}
+
 // The browser's regex of the decision's exclusion; none without one or when the browser cannot
 // compile it.
 function decisionExcludeRegex(decision) {
@@ -2748,7 +2759,7 @@ function urlPatternView(review, urls, pattern) {
     const origin = sampleOrigin(urls);
     const rows = urls.map((u, index) => {
         const candidateMatch = preview.active
-            ? regexTakesUrl(preview.regex, u.url, decisionExcludeRegex(urlPatternEditOf(review).stored))
+            ? regexTakesUrl(preview.regex, u.url, decisionExcludeRegex(urlPatternEditOf(review).stored), decisionMatching(urlPatternEditOf(review).stored))
             : u.candidate_pattern_match;
         const currentProduct = u.current_pattern_match === true;
         const candidateProduct = candidateMatch === true;
@@ -2832,9 +2843,10 @@ function renderUrlPatternDecisionSection(review, view) {
     const decision = urlPatternEditOf(review).stored;
     const currentPattern = review.candidate_payload?.current_pattern;
     const currentExclude = review.candidate_payload?.current_exclude;
+    const currentMatching = review.candidate_payload?.current_matching;
     const editable = urlPatternEditable(review);
     const live = currentPattern
-        ? `Live: <code>${escapeHtml(currentPattern)}</code>${currentExclude ? ` excluding <code>${escapeHtml(currentExclude)}</code>` : ''}`
+        ? `Live: <code>${escapeHtml(currentPattern)}</code>${currentExclude ? ` excluding <code>${escapeHtml(currentExclude)}</code>` : ''}${matchingNote(currentMatching)}`
         : 'No live pattern yet.';
     return `<div class="section">
       <div class="section-head"><h3>Decision</h3>${renderUrlPatternDecision(decision)}</div>
@@ -2853,7 +2865,7 @@ function renderUrlPatternDecisionSection(review, view) {
 }
 
 function renderUrlPatternDecision(decision) {
-    if (decision.type === 'PATTERN') return `<span class="decision">${badge('Pattern', 'ok')} <code>${escapeHtml(decision.value)}</code>${decision.exclude ? ` <span class="small muted">excluding</span> <code>${escapeHtml(decision.exclude)}</code>` : ''}</span>`;
+    if (decision.type === 'PATTERN') return `<span class="decision">${badge('Pattern', 'ok')} <code>${escapeHtml(decision.value)}</code>${decision.exclude ? ` <span class="small muted">excluding</span> <code>${escapeHtml(decision.exclude)}</code>` : ''}${matchingNote(decisionMatching(decision))}</span>`;
     if (decision.type === 'NO_PATTERN') return badge('No pattern');
     return badge('Undecided', 'warn');
 }
@@ -2878,11 +2890,27 @@ function urlRowShown(row) {
 
 // Whether `regex` takes the page of `url` as the crawler matches a URL pattern: the URL as stored,
 // or its path with or without the trailing slash (docs/crawler/networking.md#stored-urls), and the
-// exclusion, when there is one, matches none of those spellings.
-function regexTakesUrl(regex, url, excludeRegex = null) {
-    const spellings = pageSpellings(url);
-    return spellings.some(spelling => regex.test(spelling))
+// exclusion, when there is one, matches none of those spellings. Under PATH_AND_QUERY_FULL_MATCH
+// the regex matches the whole path and query of a spelling and the exclusion anywhere in it.
+function regexTakesUrl(regex, url, excludeRegex = null, matching = 'FULL_URL_SEARCH') {
+    let spellings = pageSpellings(url);
+    let include = regex;
+    if (matching === 'PATH_AND_QUERY_FULL_MATCH') {
+        spellings = spellings.map(pathAndQuery).filter(target => target !== null);
+        include = new RegExp(`^(?:${regex.source})$`, regex.flags);
+    }
+    return spellings.some(spelling => include.test(spelling))
         && !(excludeRegex && spellings.some(spelling => excludeRegex.test(spelling)));
+}
+
+// The path and `?query` of `url`, without scheme, host, port or fragment; null for no URL.
+function pathAndQuery(url) {
+    try {
+        const parsed = new URL(url);
+        return `${parsed.pathname || '/'}${parsed.search.length > 1 ? parsed.search : ''}`;
+    } catch (_) {
+        return null;
+    }
 }
 
 function pageSpellings(url) {
@@ -2955,15 +2983,17 @@ async function saveUrlPatternDecision(decision) {
     await saveCandidatePayload({
         decision,
         current_pattern: payload?.current_pattern ?? null,
-        ...(payload?.current_exclude ? {current_exclude: payload.current_exclude} : {})
+        ...(payload?.current_exclude ? {current_exclude: payload.current_exclude} : {}),
+        ...(payload?.current_matching ? {current_matching: payload.current_matching} : {})
     });
 }
 
 async function saveUrlPattern() {
     const value = document.getElementById('urlPatternInput').value.trim();
     if (!value) return;
-    const exclude = decisionExclude(urlPatternEditOf(selectedDetail.review).stored);
-    await saveUrlPatternDecision({type: 'PATTERN', value, ...(exclude ? {exclude} : {})});
+    const stored = urlPatternEditOf(selectedDetail.review).stored;
+    const exclude = decisionExclude(stored);
+    await saveUrlPatternDecision({type: 'PATTERN', value, ...(exclude ? {exclude} : {}), matching: decisionMatching(stored)});
 }
 
 async function saveNoUrlPattern() {
@@ -3057,7 +3087,7 @@ function decisionPreviewTakes(url) {
     const pattern = urlPatternInputValue(review).trim() || decisionPattern(urlPatternEditOf(review).stored);
     if (!pattern) return null;
     try {
-        return regexTakesUrl(new RegExp(pattern), url, decisionExcludeRegex(urlPatternEditOf(review).stored));
+        return regexTakesUrl(new RegExp(pattern), url, decisionExcludeRegex(urlPatternEditOf(review).stored), decisionMatching(urlPatternEditOf(review).stored));
     } catch (_) {
         return null;
     }

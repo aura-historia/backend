@@ -33,11 +33,17 @@ use url::Url;
 pub struct ToolContext {
     pub(super) console: ConsoleClient,
     pub(super) polling: Polling,
+    /// The `inspect_page` calls this process has left.
+    inspections: shared::InspectionBudget,
 }
 
 impl ToolContext {
     pub fn new(console: ConsoleClient, polling: Polling) -> Self {
-        Self { console, polling }
+        Self {
+            console,
+            polling,
+            inspections: shared::InspectionBudget::default(),
+        }
     }
 }
 
@@ -81,7 +87,6 @@ pub(super) enum Artifact {
     /// Reviews of every artifact type.
     Any,
     ProductSchema,
-    UrlPattern,
 }
 
 impl Artifact {
@@ -89,7 +94,6 @@ impl Artifact {
         match self {
             Self::Any => true,
             Self::ProductSchema => artifact_type == ARTIFACT_PRODUCT_SCHEMA,
-            Self::UrlPattern => artifact_type == ARTIFACT_URL_PATTERN,
         }
     }
 }
@@ -382,6 +386,8 @@ pub fn tools_for_artifact(
 ) -> Result<Vec<ToolDefinition>, ToolSchemaError> {
     Ok(tools_for(role)?
         .into_iter()
+        // Neither agent reads a page of a URL-pattern review; the console refuses it as well.
+        .filter(|tool| !(artifact_type == ARTIFACT_URL_PATTERN && tool.name() == "inspect_page"))
         .filter_map(|tool| tool.for_artifact(artifact_type))
         .collect())
 }
@@ -444,7 +450,14 @@ async fn review_source_crawl_host(
 /// console itself requires; any other URL is refused before a request is sent.
 fn review_source_url(raw_url: &str, crawl_host: Option<&str>) -> Result<Url, ToolError> {
     let raw_url = raw_url.trim();
-    let Ok(url) = Url::parse(raw_url) else {
+    // The sample lists the ListingSource's URLs as path and query; they name the crawl host.
+    let resolved = match crawl_host {
+        Some(host) if raw_url.starts_with('/') && !raw_url.starts_with("//") => {
+            format!("https://{host}{raw_url}")
+        }
+        _ => raw_url.to_owned(),
+    };
+    let Ok(url) = Url::parse(&resolved) else {
         return Err(ToolError::UrlOutsideReviewSource(raw_url.to_owned()));
     };
     if is_review_source_url(&url, crawl_host) {
@@ -525,7 +538,6 @@ mod tests {
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
-            "label_sample_urls",
         ];
         let reviewer = ["approve", "reject"];
 
@@ -598,13 +610,21 @@ mod tests {
         ] {
             assert!(review_source_url(url, crawl_host).is_ok(), "{url}");
         }
+        assert_eq!(
+            review_source_url("/item/1?page=2", crawl_host)
+                .map(|url| url.to_string())
+                .ok()
+                .as_deref(),
+            Some("https://antiques.example/item/1?page=2"),
+            "a sample URL as the author reads it"
+        );
         for url in [
             "https://elsewhere.example/item/1",
             "https://antiques.example.evil.example/item/1",
             "https://user:secret@antiques.example/item/1",
             "https://antiques.example:8443/item/1",
             "file:///etc/passwd",
-            "/item/1",
+            "//elsewhere.example/item/1",
         ] {
             assert!(
                 matches!(
@@ -642,11 +662,9 @@ mod tests {
             [
                 "list_pending_reviews",
                 "get_review",
-                "inspect_page",
                 "check_approval",
                 "mark_needs_repair",
                 "update_candidate",
-                "label_sample_urls",
             ]
         );
         assert_eq!(
@@ -656,6 +674,7 @@ mod tests {
                 "get_review",
                 "inspect_page",
                 "refresh_matrix",
+                "check_approval",
                 "mark_needs_repair",
                 "evaluate_candidate",
                 "update_candidate",
@@ -672,7 +691,6 @@ mod tests {
             [
                 "list_pending_reviews",
                 "get_review",
-                "inspect_page",
                 "check_approval",
                 "mark_needs_repair",
                 "approve",
@@ -685,6 +703,7 @@ mod tests {
                 "list_pending_reviews",
                 "get_review",
                 "inspect_page",
+                "check_approval",
                 "mark_needs_repair",
                 "update_candidate"
             ]

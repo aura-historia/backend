@@ -1,5 +1,6 @@
-//! Two consecutive spider runs on a shop whose pages lie deeper than one crawl budget, both
-//! failing because their pages hold no product URL: the real spider crawls a local site, the
+//! Two consecutive spider runs on a shop whose pages lie deeper than one crawl budget, both cut
+//! short with too few URLs to open a URL-pattern review, so each stores its URLs unclassified:
+//! the real spider crawls a local site, the
 //! crawler's PostgreSQL repositories keep its frontier, and the second run reaches further
 //! (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
 
@@ -17,9 +18,7 @@ use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::{
     CrawlPace, CrawlerConfig, SpiderImpl, SpiderTransport, SpiderTransportError,
 };
-use crawler::spider::service::{
-    SpiderService, SpiderServiceConfig, SpiderServiceError, SpiderServiceImpl,
-};
+use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use listing_source_core::ListingSourceId;
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -219,7 +218,7 @@ fn spider_service(pool: &PgPool, shop: &DeepShop) -> SpiderServiceImpl {
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn failing_runs_on_a_deep_shop_should_reach_further_each_time() {
+async fn cut_short_runs_on_a_deep_shop_should_reach_further_each_time() {
     configure_spider_body_limit();
     let pool = get_postgres_client().await;
     let listing_source_id = register_listing_source(&pool).await;
@@ -238,38 +237,26 @@ async fn failing_runs_on_a_deep_shop_should_reach_further_each_time() {
 
     let first = crawl()
         .await
-        .expect_err("too few pages for an inference sample");
+        .expect("a cut-short crawl below a review's sample stores its URLs");
     let first_deepest = shop.take_deepest_category();
     let first_frontier = frontier.load_frontier(&listing_source_id).await.unwrap();
 
-    assert!(
-        matches!(
-            first,
-            SpiderServiceError::InsufficientInferenceSample { .. }
-        ),
-        "{first:?}"
-    );
+    assert_eq!(first.pending_url_pattern_review, None, "{first:?}");
     assert!(
         (1..DEPTH).contains(&first_deepest),
         "one crawl reaches part of the shop: {first_deepest}"
     );
     assert!(
         !first_frontier.is_empty(),
-        "the failed run that delivered pages keeps its frontier"
+        "the run that delivered pages keeps its frontier"
     );
 
     let second = crawl()
         .await
-        .expect_err("too few pages for an inference sample");
+        .expect("the next crawl adds to the stored URLs");
     let second_deepest = shop.take_deepest_category();
 
-    assert!(
-        matches!(
-            second,
-            SpiderServiceError::InsufficientInferenceSample { .. }
-        ),
-        "{second:?}"
-    );
+    assert_eq!(second.pending_url_pattern_review, None, "{second:?}");
     assert!(
         second_deepest > first_deepest,
         "the second run continues from the first run's frontier: reached {second_deepest} after {first_deepest}"

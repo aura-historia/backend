@@ -19,7 +19,8 @@ use super::schema_payload::ProductSchemaReviewCandidate;
 use super::url_pattern_sample::fetch_sample_urls;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages,
-    listing_source_id_from_uuid, lock_live_product_schemas, persist_product_schemas,
+    listing_source_id_from_uuid, live_product_schemas, lock_live_product_schemas,
+    persist_product_schemas,
 };
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
@@ -29,13 +30,15 @@ use crate::review::approval_guard::{
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::schema_evaluation::stored_schema_matrix;
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
-    lock_stored_removed_page_schemas, store_removed_page_schemas,
+    lock_stored_removed_page_schemas, store_removed_page_schemas, stored_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
-use crate::spider::classification::product_url_pattern::ProductUrlPattern;
+use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
 use listing_source_core::ListingSourceId;
@@ -59,43 +62,76 @@ pub struct Approval<'a> {
 }
 
 impl CrawlerReviewRepository {
-    /// The approval-guard checks an agent approval of the URL-pattern review `review_id`'s
-    /// current candidate would fail now, read without changing anything, so the author can fix
-    /// them and the review agent runner starts no reviewer whose approval the guard would refuse.
-    /// `None` for a product-schema review: its checks rest on a live matrix the reviewer
-    /// refreshes itself, so an answer before that would refuse good candidates. The four-eyes rule
-    /// and the hourly cap are the approval's own and not part of the answer.
-    pub async fn url_pattern_approval_failures(
+    /// The approval-guard checks an agent approval of the review `review_id`'s current candidate
+    /// would fail now, read without changing anything, so the author can fix them and the review
+    /// agent runner starts no reviewer whose approval the guard would refuse. A product-schema
+    /// review is judged on its stored matrix: with none for the current candidate, or an expired
+    /// one, the answer says so first (`LIVE_MATRIX_*`), and the author refreshes it. The
+    /// four-eyes rule and the hourly cap are the approval's own and not part of the answer.
+    pub async fn approval_failures(
         &self,
         review_id: CrawlerReviewId,
-    ) -> Result<Option<Vec<FailedApprovalCheck>>, ReviewRepositoryError> {
+    ) -> Result<Vec<FailedApprovalCheck>, ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let (artifact_type, status, candidate_payload) =
-            sqlx::query_as::<_, (String, String, serde_json::Value)>(
-                "SELECT artifact_type, status, candidate_payload FROM crawler_reviews \
-                 WHERE review_id = $1",
-            )
-            .bind(review_id.as_uuid())
-            .fetch_optional(&mut *transaction)
-            .await?
-            .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        let review = sqlx::query(
+            "SELECT status, listing_source_id, artifact_type, candidate_payload, \
+                    candidate_version, validation_summary, removed_page_schemas_base \
+             FROM crawler_reviews WHERE review_id = $1",
+        )
+        .bind(review_id.as_uuid())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or(ReviewRepositoryError::NotFound(review_id))?;
+        let status: String = review.try_get("status")?;
         if status != STATUS_PENDING_REVIEW {
             return Err(ReviewRepositoryError::NotPending(review_id));
         }
-        if artifact_type != ARTIFACT_URL_PATTERN {
-            return Ok(None);
+        let review = ReviewUnderVerdict {
+            listing_source_id: listing_source_id_from_uuid(
+                review.try_get::<uuid::Uuid, _>("listing_source_id")?,
+            )?,
+            artifact_type: review.try_get("artifact_type")?,
+            candidate_payload: review.try_get("candidate_payload")?,
+            candidate_version: review.try_get("candidate_version")?,
+            validation_summary: review.try_get("validation_summary")?,
+            removed_page_schemas_base: review.try_get("removed_page_schemas_base")?,
+        };
+        match review.artifact_type.as_str() {
+            ARTIFACT_URL_PATTERN => {
+                let candidate = UrlPatternReviewCandidate::deserialize(&review.candidate_payload)
+                    .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
+                let crawl_host = url_pattern_review_crawl_host(&mut transaction, review_id).await?;
+                let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
+                Ok(url_pattern_approval_checks(
+                    &candidate,
+                    &crawl_host,
+                    &sample,
+                ))
+            }
+            ARTIFACT_PRODUCT_SCHEMA => {
+                let going_live = read_product_schemas_going_live(&mut transaction, &review).await?;
+                let pages = fetch_review_pages(&mut *transaction, review_id).await?;
+                let matrix = stored_schema_matrix(&review.validation_summary).and_then(Result::ok);
+                let configuration_sha256 = going_live.live.fingerprint()?;
+                let no_sold_page_recorded =
+                    has_no_sold_page_record(&mut *transaction, review_id).await?;
+                Ok(product_schema_approval_checks(
+                    matrix.as_ref(),
+                    &CurrentReview {
+                        candidate_version: review.candidate_version,
+                        configuration_sha256: &configuration_sha256,
+                        pages: &pages,
+                        no_sold_page_recorded,
+                    },
+                    OffsetDateTime::now_utc(),
+                    self.agent_decisions.limits().max_matrix_age(),
+                ))
+            }
+            other => Err(ReviewRepositoryError::UnsupportedArtifact(
+                review_id,
+                other.into(),
+            )),
         }
-        let candidate = UrlPatternReviewCandidate::deserialize(&candidate_payload)
-            .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
-        let crawl_host = url_pattern_review_crawl_host(&mut transaction, review_id).await?;
-        let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
-        transaction.commit().await?;
-        Ok(Some(url_pattern_approval_checks(
-            &candidate,
-            &crawl_host,
-            self.agent_decisions.limits().min_labelled_urls,
-            &sample,
-        )))
     }
 
     /// Makes the pending review's candidate, at the approved candidate version, the active
@@ -137,12 +173,7 @@ impl CrawlerReviewRepository {
                     let sample = fetch_sample_urls(&mut *transaction, review_id).await?;
                     refuse_failed_checks(
                         review_id,
-                        url_pattern_approval_checks(
-                            &candidate,
-                            &crawl_host,
-                            self.agent_decisions.limits().min_labelled_urls,
-                            &sample,
-                        ),
+                        url_pattern_approval_checks(&candidate, &crawl_host, &sample),
                     )?;
                 }
                 let configuration = make_reviewed_url_pattern_live(
@@ -536,21 +567,7 @@ async fn make_reviewed_url_pattern_live(
         .validated_pattern()
         .map_err(|_| ReviewRepositoryError::InvalidUrlPatternCandidate)?;
     let replaced = lock_live_url_pattern(transaction, &review.listing_source_id).await?;
-    let approved = LiveUrlPattern {
-        url_pattern: pattern
-            .as_ref()
-            .map(|pattern| pattern.include_source().to_owned()),
-        url_pattern_exclude: pattern
-            .as_ref()
-            .and_then(|pattern| pattern.exclude_source())
-            .map(str::to_owned),
-        url_pattern_state: if pattern.is_some() {
-            "MATCHED"
-        } else {
-            "NO_PATTERN"
-        }
-        .to_owned(),
-    };
+    let approved = LiveUrlPattern::of(pattern.as_ref());
     let reclassified = make_url_pattern_live(
         transaction,
         &review.listing_source_id,
@@ -575,10 +592,10 @@ pub(super) async fn lock_live_url_pattern(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<LiveUrlPattern, ReviewRepositoryError> {
-    let (url_pattern, url_pattern_exclude, url_pattern_state) =
-        sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
-            "SELECT url_pattern, url_pattern_exclude, url_pattern_state FROM listing_sources \
-         WHERE listing_source_id = $1 FOR UPDATE",
+    let (url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state) =
+        sqlx::query_as::<_, (Option<String>, Option<String>, Option<String>, String)>(
+            "SELECT url_pattern, url_pattern_exclude, url_pattern_matching, url_pattern_state \
+             FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .fetch_one(&mut **transaction)
@@ -586,6 +603,10 @@ pub(super) async fn lock_live_url_pattern(
     Ok(LiveUrlPattern {
         url_pattern,
         url_pattern_exclude,
+        url_pattern_matching: UrlPatternMatching::from_persisted_column(
+            url_pattern_matching.as_deref(),
+        )
+        .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
         url_pattern_state,
     })
 }
@@ -599,14 +620,21 @@ pub(super) async fn make_url_pattern_live(
     decision: &LiveUrlPattern,
     url_classifier: UrlClassifier,
 ) -> Result<u64, ReviewRepositoryError> {
+    let decision = decision.clone().normalized();
     sqlx::query(
         "UPDATE listing_sources \
-         SET url_pattern = $2, url_pattern_exclude = $3, url_pattern_state = $4 \
+         SET url_pattern = $2, url_pattern_exclude = $3, url_pattern_matching = $4, \
+             url_pattern_state = $5 \
          WHERE listing_source_id = $1",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(decision.url_pattern.as_deref())
     .bind(decision.url_pattern_exclude.as_deref())
+    .bind(
+        decision
+            .url_pattern_matching
+            .map(UrlPatternMatching::as_str),
+    )
     .bind(&decision.url_pattern_state)
     .execute(&mut **transaction)
     .await?;
@@ -641,14 +669,38 @@ async fn lock_product_schemas_going_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review: &ReviewUnderVerdict,
 ) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
-    let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
-    let base: Vec<RemovedPageSchema> =
-        serde_json::from_value(review.removed_page_schemas_base.clone())
-            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
     let existing = lock_live_product_schemas(transaction, &review.listing_source_id).await?;
     let stored = lock_stored_removed_page_schemas(transaction, &review.listing_source_id)
         .await?
         .unwrap_or_default();
+    product_schemas_going_live(review, existing, stored)
+}
+
+/// Reads, without locking them, the ListingSource's live schema list and stored removed-page
+/// templates and what approving the review makes live in their place, for the guard's dry run,
+/// which changes nothing and so holds up no approval or schema write of the ListingSource.
+async fn read_product_schemas_going_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review: &ReviewUnderVerdict,
+) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
+    let existing = live_product_schemas(transaction, &review.listing_source_id).await?;
+    let stored = stored_removed_page_schemas(transaction, &review.listing_source_id)
+        .await?
+        .unwrap_or_default();
+    product_schemas_going_live(review, existing, stored)
+}
+
+/// What approving `review` makes live in place of the `existing` live schema list and the
+/// `stored` removed-page templates. A candidate or base that no longer decodes fails it.
+fn product_schemas_going_live(
+    review: &ReviewUnderVerdict,
+    existing: Option<ListingSourceProductSchema>,
+    stored: Vec<RemovedPageSchema>,
+) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
+    let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
+    let base: Vec<RemovedPageSchema> =
+        serde_json::from_value(review.removed_page_schemas_base.clone())
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
     let live = reviewed.going_live(&base, &stored);
     Ok(ProductSchemasGoingLive {
         reviewed,

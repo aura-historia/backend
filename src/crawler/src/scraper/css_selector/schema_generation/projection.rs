@@ -58,6 +58,13 @@ pub fn html_to_schema_prompt_dsl(input: &str) -> String {
 /// The elements of the page `input` the projection shows, without scripts, styles, navigation,
 /// header, footer, comments and layout-only wrappers, before any size limit.
 pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
+    project_children(&parsed_page(input))
+}
+
+/// The parsed page `input` without the elements of [`REMOVED_DSL_TAGS`] and comments, which every
+/// view of the page leaves out; an element named with a prefix of [`REMOVED_DSL_TAG_PREFIXES`]
+/// is still in it, for the walker to skip with [`is_removed_dsl_tag`].
+pub(super) fn parsed_page(input: &str) -> NodeRef {
     let document = parse_html().one(input);
 
     for selector in REMOVED_DSL_TAGS {
@@ -68,8 +75,7 @@ pub(super) fn project_page(input: &str) -> Vec<HtmlYamlNode> {
         }
     }
     remove_comments(&document);
-
-    project_children(&document)
+    document
 }
 
 /// The YAML of the longest document-order prefix of `nodes` of at most `node_limit` elements
@@ -174,7 +180,7 @@ fn project_node(node: &NodeRef) -> Vec<HtmlYamlNode> {
     }]
 }
 
-fn is_removed_dsl_tag(tag: &str) -> bool {
+pub(super) fn is_removed_dsl_tag(tag: &str) -> bool {
     REMOVED_DSL_TAGS.contains(&tag)
         || REMOVED_DSL_TAG_PREFIXES
             .iter()

@@ -354,16 +354,15 @@ impl Pass<'_> {
         }
     }
 
-    /// Whether the approval guard refuses the URL-pattern candidate the author left, so a reviewer
-    /// process could only be refused, as the `TOO_FEW_LABELS` loops of #2822 were: a needs-repair
-    /// round spent on what the author can read with `check_approval` itself. A product-schema
-    /// review, and a review whose checks cannot be read, gets its reviewer as before.
+    /// Whether the approval guard refuses the candidate the author left, so a reviewer process
+    /// could only be refused, as the `TOO_FEW_LABELS` loops of #2822 were: a needs-repair round
+    /// spent on what the author can read with `check_approval` itself. A product-schema review is
+    /// judged on the matrix the author stored; while that matrix is missing, outdated or expired
+    /// the guard says nothing about the candidate, since the reviewer refreshes it itself, so the
+    /// reviewer runs. A review whose checks cannot be read gets its reviewer as before.
     async fn guard_refuses(&self, review: &QueuedReview) -> bool {
-        if review.artifact_type != ReviewArtifact::UrlPattern {
-            return false;
-        }
         match approval_failures(self.console, review.review_id).await {
-            Ok(Some(failed)) if !failed.is_empty() => {
+            Ok(Some(failed)) if guard_refusal(review.artifact_type, &failed) => {
                 info!(
                     review_id = %review.review_id,
                     failed_checks = ?failed,
@@ -636,7 +635,7 @@ impl Pass<'_> {
         }
         let started = OffsetDateTime::now_utc();
         let contract = role_contract(role);
-        let process = self.settings.role(role);
+        let process = self.settings.process(role, review.artifact_type);
         if role == AgentRole::Author {
             self.with(|shared| shared.summary.worked += 1);
         }
@@ -652,7 +651,7 @@ impl Pass<'_> {
             "Starting a review agent process"
         );
         let mut record = ProcessRecord::started(review, role, contract.version);
-        let step = match agent_command(self.settings, &self.limits, role, review) {
+        let step = match agent_command(self.settings, role, review) {
             Ok(command) => {
                 let output = run_agent(
                     &command,
@@ -821,6 +820,8 @@ impl Pass<'_> {
             total_cost_usd = record.total_cost_usd,
             cost_charged = record.cost_charged,
             opening_tokens = record.context.opening_tokens,
+            opening_cache_read_tokens = record.context.opening_cache_read_tokens,
+            opening_cache_write_tokens = record.context.opening_cache_write_tokens,
             tool_answer_chars = record
                 .context
                 .tool_answers
@@ -1061,10 +1062,65 @@ pub fn usage_limit_name(kind: UsageLimitKind) -> &'static str {
     }
 }
 
+/// The checks that say the stored matrix of a product-schema review is not the candidate's: the
+/// reviewer's own refresh answers them, so they never keep it from running.
+const MATRIX_STATE_CHECKS: [&str; 3] = [
+    "LIVE_MATRIX_MISSING",
+    "LIVE_MATRIX_OUTDATED",
+    "LIVE_MATRIX_EXPIRED",
+];
+
+/// Whether `failed`, the guard's failed checks of a review of `artifact`, refuse the candidate for
+/// the reviewer: any check of a URL-pattern review, and any other than a stale matrix's of a
+/// product-schema review, whose other checks read a matrix that is only then the candidate's.
+fn guard_refusal(artifact: ReviewArtifact, failed: &[String]) -> bool {
+    match artifact {
+        ReviewArtifact::UrlPattern => !failed.is_empty(),
+        ReviewArtifact::ProductSchema => {
+            !failed.is_empty()
+                && !failed
+                    .iter()
+                    .any(|check| MATRIX_STATE_CHECKS.contains(&check.as_str()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_support::logged_events::LoggedEvents;
+
+    /// A product-schema candidate is refused for the reviewer only on a matrix that is the
+    /// candidate's: a stale one is the reviewer's own refresh to answer.
+    #[test]
+    fn should_refuse_a_product_schema_candidate_only_on_a_current_matrix() {
+        let checks = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<_>>()
+        };
+        let schema = ReviewArtifact::ProductSchema;
+
+        assert!(guard_refusal(schema, &checks(&["NO_SOLD_PAGE_TESTED"])));
+        assert!(guard_refusal(
+            schema,
+            &checks(&["PAGES_NOT_COVERED", "CONTENT_RULE_MISSING"])
+        ));
+        assert!(!guard_refusal(schema, &[]));
+        for stale in MATRIX_STATE_CHECKS {
+            assert!(!guard_refusal(schema, &checks(&[stale])), "{stale}");
+            assert!(
+                !guard_refusal(schema, &checks(&[stale, "NO_SOLD_PAGE_TESTED"])),
+                "{stale}"
+            );
+        }
+        assert!(guard_refusal(
+            ReviewArtifact::UrlPattern,
+            &checks(&["PATTERN_MATCHES_NO_SAMPLE_URL"])
+        ));
+        assert!(!guard_refusal(ReviewArtifact::UrlPattern, &[]));
+    }
 
     #[test]
     fn should_log_the_limit_message_at_warn_when_its_reset_time_cannot_be_read() {

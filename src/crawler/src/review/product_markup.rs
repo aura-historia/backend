@@ -59,7 +59,7 @@ fn json_ld_products(document: &Html) -> usize {
 }
 
 /// The text of each `<script type="application/ld+json">` of the page, in document order.
-fn json_ld_scripts(document: &Html) -> impl Iterator<Item = String> + '_ {
+pub(crate) fn json_ld_scripts(document: &Html) -> impl Iterator<Item = String> + '_ {
     document
         .select(&SCRIPTS)
         .filter(|script| script.attr("type").is_some_and(is_json_ld_type))

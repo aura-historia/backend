@@ -1,6 +1,6 @@
 use super::SampleLabels;
 use crate::spider::classification::product_url_pattern::{
-    ProductUrlPattern, ProductUrlPatternError,
+    ProductUrlPattern, ProductUrlPatternError, UrlPatternMatching,
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,13 @@ pub struct UrlPatternReviewCandidate {
     /// The exclusion of the live pattern, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_exclude: Option<String>,
+    /// What the live pattern is matched against; left out for `FULL_URL_SEARCH`, which every
+    /// candidate stored before the matching existed has.
+    #[serde(
+        default,
+        skip_serializing_if = "UrlPatternMatching::is_full_url_search"
+    )]
+    pub current_matching: UrlPatternMatching,
     /// Which URLs on the crawl host of the review's ListingSource, its sample's among them, are
     /// product pages, as the author agent or a human labelled them; set only through the review's
     /// sample labels.
@@ -23,11 +30,19 @@ pub struct UrlPatternReviewCandidate {
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UrlPatternDecision {
     /// A URL on the crawl host is a product URL when it matches `value` and does not match
-    /// `exclude`, which takes the non-items that share the product URL shape.
+    /// `exclude`, which takes the non-items that share the product URL shape, both matched as
+    /// `matching` says.
     Pattern {
         value: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         exclude: Option<String>,
+        /// Left out for `FULL_URL_SEARCH`, which every decision stored before the matching
+        /// existed has.
+        #[serde(
+            default,
+            skip_serializing_if = "UrlPatternMatching::is_full_url_search"
+        )]
+        matching: UrlPatternMatching,
     },
     NoPattern,
     /// No pattern proposed yet: an operator must enter one before the review can be approved.
@@ -38,18 +53,24 @@ impl UrlPatternDecision {
     /// The pattern of a `PATTERN` decision, `None` for a decision without a pattern.
     pub fn candidate_pattern(&self) -> Result<Option<ProductUrlPattern>, ProductUrlPatternError> {
         match self {
-            Self::Pattern { value, exclude } => ProductUrlPattern::parse(value)
+            Self::Pattern {
+                value,
+                exclude,
+                matching,
+            } => ProductUrlPattern::parse_matching(value, *matching)
                 .and_then(|pattern| pattern.with_exclude(exclude.as_deref()))
                 .map(Some),
             Self::NoPattern | Self::Undecided => Ok(None),
         }
     }
 
-    /// The decision for an inferred pattern, where `None` means no product pattern exists.
+    /// The decision for an inferred pattern, matched anywhere in the URL as the inference writes
+    /// it, where `None` means no product pattern exists.
     pub fn inferred(pattern: Option<&Regex>) -> Self {
         pattern.map_or(Self::NoPattern, |pattern| Self::Pattern {
             value: pattern.as_str().to_owned(),
             exclude: None,
+            matching: UrlPatternMatching::FullUrlSearch,
         })
     }
 }
@@ -70,8 +91,20 @@ impl UrlPatternReviewCandidate {
             current_exclude: current_pattern
                 .and_then(|pattern| pattern.exclude_source())
                 .map(str::to_owned),
+            current_matching: current_pattern
+                .map(ProductUrlPattern::matching)
+                .unwrap_or_default(),
             sample_labels: None,
         }
+    }
+
+    /// The ListingSource's live pattern when the review opened, as the candidate records it.
+    pub fn current(&self) -> Result<Option<ProductUrlPattern>, ProductUrlPatternError> {
+        ProductUrlPattern::from_stored(
+            self.current_pattern.as_deref(),
+            self.current_exclude.as_deref(),
+            Some(self.current_matching),
+        )
     }
 
     /// Decodes a candidate a reviewer posts as an edit, refusing a key the candidate does not
@@ -119,6 +152,8 @@ struct PostedUrlPatternReviewCandidate {
     #[serde(default)]
     current_exclude: Option<String>,
     #[serde(default)]
+    current_matching: UrlPatternMatching,
+    #[serde(default)]
     sample_labels: Option<SampleLabels>,
 }
 
@@ -128,12 +163,14 @@ impl From<PostedUrlPatternReviewCandidate> for UrlPatternReviewCandidate {
             decision,
             current_pattern,
             current_exclude,
+            current_matching,
             sample_labels,
         } = posted;
         Self {
             decision: decision.into(),
             current_pattern,
             current_exclude,
+            current_matching,
             sample_labels,
         }
     }
@@ -141,7 +178,8 @@ impl From<PostedUrlPatternReviewCandidate> for UrlPatternReviewCandidate {
 
 /// A [`UrlPatternDecision`] as an edit posts it, with exactly the decision's keys. Its variants
 /// are struct variants because serde ignores extra keys of an internally tagged unit variant
-/// despite `deny_unknown_fields`.
+/// despite `deny_unknown_fields`. A posted pattern without a `matching` is matched anywhere in
+/// the URL, as before the matching existed.
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE", deny_unknown_fields)]
 enum PostedUrlPatternDecision {
@@ -149,6 +187,8 @@ enum PostedUrlPatternDecision {
         value: String,
         #[serde(default)]
         exclude: Option<String>,
+        #[serde(default)]
+        matching: UrlPatternMatching,
     },
     NoPattern {},
     Undecided {},
@@ -157,9 +197,15 @@ enum PostedUrlPatternDecision {
 impl From<PostedUrlPatternDecision> for UrlPatternDecision {
     fn from(posted: PostedUrlPatternDecision) -> Self {
         match posted {
-            PostedUrlPatternDecision::Pattern { value, exclude } => {
-                Self::Pattern { value, exclude }
-            }
+            PostedUrlPatternDecision::Pattern {
+                value,
+                exclude,
+                matching,
+            } => Self::Pattern {
+                value,
+                exclude,
+                matching,
+            },
             PostedUrlPatternDecision::NoPattern {} => Self::NoPattern,
             PostedUrlPatternDecision::Undecided {} => Self::Undecided,
         }
@@ -198,6 +244,7 @@ mod tests {
             UrlPatternDecision::Pattern {
                 value: "/product/".to_owned(),
                 exclude: None,
+                matching: UrlPatternMatching::FullUrlSearch,
             },
             None,
         );
@@ -246,6 +293,7 @@ mod tests {
                 UrlPatternDecision::Pattern {
                     value: "/products/".to_owned(),
                     exclude: Some(exclude.to_owned()),
+                    matching: UrlPatternMatching::FullUrlSearch,
                 },
                 None,
             )
@@ -313,6 +361,72 @@ mod tests {
                 "{decision}"
             );
         }
+    }
+
+    /// A decision or a live pattern without a `matching`, every one stored before it existed, is
+    /// matched anywhere in the URL; a path-and-query one keeps its matching through both decoders
+    /// and refuses a value that names a scheme or host.
+    #[test]
+    fn should_default_the_matching_to_a_full_url_search_and_keep_a_path_and_query_one() {
+        let path_and_query = serde_json::json!({
+            "decision": {
+                "type": "PATTERN",
+                "value": "/item/[0-9]+",
+                "matching": "PATH_AND_QUERY_FULL_MATCH",
+            },
+            "current_pattern": "/p/",
+            "current_matching": "PATH_AND_QUERY_FULL_MATCH",
+        });
+        let old = serde_json::json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": "/p/",
+        });
+
+        let stored: UrlPatternReviewCandidate = serde_json::from_value(path_and_query.clone())
+            .unwrap_or_else(|error| panic!("{error}"));
+        let posted = UrlPatternReviewCandidate::decode_edit(path_and_query.clone())
+            .unwrap_or_else(|error| panic!("{error}"));
+        let old =
+            UrlPatternReviewCandidate::decode_edit(old).unwrap_or_else(|error| panic!("{error}"));
+
+        assert_eq!(stored, posted);
+        assert_eq!(serde_json::to_value(&stored).ok(), Some(path_and_query));
+        assert_eq!(
+            stored
+                .validated_pattern()
+                .ok()
+                .flatten()
+                .map(|pattern| pattern.matching()),
+            Some(UrlPatternMatching::PathAndQueryFullMatch)
+        );
+        assert_eq!(
+            stored
+                .current()
+                .ok()
+                .flatten()
+                .map(|pattern| pattern.matching()),
+            Some(UrlPatternMatching::PathAndQueryFullMatch)
+        );
+        assert_eq!(
+            old.validated_pattern()
+                .ok()
+                .flatten()
+                .map(|pattern| pattern.matching()),
+            Some(UrlPatternMatching::FullUrlSearch)
+        );
+        assert_eq!(old.current_matching, UrlPatternMatching::FullUrlSearch);
+        let naming_host = serde_json::json!({
+            "decision": {
+                "type": "PATTERN",
+                "value": "https://shop\\.example/item/.+",
+                "matching": "PATH_AND_QUERY_FULL_MATCH",
+            },
+            "current_pattern": null,
+        });
+        assert!(
+            UrlPatternReviewCandidate::validation_failure(&naming_host)
+                .is_some_and(|failure| failure.contains("must not name a scheme or host"))
+        );
     }
 
     #[test]

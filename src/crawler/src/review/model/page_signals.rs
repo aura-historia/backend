@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct PageSignals {
     pub page_reference: SchemaPageReference,
     pub url: String,
-    /// A price element of the page's own content holds an amount with its currency.
+    /// A price element of the page's own content holds an amount with its currency, or the offers
+    /// of the page's own JSON-LD item state a price above zero.
     pub shows_price_text: bool,
     /// A description element of the page's own content holds a block of prose.
     pub shows_description_block: bool,

@@ -13,10 +13,12 @@ use crate::review::model::{
     RepairRequest, ReviewSchemaMatrix, SampleLabels, SampleUrlLabel, SourceProductUrl,
     UrlPatternDecision, UrlPatternReviewCandidate,
 };
+use crate::review::page_projection::PageView;
 use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
+use crate::spider::classification::product_url_pattern::{UrlPatternMatching, path_and_query};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -25,12 +27,15 @@ use time::format_description::well_known::Rfc3339;
 /// The most pending reviews one answer of `list_pending_reviews` lists.
 pub(super) const MAX_PENDING_REVIEWS: usize = 50;
 /// The most URLs of a URL-pattern review's sample one `get_review` answer lists.
-const MAX_SAMPLE_URLS: usize = 150;
+const MAX_SAMPLE_URLS: usize = 200;
 /// The most bytes the URLs of one sample page take as JSON, so a page of long URLs ends early,
 /// with its `sample_urls_next_offset`, instead of being cut by the answer bound.
 const MAX_SAMPLE_PAGE_BYTES: usize = 30 * 1024;
-/// The most events, the latest ones, `get_review` answers.
-const MAX_EVENTS: usize = 40;
+/// The most events, the latest ones, `get_review` answers. The latest needs-repair request comes
+/// whole as `repair_request`, so the trail is for orientation, not for the repair.
+const MAX_EVENTS: usize = 10;
+/// The longest note of an event in a `get_review` answer, in characters.
+const MAX_EVENT_NOTE_CHARS: usize = 400;
 /// The longest notes, error messages and reasons an answer carries, in characters.
 const MAX_NOTE_CHARS: usize = 1_000;
 /// The longest extracted value a matrix answer carries, in characters.
@@ -116,11 +121,12 @@ pub struct ReviewView {
     /// agent handed it over, and every change, verdict and page fetch of an agent on it is refused
     /// with `HUMAN_REQUIRED` until a human changes or judges it. Leave such a review alone.
     pub human_required: bool,
-    pub candidate: CandidateView,
-    /// The pages a product-schema candidate is evaluated on.
-    pub pages: Vec<ReviewPageView>,
+    /// What only the first page of the URL sample carries; left out from the second page on.
+    #[serde(flatten)]
+    pub body: Option<ReviewBody>,
     /// One page of the URL sample of a URL-pattern review, with how the candidate classifies each
-    /// URL: at most 150 URLs from `sample_urls_offset` on.
+    /// URL: at most 200 URLs from `sample_urls_offset` on, in the fixed order of a hash of the
+    /// URL, each as path and query.
     pub sample_urls: Vec<SampleUrlView>,
     /// The position in the whole sample of the first URL of `sample_urls`.
     pub sample_urls_offset: usize,
@@ -129,6 +135,17 @@ pub struct ReviewView {
     /// The `offset` that reads the next page of the sample with `get_review`; null on the last
     /// page.
     pub sample_urls_next_offset: Option<usize>,
+    pub truncations: Vec<String>,
+}
+
+/// What a `get_review` answer carries besides the URL sample page. Every answer stays in the
+/// agent's context, so a read of a later sample page leaves it out: the agent has it from the first
+/// read, and the `candidate_version` of the later answer says whether it still holds.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ReviewBody {
+    pub candidate: CandidateView,
+    /// The pages a product-schema candidate is evaluated on.
+    pub pages: Vec<ReviewPageView>,
     /// Product URLs of the review's ListingSource that are not review pages, for picking live,
     /// sold, price-on-application or photo-less pages to test with `evaluate_candidate` or add
     /// with `add_review_page`; empty on a URL-pattern review. At most 40: those that scraped
@@ -140,7 +157,6 @@ pub struct ReviewView {
     /// The latest events of the review's trail, oldest first.
     pub events: Vec<EventView>,
     pub events_total: usize,
-    pub truncations: Vec<String>,
 }
 
 /// A review's candidate.
@@ -160,6 +176,10 @@ pub enum CandidateView {
         /// The exclusion of the ListingSource's pattern when the review opened, when it had one.
         #[serde(skip_serializing_if = "Option::is_none")]
         current_exclude: Option<String>,
+        /// What the ListingSource's pattern was matched against when the review opened, when it
+        /// had one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        current_matching: Option<UrlPatternMatching>,
         sample_labels: Vec<SampleLabelView>,
         labelled_at: Option<String>,
     },
@@ -168,12 +188,14 @@ pub enum CandidateView {
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UrlPatternDecisionView {
-    /// A regex; a URL it matches anywhere is a product URL unless the exclusion, a regex matched
-    /// anywhere too, takes it.
+    /// A regex; a URL it matches is a product URL unless the exclusion, a regex matched anywhere
+    /// in what `matching` names, takes it. Under PATH_AND_QUERY_FULL_MATCH the regex matches the
+    /// whole path and query; under FULL_URL_SEARCH anywhere in the whole URL.
     Pattern {
         value: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         exclude: Option<String>,
+        matching: UrlPatternMatching,
     },
     /// The ListingSource has no product URLs.
     NoPattern,
@@ -260,10 +282,13 @@ pub struct PageProjectionView {
     /// reads, each cut to [`MAX_VALUE_CHARS`] so the projection window keeps its share of the answer
     /// bound. The projection strips the script they are in, so they show nowhere else.
     pub json_ld_product_ids: JsonLdProductIds,
-    /// The page's outline: one element per line in CSS notation, indented by depth, with its
-    /// text after ` | `; the elements, attributes and text the schema generation prompt shows,
-    /// without scripts, styles, navigation, header and footer, and runs of same-structure
-    /// siblings counted.
+    /// The view `projection` shows: `OUTLINE` or `MARKDOWN`.
+    pub view: PageView,
+    /// The page in `view`, without scripts, styles, navigation, header and footer. The outline
+    /// shows one element per line in CSS notation, indented by depth, with its text after ` | `:
+    /// the elements, attributes and text the schema generation prompt shows, with runs of
+    /// same-structure siblings counted. The markdown shows the readable content, with no tags,
+    /// attributes or URLs.
     pub projection: String,
     /// The character of the whole projection this answer starts at.
     pub projection_offset: usize,
@@ -411,10 +436,22 @@ impl ReviewView {
             events,
         } = detail;
         let mut truncations = Vec::new();
-        let matrix = stored_matrix(&review, &pages);
-        let sample = SamplePage::of(urls, sample_offset, &mut truncations);
-        let events_total = events.len();
-        let events = keep_last(events, MAX_EVENTS, "events", &mut truncations);
+        let sample = SamplePage::of(
+            urls,
+            sample_offset,
+            review.listing_source_crawl_host.as_deref(),
+            &mut truncations,
+        );
+        let body = (sample.offset == 0).then(|| {
+            ReviewBody::of(
+                &review,
+                candidate,
+                pages,
+                source_product_urls,
+                events,
+                &mut truncations,
+            )
+        });
         Self {
             review_id: review.review_id.to_string(),
             status: review.status,
@@ -429,20 +466,38 @@ impl ReviewView {
             repair_request: review.repair_request.map(RepairRequestView::of),
             agent_rounds: review.agent_rounds,
             human_required: review.human_required,
+            body,
+            sample_urls: sample.urls,
+            sample_urls_offset: sample.offset,
+            sample_urls_total: sample.total,
+            sample_urls_next_offset: sample.next_offset,
+            truncations,
+        }
+    }
+}
+
+impl ReviewBody {
+    fn of(
+        review: &CrawlerReview,
+        candidate: wire::Candidate,
+        pages: Vec<CrawlerReviewPage>,
+        source_product_urls: Vec<SourceProductUrl>,
+        events: Vec<wire::ReviewEvent>,
+        truncations: &mut Vec<String>,
+    ) -> Self {
+        let matrix = stored_matrix(review, &pages);
+        let events_total = events.len();
+        let events = keep_last(events, MAX_EVENTS, "events", truncations);
+        Self {
             candidate: CandidateView::of(candidate),
             pages: pages.into_iter().map(ReviewPageView::of).collect(),
             source_product_urls: source_product_urls
                 .into_iter()
                 .map(SourceProductUrlView::of)
                 .collect(),
-            sample_urls: sample.urls,
-            sample_urls_offset: sample.offset,
-            sample_urls_total: sample.total,
-            sample_urls_next_offset: sample.next_offset,
             matrix,
             events: events.into_iter().map(EventView::of).collect(),
             events_total,
-            truncations,
         }
     }
 }
@@ -477,6 +532,7 @@ impl CandidateView {
             decision,
             current_pattern,
             current_exclude,
+            current_matching,
             sample_labels,
         } = candidate;
         let (sample_labels, labelled_at) = match sample_labels {
@@ -501,12 +557,19 @@ impl CandidateView {
         };
         Self::UrlPattern {
             decision: match decision {
-                UrlPatternDecision::Pattern { value, exclude } => {
-                    UrlPatternDecisionView::Pattern { value, exclude }
-                }
+                UrlPatternDecision::Pattern {
+                    value,
+                    exclude,
+                    matching,
+                } => UrlPatternDecisionView::Pattern {
+                    value,
+                    exclude,
+                    matching,
+                },
                 UrlPatternDecision::NoPattern => UrlPatternDecisionView::NoPattern,
                 UrlPatternDecision::Undecided => UrlPatternDecisionView::Undecided,
             },
+            current_matching: current_pattern.as_ref().map(|_| current_matching),
             current_pattern,
             current_exclude,
             sample_labels,
@@ -536,17 +599,27 @@ struct SamplePage {
 }
 
 impl SamplePage {
-    /// The URLs from `offset` on, at most [`MAX_SAMPLE_URLS`] of them and [`MAX_SAMPLE_PAGE_BYTES`]
-    /// as JSON, naming in `truncations` the part of the sample the page shows when it is not all.
-    fn of(urls: Vec<CrawlerReviewUrl>, offset: usize, truncations: &mut Vec<String>) -> Self {
+    /// The agents' seed of the sample, its first [`MAX_SAMPLE_URLS`] URLs in [`sample_order`],
+    /// from `offset` on within at most [`MAX_SAMPLE_PAGE_BYTES`] as JSON, naming in `truncations`
+    /// what the page leaves out. The fetch-free method induces a pattern from a seed of that size,
+    /// and more URLs add context cost without reliably better patterns, so the rest of the sample
+    /// is never listed; the approval guard still checks a pattern against all of it.
+    fn of(
+        mut urls: Vec<CrawlerReviewUrl>,
+        offset: usize,
+        crawl_host: Option<&str>,
+        truncations: &mut Vec<String>,
+    ) -> Self {
+        urls.sort_by_cached_key(|url| sample_order(&url.url));
         let total = urls.len();
-        let offset = offset.min(total);
+        urls.truncate(MAX_SAMPLE_URLS);
+        let seed = urls.len();
+        let offset = offset.min(seed);
         let mut bytes_left = MAX_SAMPLE_PAGE_BYTES;
         let urls: Vec<SampleUrlView> = urls
             .into_iter()
             .skip(offset)
-            .take(MAX_SAMPLE_URLS)
-            .map(SampleUrlView::of)
+            .map(|url| SampleUrlView::of(url, crawl_host))
             .take_while(|url| {
                 let bytes = serde_json::to_vec(url).map_or(0, |json| json.len() + 1);
                 let fits = bytes <= bytes_left;
@@ -555,9 +628,11 @@ impl SamplePage {
             })
             .collect();
         let end = offset + urls.len();
-        let next_offset = (end < total).then_some(end);
-        if offset > 0 || next_offset.is_some() {
-            truncations.push(format!("sample_urls: URLs {offset} to {end} of {total}"));
+        let next_offset = (end < seed).then_some(end);
+        if offset > 0 || next_offset.is_some() || seed < total {
+            truncations.push(format!(
+                "sample_urls: URLs {offset} to {end} of the first {seed} of {total} in hash order"
+            ));
         }
         Self {
             urls,
@@ -566,6 +641,16 @@ impl SamplePage {
             next_offset,
         }
     }
+}
+
+/// Where `url` stands in the order the agents read a sample in: by the SHA-256 of the URL, which
+/// only the same URL shares. The order is a fixed pseudorandom shuffle that ignores labels, classes and the order the
+/// crawl found the URLs in, so the first page is a spread over every path shape rather than the
+/// crawl's first section, as the seed of an induced pattern should be, and the same sample always
+/// pages the same way.
+fn sample_order(url: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(url.as_bytes()).into()
 }
 
 impl SourceProductUrlView {
@@ -578,10 +663,36 @@ impl SourceProductUrlView {
     }
 }
 
+/// `url` without its scheme and host, as the path and query a path-and-query pattern is matched
+/// against ([`path_and_query`]), when it is a URL of the crawl host (with or without `www.`); any
+/// other URL stays whole. Every sample URL of a ListingSource names the
+/// same host, so the host is cost in the agent's context and a literal it may copy into a pattern.
+pub(super) fn relative_url(url: &str, crawl_host: Option<&str>) -> String {
+    let Some(crawl_host) = crawl_host else {
+        return url.to_owned();
+    };
+    let bare = |host: &str| {
+        host.strip_prefix("www.")
+            .unwrap_or(host)
+            .to_ascii_lowercase()
+    };
+    match url::Url::parse(url) {
+        Ok(parsed)
+            if matches!(parsed.scheme(), "http" | "https")
+                && parsed
+                    .host_str()
+                    .is_some_and(|host| bare(host) == bare(crawl_host)) =>
+        {
+            path_and_query(&parsed)
+        }
+        _ => url.to_owned(),
+    }
+}
+
 impl SampleUrlView {
-    fn of(url: CrawlerReviewUrl) -> Self {
+    fn of(url: CrawlerReviewUrl, crawl_host: Option<&str>) -> Self {
         Self {
-            url: url.url,
+            url: relative_url(&url.url, crawl_host),
             previous_class: url.previous_class,
             current_pattern_match: url.current_pattern_match,
             candidate_pattern_match: url.candidate_pattern_match,
@@ -596,7 +707,10 @@ impl EventView {
             actor: event.actor,
             action: event.action,
             candidate_version: event.candidate_version,
-            notes: event.notes.as_deref().map(note),
+            notes: event
+                .notes
+                .as_deref()
+                .map(|notes| truncated_text(notes, MAX_EVENT_NOTE_CHARS)),
             created: event.created,
         }
     }
@@ -639,8 +753,12 @@ impl PageProjectionView {
             );
         }
         if end < projection_chars {
+            let view = match projection.view {
+                PageView::Outline => "",
+                PageView::Markdown => " and view MARKDOWN",
+            };
             text.push_str(&format!(
-                "\n# [truncated: {} more characters; call inspect_page with offset {end} to read on]\n",
+                "\n# [truncated: {} more characters; call inspect_page with offset {end}{view} to read on]\n",
                 projection_chars - end
             ));
         }
@@ -658,6 +776,7 @@ impl PageProjectionView {
                     .map(value),
                 sku: projection.json_ld_product_ids.sku.as_deref().map(value),
             },
+            view: projection.view,
             projection: text,
             projection_offset: offset,
             projection_chars,
@@ -873,12 +992,13 @@ mod tests {
 
         assert_eq!(
             excluding["decision"],
-            json!({ "type": "PATTERN", "value": "/item/", "exclude": "gift-card" })
+            json!({ "type": "PATTERN", "value": "/item/", "exclude": "gift-card", "matching": "FULL_URL_SEARCH" })
         );
         assert_eq!(excluding["current_exclude"], "voucher");
+        assert_eq!(excluding["current_matching"], "FULL_URL_SEARCH");
         assert_eq!(
             plain["decision"],
-            json!({ "type": "PATTERN", "value": "/item/" })
+            json!({ "type": "PATTERN", "value": "/item/", "matching": "FULL_URL_SEARCH" })
         );
         assert!(plain.get("current_exclude").is_none(), "{plain}");
     }
@@ -902,7 +1022,7 @@ mod tests {
             view["candidate"],
             json!({
                 "kind": "URL_PATTERN",
-                "decision": { "type": "PATTERN", "value": "/item/" },
+                "decision": { "type": "PATTERN", "value": "/item/", "matching": "FULL_URL_SEARCH" },
                 "current_pattern": null,
                 "sample_labels": [{ "url": "https://antiques.example/item/1", "label": "PRODUCT", "reason": "one chair" }],
                 "labelled_at": "2026-10-27T12:00:00Z",
@@ -915,22 +1035,16 @@ mod tests {
         assert_eq!(
             view["sample_urls"][0],
             json!({
-                "url": "https://antiques.example/item/0",
+                "url": hash_ordered(200)[0],
                 "candidate_pattern_match": true,
                 "candidate_class": "product",
             }),
             "the matches unknown before the ListingSource has a pattern are left out"
         );
         assert_eq!(view["sample_urls_total"], 200);
-        assert_eq!(view["events"][0]["candidate_version"], 10);
+        assert_eq!(view["events"][0]["candidate_version"], 40);
         assert_eq!(view["events_total"], 50);
-        assert_eq!(
-            view["truncations"],
-            json!([
-                "sample_urls: URLs 0 to 150 of 200",
-                "events: the last 40 of 50"
-            ])
-        );
+        assert_eq!(view["truncations"], json!(["events: the last 10 of 50"]));
         assert_eq!(view["matrix"], Value::Null);
     }
 
@@ -982,49 +1096,156 @@ mod tests {
         }))
     }
 
+    /// The paths of the first `count` sample URLs of [`url_pattern_detail`] in the order of the
+    /// SHA-256 of their URL.
+    fn hash_ordered(count: usize) -> Vec<String> {
+        use sha2::{Digest, Sha256};
+        let mut urls: Vec<String> = (0..count)
+            .map(|index| format!("https://antiques.example/item/{index}"))
+            .collect();
+        urls.sort_by_key(|url| Sha256::digest(url.as_bytes()));
+        urls.iter()
+            .map(|url| {
+                url.trim_start_matches("https://antiques.example")
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// The sample is read in a fixed shuffle, the seed order of an induced pattern: whatever order
+    /// the console answers the URLs in, and whatever their classes, the pages list them the same.
     #[test]
-    fn should_page_through_the_whole_sample_by_offset() {
+    fn should_list_the_sample_in_a_fixed_hash_order_whatever_the_console_s_order_and_classes() {
+        let candidate = json!({
+            "decision": { "type": "PATTERN", "value": "^/item/[^/?#]+$" },
+            "current_pattern": null,
+        });
+        let first_page = |reverse: bool| {
+            let mut detail = url_pattern_detail(&candidate, 300, 0);
+            if reverse {
+                detail.urls.reverse();
+                for url in &mut detail.urls {
+                    url.candidate_pattern_match = Some(false);
+                    url.candidate_class = Some("other".to_owned());
+                }
+            }
+            let view = json!(ReviewView::of(
+                detail,
+                wire::Candidate::UrlPattern(decoded(candidate.clone())),
+                0,
+            ));
+            view["sample_urls"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|url| url["url"].as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
+
+        let (crawl_order, reversed) = (first_page(false), first_page(true));
+
+        assert_eq!(crawl_order, reversed);
+        assert_eq!(crawl_order, hash_ordered(300)[..MAX_SAMPLE_URLS]);
+        assert!(
+            crawl_order.iter().any(|url| url
+                .trim_start_matches("/item/")
+                .parse::<usize>()
+                .is_ok_and(|index| index >= MAX_SAMPLE_URLS)),
+            "the first page reaches past the crawl's first 200 URLs"
+        );
+    }
+
+    #[test]
+    fn should_list_only_the_seed_of_a_larger_sample() {
         let candidate = json!({
             "decision": { "type": "NO_PATTERN" },
             "current_pattern": null,
         });
         let page = |offset| {
             json!(ReviewView::of(
-                url_pattern_detail(&candidate, 400, 0),
+                url_pattern_detail(&candidate, 500, 0),
                 wire::Candidate::UrlPattern(decoded(candidate.clone())),
                 offset,
             ))
         };
 
-        let pages: Vec<Value> = [0, 150, 300].map(page).into();
+        let (seed, past_it) = (page(0), page(MAX_SAMPLE_URLS));
 
-        let shown: Vec<(u64, u64, Value, u64)> = pages
-            .iter()
-            .map(|view| {
-                (
-                    view["sample_urls_offset"].as_u64().unwrap_or(u64::MAX),
-                    view["sample_urls"].as_array().map_or(0, Vec::len) as u64,
-                    view["sample_urls_next_offset"].clone(),
-                    view["sample_urls_total"].as_u64().unwrap_or(0),
-                )
-            })
+        let listed: Vec<&str> = seed["sample_urls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|url| url["url"].as_str())
             .collect();
         assert_eq!(
-            shown,
-            [
-                (0, 150, json!(150), 400),
-                (150, 150, json!(300), 400),
-                (300, 100, Value::Null, 400)
-            ]
+            listed,
+            hash_ordered(500)[..MAX_SAMPLE_URLS],
+            "the seed in hash order"
         );
         assert_eq!(
-            pages[2]["sample_urls"][0]["url"],
-            "https://antiques.example/item/300"
+            (&seed["sample_urls_next_offset"], &seed["sample_urls_total"]),
+            (&Value::Null, &json!(500))
         );
         assert_eq!(
-            pages[2]["truncations"],
-            json!(["sample_urls: URLs 300 to 400 of 400"])
+            seed["truncations"],
+            json!(["sample_urls: URLs 0 to 200 of the first 200 of 500 in hash order"])
         );
+        assert_eq!(past_it["sample_urls"], json!([]), "nothing past the seed");
+        assert_eq!(past_it["sample_urls_next_offset"], Value::Null);
+    }
+
+    /// The sample page after the first is what the agent reads on, so it carries the candidate's
+    /// version to compare and none of what the first answer already put in the context.
+    #[test]
+    fn should_leave_the_review_body_out_of_every_sample_page_after_the_first() {
+        let candidate = json!({
+            "decision": { "type": "PATTERN", "value": "/item/" },
+            "current_pattern": null,
+        });
+        let page = |offset| {
+            json!(ReviewView::of(
+                url_pattern_detail(&candidate, 400, 5),
+                wire::Candidate::UrlPattern(decoded(candidate.clone())),
+                offset,
+            ))
+        };
+        let body_fields = [
+            "candidate",
+            "pages",
+            "source_product_urls",
+            "matrix",
+            "events",
+            "events_total",
+        ];
+
+        let (first, second) = (page(0), page(150));
+
+        for field in body_fields {
+            assert!(first.get(field).is_some(), "{field} missing from {first}");
+            assert!(second.get(field).is_none(), "{field} in {second}");
+        }
+        assert_eq!(second["candidate_version"], first["candidate_version"]);
+        assert_eq!(second["sample_urls_offset"], 150);
+        assert_eq!(
+            second["truncations"],
+            json!(["sample_urls: URLs 150 to 200 of the first 200 of 400 in hash order"])
+        );
+    }
+
+    #[test]
+    fn should_cut_the_notes_of_the_events_shorter_than_other_notes() {
+        let candidate = json!({ "decision": { "type": "NO_PATTERN" }, "current_pattern": null });
+        let mut detail = url_pattern_detail(&candidate, 0, 1);
+        detail.events[0].notes = Some("n".repeat(MAX_NOTE_CHARS));
+
+        let view = json!(ReviewView::of(
+            detail,
+            wire::Candidate::UrlPattern(decoded(candidate)),
+            0,
+        ));
+
+        let notes = view["events"][0]["notes"].as_str().unwrap_or_default();
+        assert!(notes.contains("[truncated: 400 of "), "{notes}");
     }
 
     #[test]
@@ -1069,8 +1290,36 @@ mod tests {
     }
 
     #[test]
+    fn should_list_the_urls_of_the_crawl_host_as_path_and_query() {
+        let host = Some("antiques.example");
+
+        for (url, relative) in [
+            ("https://antiques.example/item/1", "/item/1"),
+            (
+                "http://www.antiques.example/item/1?page=2&sort=a#top",
+                "/item/1?page=2&sort=a",
+            ),
+            ("https://antiques.example", "/"),
+            ("https://antiques.example/item/1?", "/item/1"),
+            ("https://antiques.example:8443/item/1", "/item/1"),
+            (
+                "https://other.example/item/1",
+                "https://other.example/item/1",
+            ),
+            ("not a url", "not a url"),
+        ] {
+            assert_eq!(relative_url(url, host), relative, "{url}");
+        }
+        assert_eq!(
+            relative_url("https://antiques.example/a", None),
+            "https://antiques.example/a"
+        );
+    }
+
+    #[test]
     fn should_answer_a_long_projection_in_marked_windows() {
         let projection = format!("main\n{}", " p | text\n".repeat(4_000));
+        let view = PageView::Outline;
         let page = |offset| {
             PageProjectionView::of(
                 wire::PageProjection {
@@ -1078,6 +1327,7 @@ mod tests {
                     review_page_id: None,
                     url: "https://antiques.example/item/1".to_owned(),
                     final_url: "https://antiques.example/item/1".to_owned(),
+                    view,
                     projection: projection.clone(),
                     describes_one_product: true,
                     json_ld_product_ids: JsonLdProductIds::default(),
@@ -1119,6 +1369,7 @@ mod tests {
                 review_page_id: None,
                 url: String::new(),
                 final_url: String::new(),
+                view: PageView::Outline,
                 projection: "page_dsl: {}\n".to_owned(),
                 describes_one_product: false,
                 json_ld_product_ids: JsonLdProductIds::default(),
@@ -1129,9 +1380,54 @@ mod tests {
         assert_eq!(short.projection, "page_dsl: {}\n");
     }
 
+    /// The markdown is windowed as the outline is, and its read-on marker names the view, so the
+    /// next call reads on in the same text.
+    #[test]
+    fn should_answer_a_long_markdown_view_in_the_same_windows_and_read_on_in_markdown() {
+        let markdown = format!("# Chair\n{}", "A paragraph of text.\n".repeat(2_000));
+        let page = |view, offset| {
+            PageProjectionView::of(
+                wire::PageProjection {
+                    review_id: CrawlerReviewId::new(),
+                    review_page_id: None,
+                    url: "https://antiques.example/item/1".to_owned(),
+                    final_url: "https://antiques.example/item/1".to_owned(),
+                    view,
+                    projection: markdown.clone(),
+                    describes_one_product: false,
+                    json_ld_product_ids: JsonLdProductIds::default(),
+                },
+                offset,
+            )
+        };
+
+        let first = page(PageView::Markdown, 0);
+        let as_outline = page(PageView::Outline, 0);
+        let next = page(PageView::Markdown, MAX_PROJECTION_CHARS);
+
+        assert_eq!(first.view, PageView::Markdown);
+        assert_eq!(json!(first)["view"], "MARKDOWN");
+        assert!(first.projection.ends_with(&format!(
+            "call inspect_page with offset {MAX_PROJECTION_CHARS} and view MARKDOWN to read on]\n"
+        )));
+        assert_eq!(
+            (first.projection_chars, first.truncations.clone()),
+            (as_outline.projection_chars, as_outline.truncations.clone())
+        );
+        assert_eq!(
+            first.projection.split("\n# [truncated:").next(),
+            as_outline.projection.split("\n# [truncated:").next()
+        );
+        assert!(next.projection.starts_with(&format!(
+            "# [continued: the projection from character {MAX_PROJECTION_CHARS}]\n"
+        )));
+        assert!(!next.projection.contains("[truncated:"));
+    }
+
     #[test]
     fn should_keep_a_window_of_wide_text_whole_within_the_answer_bound_and_read_on_exactly() {
         let projection = format!("page_dsl:\n{}", "  - text: \"日本の椅子\"\n".repeat(5_000));
+        let view = PageView::Outline;
         let page = |offset| {
             PageProjectionView::of(
                 wire::PageProjection {
@@ -1139,6 +1435,7 @@ mod tests {
                     review_page_id: None,
                     url: "https://antiques.example/item/1".to_owned(),
                     final_url: "https://antiques.example/item/1".to_owned(),
+                    view,
                     projection: projection.clone(),
                     describes_one_product: false,
                     json_ld_product_ids: JsonLdProductIds::default(),
@@ -1189,6 +1486,7 @@ mod tests {
                 review_page_id: None,
                 url: "https://antiques.example/item/1".to_owned(),
                 final_url: "https://antiques.example/item/1".to_owned(),
+                view: PageView::Outline,
                 projection,
                 describes_one_product: true,
                 json_ld_product_ids: JsonLdProductIds {

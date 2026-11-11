@@ -4,7 +4,6 @@
 //! (review rail).
 
 use super::reviewer_page_url::ReviewPageIdentity;
-use crate::review::approval_guard::SampleUrl;
 use crate::review::model::UrlPatternReviewCandidate;
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use crate::spider::classification::url_classifier::UrlClassifier;
@@ -44,7 +43,7 @@ impl CandidateClassification {
 /// Records what inspecting the page of `url` found, whether it describes exactly one schema.org
 /// `Product`, on the sample row of the review that holds the page under any spelling the crawler
 /// stores it under. A URL outside the sample, and any review without a sample, record nothing.
-/// The approval guard compares the share of such pages with what the pattern takes.
+/// The approval guard does not read it.
 pub(super) async fn record_sample_page_markup(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review_id: CrawlerReviewId,
@@ -63,25 +62,17 @@ pub(super) async fn record_sample_page_markup(
     Ok(())
 }
 
-/// The URLs of the review's sample with what their inspection found, as the approval guard reads
-/// them.
+/// The URLs of the review's sample, as the approval guard reads them.
 pub(super) async fn fetch_sample_urls<'e>(
     executor: impl sqlx::PgExecutor<'e>,
     review_id: CrawlerReviewId,
-) -> Result<Vec<SampleUrl>, sqlx::Error> {
-    Ok(sqlx::query_as::<_, (String, Option<bool>)>(
-        "SELECT url, describes_one_product FROM crawler_review_urls \
-         WHERE review_id = $1 ORDER BY created, url",
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT url FROM crawler_review_urls WHERE review_id = $1 ORDER BY created, url",
     )
     .bind(review_id.as_uuid())
     .fetch_all(executor)
-    .await?
-    .into_iter()
-    .map(|(url, describes_one_product)| SampleUrl {
-        url,
-        describes_one_product,
-    })
-    .collect())
+    .await
 }
 
 /// Classifies the stored sample of the review `review_id` again under the edited candidate's
@@ -169,14 +160,9 @@ pub(super) async fn refresh_sample(
     else {
         return Ok(());
     };
-    let (Ok(candidate_pattern), Ok(current_pattern)) = (
-        candidate.decision.candidate_pattern(),
-        candidate
-            .current_pattern
-            .as_deref()
-            .map(ProductUrlPattern::parse)
-            .transpose(),
-    ) else {
+    let (Ok(candidate_pattern), Ok(current_pattern)) =
+        (candidate.decision.candidate_pattern(), candidate.current())
+    else {
         return Ok(());
     };
     let present: i64 =
