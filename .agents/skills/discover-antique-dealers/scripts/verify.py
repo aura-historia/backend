@@ -120,7 +120,7 @@ def check_profile(api, row, ids):
 
 
 def check_shipping_default(current, ids):
-    require(current["shippingProfileId"] == ids.get("shippingProfileId"),
+    require(current.get("shippingProfileId") == ids.get("shippingProfileId"),
             "Shipping default differs")
     if ids.get("shippingProfileId"):
         require(current["eligibility"] == "ACTIVE", "Shipping default is not active")

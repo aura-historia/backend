@@ -108,9 +108,9 @@ pub struct ProductListingDetailsData<Shipping = ListingShippingDetailData> {
     #[serde(with = "crate::wire::listing::lifecycle")]
     #[schemars(schema_with = "crate::wire::listing::lifecycle_schema")]
     lifecycle: ListingLifecycle,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::view_url")]
     view_url: Url,
     images: Vec<ProductListingImageData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -235,9 +235,9 @@ pub struct ProductListingSummaryData {
     #[serde(with = "crate::wire::listing::lifecycle")]
     #[schemars(schema_with = "crate::wire::listing::lifecycle_schema")]
     lifecycle: ListingLifecycle,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::view_url")]
     view_url: Url,
     images: Vec<ProductListingImageData>,
     #[serde(skip_serializing_if = "Option::is_none")]

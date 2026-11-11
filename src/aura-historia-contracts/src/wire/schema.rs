@@ -77,6 +77,20 @@ pub fn url(_: &mut SchemaGenerator) -> Schema {
 pub fn optional_url(generator: &mut SchemaGenerator) -> Schema {
     nullable(url(generator))
 }
+/// The referral-tagged link to a provider's page; see [`super::description::VIEW_URL`].
+pub fn view_url(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type":"string","format":"uri","description":super::description::VIEW_URL})
+}
+pub fn optional_view_url(generator: &mut SchemaGenerator) -> Schema {
+    json_schema!({"anyOf":[url(generator),{"type":"null"}],"description":super::description::VIEW_URL})
+}
+/// The provider's own address that a `viewUrl` is derived from.
+pub fn source_url(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type":"string","format":"uri","description":super::description::SOURCE_URL})
+}
+pub fn optional_source_url(generator: &mut SchemaGenerator) -> Schema {
+    json_schema!({"anyOf":[url(generator),{"type":"null"}],"description":super::description::SOURCE_URL})
+}
 pub fn product_listing_ids(generator: &mut SchemaGenerator) -> Schema {
     json_schema!({"type":"array","items":product_listing_id(generator)})
 }

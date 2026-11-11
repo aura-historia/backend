@@ -100,10 +100,10 @@ pub struct PublicListingSourceData {
     name: String,
     operator: PublicListingSourceOperatorData,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    #[schemars(schema_with = "crate::wire::schema::optional_source_url")]
     url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    #[schemars(schema_with = "crate::wire::schema::optional_view_url")]
     view_url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::wire::schema::optional_url")]

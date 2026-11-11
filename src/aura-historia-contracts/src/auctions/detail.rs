@@ -14,7 +14,7 @@ pub struct PublicAuctionData {
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalogue_url: Option<url::Url>,
-    #[schemars(schema_with = "crate::wire::schema::optional_url")]
+    #[schemars(schema_with = "crate::wire::schema::optional_view_url")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub view_url: Option<url::Url>,
     #[schemars(schema_with = "super::format_schema")]

@@ -16,6 +16,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
+use tracing::{debug, info};
 use url::Url;
 
 use crate::network::bot_challenge::{
@@ -26,6 +27,7 @@ use crate::network::policy::{
     classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host, location_text,
     network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::network::politeness::{PolitenessGroups, politeness_group};
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
@@ -344,7 +346,7 @@ pub struct CrawlDiagnostics {
     pub robots_crawl_delay_ms: Option<u64>,
     /// Delay between request starts the crawl ran with: the configured delay,
     /// slowed after rate-limited crawls (`CrawlPace`) and raised by
-    /// robots.txt `Crawl-delay`.
+    /// robots.txt `Crawl-delay` and its politeness group's spacing.
     pub request_delay_ms: u64,
     /// robots.txt Disallow rules whose written Allow exception Spider's deny
     /// list cannot carve out, so Spider skips URLs robots.txt permits.
@@ -715,6 +717,9 @@ pub struct SpiderImpl {
     config: CrawlerConfig,
     transport: Arc<dyn SpiderTransport>,
     shutdown: Option<watch::Receiver<bool>>,
+    /// The politeness groups crawls take their start in, set their pace by and report rate
+    /// limits to (`docs/crawler/networking.md#politeness-groups`).
+    politeness: Arc<PolitenessGroups>,
 }
 
 impl SpiderImpl {
@@ -727,6 +732,7 @@ impl SpiderImpl {
             config,
             transport,
             shutdown: None,
+            politeness: Arc::default(),
         }
     }
 
@@ -735,6 +741,35 @@ impl SpiderImpl {
     pub fn with_shutdown(mut self, shutdown: watch::Receiver<bool>) -> Self {
         self.shutdown = Some(shutdown);
         self
+    }
+
+    /// Shares `politeness` with the process's other components, such as the scraper's fetcher,
+    /// so a crawl and the scraper count against the same politeness groups.
+    pub fn with_politeness_groups(mut self, politeness: Arc<PolitenessGroups>) -> Self {
+        self.politeness = politeness;
+        self
+    }
+
+    /// Waits until the crawl root's politeness group admits a request start, so a crawl does
+    /// not start into a group paused by a rate limit. The crawler's shutdown ends the wait.
+    async fn wait_for_politeness_turn(&self, root: &Url) {
+        let Some(host) = root.host_str() else {
+            return;
+        };
+        let mut shutdown = self.shutdown.clone();
+        tokio::select! {
+            waited = self.politeness.wait_for_turn(host) => {
+                if !waited.is_zero() {
+                    debug!(
+                        host,
+                        politeness_group = %politeness_group(host).key,
+                        waited_ms = waited.as_millis(),
+                        "Spider crawl waited for its politeness group"
+                    );
+                }
+            }
+            () = shutdown_requested(&mut shutdown) => {}
+        }
     }
 }
 
@@ -1385,9 +1420,38 @@ struct LocalFilter {
     known_pages: Arc<KnownPageAnswers>,
     /// Queues the targets of the redirects the delivered pages answer.
     redirects: RedirectFollower,
+    /// The politeness groups the crawl reports its answers to.
+    politeness: Arc<PolitenessGroups>,
 }
 
 impl LocalFilter {
+    /// Reports a delivered page's answer to its politeness group: a rate-limit answer slows the
+    /// whole group, a success eases it back.
+    fn report_answer(&self, url: &str, status_code: u16, rate_limit: Option<RateLimitSignal>) {
+        let Some(host) = Url::parse(url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+        else {
+            return;
+        };
+        if let Some(signal) = rate_limit {
+            if let Some(backoff) = self.politeness.record_rate_limit(&host, signal.retry_after) {
+                info!(
+                    event = "crawler.spider.politeness_group_rate_limited",
+                    domain = %host,
+                    politeness_group = %politeness_group(&host).key,
+                    status_code,
+                    retry_after_seconds = signal.retry_after.map(|value| value.as_secs()),
+                    pause_ms = backoff.pause.as_millis(),
+                    spacing_ms = backoff.spacing.as_millis(),
+                    "Paused politeness group after a rate limit"
+                );
+            }
+        } else if (200..300).contains(&status_code) {
+            self.politeness.record_response(&host);
+        }
+    }
+
     fn admit(&mut self, raw_url: &str) -> Result<CrawledUrl, LocalRejection> {
         if is_refused_link(&self.refused_links, raw_url) {
             return Err(LocalRejection::Blacklist);
@@ -1438,8 +1502,23 @@ fn admission_key(url: &CrawledUrl) -> String {
 /// robots.txt `Crawl-delay` only ever raises the configured spider delay.
 fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> u64 {
     crawl_delay.map_or(configured_millis, |delay| {
-        configured_millis.max(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX))
+        configured_millis.max(duration_millis(delay))
     })
+}
+
+/// The crawl's delay between request starts: the paced delay, raised by robots.txt
+/// `Crawl-delay` and by the current spacing of the root's politeness group, so a crawl never
+/// requests faster than its group admits.
+fn crawl_request_delay_millis(
+    paced_millis: u64,
+    crawl_delay: Option<Duration>,
+    group_spacing: Duration,
+) -> u64 {
+    crawl_delay_millis(paced_millis, crawl_delay).max(duration_millis(group_spacing))
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Hands Spider each link it finds in the spelling the crawler stores
@@ -1534,6 +1613,7 @@ impl SpiderImpl {
             )
         })?;
         let request_timeout = Duration::from_secs(self.config.request_timeout_secs);
+        self.wait_for_politeness_turn(&configured_root).await;
         let PreflightedRoot {
             url: root_url,
             status: root_preflight_status,
@@ -1557,9 +1637,12 @@ impl SpiderImpl {
         } = crawl_rules(self.transport.as_ref(), &root_url, &client, request_timeout)
             .await
             .map_err(|error| error.after_reroot(root_reroot.as_ref()))?;
-        let delay_millis = crawl_delay_millis(
+        let delay_millis = crawl_request_delay_millis(
             pace.delay_millis(self.config.delay_millis),
             robots.crawl_delay,
+            root_url
+                .host_str()
+                .map_or(Duration::ZERO, |host| self.politeness.spacing(host)),
         );
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
@@ -1665,6 +1748,7 @@ impl SpiderImpl {
             found_links: found_links.clone(),
             known_pages: Arc::clone(&known_pages),
             redirects: RedirectFollower::new(redirect_queue, robots.clone()),
+            politeness: Arc::clone(&self.politeness),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1908,6 +1992,7 @@ async fn relay_library_pages(
         }
 
         let rate_limit_answer = RateLimitSignal::from_page(status_code, page.headers.as_ref());
+        filter.report_answer(page.get_url(), status_code, rate_limit_answer);
         if diagnostics.rate_limit.is_none()
             && let Some(signal) = rate_limit_answer
         {
@@ -5046,6 +5131,7 @@ mod tests {
                     policy: "unavailable_allow_all",
                 },
             ),
+            politeness: Arc::default(),
         }
     }
 
@@ -5094,6 +5180,85 @@ mod tests {
         assert_eq!(
             crawl_delay_millis(500, Some(Duration::from_millis(100))),
             500
+        );
+    }
+
+    #[test]
+    fn should_raise_the_spider_delay_to_the_politeness_group_spacing() {
+        assert_eq!(crawl_request_delay_millis(500, None, Duration::ZERO), 500);
+        assert_eq!(
+            crawl_request_delay_millis(500, None, Duration::from_secs(2)),
+            2_000
+        );
+        assert_eq!(
+            crawl_request_delay_millis(500, Some(Duration::from_secs(5)), Duration::from_secs(2)),
+            5_000
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_start_a_crawl_only_after_its_politeness_group_pause() {
+        let groups = Arc::new(PolitenessGroups::default());
+        groups.record_rate_limit("a.shopnetzwerk.com", Some(Duration::from_secs(8)));
+        let spider = SpiderImpl::default().with_politeness_groups(Arc::clone(&groups));
+        let started = tokio::time::Instant::now();
+
+        spider
+            .wait_for_politeness_turn(&Url::parse("https://b.shopnetzwerk.com/").unwrap())
+            .await;
+        let shop_wait = started.elapsed();
+        spider
+            .wait_for_politeness_turn(&Url::parse("https://example.com/").unwrap())
+            .await;
+
+        assert_eq!(shop_wait, Duration::from_secs(8));
+        assert_eq!(started.elapsed(), shop_wait);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_end_the_politeness_wait_when_the_crawler_shuts_down() {
+        let groups = Arc::new(PolitenessGroups::default());
+        groups.record_rate_limit("a.shopnetzwerk.com", Some(Duration::from_secs(8)));
+        let (_shutdown, shutdown_requested) = watch::channel(true);
+        let spider = SpiderImpl::default()
+            .with_shutdown(shutdown_requested)
+            .with_politeness_groups(groups);
+        let started = tokio::time::Instant::now();
+
+        spider
+            .wait_for_politeness_turn(&Url::parse("https://b.shopnetzwerk.com/").unwrap())
+            .await;
+
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_report_rate_limit_answers_and_successes_to_the_politeness_group() {
+        let filter = local_filter();
+        let signal = RateLimitSignal {
+            status: 429,
+            retry_after: Some(Duration::from_secs(8)),
+        };
+
+        filter.report_answer("https://a.shopnetzwerk.com/p/1", 429, Some(signal));
+        let raised = filter.politeness.spacing("b.shopnetzwerk.com");
+        for _ in 0..200 {
+            filter.report_answer("https://a.shopnetzwerk.com/p/2", 200, None);
+        }
+
+        assert!(raised >= Duration::from_secs(1));
+        assert_eq!(
+            filter.politeness.spacing("b.shopnetzwerk.com"),
+            politeness_group("b.shopnetzwerk.com").min_spacing
+        );
+        let now = tokio::time::Instant::now();
+        assert!(
+            filter
+                .politeness
+                .reserve_start("b.shopnetzwerk.com", now)
+                .start()
+                - now
+                >= Duration::from_secs(7)
         );
     }
 

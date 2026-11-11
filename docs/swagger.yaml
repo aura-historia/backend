@@ -21410,6 +21410,7 @@ components:
         viewUrl:
           type: string
           format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
         images:
           type: array
           items:
@@ -21519,6 +21520,7 @@ components:
         viewUrl:
           type: string
           format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
         images:
           type: array
           items:
@@ -21604,6 +21606,7 @@ components:
         viewUrl:
           type: string
           format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
         images:
           type: array
           items:
@@ -24844,6 +24847,7 @@ components:
         viewUrl:
           type: string
           format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
         change:
           $ref: "#/components/schemas/WatchlistNotificationChangeData"
     WatchlistNotificationChangeData:
@@ -24925,6 +24929,7 @@ components:
         viewUrl:
           type: string
           format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
     PartnershipApplicationNotificationPayloadData:
       type: object
       required:
@@ -26629,6 +26634,7 @@ components:
         viewUrl:
           type: string
           format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
         format:
           allOf:
             - $ref: "#/components/schemas/AuctionFormatData"
