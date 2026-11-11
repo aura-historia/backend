@@ -16,8 +16,8 @@ use crate::spider::crawled_root::CrawlOutcomeWrite;
 use crate::spider::discovery::frontier::CrawlKind;
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlCooldownProfile, CrawlFailureKind, CrawlPace, RobotsUnreachable,
-    SpiderDiscoveryError,
+    CrawlBudgetScale, CrawlCompletion, CrawlCooldownProfile, CrawlFailureKind, CrawlPace,
+    RobotsUnreachable, SpiderDiscoveryError,
 };
 use crate::spider::local_lock::{WorkLock, WorkLockScope};
 use crate::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
@@ -101,6 +101,33 @@ fn rate_limited_crawl_write(
 fn crawl_pace(candidate: &SpiderCandidate) -> CrawlPace {
     CrawlPace::after_rate_limited_crawls(
         u32::try_from(candidate.crawl_rate_limit_streak).unwrap_or(0),
+    )
+}
+
+/// At most one spider slot in this many runs an extended crawl at a time, so the continuations of
+/// large shops cannot hold every slot for several budgets while other shops wait.
+const EXTENDED_CRAWL_SLOT_SHARE: usize = 3;
+
+/// How many crawls of a pass may run an extended budget at once: none below
+/// [`EXTENDED_CRAWL_SLOT_SHARE`] slots.
+fn extended_crawl_slots(spider_concurrency: usize) -> usize {
+    spider_concurrency / EXTENDED_CRAWL_SLOT_SHARE
+}
+
+/// The budget of the ListingSource's next crawl. A full crawl that continues truncated ones runs
+/// longer while an extended-crawl slot is free; an incremental crawl, a crawl of a shop that
+/// rate-limited the crawler, which asked for fewer requests, and a crawl when no extended slot
+/// is free run the configured budget
+/// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+fn crawl_budget_scale(candidate: &SpiderCandidate, extended_slot_free: bool) -> CrawlBudgetScale {
+    if candidate.kind != CrawlKind::Full
+        || candidate.crawl_rate_limit_streak > 0
+        || !extended_slot_free
+    {
+        return CrawlBudgetScale::STANDARD;
+    }
+    CrawlBudgetScale::after_truncated_crawls(
+        u32::try_from(candidate.crawl_truncation_count).unwrap_or(0),
     )
 }
 
@@ -1034,6 +1061,7 @@ fn spawn_spider_candidate(
     spider_service: Arc<dyn SpiderService>,
     lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
+    budget: CrawlBudgetScale,
 ) {
     let crawl_root_url = candidate.crawl_root.url().to_string();
     let listing_source_id = candidate.listing_source_id;
@@ -1042,7 +1070,8 @@ fn spawn_spider_candidate(
         "spider_candidate",
         listing_source_id = %candidate.listing_source_id,
         crawl_root_url = %crawl_root_url,
-        kind = %candidate.kind
+        kind = %candidate.kind,
+        budget_factor = budget.factor()
     );
 
     join_set.spawn(
@@ -1071,6 +1100,7 @@ fn spawn_spider_candidate(
                             &crawl_root_url,
                             threshold,
                             pace,
+                            budget,
                             candidate.kind,
                         )
                         .await;
@@ -1104,6 +1134,8 @@ impl CrawlerCronJob {
 
         let pass_start = tokio::time::Instant::now();
         let mut excluded_listing_source_ids: HashSet<ListingSourceId> = HashSet::new();
+        let extended_slots = extended_crawl_slots(spider_concurrency);
+        let mut extended_in_flight: HashSet<ListingSourceId> = HashSet::new();
         let mut join_set: JoinSet<SpiderSlotOutcome> = JoinSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
@@ -1171,6 +1203,11 @@ impl CrawlerCronJob {
                     }
                     scheduled_any = true;
                     total += 1;
+                    let budget =
+                        crawl_budget_scale(&candidate, extended_in_flight.len() < extended_slots);
+                    if budget.is_extended() {
+                        extended_in_flight.insert(candidate.listing_source_id);
+                    }
                     spawn_spider_candidate(
                         &mut join_set,
                         candidate,
@@ -1178,6 +1215,7 @@ impl CrawlerCronJob {
                         Arc::clone(&self.spider_service),
                         Arc::clone(&self.lock_manager),
                         self.config.spider_classify_threshold,
+                        budget,
                     );
                 }
 
@@ -1193,6 +1231,7 @@ impl CrawlerCronJob {
             match join_set.join_next().await {
                 Some(Ok(outcome)) => {
                     excluded_listing_source_ids.insert(outcome.listing_source_id);
+                    extended_in_flight.remove(&outcome.listing_source_id);
                     match outcome.status {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
@@ -1278,10 +1317,10 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .withf(|_, crawl_root_url, _, _, _| {
+            .withf(|_, crawl_root_url, _, _, _, _| {
                 crawl_root_url == "https://httpbin.org/en/antiques/"
             })
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async {
                     Err(crate::spider::service::SpiderServiceError::Database(
                         sqlx::Error::RowNotFound,
@@ -1316,6 +1355,104 @@ mod tests {
         let seconds = (next_crawl_at - time::OffsetDateTime::now_utc()).whole_seconds();
         let expected = cooldown.as_secs() as i64;
         seconds >= expected - 60 && seconds <= expected + 60
+    }
+
+    #[test]
+    fn crawl_budget_scale_should_extend_only_a_full_continuation_with_a_free_extended_slot() {
+        let continuation = || {
+            let mut candidate = spider_candidate(ListingSourceId::new());
+            candidate.crawl_truncation_count = 2;
+            candidate
+        };
+        let extendable = continuation();
+        assert_eq!(
+            crawl_budget_scale(&extendable, true),
+            CrawlBudgetScale::after_truncated_crawls(2)
+        );
+        assert_eq!(
+            crawl_budget_scale(&extendable, false),
+            CrawlBudgetScale::STANDARD
+        );
+
+        let first_crawl = spider_candidate(ListingSourceId::new());
+        assert_eq!(
+            crawl_budget_scale(&first_crawl, true),
+            CrawlBudgetScale::STANDARD
+        );
+
+        let mut incremental = continuation();
+        incremental.kind = CrawlKind::Incremental;
+        assert_eq!(
+            crawl_budget_scale(&incremental, true),
+            CrawlBudgetScale::STANDARD
+        );
+
+        let mut rate_limited = continuation();
+        rate_limited.crawl_rate_limit_streak = 1;
+        assert_eq!(
+            crawl_budget_scale(&rate_limited, true),
+            CrawlBudgetScale::STANDARD
+        );
+    }
+
+    #[test]
+    fn extended_crawl_slots_should_leave_at_least_two_thirds_of_the_slots_standard() {
+        assert_eq!(extended_crawl_slots(1), 0);
+        assert_eq!(extended_crawl_slots(2), 0);
+        assert_eq!(extended_crawl_slots(3), 1);
+        assert_eq!(extended_crawl_slots(8), 2);
+    }
+
+    #[tokio::test]
+    async fn should_extend_at_most_the_fair_share_of_concurrent_continuations() {
+        use std::sync::Mutex;
+
+        let sources = [
+            ListingSourceId::new(),
+            ListingSourceId::new(),
+            ListingSourceId::new(),
+        ];
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    Ok(match first_call {
+                        true => sources
+                            .iter()
+                            .map(|&listing_source_id| {
+                                let mut candidate = spider_candidate(listing_source_id);
+                                candidate.crawl_truncation_count = 2;
+                                candidate
+                            })
+                            .collect(),
+                        false => vec![],
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_completed()
+            .times(3)
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        let budgets = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&budgets);
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(3)
+            .returning(move |_, _, _, _, budget, _| {
+                recorded.lock().unwrap().push(budget.factor());
+                Box::pin(async { Ok(run_result(CrawlCompletion::Completed)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 3)
+            .run_spider_once()
+            .await;
+
+        let mut factors = budgets.lock().unwrap().clone();
+        factors.sort_unstable();
+        assert_eq!(factors, vec![1, 1, 3]);
     }
 
     #[test]
@@ -1933,8 +2070,8 @@ mod tests {
         let mut spider_service = MockSpiderService::new();
         spider_service
             .expect_run()
-            .withf(move |source, _, _, _, _| *source == expected_listing_source_id)
-            .returning(|_, _, _, _, _| {
+            .withf(move |source, _, _, _, _, _| *source == expected_listing_source_id)
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async {
                     Ok(SpiderRunResult {
                         total_links: 10,
@@ -2012,7 +2149,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(3)
-            .returning(move |source, _, _, _, _| {
+            .returning(move |source, _, _, _, _, _| {
                 let listing_source_id = *source;
                 let release_slow = Arc::clone(&release_slow_for_mock);
                 let slow_running = Arc::clone(&slow_running_for_mock);
@@ -2090,7 +2227,7 @@ mod tests {
         spider_service
             .expect_run()
             .once()
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _, _, _| {
                 let crawl_started = Arc::clone(&crawl_started_for_mock);
                 let release_crawl = Arc::clone(&release_crawl_for_mock);
                 Box::pin(async move {
@@ -2152,7 +2289,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _, _| {
             Box::pin(async {
                 Err(crate::spider::service::SpiderServiceError::Database(
                     sqlx::Error::RowNotFound,
@@ -2201,7 +2338,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
@@ -2264,7 +2401,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _, _| {
             Box::pin(async {
                 Err(crate::spider::service::SpiderServiceError::Database(
                     sqlx::Error::RowNotFound,
@@ -2319,7 +2456,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _, _| {
             Box::pin(async move {
                 Err(
                     crate::spider::service::SpiderServiceError::InsufficientInferenceSample {
@@ -2378,7 +2515,7 @@ mod tests {
         let mut spider_service = MockSpiderService::new();
         spider_service
             .expect_run()
-            .returning(move |_, _, _, _, _| Box::pin(async move { Err(crawl_failed(kind)) }));
+            .returning(move |_, _, _, _, _, _| Box::pin(async move { Err(crawl_failed(kind)) }));
 
         let mut scraper_candidates = MockScraperCandidateService::new();
         scraper_candidates
@@ -2448,7 +2585,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _, _| {
             Box::pin(async { Err(preflight_failed(CrawlFailureKind::ConnectError)) })
         });
 
@@ -2496,7 +2633,7 @@ mod tests {
             .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
 
         let mut spider_service = MockSpiderService::new();
-        spider_service.expect_run().returning(|_, _, _, _, _| {
+        spider_service.expect_run().returning(|_, _, _, _, _, _| {
             Box::pin(async move { Err(crawl_failed(CrawlFailureKind::RateLimited)) })
         });
 
@@ -2644,8 +2781,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .withf(|_, _, _, pace, _| *pace == CrawlPace::after_rate_limited_crawls(1))
-            .returning(|_, _, _, _, _| {
+            .withf(|_, _, _, pace, _, _| *pace == CrawlPace::after_rate_limited_crawls(1))
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async { Ok(run_result(rate_limited(Some(Duration::from_secs(1_800))))) })
             });
 
@@ -2684,8 +2821,8 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .withf(|_, _, _, pace, _| *pace == CrawlPace::default())
-            .returning(|_, _, _, _, _| {
+            .withf(|_, _, _, pace, _, _| *pace == CrawlPace::default())
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async { Ok(run_result(rate_limited(Some(HOUR * 5)))) })
             });
 
@@ -2783,7 +2920,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async {
                     let SpiderServiceError::CrawlFailed {
                         crawl_root_url,
@@ -2896,7 +3033,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
             });
 
@@ -2937,7 +3074,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async {
                     Ok(SpiderRunResult {
                         frontier_left: Some(1_500),
@@ -2990,7 +3127,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::Stopped)) })
             });
 
@@ -3006,7 +3143,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async {
                     Err(SpiderServiceError::NoProductUrls {
                         crawl_root_url: "https://example.com".to_string(),
@@ -3068,7 +3205,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::PageBudgetReached)) })
             });
 
@@ -3111,7 +3248,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async { Err(crawl_failed(CrawlFailureKind::ConnectError)) })
             });
 
@@ -3161,7 +3298,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(2)
-            .returning(move |source, _, _, _, _| {
+            .returning(move |source, _, _, _, _, _| {
                 let completion = if *source == truncated_listing_source_id {
                     CrawlCompletion::HardTimeoutTruncated
                 } else {
@@ -3192,7 +3329,7 @@ mod tests {
         spider_service
             .expect_run()
             .once()
-            .returning(|_, _, _, _, _| {
+            .returning(|_, _, _, _, _, _| {
                 Box::pin(async {
                     Ok(SpiderRunResult {
                         total_links: 10,
@@ -3285,7 +3422,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(move |_, _, _, _, _| {
+            .returning(move |_, _, _, _, _, _| {
                 Box::pin(async move {
                     Ok(SpiderRunResult {
                         pending_url_pattern_review: Some(review_id),
@@ -3426,7 +3563,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(move |_, _, _, _, _| Box::pin(async move { Err(error()) }));
+            .returning(move |_, _, _, _, _, _| Box::pin(async move { Err(error()) }));
         spider_service
     }
 
@@ -3609,7 +3746,7 @@ mod tests {
                 .expect_mark_crawl_truncated()
                 .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
             let mut spider_service = MockSpiderService::new();
-            spider_service.expect_run().returning(|_, _, _, _, _| {
+            spider_service.expect_run().returning(|_, _, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
             });
 
@@ -4050,7 +4187,7 @@ mod tests {
             spider_service
                 .expect_run()
                 .times(runs)
-                .returning(move |_, _, _, _, _| {
+                .returning(move |_, _, _, _, _, _| {
                     let failure = failures.lock().unwrap().pop_front().unwrap();
                     Box::pin(async move { Err(failure()) })
                 });

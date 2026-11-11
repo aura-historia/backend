@@ -21,8 +21,8 @@ use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace, CrawlStopReason, CrawledPage,
-    Spider, SpiderDiscoveryError,
+    CrawlBudgetScale, CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace,
+    CrawlStopReason, CrawledPage, Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -272,6 +272,7 @@ pub trait SpiderService: Send + Sync {
         _crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        budget: CrawlBudgetScale,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
@@ -921,6 +922,7 @@ impl SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        budget: CrawlBudgetScale,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
@@ -938,6 +940,7 @@ impl SpiderServiceImpl {
             .crawl(CrawlRequest {
                 crawl_root_url: crawl_root_url.to_string(),
                 pace,
+                budget,
                 seeds,
             })
             .await?;
@@ -1131,6 +1134,7 @@ impl SpiderService for SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        budget: CrawlBudgetScale,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
@@ -1140,6 +1144,7 @@ impl SpiderService for SpiderServiceImpl {
             crawl_root_url,
             classify_threshold,
             pace,
+            budget,
             kind,
         )
         .await
@@ -1683,6 +1688,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Incremental,
             )
             .await
@@ -1729,6 +1735,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -1819,6 +1826,7 @@ mod service_tests {
                     "https://example.com",
                     20,
                     CrawlPace::default(),
+                    CrawlBudgetScale::STANDARD,
                     CrawlKind::Incremental,
                 )
                 .await
@@ -1861,6 +1869,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Incremental,
             )
             .await;
@@ -1909,6 +1918,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -1951,6 +1961,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2005,6 +2016,7 @@ mod service_tests {
                 "https://example.com",
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2206,6 +2218,7 @@ mod service_tests {
                 "https://example.com",
                 5,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2272,6 +2285,7 @@ mod service_tests {
                 "https://example.com",
                 4,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2444,6 +2458,7 @@ mod service_tests {
                 "https://example.com",
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2507,6 +2522,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2572,6 +2588,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2653,6 +2670,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2718,6 +2736,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2768,6 +2787,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2853,6 +2873,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2954,6 +2975,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3012,6 +3034,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3069,6 +3092,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3194,6 +3218,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3254,6 +3279,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3307,6 +3333,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3349,6 +3376,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3400,6 +3428,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3520,6 +3549,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3603,6 +3633,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3688,6 +3719,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3737,6 +3769,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3789,6 +3822,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3924,6 +3958,7 @@ mod service_tests {
             crawl_root_url,
             100,
             CrawlPace::default(),
+            CrawlBudgetScale::STANDARD,
             CrawlKind::Full,
         )
         .await
@@ -4099,6 +4134,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -4163,6 +4199,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4221,6 +4258,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4278,6 +4316,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4323,6 +4362,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4396,6 +4436,7 @@ mod service_tests {
                 crawl_root_url,
                 classify_threshold,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -4566,6 +4607,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await

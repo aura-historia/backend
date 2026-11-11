@@ -641,18 +641,65 @@ const MIN_PAGES_WITHIN_CRAWL_DELAY: u32 = 40;
 /// Longest wall-clock budget a `Crawl-delay` can raise a crawl to.
 const MAX_DELAY_LIMITED_CRAWL_DURATION: Duration = Duration::from_secs(60 * 60);
 
-/// The wall-clock budget of a crawl: the configured one, raised for a shop
-/// whose robots.txt `Crawl-delay` would leave it fewer than
+/// The most configured budgets one extended crawl runs for.
+const MAX_CRAWL_BUDGET_FACTOR: u32 = 3;
+
+/// How many configured wall-clock budgets one crawl runs for. A full crawl that
+/// continues the frontier of truncated crawls runs one more budget per truncation,
+/// up to [`MAX_CRAWL_BUDGET_FACTOR`], so a shop too large for one crawl is covered
+/// in fewer runs (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrawlBudgetScale {
+    factor: u32,
+}
+
+impl CrawlBudgetScale {
+    /// The configured budget.
+    pub const STANDARD: Self = Self { factor: 1 };
+
+    /// The budget of a full crawl that follows `truncated_crawls` truncated ones.
+    pub fn after_truncated_crawls(truncated_crawls: u32) -> Self {
+        Self {
+            factor: truncated_crawls
+                .saturating_add(1)
+                .min(MAX_CRAWL_BUDGET_FACTOR),
+        }
+    }
+
+    /// Whether the crawl runs longer than the configured budget.
+    pub const fn is_extended(self) -> bool {
+        self.factor > 1
+    }
+
+    /// How many configured budgets the crawl runs for; logged with the crawl.
+    pub const fn factor(self) -> u32 {
+        self.factor
+    }
+}
+
+impl Default for CrawlBudgetScale {
+    fn default() -> Self {
+        Self::STANDARD
+    }
+}
+
+/// The wall-clock budget of a crawl: the configured one times its `scale`,
+/// raised for a shop whose robots.txt `Crawl-delay` would leave it fewer than
 /// [`MIN_PAGES_WITHIN_CRAWL_DELAY`] pages, up to
 /// [`MAX_DELAY_LIMITED_CRAWL_DURATION`]. The delay between requests stays as
 /// the shop asked; only the crawl lasts longer. A pace slowed by rate limits
 /// does not raise it: that shop asked for fewer requests, not slower ones.
-fn crawl_budget(configured: Duration, crawl_delay: Option<Duration>) -> Duration {
+fn crawl_budget(
+    configured: Duration,
+    scale: CrawlBudgetScale,
+    crawl_delay: Option<Duration>,
+) -> Duration {
+    let scaled = configured.saturating_mul(scale.factor);
     let Some(crawl_delay) = crawl_delay else {
-        return configured;
+        return scaled;
     };
     let needed = crawl_delay.saturating_mul(MIN_PAGES_WITHIN_CRAWL_DELAY);
-    configured.max(needed.min(MAX_DELAY_LIMITED_CRAWL_DURATION))
+    scaled.max(needed.min(MAX_DELAY_LIMITED_CRAWL_DURATION))
 }
 
 /// A crawl with seeds gives link discovery from the root at most this share
@@ -1520,6 +1567,7 @@ impl SpiderImpl {
         let CrawlRequest {
             crawl_root_url,
             pace,
+            budget,
             seeds,
         } = request;
         let (tx, rx) = mpsc::channel(self.config.channel_size);
@@ -1569,7 +1617,8 @@ impl SpiderImpl {
             .queue(REDIRECT_QUEUE_CAPACITY)
             .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
 
-        let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
+        let crawl_duration =
+            crawl_budget(self.config.max_crawl_duration, budget, robots.crawl_delay);
         let follow_rules = Arc::new(FollowRules::new(
             root_url.clone(),
             host_whitelist_regex.clone(),
@@ -4131,21 +4180,64 @@ mod tests {
     }
 
     #[test]
+    fn crawl_budget_should_extend_a_continuation_by_one_budget_per_truncation_up_to_three() {
+        let configured = Duration::from_secs(600);
+        let budget = |truncations| {
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::after_truncated_crawls(truncations),
+                None,
+            )
+        };
+
+        assert_eq!(budget(0), configured);
+        assert_eq!(budget(1), configured * 2);
+        assert_eq!(budget(2), configured * 3);
+        assert_eq!(budget(u32::MAX), configured * 3);
+        assert!(!CrawlBudgetScale::after_truncated_crawls(0).is_extended());
+        assert!(CrawlBudgetScale::after_truncated_crawls(1).is_extended());
+        // A `Crawl-delay` raise still applies on top of an extension.
+        assert_eq!(
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::after_truncated_crawls(1),
+                Some(Duration::from_secs(60)),
+            ),
+            Duration::from_secs(60 * u64::from(MIN_PAGES_WITHIN_CRAWL_DELAY))
+        );
+    }
+
+    #[test]
     fn crawl_budget_should_leave_a_crawl_delay_limited_shop_room_for_the_inference_sample() {
         let configured = Duration::from_secs(600);
 
-        assert_eq!(crawl_budget(configured, None), configured);
         assert_eq!(
-            crawl_budget(configured, Some(Duration::from_secs(1))),
+            crawl_budget(configured, CrawlBudgetScale::STANDARD, None),
+            configured
+        );
+        assert_eq!(
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::STANDARD,
+                Some(Duration::from_secs(1))
+            ),
             configured
         );
         // antieksite.nl: `Crawl-delay: 30` left 20 pages in 600 s.
         assert_eq!(
-            crawl_budget(configured, Some(Duration::from_secs(30))),
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::STANDARD,
+                Some(Duration::from_secs(30))
+            ),
             Duration::from_secs(30 * u64::from(MIN_PAGES_WITHIN_CRAWL_DELAY))
         );
         assert_eq!(
-            crawl_budget(configured, Some(Duration::from_secs(600))),
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::STANDARD,
+                Some(Duration::from_secs(600))
+            ),
             MAX_DELAY_LIMITED_CRAWL_DURATION
         );
     }
