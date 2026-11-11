@@ -368,6 +368,13 @@ test("passes and routes only a Muse token the MCP server accepts", () => {
   }
 });
 
+test("serves the OpenAI domain verification token only on the production host", () => {
+  const token = stageConfig("prod").mcp.openAiAppsChallenge;
+  expect(token).toBe("_d_8VglwY-g1mC_cJRoTQ7yS04s4x8say68ByQT8R0E");
+  expect(openAiAppsChallengeEnvironment(stageConfig("prod").mcp)).toEqual({ MCP_OPENAI_APPS_CHALLENGE: token });
+  expect(stageConfig("dev").mcp.openAiAppsChallenge).toBeUndefined();
+});
+
 test("serves the Muse challenge only on the production host", () => {
   expect(stageConfig("prod").mcp.museChallenge).toBe("a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11");
   expect(stageConfig("dev").mcp.museChallenge).toBeUndefined();

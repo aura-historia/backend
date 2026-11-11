@@ -254,7 +254,7 @@ export function stageConfig(stage: StageName): StageConfig {
         ? ["https://aura-historia.com"]
         : ["https://stage.aura-historia.com", LOCALHOST_CALLBACK_URL],
       reservedConcurrency: isProd ? 5 : 2,
-      openAiAppsChallenge: undefined,
+      openAiAppsChallenge: isProd ? "_d_8VglwY-g1mC_cJRoTQ7yS04s4x8say68ByQT8R0E" : undefined,
       museChallenge: isProd ? "a906adf2cbfed83c2aadbb7d59e64087ac813b0ff3c7a51606c104dcd9364a11" : undefined,
     },
     cognitoCustomDomain: isProd ? {
