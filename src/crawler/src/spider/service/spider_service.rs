@@ -1301,6 +1301,7 @@ fn log_crawl_outcome(
         rejected_host = diagnostics.rejected_host,
         rejected_blacklist = diagnostics.rejected_blacklist,
         rejected_duplicate = diagnostics.rejected_duplicate,
+        rejected_page_error = diagnostics.rejected_page_error,
         robots_policy = ?diagnostics.robots_policy,
         robots_crawl_delay_ms = diagnostics.robots_crawl_delay_ms,
         request_delay_ms = diagnostics.request_delay_ms,
