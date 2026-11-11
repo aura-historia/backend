@@ -430,6 +430,7 @@ async fn record_truncated_run(
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
         frontier_left = result.frontier_left,
+        db_wait_ms = u64::try_from(result.db_wait.as_millis()).unwrap_or(u64::MAX),
         truncation_count,
         crawl_failure_count = candidate.crawl_failure_count,
         next_crawl_at = %next_crawl_at,
@@ -1569,6 +1570,46 @@ mod tests {
         }
     }
 
+    mod crawl_truncated_event {
+        use super::*;
+        use crate::test_support::logged_events::LoggedEvents;
+
+        #[tokio::test]
+        async fn should_log_the_frontier_left_and_the_database_wait_of_a_truncated_run() {
+            let (events, _guard) = LoggedEvents::capture();
+            let mut spider_candidates = MockSpiderCandidateService::new();
+            spider_candidates
+                .expect_mark_crawl_truncated()
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+            let result = SpiderRunResult {
+                frontier_left: Some(1_500),
+                db_wait: Duration::from_millis(42_000),
+                ..run_result(CrawlCompletion::HardTimeoutTruncated)
+            };
+
+            record_truncated_run(
+                &spider_candidates,
+                &spider_candidate(ListingSourceId::new()),
+                &result,
+            )
+            .await;
+
+            let truncated = events.named(CRAWL_TRUNCATED_EVENT);
+            assert_eq!(truncated.len(), 1);
+            assert_eq!(truncated[0].field("frontier_left"), Some("1500"));
+            assert_eq!(truncated[0].field("db_wait_ms"), Some("42000"));
+            assert_eq!(
+                truncated[0].field("cooldown_seconds"),
+                Some(
+                    TRUNCATED_CRAWL_CONTINUATION_COOLDOWN
+                        .as_secs()
+                        .to_string()
+                        .as_str()
+                )
+            );
+        }
+    }
+
     mod crawl_failed_event {
         use super::*;
         use crate::test_support::logged_events::LoggedEvents;
@@ -1980,6 +2021,7 @@ mod tests {
             pending_url_pattern_review: None,
             known_product_urls_skipped: 0,
             frontier_left: None,
+            db_wait: Duration::ZERO,
         })
     }
 
@@ -2081,6 +2123,7 @@ mod tests {
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
                         frontier_left: None,
+                        db_wait: Duration::ZERO,
                     })
                 })
             });
@@ -2177,6 +2220,7 @@ mod tests {
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
                         frontier_left: None,
+                        db_wait: Duration::ZERO,
                     })
                 })
             });
@@ -2241,6 +2285,7 @@ mod tests {
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
                         frontier_left: None,
+                        db_wait: Duration::ZERO,
                     })
                 })
             });
@@ -2970,6 +3015,7 @@ mod tests {
             pending_url_pattern_review: None,
             known_product_urls_skipped: 0,
             frontier_left: None,
+            db_wait: Duration::ZERO,
         }
     }
 
@@ -3339,6 +3385,7 @@ mod tests {
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
                         frontier_left: None,
+                        db_wait: Duration::ZERO,
                     })
                 })
             });
