@@ -901,35 +901,12 @@ pub(super) async fn release_work_waiting_on(
             .bind(uuid::Uuid::from(review.listing_source_id))
             .execute(&mut **transaction)
             .await?;
-            release_redirects_awaiting_a_schema(transaction, &review.listing_source_id).await?;
         }
         ARTIFACT_URL_PATTERN => {
             release_crawl_waiting_for_url_pattern(transaction, &review.listing_source_id).await?;
         }
         _ => {}
     }
-    Ok(())
-}
-
-/// Lifts the growing recheck delay of the ListingSource's URLs whose redirect target no cached
-/// schema could judge (`RedirectTargetUnverified`): a product-schema verdict may now judge it, so
-/// they return at their normal scrape interval instead of waiting out their delay
-/// (`docs/crawler/networking.md#redirect-removal-evidence`).
-async fn release_redirects_awaiting_a_schema(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    listing_source_id: &ListingSourceId,
-) -> Result<(), ReviewRepositoryError> {
-    sqlx::query(
-        "UPDATE listing_source_urls \
-         SET next_retry_at = NULL, updated = NOW() \
-         WHERE listing_source_id = $1 \
-           AND last_error_kind = 'RedirectTargetUnverified' \
-           AND next_retry_at IS NOT NULL \
-           AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')",
-    )
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .execute(&mut **transaction)
-    .await?;
     Ok(())
 }
 

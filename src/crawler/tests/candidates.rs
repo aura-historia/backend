@@ -1731,6 +1731,57 @@ async fn scraper_mark_unsettled_redirect_should_hold_the_url_and_carry_its_strea
     assert_eq!(candidate.unsettled_redirect, None);
 }
 
+/// A URL whose redirect target no cached schema could judge is due again at its scrape interval
+/// once its ListingSource stores a product schema, whatever stored it, instead of waiting out its
+/// recheck delay.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_release_an_unverified_redirect_once_a_product_schema_is_stored() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "scraper-unverified.example.com").await;
+    let url = url::Url::parse("https://scraper-unverified.example.com/producto.aspx?id=7").unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    service
+        .mark_unsettled_redirect(UnsettledRedirectRequest {
+            listing_source_id,
+            url: url.clone(),
+            outcome_kind: "RedirectTargetUnverified".to_owned(),
+            outcome_message: "no cached schema judges that page".to_owned(),
+            redirect: UnsettledRedirect {
+                destination: url::Url::parse("https://scraper-unverified.example.com/error.aspx")
+                    .unwrap(),
+                streak: 4,
+            },
+            next_retry_at: time::OffsetDateTime::now_utc() + time::Duration::days(8),
+            expected_last_captured_raw_input_sha256: None,
+        })
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let held = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    insert_cached_product_schemas(
+        &pool,
+        listing_source_id,
+        serde_json::json!([{ "title": { "type": "text", "selector": "h1", "cardinality": "first" } }]),
+    )
+    .await;
+    let released = service.get_candidates(10, 100, &[]).await.unwrap();
+
+    assert!(!held.iter().any(|c| c.url == url), "held without a schema");
+    assert!(
+        released.iter().any(|c| c.url == url),
+        "due once a schema is stored"
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;

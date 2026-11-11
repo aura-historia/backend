@@ -760,7 +760,10 @@ macro_rules! holds_on_schema_review_wait {
 
 /// The URLs due for scraping, shared by every query that selects or counts them so their
 /// definitions cannot drift. Binds `$1`, the per-ListingSource LLM call cap, and `$2`, the
-/// ListingSource IDs to leave out.
+/// ListingSource IDs to leave out. A URL whose redirect target no cached schema could judge
+/// (`RedirectTargetUnverified`) waits out its recheck delay only while its ListingSource stores
+/// no product schema: once one is stored, however it got there, the target can be judged, so the
+/// URL is due at its scrape interval.
 macro_rules! eligible_scraper_urls_cte {
     () => {
         concat!(
@@ -801,7 +804,10 @@ macro_rules! eligible_scraper_urls_cte {
             r#"
           AND su.url_class = 'product'
           AND su.crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
-          AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW())
+          AND (su.next_retry_at IS NULL OR su.next_retry_at <= NOW()
+               OR (su.last_error_kind = 'RedirectTargetUnverified' AND "#,
+            has_product_schema!(),
+            r#"))
           AND (su.last_scraped IS NULL OR su.last_scraped < NOW() - INTERVAL '1 day')
           AND NOT "#,
             awaits_first_product_schema!(),
