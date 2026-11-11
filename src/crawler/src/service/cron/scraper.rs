@@ -1136,11 +1136,33 @@ async fn record_unsettled_redirect(
             "Leaving a product URL that keeps redirecting to the same unsettled target"
         );
     }
+    persist_unsettled_redirect(
+        candidate,
+        ctx,
+        scraper_error_kind(error),
+        &error.to_string(),
+        redirect,
+        recheck_delay,
+    )
+    .await;
+    skipped_outcome(SkipReason::UnsettledRedirect)
+}
+
+/// Records the scrape of `candidate` as scraped without a capture with the outcome and the
+/// unsettled redirect it ended at, due again after `recheck_delay`.
+async fn persist_unsettled_redirect(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    outcome_kind: &str,
+    outcome_message: &str,
+    redirect: UnsettledRedirect,
+    recheck_delay: Duration,
+) {
     let request = UnsettledRedirectRequest {
         listing_source_id: candidate.listing_source_id,
         url: candidate.url.clone(),
-        outcome_kind: scraper_error_kind(error).to_owned(),
-        outcome_message: error.to_string(),
+        outcome_kind: outcome_kind.to_owned(),
+        outcome_message: outcome_message.to_owned(),
         redirect,
         next_retry_at: time::OffsetDateTime::now_utc()
             + time::Duration::seconds(recheck_delay.as_secs() as i64),
@@ -1164,7 +1186,6 @@ async fn record_unsettled_redirect(
             "Failed to persist crawler unsettled-redirect outcome"
         ),
     }
-    skipped_outcome(SkipReason::UnsettledRedirect)
 }
 
 /// The removal a redirect outside the product URL pattern that no cached schema judges shows when
@@ -2318,13 +2339,7 @@ async fn hold_mass_removal(
         mass_removal.scraped_urls()
     );
     for removal in removals {
-        persist_scraped_without_capture(
-            &removal.candidate,
-            ctx,
-            MASS_REMOVAL_HELD_ERROR_KIND,
-            &message,
-        )
-        .await;
+        persist_held_removal(&removal, ctx, &message).await;
         log_url_outcome(
             &ctx.source_log_context(),
             &removal.candidate,
@@ -2332,6 +2347,34 @@ async fn hold_mass_removal(
             &removal.telemetry,
         );
         outcome.record_skipped(SkipReason::MassRemovalHeld.as_str(), 1);
+    }
+}
+
+/// Records a removal the mass-removal guard held as scraped without a capture. A removal a shared
+/// redirect target showed keeps the redirect it ended at, so the URL's next scrape continues its
+/// streak and still counts for the other URLs at the target: an operator's confirmation then
+/// captures it on that scrape instead of starting the streak over
+/// (`docs/crawler/networking.md#redirect-removal-evidence`).
+async fn persist_held_removal(removal: &NewRemoval, ctx: &ScrapeBatchContext, message: &str) {
+    let candidate = &removal.candidate;
+    match removal.removal.removed_by_redirect_target() {
+        Some(target) => {
+            let redirect =
+                UnsettledRedirect::after(candidate.unsettled_redirect.as_ref(), target.clone());
+            persist_unsettled_redirect(
+                candidate,
+                ctx,
+                MASS_REMOVAL_HELD_ERROR_KIND,
+                message,
+                redirect,
+                Duration::ZERO,
+            )
+            .await;
+        }
+        None => {
+            persist_scraped_without_capture(candidate, ctx, MASS_REMOVAL_HELD_ERROR_KIND, message)
+                .await;
+        }
     }
 }
 
@@ -5988,6 +6031,60 @@ mod tests {
             let (ctx, mut command_rx) = batch_context(
                 scraper_candidates,
                 shop_removing_the_first(12),
+                listing_source_id,
+            );
+
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 0);
+            assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
+        }
+
+        /// A held shared-redirect removal keeps the URL's streak at its target, so the scrape an
+        /// operator's confirmation makes due captures the removal instead of starting over.
+        #[tokio::test]
+        async fn should_keep_the_redirect_streak_of_a_held_shared_redirect_removal() {
+            let error_page = url::Url::parse(&format!("https://{HOST}/error.aspx")).unwrap();
+            let (mut candidates, listing_source_id) = source_batch(HOST, 12);
+            for candidate in &mut candidates {
+                candidate.unsettled_redirect = Some(UnsettledRedirect {
+                    destination: error_page.clone(),
+                    streak: 1,
+                });
+            }
+            let mut scraper_service = MockScraperService::new();
+            let destination = error_page.clone();
+            scraper_service.expect_scrape().returning(move |_| {
+                let destination = destination.clone();
+                Box::pin(async move {
+                    scrape_outcome(Err(ScraperError::RedirectTargetUnverified { destination }))
+                })
+            });
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_count_urls_at_redirect_target()
+                .returning(|_, _, _, _| Box::pin(async { Ok(9) }));
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .never();
+            scraper_candidates
+                .expect_mark_scraped_without_capture()
+                .never();
+            let before = time::OffsetDateTime::now_utc();
+            let expected_destination = error_page.clone();
+            scraper_candidates
+                .expect_mark_unsettled_redirect()
+                .times(12)
+                .withf(move |request| {
+                    request.outcome_kind == MASS_REMOVAL_HELD_ERROR_KIND
+                        && request.redirect.destination == expected_destination
+                        && request.redirect.streak == 2
+                        && retry_due_after(request.next_retry_at, before, Duration::ZERO)
+                })
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let (ctx, mut command_rx) = batch_context(
+                confirmed_until(scraper_candidates, None),
+                scraper_service,
                 listing_source_id,
             );
 

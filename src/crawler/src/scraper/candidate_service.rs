@@ -47,7 +47,8 @@ pub struct ScraperCandidate {
     pub is_circuit_probe: bool,
     /// The pending product-schema review the URL's last scrape waited on, if it did.
     pub schema_review_wait: Option<SchemaReviewWait>,
-    /// The redirect target the URL's last scrape ended at without settling the URL, if it did.
+    /// The redirect target the URL's last scrape ended at without settling the URL, or with a
+    /// shared-redirect removal the mass-removal guard held, if it did.
     pub unsettled_redirect: Option<UnsettledRedirect>,
     /// The shared redirect target whose sharing captured the URL's last removal, if it did
     /// (`docs/crawler/networking.md#redirect-removal-evidence`).
@@ -472,7 +473,7 @@ pub trait ScraperCandidateService: Send + Sync {
     /// normal scrape interval instead of after a retry cooldown, and keeps `outcome_kind` and
     /// `outcome_message` as its last error until a later scrape completes. Page, schema and
     /// raw-input hashes stay those of the last completed scrape, so the next scrape
-    /// evaluates the page again.
+    /// evaluates the page again. Any unsettled redirect the URL recorded ends with it.
     async fn mark_scraped_without_capture(
         &self,
         listing_source_id: &ListingSourceId,
@@ -484,7 +485,8 @@ pub trait ScraperCandidateService: Send + Sync {
 
     /// Counts, up to `limit`, the other product URLs of the ListingSource that stand at
     /// `target`: their last scrape ended there without a schema judging it
-    /// (`RedirectTargetUnverified`), or their last removal was captured on it.
+    /// (`RedirectTargetUnverified`) or with a removal the mass-removal guard held, or their last
+    /// removal was captured on it.
     async fn count_urls_at_redirect_target(
         &self,
         listing_source_id: &ListingSourceId,
@@ -822,10 +824,12 @@ macro_rules! eligible_scraper_urls_cte {
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak
             , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
-                                                'RedirectDestinationUnsettled')
+                                                'RedirectDestinationUnsettled',
+                                                'MassRemovalHeld')
                    THEN su.unsettled_redirect_target END AS unsettled_redirect_target
             , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
-                                                'RedirectDestinationUnsettled')
+                                                'RedirectDestinationUnsettled',
+                                                'MassRemovalHeld')
                    THEN su.unsettled_redirect_streak ELSE 0 END AS unsettled_redirect_streak
             , su.removed_by_redirect_target
         FROM listing_source_urls su
@@ -1722,6 +1726,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_error_message = $4,
                  last_status_code = NULL,
                  next_retry_at = NULL,
+                 unsettled_redirect_target = NULL,
+                 unsettled_redirect_streak = 0,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -1761,7 +1767,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                    AND url_class = 'product'
                    AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
                    AND ((unsettled_redirect_target = $2
-                         AND last_error_kind = 'RedirectTargetUnverified')
+                         AND last_error_kind IN ('RedirectTargetUnverified', 'MassRemovalHeld'))
                         OR removed_by_redirect_target = $2)
                  LIMIT $4
              ) urls_at_target",
