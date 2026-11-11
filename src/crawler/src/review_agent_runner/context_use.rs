@@ -32,6 +32,11 @@ pub struct ContextUse {
     /// than a read.
     #[serde(default)]
     pub opening_cache_write_tokens: u64,
+    /// The model requests the process made, each response once however many tool calls it
+    /// holds. The CLI's `num_turns` counts every tool call, so it overstates the requests of an
+    /// agent that sends independent calls together.
+    #[serde(default)]
+    pub model_requests: u64,
     /// The answers per tool, by the tool's name without its MCP prefix.
     #[serde(default)]
     pub tool_answers: BTreeMap<String, ToolAnswers>,
@@ -116,6 +121,7 @@ impl ContextUse {
                     reread_chars: chars * requests.count.saturating_sub(requests_before),
                 });
         }
+        context.model_requests = requests.count;
         context
     }
 
@@ -369,6 +375,7 @@ mod tests {
         assert_eq!(context.opening_tokens, 9_003);
         assert_eq!(context.opening_cache_read_tokens, 0);
         assert_eq!(context.opening_cache_write_tokens, 9_000);
+        assert_eq!(context.model_requests, 3);
         assert_eq!(
             context.tool_answers,
             BTreeMap::from([
@@ -420,6 +427,10 @@ mod tests {
         let reread = |tool: &str| context.tool_answers[tool].reread_chars;
         assert_eq!(reread("inspect_page_outline"), 10 * 2);
         assert_eq!(reread("get_review"), 20 * 2 + 5);
+        assert_eq!(
+            context.model_requests, 3,
+            "three calls in two responses, then the report"
+        );
     }
 
     #[test]
@@ -491,6 +502,7 @@ mod tests {
             opening_tokens: 10_000,
             opening_cache_read_tokens: 6_000,
             opening_cache_write_tokens: 4_000,
+            model_requests: 0,
             tool_answers: BTreeMap::from([
                 (
                     "inspect_page".to_owned(),
