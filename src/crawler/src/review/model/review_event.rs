@@ -1,6 +1,6 @@
 use crate::{CrawlerReviewEventId, CrawlerReviewId};
 use listing_source_core::ListingSourceId;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
 
 /// One accepted mutation of a review in its append-only event trail: who made it, what it did
@@ -202,6 +202,30 @@ impl ReviewEventAction {
     ];
 }
 
+/// Why a review agent handed a review to a human (`POST /api/reviews/{id}/hand-to-human`): a
+/// short stable cause that logs and the event trail group by, while the agent's own reasoning
+/// stays in the event's note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum HandoverReason {
+    /// The author reported `NEEDS_HUMAN`: it cannot decide the review from what it can read.
+    NeedsHuman,
+    /// The author reported `NOTHING_TO_STAGE` on a candidate the reviewer already judged, so a
+    /// reviewer process would only repeat its verdict.
+    NothingToStageAfterReview,
+}
+
+impl HandoverReason {
+    /// The name `crawler.review.decided` and the runner's logs carry, in the lower-case vocabulary
+    /// of their other values.
+    pub const fn log_name(self) -> &'static str {
+        match self {
+            Self::NeedsHuman => "needs_human",
+            Self::NothingToStageAfterReview => "nothing_to_stage_after_review",
+        }
+    }
+}
+
 impl std::fmt::Display for ReviewActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
@@ -313,5 +337,26 @@ mod tests {
                 "{unknown}"
             );
         }
+    }
+
+    #[test]
+    fn should_persist_hand_over_reasons_in_screaming_snake_case_and_refuse_unknown_ones() {
+        for (reason, persisted) in [
+            (HandoverReason::NeedsHuman, "NEEDS_HUMAN"),
+            (
+                HandoverReason::NothingToStageAfterReview,
+                "NOTHING_TO_STAGE_AFTER_REVIEW",
+            ),
+        ] {
+            assert_eq!(
+                serde_json::to_value(reason).ok(),
+                Some(serde_json::Value::from(persisted))
+            );
+            assert_eq!(
+                serde_json::from_value::<HandoverReason>(persisted.into()).ok(),
+                Some(reason)
+            );
+        }
+        assert!(serde_json::from_value::<HandoverReason>("needs_human".into()).is_err());
     }
 }

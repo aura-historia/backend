@@ -31,7 +31,8 @@ pub(super) struct ReviewLogEntry {
     event: &'static str,
     message: &'static str,
     actor: Option<ReviewActor>,
-    /// Why a review opened.
+    /// Why a review opened, or why an agent handed it to a human
+    /// (`HandoverReason::log_name`).
     reason: Option<String>,
     /// How a review was decided: `approved`, `rejected`, `needs_repair` or `handed_to_human`.
     decision: Option<&'static str>,
@@ -167,10 +168,10 @@ impl ReviewLogEntry {
                 "needs_repair",
                 "Reviewer asked for a review to be repaired",
             )],
-            ReviewMutation::HandedToHuman { .. } => vec![decided(
-                "handed_to_human",
-                "Review agent handed a review to a human",
-            )],
+            ReviewMutation::HandedToHuman { reason, .. } => vec![Self {
+                reason: Some(reason.log_name().to_owned()),
+                ..decided("handed_to_human", "Review agent handed a review to a human")
+            }],
             ReviewMutation::CandidateEdited { .. } => {
                 vec![changed("candidate_edited", "Candidate of a review edited")]
             }
@@ -510,6 +511,38 @@ mod tests {
         }
         assert!(decided[0].field("listing_source_id").is_some());
         assert!(decided[0].field("review_id").is_some());
+    }
+
+    /// The cause is a short stable name Logs Insights groups by; the agent's reasoning, which may
+    /// quote the shop's pages, stays in the event trail.
+    #[test]
+    fn should_log_the_reason_and_not_the_note_when_an_agent_hands_a_review_to_a_human() {
+        let (events, _guard) = LoggedEvents::capture();
+        let mutation = ReviewMutation::HandedToHuman {
+            note: "the sample is behind a bot challenge",
+            reason: crate::review::model::HandoverReason::NeedsHuman,
+        };
+
+        for entry in ReviewLogEntry::of_mutation(ReviewActor::AgentAuthor, &mutation) {
+            prepared(entry).emit();
+        }
+
+        let decided = events.named(REVIEW_DECIDED_EVENT);
+        assert_eq!(decided.len(), 1);
+        for (field, expected) in [
+            ("actor", "AGENT_AUTHOR"),
+            ("decision", "handed_to_human"),
+            ("reason", "needs_human"),
+        ] {
+            assert_eq!(decided[0].field(field), Some(expected), "{field}");
+        }
+        assert!(
+            events
+                .all()
+                .iter()
+                .all(|logged| !format!("{logged:?}").contains("bot challenge")),
+            "the note must not be logged"
+        );
     }
 
     #[test]

@@ -40,7 +40,7 @@ use super::usage_pacing::UsageWindows;
 use super::wire_name as name;
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentLimits;
-use crate::review::model::{ReviewActor, ReviewEventAction};
+use crate::review::model::{HandoverReason, ReviewActor, ReviewEventAction};
 use crate::review_mcp::{AgentRole, ConsoleClient, ConsoleError};
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -316,14 +316,16 @@ impl Pass<'_> {
         if let Some(AgentReport::Author(report)) = &author_report
             && report.action == AuthorAction::NeedsHuman
         {
-            self.hand_over_to_human(&review, report).await;
+            self.hand_over_to_human(&review, HandoverReason::NeedsHuman, report)
+                .await;
             return;
         }
         if let Some(AgentReport::Author(report)) = &author_report
             && report.action == AuthorAction::NothingToStage
             && self.reviewer_judged_review(&review).await
         {
-            self.hand_over_to_human(&review, report).await;
+            self.hand_over_to_human(&review, HandoverReason::NothingToStageAfterReview, report)
+                .await;
             return;
         }
         if !leaves_a_candidate_to_decide(author_report.as_ref()) {
@@ -406,11 +408,18 @@ impl Pass<'_> {
     /// as an event of the review's trail, instead of starting a reviewer process: one that would
     /// repeat its verdict on the unchanged candidate, or one on a review the author left undecided. A hand-over the console does not take cools the
     /// review down unless it waits for a human anyway.
-    async fn hand_over_to_human(&self, review: &QueuedReview, report: &AuthorReport) {
-        match hand_to_human(self.console, review.review_id, &handover_note(report)).await {
+    async fn hand_over_to_human(
+        &self,
+        review: &QueuedReview,
+        reason: HandoverReason,
+        report: &AuthorReport,
+    ) {
+        let note = handover_note(reason, report);
+        match hand_to_human(self.console, review.review_id, reason, &note).await {
             Ok(()) => {
                 info!(
                     event = "crawler.review_agent.handed_to_human",
+                    reason = reason.log_name(),
                     review_id = %review.review_id,
                     listing_source_id = %review.listing_source_id,
                     listing_source_name = review.listing_source_name.as_deref(),
@@ -422,6 +431,7 @@ impl Pass<'_> {
             Err(error) => {
                 warn!(
                     review_id = %review.review_id,
+                    reason = reason.log_name(),
                     error = %error,
                     cause = ?std::error::Error::source(&error),
                     "Cannot hand the review to a human"
@@ -937,12 +947,12 @@ fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
 }
 
 /// The note of the hand-over to a human: why no reviewer runs, then the author's own reasoning.
-fn handover_note(report: &AuthorReport) -> String {
-    let why = match report.action {
-        AuthorAction::NeedsHuman => {
+fn handover_note(reason: HandoverReason, report: &AuthorReport) -> String {
+    let why = match reason {
+        HandoverReason::NeedsHuman => {
             "The author agent reported NEEDS_HUMAN: it cannot decide this review from what it can read, so no reviewer round runs."
         }
-        _ => {
+        HandoverReason::NothingToStageAfterReview => {
             "The author agent reported NOTHING_TO_STAGE on a candidate the reviewer agent had already judged, so no further reviewer round runs."
         }
     };

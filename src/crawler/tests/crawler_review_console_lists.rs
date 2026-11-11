@@ -7,9 +7,10 @@ use crawler::CrawlerReviewId;
 use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::model::{
-    ArtifactType, ListPage, ListWindow, ListingSourceOverview, PAGE_ROLE_PRIMARY, ReviewActor,
-    ReviewQueueEntry, ReviewSort, ReviewStatus, ReviewWaiting, SchemaReviewPageInput, SearchTerm,
-    SortDirection, SourceActivity, SourceEventKind, SourceSort, SourceStatus, UrlPatternDecision,
+    ArtifactType, HandoverReason, ListPage, ListWindow, ListingSourceOverview, PAGE_ROLE_PRIMARY,
+    ReviewActor, ReviewQueueEntry, ReviewSort, ReviewStatus, ReviewWaiting, SchemaReviewPageInput,
+    SearchTerm, SortDirection, SourceActivity, SourceEventKind, SourceSort, SourceStatus,
+    UrlPatternDecision,
 };
 use crawler::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
@@ -396,7 +397,12 @@ async fn should_filter_the_reviews_that_wait_for_a_human_or_a_repair() {
         .await
         .unwrap();
     repository
-        .hand_to_human(handed, ReviewActor::AgentAuthor, Some("needs a decision"))
+        .hand_to_human(
+            handed,
+            ReviewActor::AgentAuthor,
+            HandoverReason::NeedsHuman,
+            Some("needs a decision"),
+        )
         .await
         .unwrap();
     let waiting = |waiting| ReviewQuery {

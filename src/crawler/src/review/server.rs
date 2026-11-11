@@ -10,8 +10,8 @@ use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
-    SourceProductUrl,
+    CrawlerReviewPage, HandoverReason, RawAttributeKey, ReviewActor, ReviewDetail,
+    SampleLabelInput, SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -554,13 +554,13 @@ impl ReviewServer {
             && request.path.ends_with("/hand-to-human")
         {
             let (review_id, payload) =
-                match verdict_request::<ActionPayload>(&request, "/hand-to-human") {
+                match verdict_request::<HandoverPayload>(&request, "/hand-to-human") {
                     Ok(verdict) => verdict,
                     Err(response) => return response,
                 };
             return verdict_answer(
                 self.repository
-                    .hand_to_human(review_id, actor, payload.notes.as_deref())
+                    .hand_to_human(review_id, actor, payload.reason, payload.notes.as_deref())
                     .await,
             );
         }
@@ -955,6 +955,15 @@ where
 #[derive(Deserialize)]
 struct ActionPayload {
     notes: Option<String>,
+}
+
+/// A hand-over of `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning as `notes` and
+/// its cause as `reason`, which every hand-over names, so that every logged hand-over can be
+/// grouped by it.
+#[derive(Deserialize)]
+struct HandoverPayload {
+    notes: Option<String>,
+    reason: HandoverReason,
 }
 
 /// An approval of `POST /api/reviews/{id}/approve`. `expected_candidate_version` is the
@@ -2239,6 +2248,27 @@ Origin: http://127.0.0.1:7878/x
         assert!(
             parse_verdict_payload::<ActionPayload>("").is_ok_and(|payload| payload.notes.is_none())
         );
+    }
+
+    /// Every hand-over names its cause, so every logged hand-over can be grouped by it.
+    #[test]
+    fn should_refuse_a_hand_over_that_names_no_known_reason() {
+        for body in [
+            "",
+            r#"{"notes": "behind a login wall"}"#,
+            r#"{"notes": "behind a login wall", "reason": "LOGIN_WALL"}"#,
+        ] {
+            assert!(
+                parse_verdict_payload::<HandoverPayload>(body).is_err(),
+                "{body:?} must be refused"
+            );
+        }
+        let payload = parse_verdict_payload::<HandoverPayload>(
+            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN"}"#,
+        )
+        .unwrap_or_else(|error| panic!("hand-over with a reason: {error}"));
+        assert_eq!(payload.reason, HandoverReason::NeedsHuman);
+        assert_eq!(payload.notes.as_deref(), Some("behind a login wall"));
     }
 
     mod matrix_refresh {

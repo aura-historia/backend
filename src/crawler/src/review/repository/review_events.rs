@@ -5,8 +5,8 @@
 use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, ReviewEventSummary,
-    SampleLabelCounts, SampleLabels, SortDirection,
+    CrawlerReviewEvent, HandoverReason, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
+    ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -76,10 +76,12 @@ pub(super) enum ReviewMutation<'a> {
         #[serde(skip)]
         note: &'a str,
     },
-    /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note.
+    /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note, its
+    /// cause the details' `reason`.
     HandedToHuman {
         #[serde(skip)]
         note: &'a str,
+        reason: HandoverReason,
     },
     ProductSchemasApproved {
         #[serde(skip)]
@@ -243,7 +245,7 @@ impl ReviewMutation<'_> {
 
     fn notes(&self) -> Option<&str> {
         match self {
-            Self::RepairRequested { note } | Self::HandedToHuman { note } => Some(note),
+            Self::RepairRequested { note } | Self::HandedToHuman { note, .. } => Some(note),
             Self::NoSoldPageRecorded { notes, .. } => Some(notes),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
@@ -613,10 +615,11 @@ mod tests {
             (
                 ReviewMutation::HandedToHuman {
                     note: "nothing to change",
+                    reason: HandoverReason::NothingToStageAfterReview,
                 },
                 ReviewEventAction::HandedToHuman,
                 Some("nothing to change"),
-                json!({}),
+                json!({ "reason": "NOTHING_TO_STAGE_AFTER_REVIEW" }),
             ),
             (
                 ReviewMutation::ProductSchemasApproved {
