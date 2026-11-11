@@ -31,22 +31,21 @@ pub const WEEKLY_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PER
 /// review gets the author's model.
 pub const AUTHOR_URL_PATTERN_MODEL_ENV: &str = "CRAWLER_REVIEW_AGENT_AUTHOR_URL_PATTERN_MODEL";
 /// The model of a reviewer process on a URL-pattern review, in place of the reviewer's model.
+/// Unset, a URL-pattern review gets the reviewer's model.
 pub const REVIEWER_URL_PATTERN_MODEL_ENV: &str = "CRAWLER_REVIEW_AGENT_REVIEWER_URL_PATTERN_MODEL";
 
 /// What each role runs with unless its settings say otherwise: the configuration that showed no
 /// finding in the agent comparison of #2835 at the lowest cost, a Sonnet-class author and a
-/// Haiku-class reviewer, both at `medium` effort. A URL-pattern review gets a Sonnet-class
-/// reviewer: it judges from the URLs alone whether a pattern accounts for every product route
-/// family of the sample and collides with no other route.
+/// Haiku-class reviewer, both at `medium` effort. A Haiku-class reviewer also judges a URL-pattern
+/// review: given good, too narrow, too broad and locale-less patterns for 12 shops, it sent back
+/// every one of the 27 bad ones, as the Sonnet-class reviewer did, at a fifteenth of the cost.
 const AUTHOR_DEFAULTS: RoleDefaults = RoleDefaults {
     model: "claude-sonnet-5-5",
-    url_pattern_model: None,
     effort: ClaudeEffort::Medium,
     max_turns: NonZeroU32::new(80).unwrap(),
 };
 const REVIEWER_DEFAULTS: RoleDefaults = RoleDefaults {
     model: "claude-haiku-5-5",
-    url_pattern_model: Some("claude-sonnet-5-5"),
     effort: ClaudeEffort::Medium,
     max_turns: NonZeroU32::new(50).unwrap(),
 };
@@ -223,11 +222,9 @@ impl RunnerSettings {
             review_mcp_bin,
             state_dir,
             author: read.agent(AgentRole::Author, &AUTHOR_DEFAULTS)?,
-            author_url_pattern_model: read
-                .url_pattern_model(AgentRole::Author, &AUTHOR_DEFAULTS)?,
+            author_url_pattern_model: read.url_pattern_model(AgentRole::Author)?,
             reviewer: read.agent(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
-            reviewer_url_pattern_model: read
-                .url_pattern_model(AgentRole::Reviewer, &REVIEWER_DEFAULTS)?,
+            reviewer_url_pattern_model: read.url_pattern_model(AgentRole::Reviewer)?,
             max_reviews_per_run: read
                 .positive(MAX_REVIEWS_PER_RUN_ENV)?
                 .unwrap_or(DEFAULT_MAX_REVIEWS_PER_RUN),
@@ -266,8 +263,6 @@ pub fn role_setting(role: AgentRole, setting: &str) -> String {
 /// A role's model, effort and turn cap when its settings name none.
 struct RoleDefaults {
     model: &'static str,
-    /// The role's model on a URL-pattern review; `None` runs it on `model`.
-    url_pattern_model: Option<&'static str>,
     effort: ClaudeEffort,
     max_turns: NonZeroU32,
 }
@@ -302,20 +297,12 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
     }
 
     /// The model of `role` on a URL-pattern review: [`AUTHOR_URL_PATTERN_MODEL_ENV`] or
-    /// [`REVIEWER_URL_PATTERN_MODEL_ENV`], or else the role's default, `None` when neither names
-    /// one.
-    fn url_pattern_model(
-        &self,
-        role: AgentRole,
-        defaults: &RoleDefaults,
-    ) -> Result<Option<String>, RunnerSettingsError> {
-        let name = match role {
+    /// [`REVIEWER_URL_PATTERN_MODEL_ENV`], `None` when the role's setting names none.
+    fn url_pattern_model(&self, role: AgentRole) -> Result<Option<String>, RunnerSettingsError> {
+        self.model(match role {
             AgentRole::Author => AUTHOR_URL_PATTERN_MODEL_ENV,
             AgentRole::Reviewer => REVIEWER_URL_PATTERN_MODEL_ENV,
-        };
-        Ok(self
-            .model(name)?
-            .or_else(|| defaults.url_pattern_model.map(str::to_owned)))
+        })
     }
 
     /// The model alias or name `name` sets, `None` when it is unset.
@@ -582,8 +569,8 @@ mod tests {
         assert_eq!(read.pacing.weekly_share, 1.0);
     }
 
-    /// By default the reviewer of a URL-pattern review runs on Sonnet and every other process on
-    /// its role's model; each role's URL-pattern model replaces only the model, and only there.
+    /// By default every process runs on its role's model, a URL-pattern review's included; each
+    /// role's URL-pattern model replaces only the model, and only there.
     #[test]
     fn should_run_each_role_on_its_url_pattern_model_on_a_url_pattern_review_only() {
         let models = |settings: &RunnerSettings| {
@@ -612,7 +599,7 @@ mod tests {
                 "claude-sonnet-5-5",
                 "claude-sonnet-5-5",
                 "claude-haiku-5-5",
-                "claude-sonnet-5-5"
+                "claude-haiku-5-5"
             ]
         );
         assert_eq!(
