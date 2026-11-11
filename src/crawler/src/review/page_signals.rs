@@ -1,10 +1,12 @@
-//! What a review page shows that a candidate schema should capture: an amount with its currency
-//! in a price element, and a block of prose in a description element. Both are conservative
-//! markup heuristics over the page's own content, so a shop that shows neither never needs the
-//! rule; the approval guard (`docs/crawler/extraction-and-review.md`) compares them with the
-//! rules of the candidate.
+//! What a review page shows that a candidate schema should capture: a price, as an amount with its
+//! currency in a price element or as a price above zero the offers of the page's own JSON-LD item
+//! state, and a block of prose in a description element. They are conservative heuristics over the
+//! page's own content, so a shop that shows neither never needs the rule; the approval guard
+//! (`docs/crawler/extraction-and-review.md`) compares them with the rules of the candidate.
 
 use crate::review::model::{PageSignals, SchemaPageReference};
+use crate::review::product_markup::json_ld_scripts;
+use crate::scraper::css_selector::rule::{JsonLdOfferProperty, json_ld_offer_value};
 use crate::scraper::plausibility::is_price_text;
 use scraper::{ElementRef, Html, node::Element};
 
@@ -54,7 +56,16 @@ pub(crate) fn page_signals(
         signals.shows_price_text |= is_price_element(element) && holds_price_text(element);
         signals.shows_description_block |= is_description_element(element) && holds_prose(element);
     }
+    signals.shows_price_text = signals.shows_price_text || offers_a_price(html);
     signals
+}
+
+/// Whether the offers of the item a JSON-LD script of the page is about state a price above zero,
+/// as a `json_ld_offer` price rule would read it: a theme that shows the price in no element named
+/// for it still publishes it there. Offers of other products the page lists are not followed.
+fn offers_a_price(html: &Html) -> bool {
+    json_ld_scripts(html)
+        .any(|json| json_ld_offer_value(&json, JsonLdOfferProperty::Price).is_some())
 }
 
 /// Whether `element` is part of the page's own content: none of its ancestors, itself included,
@@ -159,6 +170,42 @@ mod tests {
             signals_of("<span class=\"price\">Sold for £500</span>"),
             (true, false)
         );
+    }
+
+    /// A theme that shows the price in no element named for it, as a Divi poster shop does, still
+    /// shows a price when its own JSON-LD item offers one above zero; a zero price, as templates
+    /// publish for sold or price-on-request items, and another product's offer in a list do not.
+    #[test]
+    fn should_see_a_price_the_page_s_own_json_ld_offers() {
+        let script = |json: &str| {
+            format!(r#"<h1>Poster</h1><script type="application/ld+json">{json}</script>"#)
+        };
+
+        assert_eq!(
+            signals_of(&script(
+                r#"{"@type":"Product","name":"Poster","offers":{"@type":"Offer","price":7900,"priceCurrency":"CHF"}}"#
+            )),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of(&script(
+                r#"{"@graph":[{"@type":"WebPage"},{"@type":"Product","offers":[{"price":"5600.00"}]}]}"#
+            )),
+            (true, false)
+        );
+        assert_eq!(
+            signals_of(&script(
+                r#"{"@type":"Product","offers":{"price":"0","priceCurrency":"CHF"}}"#
+            )),
+            (false, false)
+        );
+        assert_eq!(
+            signals_of(&script(
+                r#"{"@type":"ItemList","itemListElement":[{"@type":"Product","offers":{"price":120}}]}"#
+            )),
+            (false, false)
+        );
+        assert_eq!(signals_of(&script("not json")), (false, false));
     }
 
     #[test]

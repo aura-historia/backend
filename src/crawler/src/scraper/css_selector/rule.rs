@@ -22,6 +22,12 @@ pub(crate) fn json_ld_product_value(json: &str, property: JsonLdProductProperty)
     json_ld::product_value(json, property)
 }
 
+/// `property` of the offers of the item the JSON-LD document `json` is about, as a
+/// `json_ld_offer` rule reads it: a price of zero digits only is no value.
+pub(crate) fn json_ld_offer_value(json: &str, property: JsonLdOfferProperty) -> Option<String> {
+    json_ld::offer_value(json, property)
+}
+
 macro_rules! local_string_newtype {
     ($name:ident) => {
         #[cfg_attr(feature = "test-data", derive(fake::Dummy))]
