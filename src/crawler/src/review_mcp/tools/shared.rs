@@ -174,7 +174,6 @@ async fn inspect_page(
     arguments: InspectPageArguments,
     context: Arc<ToolContext>,
 ) -> Result<PageProjectionView, ToolError> {
-    let review_id = arguments.review_id;
     if arguments.review_page_id.is_some() == arguments.url.is_some() {
         return Err(ToolError::InvalidArguments(
             "give either review_page_id or url".to_owned(),
@@ -182,10 +181,19 @@ async fn inspect_page(
     }
     // Counted before anything reaches the console, the crawl host's lookup included.
     context.inspections.take()?;
+    page_projection(arguments, &context).await
+}
+
+/// Asks the console for the projection `arguments` name.
+async fn page_projection(
+    arguments: InspectPageArguments,
+    context: &ToolContext,
+) -> Result<PageProjectionView, ToolError> {
+    let review_id = arguments.review_id;
     let query = match (arguments.review_page_id, arguments.url) {
         (Some(page_id), None) => format!("page={page_id}"),
         (None, Some(url)) => {
-            let crawl_host = review_source_crawl_host(&context, review_id).await?;
+            let crawl_host = review_source_crawl_host(context, review_id).await?;
             let url = review_source_url(&url, crawl_host.as_deref())?;
             format!("url={}", encoded(url.as_str()))
         }

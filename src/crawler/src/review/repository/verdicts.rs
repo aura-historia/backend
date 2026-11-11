@@ -29,7 +29,9 @@ use crate::review::approval_guard::{
 use crate::review::model::*;
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::schema_evaluation::stored_schema_matrix;
-use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
+use crate::scraper::css_selector::product_schema::{
+    ListingSourceProductSchema, ProductCssSelectorSchema,
+};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
     lock_stored_removed_page_schemas, store_removed_page_schemas,
@@ -666,14 +668,24 @@ async fn lock_product_schemas_going_live(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     review: &ReviewUnderVerdict,
 ) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
-    let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
-    let base: Vec<RemovedPageSchema> =
-        serde_json::from_value(review.removed_page_schemas_base.clone())
-            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
     let existing = lock_live_product_schemas(transaction, &review.listing_source_id).await?;
     let stored = lock_stored_removed_page_schemas(transaction, &review.listing_source_id)
         .await?
         .unwrap_or_default();
+    product_schemas_going_live(review, existing, stored)
+}
+
+/// What approving `review` makes live in place of the `existing` live schema list and the
+/// `stored` removed-page templates. A candidate or base that no longer decodes fails it.
+fn product_schemas_going_live(
+    review: &ReviewUnderVerdict,
+    existing: Option<ListingSourceProductSchema>,
+    stored: Vec<RemovedPageSchema>,
+) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
+    let reviewed = ProductSchemaReviewCandidate::parse(&review.candidate_payload)?;
+    let base: Vec<RemovedPageSchema> =
+        serde_json::from_value(review.removed_page_schemas_base.clone())
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
     let live = reviewed.going_live(&base, &stored);
     Ok(ProductSchemasGoingLive {
         reviewed,

@@ -1358,13 +1358,26 @@ async fn lock_live_product_schemas(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
 ) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
-    let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(
+    read_live_product_schemas(
+        transaction,
+        listing_source_id,
         "SELECT product_schema FROM listing_source_product_schemas \
          WHERE listing_source_id = $1 FOR UPDATE",
     )
-    .bind(uuid::Uuid::from(*listing_source_id))
-    .fetch_optional(&mut **transaction)
-    .await?;
+    .await
+}
+
+/// Reads the ListingSource's live product schemas with `query`, which selects the stored
+/// payload of the ListingSource bound as `$1`.
+async fn read_live_product_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+    query: &'static str,
+) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
+    let existing_payload = sqlx::query_scalar::<_, serde_json::Value>(query)
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .fetch_optional(&mut **transaction)
+        .await?;
     existing_payload
         .map(|payload| {
             parse_product_schema_payload(payload).map(|product_schemas| {

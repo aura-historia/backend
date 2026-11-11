@@ -54,21 +54,25 @@ impl UrlPatternMatching {
     fn target(self, spelling: &str) -> Option<Cow<'_, str>> {
         match self {
             Self::FullUrlSearch => Some(Cow::Borrowed(spelling)),
-            Self::PathAndQueryFullMatch => {
-                let url = url::Url::parse(spelling).ok()?;
-                let path = if url.path().is_empty() {
-                    "/"
-                } else {
-                    url.path()
-                };
-                Some(Cow::Owned(
-                    match url.query().filter(|query| !query.is_empty()) {
-                        Some(query) => format!("{path}?{query}"),
-                        None => path.to_owned(),
-                    },
-                ))
-            }
+            Self::PathAndQueryFullMatch => url::Url::parse(spelling)
+                .ok()
+                .map(|url| Cow::Owned(path_and_query(&url))),
         }
+    }
+}
+
+/// `url`'s path and `?query`, without scheme, host, port or fragment: what a
+/// [`UrlPatternMatching::PathAndQueryFullMatch`] pattern is matched against. An empty path reads
+/// as `/` and an empty query is left out.
+pub fn path_and_query(url: &url::Url) -> String {
+    let path = if url.path().is_empty() {
+        "/"
+    } else {
+        url.path()
+    };
+    match url.query().filter(|query| !query.is_empty()) {
+        Some(query) => format!("{path}?{query}"),
+        None => path.to_owned(),
     }
 }
 
