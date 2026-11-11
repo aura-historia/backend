@@ -34,6 +34,7 @@ const RECOVERABLE_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(3 * 24 * 6
 const DURABLE_BLOCK_CRAWL_LONG_COOLDOWN: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const LONG_COOLDOWN_FAILURE_COUNT: i32 = 3;
 const TRUNCATED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+const TRUNCATED_CRAWL_CONTINUATION_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 /// A crawl the crawler's shutdown ended is due again once the crawler is back: the hold only
 /// keeps a restart loop from starting it before the process has settled.
 const STOPPED_CRAWL_RETRY_COOLDOWN: Duration = Duration::from_secs(60);
@@ -54,13 +55,17 @@ fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32)
     }
 }
 
-/// A full crawl cut short by the wall-clock budget continues from the
-/// frontier it left a day later, however often it was cut short before: each
-/// crawl visits pages the previous ones did not reach, so a large shop is
-/// covered in daily steps instead of restarting from the root
+/// A full crawl cut short by the wall-clock budget continues from the frontier
+/// it left, however often it was cut short before: each crawl visits pages the
+/// previous ones did not reach, so a large shop is covered in steps instead of
+/// restarting from the root. A crawl that left URLs unvisited continues a few
+/// hours later; one that left none, or could not tell, waits a day
 /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
-fn truncated_crawl_cooldown() -> Duration {
-    TRUNCATED_CRAWL_RETRY_COOLDOWN
+fn truncated_crawl_cooldown(frontier_left: Option<usize>) -> Duration {
+    match frontier_left {
+        Some(frontier_left) if frontier_left > 0 => TRUNCATED_CRAWL_CONTINUATION_COOLDOWN,
+        Some(_) | None => TRUNCATED_CRAWL_RETRY_COOLDOWN,
+    }
 }
 
 /// A crawl a shop rate-limited is retried after the later of the shop's
@@ -366,7 +371,7 @@ async fn record_truncated_run(
     result: &SpiderRunResult,
 ) -> SpiderSlotStatus {
     let truncation_count = next_truncation_count(candidate);
-    let cooldown = truncated_crawl_cooldown();
+    let cooldown = truncated_crawl_cooldown(result.frontier_left);
     let next_crawl_at = next_crawl_after(cooldown);
 
     match spider_candidates
@@ -397,6 +402,7 @@ async fn record_truncated_run(
         completion = %result.completion,
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
+        frontier_left = result.frontier_left,
         truncation_count,
         crawl_failure_count = candidate.crawl_failure_count,
         next_crawl_at = %next_crawl_at,
@@ -1836,6 +1842,7 @@ mod tests {
             completion,
             pending_url_pattern_review: None,
             known_product_urls_skipped: 0,
+            frontier_left: None,
         })
     }
 
@@ -1936,6 +1943,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
+                        frontier_left: None,
                     })
                 })
             });
@@ -2031,6 +2039,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
+                        frontier_left: None,
                     })
                 })
             });
@@ -2094,6 +2103,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
+                        frontier_left: None,
                     })
                 })
             });
@@ -2512,12 +2522,24 @@ mod tests {
     }
 
     #[test]
-    fn truncated_cooldown_should_continue_the_frontier_a_day_later_sooner_than_recrawl() {
+    fn truncated_cooldown_should_continue_a_left_frontier_within_hours() {
         assert_eq!(
-            truncated_crawl_cooldown(),
-            Duration::from_secs(24 * 60 * 60)
+            truncated_crawl_cooldown(Some(1)),
+            Duration::from_secs(6 * 60 * 60)
         );
-        assert!(truncated_crawl_cooldown() < SPIDER_RECRAWL_INTERVAL);
+        assert_eq!(
+            truncated_crawl_cooldown(Some(20_000)),
+            truncated_crawl_cooldown(Some(1))
+        );
+        assert!(truncated_crawl_cooldown(Some(1)) < truncated_crawl_cooldown(Some(0)));
+    }
+
+    #[test]
+    fn truncated_cooldown_should_wait_a_day_without_a_known_frontier() {
+        let day = Duration::from_secs(24 * 60 * 60);
+        assert_eq!(truncated_crawl_cooldown(Some(0)), day);
+        assert_eq!(truncated_crawl_cooldown(None), day);
+        assert!(day < SPIDER_RECRAWL_INTERVAL);
     }
 
     fn rate_limited(retry_after: Option<Duration>) -> CrawlCompletion {
@@ -2810,6 +2832,7 @@ mod tests {
             completion,
             pending_url_pattern_review: None,
             known_product_urls_skipped: 0,
+            frontier_left: None,
         }
     }
 
@@ -2863,7 +2886,7 @@ mod tests {
             .withf(move |root, truncation_count, next_crawl_at| {
                 root.listing_source_id == expected_listing_source_id
                     && *truncation_count == 2
-                    && next_crawl_at_is_about(*next_crawl_at, truncated_crawl_cooldown())
+                    && next_crawl_at_is_about(*next_crawl_at, TRUNCATED_CRAWL_RETRY_COOLDOWN)
             })
             .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         spider_candidates.expect_mark_crawl_completed().times(0);
@@ -2875,6 +2898,52 @@ mod tests {
             .times(1)
             .returning(|_, _, _, _, _| {
                 Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
+            });
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_continue_a_truncated_crawl_within_hours_when_it_left_a_frontier() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_listing_source_id = ListingSourceId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    Ok(if first_call {
+                        vec![spider_candidate(expected_listing_source_id)]
+                    } else {
+                        vec![]
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_truncated()
+            .times(1)
+            .withf(move |root, truncation_count, next_crawl_at| {
+                root.listing_source_id == expected_listing_source_id
+                    && *truncation_count == 1
+                    && next_crawl_at_is_about(*next_crawl_at, TRUNCATED_CRAWL_CONTINUATION_COOLDOWN)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        spider_candidates.expect_mark_crawl_completed().times(0);
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _, _| {
+                Box::pin(async {
+                    Ok(SpiderRunResult {
+                        frontier_left: Some(1_500),
+                        ..run_result(CrawlCompletion::HardTimeoutTruncated)
+                    })
+                })
             });
 
         spider_job(spider_candidates, spider_service, 1)
@@ -3132,6 +3201,7 @@ mod tests {
                         completion: CrawlCompletion::Completed,
                         pending_url_pattern_review: None,
                         known_product_urls_skipped: 0,
+                        frontier_left: None,
                     })
                 })
             });
