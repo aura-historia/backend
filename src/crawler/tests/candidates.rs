@@ -1104,7 +1104,7 @@ async fn spider_crawl_outcome_should_reject_unknown_values() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — ordering: NULL last_crawled comes before stale ListingSources
+// get_candidates — ordering: least recently run first, never fully crawled first among equals
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -1151,6 +1151,56 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
         pos_never < pos_stale,
         "never-crawled (pos {pos_never}) should come before stale (pos {pos_stale})"
     );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_should_order_a_due_incremental_crawl_before_a_recent_truncated_continuation() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let continuation = ListingSourceId::new();
+    insert_listing_source(&pool, continuation, "spider-order-continuation.example.com").await;
+    let incremental = ListingSourceId::new();
+    insert_listing_source(&pool, incremental, "spider-order-incremental.example.com").await;
+    // Never fully crawled, truncated six hours ago and due again.
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET last_crawl_run_at = NOW() - INTERVAL '6 hours', crawl_truncation_count = 3, \
+             last_crawl_outcome = 'HARD_TIMEOUT_TRUNCATED', \
+             next_crawl_at = NOW() - INTERVAL '1 minute' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(continuation.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET last_crawled = NOW() - INTERVAL '3 days', \
+             last_crawl_run_at = NOW() - INTERVAL '25 hours' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(incremental.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let first: Vec<(ListingSourceId, CrawlKind)> = service
+        .get_candidates(1, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| (candidate.listing_source_id, candidate.kind))
+        .collect();
+
+    assert_eq!(first, vec![(incremental, CrawlKind::Incremental)]);
+    let next: Vec<ListingSourceId> = service
+        .get_candidates(1, &[incremental])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| candidate.listing_source_id)
+        .collect();
+    assert_eq!(next, vec![continuation]);
 }
 
 // ============================================================================
