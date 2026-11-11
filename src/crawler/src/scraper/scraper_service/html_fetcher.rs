@@ -7,7 +7,7 @@ use crate::network::policy::{
     is_same_or_www_host, network_error_kind_for_public_target_error, parse_retry_after,
     public_http_client, redirect_target,
 };
-use crate::network::politeness::politeness_group;
+use crate::network::politeness::{PolitenessGroups, politeness_group};
 use crate::network::robots::RobotsRefusal;
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
@@ -299,6 +299,12 @@ impl ReqwestHtmlFetcher {
             #[cfg(test)]
             allow_private_targets_for_test: false,
         }
+    }
+
+    /// The politeness groups this fetcher paces by, for the spider to share
+    /// (`docs/crawler/networking.md#politeness-groups`).
+    pub fn politeness_groups(&self) -> Arc<PolitenessGroups> {
+        Arc::clone(self.auto_throttle.politeness_groups())
     }
 
     /// Returns the origin's robots `Crawl-delay` when robots.txt allows `url`.

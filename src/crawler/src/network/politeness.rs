@@ -281,11 +281,22 @@ impl PolitenessGroups {
         Some(gate)
     }
 
-    #[cfg(test)]
-    fn spacing(&self, host: &str) -> Option<Duration> {
+    /// The current spacing between request starts of `host`'s group.
+    pub fn spacing(&self, host: &str) -> Duration {
+        let group = politeness_group(host);
         self.gates
-            .get(&politeness_group(host).key)
-            .map(|gate| gate.spacing)
+            .get(&group.key)
+            .map_or(group.min_spacing, |gate| gate.spacing)
+    }
+
+    /// Waits for `host`'s group to admit one request start and takes it.
+    /// Returns the time waited.
+    pub async fn wait_for_turn(&self, host: &str) -> Duration {
+        let now = Instant::now();
+        let start = self.reserve_start(host, now);
+        tokio::time::sleep_until(start.start()).await;
+        start.claim();
+        Instant::now().saturating_duration_since(now)
     }
 }
 
@@ -439,10 +450,22 @@ mod tests {
         }
 
         assert_eq!(raised, RATE_LIMIT_SPACING_STEP * 2);
+        assert_eq!(groups.spacing("a.shopnetzwerk.com"), group.min_spacing);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_wait_for_the_group_pause_before_taking_a_turn() {
+        let groups = PolitenessGroups::default();
+
+        groups.record_rate_limit("a.shopnetzwerk.com", Some(Duration::from_secs(8)));
+        let waited = groups.wait_for_turn("b.shopnetzwerk.com").await;
+
+        assert_eq!(waited, Duration::from_secs(8));
         assert_eq!(
-            groups.spacing("a.shopnetzwerk.com"),
-            Some(group.min_spacing)
+            groups.spacing("b.shopnetzwerk.com"),
+            RATE_LIMIT_SPACING_STEP
         );
+        assert_eq!(groups.spacing("example.com"), Duration::ZERO);
     }
 
     #[tokio::test(start_paused = true)]
