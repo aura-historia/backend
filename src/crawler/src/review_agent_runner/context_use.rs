@@ -157,13 +157,31 @@ fn content_blocks<'a>(message: &'a Value, kind: &'a str) -> impl Iterator<Item =
         .filter(move |block| block.get("type").and_then(Value::as_str) == Some(kind))
 }
 
-/// The id and the recorded name of a `tool_use` block.
+/// The id and the recorded name of a `tool_use` block. An `inspect_page` call is recorded by the
+/// view it asked for, `inspect_page_outline` (the default) or `inspect_page_markdown`, since the
+/// outline is several times the markdown's size and the two views cost differently.
 fn tool_use(block: &Value) -> Option<(String, String)> {
     let id = block.get("id").and_then(Value::as_str)?;
     let name = block.get("name").and_then(Value::as_str)?;
     let name = name.strip_prefix(REVIEW_TOOL_PREFIX).unwrap_or(name);
+    let name = match name {
+        INSPECT_PAGE => {
+            let view = block
+                .get("input")
+                .and_then(|input| input.get("view"))
+                .and_then(Value::as_str);
+            match view {
+                Some("MARKDOWN") => "inspect_page_markdown",
+                _ => "inspect_page_outline",
+            }
+        }
+        name => name,
+    };
     Some((id.to_owned(), bounded_reason(name)))
 }
+
+/// The review tool whose calls are recorded by the view they asked for.
+const INSPECT_PAGE: &str = "inspect_page";
 
 /// The characters of a `tool_result`'s content: a text, or the texts of its blocks.
 fn answer_chars(content: Option<&Value>) -> u64 {
@@ -364,7 +382,7 @@ mod tests {
                     }
                 ),
                 (
-                    "inspect_page".to_owned(),
+                    "inspect_page_outline".to_owned(),
                     ToolAnswers {
                         calls: 2,
                         chars: 131,
@@ -400,7 +418,7 @@ mod tests {
         let context = ContextUse::parse(&stdout);
 
         let reread = |tool: &str| context.tool_answers[tool].reread_chars;
-        assert_eq!(reread("inspect_page"), 10 * 2);
+        assert_eq!(reread("inspect_page_outline"), 10 * 2);
         assert_eq!(reread("get_review"), 20 * 2 + 5);
     }
 
@@ -409,6 +427,45 @@ mod tests {
         assert_eq!(
             ContextUse::parse(b"not json\n{\"type\":\"result\"}\n"),
             ContextUse::default()
+        );
+    }
+
+    #[test]
+    fn should_record_each_inspect_page_call_by_its_view() {
+        let inspect = |id: &str, input: Value| {
+            json!({
+                "type": "assistant",
+                "message": {
+                    "id": format!("m-{id}"),
+                    "content": [{ "type": "tool_use", "id": id, "name": "mcp__crawler_review__inspect_page", "input": input }],
+                    "usage": {}
+                }
+            })
+        };
+        let stdout = stream(&[
+            inspect(
+                "t1",
+                json!({ "review_id": "cr_1", "review_page_id": "crp_1" }),
+            ),
+            tool_result("t1", json!("outline")),
+            inspect("t2", json!({ "review_id": "cr_1", "view": "MARKDOWN" })),
+            tool_result("t2", json!("md")),
+            inspect("t3", json!({ "review_id": "cr_1", "view": "OUTLINE" })),
+            tool_result("t3", json!("outline")),
+        ]);
+
+        let context = ContextUse::parse(&stdout);
+
+        assert_eq!(
+            context
+                .tool_answers
+                .iter()
+                .map(|(tool, answers)| (tool.as_str(), answers.calls, answers.chars))
+                .collect::<Vec<_>>(),
+            [
+                ("inspect_page_markdown", 1, 2),
+                ("inspect_page_outline", 2, 14)
+            ]
         );
     }
 
