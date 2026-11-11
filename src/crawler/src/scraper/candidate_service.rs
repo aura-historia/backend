@@ -501,6 +501,10 @@ impl ScraperCandidateServiceImpl {
     /// review stays a [schema seed](ScraperCandidateService::get_random_product_urls_for_schema_seed)
     /// once the review releases it. Every other failure counts one more.
     ///
+    /// A [page error](is_page_error_status) adds one to the URL's `page_error_streak`, and any
+    /// other failure, a wait included, resets it, as every completed scrape does
+    /// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
+    ///
     /// The pending check share-locks the review row before the URL row is written. Approval and
     /// rejection lock the review row first and release the waiting pages last, so a wait written
     /// while either verdict commits waits for it and then finds the review closed, instead of
@@ -520,6 +524,7 @@ impl ScraperCandidateServiceImpl {
              SET failure_count = CASE WHEN $8::uuid IS NULL
                                       THEN failure_count + 1
                                       ELSE failure_count END,
+                 page_error_streak = CASE WHEN $10 THEN page_error_streak + 1 ELSE 0 END,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = $5,
@@ -551,6 +556,7 @@ impl ScraperCandidateServiceImpl {
         .bind(failure.expected_last_captured_raw_input_sha256)
         .bind(schema_review_wait.map(|wait| *wait.review_id.as_uuid()))
         .bind(streak)
+        .bind(is_page_error_kind(failure.error_kind))
         .execute(&self.pool)
         .await?;
 
@@ -562,24 +568,27 @@ impl ScraperCandidateServiceImpl {
     }
 }
 
-/// The consecutive page errors a stored URL answered: its `failure_count`, the fetch failures
-/// since its last completed scrape, when the latest of them was a page error, and none otherwise.
-/// The run so includes failures of other kinds before it since that scrape: a URL with eight or
-/// more of them is parked by its second page error in a row, not its tenth
-/// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
-/// A negative count is invalid persisted state and fails closed.
+/// Whether a persisted URL error kind names a [page error](is_page_error_status), such as
+/// `HTTP_500`.
+fn is_page_error_kind(error_kind: &str) -> bool {
+    error_kind
+        .strip_prefix("HTTP_")
+        .and_then(|status| status.parse::<u16>().ok())
+        .is_some_and(is_page_error_status)
+}
+
+/// The consecutive page errors a stored URL answered: its `page_error_streak` while its latest
+/// outcome was a page error, and none otherwise
+/// (`docs/crawler/scheduling-and-retries.md#fetch-retries`). A negative streak is invalid
+/// persisted state and fails closed.
 fn page_error_streak_from_row(
-    failure_count: i32,
+    page_error_streak: i32,
     last_error_kind: Option<&str>,
 ) -> Result<u32, sqlx::Error> {
-    let failure_count =
-        u32::try_from(failure_count).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-    let latest_is_page_error = last_error_kind
-        .and_then(|kind| kind.strip_prefix("HTTP_"))
-        .and_then(|status| status.parse::<u16>().ok())
-        .is_some_and(is_page_error_status);
-    Ok(if latest_is_page_error {
-        failure_count
+    let page_error_streak =
+        u32::try_from(page_error_streak).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+    Ok(if last_error_kind.is_some_and(is_page_error_kind) {
+        page_error_streak
     } else {
         0
     })
@@ -646,7 +655,7 @@ struct ScraperCandidateRow {
     last_captured_title: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
-    failure_count: i32,
+    page_error_streak: i32,
     last_error_kind: Option<String>,
 }
 
@@ -732,7 +741,7 @@ macro_rules! eligible_scraper_urls_cte {
                    THEN su.schema_review_waited_on END AS schema_review_waited_on
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak
-            , su.failure_count
+            , su.page_error_streak
             , su.last_error_kind
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
@@ -786,7 +795,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
         last_source_listing_id, last_captured_title, schema_review_waited_on,
-        schema_review_wait_streak, failure_count, last_error_kind
+        schema_review_wait_streak, page_error_streak, last_error_kind
     FROM ranked_urls
     WHERE (is_circuit_probe AND source_url_rank = 1)
        OR (NOT is_circuit_probe AND source_url_rank <= $4)
@@ -860,7 +869,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 row.schema_review_wait_streak,
             )?;
             let page_error_streak =
-                page_error_streak_from_row(row.failure_count, row.last_error_kind.as_deref())?;
+                page_error_streak_from_row(row.page_error_streak, row.last_error_kind.as_deref())?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -1000,6 +1009,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  removed_by_templates = NULL,
                  crawler_disposition = $7,
                  failure_count = 0,
+                 page_error_streak = 0,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1165,6 +1175,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_captured_raw_input_sha256 = $7,
                  crawler_disposition = $8,
                  failure_count = 0,
+                 page_error_streak = 0,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1264,6 +1275,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  removed_by_templates = $5,
                  crawler_disposition = 'ACTIVE',
                  failure_count = 0,
+                 page_error_streak = 0,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1309,6 +1321,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_hash = $3,
                  last_scraped_schema_fingerprint = $4,
                  failure_count = 0,
+                 page_error_streak = 0,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1575,6 +1588,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE listing_source_urls
              SET last_error_kind = $3,
                  last_error_message = $4,
+                 page_error_streak = 0,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -1609,6 +1623,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             "UPDATE listing_source_urls
              SET last_scraped = NOW(),
                  failure_count = 0,
+                 page_error_streak = 0,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = NULL,
@@ -1761,7 +1776,8 @@ struct PersistedListingSourceIdError {
 mod candidate_query_tests {
     use super::{
         DomainFailureKind, SCRAPER_CANDIDATE_QUERY, SchemaReviewWait, ScrapeHealthSnapshot,
-        next_scrape_failure_streak, page_error_streak_from_row, schema_review_wait_from_row,
+        is_page_error_kind, next_scrape_failure_streak, page_error_streak_from_row,
+        schema_review_wait_from_row,
     };
     use crate::CrawlerReviewId;
 
@@ -1866,7 +1882,7 @@ mod candidate_query_tests {
     }
 
     #[test]
-    fn should_read_the_failure_count_as_the_page_error_run_when_the_latest_failure_was_one() {
+    fn should_read_the_page_error_streak_as_the_run_when_the_latest_failure_was_a_page_error() {
         assert_eq!(page_error_streak_from_row(4, Some("HTTP_500")).unwrap(), 4);
         assert_eq!(page_error_streak_from_row(2, Some("HTTP_502")).unwrap(), 2);
         assert_eq!(page_error_streak_from_row(3, Some("HTTP_400")).unwrap(), 3);
@@ -1888,10 +1904,31 @@ mod candidate_query_tests {
     }
 
     #[test]
-    fn should_fail_closed_on_a_negative_persisted_failure_count() {
+    fn should_fail_closed_on_a_negative_persisted_page_error_streak() {
         assert!(matches!(
             page_error_streak_from_row(-1, Some("HTTP_500")),
             Err(sqlx::Error::Decode(_))
         ));
+    }
+
+    #[test]
+    fn should_count_only_persisted_page_error_kinds_into_the_page_error_streak() {
+        for kind in ["HTTP_500", "HTTP_502", "HTTP_400", "HTTP_422", "HTTP_505"] {
+            assert!(is_page_error_kind(kind), "{kind}");
+        }
+        for kind in [
+            "HTTP_404",
+            "HTTP_410",
+            "HTTP_503",
+            "HTTP_429",
+            "HTTP_403",
+            "HTTP_",
+            "HTTP_abc",
+            "Timeout",
+            "BotChallenge",
+            "PendingSchemaReview",
+        ] {
+            assert!(!is_page_error_kind(kind), "{kind}");
+        }
     }
 }

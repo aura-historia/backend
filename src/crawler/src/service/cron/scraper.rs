@@ -1381,7 +1381,7 @@ async fn persist_http_failure(
             domain = %candidate.crawl_host,
             url = %failure.url,
             status_code = ?status_code,
-            failure_count = page_errors,
+            page_error_streak = page_errors,
             retry_after_days = retry.delay().as_secs() / (24 * 60 * 60),
             "Parking a product URL that answered page errors on every fetch in a row"
         );
