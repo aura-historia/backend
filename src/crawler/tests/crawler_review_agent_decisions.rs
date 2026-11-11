@@ -424,6 +424,50 @@ async fn should_refuse_an_edit_based_on_the_pending_review_once_it_is_approved()
     );
 }
 
+/// The guard's dry run changes nothing, so it reads the live schemas and the stored removed-page
+/// templates without the row locks an approval holds, and answers while another transaction
+/// holds them instead of queueing behind it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_answer_the_dry_run_while_another_transaction_locks_the_live_configuration() {
+    let pool = get_postgres_client().await;
+    let repository = guarded(&pool, 20);
+    let listing_source_id = listing_source(&pool).await;
+    set_live_schemas(&pool, &listing_source_id, &[schema("h1")]).await;
+    let review_id = pending_review(
+        &repository,
+        &listing_source_id,
+        "manual_schema_required",
+        &[schema("h1")],
+        vec![page("chair")],
+    )
+    .await;
+    let mut holder = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT 1 FROM listing_source_product_schemas WHERE listing_source_id = $1 FOR UPDATE",
+    )
+    .bind(listing_source_id.as_uuid())
+    .execute(&mut *holder)
+    .await
+    .unwrap();
+
+    let answer = tokio::time::timeout(
+        Duration::from_secs(5),
+        repository.approval_failures(review_id),
+    )
+    .await;
+    holder.rollback().await.unwrap();
+
+    assert!(
+        matches!(
+            answer
+                .as_ref()
+                .map(|checks| checks.as_ref().map(Vec::as_slice)),
+            Ok(Ok([FailedApprovalCheck::LiveMatrixMissing]))
+        ),
+        "{answer:?}"
+    );
+}
+
 /// The agent approves only on the server's own live evaluation of exactly what goes live, of
 /// every current review page, recent enough, with every page covered: never on an
 /// acknowledgement, a missing, outdated or expired matrix, or a page no schema covers.

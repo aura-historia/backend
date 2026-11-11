@@ -19,7 +19,8 @@ use super::schema_payload::ProductSchemaReviewCandidate;
 use super::url_pattern_sample::fetch_sample_urls;
 use super::{
     CrawlerReviewRepository, ReviewRepositoryError, fetch_review_pages,
-    listing_source_id_from_uuid, lock_live_product_schemas, persist_product_schemas,
+    listing_source_id_from_uuid, live_product_schemas, lock_live_product_schemas,
+    persist_product_schemas,
 };
 use crate::CrawlerReviewId;
 use crate::review::agent_decisions::AgentDecisionPolicy;
@@ -34,7 +35,7 @@ use crate::scraper::css_selector::product_schema::{
 };
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::{
-    lock_stored_removed_page_schemas, store_removed_page_schemas,
+    lock_stored_removed_page_schemas, store_removed_page_schemas, stored_removed_page_schemas,
 };
 use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
 use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
@@ -108,7 +109,7 @@ impl CrawlerReviewRepository {
                 ))
             }
             ARTIFACT_PRODUCT_SCHEMA => {
-                let going_live = lock_product_schemas_going_live(&mut transaction, &review).await?;
+                let going_live = read_product_schemas_going_live(&mut transaction, &review).await?;
                 let pages = fetch_review_pages(&mut *transaction, review_id).await?;
                 let matrix = stored_schema_matrix(&review.validation_summary).and_then(Result::ok);
                 let configuration_sha256 = going_live.live.fingerprint()?;
@@ -670,6 +671,20 @@ async fn lock_product_schemas_going_live(
 ) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
     let existing = lock_live_product_schemas(transaction, &review.listing_source_id).await?;
     let stored = lock_stored_removed_page_schemas(transaction, &review.listing_source_id)
+        .await?
+        .unwrap_or_default();
+    product_schemas_going_live(review, existing, stored)
+}
+
+/// Reads, without locking them, the ListingSource's live schema list and stored removed-page
+/// templates and what approving the review makes live in their place, for the guard's dry run,
+/// which changes nothing and so holds up no approval or schema write of the ListingSource.
+async fn read_product_schemas_going_live(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    review: &ReviewUnderVerdict,
+) -> Result<ProductSchemasGoingLive, ReviewRepositoryError> {
+    let existing = live_product_schemas(transaction, &review.listing_source_id).await?;
+    let stored = stored_removed_page_schemas(transaction, &review.listing_source_id)
         .await?
         .unwrap_or_default();
     product_schemas_going_live(review, existing, stored)

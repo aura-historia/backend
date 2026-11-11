@@ -1367,6 +1367,20 @@ async fn lock_live_product_schemas(
     .await
 }
 
+/// Reads the ListingSource's live product schemas without a lock, for a read that only reports
+/// on them.
+async fn live_product_schemas(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    listing_source_id: &ListingSourceId,
+) -> Result<Option<ListingSourceProductSchema>, ReviewRepositoryError> {
+    read_live_product_schemas(
+        transaction,
+        listing_source_id,
+        "SELECT product_schema FROM listing_source_product_schemas WHERE listing_source_id = $1",
+    )
+    .await
+}
+
 /// Reads the ListingSource's live product schemas with `query`, which selects the stored
 /// payload of the ListingSource bound as `$1`.
 async fn read_live_product_schemas(
