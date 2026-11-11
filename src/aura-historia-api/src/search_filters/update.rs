@@ -1,11 +1,10 @@
-use super::types::{SearchFilterData, UpdateSearchFilterData};
-use super::util::{last_modified, no_store, parse_json, parse_search_filter_id};
+use super::types::UpdateSearchFilterData;
+use super::util::{no_store, parse_json, parse_search_filter_id, search_filter_response};
 use crate::auth::protected_context;
 use crate::error::ApiError;
 use crate::state::SearchFiltersState;
-use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 pub(super) async fn update_search_filter(
@@ -35,17 +34,7 @@ pub(super) async fn update_search_filter(
         .execute(&context, command)
         .await
     {
-        Ok(result) => {
-            let language = result.filter.search.language.as_str();
-            let updated = result.filter.updated;
-            let mut response = Json(SearchFilterData::from(result.filter)).into_response();
-            response.headers_mut().insert(
-                axum::http::header::CONTENT_LANGUAGE,
-                axum::http::HeaderValue::from_static(language),
-            );
-            last_modified(&mut response, updated);
-            no_store(response)
-        }
+        Ok(result) => no_store(search_filter_response(StatusCode::OK, result.filter)),
         Err(error) => ApiError::from(error).into_response(),
     }
 }
