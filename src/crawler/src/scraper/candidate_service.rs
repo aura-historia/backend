@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 use url::Url;
 
 use crate::CrawlerReviewId;
-use crate::network::policy::{DomainFailureKind, PAGE_SERVER_ERROR_STATUSES};
+use crate::network::policy::{DomainFailureKind, is_page_error_status};
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::css_selector::removed_page_schema_repository::share_stored_removed_page_schemas;
 use crate::scraper::scraper_service::DEFAULT_MAX_LLM_CALLS_PER_LISTING_SOURCE;
@@ -47,9 +47,9 @@ pub struct ScraperCandidate {
     pub is_circuit_probe: bool,
     /// The pending product-schema review the URL's last scrape waited on, if it did.
     pub schema_review_wait: Option<SchemaReviewWait>,
-    /// The consecutive [page server errors](crate::network::policy::PAGE_SERVER_ERROR_STATUSES)
-    /// the URL's fetches answered up to now, which grow its retry delay and finally park it.
-    pub server_error_streak: u32,
+    /// The consecutive [page errors](crate::network::policy::is_page_error_status) the URL's
+    /// fetches answered up to now, which grow its retry delay and finally park it.
+    pub page_error_streak: u32,
 }
 
 /// The pending product-schema review a URL waits on and how many consecutive scrapes have
@@ -562,23 +562,23 @@ impl ScraperCandidateServiceImpl {
     }
 }
 
-/// The consecutive page server errors a stored URL answered: its `failure_count`, the fetch
-/// failures since its last completed scrape, when the latest of them was a page server error, and
-/// none otherwise. The run so includes failures of other kinds before it since that scrape: a URL
-/// that has failed every fetch since its last scrape is parked no later than one that failed only
-/// with server errors.
+/// The consecutive page errors a stored URL answered: its `failure_count`, the fetch failures
+/// since its last completed scrape, when the latest of them was a page error, and none otherwise.
+/// The run so includes failures of other kinds before it since that scrape: a URL that has failed
+/// every fetch since its last scrape is parked no later than one that failed only with page
+/// errors.
 /// A negative count is invalid persisted state and fails closed.
-fn server_error_streak_from_row(
+fn page_error_streak_from_row(
     failure_count: i32,
     last_error_kind: Option<&str>,
 ) -> Result<u32, sqlx::Error> {
     let failure_count =
         u32::try_from(failure_count).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-    let latest_is_page_server_error = last_error_kind
+    let latest_is_page_error = last_error_kind
         .and_then(|kind| kind.strip_prefix("HTTP_"))
         .and_then(|status| status.parse::<u16>().ok())
-        .is_some_and(|status| PAGE_SERVER_ERROR_STATUSES.contains(&status));
-    Ok(if latest_is_page_server_error {
+        .is_some_and(is_page_error_status);
+    Ok(if latest_is_page_error {
         failure_count
     } else {
         0
@@ -859,8 +859,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 row.schema_review_waited_on,
                 row.schema_review_wait_streak,
             )?;
-            let server_error_streak =
-                server_error_streak_from_row(row.failure_count, row.last_error_kind.as_deref())?;
+            let page_error_streak =
+                page_error_streak_from_row(row.failure_count, row.last_error_kind.as_deref())?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -892,7 +892,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 last_source_listing_id: row.last_source_listing_id,
                 last_captured_title: row.last_captured_title,
                 schema_review_wait,
-                server_error_streak,
+                page_error_streak,
             });
         }
 
@@ -1761,7 +1761,7 @@ struct PersistedListingSourceIdError {
 mod candidate_query_tests {
     use super::{
         DomainFailureKind, SCRAPER_CANDIDATE_QUERY, SchemaReviewWait, ScrapeHealthSnapshot,
-        next_scrape_failure_streak, schema_review_wait_from_row, server_error_streak_from_row,
+        next_scrape_failure_streak, page_error_streak_from_row, schema_review_wait_from_row,
     };
     use crate::CrawlerReviewId;
 
@@ -1866,39 +1866,31 @@ mod candidate_query_tests {
     }
 
     #[test]
-    fn should_read_the_failure_count_as_the_server_error_run_when_the_latest_failure_was_one() {
-        assert_eq!(
-            server_error_streak_from_row(4, Some("HTTP_500")).unwrap(),
-            4
-        );
-        assert_eq!(
-            server_error_streak_from_row(2, Some("HTTP_502")).unwrap(),
-            2
-        );
+    fn should_read_the_failure_count_as_the_page_error_run_when_the_latest_failure_was_one() {
+        assert_eq!(page_error_streak_from_row(4, Some("HTTP_500")).unwrap(), 4);
+        assert_eq!(page_error_streak_from_row(2, Some("HTTP_502")).unwrap(), 2);
+        assert_eq!(page_error_streak_from_row(3, Some("HTTP_400")).unwrap(), 3);
     }
 
     #[test]
-    fn should_read_no_server_error_run_when_the_latest_failure_was_another_kind() {
+    fn should_read_no_page_error_run_when_the_latest_failure_was_another_kind() {
         for kind in [
             None,
             Some("HTTP_503"),
-            Some("HTTP_404"),
+            Some("HTTP_429"),
+            Some("HTTP_403"),
             Some("Timeout"),
             Some("BotChallenge"),
             Some("PendingSchemaReview"),
         ] {
-            assert_eq!(
-                server_error_streak_from_row(4, kind).unwrap(),
-                0,
-                "{kind:?}"
-            );
+            assert_eq!(page_error_streak_from_row(4, kind).unwrap(), 0, "{kind:?}");
         }
     }
 
     #[test]
     fn should_fail_closed_on_a_negative_persisted_failure_count() {
         assert!(matches!(
-            server_error_streak_from_row(-1, Some("HTTP_500")),
+            page_error_streak_from_row(-1, Some("HTTP_500")),
             Err(sqlx::Error::Decode(_))
         ));
     }

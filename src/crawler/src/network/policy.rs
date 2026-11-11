@@ -558,30 +558,37 @@ pub fn is_crawler_rejection_status(status: u16) -> bool {
     matches!(status, 401 | 403 | 405 | 418 | 421 | 451 | 501)
 }
 
-/// The server errors a product page answers on its own rather than for the whole shop: they stay
-/// URL-scoped unless a burst of them opens the `HTTP_5XX_BURST` scrape circuit, while 503 and 504
-/// open the circuit at once (`docs/crawler/scheduling-and-retries.md#scraper-circuits`).
-pub const PAGE_SERVER_ERROR_STATUSES: [u16; 2] = [500, 502];
+/// The HTTP statuses a product page answers on its own, rather than the shop for all its pages
+/// or for the crawler: 500 and 502, which stay URL-scoped unless a burst of them opens the
+/// `HTTP_5XX_BURST` scrape circuit, and every other 4xx and 5xx no rule of its own covers. 404
+/// and 410 are removals; 408, 425, 429, 503 and 504 are transient or shop-wide answers with a
+/// cooldown of their own, and the [crawler-rejection statuses](is_crawler_rejection_status)
+/// refuse the crawler (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
+pub fn is_page_error_status(status: u16) -> bool {
+    (400..=599).contains(&status)
+        && !matches!(status, 404 | 408 | 410 | 425 | 429 | 503 | 504)
+        && !is_crawler_rejection_status(status)
+}
 
-/// The consecutive [page server errors](PAGE_SERVER_ERROR_STATUSES) after which a product URL is
-/// parked. With the doubling retry from five minutes they span about 42 hours, so a shop's bad
-/// day does not park its pages.
-pub const PAGE_SERVER_ERROR_PARK_THRESHOLD: u32 = 10;
+/// The consecutive [page errors](is_page_error_status) after which a product URL is parked.
+/// With the doubling retry from five minutes a run of 500s spans about 42 hours, so a shop's bad
+/// day does not park its pages; statuses retried daily span ten days.
+pub const PAGE_ERROR_PARK_THRESHOLD: u32 = 10;
 
 /// How long a parked product URL waits before its next fetch, which parks it again unless the
 /// page answers.
 pub const PARKED_PAGE_RETRY_DELAY: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-/// When a product URL whose fetch failed with `kind` is fetched again
+/// When a product URL whose fetch failed is fetched again
 /// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlRetry {
     /// After the cooldown.
     After(Duration),
-    /// The page has answered [`PAGE_SERVER_ERROR_PARK_THRESHOLD`] server errors in a row, this
-    /// one included, `server_errors` in all: it is fetched again only after
+    /// The page has answered [`PAGE_ERROR_PARK_THRESHOLD`] page errors in a row, this one
+    /// included, `page_errors` in all: it is fetched again only after
     /// [`PARKED_PAGE_RETRY_DELAY`].
-    Parked { server_errors: u32 },
+    Parked { page_errors: u32 },
 }
 
 impl UrlRetry {
@@ -593,29 +600,25 @@ impl UrlRetry {
     }
 }
 
-/// The retry of a product URL whose fetch failed with `kind` after `prior_server_errors`
-/// consecutive page server errors. Every failure but a page server error keeps the
-/// [cooldown of its kind](durable_retry_cooldown_for); a page server error doubles it for each
-/// one before it in the run, and parks the URL once the run reaches
-/// [`PAGE_SERVER_ERROR_PARK_THRESHOLD`].
-pub fn url_retry_after_fetch_failure(kind: NetworkErrorKind, prior_server_errors: u32) -> UrlRetry {
+/// The retry of a product URL whose fetch failed with `kind` after `prior_page_errors`
+/// consecutive [page errors](is_page_error_status). Every other failure keeps the
+/// [cooldown of its kind](durable_retry_cooldown_for); a page error doubles it for each one
+/// before it in the run, capped at a day, and parks the URL once the run reaches
+/// [`PAGE_ERROR_PARK_THRESHOLD`].
+pub fn url_retry_after_fetch_failure(kind: NetworkErrorKind, prior_page_errors: u32) -> UrlRetry {
     let cooldown = durable_retry_cooldown_for(kind);
-    if !is_page_server_error(kind) {
+    if !matches!(kind, NetworkErrorKind::HttpStatus(status) if is_page_error_status(status)) {
         return UrlRetry::After(cooldown);
     }
-    let server_errors = prior_server_errors.saturating_add(1);
-    if server_errors >= PAGE_SERVER_ERROR_PARK_THRESHOLD {
-        return UrlRetry::Parked { server_errors };
+    let page_errors = prior_page_errors.saturating_add(1);
+    if page_errors >= PAGE_ERROR_PARK_THRESHOLD {
+        return UrlRetry::Parked { page_errors };
     }
     UrlRetry::After(exponential_cooldown(
         cooldown,
-        server_errors,
+        page_errors,
         MAX_EXPONENTIAL_COOLDOWN,
     ))
-}
-
-fn is_page_server_error(kind: NetworkErrorKind) -> bool {
-    matches!(kind, NetworkErrorKind::HttpStatus(status) if PAGE_SERVER_ERROR_STATUSES.contains(&status))
 }
 
 #[cfg(test)]
@@ -1075,12 +1078,25 @@ mod tests {
         assert!(!url_on_crawl_host(&subdomain, "example.com"));
     }
 
-    /// A product URL the shop answers with a server error on every fetch is retried with a
-    /// growing delay and then parked, instead of every five minutes indefinitely (#2890).
+    /// A product URL the shop answers with a page error on every fetch is retried with a growing
+    /// delay and then parked, instead of indefinitely (#2890).
     mod url_retry {
         use super::*;
 
         const FIVE_MINUTES: Duration = Duration::from_secs(5 * 60);
+        const ONE_DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+        #[test]
+        fn should_take_only_statuses_a_page_answers_on_its_own_as_page_errors() {
+            for status in [400, 406, 409, 414, 422, 500, 502, 505, 520] {
+                assert!(is_page_error_status(status), "{status}");
+            }
+            for status in [
+                200, 301, 401, 403, 404, 405, 408, 410, 418, 421, 425, 429, 451, 501, 503, 504,
+            ] {
+                assert!(!is_page_error_status(status), "{status}");
+            }
+        }
 
         #[test]
         fn should_retry_a_single_server_error_after_the_transient_cooldown() {
@@ -1096,45 +1112,65 @@ mod tests {
 
         #[test]
         fn should_double_the_delay_for_each_server_error_before_it_in_the_run() {
-            let delays = (0..PAGE_SERVER_ERROR_PARK_THRESHOLD - 1)
+            let delays = (0..PAGE_ERROR_PARK_THRESHOLD - 1)
                 .map(|prior| {
                     url_retry_after_fetch_failure(NetworkErrorKind::HttpStatus(500), prior).delay()
                 })
                 .collect::<Vec<_>>();
 
-            let expected = (0..PAGE_SERVER_ERROR_PARK_THRESHOLD - 1)
+            let expected = (0..PAGE_ERROR_PARK_THRESHOLD - 1)
                 .map(|prior| FIVE_MINUTES * (1 << prior))
                 .collect::<Vec<_>>();
             assert_eq!(delays, expected);
             let run_before_parking: Duration = delays.iter().sum();
-            assert!(run_before_parking > Duration::from_secs(24 * 60 * 60));
+            assert!(run_before_parking > ONE_DAY);
+        }
+
+        #[test]
+        fn should_retry_another_page_error_daily_until_the_run_parks_it() {
+            for prior in 0..PAGE_ERROR_PARK_THRESHOLD - 1 {
+                assert_eq!(
+                    url_retry_after_fetch_failure(NetworkErrorKind::HttpStatus(400), prior),
+                    UrlRetry::After(ONE_DAY),
+                    "{prior}"
+                );
+            }
+            assert_eq!(
+                url_retry_after_fetch_failure(
+                    NetworkErrorKind::HttpStatus(400),
+                    PAGE_ERROR_PARK_THRESHOLD - 1
+                ),
+                UrlRetry::Parked {
+                    page_errors: PAGE_ERROR_PARK_THRESHOLD
+                }
+            );
         }
 
         #[test]
         fn should_park_the_url_when_the_run_reaches_the_threshold() {
             let retry = url_retry_after_fetch_failure(
                 NetworkErrorKind::HttpStatus(500),
-                PAGE_SERVER_ERROR_PARK_THRESHOLD - 1,
+                PAGE_ERROR_PARK_THRESHOLD - 1,
             );
 
             assert_eq!(
                 retry,
                 UrlRetry::Parked {
-                    server_errors: PAGE_SERVER_ERROR_PARK_THRESHOLD
+                    page_errors: PAGE_ERROR_PARK_THRESHOLD
                 }
             );
             assert_eq!(retry.delay(), PARKED_PAGE_RETRY_DELAY);
         }
 
         #[test]
-        fn should_park_again_when_a_parked_url_still_answers_a_server_error() {
+        fn should_park_again_when_a_parked_url_still_answers_a_page_error() {
             assert_eq!(
                 url_retry_after_fetch_failure(
                     NetworkErrorKind::HttpStatus(502),
-                    PAGE_SERVER_ERROR_PARK_THRESHOLD,
+                    PAGE_ERROR_PARK_THRESHOLD,
                 ),
                 UrlRetry::Parked {
-                    server_errors: PAGE_SERVER_ERROR_PARK_THRESHOLD + 1
+                    page_errors: PAGE_ERROR_PARK_THRESHOLD + 1
                 }
             );
         }
@@ -1145,7 +1181,8 @@ mod tests {
                 NetworkErrorKind::HttpStatus(503),
                 NetworkErrorKind::HttpStatus(504),
                 NetworkErrorKind::HttpStatus(429),
-                NetworkErrorKind::HttpStatus(400),
+                NetworkErrorKind::HttpStatus(403),
+                NetworkErrorKind::HttpStatus(501),
                 NetworkErrorKind::Timeout,
                 NetworkErrorKind::BotChallenge,
             ] {

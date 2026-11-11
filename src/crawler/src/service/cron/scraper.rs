@@ -1373,17 +1373,17 @@ async fn persist_http_failure(
         _ => None,
     });
     let retry = url_retry(candidate, &failure);
-    if let UrlRetry::Parked { server_errors } = retry {
+    if let UrlRetry::Parked { page_errors } = retry {
         warn!(
-            event = "crawler.scraper.product_url_parked_after_server_errors",
+            event = "crawler.scraper.product_url_parked_after_page_errors",
             listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_host,
             url = %failure.url,
             status_code = ?status_code,
-            failure_count = server_errors,
+            failure_count = page_errors,
             retry_after_days = retry.delay().as_secs() / (24 * 60 * 60),
-            "Parking a product URL that answered server errors on every fetch in a row"
+            "Parking a product URL that answered page errors on every fetch in a row"
         );
     }
     let next_retry_at =
@@ -1438,16 +1438,16 @@ async fn persist_http_failure(
     }
 }
 
-/// When the URL that `failure` names is fetched again. The server-error run the candidate was
+/// When the URL that `failure` names is fetched again. The page-error run the candidate was
 /// selected with is its own: a schema seed is drawn only without a fetch failure since its last
 /// scrape, so its run starts with this failure.
 fn url_retry(candidate: &ScraperCandidate, failure: &HttpFailure) -> UrlRetry {
-    let prior_server_errors = if failure.url == candidate.url {
-        candidate.server_error_streak
+    let prior_page_errors = if failure.url == candidate.url {
+        candidate.page_error_streak
     } else {
         0
     };
-    url_retry_after_fetch_failure(failure.kind, prior_server_errors)
+    url_retry_after_fetch_failure(failure.kind, prior_page_errors)
 }
 
 /// Persists the URL failure and the ListingSource's scrape failure as evidence, without a
@@ -4509,10 +4509,10 @@ mod tests {
     }
 
     /// A product URL the shop answers with HTTP 500 on every fetch is retried with a growing
-    /// delay and then parked (#2890); a single server error keeps the transient cooldown.
-    mod server_error_runs {
+    /// delay and then parked (#2890); a single 500 keeps the transient cooldown.
+    mod page_error_runs {
         use super::*;
-        use crate::network::policy::PAGE_SERVER_ERROR_PARK_THRESHOLD;
+        use crate::network::policy::PAGE_ERROR_PARK_THRESHOLD;
 
         /// Scrapes `candidate` once, failing with HTTP 500, and returns the `next_retry_at` its
         /// URL failure recorded, together with the time before and after the scrape.
@@ -4558,7 +4558,7 @@ mod tests {
             (before, next_retry_at, after)
         }
 
-        fn candidate_with_run(server_error_streak: u32) -> ScraperCandidate {
+        fn candidate_with_run(page_error_streak: u32) -> ScraperCandidate {
             let mut candidate = scraper_candidate(
                 "ListingSource",
                 url::Url::parse(
@@ -4566,7 +4566,7 @@ mod tests {
                 )
                 .unwrap(),
             );
-            candidate.server_error_streak = server_error_streak;
+            candidate.page_error_streak = page_error_streak;
             candidate
         }
 
@@ -4585,7 +4585,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn should_grow_the_retry_delay_with_the_server_error_run() {
+        async fn should_grow_the_retry_delay_with_the_page_error_run() {
             let cooldown = durable_retry_cooldown_for(NetworkErrorKind::HttpStatus(500)).as_secs();
 
             let (before, next_retry_at, after) = next_retry_after_500(candidate_with_run(3)).await;
@@ -4599,8 +4599,7 @@ mod tests {
             let parked = PARKED_PAGE_RETRY_DELAY.as_secs();
 
             let (before, next_retry_at, after) =
-                next_retry_after_500(candidate_with_run(PAGE_SERVER_ERROR_PARK_THRESHOLD - 1))
-                    .await;
+                next_retry_after_500(candidate_with_run(PAGE_ERROR_PARK_THRESHOLD - 1)).await;
 
             assert!(next_retry_at >= before + delay(parked));
             assert!(next_retry_at <= after + delay(parked));
