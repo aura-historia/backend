@@ -1063,7 +1063,7 @@ fn spawn_spider_candidate(
     lock_manager: Arc<crate::spider::local_lock::LocalLockManager>,
     threshold: usize,
     budget: CrawlBudgetScale,
-) {
+) -> tokio::task::Id {
     let crawl_root_url = candidate.crawl_root.url().to_string();
     let listing_source_id = candidate.listing_source_id;
     let pace = crawl_pace(&candidate);
@@ -1075,7 +1075,7 @@ fn spawn_spider_candidate(
         budget_factor = budget.factor()
     );
 
-    join_set.spawn(
+    let task = join_set.spawn(
         async move {
             let Some(_lock) =
                 WorkLock::try_acquire(&lock_manager, WorkLockScope::Spider, listing_source_id)
@@ -1117,6 +1117,7 @@ fn spawn_spider_candidate(
         }
         .instrument(span),
     );
+    task.id()
 }
 impl CrawlerCronJob {
     #[tracing::instrument(name = "crawler_run_spider_once", skip(self))]
@@ -1136,7 +1137,8 @@ impl CrawlerCronJob {
         let pass_start = tokio::time::Instant::now();
         let mut excluded_listing_source_ids: HashSet<ListingSourceId> = HashSet::new();
         let extended_slots = extended_crawl_slots(spider_concurrency);
-        let mut extended_in_flight: HashSet<ListingSourceId> = HashSet::new();
+        // Keyed by task, so a slot whose task panicked releases its extended budget too.
+        let mut extended_in_flight: HashSet<tokio::task::Id> = HashSet::new();
         let mut join_set: JoinSet<SpiderSlotOutcome> = JoinSet::new();
         let mut total = 0usize;
         let mut succeeded = 0usize;
@@ -1206,10 +1208,7 @@ impl CrawlerCronJob {
                     total += 1;
                     let budget =
                         crawl_budget_scale(&candidate, extended_in_flight.len() < extended_slots);
-                    if budget.is_extended() {
-                        extended_in_flight.insert(candidate.listing_source_id);
-                    }
-                    spawn_spider_candidate(
+                    let task = spawn_spider_candidate(
                         &mut join_set,
                         candidate,
                         Arc::clone(&self.spider_candidates),
@@ -1218,6 +1217,9 @@ impl CrawlerCronJob {
                         self.config.spider_classify_threshold,
                         budget,
                     );
+                    if budget.is_extended() {
+                        extended_in_flight.insert(task);
+                    }
                 }
 
                 if !scheduled_any {
@@ -1229,10 +1231,10 @@ impl CrawlerCronJob {
                 break;
             }
 
-            match join_set.join_next().await {
-                Some(Ok(outcome)) => {
+            match join_set.join_next_with_id().await {
+                Some(Ok((task, outcome))) => {
+                    extended_in_flight.remove(&task);
                     excluded_listing_source_ids.insert(outcome.listing_source_id);
-                    extended_in_flight.remove(&outcome.listing_source_id);
                     match outcome.status {
                         SpiderSlotStatus::Succeeded => succeeded += 1,
                         SpiderSlotStatus::Truncated => truncated += 1,
@@ -1247,6 +1249,7 @@ impl CrawlerCronJob {
                     }
                 }
                 Some(Err(e)) => {
+                    extended_in_flight.remove(&e.id());
                     error!(error = %e, "Spider worker task failed to join");
                     failed += 1;
                 }
@@ -1454,6 +1457,79 @@ mod tests {
         let mut factors = budgets.lock().unwrap().clone();
         factors.sort_unstable();
         assert_eq!(factors, vec![1, 1, 3]);
+    }
+
+    #[tokio::test]
+    async fn should_release_the_extended_slot_of_a_continuation_whose_task_panicked() {
+        use std::sync::Mutex;
+        use tokio::sync::Semaphore;
+
+        let panicking = ListingSourceId::new();
+        let busy = [ListingSourceId::new(), ListingSourceId::new()];
+        let next = ListingSourceId::new();
+        let continuation = |listing_source_id| {
+            let mut candidate = spider_candidate(listing_source_id);
+            candidate.crawl_truncation_count = 2;
+            candidate
+        };
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let calls = Arc::new(Mutex::new(0usize));
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, _| {
+                let call = {
+                    let mut calls = calls.lock().unwrap();
+                    *calls += 1;
+                    *calls
+                };
+                Box::pin(async move {
+                    Ok(match call {
+                        // The continuation takes the only extended slot; two standard crawls keep
+                        // the other slots busy until the next continuation has started.
+                        1 => vec![
+                            continuation(panicking),
+                            spider_candidate(busy[0]),
+                            spider_candidate(busy[1]),
+                        ],
+                        2 => vec![continuation(next)],
+                        _ => vec![],
+                    })
+                })
+            });
+        spider_candidates
+            .expect_mark_crawl_completed()
+            .times(3)
+            .returning(|_, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        let release_busy = Arc::new(Semaphore::new(0));
+        let next_budget = Arc::new(Mutex::new(None));
+        let recorded = Arc::clone(&next_budget);
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(4)
+            .returning(move |source, _, _, _, budget, _| {
+                let source = *source;
+                let release_busy = Arc::clone(&release_busy);
+                if source == next {
+                    *recorded.lock().unwrap() = Some(budget.factor());
+                    release_busy.add_permits(busy.len());
+                }
+                Box::pin(async move {
+                    if source == panicking {
+                        panic!("spider worker panicked");
+                    }
+                    if busy.contains(&source) {
+                        release_busy.acquire().await.unwrap().forget();
+                    }
+                    Ok(run_result(CrawlCompletion::Completed))
+                })
+            });
+
+        spider_job(spider_candidates, spider_service, 3)
+            .run_spider_once()
+            .await;
+
+        assert_eq!(*next_budget.lock().unwrap(), Some(3));
     }
 
     #[test]
