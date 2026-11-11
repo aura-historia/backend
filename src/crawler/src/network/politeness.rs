@@ -41,33 +41,43 @@ const RATE_LIMIT_SPACING_SNAP: Duration = Duration::from_millis(10);
 /// backoff.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolitenessGroup {
-    /// The platform domain for a shop on a shared platform, otherwise the
-    /// canonical crawl host.
+    /// The platform domain for a shop on a listed shared platform, otherwise
+    /// the host's registrable domain, or the canonical host when it has none.
     pub key: String,
     /// The spacing between request starts the group never drops below.
     pub min_spacing: Duration,
 }
 
-/// The politeness group of `host`: its shared platform when it is one of that
-/// platform's subdomains, otherwise the canonical crawl host alone.
+/// The politeness group of `host`: its shared platform when it is one of a
+/// listed platform's subdomains, otherwise its registrable domain.
 pub fn politeness_group(host: &str) -> PolitenessGroup {
     let host = canonical_crawl_host(host);
-    SHARED_RATE_LIMIT_PLATFORMS
-        .iter()
-        .find(|(platform, _)| {
+    if let Some((platform, min_spacing)) =
+        SHARED_RATE_LIMIT_PLATFORMS.iter().find(|(platform, _)| {
             host.strip_suffix(platform)
                 .is_some_and(|prefix| prefix.is_empty() || prefix.ends_with('.'))
         })
-        .map_or_else(
-            || PolitenessGroup {
-                key: host.clone(),
-                min_spacing: Duration::ZERO,
-            },
-            |(platform, min_spacing)| PolitenessGroup {
-                key: (*platform).to_owned(),
-                min_spacing: *min_spacing,
-            },
-        )
+    {
+        return PolitenessGroup {
+            key: (*platform).to_owned(),
+            min_spacing: *min_spacing,
+        };
+    }
+    PolitenessGroup {
+        key: registrable_domain(&host).unwrap_or(host),
+        min_spacing: Duration::ZERO,
+    }
+}
+
+/// The registrable domain of `host` (one label below its public suffix) by
+/// the public suffix list. The list's private section counts, so the tenants
+/// of a hosting platform listed there (`shop.myshopify.com`) stay apart.
+/// `None` for an IP address or a host that is itself a public suffix.
+fn registrable_domain(host: &str) -> Option<String> {
+    if host.parse::<std::net::IpAddr>().is_ok() || host.starts_with('[') {
+        return None;
+    }
+    psl::domain_str(host).map(str::to_owned)
 }
 
 /// How a 429 slowed its politeness group.
@@ -317,12 +327,46 @@ mod tests {
     #[test]
     fn should_keep_unrelated_hosts_in_their_own_group() {
         let lookalike = politeness_group("notshopnetzwerk.com");
-        let subdomain = politeness_group("catalog.example.com");
 
         assert_eq!(lookalike.key, "notshopnetzwerk.com");
         assert_eq!(lookalike.min_spacing, Duration::ZERO);
         assert_eq!(politeness_group("www.example.com").key, "example.com");
-        assert_eq!(subdomain.key, "catalog.example.com");
+        assert_ne!(
+            politeness_group("antiques.example.co.uk").key,
+            politeness_group("antiques.example2.co.uk").key
+        );
+    }
+
+    #[test]
+    fn should_group_hosts_by_registrable_domain_when_no_platform_is_listed() {
+        assert_eq!(politeness_group("catalog.example.com").key, "example.com");
+        assert_eq!(
+            politeness_group("shop.antiques.co.uk").key,
+            "antiques.co.uk"
+        );
+        assert_eq!(
+            politeness_group("Catalog.Example.CO.UK.").min_spacing,
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn should_keep_tenants_of_a_listed_hosting_suffix_apart() {
+        assert_eq!(
+            politeness_group("vintage-finds.myshopify.com").key,
+            "vintage-finds.myshopify.com"
+        );
+        assert_ne!(
+            politeness_group("a.github.io").key,
+            politeness_group("b.github.io").key
+        );
+    }
+
+    #[test]
+    fn should_keep_hosts_without_a_registrable_domain_as_they_are() {
+        assert_eq!(politeness_group("127.0.0.1").key, "127.0.0.1");
+        assert_eq!(politeness_group("localhost").key, "localhost");
+        assert_eq!(politeness_group("co.uk").key, "co.uk");
     }
 
     fn wait(groups: &PolitenessGroups, host: &str) -> Duration {
