@@ -3,6 +3,8 @@
 -- source fingerprint matches the search's product queries and enhanced description.
 ALTER TABLE search_filters
     ADD COLUMN intent_translation jsonb,
+    -- Last failed translation attempt; the backfill tries never-attempted filters first.
+    ADD COLUMN intent_translation_attempted timestamptz,
     ADD CONSTRAINT search_filters_intent_translation_object CHECK (
         intent_translation IS NULL OR jsonb_typeof(intent_translation) = 'object'
     );

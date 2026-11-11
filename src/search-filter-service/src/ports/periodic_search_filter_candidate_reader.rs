@@ -31,9 +31,12 @@ pub struct PeriodicSearchFilterCandidate {
     pub matched_through: OffsetDateTime,
 }
 
+/// `reason` is a loggable label; the underlying error may quote persisted user text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("persisted search intent translation is invalid")]
-pub struct InvalidPersistedIntentTranslation;
+#[error("persisted search intent translation is invalid: {reason}")]
+pub struct InvalidPersistedIntentTranslation {
+    pub reason: &'static str,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum PeriodicSearchFilterCandidateReadError {

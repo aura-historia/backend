@@ -15,7 +15,10 @@ pub enum SearchIntentTranslatorConfigError {
     #[error("missing required environment variable {ANTHROPIC_API_KEY_ENV}")]
     MissingApiKey,
     #[error("failed to configure the Anthropic search intent translator")]
-    InvalidApiKey,
+    InvalidApiKey {
+        #[source]
+        source: application::error::BoxError,
+    },
 }
 
 /// Builds the translator from `ANTHROPIC_API_KEY`. Only the ephemeral stage, which has no
@@ -30,8 +33,11 @@ where
     let ephemeral = get("STAGE").as_deref() == Some(EPHEMERAL_STAGE);
     match api_key {
         Some(api_key) => Ok(Arc::new(
-            LargeLanguageModelSearchIntentTranslator::anthropic(&api_key)
-                .map_err(|_| SearchIntentTranslatorConfigError::InvalidApiKey)?,
+            LargeLanguageModelSearchIntentTranslator::anthropic(&api_key).map_err(|source| {
+                SearchIntentTranslatorConfigError::InvalidApiKey {
+                    source: application::error::box_error(source),
+                }
+            })?,
         )),
         None if ephemeral => Ok(Arc::new(UnavailableSearchIntentTranslator)),
         None => Err(SearchIntentTranslatorConfigError::MissingApiKey),

@@ -3,6 +3,7 @@ use product_listing_core::product_listing_search::ProductListingSearch;
 use search_filter_core::SearchIntentTranslation;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::sync::Arc;
+use time::OffsetDateTime;
 
 /// An active filter with semantic intent and no stored translation.
 #[derive(Debug, Clone, PartialEq)]
@@ -12,9 +13,11 @@ pub struct UntranslatedSearchIntent {
     pub search: ProductListingSearch,
 }
 
+/// Filters not attempted since `attempted_before`, never-attempted first, then the longest ago,
+/// so filters whose translation keeps failing cannot starve the others.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UntranslatedSearchIntentPageRequest {
-    pub after: Option<UserSearchFilterId>,
+    pub attempted_before: OffsetDateTime,
     pub page_size: usize,
 }
 
@@ -61,6 +64,13 @@ pub trait SearchIntentTranslationStore: Send + Sync {
         expected_version: i64,
         translation: &SearchIntentTranslation,
     ) -> Result<SearchIntentTranslationRecordOutcome, SearchIntentTranslationStoreError>;
+
+    /// Moves a filter whose translation failed behind every filter not attempted since.
+    async fn record_failed_attempt(
+        &self,
+        search_filter_id: UserSearchFilterId,
+        attempted_at: OffsetDateTime,
+    ) -> Result<(), SearchIntentTranslationStoreError>;
 }
 
 #[async_trait::async_trait]
@@ -83,6 +93,16 @@ where
     ) -> Result<SearchIntentTranslationRecordOutcome, SearchIntentTranslationStoreError> {
         self.as_ref()
             .record(search_filter_id, expected_version, translation)
+            .await
+    }
+
+    async fn record_failed_attempt(
+        &self,
+        search_filter_id: UserSearchFilterId,
+        attempted_at: OffsetDateTime,
+    ) -> Result<(), SearchIntentTranslationStoreError> {
+        self.as_ref()
+            .record_failed_attempt(search_filter_id, attempted_at)
             .await
     }
 }

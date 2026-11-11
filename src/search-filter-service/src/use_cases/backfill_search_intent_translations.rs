@@ -3,13 +3,13 @@
 //! runs it first, so the run it is about to freeze already classifies the English intent.
 
 use crate::intent_translation::{TranslationTrigger, translate_search_intent};
-use crate::match_candidates::has_semantic_intent;
 use crate::ports::{
     SearchIntentTranslationRecordOutcome, SearchIntentTranslationStore,
     SearchIntentTranslationStoreError, SearchIntentTranslator, UntranslatedSearchIntentPageRequest,
 };
 use futures::StreamExt;
 use std::num::NonZeroUsize;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchIntentTranslationBackfillPolicy {
@@ -63,7 +63,9 @@ where
         &self,
     ) -> Result<SearchIntentTranslationBackfillReport, SearchIntentTranslationStoreError> {
         let mut report = SearchIntentTranslationBackfillReport::default();
-        let mut after = None;
+        // Every filter read is either recorded or marked attempted at this instant, so later
+        // pages never return it again and a failing filter is retried only by a later run.
+        let run_started = OffsetDateTime::now_utc();
         loop {
             let remaining = self
                 .policy
@@ -76,19 +78,17 @@ where
             let page = self
                 .store
                 .find_untranslated_page(UntranslatedSearchIntentPageRequest {
-                    after,
+                    attempted_before: run_started,
                     page_size: self.policy.page_size.get().min(remaining),
                 })
                 .await?;
-            let Some(last) = page.last() else {
+            if page.is_empty() {
                 break;
-            };
-            after = Some(last.search_filter_id);
+            }
             report.filters_read += page.len();
             let translator = &self.translator;
             let translations = page
                 .into_iter()
-                .filter(|filter| has_semantic_intent(&filter.search))
                 .map(|filter| async move {
                     let translation = translate_search_intent(
                         translator,
@@ -104,20 +104,29 @@ where
                 .collect::<Vec<_>>()
                 .await;
             for (filter, translation) in translated {
-                let Some(translation) = translation else {
-                    report.translation_failures += 1;
-                    continue;
+                let outcome = match translation {
+                    Some(translation) => {
+                        self.store
+                            .record(filter.search_filter_id, filter.version, &translation)
+                            .await?
+                    }
+                    None => {
+                        report.translation_failures += 1;
+                        self.store
+                            .record_failed_attempt(filter.search_filter_id, run_started)
+                            .await?;
+                        continue;
+                    }
                 };
-                match self
-                    .store
-                    .record(filter.search_filter_id, filter.version, &translation)
-                    .await?
-                {
+                match outcome {
                     SearchIntentTranslationRecordOutcome::Recorded => {
                         report.translations_recorded += 1;
                     }
                     SearchIntentTranslationRecordOutcome::FilterChanged => {
                         report.filters_changed += 1;
+                        self.store
+                            .record_failed_attempt(filter.search_filter_id, run_started)
+                            .await?;
                     }
                 }
             }
@@ -144,12 +153,14 @@ mod tests {
     use product_listing_core::product_listing_search::ProductListingSearch;
     use search_filter_core::SearchIntentTranslation;
     use search_filter_core::user_search_filter_id::UserSearchFilterId;
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     #[derive(Default)]
     struct MemoryStore {
         filters: Mutex<Vec<UntranslatedSearchIntent>>,
         recorded: Mutex<Vec<(UserSearchFilterId, i64, SearchIntentTranslation)>>,
+        attempted: Mutex<HashMap<UserSearchFilterId, OffsetDateTime>>,
         changed: Vec<UserSearchFilterId>,
     }
 
@@ -179,24 +190,32 @@ mod tests {
             request: UntranslatedSearchIntentPageRequest,
         ) -> Result<Vec<UntranslatedSearchIntent>, SearchIntentTranslationStoreError> {
             let recorded = self.recorded.lock().unwrap();
-            Ok(self
+            let attempted = self.attempted.lock().unwrap();
+            let mut page = self
                 .filters
                 .lock()
                 .unwrap()
                 .iter()
                 .filter(|filter| {
-                    request
-                        .after
-                        .is_none_or(|after| filter.search_filter_id.into_uuid() > after.into_uuid())
+                    attempted
+                        .get(&filter.search_filter_id)
+                        .is_none_or(|at| *at < request.attempted_before)
                 })
                 .filter(|filter| {
                     !recorded
                         .iter()
                         .any(|(id, _, _)| *id == filter.search_filter_id)
                 })
-                .take(request.page_size)
                 .cloned()
-                .collect())
+                .collect::<Vec<_>>();
+            page.sort_by_key(|filter| {
+                (
+                    attempted.get(&filter.search_filter_id).copied(),
+                    filter.search_filter_id.into_uuid(),
+                )
+            });
+            page.truncate(request.page_size);
+            Ok(page)
         }
 
         async fn record(
@@ -215,6 +234,18 @@ mod tests {
                 translation.clone(),
             ));
             Ok(SearchIntentTranslationRecordOutcome::Recorded)
+        }
+
+        async fn record_failed_attempt(
+            &self,
+            search_filter_id: UserSearchFilterId,
+            attempted_at: OffsetDateTime,
+        ) -> Result<(), SearchIntentTranslationStoreError> {
+            self.attempted
+                .lock()
+                .unwrap()
+                .insert(search_filter_id, attempted_at);
+            Ok(())
         }
     }
 
@@ -281,6 +312,41 @@ mod tests {
 
         assert_eq!(2, translator.calls());
         assert!(report.attempt_limit_reached);
+    }
+
+    #[tokio::test]
+    async fn should_try_failing_filters_once_per_run_and_after_untried_ones() {
+        let store = Arc::new(MemoryStore::with_filters(&["Vase", "Kommode", "Leuchter"]));
+        let failing = Arc::new(StubTranslator::failing());
+        BackfillSearchIntentTranslationsHandler::new(
+            Arc::clone(&store),
+            Arc::clone(&failing),
+            policy(10),
+        )
+        .execute()
+        .await
+        .unwrap();
+        assert_eq!(3, failing.calls());
+        let late = UntranslatedSearchIntent {
+            search_filter_id: UserSearchFilterId::new(),
+            version: 1,
+            search: ProductListingSearch::new(Language::En, Currency::Eur)
+                .with_product_listing_query("Spiegel".try_into().unwrap()),
+        };
+        store.filters.lock().unwrap().push(late.clone());
+
+        let translator = Arc::new(StubTranslator::default());
+        let report = BackfillSearchIntentTranslationsHandler::new(
+            Arc::clone(&store),
+            Arc::clone(&translator),
+            policy(1),
+        )
+        .execute()
+        .await
+        .unwrap();
+
+        assert_eq!(1, report.translations_recorded);
+        assert_eq!(late.search_filter_id, store.recorded.lock().unwrap()[0].0);
     }
 
     #[tokio::test]

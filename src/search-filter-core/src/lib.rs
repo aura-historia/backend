@@ -52,9 +52,10 @@ pub struct StaleSearchIntentTranslation;
 
 impl SearchFilter {
     pub fn create(new: NewSearchFilter) -> Self {
-        let intent_translation = new
-            .intent_translation
-            .filter(|translation| translation.is_current_for(&new.search));
+        // Only a translation usable for the current search is kept; the next write clears others.
+        let intent_translation = new.intent_translation.filter(|translation| {
+            translation.is_current_for(&new.search) && translation.english_for(&new.search).is_ok()
+        });
         Self {
             user_search_filter_id: new.user_search_filter_id,
             user_id: new.user_id,

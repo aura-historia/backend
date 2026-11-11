@@ -14,6 +14,7 @@ use search_filter_service::ports::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use time::OffsetDateTime;
 
 /// `english` is null when the source text is English already.
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +39,17 @@ pub(crate) enum IntentTranslationMappingError {
     Fingerprint,
     #[error("persisted search intent translation is not in canonical form")]
     NonCanonicalText,
+}
+
+impl IntentTranslationMappingError {
+    /// A loggable label; the deserialization error itself may quote persisted text.
+    pub(crate) const fn category(&self) -> &'static str {
+        match self {
+            Self::Deserialize(_) => "schema",
+            Self::Fingerprint => "fingerprint",
+            Self::NonCanonicalText => "non_canonical_text",
+        }
+    }
 }
 
 pub(crate) fn intent_translation_to_json(
@@ -158,12 +170,12 @@ impl SearchIntentTranslationStore for SqlxSearchIntentTranslationStore {
                     SELECT 1 FROM jsonb_array_elements_text(search->'product_listing_query') AS query(text)
                     WHERE btrim(query.text) <> ''
                 ))
-                AND ($1::uuid IS NULL OR user_search_filter_id > $1)
-            ORDER BY user_search_filter_id ASC
+                AND (intent_translation_attempted IS NULL OR intent_translation_attempted < $1)
+            ORDER BY intent_translation_attempted ASC NULLS FIRST, user_search_filter_id ASC
             LIMIT $2
             "#,
         )
-        .bind(request.after.map(UserSearchFilterId::into_uuid))
+        .bind(request.attempted_before)
         .bind(limit)
         .fetch_all(&self.pool)
         .await
@@ -192,9 +204,9 @@ impl SearchIntentTranslationStore for SqlxSearchIntentTranslationStore {
         expected_version: i64,
         translation: &SearchIntentTranslation,
     ) -> Result<SearchIntentTranslationRecordOutcome, SearchIntentTranslationStoreError> {
-        // Internal state: neither `version` nor `updated` advances.
+        // Internal state: neither `version` nor `updated` advances, so a frozen run stays valid.
         let result = sqlx::query(
-            "UPDATE search_filters SET intent_translation = $3 WHERE user_search_filter_id = $1 AND version = $2",
+            "UPDATE search_filters SET intent_translation = $3 WHERE user_search_filter_id = $1 AND version = $2 AND intent_translation IS NULL",
         )
         .bind(search_filter_id.into_uuid())
         .bind(expected_version)
@@ -209,6 +221,24 @@ impl SearchIntentTranslationStore for SqlxSearchIntentTranslationStore {
         } else {
             SearchIntentTranslationRecordOutcome::FilterChanged
         })
+    }
+
+    async fn record_failed_attempt(
+        &self,
+        search_filter_id: UserSearchFilterId,
+        attempted_at: OffsetDateTime,
+    ) -> Result<(), SearchIntentTranslationStoreError> {
+        sqlx::query(
+            "UPDATE search_filters SET intent_translation_attempted = $2 WHERE user_search_filter_id = $1",
+        )
+        .bind(search_filter_id.into_uuid())
+        .bind(attempted_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|source| SearchIntentTranslationStoreError::WriteFailed {
+            source: box_error(source),
+        })?;
+        Ok(())
     }
 }
 

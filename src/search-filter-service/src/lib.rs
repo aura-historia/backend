@@ -7,8 +7,6 @@ pub mod shipping_destination;
 mod tier_policy;
 pub mod use_cases;
 
-pub use intent_translation::SEARCH_INTENT_TRANSLATION_DEADLINE;
-
 #[cfg(test)]
 mod test_digests {
     use notification_service::saved_search_digest::{

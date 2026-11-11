@@ -1145,8 +1145,21 @@ fn filter_embedding(filter: &PeriodicSearchFilterCandidate) -> Result<&[f32], Fi
 
 /// Fails closed on an invalid persisted translation; a stale one falls back to the original.
 fn match_intent(filter: &PeriodicSearchFilterCandidate) -> Option<MatchIntent<'_>> {
-    let translation = filter.intent_translation.as_ref().ok()?;
-    MatchIntent::resolve(&filter.search, translation.as_ref()).ok()
+    let resolved = match &filter.intent_translation {
+        Ok(translation) => {
+            MatchIntent::resolve(&filter.search, translation.as_ref()).map_err(|_| "shape_mismatch")
+        }
+        Err(error) => Err(error.reason),
+    };
+    resolved
+        .inspect_err(|reason| {
+            tracing::error!(
+                search_filter_id = %filter.search_filter_id,
+                reason,
+                "search_filter.periodic_match.invalid_intent_translation"
+            );
+        })
+        .ok()
 }
 
 fn mark_invalid_persisted_state(report: &mut PeriodicSearchFilterMatchingReport) {
@@ -2605,7 +2618,7 @@ mod tests {
             )),
         );
         for translation in [
-            Err(crate::ports::InvalidPersistedIntentTranslation),
+            Err(crate::ports::InvalidPersistedIntentTranslation { reason: "schema" }),
             Ok(Some(mismatched)),
         ] {
             filter.intent_translation = translation;

@@ -235,18 +235,24 @@ pub(crate) struct AggregateRow {
 }
 
 impl AggregateRow {
+    /// An invalid translation is rebuildable matching state, not the user's filter: the
+    /// aggregate loads without it, so the owner can still edit or delete the filter and the
+    /// next write clears it. Matching fails that filter closed through its candidate reader.
     pub(crate) fn into_persisted(
         self,
     ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
-        let intent_translation = self
-            .intent_translation
-            .map(crate::intent_translation::intent_translation_from_json)
-            .transpose()
-            .map_err(
-                |source| SearchFilterRepositoryError::InvalidPersistedState {
-                    source: box_error(source),
-                },
-            )?;
+        let filter_id = self.filter.user_search_filter_id;
+        let intent_translation = self.intent_translation.and_then(|value| {
+            crate::intent_translation::intent_translation_from_json(value)
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        search_filter_id = %filter_id,
+                        reason = error.category(),
+                        "search_filter.intent_translation.invalid_persisted_state"
+                    );
+                })
+                .ok()
+        });
         self.filter.into_persisted(intent_translation)
     }
 }

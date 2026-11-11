@@ -7983,6 +7983,7 @@ dependencies = [
  "async-trait",
  "classifier-model",
  "fxrate-postgres",
+ "large-language-model",
  "notification-postgres",
  "opensearch",
  "platform-observability",
@@ -8027,6 +8028,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tracing",
  "user-core",
  "uuid",
 ]

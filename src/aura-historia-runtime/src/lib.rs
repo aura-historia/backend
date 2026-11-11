@@ -59,8 +59,8 @@ pub use saved_search_previews::{
 };
 pub use saved_searches::SavedSearches;
 pub use search_intent_translation::{
-    ANTHROPIC_API_KEY_ENV, SearchIntentTranslatorConfigError, UnavailableSearchIntentTranslator,
-    search_intent_translator, search_intent_translator_from_env,
+    SearchIntentTranslatorConfigError, UnavailableSearchIntentTranslator, search_intent_translator,
+    search_intent_translator_from_env,
 };
 pub use shipping_management::ShippingManagement;
 pub use source_location_defaults::SourceLocationDefaults;

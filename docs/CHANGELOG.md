@@ -5,8 +5,8 @@ Only document REST API contract and user-visible behavior changes here. No inter
 ## 2026-11-11 — Saved-search matching classifies an English translation of the intent (#2904)
 
 - Scheduled saved-search matching and `POST /v1/me/search-filters/preview` now classify candidates against an English translation of `productQuery` and `enhancedSearchDescription`, with the listing's English title (its original title when none exists yet) and its original description. The classifier enforces English intent more reliably, so intent written in other languages produces fewer unwanted matches. The source language is detected from the text, not from `language`.
-- The translation is internal. Search filters, previews, MCP saved-search tools, match notifications and digests keep, return and edit the text exactly as written. Request and response shapes are unchanged.
-- Saving a filter never waits on a failed translation: the filter is saved and matched with the text as written until a later run translates it. Existing filters are translated the same way before their next scheduled run.
+- Search filters, previews, MCP saved-search tools, match notifications and digests keep, return and edit the text exactly as written. Request and response shapes are unchanged.
+- Saving a filter never fails because translation fails: the filter is saved and matched with the text as written until a later scheduled run translates it. Existing filters are translated over the following scheduled runs.
 
 ## 2026-11-11 — Provider link guidance for agents
 

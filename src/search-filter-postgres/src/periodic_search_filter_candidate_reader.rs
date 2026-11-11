@@ -145,7 +145,9 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
                     .intent_translation
                     .map(crate::intent_translation::intent_translation_from_json)
                     .transpose()
-                    .map_err(|_| InvalidPersistedIntentTranslation),
+                    .map_err(|error| InvalidPersistedIntentTranslation {
+                        reason: error.category(),
+                    }),
                 matching_evidence_policy: policy,
                 created: row.created,
                 matched_through: row.matched_through,

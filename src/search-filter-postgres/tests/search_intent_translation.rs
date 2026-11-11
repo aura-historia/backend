@@ -180,6 +180,30 @@ async fn should_fail_only_the_filter_whose_translation_is_invalid() {
             assert!(candidate.intent_translation.is_err());
         }
     }
+    // The owner can still edit the filter; the write clears the invalid state.
+    let mut tx = unit.begin().await.unwrap();
+    let mut persisted = SqlxSearchFilterRepositoryFactory
+        .in_transaction(&mut tx)
+        .find_by_id(corrupt.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(None, persisted.filter.intent_translation());
+    persisted.filter.rename("renamed".into());
+    SqlxSearchFilterRepositoryFactory
+        .in_transaction(&mut tx)
+        .update(&persisted.filter, persisted.version)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let stored: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT intent_translation FROM search_filters WHERE user_search_filter_id = $1",
+    )
+    .bind(corrupt.id().into_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(None, stored);
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -208,7 +232,7 @@ async fn should_backfill_untranslated_semantic_filters_behind_a_version_guard() 
 
     let page = store
         .find_untranslated_page(UntranslatedSearchIntentPageRequest {
-            after: None,
+            attempted_before: OffsetDateTime::now_utc(),
             page_size: 10,
         })
         .await
@@ -254,7 +278,7 @@ async fn should_backfill_untranslated_semantic_filters_behind_a_version_guard() 
     assert!(
         store
             .find_untranslated_page(UntranslatedSearchIntentPageRequest {
-                after: None,
+                attempted_before: OffsetDateTime::now_utc(),
                 page_size: 10,
             })
             .await
@@ -275,4 +299,42 @@ async fn should_backfill_untranslated_semantic_filters_behind_a_version_guard() 
         .find(|candidate| candidate.search_filter_id == untranslated.id())
         .unwrap();
     assert_eq!(Ok(Some(translation)), frozen.intent_translation);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_offer_failed_filters_after_untried_ones_and_once_per_run() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let user_id = seed_user(&pool, "intent-translation-attempts@example.test").await;
+    let failed = filter(user_id, german_search("Spiegel"), None);
+    let untried = filter(user_id, german_search("Kommode"), None);
+    insert(&unit, &failed).await;
+    insert(&unit, &untried).await;
+    let store = SqlxSearchIntentTranslationStore::new(pool);
+    let run_started = OffsetDateTime::now_utc();
+    store
+        .record_failed_attempt(failed.id(), run_started)
+        .await
+        .unwrap();
+    let page = |attempted_before| {
+        let store = store.clone();
+        async move {
+            store
+                .find_untranslated_page(UntranslatedSearchIntentPageRequest {
+                    attempted_before,
+                    page_size: 10,
+                })
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|item| item.search_filter_id)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    assert_eq!(vec![untried.id()], page(run_started).await);
+    assert_eq!(
+        vec![untried.id(), failed.id()],
+        page(run_started + Duration::hours(1)).await
+    );
 }

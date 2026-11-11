@@ -24,6 +24,8 @@ const SHOULD_SHOW_QUESTION: &str = "should_show";
 pub(crate) struct MatchIntent<'a> {
     search: &'a ProductListingSearch,
     english: Option<&'a EnglishSearchIntent>,
+    /// The text's language was detected: English, or translated into English.
+    detected_english: bool,
 }
 
 impl<'a> MatchIntent<'a> {
@@ -31,6 +33,7 @@ impl<'a> MatchIntent<'a> {
         Self {
             search,
             english: None,
+            detected_english: false,
         }
     }
 
@@ -44,7 +47,12 @@ impl<'a> MatchIntent<'a> {
             Some(translation) => translation.english_for(search)?,
             None => None,
         };
-        Ok(Self { search, english })
+        Ok(Self {
+            search,
+            english,
+            detected_english: translation
+                .is_some_and(|translation| translation.is_current_for(search)),
+        })
     }
 
     pub(crate) fn search(&self) -> &'a ProductListingSearch {
@@ -86,8 +94,9 @@ impl<'a> MatchIntent<'a> {
         }
     }
 
+    /// `search.language` is the UI language, not necessarily the text's.
     fn language(&self) -> Language {
-        if self.english.is_some() {
+        if self.detected_english {
             Language::En
         } else {
             self.search.language
@@ -716,7 +725,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn should_report_the_original_search_language_without_a_pivot() {
+    fn should_report_the_ui_language_only_while_the_text_language_is_unknown() {
         let mut search = german_search();
         search.language = Language::De;
         let product = french_listing(false);
@@ -741,6 +750,23 @@ pub(crate) mod tests {
             pivoted.state["evaluation_context"]["search_language"]
         );
         assert!(pivoted.state["search_intent"]["enhanced_description"].is_null());
+        let already_english = product_match_request(
+            &product,
+            MatchIntent::resolve(
+                &search,
+                Some(&SearchIntentTranslation::already_english(&search)),
+            )
+            .unwrap(),
+            MatchingEvidencePolicy::TextOnly,
+        );
+        assert_eq!(
+            "English",
+            already_english.state["evaluation_context"]["search_language"]
+        );
+        assert_eq!(
+            original.state["search_intent"],
+            already_english.state["search_intent"]
+        );
     }
 
     #[test]

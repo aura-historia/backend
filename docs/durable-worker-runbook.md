@@ -375,11 +375,14 @@ address/preference change. See [shipping search](shipping.md#shipping-search-and
 Saved-filter writes, previews and each run's translation backfill translate semantic intent
 with the listing-title translator's Anthropic key (`ANTHROPIC_API_KEY`). An outage never fails a
 write or a run: affected filters match their text as written (`intentSource=ORIGINAL`) and the
-next run translates them. Each run attempts at most 500 translations before freezing its filters,
-so a large first backfill completes over several runs; follow the
-`search_filter.intent_translation_backfill.completed` counts and `SEARCH_INTENT_TRANSLATION`
-outcomes. Logs carry only outcomes and categories, never intent text. Do not clear
-`intent_translation` to force a retranslation of current text; editing the text replaces it.
+next run translates them. Each run attempts at most 500 translations, never-attempted filters
+first and failed ones after them, so a large first backfill completes over several runs; follow
+the `search_filter.intent_translation_backfill.completed` counts and `SEARCH_INTENT_TRANSLATION`
+outcomes. A run that resumes an unfinished window keeps its frozen filters, so translations made
+before it apply from the next window. Logs carry only outcomes and categories, never intent text.
+An invalid stored translation fails only that filter's matching
+(`search_filter.periodic_match.invalid_intent_translation`); the owner can still edit it, the
+next write clears it, and setting `intent_translation` to NULL lets the next run retranslate it.
 
 The API's search-filter previews use the same Workers AI account. A classifier outage or rate
 limit also fails previews with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`, logged by the API as

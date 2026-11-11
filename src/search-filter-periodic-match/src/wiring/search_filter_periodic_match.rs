@@ -69,7 +69,7 @@ pub async fn build_from_env()
     let intent_translations = BackfillSearchIntentTranslationsHandler::new(
         SqlxSearchIntentTranslationStore::new(pool.clone()),
         LargeLanguageModelSearchIntentTranslator::anthropic(&config.anthropic_api_key)
-            .map_err(|_| WiringError::TranslatorConfig)?,
+            .map_err(WiringError::TranslatorConfig)?,
         INTENT_TRANSLATION_BACKFILL,
     );
     let handler: Arc<dyn RunPeriodicSearchFilterMatchingUseCase> = Arc::new(
@@ -299,7 +299,7 @@ pub enum WiringError {
     #[error("classifier provider configuration is invalid")]
     ClassifierConfig,
     #[error("search intent translator configuration is invalid")]
-    TranslatorConfig,
+    TranslatorConfig(#[source] large_language_model::LargeLanguageModelError),
     #[error("failed to build periodic matching handler")]
     Handler(#[source] search_filter_service::use_cases::RunPeriodicSearchFilterMatchingError),
 }

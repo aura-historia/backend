@@ -10,8 +10,9 @@ use product_listing_core::product_listing_search::ProductListingSearch;
 use search_filter_core::SearchIntentTranslation;
 use std::time::{Duration, Instant};
 
-/// Bound on one translation while a user waits for a filter write or a preview.
-pub const SEARCH_INTENT_TRANSLATION_DEADLINE: Duration = Duration::from_secs(5);
+/// Bound on one translation. Writes and previews keep a user waiting, and a backfill must not
+/// let a slow provider hold up the run it precedes.
+pub(crate) const SEARCH_INTENT_TRANSLATION_DEADLINE: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TranslationTrigger {
