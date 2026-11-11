@@ -43,7 +43,10 @@ that other shops would mean differently stays unresolved.
 
   Evidence is `SOLD_OUT`/`RESERVED` listings for that dealer, or a sold label beside the enquiry
   label in the corpus (`analyze.py labels`). Generic phrases (`contact us`, `E-Mail us`) stay
-  unresolved even with evidence, because other shops use them on sold items too.
+  unresolved even with evidence, because other shops use them on sold items too. A dealer whose
+  listings are all `<null>` has no evidence. The query cannot tell its sold items apart.
+- **Price-on-request labels** in the availability field (`POA`, `Prijs op aanvraag`) follow the
+  enquiry rule. On 2026-11-11 five dealers that use them also had `SOLD_OUT` listings.
 - The crawler reuses `quick_check_availability` for plausibility checks
   (`src/crawler/src/scraper/plausibility.rs`, `src/crawler/src/review/page_content_checks.rs`).
   Run `cargo test -p crawler --lib` after every availability change.
@@ -55,6 +58,11 @@ that other shops would mean differently stays unresolved.
   `europe`.
 - A layout rule must fix the whole string's shape (for example, exactly two cent digits after the
   euro sign) and reject near misses in tests (`12 € 500`, `€ 12 50`, `-12 € 50`).
+- A rewrite of one written form into another the parser already reads (`2490,- €` → `2490,00 €`)
+  applies only when the form occurs once. Several such amounts are several prices
+  (`Bank 850.-€, Stuhl 350.- €`). Hand-check what the existing rules then make of each rewritten
+  string. A `from`/`ab` or `ca.` prefix still resolves to the stated amount, as it already does
+  without the rewrite.
 - Dual-currency displays resolve only through a source fallback currency. They are configuration,
   not code.
 - Check whether web-crawl `fallbackCurrency` reaches the normalization context before you

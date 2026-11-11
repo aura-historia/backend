@@ -225,6 +225,10 @@ def synthetic_case(spec):
 
 
 def fixture_line(spec, result):
+    # An INVALID decision writes no fields; pin only issues and status for it (`"fields": []`).
+    missing = [field for field in spec["fields"] if field not in (result.get("fields") or {})]
+    if missing:
+        raise SystemExit(f"{spec['name']}: {result['status']} result has no field {missing} to pin")
     expected = {
         "status": result["status"],
         "decision": result["decision"],
@@ -250,10 +254,12 @@ def cmd_fixtures(args):
     lines = []
     for spec in specs:
         result = results[spec["name"]]
-        fields = json.dumps({f: result["fields"].get(f) for f in spec["fields"]}, ensure_ascii=False)
+        fields = json.dumps({f: (result["fields"] or {}).get(f) for f in spec["fields"]}, ensure_ascii=False)
         issues = [f"{issue['field']}/{issue['reason']}" for issue in result["issues"]]
         print(f"{spec['category']:10} {spec['name']}\n    {result['status']} {issues} {fields}")
-        lines.append(fixture_line(spec, result))
+        # Only the appended evaluator's results become fixtures; a baseline check just reports.
+        if args.append:
+            lines.append(fixture_line(spec, result))
     if args.append:
         target = Path(args.append)
         existing = target.read_text(encoding="utf-8")

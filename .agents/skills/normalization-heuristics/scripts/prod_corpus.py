@@ -469,12 +469,18 @@ def teardown(work):
     print("all aura-normcorpus resources deleted")
 
 
-def main(argv=None):
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["setup", "size", "export", "sources", "query", "teardown", "status"])
     parser.add_argument("sql_file", nargs="?")
     parser.add_argument("--work", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None):
+    parser = argument_parser()
+    # Intermixed parsing accepts `query --work DIR FILE.sql` as well as `query FILE.sql --work DIR`.
+    args = parser.parse_intermixed_args(argv)
     try:
         if args.command in ("setup", "size", "export", "sources", "query") and not args.work:
             parser.error("--work is required")

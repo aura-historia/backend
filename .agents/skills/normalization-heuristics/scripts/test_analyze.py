@@ -82,6 +82,14 @@ class ReportingTest(unittest.TestCase):
         self.assertIn('"name": "example"', line)
         self.assertEqual({"status", "decision", "issues", "fields"}, set(json.loads(line)["expected"]))
 
+    def test_should_refuse_to_pin_a_field_that_an_invalid_result_does_not_write(self):
+        spec = {"name": "example", "category": "NEGATIVE", "title": "Antique oak chair",
+                "description": "A restored oak chair.", "price": "12,- 13,- €", "fields": ["price"]}
+        result = {"status": "INVALID", "decision": "INVALID", "issues": [], "fields": {}}
+        with self.assertRaises(SystemExit):
+            fixture_line(spec, result)
+        self.assertEqual({}, json.loads(fixture_line({**spec, "fields": []}, result))["expected"]["fields"])
+
 
 if __name__ == "__main__":
     unittest.main()
