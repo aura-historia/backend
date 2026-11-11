@@ -20,9 +20,9 @@ use crate::spider::utils::url::CrawledUrl;
 /// fetched again, which costs requests but loses nothing.
 pub const MAX_KNOWN_URLS: i64 = 100_000;
 
-/// Most frontier URLs one statement deletes or inserts, so a large frontier is written in short
-/// statements instead of one that holds its connection for seconds.
-const FRONTIER_WRITE_CHUNK: usize = 1_000;
+/// Most frontier URLs one statement looks up, deletes or inserts, so a large frontier is read and
+/// written in short statements instead of one that holds its connection for seconds.
+const FRONTIER_CHUNK: usize = 1_000;
 
 /// The stored URLs an incremental crawl does not fetch again.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -135,21 +135,24 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         )?;
         // Storage may keep a retired page under either trailing-slash spelling.
         let spellings_of = |url: &Url| CrawledUrl::new(url.clone()).page_spellings();
-        let spellings: Vec<String> = frontier
-            .iter()
-            .flat_map(spellings_of)
-            .map(String::from)
-            .collect();
-        let retired: HashSet<String> = sqlx::query_scalar::<_, String>(
-            "SELECT url FROM listing_source_urls
-             WHERE url = ANY($1::text[]) AND crawler_disposition = $2",
-        )
-        .bind(&spellings)
-        .bind(CrawlerDisposition::Duplicate.as_str())
-        .fetch_all(&self.pool)
-        .await?
-        .into_iter()
-        .collect();
+        let mut retired = HashSet::new();
+        for chunk in frontier.chunks(FRONTIER_CHUNK) {
+            let spellings: Vec<String> = chunk
+                .iter()
+                .flat_map(spellings_of)
+                .map(String::from)
+                .collect();
+            retired.extend(
+                sqlx::query_scalar::<_, String>(
+                    "SELECT url FROM listing_source_urls
+                     WHERE url = ANY($1::text[]) AND crawler_disposition = $2",
+                )
+                .bind(&spellings)
+                .bind(CrawlerDisposition::Duplicate.as_str())
+                .fetch_all(&self.pool)
+                .await?,
+            );
+        }
         Ok(frontier
             .into_iter()
             .filter(|url| {
@@ -190,7 +193,7 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
     /// The share lock on the source row holds back a move to another root, which updates that
     /// row and drops the frontier, until the new frontier is committed; a move that committed
     /// first leaves no row on the crawled root to lock. Only the URLs that changed are written,
-    /// at most [`FRONTIER_WRITE_CHUNK`] per statement.
+    /// at most [`FRONTIER_CHUNK`] per statement.
     async fn replace_frontier(
         &self,
         root: &CrawledRoot,
@@ -220,7 +223,7 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
         .into_iter()
         .collect();
         let change = FrontierChange::between(&stored, &left);
-        for removed in change.removed.chunks(FRONTIER_WRITE_CHUNK) {
+        for removed in change.removed.chunks(FRONTIER_CHUNK) {
             sqlx::query(
                 "DELETE FROM listing_source_crawl_frontier
                  WHERE listing_source_id = $1 AND url = ANY($2::text[])",
@@ -230,7 +233,7 @@ impl CrawlFrontierRepository for CrawlFrontierRepositoryImpl {
             .execute(&mut *transaction)
             .await?;
         }
-        for added in change.added.chunks(FRONTIER_WRITE_CHUNK) {
+        for added in change.added.chunks(FRONTIER_CHUNK) {
             sqlx::query(
                 "INSERT INTO listing_source_crawl_frontier (listing_source_id, url)
                  SELECT $1, url FROM UNNEST($2::text[]) AS frontier(url)

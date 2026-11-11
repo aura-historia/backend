@@ -3,7 +3,7 @@ use crate::logging::SourceLogContext;
 use crate::logging::warn_in_source;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
@@ -279,6 +279,10 @@ pub struct SpiderServiceImpl {
     pattern_service: Box<dyn UrlPatternService>,
     url_metadata_repository: Arc<dyn UrlMetadataRepository>,
     frontier_repository: Arc<dyn CrawlFrontierRepository>,
+    /// The ListingSources whose stored product URLs this start of the crawler has collapsed onto
+    /// their current spelling. The spider stores only current spellings and they change only
+    /// with a new crawler version, so one collapse per source and start finds every row.
+    collapsed_sources: Mutex<HashSet<ListingSourceId>>,
 }
 
 impl SpiderServiceImpl {
@@ -295,6 +299,7 @@ impl SpiderServiceImpl {
             pattern_service,
             url_metadata_repository,
             frontier_repository,
+            collapsed_sources: Mutex::default(),
         }
     }
 
@@ -333,22 +338,35 @@ impl SpiderServiceImpl {
     }
 
     /// Moves or retires the source's product rows stored under a spelling the crawler no longer
-    /// produces, once per crawl pass. A failure leaves the rows as they are for the next pass.
+    /// produces, on the source's first crawl pass of this start, so later passes do not read
+    /// every product URL again. A failure leaves the rows as they are for the next pass.
     async fn collapse_unnormalized_product_urls_best_effort(
         &self,
         listing_source_id: &ListingSourceId,
     ) {
-        if let Err(error) = self
+        if self.collapsed_sources().contains(listing_source_id) {
+            return;
+        }
+        match self
             .frontier_repository
             .collapse_unnormalized_product_urls(listing_source_id)
             .await
         {
-            warn_in_source!(
+            Ok(()) => {
+                self.collapsed_sources().insert(*listing_source_id);
+            }
+            Err(error) => warn_in_source!(
                 error = %error,
                 cause = ?std::error::Error::source(&error),
                 "Failed to collapse stored product URLs onto their current spelling"
-            );
+            ),
         }
+    }
+
+    fn collapsed_sources(&self) -> std::sync::MutexGuard<'_, HashSet<ListingSourceId>> {
+        self.collapsed_sources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Keeps what the crawl of `root` left unvisited for the ListingSource's next crawl. A failed
@@ -1402,7 +1420,9 @@ mod service_tests {
     }
     use crate::spider::classification::url_classifier::UrlClassifier;
     use crate::spider::classification::url_metadata::CrawlerDisposition;
-    use crate::spider::classification::url_metadata_repository::MockUrlMetadataRepository;
+    use crate::spider::classification::url_metadata_repository::{
+        MockUrlMetadataRepository, UrlMetadataRepositoryError,
+    };
     use crate::spider::classification::url_pattern_service::{
         DecidedUrlPattern, MockUrlPatternService,
     };
@@ -4608,6 +4628,61 @@ mod service_tests {
             assert_eq!(class_of(&agent, path), UrlClass::Other, "{path}");
         }
         assert_eq!(class_of(&other_modes, "/shop/chairs"), UrlClass::Category);
+    }
+
+    /// A service whose frontier repository answers the collapses in `outcomes`, in order, and
+    /// fails the test on a further one.
+    fn service_collapsing(
+        outcomes: Vec<Result<(), UrlMetadataRepositoryError>>,
+    ) -> SpiderServiceImpl {
+        let mut repository = MockCrawlFrontierRepository::new();
+        let mut outcomes = outcomes.into_iter();
+        repository
+            .expect_collapse_unnormalized_product_urls()
+            .times(outcomes.len())
+            .returning(move |_| {
+                let outcome = outcomes.next().expect("no further collapse expected");
+                Box::pin(async move { outcome })
+            });
+        repository
+            .expect_load_frontier()
+            .returning(|_| Box::pin(async { Ok(Vec::new()) }));
+        SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(MockSpider::new()),
+            Box::new(MockUrlPatternService::new()),
+            Arc::new(MockUrlMetadataRepository::new()),
+            Arc::new(repository),
+        )
+    }
+
+    #[tokio::test]
+    async fn should_collapse_stored_spellings_once_per_start_when_a_source_is_crawled_again() {
+        let service = service_collapsing(vec![Ok(())]);
+        let listing_source_id = ListingSourceId::new();
+
+        for _ in 0..3 {
+            service
+                .crawl_seeds(&listing_source_id, CrawlKind::Full)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn should_retry_the_collapse_on_the_next_pass_when_it_failed() {
+        let listing_source_id = ListingSourceId::new();
+        let service = service_collapsing(vec![
+            Err(UrlMetadataRepositoryError::ListingSourceNotCrawled { listing_source_id }),
+            Ok(()),
+        ]);
+
+        for _ in 0..3 {
+            service
+                .crawl_seeds(&listing_source_id, CrawlKind::Full)
+                .await
+                .unwrap();
+        }
     }
 }
 
