@@ -1023,6 +1023,11 @@ fn emit_crawl_metrics(
             .with_value(CrawlerMetric::CrawlOutcome, 1)
             .emit();
     }
+    if matches!(status, SpiderSlotStatus::StoppedForOperator) {
+        MetricRecord::global()
+            .with_value(CrawlerMetric::CrawlsStoppedForOperator, 1)
+            .emit();
+    }
     if let Some((product_urls, completion)) = classified_crawl(run) {
         record()
             .with_value(CrawlerMetric::CrawlProductUrls, product_urls as u64)
@@ -3653,6 +3658,67 @@ mod tests {
                 vec![1]
             );
             assert_eq!(metrics.values(CrawlerMetric::SpiderPassDuration).len(), 1);
+        }
+
+        /// A crawl that stops its source for an operator counts once in the crawler-wide metric
+        /// the escalation alarm reads, and records its `NEEDS_OPERATOR` outcome per source.
+        #[tokio::test]
+        async fn should_count_a_source_stopped_for_an_operator_crawler_wide() {
+            let (metrics, _guard) = capture_metrics();
+            let listing_source_id = ListingSourceId::new();
+            let mut spider_candidates = failing_candidate_service(
+                listing_source_id,
+                NEEDS_OPERATOR_FAILURE_COUNT - 1,
+                "NoUrlPattern",
+            );
+            spider_candidates
+                .expect_mark_crawl_needs_operator()
+                .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+            spider_job(
+                spider_candidates,
+                spider_service_failing_with(no_url_pattern),
+                1,
+            )
+            .run_spider_once()
+            .await;
+
+            assert_eq!(
+                metrics.values(CrawlerMetric::CrawlsStoppedForOperator),
+                vec![(vec![], 1)]
+            );
+            assert_eq!(
+                metrics.values_with(
+                    CrawlerMetric::CrawlOutcome,
+                    MetricDimension::CrawlOutcome,
+                    NEEDS_OPERATOR_CRAWL_OUTCOME
+                ),
+                vec![1]
+            );
+        }
+
+        #[tokio::test]
+        async fn should_count_no_stop_for_an_operator_when_a_failed_crawl_is_retried() {
+            let (metrics, _guard) = capture_metrics();
+            let mut spider_candidates =
+                failing_candidate_service(ListingSourceId::new(), 0, "NoUrlPattern");
+            spider_candidates
+                .expect_mark_crawl_failure()
+                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+            spider_job(
+                spider_candidates,
+                spider_service_failing_with(no_url_pattern),
+                1,
+            )
+            .run_spider_once()
+            .await;
+
+            assert!(
+                metrics
+                    .values(CrawlerMetric::CrawlsStoppedForOperator)
+                    .is_empty()
+            );
         }
 
         #[tokio::test]

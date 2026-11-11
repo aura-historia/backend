@@ -71,6 +71,9 @@ pub(crate) enum CrawlerMetric {
     CrawlTruncated,
     /// One spider crawl, recorded with its persisted `crawl_outcome`.
     CrawlOutcome,
+    /// 1 per spider crawl whose failure stopped its ListingSource for an operator
+    /// (`NEEDS_OPERATOR`), crawler-wide, so one alarm covers every ListingSource.
+    CrawlsStoppedForOperator,
     ScraperPassDuration,
     SpiderPassDuration,
     /// URLs due for scraping when a scraper pass starts.
@@ -91,6 +94,7 @@ impl CrawlerMetric {
             Self::CrawlProductUrls => "CrawlProductUrls",
             Self::CrawlTruncated => "CrawlTruncated",
             Self::CrawlOutcome => "CrawlOutcome",
+            Self::CrawlsStoppedForOperator => "CrawlsStoppedForOperator",
             Self::ScraperPassDuration => "ScraperPassDuration",
             Self::SpiderPassDuration => "SpiderPassDuration",
             Self::ScraperDueUrls => "ScraperDueUrls",
