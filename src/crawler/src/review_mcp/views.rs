@@ -18,7 +18,7 @@ use crate::review::product_markup::JsonLdProductIds;
 use crate::review::schema_evaluation::stored_schema_matrix;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
-use crate::spider::classification::product_url_pattern::UrlPatternMatching;
+use crate::spider::classification::product_url_pattern::{UrlPatternMatching, path_and_query};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -663,8 +663,9 @@ impl SourceProductUrlView {
     }
 }
 
-/// `url` without its scheme and host, as path and query, when it is a URL of the crawl host (with
-/// or without `www.`); any other URL stays whole. Every sample URL of a ListingSource names the
+/// `url` without its scheme and host, as the path and query a path-and-query pattern is matched
+/// against ([`path_and_query`]), when it is a URL of the crawl host (with or without `www.`); any
+/// other URL stays whole. Every sample URL of a ListingSource names the
 /// same host, so the host is cost in the agent's context and a literal it may copy into a pattern.
 pub(super) fn relative_url(url: &str, crawl_host: Option<&str>) -> String {
     let Some(crawl_host) = crawl_host else {
@@ -682,10 +683,7 @@ pub(super) fn relative_url(url: &str, crawl_host: Option<&str>) -> String {
                     .host_str()
                     .is_some_and(|host| bare(host) == bare(crawl_host)) =>
         {
-            match parsed.query() {
-                Some(query) => format!("{}?{query}", parsed.path()),
-                None => parsed.path().to_owned(),
-            }
+            path_and_query(&parsed)
         }
         _ => url.to_owned(),
     }
@@ -1302,6 +1300,8 @@ mod tests {
                 "/item/1?page=2&sort=a",
             ),
             ("https://antiques.example", "/"),
+            ("https://antiques.example/item/1?", "/item/1"),
+            ("https://antiques.example:8443/item/1", "/item/1"),
             (
                 "https://other.example/item/1",
                 "https://other.example/item/1",
