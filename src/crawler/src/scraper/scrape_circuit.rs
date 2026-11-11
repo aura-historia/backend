@@ -8,9 +8,11 @@
 use crate::network::policy::{
     DomainFailureKind, NetworkErrorKind, domain_failure_kind, is_crawler_rejection_status,
 };
+use crate::network::politeness::{RATE_LIMIT_MAX_PAUSE, politeness_group};
 use crate::scraper::candidate_service::{ScrapeHealthSnapshot, next_scrape_failure_streak};
 use crate::scraper::scraper_service::DomainFetchHealth;
 use std::collections::HashSet;
+use std::time::Duration;
 use url::Url;
 
 /// Consecutive same-kind failures of a slow-host kind (timeout, connect, DNS
@@ -27,6 +29,10 @@ pub const SERVER_FAILURE_BURST_URLS: usize = 3;
 /// or a bot challenge with the same status, in a row before the
 /// `HTTP_STATUS_BURST` circuit opens; a single such answer stays URL-scoped.
 pub const REJECTION_STATUS_BURST_URLS: usize = 3;
+/// Distinct URLs of one batch that answer 429 on a shared platform before the
+/// `HTTP_429` circuit opens although each answer asked for a short wait
+/// (`docs/crawler/scheduling-and-retries.md#scraper-circuits`).
+pub const SHARED_PLATFORM_RATE_LIMIT_URLS: usize = 3;
 
 /// The HTTP answer a failed fetch got, as the trip rules read it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,6 +74,10 @@ pub enum ScrapeCircuitDecision {
     RecordFailure(DomainFailureKind),
     /// The failure stays with its URL.
     UrlLocal,
+    /// A 429 on a shared platform that asked for a short wait: the URL is
+    /// deferred while the platform's politeness group waits, and the circuit
+    /// stays closed.
+    DeferRateLimited,
 }
 
 /// Evidence gathered over one scraper batch. Every URL counts once,
@@ -78,6 +88,8 @@ pub struct BatchEvidence {
     attempted_urls: HashSet<Url>,
     slow_host_urls: HashSet<Url>,
     server_failure_urls: HashSet<Url>,
+    /// The URLs that answered 429.
+    rate_limited_urls: HashSet<Url>,
     /// The URLs that answered the same crawler-rejection status, or a bot
     /// challenge with the same status, since the last other outcome.
     rejection_run: Option<RejectionRun>,
@@ -91,14 +103,21 @@ struct RejectionRun {
 
 impl BatchEvidence {
     /// Decides what a candidate's fetch failure means for the ListingSource, given
-    /// its current scrape-health snapshot and the evidence gathered before it.
+    /// its current scrape-health snapshot, the evidence gathered before it and
+    /// the `Retry-After` the answer carried.
     pub fn decide(
         &self,
         scrape_health: &ScrapeHealthSnapshot,
         candidate_url: &Url,
         kind: NetworkErrorKind,
         status_code: Option<u16>,
+        retry_after: Option<Duration>,
     ) -> ScrapeCircuitDecision {
+        if kind == NetworkErrorKind::HttpStatus(429)
+            && self.defers_rate_limit(scrape_health, candidate_url, retry_after)
+        {
+            return ScrapeCircuitDecision::DeferRateLimited;
+        }
         match domain_failure_kind(kind) {
             Some(kind) if kind.opens_on_first_failure() => ScrapeCircuitDecision::Open(kind),
             Some(kind) => {
@@ -155,6 +174,9 @@ impl BatchEvidence {
             }
             _ => {}
         }
+        if failure.is_some_and(|answer| answer.status == 429) {
+            self.rate_limited_urls.insert(candidate_url.clone());
+        }
         self.attempted_urls.insert(candidate_url.clone());
     }
 
@@ -209,6 +231,30 @@ impl BatchEvidence {
                 });
             }
         }
+    }
+
+    /// Whether a 429 stays with its URL: the shop is on a listed shared
+    /// platform, whose politeness group waits out the answer's `Retry-After`
+    /// in full, and fewer than [`SHARED_PLATFORM_RATE_LIMIT_URLS`] distinct
+    /// URLs of the batch answered 429 once `candidate_url` counts. A 429
+    /// without `Retry-After`, or one asking for more than the group waits,
+    /// opens the circuit as before, and so does a 429 to the probe of an open
+    /// circuit, so its cooldown keeps growing instead of the ListingSource
+    /// being probed again on every pass.
+    fn defers_rate_limit(
+        &self,
+        scrape_health: &ScrapeHealthSnapshot,
+        candidate_url: &Url,
+        retry_after: Option<Duration>,
+    ) -> bool {
+        let shared_platform = candidate_url
+            .host_str()
+            .is_some_and(|host| politeness_group(host).shared_platform);
+        shared_platform
+            && scrape_health.next_scrape_at.is_none()
+            && retry_after.is_some_and(|wait| wait <= RATE_LIMIT_MAX_PAUSE)
+            && distinct_with(&self.rate_limited_urls, candidate_url)
+                < SHARED_PLATFORM_RATE_LIMIT_URLS
     }
 
     /// Whether, once `candidate_url` fails too, at least
@@ -290,12 +336,19 @@ mod tests {
                 &healthy(),
                 &url("1"),
                 NetworkErrorKind::HttpStatus(429),
-                Some(429)
+                Some(429),
+                None
             ),
             ScrapeCircuitDecision::Open(DomainFailureKind::Http429)
         );
         assert_eq!(
-            evidence.decide(&healthy(), &url("1"), NetworkErrorKind::DnsResolution, None),
+            evidence.decide(
+                &healthy(),
+                &url("1"),
+                NetworkErrorKind::DnsResolution,
+                None,
+                None
+            ),
             ScrapeCircuitDecision::Open(DomainFailureKind::DnsResolution)
         );
     }
@@ -305,11 +358,11 @@ mod tests {
         let evidence = BatchEvidence::default();
 
         assert_eq!(
-            evidence.decide(&healthy(), &url("1"), NetworkErrorKind::Timeout, None),
+            evidence.decide(&healthy(), &url("1"), NetworkErrorKind::Timeout, None, None),
             ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Timeout)
         );
         assert_eq!(
-            evidence.decide(&healthy(), &url("1"), NetworkErrorKind::Connect, None),
+            evidence.decide(&healthy(), &url("1"), NetworkErrorKind::Connect, None, None),
             ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Connect)
         );
     }
@@ -323,6 +376,7 @@ mod tests {
                 &recorded(DomainFailureKind::Timeout, 1),
                 &url("1"),
                 NetworkErrorKind::Timeout,
+                None,
                 None
             ),
             ScrapeCircuitDecision::Open(DomainFailureKind::Timeout)
@@ -338,6 +392,7 @@ mod tests {
                 &recorded(DomainFailureKind::Timeout, 1),
                 &url("1"),
                 NetworkErrorKind::Connect,
+                None,
                 None
             ),
             ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Connect)
@@ -355,12 +410,12 @@ mod tests {
         assert!(timeout(&timed_out()));
 
         assert_eq!(
-            evidence.decide(&healthy(), &url("6"), NetworkErrorKind::Timeout, None),
+            evidence.decide(&healthy(), &url("6"), NetworkErrorKind::Timeout, None, None),
             ScrapeCircuitDecision::Open(DomainFailureKind::Timeout),
             "three of six attempted URLs timed out"
         );
         assert_eq!(
-            evidence.decide(&healthy(), &url("3"), NetworkErrorKind::Timeout, None),
+            evidence.decide(&healthy(), &url("3"), NetworkErrorKind::Timeout, None, None),
             ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Timeout),
             "a URL that already counts is not a third piece of evidence"
         );
@@ -383,7 +438,7 @@ mod tests {
         assert_eq!(evidence.attempted_urls(), 7);
         assert_eq!(evidence.slow_host_urls(), 2);
         assert_eq!(
-            evidence.decide(&healthy(), &url("9"), NetworkErrorKind::Timeout, None),
+            evidence.decide(&healthy(), &url("9"), NetworkErrorKind::Timeout, None, None),
             ScrapeCircuitDecision::RecordFailure(DomainFailureKind::Timeout),
             "three of eight attempted URLs is below half"
         );
@@ -398,7 +453,8 @@ mod tests {
                 &healthy(),
                 &url("1"),
                 NetworkErrorKind::HttpStatus(500),
-                Some(500)
+                Some(500),
+                None
             ),
             ScrapeCircuitDecision::UrlLocal
         );
@@ -416,7 +472,8 @@ mod tests {
                 &healthy(),
                 &url("1"),
                 NetworkErrorKind::HttpStatus(500),
-                Some(500)
+                Some(500),
+                None
             ),
             ScrapeCircuitDecision::UrlLocal,
             "a URL that already counts is not a third piece of evidence"
@@ -426,7 +483,8 @@ mod tests {
                 &healthy(),
                 &url("3"),
                 NetworkErrorKind::HttpStatus(502),
-                Some(502)
+                Some(502),
+                None
             ),
             ScrapeCircuitDecision::Open(DomainFailureKind::Http5xxBurst)
         );
@@ -443,7 +501,8 @@ mod tests {
                 &healthy(),
                 &url("3"),
                 NetworkErrorKind::HttpStatus(400),
-                Some(400)
+                Some(400),
+                None
             ),
             ScrapeCircuitDecision::UrlLocal
         );
@@ -464,6 +523,7 @@ mod tests {
             &url(path),
             NetworkErrorKind::HttpStatus(status),
             Some(status),
+            None,
         )
     }
 
@@ -588,6 +648,7 @@ mod tests {
             &url(path),
             NetworkErrorKind::BotChallenge,
             Some(status),
+            None,
         )
     }
 
@@ -642,6 +703,94 @@ mod tests {
         assert_eq!(
             challenged_with(&evidence, &cooled_down, "1", 202),
             ScrapeCircuitDecision::Open(DomainFailureKind::HttpStatusBurst)
+        );
+    }
+
+    fn platform_url(path: &str) -> Url {
+        Url::parse(&format!("https://antiquariat.shopnetzwerk.com/{path}")).expect("test URL")
+    }
+
+    fn rate_limited(
+        evidence: &BatchEvidence,
+        url: &Url,
+        retry_after: Option<Duration>,
+    ) -> ScrapeCircuitDecision {
+        evidence.decide(
+            &healthy(),
+            url,
+            NetworkErrorKind::HttpStatus(429),
+            Some(429),
+            retry_after,
+        )
+    }
+
+    #[test]
+    fn should_defer_a_shared_platform_429_with_a_short_retry_after_until_it_repeats() {
+        let short = Some(Duration::from_secs(8));
+        let mut evidence = BatchEvidence::default();
+
+        let first = rate_limited(&evidence, &platform_url("1"), short);
+        evidence.observe(
+            &platform_url("1"),
+            &DomainFetchHealth::Responsive,
+            status(429),
+        );
+        let second = rate_limited(&evidence, &platform_url("2"), short);
+        evidence.observe(
+            &platform_url("2"),
+            &DomainFetchHealth::Responsive,
+            status(429),
+        );
+        let third = rate_limited(&evidence, &platform_url("3"), short);
+
+        assert_eq!(first, ScrapeCircuitDecision::DeferRateLimited);
+        assert_eq!(second, ScrapeCircuitDecision::DeferRateLimited);
+        assert_eq!(
+            third,
+            ScrapeCircuitDecision::Open(DomainFailureKind::Http429)
+        );
+    }
+
+    #[test]
+    fn should_open_the_circuit_on_a_shared_platform_429_without_a_short_retry_after() {
+        let evidence = BatchEvidence::default();
+
+        for retry_after in [None, Some(Duration::from_secs(300))] {
+            assert_eq!(
+                rate_limited(&evidence, &platform_url("1"), retry_after),
+                ScrapeCircuitDecision::Open(DomainFailureKind::Http429),
+                "{retry_after:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn should_reopen_the_circuit_when_its_probe_answers_a_short_429_on_a_shared_platform() {
+        let probe = ScrapeHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some(DomainFailureKind::Http429.as_str().to_owned()),
+            next_scrape_at: Some(time::OffsetDateTime::UNIX_EPOCH),
+        };
+
+        assert_eq!(
+            BatchEvidence::default().decide(
+                &probe,
+                &platform_url("1"),
+                NetworkErrorKind::HttpStatus(429),
+                Some(429),
+                Some(Duration::from_secs(8)),
+            ),
+            ScrapeCircuitDecision::Open(DomainFailureKind::Http429)
+        );
+    }
+
+    #[test]
+    fn should_open_the_circuit_on_a_429_off_a_shared_platform() {
+        let evidence = BatchEvidence::default();
+
+        assert_eq!(
+            rate_limited(&evidence, &url("1"), Some(Duration::from_secs(8))),
+            ScrapeCircuitDecision::Open(DomainFailureKind::Http429)
         );
     }
 }
