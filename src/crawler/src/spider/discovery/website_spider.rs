@@ -368,6 +368,10 @@ pub struct CrawlDiagnostics {
     /// that a robots.txt `Crawl-delay` still leaves room for an inference
     /// sample (`crawl_budget`).
     pub crawl_budget_ms: u64,
+    /// The crawl ran out of its wall-clock budget, not of pages it could visit, and was not
+    /// stopped. A crawl that ended early and left only pages it could not fetch, such as bot
+    /// challenges, is cut short too (`completion_with_frontier`) but never ran out of time.
+    pub ran_out_of_time: bool,
     /// Seed URLs carried over from the previous crawl, which the crawl visits
     /// after link discovery from the root.
     pub seeds: usize,
@@ -1755,6 +1759,8 @@ impl SpiderImpl {
                     };
                     diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
                     diagnostics.known_fetches_saved = known_pages.answered_links();
+                    diagnostics.ran_out_of_time = !outcome.stopped
+                        && outcome.completion == CrawlCompletion::HardTimeoutTruncated;
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = stopped_or(&diagnostics);
                     diagnostics.completion = completion_with_frontier(
@@ -3354,6 +3360,36 @@ mod tests {
             assert_eq!(diagnostics.bot_challenge_pages, 1);
         }
 
+        /// A crawl that ended well within its budget and left only a challenged page is cut short
+        /// by that frontier, but did not run out of time: the shop fits one crawl.
+        #[tokio::test]
+        async fn should_cut_short_without_running_out_of_time_a_crawl_that_left_a_challenged_page()
+        {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<a href="/chairs">Chairs</a><a href="/product/1">1</a>"#.to_string(),
+                ),
+                "/chairs" => SiteResponse::Html("200 OK", CHALLENGE.to_string()),
+                _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics, discovery) =
+                run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+            site.finish().await;
+
+            assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(discovery.frontier, [example("/chairs")]);
+            assert_eq!(
+                diagnostics.completion,
+                CrawlCompletion::HardTimeoutTruncated
+            );
+            assert!(!diagnostics.ran_out_of_time, "{diagnostics:?}");
+        }
+
         /// A challenge is not the page, so what its head declares never canonicalizes the URL.
         #[tokio::test]
         async fn should_deliver_a_challenged_page_without_the_identity_its_head_declares() {
@@ -3604,6 +3640,7 @@ mod tests {
             diagnostics.completion,
             CrawlCompletion::HardTimeoutTruncated
         );
+        assert!(diagnostics.ran_out_of_time, "{diagnostics:?}");
         assert!(!discovery.frontier.is_empty());
         for left in &discovery.frontier {
             assert!(

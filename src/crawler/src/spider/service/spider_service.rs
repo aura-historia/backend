@@ -58,6 +58,9 @@ pub struct SpiderRunResult {
     /// Time the run spent awaiting the database for its seeds and its crawled URLs,
     /// connection-pool waits included; URL-pattern work is not counted.
     pub db_wait: Duration,
+    /// The crawl ran out of its wall-clock budget, not of pages it could visit
+    /// (`CrawlDiagnostics::ran_out_of_time`).
+    pub ran_out_of_time: bool,
 }
 
 /// A crawl that ended: the root it crawled and what the spider reported about it.
@@ -1130,6 +1133,7 @@ impl SpiderServiceImpl {
             known_product_urls_skipped: ended.skipped_known_products(),
             frontier_left: discovery.map(|discovery| discovery.frontier.len()),
             db_wait,
+            ran_out_of_time: diagnostics.ran_out_of_time,
         })
     }
 }

@@ -55,16 +55,27 @@ fn cooldown_for_failure_count(profile: CrawlCooldownProfile, failure_count: i32)
     }
 }
 
-/// A full crawl cut short by the wall-clock budget continues from the frontier
-/// it left, however often it was cut short before: each crawl visits pages the
-/// previous ones did not reach, so a large shop is covered in steps instead of
-/// restarting from the root. A crawl that left URLs unvisited continues a few
-/// hours later; one that left none, or could not tell, waits a day
+/// Whether a truncated full crawl ran out of its wall-clock budget with URLs left unvisited, so
+/// the shop is too large for one crawl. A crawl that ended early and left only pages it could
+/// not fetch, such as bot challenges, or that could not tell its frontier, is no such
+/// continuation (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+fn ran_out_of_time_with_frontier(result: &SpiderRunResult) -> bool {
+    result.ran_out_of_time
+        && result
+            .frontier_left
+            .is_some_and(|frontier_left| frontier_left > 0)
+}
+
+/// A full crawl cut short continues from the frontier it left, however often it was cut short
+/// before: each crawl visits pages the previous ones did not reach, so a large shop is covered in
+/// steps instead of restarting from the root. A crawl that ran out of time with URLs left
+/// continues a few hours later; any other waits a day
 /// (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
-fn truncated_crawl_cooldown(frontier_left: Option<usize>) -> Duration {
-    match frontier_left {
-        Some(frontier_left) if frontier_left > 0 => TRUNCATED_CRAWL_CONTINUATION_COOLDOWN,
-        Some(_) | None => TRUNCATED_CRAWL_RETRY_COOLDOWN,
+fn truncated_crawl_cooldown(result: &SpiderRunResult) -> Duration {
+    if ran_out_of_time_with_frontier(result) {
+        TRUNCATED_CRAWL_CONTINUATION_COOLDOWN
+    } else {
+        TRUNCATED_CRAWL_RETRY_COOLDOWN
     }
 }
 
@@ -131,8 +142,15 @@ fn crawl_budget_scale(candidate: &SpiderCandidate, extended_slot_free: bool) -> 
     )
 }
 
-fn next_truncation_count(candidate: &SpiderCandidate) -> i32 {
-    candidate.crawl_truncation_count.max(0).saturating_add(1)
+/// The truncation count counts consecutive crawls that ran out of time with URLs left, which
+/// [`crawl_budget_scale`] extends the next crawl by; any other truncated crawl ends the run of
+/// them, so a shop that fits one crawl but leaves pages it cannot fetch gets no extended budget.
+fn next_truncation_count(candidate: &SpiderCandidate, result: &SpiderRunResult) -> i32 {
+    if ran_out_of_time_with_frontier(result) {
+        candidate.crawl_truncation_count.max(0).saturating_add(1)
+    } else {
+        0
+    }
 }
 
 /// Persisted error kinds of the failures whose run delivered pages but found no product URL
@@ -397,8 +415,8 @@ async fn record_truncated_run(
     candidate: &SpiderCandidate,
     result: &SpiderRunResult,
 ) -> SpiderSlotStatus {
-    let truncation_count = next_truncation_count(candidate);
-    let cooldown = truncated_crawl_cooldown(result.frontier_left);
+    let truncation_count = next_truncation_count(candidate, result);
+    let cooldown = truncated_crawl_cooldown(result);
     let next_crawl_at = next_crawl_after(cooldown);
 
     match spider_candidates
@@ -430,6 +448,7 @@ async fn record_truncated_run(
         total_crawled = result.total_links,
         product_urls_count = result.product_urls_count,
         frontier_left = result.frontier_left,
+        ran_out_of_time = result.ran_out_of_time,
         db_wait_ms = u64::try_from(result.db_wait.as_millis()).unwrap_or(u64::MAX),
         truncation_count,
         crawl_failure_count = candidate.crawl_failure_count,
@@ -1660,6 +1679,7 @@ mod tests {
             let result = SpiderRunResult {
                 frontier_left: Some(1_500),
                 db_wait: Duration::from_millis(42_000),
+                ran_out_of_time: true,
                 ..run_result(CrawlCompletion::HardTimeoutTruncated)
             };
 
@@ -1674,6 +1694,7 @@ mod tests {
             assert_eq!(truncated.len(), 1);
             assert_eq!(truncated[0].field("frontier_left"), Some("1500"));
             assert_eq!(truncated[0].field("db_wait_ms"), Some("42000"));
+            assert_eq!(truncated[0].field("ran_out_of_time"), Some("true"));
             assert_eq!(
                 truncated[0].field("cooldown_seconds"),
                 Some(
@@ -2098,6 +2119,7 @@ mod tests {
             known_product_urls_skipped: 0,
             frontier_left: None,
             db_wait: Duration::ZERO,
+            ran_out_of_time: false,
         })
     }
 
@@ -2200,6 +2222,7 @@ mod tests {
                         known_product_urls_skipped: 0,
                         frontier_left: None,
                         db_wait: Duration::ZERO,
+                        ran_out_of_time: false,
                     })
                 })
             });
@@ -2297,6 +2320,7 @@ mod tests {
                         known_product_urls_skipped: 0,
                         frontier_left: None,
                         db_wait: Duration::ZERO,
+                        ran_out_of_time: false,
                     })
                 })
             });
@@ -2362,6 +2386,7 @@ mod tests {
                         known_product_urls_skipped: 0,
                         frontier_left: None,
                         db_wait: Duration::ZERO,
+                        ran_out_of_time: false,
                     })
                 })
             });
@@ -2779,25 +2804,57 @@ mod tests {
         job.run_spider_once().await;
     }
 
-    #[test]
-    fn truncated_cooldown_should_continue_a_left_frontier_within_hours() {
-        assert_eq!(
-            truncated_crawl_cooldown(Some(1)),
-            Duration::from_secs(6 * 60 * 60)
-        );
-        assert_eq!(
-            truncated_crawl_cooldown(Some(20_000)),
-            truncated_crawl_cooldown(Some(1))
-        );
-        assert!(truncated_crawl_cooldown(Some(1)) < truncated_crawl_cooldown(Some(0)));
+    /// A truncated run that `ran_out_of_time` and left `frontier_left`.
+    fn truncated_run(ran_out_of_time: bool, frontier_left: Option<usize>) -> SpiderRunResult {
+        SpiderRunResult {
+            ran_out_of_time,
+            frontier_left,
+            ..run_result(CrawlCompletion::HardTimeoutTruncated)
+        }
     }
 
     #[test]
-    fn truncated_cooldown_should_wait_a_day_without_a_known_frontier() {
+    fn truncated_cooldown_should_continue_a_crawl_that_ran_out_of_time_within_hours() {
+        assert_eq!(
+            truncated_crawl_cooldown(&truncated_run(true, Some(1))),
+            Duration::from_secs(6 * 60 * 60)
+        );
+        assert_eq!(
+            truncated_crawl_cooldown(&truncated_run(true, Some(20_000))),
+            truncated_crawl_cooldown(&truncated_run(true, Some(1)))
+        );
+    }
+
+    #[test]
+    fn truncated_cooldown_should_wait_a_day_unless_the_crawl_ran_out_of_time_with_a_frontier() {
         let day = Duration::from_secs(24 * 60 * 60);
-        assert_eq!(truncated_crawl_cooldown(Some(0)), day);
-        assert_eq!(truncated_crawl_cooldown(None), day);
+        // Ended early, leaving only pages it could not fetch, such as bot challenges.
+        assert_eq!(
+            truncated_crawl_cooldown(&truncated_run(false, Some(3))),
+            day
+        );
+        assert_eq!(truncated_crawl_cooldown(&truncated_run(true, Some(0))), day);
+        assert_eq!(truncated_crawl_cooldown(&truncated_run(true, None)), day);
         assert!(day < SPIDER_RECRAWL_INTERVAL);
+    }
+
+    #[test]
+    fn truncation_count_should_count_only_consecutive_crawls_that_ran_out_of_time() {
+        let mut candidate = spider_candidate(ListingSourceId::new());
+        candidate.crawl_truncation_count = 2;
+
+        assert_eq!(
+            next_truncation_count(&candidate, &truncated_run(true, Some(5))),
+            3
+        );
+        assert_eq!(
+            next_truncation_count(&candidate, &truncated_run(false, Some(5))),
+            0
+        );
+        assert_eq!(
+            next_truncation_count(&candidate, &truncated_run(true, None)),
+            0
+        );
     }
 
     fn rate_limited(retry_after: Option<Duration>) -> CrawlCompletion {
@@ -3092,6 +3149,7 @@ mod tests {
             known_product_urls_skipped: 0,
             frontier_left: None,
             db_wait: Duration::ZERO,
+            ran_out_of_time: false,
         }
     }
 
@@ -3145,7 +3203,7 @@ mod tests {
             .withf(move |root, truncation_count, next_crawl_at| {
                 root.listing_source_id == expected_listing_source_id
                     && *truncation_count == 2
-                    && next_crawl_at_is_about(*next_crawl_at, TRUNCATED_CRAWL_RETRY_COOLDOWN)
+                    && next_crawl_at_is_about(*next_crawl_at, TRUNCATED_CRAWL_CONTINUATION_COOLDOWN)
             })
             .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
         spider_candidates.expect_mark_crawl_completed().times(0);
@@ -3155,9 +3213,7 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _, _| {
-                Box::pin(async { Ok(run_result(CrawlCompletion::HardTimeoutTruncated)) })
-            });
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(truncated_run(true, Some(1_500))) }));
 
         spider_job(spider_candidates, spider_service, 1)
             .run_spider_once()
@@ -3196,14 +3252,45 @@ mod tests {
         spider_service
             .expect_run()
             .times(1)
-            .returning(|_, _, _, _, _, _| {
-                Box::pin(async {
-                    Ok(SpiderRunResult {
-                        frontier_left: Some(1_500),
-                        ..run_result(CrawlCompletion::HardTimeoutTruncated)
-                    })
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(truncated_run(true, Some(1_500))) }));
+
+        spider_job(spider_candidates, spider_service, 1)
+            .run_spider_once()
+            .await;
+    }
+
+    /// A crawl that ended early and left only pages it could not fetch, such as bot challenges,
+    /// is cut short without being too large for one crawl: it waits a day and ends the run of
+    /// truncations that extends the next crawl's budget.
+    #[tokio::test]
+    async fn should_wait_a_day_without_extension_after_a_crawl_that_ended_early_with_a_frontier() {
+        let mut spider_candidates = MockSpiderCandidateService::new();
+        let expected_listing_source_id = ListingSourceId::new();
+        spider_candidates
+            .expect_get_candidates()
+            .returning(move |_, excluded| {
+                let first_call = excluded.is_empty();
+                Box::pin(async move {
+                    let mut candidate = spider_candidate(expected_listing_source_id);
+                    candidate.crawl_truncation_count = 2;
+                    Ok(if first_call { vec![candidate] } else { vec![] })
                 })
             });
+        spider_candidates
+            .expect_mark_crawl_truncated()
+            .times(1)
+            .withf(move |root, truncation_count, next_crawl_at| {
+                root.listing_source_id == expected_listing_source_id
+                    && *truncation_count == 0
+                    && next_crawl_at_is_about(*next_crawl_at, TRUNCATED_CRAWL_RETRY_COOLDOWN)
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+
+        let mut spider_service = MockSpiderService::new();
+        spider_service
+            .expect_run()
+            .times(1)
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(truncated_run(false, Some(3))) }));
 
         spider_job(spider_candidates, spider_service, 1)
             .run_spider_once()
@@ -3421,12 +3508,12 @@ mod tests {
             .expect_run()
             .times(2)
             .returning(move |source, _, _, _, _, _| {
-                let completion = if *source == truncated_listing_source_id {
-                    CrawlCompletion::HardTimeoutTruncated
+                let result = if *source == truncated_listing_source_id {
+                    truncated_run(true, Some(10))
                 } else {
-                    CrawlCompletion::Completed
+                    run_result(CrawlCompletion::Completed)
                 };
-                Box::pin(async move { Ok(run_result(completion)) })
+                Box::pin(async move { Ok(result) })
             });
 
         spider_job(spider_candidates, spider_service, 2)
@@ -3462,6 +3549,7 @@ mod tests {
                         known_product_urls_skipped: 0,
                         frontier_left: None,
                         db_wait: Duration::ZERO,
+                        ran_out_of_time: false,
                     })
                 })
             });
