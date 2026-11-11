@@ -71,7 +71,8 @@ use crawler::local_db::{
     connect_retry::{self, PostgresConnectError},
 };
 use crawler::logging::{
-    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE, TLS_VERIFIER_LOG_DIRECTIVE,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE,
+    tls_verifier_handshake_error_filter,
 };
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
@@ -84,6 +85,8 @@ use crawler::service::listing_source_registration::{
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use tracing::{Instrument, error, info, warn};
 
@@ -299,7 +302,7 @@ fn init_logging() {
     let raw_level = env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let crawler_level = env::var("CRAWLER_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{raw_level},crawler={crawler_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},{TLS_VERIFIER_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
+        "{raw_level},crawler={crawler_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
     ));
     tracing_subscriber::fmt()
         .json()
@@ -310,6 +313,8 @@ fn init_logging() {
                 .with_current_span(true)
                 .with_span_list(false),
         ))
+        .finish()
+        .with(tls_verifier_handshake_error_filter())
         .init();
 }
 

@@ -6,13 +6,27 @@ pub const HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE: &str = "html5ever::tree_builder=
 /// source path of the machine that built it. The crawl's `crawler.spider.crawl_completed` event
 /// carries the truncation with the source, so only the library's errors stay.
 pub const SPIDER_LIBRARY_LOG_DIRECTIVE: &str = "spider=error";
-/// The platform certificate verifier logs every rejected certificate at ERROR, with no source and
-/// with the certificate's full name list, once per handshake. A shop's broken certificate is no
-/// crawler fault: the request fails, and the crawler's own events report it with the source, a
-/// crawl as a `TlsError` on `crawler.spider.crawl_failed` at WARN with the domain. The verifier
-/// logs nothing else per request; a trust store the crawler cannot load is reported by
-/// `crate::network::tls` itself.
-pub const TLS_VERIFIER_LOG_DIRECTIVE: &str = "rustls_platform_verifier=off";
+/// The `log` target prefix of the platform certificate verifier.
+const TLS_VERIFIER_LOG_TARGET: &str = "rustls_platform_verifier";
+
+/// Whether `metadata` is the platform certificate verifier's ERROR record of a rejected
+/// certificate. The verifier logs one per handshake, with no source and with the certificate's
+/// full name list. A shop's broken certificate is no crawler fault: the request fails, and the
+/// crawler's own events report it with the source, a crawl as a `TlsError` on
+/// `crawler.spider.crawl_failed` at WARN with the domain. The verifier's other records stay,
+/// such as its WARN at startup about platform CA certificates it ignored.
+fn is_tls_verifier_handshake_error(metadata: &tracing::Metadata<'_>) -> bool {
+    *metadata.level() == tracing::Level::ERROR
+        && metadata.target().starts_with(TLS_VERIFIER_LOG_TARGET)
+}
+
+/// A global filter layer that drops the verifier's per-handshake ERROR record
+/// ([`is_tls_verifier_handshake_error`]); every crawler binary installs it next to its
+/// `EnvFilter`.
+pub fn tls_verifier_handshake_error_filter()
+-> tracing_subscriber::filter::FilterFn<impl Fn(&tracing::Metadata<'_>) -> bool> {
+    tracing_subscriber::filter::filter_fn(|metadata| !is_tls_verifier_handshake_error(metadata))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlerComponent {
@@ -272,7 +286,47 @@ pub async fn ensure_cloudwatch_log_destination(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::logged_events::LoggedEvents;
     use serial_test::serial;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    /// The verifier's per-handshake ERROR is dropped, its startup WARN about ignored CA
+    /// certificates and every other target's errors stay.
+    #[test]
+    fn should_drop_only_the_tls_verifier_handshake_error() {
+        let events = LoggedEvents::default();
+        let _guard = tracing::subscriber::set_default(
+            tracing_subscriber::registry()
+                .with(tls_verifier_handshake_error_filter())
+                .with(events.clone()),
+        );
+        tracing::callsite::rebuild_interest_cache();
+
+        tracing::error!(target: "rustls_platform_verifier::verification::others",
+            "failed to verify TLS certificate: invalid peer certificate");
+        tracing::warn!(target: "rustls_platform_verifier::verification::others",
+            "2 platform CA root certificates were ignored due to errors");
+        tracing::error!(target: "crawler::network::tls", "trust store unavailable");
+
+        let logged: Vec<_> = events
+            .all()
+            .into_iter()
+            .map(|event| (event.level, event.field("message").map(str::to_owned)))
+            .collect();
+        assert_eq!(
+            logged,
+            vec![
+                (
+                    tracing::Level::WARN,
+                    Some("2 platform CA root certificates were ignored due to errors".to_owned())
+                ),
+                (
+                    tracing::Level::ERROR,
+                    Some("trust store unavailable".to_owned())
+                ),
+            ]
+        );
+    }
 
     fn set_env(name: &str, value: Option<&str>) {
         match value {

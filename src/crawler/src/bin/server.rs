@@ -61,8 +61,8 @@ use aws_sdk_cloudwatchlogs::operation::create_log_stream::CreateLogStreamError;
 use crawler::local_db::local_db_url_from_env;
 use crawler::logging::{
     CloudWatchBootstrapClient, CloudWatchBootstrapError, CloudWatchLoggingConfig,
-    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE, TLS_VERIFIER_LOG_DIRECTIVE,
-    cloudwatch_logging_config, ensure_cloudwatch_log_destination,
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE, cloudwatch_logging_config,
+    ensure_cloudwatch_log_destination, tls_verifier_handshake_error_filter,
 };
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
@@ -150,7 +150,7 @@ fn build_log_filter() -> EnvFilter {
         .unwrap_or("info")
         .to_string();
     let directives = format!(
-        "{raw_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},{TLS_VERIFIER_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
+        "{raw_level},{SPIDER_LIBRARY_LOG_DIRECTIVE},sqlx::postgres::notice=warn,{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{EMF_LOG_DIRECTIVE}"
     );
     EnvFilter::new(directives)
 }
@@ -197,6 +197,7 @@ fn init_crawler_logging(
 
         tracing_subscriber::registry()
             .with(build_log_filter())
+            .with(tls_verifier_handshake_error_filter())
             .with(stdout_layer)
             .with(cloudwatch_layer)
             .init();
@@ -204,6 +205,7 @@ fn init_crawler_logging(
     } else {
         tracing_subscriber::registry()
             .with(build_log_filter())
+            .with(tls_verifier_handshake_error_filter())
             .with(stdout_layer)
             .init();
         None
