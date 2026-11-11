@@ -6,6 +6,7 @@ use crate::logging::{SourceLogContext, error_in_source, warn_in_source};
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
     DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
+    politeness_group,
 };
 use crate::scraper::candidate_service::{
     FetchFailureRequest, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
@@ -1499,6 +1500,7 @@ async fn open_scrape_circuit(
             listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_host,
+            politeness_group = %politeness_group(&candidate.crawl_host).key,
             error_kind = %domain_kind.as_str(),
             status_code = ?status_code,
             failure_streak = snapshot.scrape_failure_streak,
@@ -1527,6 +1529,7 @@ async fn open_scrape_circuit(
             listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_host,
+            politeness_group = %politeness_group(&candidate.crawl_host).key,
             error_kind = %domain_kind.as_str(),
             "Skipped stale scrape circuit opening"
         ),
@@ -1536,6 +1539,7 @@ async fn open_scrape_circuit(
             listing_source_id = %candidate.listing_source_id,
             listing_source_name = %candidate.listing_source_name,
             domain = %candidate.crawl_host,
+            politeness_group = %politeness_group(&candidate.crawl_host).key,
             error_kind = %domain_kind.as_str(),
             "Failed to persist scrape circuit opening"
         ),
@@ -2025,6 +2029,7 @@ async fn scrape_batch_candidates(
                 listing_source_id = %ctx.listing_source_id,
                 listing_source_name = %ctx.listing_source_name,
                 domain = %ctx.crawl_host,
+                politeness_group = %politeness_group(&ctx.crawl_host).key,
                 attempted_urls = candidate_index + 1,
                 skipped_urls = remaining,
                 "Stopping remaining scraper URLs after a scrape circuit failure"
@@ -2049,6 +2054,7 @@ async fn scrape_batch_candidates(
                         listing_source_id = %ctx.listing_source_id,
                         listing_source_name = %ctx.listing_source_name,
                         domain = %ctx.crawl_host,
+                        politeness_group = %politeness_group(&ctx.crawl_host).key,
                         previous_failure_streak = scrape_health.scrape_failure_streak,
                         last_error_kind = ?scrape_health.last_scrape_error_kind,
                         circuit_was_open = scrape_health.next_scrape_at.is_some(),
