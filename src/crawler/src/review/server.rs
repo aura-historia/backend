@@ -7,11 +7,12 @@ use crate::review::assets::{
 };
 use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
+use crate::review::human_queue_metrics;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
-    SourceProductUrl,
+    CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason, RawAttributeKey,
+    ReviewActor, ReviewDetail, SampleLabelInput, SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -142,6 +143,17 @@ impl ReviewServer {
             "Crawler review console listening"
         );
 
+        tokio::select! {
+            served = self.accept_connections(listener) => served,
+            never = human_queue_metrics::report_while_agents_work(self.repository.clone()) => {
+                match never {}
+            }
+        }
+    }
+
+    /// Answers each connection `listener` accepts on a task of its own, within the console's
+    /// connection limit.
+    async fn accept_connections(&self, listener: TcpListener) -> std::io::Result<()> {
         let connection_limiter = connection_limiter();
         loop {
             let permit = connection_limiter
@@ -554,13 +566,22 @@ impl ReviewServer {
             && request.path.ends_with("/hand-to-human")
         {
             let (review_id, payload) =
-                match verdict_request::<ActionPayload>(&request, "/hand-to-human") {
+                match verdict_request::<HandoverPayload>(&request, "/hand-to-human") {
                     Ok(verdict) => verdict,
                     Err(response) => return response,
                 };
+            if payload.names_no_full_cause() {
+                warn!(
+                    review_id = %review_id,
+                    actor = actor.as_str(),
+                    reason_sent = payload.reason.is_some(),
+                    category_sent = payload.category.is_some(),
+                    "A hand-over names no reason or category, as a runner older than them sends; it is taken with the defaults NEEDS_HUMAN and NONE"
+                );
+            }
             return verdict_answer(
                 self.repository
-                    .hand_to_human(review_id, actor, payload.notes.as_deref())
+                    .hand_to_human(review_id, actor, payload.cause(), payload.notes.as_deref())
                     .await,
             );
         }
@@ -955,6 +976,33 @@ where
 #[derive(Deserialize)]
 struct ActionPayload {
     notes: Option<String>,
+}
+
+/// A hand-over of `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning as `notes` and
+/// its cause as `reason` and `category`. A runner older than the cause names neither, so a
+/// missing `reason` is taken as `NEEDS_HUMAN` and a missing `category` as `NONE` rather than
+/// refusing its hand-over, which it would only turn into a cooldown; a value it does name must
+/// be a known one.
+#[derive(Deserialize)]
+struct HandoverPayload {
+    notes: Option<String>,
+    reason: Option<HandoverReason>,
+    category: Option<HandoverCategory>,
+}
+
+impl HandoverPayload {
+    /// The cause the payload names, with the defaults for what it leaves out.
+    fn cause(&self) -> HandoverCause {
+        HandoverCause {
+            reason: self.reason.unwrap_or(HandoverReason::NeedsHuman),
+            category: self.category.unwrap_or_default(),
+        }
+    }
+
+    /// Whether the payload leaves out its reason or category, as a runner older than them does.
+    fn names_no_full_cause(&self) -> bool {
+        self.reason.is_none() || self.category.is_none()
+    }
 }
 
 /// An approval of `POST /api/reviews/{id}/approve`. `expected_candidate_version` is the
@@ -2239,6 +2287,68 @@ Origin: http://127.0.0.1:7878/x
         assert!(
             parse_verdict_payload::<ActionPayload>("").is_ok_and(|payload| payload.notes.is_none())
         );
+    }
+
+    /// A hand-over must name a known reason and category when it names one at all.
+    #[test]
+    fn should_refuse_a_hand_over_that_names_an_unknown_reason_or_category() {
+        for body in [
+            r#"{"notes": "behind a login wall", "reason": "LOGIN_WALL", "category": "OTHER"}"#,
+            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN", "category": "WALL"}"#,
+            r#"{"notes": "behind a login wall", "reason": "needs_human"}"#,
+        ] {
+            assert!(
+                parse_verdict_payload::<HandoverPayload>(body).is_err(),
+                "{body:?} must be refused"
+            );
+        }
+        let payload = parse_verdict_payload::<HandoverPayload>(
+            r#"{"notes": "behind a login wall", "reason": "NOTHING_TO_STAGE_AFTER_REVIEW", "category": "PAGES_UNREADABLE"}"#,
+        )
+        .unwrap_or_else(|error| panic!("hand-over with a cause: {error}"));
+        assert_eq!(
+            payload.cause(),
+            HandoverCause {
+                reason: HandoverReason::NothingToStageAfterReview,
+                category: HandoverCategory::PagesUnreadable,
+            }
+        );
+        assert!(!payload.names_no_full_cause());
+        assert_eq!(payload.notes.as_deref(), Some("behind a login wall"));
+    }
+
+    /// A runner deployed before the cause sends only its notes; its hand-over is taken with the
+    /// default cause instead of being refused.
+    #[test]
+    fn should_take_a_hand_over_without_a_cause_as_needs_human_with_no_category() {
+        for (body, expected) in [
+            (
+                r#"{"notes": "behind a login wall"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NeedsHuman,
+                    category: HandoverCategory::None,
+                },
+            ),
+            (
+                r#"{"notes": "behind a login wall", "category": "OTHER"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NeedsHuman,
+                    category: HandoverCategory::Other,
+                },
+            ),
+            (
+                r#"{"notes": "behind a login wall", "reason": "NOTHING_TO_STAGE_AFTER_REVIEW"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NothingToStageAfterReview,
+                    category: HandoverCategory::None,
+                },
+            ),
+        ] {
+            let payload = parse_verdict_payload::<HandoverPayload>(body)
+                .unwrap_or_else(|error| panic!("{body}: {error}"));
+            assert_eq!(payload.cause(), expected, "{body}");
+            assert!(payload.names_no_full_cause(), "{body}");
+        }
     }
 
     mod matrix_refresh {
