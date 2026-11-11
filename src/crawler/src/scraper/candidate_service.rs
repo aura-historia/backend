@@ -709,18 +709,28 @@ macro_rules! scrapable_source_conditions {
     };
 }
 
-/// Whether the ListingSource `listing_sources s` waits on its first product schema: it has no
-/// product schema while its product-schema review is pending, so none of its URLs is scraped
-/// until the review is decided.
-macro_rules! awaits_first_product_schema {
+/// Whether the ListingSource `listing_sources s` stores a product schema the scraper caches.
+macro_rules! has_product_schema {
     () => {
-        r#"(NOT EXISTS (
+        r#"EXISTS (
                   SELECT 1
                   FROM listing_source_product_schemas ps
                   WHERE ps.listing_source_id = s.listing_source_id
                     AND (jsonb_typeof(ps.product_schema) <> 'array'
                          OR jsonb_array_length(ps.product_schema) > 0)
-              )
+              )"#
+    };
+}
+
+/// Whether the ListingSource `listing_sources s` waits on its first product schema: it has no
+/// product schema while its product-schema review is pending, so none of its URLs is scraped
+/// until the review is decided.
+macro_rules! awaits_first_product_schema {
+    () => {
+        concat!(
+            "(NOT ",
+            has_product_schema!(),
+            r#"
               AND EXISTS (
                   SELECT 1
                   FROM crawler_reviews cr
@@ -728,6 +738,7 @@ macro_rules! awaits_first_product_schema {
                     AND cr.artifact_type = 'PRODUCT_SCHEMA'
                     AND cr.status = 'PENDING_REVIEW'
               ))"#
+        )
     };
 }
 
