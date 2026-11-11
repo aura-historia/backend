@@ -143,6 +143,16 @@ impl ScraperError {
             _ => None,
         }
     }
+
+    /// The target of a redirect that neither retires nor removes the URL: one whose stored rows
+    /// disagree, or one outside the product URL pattern that no cached schema judges.
+    pub(crate) fn unsettled_redirect_destination(&self) -> Option<&Url> {
+        match self {
+            Self::RedirectDestinationUnsettled { destination }
+            | Self::RedirectTargetUnverified { destination } => Some(destination),
+            _ => None,
+        }
+    }
 }
 
 /// A verified removal of a product listing, with the evidence a later configuration change

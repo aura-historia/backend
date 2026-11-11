@@ -886,21 +886,20 @@ async fn scrape_candidate_in_batch(
         Err(ScraperError::RedirectToKnownProduct { destination, .. }) => {
             retire_duplicate_of_known_destination(&candidate, ctx, &destination).await
         }
-        Err(
-            error @ (ScraperError::RedirectDestinationUnsettled { .. }
-            | ScraperError::RedirectTargetUnverified { .. }),
-        ) => record_unsettled_redirect(&candidate, ctx, &error).await,
-        Err(error) => {
-            handle_scrape_error(
-                &candidate,
-                ctx,
-                error,
-                fetch_failure,
-                scrape_health.clone(),
-                evidence,
-            )
-            .await
-        }
+        Err(error) => match error.unsettled_redirect_destination() {
+            Some(_) => record_unsettled_redirect(&candidate, ctx, &error).await,
+            None => {
+                handle_scrape_error(
+                    &candidate,
+                    ctx,
+                    error,
+                    fetch_failure,
+                    scrape_health.clone(),
+                    evidence,
+                )
+                .await
+            }
+        },
     };
     if matches!(outcome.scrape_health, DomainFetchHealth::NotObserved) {
         outcome.scrape_health = scrape_health;
