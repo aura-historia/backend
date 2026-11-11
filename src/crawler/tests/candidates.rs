@@ -1865,6 +1865,89 @@ async fn scraper_should_count_the_urls_at_a_redirect_target_through_their_remova
     );
 }
 
+/// A shared-redirect removal the mass-removal guard held keeps its redirect: the URL comes back
+/// with its streak and counts at the target. A held removal of another kind, written without a
+/// redirect, ends the streak instead of reviving it.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_keep_the_redirect_of_a_held_shared_redirect_removal() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "scraper-held.example.com").await;
+    let error_page = url::Url::parse("https://scraper-held.example.com/error.aspx").unwrap();
+    let held = url::Url::parse("https://scraper-held.example.com/producto.aspx?id=1").unwrap();
+    let other = url::Url::parse("https://scraper-held.example.com/producto.aspx?id=2").unwrap();
+    for url in [&held, &other] {
+        insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    }
+    let redirect = UnsettledRedirect {
+        destination: error_page.clone(),
+        streak: 2,
+    };
+    service
+        .mark_unsettled_redirect(UnsettledRedirectRequest {
+            listing_source_id,
+            url: held.clone(),
+            outcome_kind: "MassRemovalHeld".to_owned(),
+            outcome_message: "removal held by the mass-removal guard".to_owned(),
+            redirect: redirect.clone(),
+            next_retry_at: time::OffsetDateTime::now_utc(),
+            expected_last_captured_raw_input_sha256: None,
+        })
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NULL WHERE url = $1 AND last_error_kind = 'MassRemovalHeld'",
+    )
+    .bind(held.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    let candidate = candidates
+        .iter()
+        .find(|c| c.url == held)
+        .expect("held URL is due");
+    assert_eq!(candidate.unsettled_redirect.as_ref(), Some(&redirect));
+    assert_eq!(
+        service
+            .count_urls_at_redirect_target(&listing_source_id, &error_page, &other, 100)
+            .await
+            .unwrap(),
+        1
+    );
+
+    service
+        .mark_scraped_without_capture(
+            &listing_source_id,
+            &held,
+            "MassRemovalHeld",
+            "removal held by the mass-removal guard",
+            None,
+        )
+        .await
+        .unwrap();
+    sqlx::query("UPDATE listing_source_urls SET last_scraped = NULL WHERE url = $1")
+        .bind(held.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    let candidate = candidates
+        .iter()
+        .find(|c| c.url == held)
+        .expect("held URL is due");
+    assert_eq!(candidate.unsettled_redirect, None);
+    assert_eq!(
+        service
+            .count_urls_at_redirect_target(&listing_source_id, &error_page, &other, 100)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;
