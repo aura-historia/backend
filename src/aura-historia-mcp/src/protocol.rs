@@ -45,6 +45,7 @@ impl ServerHandler for ProtocolHandler {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(self.info.clone())
+            .with_instructions(crate::server_info::INSTRUCTIONS)
     }
     fn get_tool(&self, name: &str) -> Option<Tool> {
         self.registry.get(name).map(|op| op.tool.clone())
