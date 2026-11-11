@@ -120,7 +120,7 @@ impl BatchEvidence {
         retry_after: Option<Duration>,
     ) -> ScrapeCircuitDecision {
         if kind == NetworkErrorKind::HttpStatus(429)
-            && self.defers_rate_limit(candidate_url, retry_after)
+            && self.defers_rate_limit(scrape_health, candidate_url, retry_after)
         {
             return ScrapeCircuitDecision::DeferRateLimited;
         }
@@ -244,12 +244,20 @@ impl BatchEvidence {
     /// in full, and fewer than [`SHARED_PLATFORM_RATE_LIMIT_URLS`] distinct
     /// URLs of the batch answered 429 once `candidate_url` counts. A 429
     /// without `Retry-After`, or one asking for more than the group waits,
-    /// opens the circuit as before.
-    fn defers_rate_limit(&self, candidate_url: &Url, retry_after: Option<Duration>) -> bool {
+    /// opens the circuit as before, and so does a 429 to the probe of an open
+    /// circuit, so its cooldown keeps growing instead of the ListingSource
+    /// being probed again on every pass.
+    fn defers_rate_limit(
+        &self,
+        scrape_health: &ScrapeHealthSnapshot,
+        candidate_url: &Url,
+        retry_after: Option<Duration>,
+    ) -> bool {
         let shared_platform = candidate_url
             .host_str()
             .is_some_and(|host| politeness_group(host).shared_platform);
         shared_platform
+            && scrape_health.next_scrape_at.is_none()
             && retry_after.is_some_and(|wait| wait <= RATE_LIMIT_MAX_PAUSE)
             && distinct_with(&self.rate_limited_urls, candidate_url)
                 < SHARED_PLATFORM_RATE_LIMIT_URLS
@@ -760,6 +768,26 @@ mod tests {
                 "{retry_after:?}"
             );
         }
+    }
+
+    #[test]
+    fn should_reopen_the_circuit_when_its_probe_answers_a_short_429_on_a_shared_platform() {
+        let probe = ScrapeHealthSnapshot {
+            scrape_failure_streak: 1,
+            last_scrape_error_kind: Some(DomainFailureKind::Http429.as_str().to_owned()),
+            next_scrape_at: Some(time::OffsetDateTime::UNIX_EPOCH),
+        };
+
+        assert_eq!(
+            BatchEvidence::default().decide(
+                &probe,
+                &platform_url("1"),
+                NetworkErrorKind::HttpStatus(429),
+                Some(429),
+                Some(Duration::from_secs(8)),
+            ),
+            ScrapeCircuitDecision::Open(DomainFailureKind::Http429)
+        );
     }
 
     #[test]
