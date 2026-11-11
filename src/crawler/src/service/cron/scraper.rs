@@ -10,7 +10,8 @@ use crate::network::policy::{
 use crate::scraper::candidate_service::{
     FetchFailureRequest, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
     ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot, ScraperCandidate,
-    ScraperCandidateService, next_scrape_failure_streak,
+    ScraperCandidateService, UnsettledRedirect, UnsettledRedirectRequest,
+    next_scrape_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -59,6 +60,14 @@ const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 /// keeps a page whose review stays pending, for example awaiting repair, from going unchecked
 /// for much longer than a reviewer's working session.
 const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
+/// The scrape interval of a product URL, after which the first scrape that ends at an unsettled
+/// redirect is due again; it matches the candidate query's recency condition.
+const UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
+/// Upper bound of the recheck delay of a URL that keeps redirecting to the same target nothing
+/// settles. A shop that sends removed products to an error page would otherwise have every such
+/// URL fetched once a day forever; the bound still notices a redirect that disappears, or a
+/// target a later schema judges, within a month.
+const UNSETTLED_REDIRECT_MAX_RECHECK_DELAY: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
@@ -886,8 +895,10 @@ async fn scrape_candidate_in_batch(
         Err(ScraperError::RedirectToKnownProduct { destination, .. }) => {
             retire_duplicate_of_known_destination(&candidate, ctx, &destination).await
         }
-        Err(error) => match error.unsettled_redirect_destination() {
-            Some(_) => record_unsettled_redirect(&candidate, ctx, &error).await,
+        Err(error) => match error.unsettled_redirect_destination().cloned() {
+            Some(destination) => {
+                record_unsettled_redirect(&candidate, ctx, &error, destination).await
+            }
             None => {
                 handle_scrape_error(
                     &candidate,
@@ -1088,27 +1099,77 @@ async fn retire_as_duplicate(
 }
 
 /// Records a scrape that ended at a redirect nothing settles: the URL keeps its listing, neither
-/// retired nor removed, and returns at its normal scrape interval instead of being fetched on
-/// every pass (`docs/crawler/networking.md#duplicate-targets`).
+/// retired nor removed, and is checked again after a delay that doubles with each consecutive
+/// scrape ending at the same target, from its normal scrape interval up to
+/// [`UNSETTLED_REDIRECT_MAX_RECHECK_DELAY`]. Only the first scrape of such a streak warns; the
+/// pass summary counts the rest per ListingSource
+/// (`docs/crawler/networking.md#redirect-removal-evidence`).
 async fn record_unsettled_redirect(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
     error: &ScraperError,
+    destination: url::Url,
 ) -> ScrapeCandidateOutcome {
-    warn!(
-        listing_source_id = %candidate.listing_source_id,
-        url = %candidate.url,
-        reason = %error,
-        "Leaving a redirected product URL until its next scrape"
-    );
-    persist_scraped_without_capture(
-        candidate,
-        ctx,
-        scraper_error_kind(error),
-        &error.to_string(),
-    )
-    .await;
+    let redirect = UnsettledRedirect::after(candidate.unsettled_redirect.as_ref(), destination);
+    let recheck_delay = unsettled_redirect_recheck_delay(redirect.streak);
+    if redirect.is_first() {
+        warn!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            reason = %error,
+            "Leaving a redirected product URL until its next scrape"
+        );
+    } else {
+        debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            reason = %error,
+            unsettled_redirect_streak = redirect.streak,
+            recheck_delay_hours = recheck_delay.as_secs() / 3600,
+            "Leaving a product URL that keeps redirecting to the same unsettled target"
+        );
+    }
+    let request = UnsettledRedirectRequest {
+        listing_source_id: candidate.listing_source_id,
+        url: candidate.url.clone(),
+        outcome_kind: scraper_error_kind(error).to_owned(),
+        outcome_message: error.to_string(),
+        redirect,
+        next_retry_at: time::OffsetDateTime::now_utc()
+            + time::Duration::seconds(recheck_delay.as_secs() as i64),
+        expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+    };
+    match ctx
+        .scraper_candidates
+        .mark_unsettled_redirect(request)
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler unsettled-redirect outcome"
+        ),
+        Err(error) => warn_in_source!(
+            error = %error,
+            url = %candidate.url,
+            "Failed to persist crawler unsettled-redirect outcome"
+        ),
+    }
     skipped_outcome(SkipReason::UnsettledRedirect)
+}
+
+/// The scrape interval doubled for each earlier consecutive scrape that ended at the same
+/// unsettled redirect, capped at [`UNSETTLED_REDIRECT_MAX_RECHECK_DELAY`].
+fn unsettled_redirect_recheck_delay(streak: u32) -> Duration {
+    let doublings = streak.saturating_sub(1);
+    2_u32
+        .checked_pow(doublings)
+        .and_then(|factor| UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY.checked_mul(factor))
+        .map_or(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY, |delay| {
+            delay.min(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY)
+        })
 }
 
 async fn handle_successful_scrape(
@@ -4035,6 +4096,7 @@ mod tests {
     /// returns at its scrape interval instead of being fetched again on every pass.
     #[tokio::test]
     async fn should_record_a_scrape_without_capture_when_its_redirect_is_not_settled() {
+        let before = time::OffsetDateTime::now_utc();
         let original_url =
             url::Url::parse("https://example.com/collections/all/products/ladle").unwrap();
         let effective_url = url::Url::parse("https://example.com/products/ladle").unwrap();
@@ -4060,16 +4122,27 @@ mod tests {
             scraper_candidates
                 .expect_forget_capture_before_removal()
                 .never();
-            let expected_url = original_url.clone();
             scraper_candidates
                 .expect_mark_scraped_without_capture()
+                .never();
+            let (expected_url, expected_destination) =
+                (original_url.clone(), effective_url.clone());
+            scraper_candidates
+                .expect_mark_unsettled_redirect()
                 .once()
-                .withf(move |_, url, kind, _, expected| {
-                    *url == expected_url
-                        && kind == expected_kind
-                        && *expected == Some(&[4_u8; 32][..])
+                .withf(move |request| {
+                    request.url == expected_url
+                        && request.outcome_kind == expected_kind
+                        && request.redirect.destination == expected_destination
+                        && request.redirect.streak == 1
+                        && request.expected_last_captured_raw_input_sha256 == Some(vec![4_u8; 32])
+                        && retry_due_after(
+                            request.next_retry_at,
+                            before,
+                            UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY,
+                        )
                 })
-                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let ctx = scrape_candidate_context(scraper_candidates, redirect_ends_scrape(error));
 
             let outcome = scrape_candidate(candidate, &ctx).await;
@@ -4078,6 +4151,118 @@ mod tests {
             assert!(outcome.skipped, "{expected_kind}");
             assert!(!outcome.errored, "{expected_kind}");
         }
+    }
+
+    /// Whether `next_retry_at`, written by a call that started at `before`, lies `delay` after
+    /// the call, allowing for the time the call took.
+    fn retry_due_after(
+        next_retry_at: time::OffsetDateTime,
+        before: time::OffsetDateTime,
+        delay: Duration,
+    ) -> bool {
+        let earliest = before + time::Duration::seconds(delay.as_secs() as i64);
+        next_retry_at >= earliest && next_retry_at <= earliest + time::Duration::minutes(1)
+    }
+
+    /// The streak of a URL that keeps redirecting to the same unsettled target, or that starts
+    /// redirecting to another one, as the scrape records it.
+    async fn recorded_unsettled_redirect(
+        previous: Option<UnsettledRedirect>,
+        destination: &url::Url,
+    ) -> UnsettledRedirectRequest {
+        let mut candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://example.com/producto.aspx?id=589").unwrap(),
+        );
+        candidate.unsettled_redirect = previous;
+        let recorded = Arc::new(std::sync::Mutex::new(None));
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        let sink = Arc::clone(&recorded);
+        scraper_candidates
+            .expect_mark_unsettled_redirect()
+            .once()
+            .returning(move |request| {
+                *sink.lock().unwrap() = Some(request);
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        let ctx = scrape_candidate_context(
+            scraper_candidates,
+            redirect_ends_scrape(ScraperError::RedirectTargetUnverified {
+                destination: destination.clone(),
+            }),
+        );
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.skipped);
+        assert!(outcome.capture.is_none());
+        recorded.lock().unwrap().take().unwrap()
+    }
+
+    /// A shop that sends removed products to one error page has each such URL checked ever less
+    /// often instead of once a day forever.
+    #[tokio::test]
+    async fn should_double_the_recheck_delay_when_the_redirect_keeps_ending_at_the_same_target() {
+        let error_page =
+            url::Url::parse("https://example.com/error.aspx?aspxerrorpath=/producto.aspx").unwrap();
+        let before = time::OffsetDateTime::now_utc();
+
+        let request = recorded_unsettled_redirect(
+            Some(UnsettledRedirect {
+                destination: error_page.clone(),
+                streak: 2,
+            }),
+            &error_page,
+        )
+        .await;
+
+        assert_eq!(request.redirect.streak, 3);
+        assert_eq!(request.redirect.destination, error_page);
+        assert!(retry_due_after(
+            request.next_retry_at,
+            before,
+            UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY * 4,
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_restart_the_recheck_delay_when_the_redirect_target_changes() {
+        let before = time::OffsetDateTime::now_utc();
+        let sold_page = url::Url::parse("https://example.com/vendidos").unwrap();
+
+        let request = recorded_unsettled_redirect(
+            Some(UnsettledRedirect {
+                destination: url::Url::parse("https://example.com/error.aspx").unwrap(),
+                streak: 5,
+            }),
+            &sold_page,
+        )
+        .await;
+
+        assert_eq!(request.redirect.streak, 1);
+        assert_eq!(request.redirect.destination, sold_page);
+        assert!(retry_due_after(
+            request.next_retry_at,
+            before,
+            UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY,
+        ));
+    }
+
+    #[test]
+    fn should_cap_the_unsettled_redirect_recheck_delay() {
+        const DAY: Duration = UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY;
+        assert_eq!(unsettled_redirect_recheck_delay(0), DAY);
+        assert_eq!(unsettled_redirect_recheck_delay(1), DAY);
+        assert_eq!(unsettled_redirect_recheck_delay(2), DAY * 2);
+        assert_eq!(unsettled_redirect_recheck_delay(5), DAY * 16);
+        assert_eq!(
+            unsettled_redirect_recheck_delay(6),
+            UNSETTLED_REDIRECT_MAX_RECHECK_DELAY
+        );
+        assert_eq!(
+            unsettled_redirect_recheck_delay(u32::MAX),
+            UNSETTLED_REDIRECT_MAX_RECHECK_DELAY
+        );
     }
 
     #[tokio::test]

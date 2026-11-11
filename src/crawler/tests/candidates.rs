@@ -3,7 +3,8 @@ use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
     FetchFailureRequest, RedirectDestination, RedirectUrlMove, SchemaReviewWait,
     SchemaReviewWaitRequest, ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot,
-    ScraperCandidateService, ScraperCandidateServiceImpl, SourceAwaitingReview,
+    ScraperCandidateService, ScraperCandidateServiceImpl, SourceAwaitingReview, UnsettledRedirect,
+    UnsettledRedirectRequest,
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, NEEDS_OPERATOR_CRAWL_OUTCOME,
@@ -1657,6 +1658,77 @@ async fn scraper_mark_scraped_without_capture_should_record_outcome_until_the_sc
     );
     let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
     assert!(!candidates.iter().any(|c| c.url == url));
+}
+
+/// An unsettled redirect holds the URL back until its recheck time and comes back with the
+/// candidate, so the next scrape continues its streak; another outcome ends the streak.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_mark_unsettled_redirect_should_hold_the_url_and_carry_its_streak() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "scraper-redirect.example.com").await;
+    let url = url::Url::parse("https://scraper-redirect.example.com/producto.aspx?id=589").unwrap();
+    insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    let error_page = url::Url::parse(
+        "https://scraper-redirect.example.com/error.aspx?aspxerrorpath=/producto.aspx",
+    )
+    .unwrap();
+    let redirect = UnsettledRedirect {
+        destination: error_page.clone(),
+        streak: 3,
+    };
+
+    let applied = service
+        .mark_unsettled_redirect(UnsettledRedirectRequest {
+            listing_source_id,
+            url: url.clone(),
+            outcome_kind: "RedirectTargetUnverified".to_owned(),
+            outcome_message: "redirects outside its product URL pattern".to_owned(),
+            redirect: redirect.clone(),
+            next_retry_at: time::OffsetDateTime::now_utc() + time::Duration::days(4),
+            expected_last_captured_raw_input_sha256: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(applied, CrawlerUrlWriteOutcome::Applied);
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    assert!(!candidates.iter().any(|c| c.url == url), "held back");
+
+    sqlx::query(
+        "UPDATE listing_source_urls \
+         SET last_scraped = NOW() - INTERVAL '5 days', next_retry_at = NOW() - INTERVAL '1 minute' \
+         WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    let candidate = candidates.iter().find(|c| c.url == url).expect("due again");
+    assert_eq!(candidate.unsettled_redirect.as_ref(), Some(&redirect));
+
+    service
+        .mark_scraped_without_capture(
+            &listing_source_id,
+            &url,
+            "MissingRequiredValue",
+            "title is blank",
+            None,
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(url.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    let candidate = candidates.iter().find(|c| c.url == url).expect("due again");
+    assert_eq!(candidate.unsettled_redirect, None);
 }
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]

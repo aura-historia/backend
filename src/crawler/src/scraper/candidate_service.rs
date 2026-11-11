@@ -47,6 +47,8 @@ pub struct ScraperCandidate {
     pub is_circuit_probe: bool,
     /// The pending product-schema review the URL's last scrape waited on, if it did.
     pub schema_review_wait: Option<SchemaReviewWait>,
+    /// The redirect target the URL's last scrape ended at without settling the URL, if it did.
+    pub unsettled_redirect: Option<UnsettledRedirect>,
 }
 
 /// The pending product-schema review a URL waits on and how many consecutive scrapes have
@@ -68,6 +70,50 @@ impl SchemaReviewWait {
         };
         Self { review_id, streak }
     }
+}
+
+/// The target a URL's redirect led to without settling the URL, and how many consecutive scrapes
+/// ended there. The streak drives the URL's growing recheck delay and keeps its warning to the
+/// first scrape that met the target (`docs/crawler/networking.md#redirect-removal-evidence`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsettledRedirect {
+    pub destination: Url,
+    pub streak: u32,
+}
+
+impl UnsettledRedirect {
+    /// The unsettled redirect a scrape records when it ends at `destination`: the streak
+    /// continues only when the URL's previous scrape ended unsettled at the same target.
+    pub fn after(previous: Option<&UnsettledRedirect>, destination: Url) -> Self {
+        let streak = match previous {
+            Some(previous) if previous.destination == destination => {
+                previous.streak.saturating_add(1)
+            }
+            _ => 1,
+        };
+        Self {
+            destination,
+            streak,
+        }
+    }
+
+    /// Whether this is the first scrape in a row that ended at the target.
+    pub fn is_first(&self) -> bool {
+        self.streak == 1
+    }
+}
+
+/// A scrape that ended at a redirect nothing settles: recorded as scraped without a capture,
+/// with the redirect it ended at and the time the URL is due again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsettledRedirectRequest {
+    pub listing_source_id: ListingSourceId,
+    pub url: Url,
+    pub outcome_kind: String,
+    pub outcome_message: String,
+    pub redirect: UnsettledRedirect,
+    pub next_retry_at: OffsetDateTime,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
 /// Retry state for a page that waits on a pending product-schema review, written in the shape of
@@ -430,6 +476,14 @@ pub trait ScraperCandidateService: Send + Sync {
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
 
+    /// Records a scrape that ended at a redirect nothing settles, as
+    /// [`mark_scraped_without_capture`](Self::mark_scraped_without_capture) does, together with
+    /// the redirect's target and streak, and holds the URL back until `next_retry_at`.
+    async fn mark_unsettled_redirect(
+        &self,
+        request: UnsettledRedirectRequest,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+
     /// Increment per-ListingSource LLM call counter used by schema generation flows.
     async fn increment_listing_source_llm_calls(
         &self,
@@ -598,6 +652,23 @@ fn schema_review_wait_from_row(
     }
 }
 
+/// Decodes the unsettled redirect a candidate row carries; a row whose last scrape did not end
+/// at one carries neither target nor streak. Anything else fails closed.
+fn unsettled_redirect_from_row(
+    target: Option<String>,
+    streak: i32,
+) -> Result<Option<UnsettledRedirect>, sqlx::Error> {
+    let invalid = || sqlx::Error::Decode("persisted crawler unsettled redirect is invalid".into());
+    match (target, u32::try_from(streak)) {
+        (None, Ok(0)) => Ok(None),
+        (Some(target), Ok(streak)) if streak > 0 => Ok(Some(UnsettledRedirect {
+            destination: Url::parse(&target).map_err(|_| invalid())?,
+            streak,
+        })),
+        _ => Err(invalid()),
+    }
+}
+
 #[derive(sqlx::FromRow)]
 struct ScraperCandidateRow {
     listing_source_id: uuid::Uuid,
@@ -620,6 +691,8 @@ struct ScraperCandidateRow {
     last_captured_title: Option<String>,
     schema_review_waited_on: Option<uuid::Uuid>,
     schema_review_wait_streak: i32,
+    unsettled_redirect_target: Option<String>,
+    unsettled_redirect_streak: i32,
 }
 
 /// The ListingSource conditions of scraper eligibility over `listing_sources s`: crawling is
@@ -704,6 +777,12 @@ macro_rules! eligible_scraper_urls_cte {
                    THEN su.schema_review_waited_on END AS schema_review_waited_on
             , CASE WHEN su.last_error_kind = 'PendingSchemaReview'
                    THEN su.schema_review_wait_streak ELSE 0 END AS schema_review_wait_streak
+            , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
+                                                'RedirectDestinationUnsettled')
+                   THEN su.unsettled_redirect_target END AS unsettled_redirect_target
+            , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
+                                                'RedirectDestinationUnsettled')
+                   THEN su.unsettled_redirect_streak ELSE 0 END AS unsettled_redirect_streak
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         WHERE "#,
@@ -756,7 +835,7 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
         last_source_listing_id, last_captured_title, schema_review_waited_on,
-        schema_review_wait_streak
+        schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak
     FROM ranked_urls
     WHERE (is_circuit_probe AND source_url_rank = 1)
        OR (NOT is_circuit_probe AND source_url_rank <= $4)
@@ -829,6 +908,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 row.schema_review_waited_on,
                 row.schema_review_wait_streak,
             )?;
+            let unsettled_redirect = unsettled_redirect_from_row(
+                row.unsettled_redirect_target,
+                row.unsettled_redirect_streak,
+            )?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -860,6 +943,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 last_source_listing_id: row.last_source_listing_id,
                 last_captured_title: row.last_captured_title,
                 schema_review_wait,
+                unsettled_redirect,
             });
         }
 
@@ -1602,6 +1686,47 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         })
     }
 
+    async fn mark_unsettled_redirect(
+        &self,
+        request: UnsettledRedirectRequest,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let streak = i32::try_from(request.redirect.streak)
+            .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+        let result = sqlx::query(
+            "UPDATE listing_source_urls
+             SET last_scraped = NOW(),
+                 failure_count = 0,
+                 last_error_kind = $3,
+                 last_error_message = $4,
+                 last_status_code = NULL,
+                 next_retry_at = $5,
+                 unsettled_redirect_target = $6,
+                 unsettled_redirect_streak = $7,
+                 updated = NOW()
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $8::bytea",
+        )
+        .bind(uuid::Uuid::from(request.listing_source_id))
+        .bind(request.url.as_str())
+        .bind(&request.outcome_kind)
+        .bind(&request.outcome_message)
+        .bind(request.next_retry_at)
+        .bind(request.redirect.destination.as_str())
+        .bind(streak)
+        .bind(request.expected_last_captured_raw_input_sha256.as_deref())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(if result.rows_affected() == 1 {
+            CrawlerUrlWriteOutcome::Applied
+        } else {
+            CrawlerUrlWriteOutcome::NoopStale
+        })
+    }
+
     async fn increment_listing_source_llm_calls(
         &self,
         listing_source_id: &ListingSourceId,
@@ -1830,5 +1955,64 @@ mod candidate_query_tests {
             next_scrape_failure_streak(&expected, DomainFailureKind::Http429),
             1
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(value: &str) -> Url {
+        Url::parse(value).unwrap()
+    }
+
+    #[test]
+    fn should_continue_the_streak_when_the_redirect_ends_at_the_same_target() {
+        let error_page = url("https://shop.example/error.aspx?aspxerrorpath=/producto.aspx");
+        let first = UnsettledRedirect::after(None, error_page.clone());
+        let second = UnsettledRedirect::after(Some(&first), error_page.clone());
+
+        assert_eq!(first.streak, 1);
+        assert!(first.is_first());
+        assert_eq!(second.streak, 2);
+        assert!(!second.is_first());
+        assert_eq!(second.destination, error_page);
+    }
+
+    #[test]
+    fn should_restart_the_streak_when_the_redirect_target_changes() {
+        let previous = UnsettledRedirect {
+            destination: url("https://shop.example/error.aspx"),
+            streak: 4,
+        };
+
+        let next = UnsettledRedirect::after(Some(&previous), url("https://shop.example/sold"));
+
+        assert_eq!(next.streak, 1);
+        assert_eq!(next.destination, url("https://shop.example/sold"));
+    }
+
+    #[test]
+    fn should_decode_an_unsettled_redirect_only_from_a_consistent_row() {
+        assert_eq!(unsettled_redirect_from_row(None, 0).unwrap(), None);
+        assert_eq!(
+            unsettled_redirect_from_row(Some("https://shop.example/error.aspx".to_owned()), 3)
+                .unwrap(),
+            Some(UnsettledRedirect {
+                destination: url("https://shop.example/error.aspx"),
+                streak: 3,
+            })
+        );
+        for (target, streak) in [
+            (None, 1),
+            (Some("https://shop.example/error.aspx".to_owned()), 0),
+            (Some("https://shop.example/error.aspx".to_owned()), -1),
+            (Some("not a url".to_owned()), 1),
+        ] {
+            assert!(
+                unsettled_redirect_from_row(target.clone(), streak).is_err(),
+                "{target:?} with streak {streak}"
+            );
+        }
     }
 }
