@@ -1782,6 +1782,89 @@ async fn scraper_should_release_an_unverified_redirect_once_a_product_schema_is_
     );
 }
 
+/// The product URLs that stand at a redirect target are those whose last scrape ended there
+/// unverified and those whose last removal was captured on it; the removal keeps its target.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_should_count_the_urls_at_a_redirect_target_through_their_removal() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "scraper-shared.example.com").await;
+    let error_page = url::Url::parse("https://scraper-shared.example.com/error.aspx").unwrap();
+    let urls: Vec<url::Url> = (1..=4)
+        .map(|id| {
+            url::Url::parse(&format!(
+                "https://scraper-shared.example.com/producto.aspx?id={id}"
+            ))
+            .unwrap()
+        })
+        .collect();
+    for url in &urls {
+        insert_product_url(&pool, listing_source_id, url.as_str()).await;
+    }
+    for (url, kind) in [
+        (&urls[0], "RedirectTargetUnverified"),
+        (&urls[1], "RedirectTargetUnverified"),
+        (&urls[2], "RedirectDestinationUnsettled"),
+    ] {
+        service
+            .mark_unsettled_redirect(UnsettledRedirectRequest {
+                listing_source_id,
+                url: url.clone(),
+                outcome_kind: kind.to_owned(),
+                outcome_message: "unsettled".to_owned(),
+                redirect: UnsettledRedirect {
+                    destination: error_page.clone(),
+                    streak: 1,
+                },
+                next_retry_at: time::OffsetDateTime::now_utc() + time::Duration::days(1),
+                expected_last_captured_raw_input_sha256: None,
+            })
+            .await
+            .unwrap();
+    }
+    let removed = service
+        .mark_removed(
+            &listing_source_id,
+            &urls[3],
+            &[7; 32],
+            None,
+            &[],
+            Some(&error_page),
+        )
+        .await
+        .unwrap();
+
+    let at_target = service
+        .count_urls_at_redirect_target(&listing_source_id, &error_page, &urls[0], 100)
+        .await
+        .unwrap();
+    let capped = service
+        .count_urls_at_redirect_target(&listing_source_id, &error_page, &urls[0], 1)
+        .await
+        .unwrap();
+
+    assert_eq!(removed, CrawlerUrlWriteOutcome::Applied);
+    assert_eq!(at_target, 2, "the other unverified URL and the removed one");
+    assert_eq!(capped, 1);
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(urls[3].as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let candidates = service.get_candidates(10, 100, &[]).await.unwrap();
+    let removed_candidate = candidates
+        .iter()
+        .find(|c| c.url == urls[3])
+        .expect("a removal stays a candidate");
+    assert_eq!(
+        removed_candidate.removed_by_redirect_target.as_ref(),
+        Some(&error_page)
+    );
+}
+
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn scraper_should_not_return_candidate_when_listing_source_crawl_is_disabled() {
     let pool = get_postgres_client().await;
@@ -1874,7 +1957,7 @@ async fn scraper_mark_removed_should_reactivate_sold_url_after_durable_capture()
     let removal_hash = vec![7; 32];
     assert_eq!(
         service
-            .mark_removed(&listing_source_id, &url, &removal_hash, None, &[])
+            .mark_removed(&listing_source_id, &url, &removal_hash, None, &[], None)
             .await
             .unwrap(),
         CrawlerUrlWriteOutcome::Applied
@@ -1940,7 +2023,8 @@ async fn scraper_mark_removed_should_forget_the_page_hash_of_the_last_product_sc
                 &url,
                 &[9; 32],
                 Some(&product_capture),
-                &[]
+                &[],
+                None
             )
             .await
             .unwrap(),
@@ -1991,6 +2075,7 @@ async fn scraper_mark_removed_should_record_the_templates_until_a_product_captur
             &removal,
             None,
             std::slice::from_ref(&template),
+            None,
         )
         .await
         .unwrap();

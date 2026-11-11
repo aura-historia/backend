@@ -49,6 +49,9 @@ pub struct ScraperCandidate {
     pub schema_review_wait: Option<SchemaReviewWait>,
     /// The redirect target the URL's last scrape ended at without settling the URL, if it did.
     pub unsettled_redirect: Option<UnsettledRedirect>,
+    /// The shared redirect target whose sharing captured the URL's last removal, if it did
+    /// (`docs/crawler/networking.md#redirect-removal-evidence`).
+    pub removed_by_redirect_target: Option<Url>,
 }
 
 /// The pending product-schema review a URL waits on and how many consecutive scrapes have
@@ -350,7 +353,9 @@ pub trait ScraperCandidateService: Send + Sync {
     /// unchanged is extracted and captured again instead of skipped. A removal that
     /// `removed_by_templates` captured is recorded with them; when the stored list no longer
     /// holds one of them unchanged, retired or narrowed since the page was matched, the URL is
-    /// left due at once, as the change's re-arm leaves the removals it finds.
+    /// left due at once, as the change's re-arm leaves the removals it finds. A removal a shared
+    /// redirect target showed records that target (`removed_by_redirect_target`), so the evidence
+    /// outlives the write.
     async fn mark_removed(
         &self,
         listing_source_id: &ListingSourceId,
@@ -358,6 +363,7 @@ pub trait ScraperCandidateService: Send + Sync {
         raw_input_sha256: &[u8],
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
         removed_by_templates: &[RemovedPageSchema],
+        removed_by_redirect_target: Option<&Url>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
     /// Touch a page/schema fast-path scrape without changing the raw input or disposition.
     async fn touch_scraped(
@@ -475,6 +481,17 @@ pub trait ScraperCandidateService: Send + Sync {
         outcome_message: &str,
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+
+    /// Counts, up to `limit`, the other product URLs of the ListingSource that stand at
+    /// `target`: their last scrape ended there without a schema judging it
+    /// (`RedirectTargetUnverified`), or their last removal was captured on it.
+    async fn count_urls_at_redirect_target(
+        &self,
+        listing_source_id: &ListingSourceId,
+        target: &Url,
+        excluded_url: &Url,
+        limit: u64,
+    ) -> Result<u64, sqlx::Error>;
 
     /// Records a scrape that ended at a redirect nothing settles, as
     /// [`mark_scraped_without_capture`](Self::mark_scraped_without_capture) does, together with
@@ -652,6 +669,18 @@ fn schema_review_wait_from_row(
     }
 }
 
+/// Decodes the shared redirect target a candidate row's last removal was captured on; a stored
+/// target that does not parse fails closed.
+fn removed_by_redirect_target_from_row(target: Option<String>) -> Result<Option<Url>, sqlx::Error> {
+    target
+        .map(|target| {
+            Url::parse(&target).map_err(|_| {
+                sqlx::Error::Decode("persisted crawler removal redirect target is invalid".into())
+            })
+        })
+        .transpose()
+}
+
 /// Decodes the unsettled redirect a candidate row carries; a row whose last scrape did not end
 /// at one carries neither target nor streak. Anything else fails closed.
 fn unsettled_redirect_from_row(
@@ -693,6 +722,7 @@ struct ScraperCandidateRow {
     schema_review_wait_streak: i32,
     unsettled_redirect_target: Option<String>,
     unsettled_redirect_streak: i32,
+    removed_by_redirect_target: Option<String>,
 }
 
 /// The ListingSource conditions of scraper eligibility over `listing_sources s`: crawling is
@@ -797,6 +827,7 @@ macro_rules! eligible_scraper_urls_cte {
             , CASE WHEN su.last_error_kind IN ('RedirectTargetUnverified',
                                                 'RedirectDestinationUnsettled')
                    THEN su.unsettled_redirect_streak ELSE 0 END AS unsettled_redirect_streak
+            , su.removed_by_redirect_target
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         WHERE "#,
@@ -852,7 +883,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_captured_raw_input_sha256,
         scrape_failure_streak, last_scrape_error_kind, next_scrape_at, is_circuit_probe,
         last_source_listing_id, last_captured_title, schema_review_waited_on,
-        schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak
+        schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
+        removed_by_redirect_target
     FROM ranked_urls
     WHERE (is_circuit_probe AND source_url_rank = 1)
        OR (NOT is_circuit_probe AND source_url_rank <= $4)
@@ -929,6 +961,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 row.unsettled_redirect_target,
                 row.unsettled_redirect_streak,
             )?;
+            let removed_by_redirect_target =
+                removed_by_redirect_target_from_row(row.removed_by_redirect_target)?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -961,6 +995,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 last_captured_title: row.last_captured_title,
                 schema_review_wait,
                 unsettled_redirect,
+                removed_by_redirect_target,
             });
         }
 
@@ -1066,6 +1101,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_source_listing_id = $6,
                  last_captured_title = $9,
                  removed_by_templates = NULL,
+                 removed_by_redirect_target = NULL,
                  crawler_disposition = $7,
                  failure_count = 0,
                  last_error_kind = NULL,
@@ -1227,6 +1263,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_source_listing_id = $4,
                  last_captured_title = $10,
                  removed_by_templates = NULL,
+                 removed_by_redirect_target = NULL,
                  last_scraped = NOW(),
                  last_scraped_hash = $5,
                  last_scraped_schema_fingerprint = $6,
@@ -1275,6 +1312,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_captured_raw_input_sha256 = NULL,
                  last_captured_title = NULL,
                  removed_by_templates = NULL,
+                 removed_by_redirect_target = NULL,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -1302,6 +1340,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         raw_input_sha256: &[u8],
         expected_last_captured_raw_input_sha256: Option<&[u8]>,
         removed_by_templates: &[RemovedPageSchema],
+        removed_by_redirect_target: Option<&Url>,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
         let listing_source_id_uuid: uuid::Uuid = (*listing_source_id).into();
         let mut transaction = self.pool.begin().await?;
@@ -1330,6 +1369,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_captured_raw_input_sha256 = $3,
                  last_captured_title = NULL,
                  removed_by_templates = $5,
+                 removed_by_redirect_target = $7,
                  crawler_disposition = 'ACTIVE',
                  failure_count = 0,
                  last_error_kind = NULL,
@@ -1349,6 +1389,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(expected_last_captured_raw_input_sha256)
         .bind(removed_by_templates)
         .bind(templates_still_stored)
+        .bind(removed_by_redirect_target.map(Url::as_str))
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
@@ -1703,6 +1744,37 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         })
     }
 
+    async fn count_urls_at_redirect_target(
+        &self,
+        listing_source_id: &ListingSourceId,
+        target: &Url,
+        excluded_url: &Url,
+        limit: u64,
+    ) -> Result<u64, sqlx::Error> {
+        let limit = i64::try_from(limit).map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM (
+                 SELECT 1
+                 FROM listing_source_urls
+                 WHERE listing_source_id = $1
+                   AND url <> $3
+                   AND url_class = 'product'
+                   AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+                   AND ((unsettled_redirect_target = $2
+                         AND last_error_kind = 'RedirectTargetUnverified')
+                        OR removed_by_redirect_target = $2)
+                 LIMIT $4
+             ) urls_at_target",
+        )
+        .bind(uuid::Uuid::from(*listing_source_id))
+        .bind(target.as_str())
+        .bind(excluded_url.as_str())
+        .bind(limit)
+        .fetch_one(&self.pool)
+        .await?;
+        u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
+    }
+
     async fn mark_unsettled_redirect(
         &self,
         request: UnsettledRedirectRequest,
@@ -2031,5 +2103,16 @@ mod tests {
                 "{target:?} with streak {streak}"
             );
         }
+    }
+
+    #[test]
+    fn should_decode_a_removal_redirect_target_only_when_it_parses() {
+        assert_eq!(removed_by_redirect_target_from_row(None).unwrap(), None);
+        assert_eq!(
+            removed_by_redirect_target_from_row(Some("https://shop.example/error.aspx".to_owned()))
+                .unwrap(),
+            Some(url("https://shop.example/error.aspx"))
+        );
+        assert!(removed_by_redirect_target_from_row(Some("not a url".to_owned())).is_err());
     }
 }

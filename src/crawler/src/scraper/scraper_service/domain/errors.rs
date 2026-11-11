@@ -168,6 +168,17 @@ pub struct ListingRemoval {
     pub removed_by_templates: Vec<RemovedPageSchema>,
 }
 
+impl ListingRemoval {
+    /// The shared redirect target whose sharing showed the removal, which the URL records with
+    /// it so the evidence outlives the removal write; `None` for any other evidence.
+    pub fn removed_by_redirect_target(&self) -> Option<&Url> {
+        match self.evidence.kind {
+            RemovalEvidenceKind::RedirectToSharedPage => self.evidence.final_url.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 impl ScraperError {
     /// A removal of the listing at `url` that `evidence` showed, which `removed_by_templates`
     /// withdrew when any.
@@ -237,6 +248,10 @@ pub enum RemovalEvidenceKind {
     /// The product URL redirected outside its product URL pattern to a page robots.txt disallows,
     /// which is judged by its URL alone.
     RedirectToDisallowedPage,
+    /// The product URL keeps redirecting outside its product URL pattern to a page that many
+    /// other product URLs of its ListingSource redirect to as well: a catch-all page, such as an
+    /// error page, stands for none of the products.
+    RedirectToSharedPage,
     /// A stored removed-page template matched the page.
     RemovedPageTemplate,
     /// Fresh schema generation classified the page as removed.
@@ -253,6 +268,7 @@ impl RemovalEvidenceKind {
             Self::RedirectToStoredNonProductPage => "REDIRECT_TO_STORED_NON_PRODUCT_PAGE",
             Self::RedirectToRejectedPage => "REDIRECT_TO_REJECTED_PAGE",
             Self::RedirectToDisallowedPage => "REDIRECT_TO_DISALLOWED_PAGE",
+            Self::RedirectToSharedPage => "REDIRECT_TO_SHARED_PAGE",
             Self::RemovedPageTemplate => "REMOVED_PAGE_TEMPLATE",
             Self::RemovedPageClassification => "REMOVED_PAGE_CLASSIFICATION",
         }
