@@ -2,6 +2,7 @@ use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 
 pub mod bot_challenge;
 pub mod policy;
+pub mod politeness;
 pub mod robots;
 mod tls;
 
