@@ -11,8 +11,8 @@ use crate::review::human_queue_metrics;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    CrawlerReviewPage, HandoverCause, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
-    SourceProductUrl,
+    CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason, RawAttributeKey,
+    ReviewActor, ReviewDetail, SampleLabelInput, SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -570,9 +570,18 @@ impl ReviewServer {
                     Ok(verdict) => verdict,
                     Err(response) => return response,
                 };
+            if payload.names_no_full_cause() {
+                warn!(
+                    review_id = %review_id,
+                    actor = actor.as_str(),
+                    reason_sent = payload.reason.is_some(),
+                    category_sent = payload.category.is_some(),
+                    "A hand-over names no reason or category, as a runner older than them sends; it is taken with the defaults NEEDS_HUMAN and NONE"
+                );
+            }
             return verdict_answer(
                 self.repository
-                    .hand_to_human(review_id, actor, payload.cause, payload.notes.as_deref())
+                    .hand_to_human(review_id, actor, payload.cause(), payload.notes.as_deref())
                     .await,
             );
         }
@@ -970,13 +979,30 @@ struct ActionPayload {
 }
 
 /// A hand-over of `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning as `notes` and
-/// its cause as `reason` and `category`, which every hand-over names, so that every logged
-/// hand-over can be grouped by them.
+/// its cause as `reason` and `category`. A runner older than the cause names neither, so a
+/// missing `reason` is taken as `NEEDS_HUMAN` and a missing `category` as `NONE` rather than
+/// refusing its hand-over, which it would only turn into a cooldown; a value it does name must
+/// be a known one.
 #[derive(Deserialize)]
 struct HandoverPayload {
     notes: Option<String>,
-    #[serde(flatten)]
-    cause: HandoverCause,
+    reason: Option<HandoverReason>,
+    category: Option<HandoverCategory>,
+}
+
+impl HandoverPayload {
+    /// The cause the payload names, with the defaults for what it leaves out.
+    fn cause(&self) -> HandoverCause {
+        HandoverCause {
+            reason: self.reason.unwrap_or(HandoverReason::NeedsHuman),
+            category: self.category.unwrap_or_default(),
+        }
+    }
+
+    /// Whether the payload leaves out its reason or category, as a runner older than them does.
+    fn names_no_full_cause(&self) -> bool {
+        self.reason.is_none() || self.category.is_none()
+    }
 }
 
 /// An approval of `POST /api/reviews/{id}/approve`. `expected_candidate_version` is the
@@ -2263,15 +2289,13 @@ Origin: http://127.0.0.1:7878/x
         );
     }
 
-    /// Every hand-over names its cause, so every logged hand-over can be grouped by it.
+    /// A hand-over must name a known reason and category when it names one at all.
     #[test]
-    fn should_refuse_a_hand_over_that_names_no_known_reason_or_category() {
+    fn should_refuse_a_hand_over_that_names_an_unknown_reason_or_category() {
         for body in [
-            "",
-            r#"{"notes": "behind a login wall"}"#,
-            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN"}"#,
             r#"{"notes": "behind a login wall", "reason": "LOGIN_WALL", "category": "OTHER"}"#,
             r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN", "category": "WALL"}"#,
+            r#"{"notes": "behind a login wall", "reason": "needs_human"}"#,
         ] {
             assert!(
                 parse_verdict_payload::<HandoverPayload>(body).is_err(),
@@ -2279,17 +2303,52 @@ Origin: http://127.0.0.1:7878/x
             );
         }
         let payload = parse_verdict_payload::<HandoverPayload>(
-            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN", "category": "PAGES_UNREADABLE"}"#,
+            r#"{"notes": "behind a login wall", "reason": "NOTHING_TO_STAGE_AFTER_REVIEW", "category": "PAGES_UNREADABLE"}"#,
         )
-        .unwrap_or_else(|error| panic!("hand-over with a reason: {error}"));
+        .unwrap_or_else(|error| panic!("hand-over with a cause: {error}"));
         assert_eq!(
-            payload.cause,
+            payload.cause(),
             HandoverCause {
-                reason: crate::review::model::HandoverReason::NeedsHuman,
-                category: crate::review::model::HandoverCategory::PagesUnreadable,
+                reason: HandoverReason::NothingToStageAfterReview,
+                category: HandoverCategory::PagesUnreadable,
             }
         );
+        assert!(!payload.names_no_full_cause());
         assert_eq!(payload.notes.as_deref(), Some("behind a login wall"));
+    }
+
+    /// A runner deployed before the cause sends only its notes; its hand-over is taken with the
+    /// default cause instead of being refused.
+    #[test]
+    fn should_take_a_hand_over_without_a_cause_as_needs_human_with_no_category() {
+        for (body, expected) in [
+            (
+                r#"{"notes": "behind a login wall"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NeedsHuman,
+                    category: HandoverCategory::None,
+                },
+            ),
+            (
+                r#"{"notes": "behind a login wall", "category": "OTHER"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NeedsHuman,
+                    category: HandoverCategory::Other,
+                },
+            ),
+            (
+                r#"{"notes": "behind a login wall", "reason": "NOTHING_TO_STAGE_AFTER_REVIEW"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NothingToStageAfterReview,
+                    category: HandoverCategory::None,
+                },
+            ),
+        ] {
+            let payload = parse_verdict_payload::<HandoverPayload>(body)
+                .unwrap_or_else(|error| panic!("{body}: {error}"));
+            assert_eq!(payload.cause(), expected, "{body}");
+            assert!(payload.names_no_full_cause(), "{body}");
+        }
     }
 
     mod matrix_refresh {
