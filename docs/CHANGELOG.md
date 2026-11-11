@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-11 — Provider link guidance for agents
+
+- `viewUrl` and its paired `url` now carry descriptions in the OpenAPI document and the MCP output schemas: `viewUrl` is the referral-tagged link meant to be shared, `url` the provider's untagged address. Every MCP tool whose result contains a `viewUrl` states this in its description, the MCP server returns `instructions` asking agents to share `viewUrl` unchanged, and the `catalogue-search` agent skill says the same. Values and fields are unchanged.
+
 ## 2026-11-11 — `expires_in` rounds up
 
 - `POST /v1/oauth/token` now rounds `expires_in` up to the next whole second. A metadata document client's one-hour access token reports `3600` instead of `3599`, so clients that require a lifetime of at least one hour, such as Muse, accept it. The token's actual lifetime is unchanged.

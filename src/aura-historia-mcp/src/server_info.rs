@@ -7,6 +7,14 @@ const SERVER_NAME: &str = "aura-historia-mcp";
 const SERVER_TITLE: &str = "Aura Historia";
 const SERVER_DESCRIPTION: &str = "Search Aura Historia's index of art, antiques and design objects listed by dealers, auction houses, marketplaces and auction platforms, and manage the signed-in user's account, watchlist, saved searches and notifications.";
 
+/// Usage guidance that `initialize` and `server/discover` return and hosts may give the model.
+/// Unlike tool descriptions, which state facts only, server instructions exist to guide usage.
+pub(crate) const INSTRUCTIONS: &str = concat!(
+    "Aura Historia is a discovery service, not a seller: each listing, auction and provider belongs to the provider that offers it, and buying, bidding and questions happen on the provider's page. ",
+    "When linking to a provider's page, give the result's `viewUrl` exactly as returned, not `url`: `viewUrl` carries Aura Historia's referral tagging, so do not remove, replace or add query parameters. ",
+    "Listing facts are copies of what the provider published; tell people to confirm price and availability there."
+);
+
 pub(crate) fn server_info(config: &TransportConfig) -> Implementation {
     let website = config.resource_policy.site_origin();
     Implementation::new(SERVER_NAME, config.server_version.as_str())
