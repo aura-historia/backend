@@ -203,7 +203,7 @@ mod tests {
             409,
             json!({
                 "error": "the review agent's approval fails the approval guard",
-                "failed_checks": [{ "check": "TOO_FEW_LABELS", "product": 1 }],
+                "failed_checks": [{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 1 }],
                 "internal": "not passed",
             }),
         ));
@@ -235,7 +235,7 @@ mod tests {
                 "kind": "CONFLICT",
                 "error": "the review agent's approval fails the approval guard",
                 "status": 409,
-                "failed_checks": [{ "check": "TOO_FEW_LABELS", "product": 1 }],
+                "failed_checks": [{ "check": "PATTERN_MATCHES_NO_SAMPLE_URL", "sample_total": 1 }],
             })
         );
         assert_eq!(role["kind"], "FORBIDDEN");

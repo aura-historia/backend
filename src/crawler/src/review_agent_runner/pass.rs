@@ -1117,7 +1117,7 @@ mod tests {
         }
         assert!(guard_refusal(
             ReviewArtifact::UrlPattern,
-            &checks(&["TOO_FEW_LABELS"])
+            &checks(&["PATTERN_MATCHES_NO_SAMPLE_URL"])
         ));
         assert!(!guard_refusal(ReviewArtifact::UrlPattern, &[]));
     }
