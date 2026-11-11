@@ -158,6 +158,36 @@ mod tests {
     use super::*;
     use crate::metrics::test_support::capture_metrics;
 
+    #[tokio::test]
+    async fn should_open_the_review_pool_on_the_crawl_pools_database_and_settings() {
+        let crawl = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(150)
+            .acquire_timeout(Duration::from_secs(30))
+            .connect_lazy("postgres://crawler:secret@db.example:5433/crawler?sslmode=require")
+            .unwrap();
+
+        let pools = CrawlerPools::beside(crawl);
+
+        let review = pools.review.connect_options();
+        assert_eq!(review.get_host(), "db.example");
+        assert_eq!(review.get_port(), 5433);
+        assert_eq!(review.get_database(), Some("crawler"));
+        assert!(matches!(
+            review.get_ssl_mode(),
+            sqlx::postgres::PgSslMode::Require
+        ));
+        let options = pools.review.options();
+        assert_eq!(options.get_max_connections(), REVIEW_DB_MAX_CONNECTIONS);
+        assert_eq!(options.get_min_connections(), 0);
+        assert_eq!(options.get_acquire_timeout(), Duration::from_secs(30));
+        assert_eq!(
+            pools.review.size(),
+            0,
+            "no connection opens before first use"
+        );
+        assert_eq!(pools.crawl.options().get_max_connections(), 150);
+    }
+
     #[test]
     fn should_keep_the_peak_and_count_saturated_samples_when_sampling_a_pool() {
         let mut window = PoolUsageWindow::default();
