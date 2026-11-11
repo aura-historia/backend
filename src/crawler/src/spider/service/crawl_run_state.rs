@@ -34,6 +34,9 @@ pub struct CrawlRunState {
     /// gathered enough URLs to open one: its URLs are stored unclassified and a later crawl adds
     /// to them.
     pub awaiting_review_sample: bool,
+    /// How many URLs of `inference_sample` earlier crawls stored, preloaded before this crawl
+    /// fetched a page; the crawl added the rest.
+    pub preloaded_sample_urls: usize,
     /// The shop system a crawled page showed the markers of; its product URL rules then apply to
     /// every page the crawl stores.
     pub shop_platform: Option<ShopPlatform>,
@@ -103,6 +106,7 @@ impl CrawlRunState {
             inference_sample: Vec::new(),
             url_pattern_review_wait: None,
             awaiting_review_sample: false,
+            preloaded_sample_urls: 0,
             shop_platform: None,
         }
     }

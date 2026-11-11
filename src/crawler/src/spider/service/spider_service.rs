@@ -656,7 +656,8 @@ impl SpiderServiceImpl {
                     crawl_root_url: crawl_root_url.to_string(),
                     stage: "end_of_crawl",
                     // Nothing is flushed before the first classification, so the buffer
-                    // still holds every page of the sample, in sample order.
+                    // still holds every page this crawl fetched; URLs earlier crawls stored
+                    // are no pages of it and are not counted.
                     sample_size: state
                         .page_buffer
                         .iter()
@@ -718,13 +719,17 @@ impl SpiderServiceImpl {
                 "Starting the URL-pattern review sample from stored URLs"
             );
         }
+        state.preloaded_sample_urls = stored.len();
         state.inference_sample = stored;
         Ok(())
     }
 
     /// Whether the end of a crawl whose pattern an operator or agent decides opens no review
-    /// yet: the crawl did not complete, its sample is short of [`REVIEW_SAMPLE_URLS`], and the
-    /// ListingSource is still undecided. A decision stored meanwhile classifies as before.
+    /// yet: the crawl did not complete, its sample is short of [`REVIEW_SAMPLE_URLS`] but grew
+    /// beyond the URLs earlier crawls stored, and the ListingSource is still undecided. A crawl
+    /// that added no URL shows that waiting gathers no more, so it classifies what it has, which
+    /// opens the review or fails visibly below the minimum; a decision stored meanwhile classifies
+    /// as before.
     async fn defers_review_to_a_larger_sample(
         &self,
         state: &CrawlRunState,
@@ -735,6 +740,15 @@ impl SpiderServiceImpl {
             || matches!(diagnostics.completion, CrawlCompletion::Completed)
             || state.inference_sample.len() >= REVIEW_SAMPLE_URLS
         {
+            return Ok(false);
+        }
+        if state.inference_sample.len() <= state.preloaded_sample_urls {
+            tracing::info!(
+                sample_size = state.inference_sample.len(),
+                review_sample_size = REVIEW_SAMPLE_URLS,
+                completion = ?diagnostics.completion,
+                "Crawl ended early without adding a URL to the stored URL-pattern review sample; it classifies the sample it has"
+            );
             return Ok(false);
         }
         Ok(self
@@ -3785,6 +3799,15 @@ mod service_tests {
         ));
     }
 
+    /// The URLs earlier crawls stored for the ListingSource of a small crawl.
+    #[derive(Clone, Copy)]
+    enum StoredUrls {
+        /// This many URLs the crawl does not deliver again.
+        Elsewhere(usize),
+        /// Exactly the URLs the crawl delivers, so it adds none to the sample.
+        TheCrawledOnes,
+    }
+
     /// What a small first crawl's run is expected to do with its pages.
     enum SmallCrawlOutcome {
         /// Opens the review `CrawlerReviewId` and waits on it.
@@ -3802,7 +3825,7 @@ mod service_tests {
         url_count: usize,
         completion: CrawlCompletion,
         infers: bool,
-        stored_urls: usize,
+        stored: StoredUrls,
         outcome: SmallCrawlOutcome,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let mut mock_spider = MockSpider::new();
@@ -3829,9 +3852,14 @@ mod service_tests {
         mock_url_repo
             .expect_stored_sample_urls()
             .returning(move |_, _| {
-                let stored = (0..stored_urls)
-                    .map(|index| format!("{crawl_root_url}/stored/{index}"))
-                    .collect();
+                let stored = match stored {
+                    StoredUrls::Elsewhere(count) => (0..count)
+                        .map(|index| format!("{crawl_root_url}/stored/{index}"))
+                        .collect(),
+                    StoredUrls::TheCrawledOnes => (0..url_count)
+                        .map(|index| format!("{crawl_root_url}/category/{index}"))
+                        .collect(),
+                };
                 Box::pin(async move { Ok(stored) })
             });
         let stores_pages = |mock_url_repo: &mut MockUrlMetadataRepository| {
@@ -3903,7 +3931,7 @@ mod service_tests {
             14,
             CrawlCompletion::Completed,
             false,
-            0,
+            StoredUrls::Elsewhere(0),
             SmallCrawlOutcome::Review(review_id),
         )
         .await
@@ -3919,7 +3947,7 @@ mod service_tests {
             14,
             CrawlCompletion::Completed,
             true,
-            0,
+            StoredUrls::Elsewhere(0),
             SmallCrawlOutcome::Fails,
         )
         .await
@@ -3945,9 +3973,15 @@ mod service_tests {
             CrawlCompletion::HardTimeoutTruncated,
             CrawlCompletion::PageBudgetReached,
         ] {
-            let run = run_small_first_crawl(14, completion, false, 0, SmallCrawlOutcome::Deferred)
-                .await
-                .unwrap_or_else(|error| panic!("{completion:?}: {error:?}"));
+            let run = run_small_first_crawl(
+                14,
+                completion,
+                false,
+                StoredUrls::Elsewhere(0),
+                SmallCrawlOutcome::Deferred,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{completion:?}: {error:?}"));
 
             assert_eq!(run.pending_url_pattern_review, None, "{completion:?}");
             assert_eq!(run.total_links, 14, "{completion:?}");
@@ -3956,7 +3990,7 @@ mod service_tests {
             4,
             CrawlCompletion::Completed,
             false,
-            0,
+            StoredUrls::Elsewhere(0),
             SmallCrawlOutcome::Fails,
         )
         .await
@@ -3977,12 +4011,45 @@ mod service_tests {
             14,
             CrawlCompletion::PageBudgetReached,
             false,
-            REVIEW_SAMPLE_URLS - 10,
+            StoredUrls::Elsewhere(REVIEW_SAMPLE_URLS - 10),
             SmallCrawlOutcome::Review(review_id),
         )
         .await
         .expect("the sample reached the review's size");
 
+        assert_eq!(run.pending_url_pattern_review, Some(review_id));
+    }
+
+    /// A cut-short crawl that adds no URL to the ones earlier crawls stored defers no longer: it
+    /// opens the review on the sample it has, or fails visibly when that is below the minimum,
+    /// instead of waiting for a sample that never grows.
+    #[tokio::test]
+    async fn should_classify_a_cut_short_crawl_that_adds_no_url_to_the_stored_sample() {
+        let review_id = CrawlerReviewId::new();
+
+        let error = run_small_first_crawl(
+            14,
+            CrawlCompletion::HardTimeoutTruncated,
+            false,
+            StoredUrls::TheCrawledOnes,
+            SmallCrawlOutcome::Fails,
+        )
+        .await
+        .expect_err("a sample below the minimum fails");
+        let run = run_small_first_crawl(
+            30,
+            CrawlCompletion::PageBudgetReached,
+            false,
+            StoredUrls::TheCrawledOnes,
+            SmallCrawlOutcome::Review(review_id),
+        )
+        .await
+        .expect("a sample above the minimum opens the review");
+
+        assert!(matches!(
+            error,
+            SpiderServiceError::InsufficientInferenceSample { .. }
+        ));
         assert_eq!(run.pending_url_pattern_review, Some(review_id));
     }
 
