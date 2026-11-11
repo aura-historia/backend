@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import unittest
 
-from analyze import comparison_rows, fixture_line, is_decided, needs_review, regressions, synthetic_case
+from analyze import capture_time, comparison_rows, fixture_line, is_decided, needs_review, regressions, synthetic_case
 
 FIXTURES = Path(__file__).resolve().parents[4] / (
     "src/product-listing-normalization-replay/tests/fixtures/reviewed_cases.jsonl")
@@ -89,6 +89,11 @@ class ReportingTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             fixture_line(spec, result)
         self.assertEqual({}, json.loads(fixture_line({**spec, "fields": []}, result))["expected"]["fields"])
+
+
+class CaptureTimeTest(unittest.TestCase):
+    def test_should_read_the_capture_time_from_a_uuid_v7_revision_id(self):
+        self.assertEqual("2026-11-10 13:41", capture_time("01a1c5b1-3f10-7000-8000-000000000000"))
 
 
 if __name__ == "__main__":

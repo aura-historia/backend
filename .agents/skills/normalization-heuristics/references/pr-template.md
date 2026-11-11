@@ -33,7 +33,8 @@ resources were deleted afterwards.
 - **<label or class>** (<cases>): <reason, for example no sold evidence, prose, crawler artefact>
 
 ### Crawler follow-ups (not normalization)
-- <host>: <artefact> (<cases>)
+- #<issue>: <field> holds <artefact class> (<hosts>, <cases>)
+- <artefact> stopped after <fix PR> (no issue)
 
 ### Operator follow-ups (configuration, not code)
 - <host>: <needed fallback currency>, <only if fallbackCurrency is wired; see the policy>

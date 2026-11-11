@@ -5,6 +5,8 @@
     analyze.py tally   --work DIR REPLAY FIELD REASON [--limit N]
                                                     # distinct raw values behind a CURRENT issue
     analyze.py labels  --work DIR HOST [HOST ...]   # every availability label a dealer uses
+    analyze.py captured --work DIR HOST FIELD [--match REGEX]
+                                                    # when a dealer's raw values were captured
     analyze.py diff    BEFORE AFTER                 # regressions; exit 1 when something needs review
     analyze.py compare BEFORE AFTER                 # Markdown table for the pull request
     analyze.py fixtures SPEC.json --replay-bin BIN [--append FIXTURES.jsonl]
@@ -16,10 +18,12 @@ DIR holds corpus.jsonl and sources.tsv from prod_corpus.py. REPLAY files are the
 
 import argparse
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
 import sys
+import re
 import tempfile
 
 RAW_KEY = {"AVAILABILITY": "availability", "PRICE": "price", "TITLE": "title",
@@ -120,6 +124,12 @@ def raw_value(case, field):
     return json.dumps(value, ensure_ascii=False)
 
 
+def capture_time(revision_id):
+    """The capture time of a raw revision, read from its UUIDv7 timestamp (milliseconds, UTC)."""
+    milliseconds = int(revision_id.replace("-", "")[:12], 16)
+    return datetime.fromtimestamp(milliseconds / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
 def cmd_summary(args):
     summary = replay_summary(args.replay)
     print(f"cases {summary['cases']} completed {summary['completed']} evaluator v{summary['rawValuesEvaluatorVersion']}")
@@ -158,6 +168,25 @@ def cmd_labels(args):
     for host in args.hosts:
         print(host, "=>", "; ".join(f"{json.dumps(label, ensure_ascii=False)[:70]}:{n}"
                                     for label, n in labels[host].most_common(10)))
+    return 0
+
+
+def cmd_captured(args):
+    names = hosts(args.work)
+    pattern = re.compile(args.match) if args.match else None
+    times = defaultdict(list)
+    for case in read_jsonl(Path(args.work) / "corpus.jsonl"):
+        if names.get(case["listingSourceId"]) != args.host:
+            continue
+        value = case["evidence"].get("input", {}).get("rawValues", {}).get(RAW_KEY[args.field], {}).get("value")
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        revision = case["evidence"].get("productListingRawRevisionId")
+        if revision and (pattern is None or pattern.search(text)):
+            times[text].append(capture_time(revision))
+    total = sum(len(captured) for captured in times.values())
+    print(f"{args.host} {args.field}: {total} cases, {len(times)} distinct values")
+    for text, captured in sorted(times.items(), key=lambda item: -len(item[1]))[:args.limit]:
+        print(f"{len(captured):6d}  {min(captured)} .. {max(captured)}  {json.dumps(text, ensure_ascii=False)[:100]}")
     return 0
 
 
@@ -289,6 +318,12 @@ def main(argv=None):
     labels = commands.add_parser("labels")
     labels.add_argument("--work", required=True)
     labels.add_argument("hosts", nargs="+")
+    captured = commands.add_parser("captured")
+    captured.add_argument("--work", required=True)
+    captured.add_argument("host")
+    captured.add_argument("field", choices=sorted(RAW_KEY))
+    captured.add_argument("--match", help="regular expression a raw value must contain")
+    captured.add_argument("--limit", type=int, default=20)
     for name in ("diff", "compare"):
         sub = commands.add_parser(name)
         sub.add_argument("before")
@@ -298,7 +333,8 @@ def main(argv=None):
     fixtures.add_argument("--replay-bin", required=True)
     fixtures.add_argument("--append")
     args = parser.parse_args(argv)
-    handler = {"summary": cmd_summary, "tally": cmd_tally, "labels": cmd_labels, "diff": cmd_diff,
+    handler = {"summary": cmd_summary, "tally": cmd_tally, "labels": cmd_labels, "captured": cmd_captured,
+               "diff": cmd_diff,
                "compare": cmd_compare, "fixtures": cmd_fixtures}[args.command]
     return handler(args)
 

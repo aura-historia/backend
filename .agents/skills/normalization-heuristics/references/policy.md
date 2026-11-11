@@ -53,9 +53,10 @@ that other shops would mean differently stays unresolved.
 
 ## Price
 
-- A currency marker must be unambiguous. `円` is JPY, `원` is KRW; bare `¥`, `R` and words such as
-  `euro` stay ambiguous. The symbol table has no word-boundary check, so a word would match inside
-  `europe`.
+- A currency marker must be unambiguous. `円` is JPY, `원` is KRW; bare `¥` and `R` stay
+  ambiguous. The symbol table has no word-boundary check, so a currency name never goes there.
+  Names such as `euro`/`euros` are matched as whole tokens beside the ISO codes, so `30 euro` is
+  EUR and `Europe` is not.
 - A layout rule must fix the whole string's shape (for example, exactly two cent digits after the
   euro sign) and reject near misses in tests (`12 € 500`, `€ 12 50`, `-12 € 50`).
 - A rewrite of one written form into another the parser already reads (`2490,- €` → `2490,00 €`)

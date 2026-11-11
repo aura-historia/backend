@@ -673,7 +673,7 @@ fn first_currency_marker_span(raw: &str) -> Option<(usize, usize)> {
 }
 
 // Bare `¥` and `R` are ambiguous; `$` remains a USD marker for compatibility. `円` is only JPY
-// and `원` only KRW.
+// and `원` only KRW. Symbols match anywhere, so currency words are matched separately as tokens.
 const CURRENCY_SYMBOLS: &[(Currency, &str)] = &[
     (Currency::Eur, "€"),
     (Currency::Gbp, "£"),
@@ -732,6 +732,19 @@ fn currency_markers(raw: &str) -> Vec<CurrencyMarker> {
                 }),
         );
     }
+
+    // Currency names are words, so they need the same token boundaries as ISO codes: `30 euro`
+    // and `30 Euros` are EUR, `Europe` is not.
+    markers.extend(
+        regex!(r"(?i)euros?")
+            .find_iter(raw)
+            .filter(|word| is_currency_code_token(raw, word.start(), word.len()))
+            .map(|word| CurrencyMarker {
+                currency: Currency::Eur,
+                start: word.start(),
+                end: word.end(),
+            }),
+    );
 
     markers.sort_by(|left, right| {
         left.start
@@ -1124,6 +1137,33 @@ mod tests {
     #[case("-12 € 50")]
     fn should_not_read_other_euro_sign_layouts_as_decimal_separator(#[case] raw: &str) {
         assert_eq!(None, super::euro_sign_decimal_number(raw), "{raw}");
+    }
+
+    #[rstest]
+    #[case("30 euro", 3_000)]
+    #[case("Originele kaart: 45 euro", 4_500)]
+    #[case("Prix : 120 euros", 12_000)]
+    #[case("EURO 1.250,00", 125_000)]
+    fn should_read_the_euro_word_as_eur(#[case] raw: &str, #[case] expected_minor: u64) {
+        assert_eq!(
+            Ok((MonetaryAmount::from(expected_minor), Currency::Eur)),
+            parse_price(raw, None),
+            "{raw}"
+        );
+    }
+
+    #[rstest]
+    #[case("Europe 1950")]
+    #[case("Europa 30")]
+    #[case("30 eurostar")]
+    #[case("neuro 30")]
+    fn should_not_read_euro_inside_another_word(#[case] raw: &str) {
+        assert_eq!(None, detect_currency(raw), "{raw}");
+        assert_eq!(
+            Err(PriceError::UnknownCurrency),
+            parse_price(raw, None),
+            "{raw}"
+        );
     }
 
     #[rstest]
