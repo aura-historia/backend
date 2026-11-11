@@ -19,7 +19,7 @@ A ListingSource's crawl host is a local canonical hostname: lowercase, no traili
 
 ## TLS trust
 
-Every crawler request verifies certificates against the operating system's trust store, through the platform verifier Spider's client also uses. The spider and the scraper therefore accept the same shops. A shop whose chain ends at a root the host does not trust fails as a connect error, and the logged details name the cause, for example `UnknownIssuer`.
+Every crawler request verifies certificates against the operating system's trust store, through the platform verifier Spider's client also uses. The spider and the scraper therefore accept the same shops. A shop whose chain ends at a root the host does not trust fails as a connect error, and the logged details name the cause, for example `UnknownIssuer`. A certificate the verifier rejects is a fact about the shop, not a crawler fault: the verifier's own per-handshake log, an ERROR line with the certificate's full name list and no source, is switched off, and the crawler's own failure events report it with the source and its domain at WARN.
 
 On Linux the trust store is the system CA bundle (`SSL_CERT_FILE`/`SSL_CERT_DIR` or the distribution's default paths), read once per process. An image without a CA bundle fails closed: the crawler logs once that the trust store is unavailable, and every HTTPS request fails. Windows and macOS use the OS certificate engine, which can also accept roots that the Mozilla-derived Linux bundles do not include yet.
 

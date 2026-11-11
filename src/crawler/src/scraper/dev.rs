@@ -40,7 +40,7 @@ use std::sync::Arc;
 
 use crawler::llm_runtime::{CrawlerLlmGovernor, CrawlerLlmRateLimitConfig};
 use crawler::local_db::{DEMO_SCRAPER_DB_NAME, DevDatabase};
-use crawler::logging::HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE;
+use crawler::logging::{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, TLS_VERIFIER_LOG_DIRECTIVE};
 use crawler::scraper::candidate_service::ScraperCandidateServiceImpl;
 use crawler::scraper::css_selector::product_schema_repository::ListingSourceProductSchemaRepositoryImpl;
 use crawler::scraper::css_selector::product_schema_service::ProductListingSchemaServiceImpl;
@@ -199,7 +199,7 @@ async fn main() {
 fn init_logging() {
     let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     let filter = tracing_subscriber::EnvFilter::new(format!(
-        "{log_level},{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE}"
+        "{log_level},{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE},{TLS_VERIFIER_LOG_DIRECTIVE}"
     ));
 
     tracing_subscriber::fmt().with_env_filter(filter).init();

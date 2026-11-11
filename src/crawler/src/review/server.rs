@@ -50,6 +50,7 @@ const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 
 mod activity;
+mod crawl_resumption;
 mod listing_source_list;
 mod mass_removal_confirmation;
 mod missing_value_pages;
@@ -255,6 +256,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_missing_value_pages(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_crawl_resumption(&request, actor).await {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
@@ -5436,7 +5440,7 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        async fn console() -> (ReviewServer, ListingSourceId) {
+        pub(super) async fn console() -> (ReviewServer, ListingSourceId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -5464,7 +5468,10 @@ Origin: http://127.0.0.1:7878/x
             (server, listing_source_id)
         }
 
-        async fn overview_of(server: &ReviewServer, listing_source_id: ListingSourceId) -> Value {
+        pub(super) async fn overview_of(
+            server: &ReviewServer,
+            listing_source_id: ListingSourceId,
+        ) -> Value {
             let (_, sources) = send(server, "GET /api/listing_sources", "").await;
             sources["items"]
                 .as_array()
@@ -5535,6 +5542,59 @@ Origin: http://127.0.0.1:7878/x
                 &json!({ "hours": 24 }).to_string(),
             )
             .await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod crawl_resumption {
+        use super::mass_removal_confirmation::{console, overview_of};
+        use super::needs_repair::{AUTHOR_TOKEN, send, send_as};
+        use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// A human returns a source that waits for an operator to the schedule with a new streak;
+        /// a source that does not wait is left alone, and an agent token is refused.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_resume_a_crawl_that_waits_for_an_operator_for_a_human_only() {
+            let (server, listing_source_id) = console().await;
+            let pool = test_api::get_postgres_client().await;
+            sqlx::query(
+                "UPDATE listing_sources \
+                 SET last_crawl_outcome = $2, last_crawl_error_kind = 'ConnectError', \
+                     crawl_failure_count = 5, last_crawl_run_at = NOW() \
+                 WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("mark needs operator: {error}"));
+            let route = format!("/api/listing-sources/{listing_source_id}/crawl-resumption");
+
+            let (status, _) = send_as(&server, AUTHOR_TOKEN, &format!("POST {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+            let source = overview_of(&server, listing_source_id).await;
+            assert_eq!(source["last_crawl_outcome"], NEEDS_OPERATOR_CRAWL_OUTCOME);
+
+            let (status, resumed) = send(&server, &format!("POST {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {resumed}");
+            assert_eq!(resumed, json!({ "resumed": true }));
+            let source = overview_of(&server, listing_source_id).await;
+            assert!(source["last_crawl_outcome"].is_null(), "{source}");
+            assert!(source["last_crawl_error_kind"].is_null(), "{source}");
+            assert_eq!(source["crawl_failure_count"], 0, "{source}");
+            assert!(source["next_crawl_at"].is_null(), "{source}");
+
+            let (status, again) = send(&server, &format!("POST {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {again}");
+            assert_eq!(again, json!({ "resumed": false }));
+
+            let unknown = format!(
+                "/api/listing-sources/{}/crawl-resumption",
+                ListingSourceId::new()
+            );
+            let (status, missing) = send(&server, &format!("POST {unknown}"), "").await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
         }
     }

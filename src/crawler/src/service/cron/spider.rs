@@ -158,21 +158,36 @@ fn crawl_cooldown_profile(error: &SpiderServiceError) -> Option<CrawlCooldownPro
     crawl_failure_kind(error).map(CrawlFailureKind::cooldown_profile)
 }
 
-/// Consecutive failures of one streak ([`continues_failure_streak`]) after
-/// which a ListingSource stops retrying and waits for an operator. Failures that
-/// need a site or configuration change (the recoverable profile) escalate:
-/// with two short retries and then the long cooldown, the fifth failure comes
-/// about a week after the first. So does `BotProtection`, which keeps its
-/// transient cooldown until then: only a person can resolve a shop's block,
-/// and each retry spends a crawl budget on challenge pages. Other transient
-/// failures keep retrying because the site may recover, durable blocks
-/// already cool for a month.
+/// Consecutive failures of one streak ([`continues_failure_streak`]) after which a ListingSource
+/// stops retrying and waits for an operator. Every classified failure escalates, since a shop
+/// that keeps failing the same way costs a crawl preflight every few days and only a person can
+/// tell whether it recovers, needs another crawl root or should stop being crawled. With two
+/// short retries and then the long cooldown, the fifth failure comes about two and a half days
+/// after the first for a transient kind (`ConnectError`, `CloudflareChallenge`,
+/// `BotProtection`, ...) and about a week after it for a recoverable one (a TLS, robots.txt or
+/// redirect problem, or a crawl without product URLs).
 const NEEDS_OPERATOR_FAILURE_COUNT: i32 = 5;
 
+/// A shop that refuses the crawler (`AccessDenied`, `JavascriptRequired`) does not let it in
+/// by itself, so its second failure in a row, one short retry after the first, already waits
+/// for an operator instead of cooling down for a month.
+const DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT: i32 = 2;
+
+const fn needs_operator_failure_count(profile: CrawlCooldownProfile) -> i32 {
+    match profile {
+        CrawlCooldownProfile::Transient | CrawlCooldownProfile::Recoverable => {
+            NEEDS_OPERATOR_FAILURE_COUNT
+        }
+        CrawlCooldownProfile::DurableBlock => DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT,
+    }
+}
+
+/// Whether the failure, the `failure_count`th of its streak, stops the ListingSource for an
+/// operator. Unclassified internal or configuration faults are the crawler's own and never do:
+/// they keep their capped exponential retry ([`unclassified_cooldown_for_failure_count`]).
 fn needs_operator(error: &SpiderServiceError, failure_count: i32) -> bool {
-    let escalates = crawl_cooldown_profile(error) == Some(CrawlCooldownProfile::Recoverable)
-        || crawl_failure_kind(error) == Some(CrawlFailureKind::BotProtection);
-    escalates && failure_count >= NEEDS_OPERATOR_FAILURE_COUNT
+    crawl_cooldown_profile(error)
+        .is_some_and(|profile| failure_count >= needs_operator_failure_count(profile))
 }
 
 /// Cooldown for the catch-all `spider_run_error` case (internal or config
@@ -227,7 +242,7 @@ enum SpiderSlotStatus {
     /// wait. The decision released the ListingSource, so the run records no outcome over it.
     ReviewDecided,
     Failed,
-    /// Repeated deterministic failures; the ListingSource is not retried until an
+    /// A failure streak reached its escalation count; the ListingSource is not retried until an
     /// operator acts.
     StoppedForOperator,
     /// The ListingSource moved to another crawl root while the run crawled the old one, so the run
@@ -1737,17 +1752,31 @@ mod tests {
         }
     }
 
+    /// Every classified failure kind, from the spider or from the root preflight, reaches the
+    /// operator: a refusing shop on its second failure in a row, every other kind on its fifth.
     #[test]
-    fn needs_operator_should_keep_retrying_transient_blocked_and_unclassified_failures() {
-        for error in ALL_KINDS
-            .into_iter()
-            .filter(|kind| {
-                kind.cooldown_profile() != CrawlCooldownProfile::Recoverable
-                    && *kind != CrawlFailureKind::BotProtection
-            })
-            .map(crawl_failed)
-            .chain(unclassified_errors())
-        {
+    fn needs_operator_should_stop_every_classified_failure_kind_at_its_escalation_count() {
+        for kind in ALL_KINDS {
+            let escalation_count = match kind {
+                CrawlFailureKind::AccessDenied | CrawlFailureKind::JavascriptRequired => 2,
+                _ => 5,
+            };
+            for error in [crawl_failed(kind), preflight_failed(kind)] {
+                assert!(
+                    !needs_operator(&error, escalation_count - 1),
+                    "{kind} retries below {escalation_count}"
+                );
+                assert!(
+                    needs_operator(&error, escalation_count),
+                    "{kind} waits for an operator at {escalation_count}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn needs_operator_should_keep_retrying_unclassified_failures() {
+        for error in unclassified_errors() {
             assert!(!needs_operator(&error, i32::MAX));
         }
     }
@@ -3511,6 +3540,56 @@ mod tests {
             1,
         )
         .run_spider_once()
+        .await;
+    }
+
+    /// Runs the scheduler once on a ListingSource one failure short of `escalation_count` in a
+    /// streak of `expected_kind`, whose run fails with `failure`, and expects the run to stop it
+    /// for an operator instead of scheduling a retry.
+    async fn expect_stop_for_operator(
+        failure: fn() -> SpiderServiceError,
+        expected_kind: &'static str,
+        escalation_count: i32,
+    ) {
+        let expected_listing_source_id = ListingSourceId::new();
+        let mut spider_candidates = failing_candidate_service(
+            expected_listing_source_id,
+            escalation_count - 1,
+            expected_kind,
+        );
+        spider_candidates
+            .expect_mark_crawl_needs_operator()
+            .times(1)
+            .withf(move |root, error_kind, failure_count| {
+                root.listing_source_id == expected_listing_source_id
+                    && error_kind == expected_kind
+                    && *failure_count == escalation_count
+            })
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlOutcomeWrite::Recorded) }));
+        spider_candidates.expect_mark_crawl_failure().times(0);
+
+        spider_job(spider_candidates, spider_service_failing_with(failure), 1)
+            .run_spider_once()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn should_stop_an_unreachable_shop_for_an_operator_at_the_escalation_count() {
+        expect_stop_for_operator(
+            || preflight_failed(CrawlFailureKind::ConnectError),
+            "ConnectError",
+            NEEDS_OPERATOR_FAILURE_COUNT,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn should_stop_a_refusing_shop_for_an_operator_on_its_second_failure() {
+        expect_stop_for_operator(
+            || crawl_failed(CrawlFailureKind::AccessDenied),
+            "AccessDenied",
+            DURABLE_BLOCK_NEEDS_OPERATOR_FAILURE_COUNT,
+        )
         .await;
     }
 

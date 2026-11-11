@@ -6,6 +6,13 @@ pub const HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE: &str = "html5ever::tree_builder=
 /// source path of the machine that built it. The crawl's `crawler.spider.crawl_completed` event
 /// carries the truncation with the source, so only the library's errors stay.
 pub const SPIDER_LIBRARY_LOG_DIRECTIVE: &str = "spider=error";
+/// The platform certificate verifier logs every rejected certificate at ERROR, with no source and
+/// with the certificate's full name list, once per handshake. A shop's broken certificate is no
+/// crawler fault: the request fails, and the crawler's own events report it with the source, a
+/// crawl as a `TlsError` on `crawler.spider.crawl_failed` at WARN with the domain. The verifier
+/// logs nothing else per request; a trust store the crawler cannot load is reported by
+/// `crate::network::tls` itself.
+pub const TLS_VERIFIER_LOG_DIRECTIVE: &str = "rustls_platform_verifier=off";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrawlerComponent {
