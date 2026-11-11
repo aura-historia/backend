@@ -550,6 +550,66 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
     }
 }
 
+/// The server errors a product page answers on its own rather than for the whole shop: they stay
+/// URL-scoped unless a burst of them opens the `HTTP_5XX_BURST` scrape circuit, while 503 and 504
+/// open the circuit at once (`docs/crawler/scheduling-and-retries.md#scraper-circuits`).
+pub const PAGE_SERVER_ERROR_STATUSES: [u16; 2] = [500, 502];
+
+/// The consecutive [page server errors](PAGE_SERVER_ERROR_STATUSES) after which a product URL is
+/// parked. With the doubling retry from five minutes they span about 42 hours, so a shop's bad
+/// day does not park its pages.
+pub const PAGE_SERVER_ERROR_PARK_THRESHOLD: u32 = 10;
+
+/// How long a parked product URL waits before its next fetch, which parks it again unless the
+/// page answers.
+pub const PARKED_PAGE_RETRY_DELAY: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// When a product URL whose fetch failed with `kind` is fetched again
+/// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UrlRetry {
+    /// After the cooldown.
+    After(Duration),
+    /// The page has answered [`PAGE_SERVER_ERROR_PARK_THRESHOLD`] server errors in a row, this
+    /// one included, `server_errors` in all: it is fetched again only after
+    /// [`PARKED_PAGE_RETRY_DELAY`].
+    Parked { server_errors: u32 },
+}
+
+impl UrlRetry {
+    pub fn delay(self) -> Duration {
+        match self {
+            Self::After(cooldown) => cooldown,
+            Self::Parked { .. } => PARKED_PAGE_RETRY_DELAY,
+        }
+    }
+}
+
+/// The retry of a product URL whose fetch failed with `kind` after `prior_server_errors`
+/// consecutive page server errors. Every failure but a page server error keeps the
+/// [cooldown of its kind](durable_retry_cooldown_for); a page server error doubles it for each
+/// one before it in the run, and parks the URL once the run reaches
+/// [`PAGE_SERVER_ERROR_PARK_THRESHOLD`].
+pub fn url_retry_after_fetch_failure(kind: NetworkErrorKind, prior_server_errors: u32) -> UrlRetry {
+    let cooldown = durable_retry_cooldown_for(kind);
+    if !is_page_server_error(kind) {
+        return UrlRetry::After(cooldown);
+    }
+    let server_errors = prior_server_errors.saturating_add(1);
+    if server_errors >= PAGE_SERVER_ERROR_PARK_THRESHOLD {
+        return UrlRetry::Parked { server_errors };
+    }
+    UrlRetry::After(exponential_cooldown(
+        cooldown,
+        server_errors,
+        MAX_EXPONENTIAL_COOLDOWN,
+    ))
+}
+
+fn is_page_server_error(kind: NetworkErrorKind) -> bool {
+    matches!(kind, NetworkErrorKind::HttpStatus(status) if PAGE_SERVER_ERROR_STATUSES.contains(&status))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1005,5 +1065,88 @@ mod tests {
         assert!(url_on_crawl_host(&www, "example.com"));
         assert!(!is_same_or_www_host(&bare, &subdomain));
         assert!(!url_on_crawl_host(&subdomain, "example.com"));
+    }
+
+    /// A product URL the shop answers with a server error on every fetch is retried with a
+    /// growing delay and then parked, instead of every five minutes indefinitely (#2890).
+    mod url_retry {
+        use super::*;
+
+        const FIVE_MINUTES: Duration = Duration::from_secs(5 * 60);
+
+        #[test]
+        fn should_retry_a_single_server_error_after_the_transient_cooldown() {
+            assert_eq!(
+                url_retry_after_fetch_failure(NetworkErrorKind::HttpStatus(500), 0),
+                UrlRetry::After(FIVE_MINUTES)
+            );
+            assert_eq!(
+                url_retry_after_fetch_failure(NetworkErrorKind::HttpStatus(502), 0),
+                UrlRetry::After(FIVE_MINUTES)
+            );
+        }
+
+        #[test]
+        fn should_double_the_delay_for_each_server_error_before_it_in_the_run() {
+            let delays = (0..PAGE_SERVER_ERROR_PARK_THRESHOLD - 1)
+                .map(|prior| {
+                    url_retry_after_fetch_failure(NetworkErrorKind::HttpStatus(500), prior).delay()
+                })
+                .collect::<Vec<_>>();
+
+            let expected = (0..PAGE_SERVER_ERROR_PARK_THRESHOLD - 1)
+                .map(|prior| FIVE_MINUTES * (1 << prior))
+                .collect::<Vec<_>>();
+            assert_eq!(delays, expected);
+            let run_before_parking: Duration = delays.iter().sum();
+            assert!(run_before_parking > Duration::from_secs(24 * 60 * 60));
+        }
+
+        #[test]
+        fn should_park_the_url_when_the_run_reaches_the_threshold() {
+            let retry = url_retry_after_fetch_failure(
+                NetworkErrorKind::HttpStatus(500),
+                PAGE_SERVER_ERROR_PARK_THRESHOLD - 1,
+            );
+
+            assert_eq!(
+                retry,
+                UrlRetry::Parked {
+                    server_errors: PAGE_SERVER_ERROR_PARK_THRESHOLD
+                }
+            );
+            assert_eq!(retry.delay(), PARKED_PAGE_RETRY_DELAY);
+        }
+
+        #[test]
+        fn should_park_again_when_a_parked_url_still_answers_a_server_error() {
+            assert_eq!(
+                url_retry_after_fetch_failure(
+                    NetworkErrorKind::HttpStatus(502),
+                    PAGE_SERVER_ERROR_PARK_THRESHOLD,
+                ),
+                UrlRetry::Parked {
+                    server_errors: PAGE_SERVER_ERROR_PARK_THRESHOLD + 1
+                }
+            );
+        }
+
+        #[test]
+        fn should_keep_the_cooldown_of_every_other_failure_kind_whatever_the_run() {
+            for kind in [
+                NetworkErrorKind::HttpStatus(503),
+                NetworkErrorKind::HttpStatus(504),
+                NetworkErrorKind::HttpStatus(429),
+                NetworkErrorKind::HttpStatus(400),
+                NetworkErrorKind::Timeout,
+                NetworkErrorKind::BotChallenge,
+            ] {
+                assert_eq!(
+                    url_retry_after_fetch_failure(kind, 50),
+                    UrlRetry::After(durable_retry_cooldown_for(kind)),
+                    "{kind:?}"
+                );
+            }
+        }
     }
 }

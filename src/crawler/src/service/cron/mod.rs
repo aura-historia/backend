@@ -84,6 +84,7 @@ pub(super) mod test_support {
             },
             is_circuit_probe: false,
             schema_review_wait: None,
+            server_error_streak: 0,
         }
     }
 }
