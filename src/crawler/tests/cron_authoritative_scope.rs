@@ -11,7 +11,7 @@ use crawler::service::raw_capture::{
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::discovery::frontier::CrawlKind;
-use crawler::spider::discovery::website_spider::CrawlPace;
+use crawler::spider::discovery::website_spider::{CrawlBudgetScale, CrawlPace};
 use crawler::spider::local_lock::LocalLockManager;
 use crawler::spider::service::{SpiderRunResult, SpiderService, SpiderServiceError};
 use crawler::{CrawlRoot, scraper};
@@ -59,6 +59,7 @@ impl SpiderService for NoWorkSpider {
         _: &str,
         _: usize,
         _: CrawlPace,
+        _: CrawlBudgetScale,
         _: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         self.started.store(true, Ordering::SeqCst);

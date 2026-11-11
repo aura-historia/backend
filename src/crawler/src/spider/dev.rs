@@ -52,9 +52,9 @@ use crawler::spider::classification::url_pattern_service::{
 };
 use crawler::spider::crawl_frontier_repository::CrawlFrontierRepositoryImpl;
 use crawler::spider::discovery::frontier::CrawlKind;
-use crawler::spider::discovery::website_spider::CrawlPace;
 use crawler::spider::discovery::website_spider::SpiderDiscoveryError;
 use crawler::spider::discovery::website_spider::SpiderImpl;
+use crawler::spider::discovery::website_spider::{CrawlBudgetScale, CrawlPace};
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use crawler::vertex_ai::{CrawlerVertexAiConfig, CrawlerVertexAiModels};
 use sqlx::PgPool;
@@ -187,6 +187,7 @@ async fn main() {
                 crawl_root.url().as_str(),
                 DEFAULT_CLASSIFY_THRESHOLD,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             ))
             .await

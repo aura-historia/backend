@@ -96,6 +96,10 @@ impl SpiderCandidate {
 #[async_trait]
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
+    /// Due ListingSources, the least recently run first and, among those never run, the ones
+    /// never fully crawled first. Ordering by the last run of any kind keeps a large shop whose
+    /// truncated crawls continue every few hours from starving the daily incremental crawls of
+    /// the others (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     async fn get_candidates(
         &self,
         limit: i64,
@@ -227,7 +231,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
               AND (crawl_rate_limited_until IS NULL OR crawl_rate_limited_until <= NOW())
               AND last_crawl_outcome IS DISTINCT FROM $4
               AND NOT (listing_source_id = ANY($2))
-            ORDER BY last_crawled NULLS FIRST, last_crawl_run_at NULLS FIRST
+            ORDER BY last_crawl_run_at NULLS FIRST, last_crawled NULLS FIRST
             LIMIT $1
             "#,
         )

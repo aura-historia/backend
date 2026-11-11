@@ -1,5 +1,6 @@
 use crate::spider::classification::product_url_pattern::ProductUrlPattern;
 use std::collections::HashSet;
+use std::time::Duration;
 
 use crate::CrawlerReviewId;
 use crate::logging::SourceLogContext;
@@ -40,6 +41,9 @@ pub struct CrawlRunState {
     /// The shop system a crawled page showed the markers of; its product URL rules then apply to
     /// every page the crawl stores.
     pub shop_platform: Option<ShopPlatform>,
+    /// Time the crawl spent awaiting the storage of its crawled URLs, connection-pool waits
+    /// included; it tells a run the database starved apart from one the shop's size cut short.
+    pub url_store_wait: Duration,
 }
 
 /// A crawl's wait on a pending URL-pattern review.
@@ -108,6 +112,7 @@ impl CrawlRunState {
             awaiting_review_sample: false,
             preloaded_sample_urls: 0,
             shop_platform: None,
+            url_store_wait: Duration::ZERO,
         }
     }
 
