@@ -9,6 +9,7 @@ use crate::network::policy::{
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
 use crate::network::robots::RobotsRefusal;
+use crate::network::robots_directives::{DirectiveRefusal, refusal_for_headers, refusal_for_meta};
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
 };
@@ -454,7 +455,13 @@ impl ReqwestHtmlFetcher {
         self.record_domain_success_latency(domain, started.elapsed());
         let final_url = response.url().clone();
         let headers = response.headers().clone();
+        if let Some(refusal) = refusal_for_headers(&headers) {
+            return Err(directive_refusal_error(&final_url, &refusal).into());
+        }
         let html = read_bounded_html(response).await?;
+        if let Some(refusal) = refusal_for_meta(&html) {
+            return Err(directive_refusal_error(&final_url, &refusal).into());
+        }
         if let Some(challenge) = detect_bot_challenge(status.as_u16(), &headers, html.as_bytes()) {
             return Err(bot_challenge_fetch_error(status.as_u16(), None, challenge).into());
         }
@@ -603,6 +610,17 @@ fn robots_refusal_error(url: &Url, refusal: RobotsRefusal) -> FetchAttemptError 
         error: FetchError::Network {
             kind,
             details: format!("{details} {url}"),
+        },
+    }
+}
+
+/// A page whose own robots directives forbid capture is refused like one robots.txt disallows:
+/// it is not captured, and the URL waits out the robots cooldown.
+fn directive_refusal_error(url: &Url, refusal: &DirectiveRefusal) -> FetchAttemptError {
+    FetchAttemptError {
+        error: FetchError::Network {
+            kind: NetworkErrorKind::RobotsDisallowed,
+            details: format!("{} {url}", refusal.describe()),
         },
     }
 }
@@ -1526,6 +1544,54 @@ mod tests {
 
         assert_eq!(error.kind(), NetworkErrorKind::RobotsDisallowed);
         assert!(shop.page_requests().is_empty());
+    }
+
+    const NOINDEX_HEADER_PAGE: &str = "HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>";
+    const NOINDEX_META_PAGE: &str = "HTTP/1.1 200 OK\r\nContent-Length: 79\r\nConnection: close\r\n\r\n<html><head><meta name=\"robots\" content=\"noindex\"></head><body>ok</body></html>";
+    const OTHER_BOT_NOINDEX_PAGE: &str = "HTTP/1.1 200 OK\r\nX-Robots-Tag: googlebot: noindex\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>";
+
+    #[tokio::test]
+    async fn should_refuse_a_page_whose_x_robots_tag_says_noindex() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![NOINDEX_HEADER_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsDisallowed);
+        assert_eq!(shop.page_requests().len(), 1, "a refusal is not retried");
+    }
+
+    #[tokio::test]
+    async fn should_refuse_a_page_whose_meta_robots_tag_says_noindex() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![NOINDEX_META_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::RobotsDisallowed);
+        assert_eq!(shop.page_requests().len(), 1, "a refusal is not retried");
+    }
+
+    #[tokio::test]
+    async fn should_fetch_a_page_whose_x_robots_tag_is_scoped_to_another_bot() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OTHER_BOT_NOINDEX_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let fetched = unthrottled_fetcher().fetch(&shop.url).await.unwrap();
+
+        assert_eq!(fetched.html, "<html>ok</html>");
     }
 
     #[tokio::test]

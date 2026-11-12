@@ -4,6 +4,7 @@ pub mod bot_challenge;
 pub mod policy;
 pub mod politeness;
 pub mod robots;
+pub mod robots_directives;
 mod tls;
 
 /// The one user agent every crawler request sends: spider pages and
