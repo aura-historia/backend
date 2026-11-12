@@ -17,7 +17,6 @@ mod child;
 mod context_use;
 mod decision_cap;
 mod digest;
-mod draft;
 mod envelope;
 mod invocation;
 mod ledger;
@@ -199,8 +198,6 @@ fn log_pass_finished(summary: &PassSummary, ledger: &ProcessLedger, now: OffsetD
                 waiting_for_human = summary.waiting_for_human,
                 handed_to_human = summary.handed_to_human,
                 guard_blocked = summary.guard_blocked,
-                drafted = summary.drafted,
-                drafts_to_reviewer = summary.drafts_to_reviewer,
                 reviewers_held_back = summary.reviewers_held_back,
                 cooling_down = summary.cooling_down,
                 worked = summary.worked,

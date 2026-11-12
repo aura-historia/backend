@@ -60,7 +60,6 @@ mod review_list;
 mod schema_matrix;
 mod selector_probe;
 mod source_pages;
-mod structured_draft;
 
 use schema_matrix::NoMatrixAnswer;
 use selector_probe::SelectorProbePayload;
@@ -688,16 +687,6 @@ impl ReviewServer {
                 }
                 Err(err) => review_error(err),
             };
-        }
-
-        if request.method == "POST"
-            && request.path.starts_with("/api/reviews/")
-            && request.path.ends_with("/draft")
-        {
-            let Some(review_id) = parse_review_id_with_suffix(request.path, "/draft") else {
-                return HttpResponse::json(400, &json!({ "error": "invalid review id" }));
-            };
-            return self.draft_candidate(review_id, actor).await;
         }
 
         if request.method == "POST"

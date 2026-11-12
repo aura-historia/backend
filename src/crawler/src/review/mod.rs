@@ -21,4 +21,3 @@ pub mod schema_evaluation;
 pub mod selector_probe;
 pub mod server;
 pub mod source_url;
-pub(crate) mod structured_draft;

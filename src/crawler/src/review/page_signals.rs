@@ -96,12 +96,6 @@ fn offers_a_shown_price(html: &Html) -> bool {
     !offered.is_empty() && shows_one_of_amounts(html, &offered)
 }
 
-/// Whether the page's own content shows the whole units of `price`, such as a JSON-LD price
-/// `5600.00 CHF` as `5'600` or `5.600,00`.
-pub(crate) fn shows_amount(html: &Html, price: &str) -> bool {
-    whole_amount(price).is_some_and(|amount| shows_one_of_amounts(html, &[amount]))
-}
-
 fn shows_one_of_amounts(html: &Html, amounts: &[String]) -> bool {
     let shown = content_text(html);
     SHOWN_NUMBER
