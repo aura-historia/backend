@@ -440,6 +440,7 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 var(--s-2); border-bottom: 1px solid var(--line); }
 .tab { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin-bottom: -1px; padding: 0 var(--s-3); border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .tab:hover { color: var(--ink); }
+.inspector .tabs { justify-content: center; }
 .tab.active, .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
 .tab .count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 @container (max-width: 440px) { .tabs { padding: 0; } .tab { padding: 0 var(--s-2); } }
