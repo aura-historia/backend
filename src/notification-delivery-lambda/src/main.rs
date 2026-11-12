@@ -11,10 +11,9 @@ use notification_email_aws::EmailDeliveryConfig;
 use notification_service::use_cases::commands::deliver_notification::DeliverNotificationUseCase;
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    logging_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use std::{future::Future, sync::Arc, time::Instant};
 
 const COMPONENT: &str = "notification-delivery-lambda";
@@ -22,7 +21,7 @@ const COMPONENT: &str = "notification-delivery-lambda";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
 
     let postgres = RuntimePostgresConfig::from_env()?;
     let email = email_config()?;

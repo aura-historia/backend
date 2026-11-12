@@ -6,10 +6,10 @@ use opensearch::{
 };
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    logging_config_from_env, required_config_from_env,
+    required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 
 use product_listing_opensearch_lambda::{
     compose_projection_use_case, handler_with_invocation_budget, invocation_budget,
@@ -28,7 +28,7 @@ const WORKER_STAGE_ENV: &str = "STAGE";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
 
     let postgres = RuntimePostgresConfig::from_env()?;
     let open_search = open_search_client(OpenSearchConfig::from_env()?)?;

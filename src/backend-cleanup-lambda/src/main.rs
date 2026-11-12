@@ -19,9 +19,8 @@ use oauth_postgres::SqlxExpiredCredentialCleanup;
 use oauth_service::use_cases::CleanupExpiredCredentialsAndProviderReceiptsHandler;
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    logging_config_from_env,
 };
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
 use product_listing_postgres::{
@@ -50,7 +49,7 @@ const COMPONENT: &str = "backend-cleanup-lambda";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
 
     let batch_size = cleanup_batch_size_from_env()?;
     let postgres = RuntimePostgresConfig::from_env()?;

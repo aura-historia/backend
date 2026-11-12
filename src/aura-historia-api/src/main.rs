@@ -6,7 +6,7 @@ use aura_historia_runtime::Runtime;
 use platform_lambda_bootstrap::{
     LazyComposition, log_cold_start, materialize_google_application_credentials_from_env,
 };
-use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_observability::{LoggingConfig, init};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -20,7 +20,7 @@ fn main() -> Result<(), MainError> {
         materialize_google_application_credentials_from_env()
             .map_err(|source| MainError::GoogleAdcCredentials(Box::new(source)))?;
     }
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -55,15 +55,6 @@ fn main() -> Result<(), MainError> {
 
             Ok(())
         })
-}
-
-fn logging_config_from_env() -> LoggingConfig {
-    let level = std::env::var("LOG_LEVEL")
-        .ok()
-        .as_deref()
-        .and_then(LogLevel::parse)
-        .unwrap_or_default();
-    LoggingConfig::new(level)
 }
 
 async fn shutdown_signal() {

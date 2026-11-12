@@ -9,7 +9,6 @@ pub use google_adc::{
 };
 
 use lambda_runtime::Context;
-use platform_observability::{LogLevel, LoggingConfig};
 use platform_postgres::{PostgresCredentials, PostgresPoolConfig};
 use std::{
     env,
@@ -177,15 +176,6 @@ fn record_setup_failure(component: &'static str, failure: FailureDiagnostic) {
 
 pub fn required_config_from_env(name: &'static str) -> Result<String, LambdaBootstrapConfigError> {
     required_env(name)
-}
-
-pub fn logging_config_from_env() -> LoggingConfig {
-    let level = env::var("LOG_LEVEL")
-        .ok()
-        .as_deref()
-        .and_then(LogLevel::parse)
-        .unwrap_or_default();
-    LoggingConfig::new(level)
 }
 
 pub fn log_cold_start(component: &'static str, initialization_started_at: Instant) {

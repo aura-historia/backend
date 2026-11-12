@@ -57,6 +57,16 @@ impl LoggingConfig {
     pub const fn level(self) -> LogLevel {
         self.level
     }
+
+    /// The level named by `LOG_LEVEL`, or the default when it is unset or not a level.
+    pub fn from_env() -> Self {
+        let level = std::env::var("LOG_LEVEL")
+            .ok()
+            .as_deref()
+            .and_then(LogLevel::parse)
+            .unwrap_or_default();
+        Self::new(level)
+    }
 }
 
 pub fn init(config: LoggingConfig) {

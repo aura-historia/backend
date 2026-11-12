@@ -5,10 +5,10 @@ use large_language_model::{
 };
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    logging_config_from_env, required_config_from_env,
+    required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use product_listing_service::use_cases::TranslateProductListingEventUseCase;
 use product_translation_lambda::{
     compose_product_translation_use_case, handler_with_invocation_budget, invocation_budget,
@@ -25,7 +25,7 @@ const TRANSLATION_MODEL: ClaudeModel = ClaudeModel::Haiku55(ClaudeHaiku55Thinkin
 
 fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

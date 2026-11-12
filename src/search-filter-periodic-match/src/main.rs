@@ -2,7 +2,7 @@ mod execution;
 mod wiring;
 
 use execution::{ExecutionError, STARTUP_LIMIT};
-use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_observability::{LoggingConfig, init};
 use std::time::Instant;
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -28,13 +28,7 @@ fn main() -> Result<(), &'static str> {
 }
 
 async fn async_main() -> Result<(), &'static str> {
-    init(LoggingConfig::new(
-        std::env::var("LOG_LEVEL")
-            .ok()
-            .as_deref()
-            .and_then(LogLevel::parse)
-            .unwrap_or_default(),
-    ));
+    init(LoggingConfig::from_env());
     // Register both signal handlers before async provider startup. A setup failure is fatal.
     let mut term = signal(SignalKind::terminate()).map_err(|_| "failed to register SIGTERM")?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|_| "failed to register SIGINT")?;

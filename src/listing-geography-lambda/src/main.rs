@@ -3,9 +3,9 @@ use geo_postgres::SqlxResolutionRepositoryFactory;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LambdaInvocationBudget, LazyComposition, RuntimePostgresConfig, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    log_invocation_start,
 };
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::geography::SqlxGeographyProjectionStoreFactory;
 use product_listing_service::geography::{
@@ -21,7 +21,7 @@ const COMPONENT: &str = "listing-geography-lambda";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let started = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
     let postgres = RuntimePostgresConfig::from_env()?;
     let cache = Arc::new(LazyComposition::<Arc<dyn ProjectListingGeographyUseCase>>::new());
     log_cold_start(COMPONENT, started);
