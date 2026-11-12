@@ -1263,8 +1263,15 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v14");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v10");
+        let prompt_hashes = [&ledger[0]["prompt_sha256"], &ledger[1]["prompt_sha256"]];
+        assert!(
+            prompt_hashes
+                .iter()
+                .all(|hash| hash.as_str().is_some_and(|hash| hash.len() == 12)),
+            "{prompt_hashes:?}"
+        );
+        assert_ne!(prompt_hashes[0], prompt_hashes[1]);
+        assert_eq!(ledger[0]["repair_round"], false);
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);

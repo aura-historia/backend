@@ -117,9 +117,6 @@ const SYSTEM_PROMPT: &str = "You are a review agent of the Aura Historia crawler
 
 /// A role's prompt and report schema, which change together.
 pub(super) struct RoleContract {
-    /// The version the process ledger and the log name, such as `author.v3`; it changes with the
-    /// prompt or the report schema.
-    pub(super) version: &'static str,
     prompt: &'static str,
     /// The rules of one artifact type, which replace `{artifact_rules}` in the prompt, so an agent
     /// reads only the rules of the review it works.
@@ -131,17 +128,15 @@ pub(super) struct RoleContract {
 pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
     match role {
         AgentRole::Author => RoleContract {
-            version: "author.v14",
-            prompt: include_str!("prompts/author.v14.md"),
-            product_schema_rules: include_str!("prompts/author.v14.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/author.v14.url-pattern.md"),
+            prompt: include_str!("prompts/author.md"),
+            product_schema_rules: include_str!("prompts/author.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/author.url-pattern.md"),
             report_schema: include_str!("schemas/author-report.v1.json"),
         },
         AgentRole::Reviewer => RoleContract {
-            version: "reviewer.v10",
-            prompt: include_str!("prompts/reviewer.v10.md"),
-            product_schema_rules: include_str!("prompts/reviewer.v10.product-schema.md"),
-            url_pattern_rules: include_str!("prompts/reviewer.v10.url-pattern.md"),
+            prompt: include_str!("prompts/reviewer.md"),
+            product_schema_rules: include_str!("prompts/reviewer.product-schema.md"),
+            url_pattern_rules: include_str!("prompts/reviewer.url-pattern.md"),
             report_schema: include_str!("schemas/reviewer-report.v1.json"),
         },
     }
@@ -158,14 +153,34 @@ impl RoleContract {
     /// prompt before it is the same for every review of an artifact type and the model's prompt
     /// cache serves it across processes.
     pub(super) fn prompt(&self, review: &QueuedReview) -> String {
-        let rules = match review.artifact_type {
+        self.template(review.artifact_type)
+            .replace("{review_id}", &review.review_id.to_string())
+            .replace("{artifact_type}", review.artifact_type.as_str())
+    }
+
+    /// The prompt and report schema the ledger and the log name a process by: the first 12 hex
+    /// characters of the SHA-256 of the role's prompt template for `artifact` and of its report
+    /// schema, so a changed prompt or schema shows in the ledger without a version to bump.
+    pub(super) fn prompt_sha256(&self, artifact: ReviewArtifact) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::new()
+            .chain_update(self.template(artifact))
+            .chain_update(self.report_schema)
+            .finalize();
+        digest
+            .iter()
+            .take(6)
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// The role's prompt with the rules of `artifact`, before the review is named.
+    fn template(&self, artifact: ReviewArtifact) -> String {
+        let rules = match artifact {
             ReviewArtifact::ProductSchema => self.product_schema_rules,
             ReviewArtifact::UrlPattern => self.url_pattern_rules,
         };
-        self.prompt
-            .replace("{artifact_rules}", rules)
-            .replace("{review_id}", &review.review_id.to_string())
-            .replace("{artifact_type}", review.artifact_type.as_str())
+        self.prompt.replace("{artifact_rules}", rules)
     }
 }
 
@@ -292,6 +307,7 @@ mod tests {
             listing_source_name: Some("Antiques".to_owned()),
             handed_back: None,
             created: time::OffsetDateTime::UNIX_EPOCH,
+            repair_requested: false,
         }
     }
 
@@ -575,7 +591,10 @@ mod tests {
         assert!(author.contains("sold or unavailable product page"));
         assert!(author.contains("the summary says why"));
         assert!(reviewer.contains("Do not give NEEDS_REPAIR because a state is a call to action"));
-        assert!(reviewer.contains("field_findings, which the notes need not repeat"));
+        assert!(reviewer.contains("The notes are all the author reads of your findings"));
+        assert!(author.contains("probe_selectors them on the other review pages"));
+        assert!(author.contains("On a repair request, start from it, not from scratch"));
+        assert!(reviewer.contains("probe_selectors the rule's selector"));
         assert!(reviewer.contains("because a state is a sentence that names the status"));
         assert!(author.contains("as an additional selector of the same `state` rule"));
         assert!(
@@ -701,13 +720,24 @@ mod tests {
             prompt_of(AgentRole::Reviewer, ReviewArtifact::ProductSchema)
                 .contains("whose reason is manual_schema_required, as the crawler opens them in agent mode, classifies its seed and triggering pages as non-product pages until a human revokes the rejection")
         );
-        assert_eq!(
-            [
-                role_contract(AgentRole::Author).version,
-                role_contract(AgentRole::Reviewer).version
-            ],
-            ["author.v14", "reviewer.v10"]
-        );
+    }
+
+    /// The ledger names a process's prompt by a hash of its template, so runs on different prompts
+    /// tell apart without a version to bump: one hash per role and artifact type, the same for
+    /// every review, of 12 hex characters.
+    #[test]
+    fn should_name_each_role_s_prompt_by_a_stable_hash_per_artifact_type() {
+        let mut hashes = std::collections::BTreeSet::new();
+        for role in [AgentRole::Author, AgentRole::Reviewer] {
+            for artifact in [ReviewArtifact::ProductSchema, ReviewArtifact::UrlPattern] {
+                let hash = role_contract(role).prompt_sha256(artifact);
+                assert_eq!(hash.len(), 12, "{role} {artifact}");
+                assert!(hash.chars().all(|c| c.is_ascii_hexdigit()), "{hash}");
+                assert_eq!(hash, role_contract(role).prompt_sha256(artifact));
+                hashes.insert(hash);
+            }
+        }
+        assert_eq!(hashes.len(), 4, "{hashes:?}");
     }
 
     /// Claude Code turns a report schema into a strict tool schema only when every object closes

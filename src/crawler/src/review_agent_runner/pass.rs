@@ -644,13 +644,14 @@ impl Pass<'_> {
             review_id = %review.review_id,
             artifact_type = %review.artifact_type,
             role = role.as_str(),
-            prompt_version = contract.version,
+            prompt_sha256 = contract.prompt_sha256(review.artifact_type),
             model = %process.model,
             effort = effort_flag(process.effort),
             max_turns = process.max_turns.get(),
             "Starting a review agent process"
         );
-        let mut record = ProcessRecord::started(review, role, contract.version);
+        let mut record =
+            ProcessRecord::started(review, role, contract.prompt_sha256(review.artifact_type));
         let step = match agent_command(self.settings, role, review) {
             Ok(command) => {
                 let output = run_agent(
@@ -801,7 +802,8 @@ impl Pass<'_> {
             listing_source_name = review.listing_source_name.as_deref(),
             artifact_type = %review.artifact_type,
             role = name(Some(record.role)),
-            prompt_version = %record.prompt_version,
+            prompt_sha256 = %record.prompt_sha256,
+            repair_round = record.repair_round,
             end = name(Some(record.end)),
             limit = name(record.limit),
             usage_limit = name(record.usage_limit),
@@ -950,13 +952,14 @@ fn handover_note(report: &AuthorReport) -> String {
 }
 
 impl ProcessRecord {
-    fn started(review: &QueuedReview, role: AgentRole, prompt_version: &str) -> Self {
+    fn started(review: &QueuedReview, role: AgentRole, prompt_sha256: String) -> Self {
         Self {
             finished: OffsetDateTime::now_utc(),
             review_id: review.review_id,
             role: role.into(),
             artifact_type: Some(review.artifact_type.as_str().to_owned()),
-            prompt_version: prompt_version.to_owned(),
+            prompt_sha256,
+            repair_round: review.repair_requested,
             end: ProcessEnd::Failed,
             limit: None,
             usage_limit: None,

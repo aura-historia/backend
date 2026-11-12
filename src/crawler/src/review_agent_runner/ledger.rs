@@ -65,8 +65,16 @@ pub struct ProcessRecord {
     /// and review type; `None` in a record written before the runner recorded it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_type: Option<String>,
-    /// The prompt and report schema version, such as `author.v2`.
-    pub prompt_version: String,
+    /// The first 12 hex characters of the SHA-256 of the role's prompt template for the review's
+    /// artifact type, so runs on different prompts tell apart without a version to bump. A record
+    /// written before names the prompt's version, such as `author.v14`, instead.
+    #[serde(alias = "prompt_version")]
+    pub prompt_sha256: String,
+    /// Whether the process worked a review that waited on a needs-repair verdict, so the author's
+    /// process is a repair round and the reviewer's judges one; `false` in a record written before
+    /// the runner recorded it.
+    #[serde(default)]
+    pub repair_round: bool,
     pub end: ProcessEnd,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<ProcessLimit>,
@@ -341,7 +349,8 @@ pub(super) mod tests {
             review_id: CrawlerReviewId::new(),
             artifact_type: None,
             role: ProcessRole::Author,
-            prompt_version: "author.v1".to_owned(),
+            prompt_sha256: "0123456789ab".to_owned(),
+            repair_round: false,
             end: ProcessEnd::Reported,
             limit: None,
             usage_limit: None,
