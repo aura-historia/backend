@@ -41,6 +41,7 @@ use crate::spider::candidate_service::AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME;
 use crate::spider::classification::product_url_pattern::{ProductUrlPattern, UrlPatternMatching};
 use crate::spider::classification::url_classifier::UrlClassifier;
 use crate::spider::classification::url_metadata::UrlClass;
+use crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryImpl;
 use listing_source_core::ListingSourceId;
 use serde::Deserialize;
 use sqlx::Row;
@@ -915,7 +916,9 @@ pub(super) async fn release_work_waiting_on(
 /// Classifies the ListingSource's stored URLs with the pattern decision that just went live, as the
 /// spider would on its next crawl, so URLs a crawl stored while the review was pending need no
 /// second crawl from the root. Sold URLs keep their class, as a re-crawl leaves them, and a page
-/// a rejection covers stays `other`, as the spider stores it.
+/// a rejection covers stays `other`, as the spider stores it. A URL that becomes a product while
+/// stored under a spelling the crawler no longer produces is collapsed onto its current spelling,
+/// as a spider pass collapses product rows (`docs/crawler/networking.md#stored-urls`).
 async fn reclassify_source_urls(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     listing_source_id: &ListingSourceId,
@@ -956,7 +959,24 @@ async fn reclassify_source_urls(
     .bind(uuid::Uuid::from(*listing_source_id))
     .execute(&mut **transaction)
     .await?;
+    UrlMetadataRepositoryImpl::collapse_reclassified_product_urls(
+        transaction,
+        *listing_source_id,
+        newly_classified_products(&urls, &classes),
+    )
+    .await?;
     Ok(result.rows_affected())
+}
+
+/// Those of the reclassified `urls` whose new class, at the same position in `classes`, is
+/// `product`.
+fn newly_classified_products(urls: &[String], classes: &[String]) -> Vec<String> {
+    let product = UrlClass::ProductListing.to_string();
+    urls.iter()
+        .zip(classes)
+        .filter(|(_, class)| **class == product)
+        .map(|(url, _)| url.clone())
+        .collect()
 }
 
 /// Lets the scheduler crawl a ListingSource again whose last crawl stopped at a URL-pattern
@@ -1015,6 +1035,21 @@ mod tests {
         total: 2,
         not_evaluated: 0,
     });
+
+    #[test]
+    fn should_collapse_only_urls_that_became_products_when_a_pattern_reclassifies() {
+        let urls = [
+            "https://shop.example/item/1?cur=EUR",
+            "https://shop.example/about?cur=EUR",
+        ]
+        .map(String::from);
+        let classes = ["product", "info"].map(String::from);
+
+        assert_eq!(
+            newly_classified_products(&urls, &classes),
+            ["https://shop.example/item/1?cur=EUR"]
+        );
+    }
 
     /// The reviewer agent's verdicts pass on to the review's own checks, and humans and the
     /// crawler decide with or without acknowledged coverage and notes.

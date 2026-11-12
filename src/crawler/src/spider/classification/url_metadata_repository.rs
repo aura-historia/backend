@@ -347,13 +347,14 @@ impl UrlMetadataRepositoryImpl {
     /// parameter counted as presentation, is a duplicate of that spelling. It moves there while
     /// no row has the spelling and is retired as `DUPLICATE` otherwise, as
     /// [`Self::collapse_duplicate_rows`] does for a canonicalized page. One query reads the
-    /// source's rows, so the spider calls it once per pass of the source, not per URL.
+    /// source's rows, so the spider calls it once per pass of the source, not per URL. The read
+    /// runs outside a transaction: only a source with such a row opens one, which locks and
+    /// re-reads the rows it changes, so a pass that has nothing to collapse holds no lock and
+    /// returns its connection after the read.
     pub async fn collapse_unnormalized_product_urls(
         &self,
         listing_source_id: &ListingSourceId,
     ) -> Result<(), UrlMetadataRepositoryError> {
-        let mut transaction = self.pool.begin().await.map_err(database_error)?;
-        Self::locked_crawl_host(&mut transaction, *listing_source_id).await?;
         let stored = sqlx::query_scalar::<_, String>(
             "SELECT url FROM listing_source_urls \
              WHERE listing_source_id = $1 AND url_class = $2 \
@@ -362,23 +363,32 @@ impl UrlMetadataRepositoryImpl {
         )
         .bind(uuid::Uuid::from(*listing_source_id))
         .bind(UrlClass::ProductListing.as_str())
-        .fetch_all(&mut *transaction)
+        .fetch_all(&self.pool)
         .await
         .map_err(database_error)?;
-        let mut unnormalized = Vec::new();
-        for stored in stored {
-            let url = url::Url::parse(&stored)
-                .map_err(|error| database_error(sqlx::Error::Decode(Box::new(error))))?;
-            let normalized = CrawledUrl::new(url.clone()).as_url().clone();
-            if normalized != url {
-                unnormalized.push(DuplicateRows {
-                    spellings: vec![url],
-                    canonical: normalized,
-                });
-            }
+        let unnormalized = unnormalized_rows(stored)?;
+        if unnormalized.is_empty() {
+            return Ok(());
         }
+        let mut transaction = self.pool.begin().await.map_err(database_error)?;
+        Self::locked_crawl_host(&mut transaction, *listing_source_id).await?;
         Self::collapse_duplicate_rows(&mut transaction, *listing_source_id, &unnormalized).await?;
         transaction.commit().await.map_err(database_error)
+    }
+
+    /// Collapses those of `reclassified`, rows of the ListingSource that `transaction` just
+    /// classified as products, that are stored under a spelling the crawler no longer produces,
+    /// as [`Self::collapse_unnormalized_product_urls`] does at a spider pass: an approved URL
+    /// pattern can make a product of a row stored before its spelling changed, which that pass
+    /// already left alone as no product. The caller holds the ListingSource row locked in
+    /// `transaction`; [`Self::collapse_duplicate_rows`] locks and re-reads the rows it changes.
+    pub(crate) async fn collapse_reclassified_product_urls(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        listing_source_id: ListingSourceId,
+        reclassified: Vec<String>,
+    ) -> Result<(), UrlMetadataRepositoryError> {
+        let unnormalized = unnormalized_rows(reclassified)?;
+        Self::collapse_duplicate_rows(transaction, listing_source_id, &unnormalized).await
     }
 
     /// Moves or retires the rows a canonicalized page was stored under before
@@ -716,6 +726,26 @@ struct DuplicateRows {
     canonical: url::Url,
 }
 
+/// The stored URLs whose [`CrawledUrl`] spelling differs from themselves, each as a duplicate of
+/// that spelling. A stored URL that no longer parses is invalid persisted state.
+fn unnormalized_rows(
+    stored: Vec<String>,
+) -> Result<Vec<DuplicateRows>, UrlMetadataRepositoryError> {
+    let mut unnormalized = Vec::new();
+    for stored in stored {
+        let url = url::Url::parse(&stored)
+            .map_err(|error| database_error(sqlx::Error::Decode(Box::new(error))))?;
+        let normalized = CrawledUrl::new(url.clone()).as_url().clone();
+        if normalized != url {
+            unnormalized.push(DuplicateRows {
+                spellings: vec![url],
+                canonical: normalized,
+            });
+        }
+    }
+    Ok(unnormalized)
+}
+
 /// The [`DuplicateRows`] of each canonicalized page of `links`: the page's own spellings and
 /// earlier spellings, with its canonical URL in the spelling among `stored` that names its page.
 /// A spelling that names the canonical URL's page, or that the batch stores as a page of its own,
@@ -757,4 +787,42 @@ fn duplicate_rows_of(links: &[DiscoveredUrl], stored: &[url::Url]) -> Vec<Duplic
         .collect::<Vec<_>>();
     duplicates.sort_by(|left, right| left.spellings[0].as_str().cmp(right.spellings[0].as_str()));
     duplicates
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_collapse_only_stored_urls_the_crawler_now_spells_differently() {
+        let unnormalized = unnormalized_rows(vec![
+            "https://shop.example/item/clean-1".to_owned(),
+            "https://shop.example/item/twin-2?cur=EUR".to_owned(),
+        ])
+        .unwrap();
+
+        let [row] = unnormalized.as_slice() else {
+            panic!("one stored URL needs collapsing: {unnormalized:?}");
+        };
+        assert_eq!(
+            row.spellings,
+            [url::Url::parse("https://shop.example/item/twin-2?cur=EUR").unwrap()]
+        );
+        assert_eq!(row.canonical.as_str(), "https://shop.example/item/twin-2");
+    }
+
+    #[test]
+    fn should_fail_closed_when_a_stored_url_no_longer_parses() {
+        let error = unnormalized_rows(vec!["/relative/1".to_owned()]).unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                UrlMetadataRepositoryError::Database {
+                    source: sqlx::Error::Decode(_)
+                }
+            ),
+            "{error:?}"
+        );
+    }
 }

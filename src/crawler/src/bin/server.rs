@@ -11,7 +11,9 @@
 //!
 //! `db_max_connections` defaults to
 //! `spider_concurrency + scraper_concurrency + 10`.
-//! Override it explicitly in [`CrawlerCronConfig`] if needed.
+//! Override it explicitly in [`CrawlerCronConfig`] if needed. The review console adds its own
+//! pool of [`crawler::runtime::REVIEW_DB_MAX_CONNECTIONS`]
+//! (`docs/crawler/operations.md#postgres-pools`).
 //!
 //! # Environment variables
 //!

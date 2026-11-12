@@ -96,6 +96,11 @@ pub enum ReviewRepositoryError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Pattern(#[from] ProductUrlPatternError),
+    /// Collapsing stored URLs onto their current spelling failed.
+    #[error(transparent)]
+    StoredUrls(
+        #[from] crate::spider::classification::url_metadata_repository::UrlMetadataRepositoryError,
+    ),
     #[error("review not found: {0}")]
     NotFound(CrawlerReviewId),
     #[error("ListingSource not found: {0}")]
@@ -406,6 +411,12 @@ impl CrawlerReviewRepository {
             agent_decisions,
             ..self
         }
+    }
+
+    /// This repository persisting through `pool`, with the same decision policy and URL
+    /// classifier: the review console's copy on its own pool.
+    pub fn with_pool(self, pool: PgPool) -> Self {
+        Self { pool, ..self }
     }
 
     /// The review agents' decision policy this repository applies.
