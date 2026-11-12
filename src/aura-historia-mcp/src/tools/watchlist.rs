@@ -211,6 +211,7 @@ mod tests {
         pagination::{Cursor, CursoredResult},
         personalized::Personalized,
     };
+    use aura_historia_contracts::product_listings::product_data::personalized_product_collection_details_data;
     use aura_historia_contracts::watchlist::watchlist_cursor_value;
     use fxrate_core::FxRateId;
     use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
@@ -527,7 +528,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let expected = serde_json::to_value(aura_historia_contracts::product_listings::product_data::personalized_product_collection_details_data(
+        let expected = serde_json::to_value(personalized_product_collection_details_data(
             fixture.product.clone(),
         ))
         .unwrap();

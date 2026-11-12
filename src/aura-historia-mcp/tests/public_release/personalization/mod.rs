@@ -139,7 +139,7 @@ async fn should_omit_private_state_anonymously_with_real_listing_services() {
         let output = &response["result"]["structuredContent"];
         let value = listing(name, output);
         assert_private_fields(value, &BTreeSet::new());
-        assert!(first_image(name, &value["item"])["url"].is_null());
+        assert_eq!(&json!({}), first_image(name, &value["item"]));
         assert_eq!(
             "REQUIRES_CONSENT",
             value["item"]["contentPolicy"]["decision"]
