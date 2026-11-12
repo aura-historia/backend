@@ -1,0 +1,16 @@
+# Example systemd unit that deploys the newest crawler release: started by crawler-autodeploy.timer.
+# Install as /etc/systemd/system/crawler-autodeploy.service next to crawler-server.service.
+# Contract and host prerequisites: docs/crawler/operations.md#automatic-deploys
+
+[Unit]
+Description=Aura Historia crawler automatic deploy
+Documentation=https://github.com/aura-historia/backend/blob/main/docs/crawler/operations.md#automatic-deploys
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Root: it stops and starts the crawler's units, writes /opt/crawler and dumps the database.
+ExecStart=/opt/crawler/bin/autodeploy.sh
+# Stopping the agent runner alone can take 11 minutes; downloading and the health check add more.
+TimeoutStartSec=30min

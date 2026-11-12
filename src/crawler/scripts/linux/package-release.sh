@@ -6,7 +6,8 @@
 set -euo pipefail
 
 readonly BINARIES=(server review-mcp review-agent-runner)
-readonly UNITS=(crawler-server.service review-agent-runner.service)
+readonly UNITS=(crawler-server.service review-agent-runner.service crawler-autodeploy.service crawler-autodeploy.timer)
+readonly SCRIPTS=(deploy.sh autodeploy.sh)
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CRAWLER_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
@@ -25,6 +26,9 @@ mkdir -p "${root}/systemd" "$out_dir"
 
 for binary in "${BINARIES[@]}"; do
   install -m 0755 "${release_dir}/${binary}" "${root}/${binary}"
+done
+for script in "${SCRIPTS[@]}"; do
+  install -m 0755 "${SCRIPT_DIR}/${script}" "${root}/${script}"
 done
 for unit in "${UNITS[@]}"; do
   install -m 0644 "${SCRIPT_DIR}/${unit}" "${root}/systemd/${unit}"

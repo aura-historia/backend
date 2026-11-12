@@ -398,7 +398,7 @@ Run exactly one instance: no second host and no manual `server` next to the unit
 
 ### Deploy and roll back
 
-[`deploy.sh`](../../src/crawler/scripts/linux/deploy.sh) installs a released build on the host and is the only way to change the running build. Put it on the host once and run it as root with the commit SHA of a published `crawler-<sha>` release:
+[`deploy.sh`](../../src/crawler/scripts/linux/deploy.sh) installs a released build on the host and is the only way to change the running build. Every release carries it (and `autodeploy.sh`) next to the binaries, so the host runs the script of its running build; for the first deploy fetch it from the repository at the release's commit (`https://raw.githubusercontent.com/aura-historia/backend/<sha>/src/crawler/scripts/linux/deploy.sh`). Run it as root with the commit SHA of a published `crawler-<sha>` release:
 
 ```sh
 deploy.sh <sha>
@@ -415,6 +415,18 @@ The host pulls the release from GitHub, so CI holds no host credentials and the 
 The script always switches `server`, `review-mcp` and `review-agent-runner` together: the runner fails every run against a console of another build ([review agent runner](#settings)). The example units are never overwritten silently: the script reports a unit that differs from the host's, and `--install-units` installs the release's units and runs `systemctl daemon-reload` before the restart. Use it when a release changes the example [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service): until the reload, systemd stops and starts the runner with the old unit's settings, such as its `KillMode` and `TimeoutStopSec`.
 
 Roll back by running the script with an earlier release's SHA; it prints that command when the new build is unhealthy. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so a release that applied a migration cannot be rolled back without restoring the database. The script compares the releases' `MIGRATIONS` files and refuses such a rollback until you restore the dump taken before the migration (`pg_restore --clean --if-exists --no-owner --dbname "$LOCAL_DB_URL" <dump>`, with the crawler stopped) and rerun it with `--db-restored`. The same refusal applies when a release squashes crawler-local migrations into the baseline `20260101000000_initial_schema.sql`, which its release notes state: no database that applied the earlier chain can be upgraded. The journal shows `Failed to run database migrations` and `Restart=on-failure` keeps restarting the unit. For such a release, stop the unit, drop and recreate the crawler-local database as its owner (`db-reset` locally, see [Local database](#local-database)), then start the new binary. This discards all crawler-local state: URL state, approved URL patterns and schemas, and reviews with their event trail. A binary that raises the [extractor version](extraction-and-review.md#extraction-contract), or changes what the page hash or the scraper-context fingerprint covers, extracts every page once more at its next scheduled scrape and validates its images again, and one that changes raw extraction does so for every page whose extraction it changes, so expect longer scraper passes until each such page has been scraped once.
+
+### Automatic deploys
+
+`crawler-autodeploy.timer` runs [`autodeploy.sh`](../../src/crawler/scripts/linux/autodeploy.sh) every five minutes so a published release reaches the host without anyone logging in. Install the example [service](../../src/crawler/scripts/linux/crawler-autodeploy.service) and [timer](../../src/crawler/scripts/linux/crawler-autodeploy.timer) from a release's `systemd/` directory, then `systemctl daemon-reload && systemctl enable --now crawler-autodeploy.timer`. It is opt-in: a release is always published after the `crawler-release` environment's approval, and nothing else triggers a deploy. Restrict the hours with a drop-in that sets the timer's `OnCalendar`; stop it with `systemctl disable --now crawler-autodeploy.timer`.
+
+Each run asks the GitHub releases API for the newest `crawler-<sha>` release. It does nothing when that release runs or is the one it handled last, and otherwise runs `deploy.sh --unattended <sha>`. The unattended mode:
+
+- refuses a release that adds crawler-local migrations, or when the running build's migrations are unknown (exit 3), before stopping anything: such a release is deployed by hand, so the backup is watched and the one step that cannot be undone has an operator;
+- rolls an unhealthy release back to the build it replaced (exit 4), which is safe because no migration was applied;
+- shares the deploy lock with manual runs, so two deploys never overlap.
+
+A release that needs an operator or failed its health check is handled once: the service shows as failed (`systemctl --failed`, `journalctl -u crawler-autodeploy`) and the timer stays quiet until a newer release is published. So does a manual rollback: `deploy.sh <older sha>` is not undone by the next run. A download or API failure is retried at the next run. Every deploy stops the services; `review-agent-runner` takes up to 11 minutes to stop ([stop and undo](#stop-and-undo)).
 
 
 ### After start

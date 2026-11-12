@@ -1,0 +1,17 @@
+# Example systemd timer: checks for a newer crawler release every five minutes.
+# Install as /etc/systemd/system/crawler-autodeploy.timer next to crawler-autodeploy.service and
+# run `systemctl daemon-reload && systemctl enable --now crawler-autodeploy.timer`. Restrict the
+# hours with a drop-in (`systemctl edit crawler-autodeploy.timer`) that sets OnCalendar to them.
+# Contract and host prerequisites: docs/crawler/operations.md#automatic-deploys
+
+[Unit]
+Description=Aura Historia crawler automatic deploy check
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

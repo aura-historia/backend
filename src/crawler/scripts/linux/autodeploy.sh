@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Deploys the newest published crawler release, for crawler-autodeploy.timer. It asks GitHub for
+# the newest crawler-<sha> release, skips it when it is the one it last handled, and otherwise runs
+# deploy.sh --unattended on it. A release that adds migrations is left for an operator, and the
+# newest release is handled once: after a manual rollback the timer stays quiet until a newer
+# release is published. Stop it with: systemctl disable --now crawler-autodeploy.timer
+# Contract: docs/crawler/operations.md#automatic-deploys
+set -euo pipefail
+
+ROOT="${CRAWLER_ROOT:-/opt/crawler}"
+REPOSITORY="${CRAWLER_RELEASE_REPOSITORY:-aura-historia/backend}"
+API_URL="${CRAWLER_RELEASES_API_URL:-https://api.github.com/repos/${REPOSITORY}/releases?per_page=30}"
+SEEN_FILE="${ROOT}/autodeploy.handled"
+DEPLOY="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/deploy.sh"
+
+# The API lists releases newest first; only releases of this workflow count.
+latest="$(curl -fsSL --retry 3 --max-time 30 "$API_URL" \
+  | grep -o '"tag_name": *"crawler-[a-f0-9]\{40\}"' | head -n1 | grep -o '[a-f0-9]\{40\}' || true)"
+[[ -n "$latest" ]] || { echo "autodeploy: no crawler release found"; exit 0; }
+
+running=""
+[[ ! -f "${ROOT}/bin/SOURCE_SHA" ]] || running="$(cat "${ROOT}/bin/SOURCE_SHA")"
+handled=""
+[[ ! -f "$SEEN_FILE" ]] || handled="$(cat "$SEEN_FILE")"
+if [[ "$latest" == "$running" || "$latest" == "$handled" ]]; then
+  exit 0
+fi
+
+echo "autodeploy: deploying ${latest}"
+status=0
+"$DEPLOY" --unattended "$latest" || status=$?
+case "$status" in
+  0) printf '%s\n' "$latest" > "$SEEN_FILE" ;;
+  3|4)
+    # Decided about, not to be retried every tick: the unit stays failed until an operator acts.
+    printf '%s\n' "$latest" > "$SEEN_FILE"
+    echo "autodeploy: ${latest} needs an operator (exit ${status}); see the journal" >&2
+    exit 1 ;;
+  *) echo "autodeploy: ${latest} not deployed (exit ${status}); retrying at the next run" >&2; exit 1 ;;
+esac
