@@ -1,4 +1,5 @@
 use domain_primitives::object_id::ObjectIdError;
+use partnership_core::partnership_id::PartnershipId;
 use party_core::{
     party::{Party, PartyContact, RehydratedPartyState},
     party_id::PartyId,
@@ -35,14 +36,38 @@ pub(crate) enum PartyRowMappingError {
     Email,
     #[error("invalid party version persisted")]
     Version,
+    #[error("invalid active Partnership ID persisted")]
+    PartnershipId(#[source] ObjectIdError),
 }
 
 const PARTY_COLUMNS: &str = r#"
     party_id, party_slug_id, name, phone, email, version, created, updated
 "#;
 
+/// Party columns plus the Party's `ACTIVE` Partnership, read from `parties`.
+const PARTY_SUMMARY_COLUMNS: &str = r#"
+    party_id, party_slug_id, name, phone, email, version, created, updated,
+    (
+        SELECT partnership.partnership_id
+        FROM partnerships partnership
+        WHERE partnership.party_id = parties.party_id
+            AND partnership.business_state = 'ACTIVE'
+    ) AS active_partnership_id
+"#;
+
 pub(crate) fn party_columns() -> &'static str {
     PARTY_COLUMNS
+}
+
+pub(crate) fn party_summary_columns() -> &'static str {
+    PARTY_SUMMARY_COLUMNS
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub(crate) struct PartySummaryRow {
+    #[sqlx(flatten)]
+    pub(crate) party: PartyRow,
+    active_partnership_id: Option<uuid::Uuid>,
 }
 
 impl PartyRow {
@@ -93,10 +118,11 @@ impl TryFrom<PartyRow> for StoredParty {
     }
 }
 
-impl TryFrom<PartyRow> for PartySummary {
+impl TryFrom<PartySummaryRow> for PartySummary {
     type Error = PartyRowMappingError;
 
-    fn try_from(row: PartyRow) -> Result<Self, Self::Error> {
+    fn try_from(summary: PartySummaryRow) -> Result<Self, Self::Error> {
+        let row = summary.party;
         PartyStorageVersion::try_from(row.version).map_err(|_| PartyRowMappingError::Version)?;
 
         Ok(Self {
@@ -113,6 +139,11 @@ impl TryFrom<PartyRow> for PartySummary {
                     .transpose()
                     .map_err(|_| PartyRowMappingError::Email)?,
             },
+            partnership_id: summary
+                .active_partnership_id
+                .map(PartnershipId::try_from)
+                .transpose()
+                .map_err(PartyRowMappingError::PartnershipId)?,
             created: row.created,
             updated: row.updated,
         })
@@ -148,8 +179,22 @@ mod tests {
     #[test]
     fn should_reject_wrong_version_party_id_for_summary_mapping() {
         assert!(matches!(
-            PartySummary::try_from(row(uuid::Uuid::new_v4())),
+            PartySummary::try_from(PartySummaryRow {
+                party: row(uuid::Uuid::new_v4()),
+                active_partnership_id: None,
+            }),
             Err(PartyRowMappingError::PartyId(_))
+        ));
+    }
+
+    #[test]
+    fn should_reject_wrong_version_active_partnership_id_for_summary_mapping() {
+        assert!(matches!(
+            PartySummary::try_from(PartySummaryRow {
+                party: row(uuid::Uuid::now_v7()),
+                active_partnership_id: Some(uuid::Uuid::new_v4()),
+            }),
+            Err(PartyRowMappingError::PartnershipId(_))
         ));
     }
 }

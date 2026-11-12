@@ -10,6 +10,7 @@ auction-core = { workspace = true }
 auction-service = { workspace = true }
 domain-primitives = { workspace = true }
 listing-source-core = { workspace = true }
+party-core = { workspace = true }
 localization = { workspace = true }
 platform-postgres = { workspace = true }
 serde_json = { workspace = true }

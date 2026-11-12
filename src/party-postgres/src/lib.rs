@@ -3,6 +3,7 @@ mod readers;
 mod repositories;
 
 pub use readers::SqlxPartyLocationManagerReaderFactory;
+pub use readers::SqlxPartyPartnershipReaderFactory;
 pub use readers::SqlxPartySearchReaderFactory;
 pub use repositories::SqlxPartyRepositoryFactory;
 mod locations;

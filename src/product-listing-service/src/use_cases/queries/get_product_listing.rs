@@ -1,5 +1,5 @@
 use crate::listing_text::ListingText;
-use crate::ports::ListingSourceSummary;
+use crate::ports::{ListingSourceOperatorSummary, ListingSourceSummary};
 use crate::ports::{
     PersonalizedProductListingDetailsReadModel, ProductListingAuctionSummary,
     ProductListingDetailsReadError, ProductListingDetailsReadRequest, ProductListingDetailsReader,
@@ -477,6 +477,11 @@ pub fn redact_hidden_product(
             .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
         slug_id: ListingSourceSlugId::raw("hidden")
             .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+        operator: ListingSourceOperatorSummary {
+            name: party_core::party_name::PartyName::try_from("Hidden")
+                .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+            partner: false,
+        },
     };
     details.source_listing_id =
         SourceListingId::try_from("00000000-0000-0000-0000-000000000000")
@@ -850,6 +855,11 @@ mod tests {
                         }),
                     slug_id: ListingSourceSlugId::raw("source")
                         .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                    operator: crate::ports::ListingSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator")
+                            .unwrap_or_else(|error| panic!("valid test operator name: {error}")),
+                        partner: false,
+                    },
                 },
                 source_listing_id: SourceListingId::try_from("cabinet-1")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
@@ -1130,6 +1140,7 @@ mod tests {
         let state = state();
         let user_id = UserId::new();
         let mut details = factual_details()?;
+        details.item.source.operator.partner = true;
         let product_listing_id = details.item.product_listing_id;
         let lifecycle = details.item.lifecycle;
         let mut user_state = ProductListingUserState::default();
@@ -1147,6 +1158,8 @@ mod tests {
 
         assert_eq!(product_listing_id, result.item.product_listing_id);
         assert_eq!(None, result.item.product_listing_title_slug_id);
+        assert_eq!("Hidden", result.item.source.operator.name.as_ref());
+        assert!(!result.item.source.operator.partner);
         assert_eq!(None, result.item.availability);
         assert_eq!(lifecycle, result.item.lifecycle);
         assert_eq!(ProductListingPricing::default(), result.item.pricing.source);

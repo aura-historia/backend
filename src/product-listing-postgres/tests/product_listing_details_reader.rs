@@ -95,6 +95,35 @@ async fn should_select_requested_translations_independently_and_preserve_origina
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_mark_operator_as_partner_only_while_its_partnership_is_active() {
+    let pool = get_postgres_client().await;
+    let active = persist_product(&pool, "details-partner-active", None, None).await;
+    let dissolved = persist_product(&pool, "details-partner-dissolved", None, None).await;
+    let unrelated = persist_product(&pool, "details-partner-none", None, None).await;
+    insert_operator_partnership(&pool, active.listing_source_id(), "ACTIVE").await;
+    insert_operator_partnership(&pool, dissolved.listing_source_id(), "DISSOLVED").await;
+
+    for (product, operator_name, partner) in [
+        (&active, "details-partner-active-source party", true),
+        (&dissolved, "details-partner-dissolved-source party", false),
+        (&unrelated, "details-partner-none-source party", false),
+    ] {
+        let view = find_details(
+            &pool,
+            ProductListingDetailsReadRequest {
+                lookup: ProductListingLookup::ById(product.id()),
+                language: Language::En,
+                user_id: None,
+            },
+        )
+        .await;
+
+        assert_eq!(operator_name, view.source.operator.name.as_ref());
+        assert_eq!(partner, view.source.operator.partner);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_derive_partnerize_view_url_without_changing_raw_product_url() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-referral", None, None).await;
@@ -873,6 +902,23 @@ fn sample_product(
         Ok(product) => product,
         Err(error) => panic!("failed to create product: {error}"),
     }
+}
+
+async fn insert_operator_partnership(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+    business_state: &str,
+) {
+    sqlx::query(
+        "INSERT INTO partnerships (partnership_id, party_id, business_state) \
+         SELECT $1, operator_party_id, $3 FROM listing_sources WHERE listing_source_id = $2",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(listing_source_id.into_uuid())
+    .bind(business_state)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed operator partnership: {error}"));
 }
 
 async fn seed_listing_source(pool: &sqlx::PgPool, slug: &str) -> ListingSourceId {

@@ -1,4 +1,5 @@
 use crate::{
+    listing_source_operator::listing_source_operator,
     object_id::{PersistedObjectIdError, try_from_uuid},
     product_listing_auction::{
         JoinedAuctionParts, ProductListingAuctionParts, auction_from_parts, map_joined_auction,
@@ -60,6 +61,8 @@ pub(super) struct ProductListingDetailsRow {
     listing_source_name: String,
     listing_source_slug_id: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
+    listing_source_operator_name: String,
+    listing_source_operator_partner: bool,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -223,6 +226,9 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
         listing_source.name AS listing_source_name,
         listing_source.listing_source_slug_id,
         listing_source.referral_configuration AS listing_source_referral_configuration,
+        listing_source_operator.name AS listing_source_operator_name,
+        listing_source_operator_partnership.partnership_id IS NOT NULL
+            AS listing_source_operator_partner,
         p.title_text AS product_title_text, p.title_language AS product_title_language,
         p.description_text AS product_description_text,
         p.description_language AS product_description_language,
@@ -259,6 +265,11 @@ pub(super) const SELECT_PRODUCT_DETAILS: &str = r#"
     FROM product_listings p
     JOIN listing_sources listing_source
         ON listing_source.listing_source_id = p.listing_source_id
+    JOIN parties listing_source_operator
+        ON listing_source_operator.party_id = listing_source.operator_party_id
+    LEFT JOIN partnerships listing_source_operator_partnership
+        ON listing_source_operator_partnership.party_id = listing_source.operator_party_id
+        AND listing_source_operator_partnership.business_state = 'ACTIVE'
     LEFT JOIN auctions a
         ON a.auction_id = p.auction_id
 
@@ -484,6 +495,11 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                     name: ListingSourceName::try_from(row.listing_source_name).map_err(|_| ())?,
                     slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
                         .map_err(|_| ())?,
+                    operator: listing_source_operator(
+                        row.listing_source_operator_name,
+                        row.listing_source_operator_partner,
+                    )
+                    .map_err(|_| ())?,
                 },
                 source_listing_id,
                 title,

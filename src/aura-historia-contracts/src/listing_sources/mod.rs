@@ -12,6 +12,7 @@ use listing_source_service::use_cases::queries::{
         SearchPublicListingSourcesRequestError, SearchPublicListingSourcesResult,
     },
 };
+use party_core::party_name::PartyName;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -120,9 +121,10 @@ impl From<PublicListingSourceSummary> for PublicListingSourceData {
             listing_source_id: value.listing_source_id,
             listing_source_slug_id: value.listing_source_slug_id.to_string(),
             name: value.name.to_string(),
-            operator: PublicListingSourceOperatorData {
-                name: value.operator.name.to_string(),
-            },
+            operator: PublicListingSourceOperatorData::new(
+                &value.operator.name,
+                value.operator.partner,
+            ),
             url,
             view_url,
             image: value.image,
@@ -130,10 +132,24 @@ impl From<PublicListingSourceSummary> for PublicListingSourceData {
     }
 }
 
+/// The Party that operates a ListingSource, as shown wherever a source is presented publicly.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-struct PublicListingSourceOperatorData {
+pub struct PublicListingSourceOperatorData {
     name: String,
+    /// `true` while the operator Party has an active Aura Historia Partnership, otherwise
+    /// `false`, including after a Partnership is dissolved. Unrelated to ingestion methods and
+    /// referral configuration.
+    partner: bool,
+}
+
+impl PublicListingSourceOperatorData {
+    pub fn new(name: &PartyName, partner: bool) -> Self {
+        Self {
+            name: name.as_ref().to_owned(),
+            partner,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

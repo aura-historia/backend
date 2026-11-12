@@ -24335,6 +24335,7 @@ components:
         - partySlugId
         - name
         - contact
+        - partner
         - created
         - updated
       properties:
@@ -24350,6 +24351,12 @@ components:
           description: Party name.
         contact:
           $ref: "#/components/schemas/PartyContactData"
+        partner:
+          type: boolean
+          description: "`true` while the Party has an active Aura Historia Partnership, otherwise `false`, including after a Partnership is dissolved."
+        partnershipId:
+          type: string
+          description: The Party's active Partnership (`psh_` TypeID). Present exactly when `partner` is `true`; see `/v1/admin/partnerships/{partnershipId}`.
         created:
           type: string
           format: date-time
@@ -24393,6 +24400,7 @@ components:
         - partySlugId
         - name
         - contact
+        - partner
         - created
         - updated
       properties:
@@ -24408,6 +24416,12 @@ components:
           description: Party name.
         contact:
           $ref: "#/components/schemas/PartyContactData"
+        partner:
+          type: boolean
+          description: "`true` while the Party has an active Aura Historia Partnership, otherwise `false`, including after a Partnership is dissolved."
+        partnershipId:
+          type: string
+          description: The Party's active Partnership (`psh_` TypeID). Present exactly when `partner` is `true`; see `/v1/admin/partnerships/{partnershipId}`.
         created:
           type: string
           format: date-time
@@ -26012,12 +26026,17 @@ components:
           example: ada-antiques
     PublicListingSourceOperatorData:
       type: object
+      description: The Party that operates a ListingSource, wherever a ListingSource is presented.
       required:
         - name
+        - partner
       properties:
         name:
           type: string
           description: Original display name of the ListingSource operator Party. The operator is not a seller resource.
+        partner:
+          type: boolean
+          description: "`true` while the operator Party has an active Aura Historia Partnership, otherwise `false`, including after a Partnership is dissolved. Read from current Partnership state on every request; unrelated to ingestion methods (`PARTNER_API`) and referral configuration."
     PublicListingSourceData:
       type: object
       description: Allowlisted public ListingSource card used by public collection search, exact slug lookup and the `listingSources` of a saved search filter. It omits Party identifiers/contact, ingestion/provider/referral configuration, timestamps, versions, and search metadata. The only trace of the referral configuration is `viewUrl`.
@@ -26363,6 +26382,7 @@ components:
         - partyId
         - partySlugId
         - name
+        - partner
       properties:
         partyId:
           type: string
@@ -26370,6 +26390,12 @@ components:
           type: string
         name:
           type: string
+        partner:
+          type: boolean
+          description: "`true` while the operator Party has an active Aura Historia Partnership, otherwise `false`, including after a Partnership is dissolved. Read from current Partnership state on every request; unrelated to ingestion methods (`PARTNER_API`) and referral configuration."
+        partnershipId:
+          type: string
+          description: The operator Party's active Partnership (`psh_` TypeID). Present exactly when `partner` is `true`; see `/v1/admin/partnerships/{partnershipId}`.
     ListingSourceOperatorInputData:
       oneOf:
         - type: object
@@ -26754,7 +26780,7 @@ components:
     PublicAuctionSourceData:
       type: object
       additionalProperties: false
-      required: [listingSourceId, name, slugId]
+      required: [listingSourceId, name, slugId, operator]
       properties:
         listingSourceId:
           type: string
@@ -26762,6 +26788,8 @@ components:
           type: string
         slugId:
           type: string
+        operator:
+          $ref: "#/components/schemas/PublicListingSourceOperatorData"
     AdminAuctionSearchCollectionData:
       type: object
       additionalProperties: false
@@ -26938,6 +26966,7 @@ components:
         - listingSourceId
         - name
         - slugId
+        - operator
       properties:
         listingSourceId:
           type: string
@@ -26945,6 +26974,8 @@ components:
           type: string
         slugId:
           type: string
+        operator:
+          $ref: "#/components/schemas/PublicListingSourceOperatorData"
     UserAddressId:
       type: string
       pattern: ^uaddr_[0-7][0-9a-hjkmnp-tv-z]{25}$
@@ -28014,10 +28045,13 @@ components:
         distanceKm: {type: number, minimum: 0}
     PublicPartyLocationData:
       type: object
-      required: [partyId, partyName, locationId, label, basis]
+      required: [partyId, partyName, partyPartner, locationId, label, basis]
       properties:
         partyId: {type: string}
         partyName: {type: string}
+        partyPartner:
+          type: boolean
+          description: "`true` while the Party has an active Aura Historia Partnership, otherwise `false`, including after a Partnership is dissolved."
         locationId: {type: string}
         label: {type: string}
         basis: {type: string, enum: [CALLER_ASSERTED, ACCEPTED_DERIVED, MIXED_ASSERTED_AND_DERIVED]}

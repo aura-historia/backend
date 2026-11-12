@@ -219,6 +219,7 @@ fn should_preserve_saved_search_response_and_match_snapshot_schemas() {
         name: listing_source_core::ListingSourceName::try_from("Referenced").unwrap(),
         operator: PublicListingSourceOperatorSummary {
             name: "Operator".try_into().unwrap(),
+            partner: false,
         },
         website: None,
         image: None,
@@ -234,7 +235,7 @@ fn should_preserve_saved_search_response_and_match_snapshot_schemas() {
             "listingSourceId": listing_source.listing_source_id,
             "listingSourceSlugId": "referenced",
             "name": "Referenced",
-            "operator": {"name": "Operator"}
+            "operator": {"name": "Operator", "partner": false}
         }]),
         value["listingSources"]
     );

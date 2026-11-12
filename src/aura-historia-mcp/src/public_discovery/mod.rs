@@ -621,6 +621,7 @@ mod tests {
                 name: ListingSourceName::try_from("Museum Source").unwrap(),
                 operator: PublicListingSourceOperatorSummary {
                     name: PartyName::try_from("Museum Operator").unwrap(),
+                    partner: false,
                 },
                 website: Some(PublicListingSourceWebsite {
                     url: "https://museum.example.test/".parse().unwrap(),

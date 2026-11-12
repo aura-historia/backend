@@ -13,6 +13,7 @@ listing-source-core = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 party-core = { workspace = true }
+partnership-core = { workspace = true }
 party-service = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }

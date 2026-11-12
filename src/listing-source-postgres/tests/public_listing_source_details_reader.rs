@@ -166,6 +166,44 @@ async fn should_find_existing_ids_ordered_by_id_and_omit_unknown_ids() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_mark_operator_as_partner_only_while_its_partnership_is_active() {
+    let pool = get_postgres_client().await;
+    let mut sources = Vec::new();
+    for (slug, business_state, partner) in [
+        ("partner-active", Some("ACTIVE"), true),
+        ("partner-dissolved", Some("DISSOLVED"), false),
+        ("partner-none", None, false),
+    ] {
+        let party_id = uuid::Uuid::now_v7();
+        insert_party(&pool, party_id, &format!("{slug}-operator"), slug).await;
+        if let Some(business_state) = business_state {
+            insert_partnership(&pool, party_id, business_state).await;
+        }
+        let source_id = uuid::Uuid::now_v7();
+        insert_source(&pool, source_id, slug, slug, party_id, None, None).await;
+        sources.push((source_id, slug, partner));
+    }
+    let ids = sources
+        .iter()
+        .map(|(id, _, _)| ListingSourceId::try_from(*id).unwrap_or_else(|error| panic!("{error}")))
+        .collect::<Vec<_>>();
+
+    let by_ids = read_ids(&pool, &ids).await;
+
+    for (source_id, slug, partner) in sources {
+        let by_slug = read(&pool, slug)
+            .await
+            .unwrap_or_else(|| panic!("{slug} should exist"));
+        assert_eq!(partner, by_slug.operator.partner, "{slug} by slug");
+        let by_id = by_ids
+            .iter()
+            .find(|summary| *summary.listing_source_id.as_uuid() == source_id)
+            .unwrap_or_else(|| panic!("{slug} should be found by ID"));
+        assert_eq!(partner, by_id.operator.partner, "{slug} by ID");
+    }
+}
+
 async fn read_ids(pool: &sqlx::PgPool, ids: &[ListingSourceId]) -> Vec<PublicListingSourceSummary> {
     let unit_of_work = SqlxUnitOfWork::new(pool.clone());
     let mut transaction = unit_of_work
@@ -210,6 +248,18 @@ async fn try_read(
         .await
         .unwrap_or_else(|error| panic!("commit detail reader transaction: {error}"));
     result
+}
+
+async fn insert_partnership(pool: &sqlx::PgPool, party_id: uuid::Uuid, business_state: &str) {
+    sqlx::query(
+        "INSERT INTO partnerships (partnership_id, party_id, business_state) VALUES ($1, $2, $3)",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(party_id)
+    .bind(business_state)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert test partnership: {error}"));
 }
 
 async fn insert_party(pool: &sqlx::PgPool, id: uuid::Uuid, slug: &str, name: &str) {

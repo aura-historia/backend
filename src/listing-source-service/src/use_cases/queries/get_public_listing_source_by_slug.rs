@@ -298,6 +298,7 @@ mod tests {
             name: ListingSourceName::try_from("Source")?,
             operator: PublicListingSourceOperatorSummary {
                 name: PartyName::try_from("Operator")?,
+                partner: false,
             },
             website: None,
             image: None,

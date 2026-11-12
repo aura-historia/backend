@@ -6,6 +6,7 @@ use application::operation_context::{
 use application::pagination::{Cursor, KeysetCursor, ScopeBinding, SortKey};
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::sort::{Sort, SortOrder};
+use partnership_core::partnership_id::PartnershipId;
 use party_core::party::PartyContact;
 use party_core::party_id::PartyId;
 use party_core::party_name::PartyName;
@@ -99,6 +100,8 @@ pub struct PartySummary {
     pub party_slug_id: PartySlugId,
     pub name: PartyName,
     pub contact: PartyContact,
+    /// The Party's active Partnership; present exactly when the Party is a partner.
+    pub partnership_id: Option<PartnershipId>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }

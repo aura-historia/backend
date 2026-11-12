@@ -1,7 +1,10 @@
 use localization::Language;
 use std::collections::HashMap;
 
-use crate::{object_id::try_from_uuid, url::referral_configuration};
+use crate::{
+    listing_source_operator::listing_source_operator, object_id::try_from_uuid,
+    url::referral_configuration,
+};
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 use listing_source_core::{ListingSourceName, ListingSourceSlugId, outbound_url};
@@ -49,6 +52,8 @@ struct SourceRow {
     listing_source_slug_id: String,
     listing_source_name: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
+    listing_source_operator_name: String,
+    listing_source_operator_partner: bool,
     title_text: Option<String>,
     title_language: Option<String>,
     product_images: serde_json::Value,
@@ -147,6 +152,9 @@ impl ProductListingWatchlistNotificationSourceReader
                 product.lifecycle, product.product_listing_title_slug_id, product.listing_source_id, product.source_listing_id,
                 listing_source.listing_source_slug_id, listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
+                listing_source_operator.name AS listing_source_operator_name,
+                listing_source_operator_partnership.partnership_id IS NOT NULL
+                    AS listing_source_operator_partner,
                 product.title_text, product.title_language, product.product_images,
                 assessment.decision AS content_policy_decision,
                 assessment.category AS content_policy_category,
@@ -155,6 +163,11 @@ impl ProductListingWatchlistNotificationSourceReader
             JOIN product_listings product ON product.product_listing_id = event.product_listing_id
             JOIN listing_sources listing_source
               ON listing_source.listing_source_id = product.listing_source_id
+            JOIN parties listing_source_operator
+              ON listing_source_operator.party_id = listing_source.operator_party_id
+            LEFT JOIN partnerships listing_source_operator_partnership
+              ON listing_source_operator_partnership.party_id = listing_source.operator_party_id
+             AND listing_source_operator_partnership.business_state = 'ACTIVE'
             LEFT JOIN product_listing_content_assessments assessment
                 ON assessment.product_listing_id = product.product_listing_id
                 AND assessment.source_event_id = product.content_source_event_id
@@ -238,6 +251,11 @@ impl ProductListingWatchlistNotificationSourceReader
                         .map_err(WatchlistNotificationSourceMappingError::with_source)?,
                     slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
                         .map_err(WatchlistNotificationSourceMappingError::with_source)?,
+                    operator: listing_source_operator(
+                        row.listing_source_operator_name,
+                        row.listing_source_operator_partner,
+                    )
+                    .map_err(WatchlistNotificationSourceMappingError::with_source)?,
                 },
                 source_listing_id: SourceListingId::try_from(row.source_listing_id)
                     .map_err(WatchlistNotificationSourceMappingError::with_source)?,

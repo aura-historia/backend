@@ -373,6 +373,28 @@ async fn admin_image_reordering_commits_one_event_and_advances_embedding_source(
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn admin_reads_hydrate_operator_partner_status() {
+    let pool = get_postgres_client().await;
+    let id = seed(&pool, None, "operator-partner").await;
+    let source = detail(&pool, id).await.summary.source.listing_source_id;
+    assert!(!detail(&pool, id).await.summary.source.operator.partner);
+    sqlx::query(
+        "INSERT INTO partnerships (partnership_id, party_id, business_state) \
+         SELECT $1, operator_party_id, 'ACTIVE' FROM listing_sources WHERE listing_source_id = $2",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(source.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let operator = detail(&pool, id).await.summary.source.operator;
+
+    assert_eq!("Admin fixture", operator.name.as_ref());
+    assert!(operator.partner);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn admin_directory_uses_source_scope_literals_and_timestamp_ties() {
     use application::pagination::Cursor;
     use domain_primitives::sort::SortOrder;

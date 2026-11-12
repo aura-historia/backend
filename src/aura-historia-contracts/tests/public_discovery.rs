@@ -149,13 +149,14 @@ fn should_expose_exact_public_source_fields_and_omit_absent_images_and_urls() {
         name: ListingSourceName::try_from("Museum Source").unwrap(),
         operator: PublicListingSourceOperatorSummary {
             name: PartyName::try_from("Museum Operator").unwrap(),
+            partner: true,
         },
         website: None,
         image: None,
     };
     let detail = output(PublicListingSourceData::from(source.clone()));
     assert_eq!(
-        json!({"listingSourceId":source_id(),"listingSourceSlugId":"museum-source","name":"Museum Source","operator":{"name":"Museum Operator"}}),
+        json!({"listingSourceId":source_id(),"listingSourceSlugId":"museum-source","name":"Museum Source","operator":{"name":"Museum Operator","partner":true}}),
         detail
     );
     let collection = output(PublicListingSourceSearchCollectionData::new(
@@ -188,6 +189,7 @@ fn should_expose_view_url_next_to_url_when_the_source_has_a_website() {
         name: ListingSourceName::try_from("Museum Source").unwrap(),
         operator: PublicListingSourceOperatorSummary {
             name: PartyName::try_from("Museum Operator").unwrap(),
+            partner: false,
         },
         website: Some(PublicListingSourceWebsite {
             url: "https://museum.example.test/".parse().unwrap(),
@@ -203,7 +205,7 @@ fn should_expose_view_url_next_to_url_when_the_source_has_a_website() {
             "listingSourceId": source_id(),
             "listingSourceSlugId": "museum-source",
             "name": "Museum Source",
-            "operator": {"name": "Museum Operator"},
+            "operator": {"name": "Museum Operator", "partner": false},
             "url": "https://museum.example.test/",
             "viewUrl": "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral",
         }),
@@ -254,6 +256,7 @@ fn should_keep_all_public_location_context_and_cursor_fields_in_output_schema() 
             ),
             basis: "ACCEPTED_DERIVED",
             distance_km: Some(23.5),
+            party_partner: true,
         }],
         total: None,
         cursor: Cursor {
@@ -266,7 +269,7 @@ fn should_keep_all_public_location_context_and_cursor_fields_in_output_schema() 
     };
     let result = output(DiscoverPartyLocationsResultData::from(result));
     assert_eq!(
-        json!({"items":[{"partyId":"pty_01h455vb4pex5vy7enb1p677vn","partyName":"Museum Operator","locationId":location_id(),"label":"Gallery","country":"DE","subdivision":"DE-BY","point":{"latitude":48.137,"longitude":11.575},"basis":"ACCEPTED_DERIVED","precision":"LOCALITY","distanceKm":23.5}],"size":1,"searchAfter":{"locationId":location_id(),"distanceKm":23.5}}),
+        json!({"items":[{"partyId":"pty_01h455vb4pex5vy7enb1p677vn","partyName":"Museum Operator","partyPartner":true,"locationId":location_id(),"label":"Gallery","country":"DE","subdivision":"DE-BY","point":{"latitude":48.137,"longitude":11.575},"basis":"ACCEPTED_DERIVED","precision":"LOCALITY","distanceKm":23.5}],"size":1,"searchAfter":{"locationId":location_id(),"distanceKm":23.5}}),
         result
     );
 }

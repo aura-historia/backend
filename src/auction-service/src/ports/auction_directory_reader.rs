@@ -78,6 +78,7 @@ pub struct PublicAuctionDirectorySourceSummary {
     pub listing_source_id: ListingSourceId,
     pub slug_id: ListingSourceSlugId,
     pub name: ListingSourceName,
+    pub operator: super::AuctionSourceOperatorSummary,
 }
 
 /// Compact public Auction data for the directory.

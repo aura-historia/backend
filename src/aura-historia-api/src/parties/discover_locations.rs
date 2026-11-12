@@ -90,6 +90,7 @@ mod tests {
                     ),
                     basis: "ACCEPTED_DERIVED",
                     distance_km: None,
+                    party_partner: false,
                 }],
             })
         }

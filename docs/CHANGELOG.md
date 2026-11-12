@@ -2,6 +2,16 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-12 — Partner status on listings, sources and parties
+
+- Every payload that presents a ListingSource now states whether its operator Party is an Aura Historia partner. `operator.partner` is `true` while the Party has an active Partnership and `false` otherwise, including after a Partnership is dissolved. It is unrelated to the `PARTNER_API` ingestion method and to referral configuration.
+- `ProductListingSourceData` (the `source` of every ProductListing summary, detail and collection item, including watchlist, saved-search matches, auction catalogues and the admin and partner management directories) has a new required `operator` with `name` and `partner`. The MCP product-listing tools return it as well.
+- `PublicListingSourceOperatorData` (public ListingSource search, by-slug lookup and the `listingSources` cards of saved search filters, REST and MCP) has a new required `partner`.
+- `PublicAuctionSourceData` (`listingSource` of the public auction directory and detail, REST and MCP) has a new required `operator` with `name` and `partner`.
+- `PublicPartyLocationData` (`GET /v1/party-locations`) has a new required `partyPartner`.
+- Administrators: `OperatorPartyData` (admin ListingSource detail and search), `PartyData` and `PartySummaryData` (admin Party create, detail, update and search) have a new required `partner` and an optional `partnershipId`, present exactly when `partner` is `true`.
+- Partner status is read from current Partnership state. Approving or dissolving a Partnership is reflected once the shared response caches expire. Request shapes are unchanged.
+
 ## 2026-11-11 — Provider names on search filters (#2902)
 
 - `UserSearchFilterData` has a new required, read-only `listingSources`: the `PublicListingSourceData` cards of every ListingSource that `search.listingSourceId` or `search.excludeListingSourceId` references, one per ID, ordered by `listingSourceId`, so clients can show provider names without further requests. An ID whose source no longer exists stays in `search` but has no card; the list is empty when the filter references no sources. It is returned by `GET /v1/me/search-filters`, `GET /v1/me/search-filters/{userSearchFilterId}`, `POST /v1/me/search-filters` and `PATCH /v1/me/search-filters/{userSearchFilterId}`, and by the MCP tools `getUserSearchFilters`, `getUserSearchFilter`, `createUserSearchFilter` and `updateUserSearchFilter`, whose descriptions now carry the `viewUrl` guidance. Request bodies are unchanged; the field cannot be set.

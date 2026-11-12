@@ -1,3 +1,4 @@
+use crate::listing_sources::PublicListingSourceOperatorData;
 use crate::shipping::listing::{
     ListingShippingDetailData, ListingShippingProjection, ListingShippingSummaryData,
     PersonalizedShippingDetailData, PersonalizedShippingSummaryData,
@@ -187,6 +188,7 @@ struct ListingSourceSummaryData {
     listing_source_id: ListingSourceId,
     name: String,
     slug_id: String,
+    operator: PublicListingSourceOperatorData,
 }
 
 impl From<ListingSourceSummary> for ListingSourceSummaryData {
@@ -195,6 +197,10 @@ impl From<ListingSourceSummary> for ListingSourceSummaryData {
             listing_source_id: source.listing_source_id,
             name: source.name.as_ref().to_owned(),
             slug_id: source.slug_id.to_string(),
+            operator: PublicListingSourceOperatorData::new(
+                &source.operator.name,
+                source.operator.partner,
+            ),
         }
     }
 }
@@ -830,5 +836,31 @@ mod tests {
             product_listing_service::use_cases::ProductListingImageView { url: None },
         );
         assert_eq!(data.url, None);
+    }
+
+    #[test]
+    fn should_serialize_listing_source_operator_partner_status()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let listing_source_id = ListingSourceId::new();
+        let source = ListingSourceSummary {
+            listing_source_id,
+            name: listing_source_core::ListingSourceName::try_from("Ada Antiques")?,
+            slug_id: listing_source_core::ListingSourceSlugId::raw("ada-antiques")?,
+            operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                name: party_core::party_name::PartyName::try_from("Ada Antiques GmbH")?,
+                partner: true,
+            },
+        };
+
+        assert_eq!(
+            serde_json::json!({
+                "listingSourceId": listing_source_id,
+                "name": "Ada Antiques",
+                "slugId": "ada-antiques",
+                "operator": {"name": "Ada Antiques GmbH", "partner": true}
+            }),
+            serde_json::to_value(ListingSourceSummaryData::from(source))?
+        );
+        Ok(())
     }
 }

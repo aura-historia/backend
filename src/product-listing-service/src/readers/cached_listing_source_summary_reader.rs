@@ -484,6 +484,7 @@ fn accounted_bytes(value: &ListingSourceSummaryWithReferral) -> usize {
     FIXED_ENTRY_ACCOUNTED_BYTES
         .saturating_add(value.summary.name.as_ref().len())
         .saturating_add(value.summary.slug_id.as_ref().len())
+        .saturating_add(value.summary.operator.name.as_ref().len())
         .saturating_add(referral_bytes)
 }
 
@@ -601,6 +602,10 @@ mod tests {
                 listing_source_id: id,
                 name: ListingSourceName::try_from("Source")?,
                 slug_id: ListingSourceSlugId::raw("source")?,
+                operator: crate::ports::ListingSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator")?,
+                    partner: false,
+                },
             },
             referral_configuration,
         })
@@ -1054,6 +1059,20 @@ mod tests {
         assert_eq!(
             vec![vec![first], vec![second], vec![first]],
             reader.requests()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn should_account_operator_name_when_admitting_entry() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let short = summary(ListingSourceId::new(), None)?;
+        let mut long = short.clone();
+        long.summary.operator.name = party_core::party_name::PartyName::try_from("O".repeat(200))?;
+
+        assert_eq!(
+            accounted_bytes(&short) + 200 - "Operator".len(),
+            accounted_bytes(&long)
         );
         Ok(())
     }

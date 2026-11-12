@@ -182,6 +182,10 @@ mod tests {
                         listing_source_id: request.listing_source_id.unwrap_or_default(),
                         slug_id: ListingSourceSlugId::raw("source").unwrap(),
                         name: ListingSourceName::try_from("Source").unwrap(),
+                        operator: auction_service::ports::AuctionSourceOperatorSummary {
+                            name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                            partner: false,
+                        },
                     },
                     name: None,
                     format: request.format,
@@ -244,6 +248,10 @@ mod tests {
                     name: ListingSourceName::try_from("Source").unwrap(),
                     slug_id: ListingSourceSlugId::raw("source").unwrap(),
                     referral_configuration: None,
+                    operator: auction_service::ports::AuctionSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                        partner: false,
+                    },
                 },
                 name: None,
                 catalogue_url: Some(url::Url::parse("https://example.test/catalogue").unwrap()),
@@ -313,6 +321,10 @@ mod tests {
                 listing_source_id: ListingSourceId::new(),
                 name: ListingSourceName::try_from("Source").unwrap(),
                 slug_id: ListingSourceSlugId::raw("source").unwrap(),
+                operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                    partner: false,
+                },
             },
             source_listing_id: product_listing_core::source_listing_id::SourceListingId::try_from(
                 "lot-1",

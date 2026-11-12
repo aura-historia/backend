@@ -13,6 +13,7 @@ use listing_source_core::{
     ListingSourceSearch, ListingSourceSlugId, ListingSourceType, PlatformTechnology,
     ReferralConfiguration, SortListingSourceField,
 };
+use partnership_core::partnership_id::PartnershipId;
 use party_core::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
 use time::OffsetDateTime;
 use user_service::use_cases::queries::check_user_admin::{
@@ -116,6 +117,8 @@ pub struct ListingSourceOperatorSummary {
     pub party_id: PartyId,
     pub party_slug_id: PartySlugId,
     pub name: PartyName,
+    /// The Party's active Partnership; present exactly when the operator is a partner.
+    pub partnership_id: Option<PartnershipId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1395,11 +1395,13 @@ async fn app_state_from_config_and_runtime(
     let get_party = GetPartyHandler::new(
         unit_of_work.clone(),
         SqlxPartyRepositoryFactory::new(),
+        party_postgres::SqlxPartyPartnershipReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let update_party = UpdatePartyHandler::new(
         unit_of_work.clone(),
         SqlxPartyRepositoryFactory::new(),
+        party_postgres::SqlxPartyPartnershipReaderFactory::new(),
         CheckUserAdminHandler::new(unit_of_work.clone(), SqlxUserAdminReaderFactory::new()),
     );
     let delete_party = DeletePartyHandler::new(

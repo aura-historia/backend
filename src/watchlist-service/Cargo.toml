@@ -25,6 +25,7 @@ user-service = { workspace = true }
 watchlist-core = { workspace = true }
 
 [dev-dependencies]
+party-core = { workspace = true }
 product-listing-service = { workspace = true, features = ["test-data"] }
 listing-source-core = { workspace = true }
 serde-email = { workspace = true }

@@ -1150,6 +1150,13 @@ mod tests {
                                     .unwrap_or_else(|error| {
                                         panic!("valid test listing source slug: {error}")
                                     }),
+                                operator: crate::ports::ListingSourceOperatorSummary {
+                                    name: party_core::party_name::PartyName::try_from("Operator")
+                                        .unwrap_or_else(|error| {
+                                            panic!("valid test operator name: {error}")
+                                        }),
+                                    partner: false,
+                                },
                             },
                             referral_configuration: None,
                         },
@@ -1201,6 +1208,13 @@ mod tests {
                                     .unwrap_or_else(|error| {
                                         panic!("valid test listing source slug: {error}")
                                     }),
+                                operator: crate::ports::ListingSourceOperatorSummary {
+                                    name: party_core::party_name::PartyName::try_from("Operator")
+                                        .unwrap_or_else(|error| {
+                                            panic!("valid test operator name: {error}")
+                                        }),
+                                    partner: false,
+                                },
                             },
                             referral_configuration: None,
                         },
@@ -1457,6 +1471,11 @@ mod tests {
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 slug_id: listing_source_core::ListingSourceSlugId::raw("source")
                     .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                operator: crate::ports::ListingSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator")
+                        .unwrap_or_else(|error| panic!("valid test operator name: {error}")),
+                    partner: false,
+                },
             },
             view_url: item.url.clone(),
             item,
@@ -1606,6 +1625,10 @@ mod tests {
                 listing_source_id: source_id,
                 name: listing_source_core::ListingSourceName::try_from("Cached Source")?,
                 slug_id: listing_source_core::ListingSourceSlugId::raw("cached-source")?,
+                operator: crate::ports::ListingSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator")?,
+                    partner: true,
+                },
             },
             referral_configuration: None,
         })
@@ -1691,6 +1714,7 @@ mod tests {
             let anonymous = handler.execute(&context(), request()).await?;
             assert_eq!(listing_id, anonymous.items[0].item.product_listing_id);
             assert!(anonymous.items[0].item.images[0].url.is_none());
+            assert!(anonymous.items[0].item.source.operator.partner);
             assert!(lock_state(&users.state).requests.is_empty());
             assert_eq!(1, fx_calls.load(Ordering::SeqCst));
             assert_eq!(vec![vec![source_id]], *lock_state(&source_requests));
@@ -1750,6 +1774,8 @@ mod tests {
             assert!(hidden.items[0].item.product_listing_title_slug_id.is_none());
             assert!(hidden.items[0].item.images.is_empty());
             assert_eq!("Hidden", hidden.items[0].item.source.name.as_ref());
+            assert_eq!("Hidden", hidden.items[0].item.source.operator.name.as_ref());
+            assert!(!hidden.items[0].item.source.operator.partner);
 
             lock_state(&users.state).values.remove(&user_b);
             assert!(matches!(

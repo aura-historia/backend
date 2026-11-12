@@ -38,7 +38,8 @@ fn corrupt() -> DiscoverPartyLocationsError {
 // Provider payloads remain private; accepted evidence is decoded in a single batch below.
 const SELECT: &str = r#"
 WITH candidates AS (
- SELECT l.party_location_id, l.party_id, p.name AS party_name, l.label,
+ SELECT l.party_location_id, l.party_id, p.name AS party_name,
+ partnership.partnership_id IS NOT NULL AS party_partner, l.label,
  l.geography, l.position, l.revision, l.input_revision,
  CASE WHEN b.guard=l.revision AND b.input_revision=l.input_revision
  AND NOT r.erased
@@ -47,6 +48,8 @@ WITH candidates AS (
    (r.evidence->>'accepted_index')::integer)
  END AS accepted
  FROM party_locations l JOIN parties p ON p.party_id=l.party_id
+ LEFT JOIN partnerships partnership ON partnership.party_id=l.party_id
+ AND partnership.business_state='ACTIVE'
  LEFT JOIN geo_resolution_bindings b ON b.subject_kind='PARTY_LOCATION' AND b.subject_id=l.party_location_id
  LEFT JOIN geo_resolutions r ON r.resolution_id=b.resolution_id
  WHERE l.lifecycle='ACTIVE'
@@ -70,6 +73,7 @@ struct Row {
     party_location_id: uuid::Uuid,
     party_id: uuid::Uuid,
     party_name: String,
+    party_partner: bool,
     label: String,
     geography: Option<serde_json::Value>,
     position: Option<serde_json::Value>,
@@ -105,7 +109,7 @@ impl PartyLocationDiscoveryReader for Reader<'_> {
         } else {
             builder.push("NULL::double precision");
         }
-        builder.push(" AS distance_km FROM points) SELECT party_location_id, party_id, party_name, label, geography, position, revision, input_revision, country, subdivision, effective_position, distance_km FROM distances WHERE reference_release=")
+        builder.push(" AS distance_km FROM points) SELECT party_location_id, party_id, party_name, party_partner, label, geography, position, revision, input_revision, country, subdivision, effective_position, distance_km FROM distances WHERE reference_release=")
             .push_bind(q.reference_release().as_str());
         // Unresolved/empty locations cannot appear as geographic matches.
         builder.push(" AND (country IS NOT NULL OR subdivision IS NOT NULL OR effective_position IS NOT NULL)");
@@ -283,6 +287,7 @@ impl PartyLocationDiscoveryReader for Reader<'_> {
             items.push(PublicPartyLocation {
                 party_id: row.party_id.try_into().map_err(invalid)?,
                 party_name: row.party_name,
+                party_partner: row.party_partner,
                 location_id,
                 label: row.label,
                 country,

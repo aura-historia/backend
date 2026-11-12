@@ -41,7 +41,9 @@ pub use auction_catalogue_reader::{
     AuctionCatalogueCursor, AuctionCataloguePage, AuctionCatalogueReadError,
     AuctionCatalogueReadRequest, AuctionCatalogueReader, AuctionCatalogueReaderFactory,
 };
-pub use listing_source_summary::{ListingSourceSummary, ListingSourceSummaryWithReferral};
+pub use listing_source_summary::{
+    ListingSourceOperatorSummary, ListingSourceSummary, ListingSourceSummaryWithReferral,
+};
 pub use listing_source_summary_reader::{
     ListingSourceSummaryReadError, ListingSourceSummaryReader,
 };

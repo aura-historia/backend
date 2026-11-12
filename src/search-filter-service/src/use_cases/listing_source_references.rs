@@ -154,6 +154,7 @@ mod tests {
             name: ListingSourceName::try_from("Source").unwrap(),
             operator: PublicListingSourceOperatorSummary {
                 name: "Operator".try_into().unwrap(),
+                partner: false,
             },
             website: None,
             image: None,

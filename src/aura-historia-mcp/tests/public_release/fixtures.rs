@@ -219,6 +219,10 @@ impl GetPublicAuctionUseCase for Fixture {
                 name: ListingSourceName::try_from("Source").unwrap(),
                 slug_id: ListingSourceSlugId::raw("source").unwrap(),
                 referral_configuration: None,
+                operator: auction_service::ports::AuctionSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                    partner: false,
+                },
             },
             name: None,
             catalogue_url: Some("https://source.example.test/catalogue".parse().unwrap()),
@@ -314,6 +318,7 @@ fn public_source() -> PublicListingSourceSummary {
         name: ListingSourceName::try_from("Source").unwrap(),
         operator: PublicListingSourceOperatorSummary {
             name: PartyName::try_from("Source Operator").unwrap(),
+            partner: false,
         },
         website: Some(PublicListingSourceWebsite {
             url: "https://source.example.test".parse().unwrap(),
@@ -329,6 +334,10 @@ fn source() -> ListingSourceSummary {
         listing_source_id: "ls_01k6k0w000e008000000000002".parse().unwrap(),
         name: ListingSourceName::try_from("Source").unwrap(),
         slug_id: ListingSourceSlugId::raw("source").unwrap(),
+        operator: product_listing_service::ports::ListingSourceOperatorSummary {
+            name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+            partner: false,
+        },
     }
 }
 fn details_view() -> PersonalizedProductListingDetailsView {

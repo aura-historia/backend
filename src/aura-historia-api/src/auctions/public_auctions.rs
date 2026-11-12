@@ -358,6 +358,10 @@ mod tests {
                 name: listing_source_core::ListingSourceName::try_from("Source")
                     .unwrap_or_else(|error| panic!("valid source name: {error}")),
                 referral_configuration: None,
+                operator: auction_service::ports::AuctionSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                    partner: false,
+                },
             },
             name: None,
             catalogue_url: None,

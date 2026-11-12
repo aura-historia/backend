@@ -11,8 +11,8 @@ use listing_source_service::{
 use platform_postgres::SqlxTransaction;
 
 const STATEMENT_TIMEOUT: &str = "150ms";
-pub(super) const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE s.listing_source_slug_id = $1";
-const DETAILS_BY_IDS_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE s.listing_source_id = ANY($1) ORDER BY s.listing_source_id";
+pub(super) const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner, s.url, s.image, s.referral_configuration FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE s.listing_source_slug_id = $1";
+const DETAILS_BY_IDS_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner, s.url, s.image, s.referral_configuration FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE s.listing_source_id = ANY($1) ORDER BY s.listing_source_id";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPublicListingSourceDetailsReaderFactory;

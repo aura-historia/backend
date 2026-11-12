@@ -354,6 +354,7 @@ mod tests {
                 operator: listing_source_service::use_cases::queries::public_listing_source::PublicListingSourceOperatorSummary {
                     name: party_core::party_name::PartyName::try_from("Operator")
                         .unwrap_or_else(|error| panic!("valid operator name: {error}")),
+                        partner: false,
                 },
                 website: None,
                 image: None,

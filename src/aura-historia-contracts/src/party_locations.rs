@@ -73,6 +73,8 @@ pub struct PublicPartyLocationData {
     #[schemars(schema_with = "party_id_schema")]
     party_id: PartyId,
     party_name: String,
+    /// `true` while the Party has an active Aura Historia Partnership, otherwise `false`.
+    party_partner: bool,
     #[schemars(schema_with = "crate::wire::schema::party_location_id")]
     location_id: PartyLocationId,
     label: String,
@@ -104,6 +106,7 @@ impl From<PublicPartyLocation> for PublicPartyLocationData {
         Self {
             party_id: value.party_id,
             party_name: value.party_name,
+            party_partner: value.party_partner,
             location_id: value.location_id,
             label: value.label,
             basis: value.basis,
