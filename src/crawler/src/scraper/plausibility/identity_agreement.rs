@@ -137,12 +137,12 @@ mod tests {
     fn product(identity: &str) -> RawExtractedProduct {
         RawExtractedProduct {
             source_listing_id: identity.to_owned(),
-            title: "Georgian Mahogany Chair".to_owned(),
+            title: Some("Georgian Mahogany Chair".to_owned()),
             description: Vec::new(),
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: "Sold".to_owned(),
+            state: Some("Sold".to_owned()),
             images: Vec::new(),
             raw_attributes: Default::default(),
         }

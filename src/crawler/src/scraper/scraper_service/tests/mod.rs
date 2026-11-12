@@ -60,7 +60,6 @@ pub(super) fn primary_only_request(
         url: url.clone(),
         source_record_key: url.to_string(),
         last_source_listing_id: None,
-        last_captured_title: None,
         product_url_pattern: None,
         last_scraped_hash: None,
         last_scraped_schema_fingerprint: None,
@@ -133,7 +132,7 @@ pub(super) fn untitled_html() -> String {
 /// [`minimal_schema`] with the title rule of the template [`untitled_html`] follows.
 pub(super) fn item_title_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();
-    schema.title.selector = CssSelector::from("h1.item-title");
+    schema.title.as_mut().unwrap().selector = CssSelector::from("h1.item-title");
     schema
 }
 
@@ -169,13 +168,13 @@ pub(super) fn minimal_schema() -> ProductCssSelectorSchema {
 
     ProductCssSelectorSchema {
         source_listing_id: Some(text_rule("#product-id")),
-        title: text_rule("h1"),
+        title: Some(text_rule("h1")),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: text_rule("#state"),
-        images: attr_rule_all("img", "src"),
+        state: Some(text_rule("#state")),
+        images: Some(attr_rule_all("img", "src")),
         raw_attributes: Default::default(),
     }
 }

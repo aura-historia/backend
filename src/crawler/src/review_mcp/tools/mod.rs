@@ -34,7 +34,9 @@ pub struct ToolContext {
     pub(super) console: ConsoleClient,
     pub(super) polling: Polling,
     /// The `inspect_page` calls this process has left.
-    inspections: shared::InspectionBudget,
+    inspections: shared::CallBudget,
+    /// The `probe_selectors` calls this process has left.
+    probes: shared::CallBudget,
 }
 
 impl ToolContext {
@@ -42,7 +44,8 @@ impl ToolContext {
         Self {
             console,
             polling,
-            inspections: shared::InspectionBudget::default(),
+            inspections: shared::CallBudget::inspections(),
+            probes: shared::CallBudget::probes(),
         }
     }
 }
@@ -525,6 +528,7 @@ mod tests {
             "list_pending_reviews",
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -532,12 +536,14 @@ mod tests {
         let author = [
             "evaluate_candidate",
             "update_candidate",
+            "stage_and_check",
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
+            "label_source",
         ];
         let reviewer = ["approve", "reject"];
 
@@ -665,6 +671,7 @@ mod tests {
                 "check_approval",
                 "mark_needs_repair",
                 "update_candidate",
+                "label_source",
             ]
         );
         assert_eq!(
@@ -673,17 +680,20 @@ mod tests {
                 "list_pending_reviews",
                 "get_review",
                 "inspect_page",
+                "probe_selectors",
                 "refresh_matrix",
                 "check_approval",
                 "mark_needs_repair",
                 "evaluate_candidate",
                 "update_candidate",
+                "stage_and_check",
                 "update_schema_field",
                 "add_review_page",
                 "remove_review_page",
                 "mark_page_not_product",
                 "declare_removed_page",
                 "record_no_sold_page",
+                "label_source",
             ]
         );
         assert_eq!(
@@ -705,7 +715,8 @@ mod tests {
                 "inspect_page",
                 "check_approval",
                 "mark_needs_repair",
-                "update_candidate"
+                "update_candidate",
+                "label_source"
             ]
         );
     }

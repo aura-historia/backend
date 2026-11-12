@@ -24,6 +24,7 @@ pub const MAX_PROCESSES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES";
 pub const COOLDOWN_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_COOLDOWN_MINUTES";
 pub const PROCESS_TIMEOUT_MINUTES_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_PROCESS_TIMEOUT_MINUTES";
 pub const INTERVAL_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS";
+pub const CACHE_WARM_UP_SECONDS_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_CACHE_WARM_UP_SECONDS";
 pub const FIVE_HOUR_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT";
 pub const WEEKLY_SHARE_ENV: &str = "CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PERCENT";
 /// The model of an author process on a URL-pattern review, in place of the author's model, for
@@ -56,6 +57,10 @@ const DEFAULT_MAX_PROCESSES: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const DEFAULT_COOLDOWN_MINUTES: NonZeroU32 = NonZeroU32::new(180).unwrap();
 const DEFAULT_PROCESS_TIMEOUT_MINUTES: NonZeroU32 = NonZeroU32::new(60).unwrap();
 const DEFAULT_INTERVAL_SECONDS: NonZeroU32 = NonZeroU32::new(60).unwrap();
+/// How long the first process of a prompt prefix has to write it to the prompt cache before the
+/// others of that prefix start: the CLI's start plus one model request.
+const DEFAULT_CACHE_WARM_UP_SECONDS: u32 = 20;
+const MAX_CACHE_WARM_UP_SECONDS: u32 = 120;
 /// The share of the login's usage windows the agents take by default, leaving the rest to the
 /// people who use the same login.
 const DEFAULT_SHARE_PERCENT: u32 = 100;
@@ -111,6 +116,9 @@ pub struct RunnerSettings {
     pub interval: Duration,
     /// The shares of the login's five-hour and weekly usage windows the agents may take.
     pub pacing: UsagePacing,
+    /// How long processes of one prompt prefix wait for the pass's first one to write the prefix
+    /// to the prompt cache; zero starts them together.
+    pub cache_warm_up: Duration,
 }
 
 impl RunnerSettings {
@@ -248,6 +256,11 @@ impl RunnerSettings {
                 five_hour_share: read.share(FIVE_HOUR_SHARE_ENV)?,
                 weekly_share: read.share(WEEKLY_SHARE_ENV)?,
             },
+            cache_warm_up: Duration::from_secs(u64::from(read.seconds_up_to(
+                CACHE_WARM_UP_SECONDS_ENV,
+                DEFAULT_CACHE_WARM_UP_SECONDS,
+                MAX_CACHE_WARM_UP_SECONDS,
+            )?)),
         })
     }
 }
@@ -329,6 +342,23 @@ impl<F: Fn(&str) -> Option<String>> Reader<'_, F> {
             None => DEFAULT_SHARE_PERCENT,
         };
         Ok(f64::from(percent) / 100.0)
+    }
+
+    /// A whole number of seconds from 0 to `max`, `default` unless set.
+    fn seconds_up_to(
+        &self,
+        name: &str,
+        default: u32,
+        max: u32,
+    ) -> Result<u32, RunnerSettingsError> {
+        match (self.setting)(name) {
+            Some(value) => value
+                .parse::<u32>()
+                .ok()
+                .filter(|seconds| *seconds <= max)
+                .ok_or_else(|| invalid(name.to_owned(), value, "a whole number from 0 to 120")),
+            None => Ok(default),
+        }
     }
 
     fn positive(&self, name: &str) -> Result<Option<NonZeroU32>, RunnerSettingsError> {
@@ -474,6 +504,7 @@ mod tests {
 
         assert_eq!(read.mode, RunMode::Loop);
         assert_eq!(read.interval, Duration::from_secs(60));
+        assert_eq!(read.cache_warm_up, Duration::from_secs(20));
         assert_eq!(read.console.console_url.as_str(), "http://127.0.0.1:7878/");
         assert_eq!(
             read.console.token_file,
@@ -535,6 +566,7 @@ mod tests {
                 (COOLDOWN_MINUTES_ENV, "5"),
                 (PROCESS_TIMEOUT_MINUTES_ENV, "2"),
                 (INTERVAL_SECONDS_ENV, "30"),
+                (CACHE_WARM_UP_SECONDS_ENV, "0"),
                 (FIVE_HOUR_SHARE_ENV, "50"),
                 (WEEKLY_SHARE_ENV, "100"),
             ],
@@ -565,6 +597,7 @@ mod tests {
         assert_eq!(read.cooldown, Duration::from_secs(300));
         assert_eq!(read.process_timeout, Duration::from_secs(120));
         assert_eq!(read.interval, Duration::from_secs(30));
+        assert_eq!(read.cache_warm_up, Duration::ZERO);
         assert_eq!(read.pacing.five_hour_share, 0.5);
         assert_eq!(read.pacing.weekly_share, 1.0);
     }

@@ -18,6 +18,7 @@
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
+use super::cache_warm_up::CacheWarmUp;
 use super::context_use::ContextUse;
 use super::decision_cap::{
     CLOCK_MARGIN, DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended,
@@ -99,6 +100,7 @@ struct Pass<'a> {
 
 struct Shared {
     state: RunnerState,
+    cache_warm_up: CacheWarmUp,
     ledger: ProcessLedger,
     summary: PassSummary,
     ledger_error: Option<super::ledger::LedgerError>,
@@ -151,6 +153,7 @@ pub async fn work_pending_reviews(
         runner_stop,
         shared: Mutex::new(Shared {
             state,
+            cache_warm_up: CacheWarmUp::new(settings.cache_warm_up),
             ledger,
             summary: PassSummary::default(),
             ledger_error: None,
@@ -162,6 +165,7 @@ pub async fn work_pending_reviews(
         ledger,
         summary,
         ledger_error,
+        ..
     } = pass
         .shared
         .into_inner()
@@ -644,6 +648,7 @@ impl Pass<'_> {
     /// ended without being stopped, it reads the event trail for the verdict the console took and
     /// records that with the process, next to the report's own claim.
     async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Processed {
+        self.wait_for_cache_warm_up(role, review).await;
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Processed::of(Step::NotStarted);
@@ -659,13 +664,14 @@ impl Pass<'_> {
             review_id = %review.review_id,
             artifact_type = %review.artifact_type,
             role = role.as_str(),
-            prompt_version = contract.version,
+            prompt_sha256 = contract.prompt_sha256(review.artifact_type),
             model = %process.model,
             effort = effort_flag(process.effort),
             max_turns = process.max_turns.get(),
             "Starting a review agent process"
         );
-        let mut record = ProcessRecord::started(review, role, contract.version);
+        let mut record =
+            ProcessRecord::started(review, role, contract.prompt_sha256(review.artifact_type));
         let step = match agent_command(self.settings, role, review) {
             Ok(command) => {
                 let output = run_agent(
@@ -690,6 +696,31 @@ impl Pass<'_> {
         Processed {
             step,
             trail_verdict,
+        }
+    }
+
+    /// Waits, before a process of `role` on `review` starts, until the first process of the same
+    /// prompt prefix in this pass had time to write that prefix to the prompt cache
+    /// ([`CacheWarmUp`]); a runner stop ends the wait.
+    async fn wait_for_cache_warm_up(&self, role: AgentRole, review: &QueuedReview) {
+        let wait = self.with(|shared| {
+            shared.cache_warm_up.wait_before_start(
+                role,
+                review.artifact_type,
+                tokio::time::Instant::now(),
+            )
+        });
+        if let Some(wait) = wait {
+            debug!(
+                review_id = %review.review_id,
+                role = role.as_str(),
+                wait_secs = wait.as_secs(),
+                "Waiting for the first process of this prompt to write it to the prompt cache"
+            );
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                () = self.runner_stop.requested() => {}
+            }
         }
     }
 
@@ -816,7 +847,8 @@ impl Pass<'_> {
             listing_source_name = review.listing_source_name.as_deref(),
             artifact_type = %review.artifact_type,
             role = name(Some(record.role)),
-            prompt_version = %record.prompt_version,
+            prompt_sha256 = %record.prompt_sha256,
+            repair_round = record.repair_round,
             end = name(Some(record.end)),
             limit = name(record.limit),
             usage_limit = name(record.usage_limit),
@@ -944,10 +976,15 @@ impl Pass<'_> {
 }
 
 /// Whether the author's pass left a candidate for the reviewer to decide: the author reported
-/// that it staged one or found nothing to stage, not that it skipped the review.
+/// that it staged one or found nothing to stage, not that it skipped the review or labelled its
+/// ListingSource, which took the review out of the agents' queue.
 fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
     author_report.is_some_and(|report| {
-        !matches!(report, AgentReport::Author(report) if report.action == AuthorAction::Skipped)
+        !matches!(
+            report,
+            AgentReport::Author(report)
+                if matches!(report.action, AuthorAction::Skipped | AuthorAction::SourceLabelled)
+        )
     })
 }
 
@@ -965,13 +1002,14 @@ fn handover_note(reason: HandoverReason, report: &AuthorReport) -> String {
 }
 
 impl ProcessRecord {
-    fn started(review: &QueuedReview, role: AgentRole, prompt_version: &str) -> Self {
+    fn started(review: &QueuedReview, role: AgentRole, prompt_sha256: String) -> Self {
         Self {
             finished: OffsetDateTime::now_utc(),
             review_id: review.review_id,
             role: role.into(),
             artifact_type: Some(review.artifact_type.as_str().to_owned()),
-            prompt_version: prompt_version.to_owned(),
+            prompt_sha256,
+            repair_round: review.repair_requested,
             end: ProcessEnd::Failed,
             limit: None,
             usage_limit: None,
@@ -1029,6 +1067,7 @@ fn decision_name(report: &AgentReport) -> &'static str {
     match report {
         AgentReport::Author(report) => match report.action {
             AuthorAction::Staged => "staged",
+            AuthorAction::SourceLabelled => "source_labelled",
             AuthorAction::NothingToStage => "nothing_to_stage",
             AuthorAction::Skipped => "skipped",
             AuthorAction::NeedsHuman => "needs_human",

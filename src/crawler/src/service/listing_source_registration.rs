@@ -69,10 +69,11 @@ pub trait ListingSourceRegistrationSource: Send + Sync {
 #[async_trait]
 #[mockall::automock]
 pub trait ListingSourceRegistrationRepository: Send + Sync {
-    /// Upserts every source of `listing_sources`, disables every crawl-enabled source it does not
-    /// hold, and moves each source whose stored crawl root differs to the snapshot's: the move
-    /// clears the crawl state and frontier of the old root and keeps the source's URLs, URL
-    /// pattern and scrape state. All of it commits together or not at all.
+    /// Upserts every source of `listing_sources`, keeping a source a human labelled disabled,
+    /// disables every crawl-enabled source it does not hold, and moves each source whose stored
+    /// crawl root differs to the snapshot's: the move clears the crawl state and frontier of the
+    /// old root and keeps the source's URLs, URL pattern and scrape state. All of it commits
+    /// together or not at all.
     async fn apply_snapshot(
         &self,
         listing_sources: &[ScopedListingSource],
@@ -337,7 +338,8 @@ impl ListingSourceRegistrationRepository for ListingSourceRegistrationRepository
                  ON CONFLICT (listing_source_id) DO UPDATE SET \
                     listing_source_name = EXCLUDED.listing_source_name, \
                     listing_source_slug = EXCLUDED.listing_source_slug, \
-                    crawl_enabled = EXCLUDED.crawl_enabled, \
+                    crawl_enabled = EXCLUDED.crawl_enabled \
+                        AND listing_sources.source_label IS NULL, \
                     crawl_root_url = EXCLUDED.crawl_root_url, \
                     crawl_host = EXCLUDED.crawl_host, \
                     updated = NOW()",

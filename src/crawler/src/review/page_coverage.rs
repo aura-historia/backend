@@ -197,13 +197,16 @@ mod tests {
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: Some(rule("#product-id", ExtractionKind::Text)),
-            title: rule(title_selector, ExtractionKind::Text),
+            title: Some(rule(title_selector, ExtractionKind::Text)),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: rule("#state", ExtractionKind::Text),
-            images: rule("img", ExtractionKind::Attribute { name: "src".into() }),
+            state: Some(rule("#state", ExtractionKind::Text)),
+            images: Some(rule(
+                "img",
+                ExtractionKind::Attribute { name: "src".into() },
+            )),
             raw_attributes: Default::default(),
         }
     }

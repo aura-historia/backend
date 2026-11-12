@@ -60,7 +60,7 @@ where
         schema_fingerprint: schema_fingerprint.into(),
         raw_input_sha256: raw_input_sha256.into(),
         source_listing_id: source_listing_id.into(),
-        title: "Captured title".to_owned(),
+        title: Some("Captured title".to_owned()),
         disposition,
         expected_last_captured_raw_input_sha256,
     }
@@ -2171,10 +2171,10 @@ async fn scraper_mark_removed_should_record_the_templates_until_a_product_captur
     assert_eq!(recorded().await, None);
 }
 
-/// The title a product capture recorded reaches the next scrape of the URL, which carries it
-/// forward if the shop blanks the name (docs/crawler/extraction-and-review.md).
+/// A capture without a title leaves the listing's title unchanged, so the URL keeps the title
+/// its last capture recorded (docs/crawler/extraction-and-review.md).
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_candidate_should_carry_the_title_of_the_last_product_capture() {
+async fn scraper_mark_as_scraped_should_keep_the_recorded_title_when_a_capture_has_none() {
     let pool = get_postgres_client().await;
     let service = ScraperCandidateServiceImpl::new(pool.clone());
     let listing_source_id = ListingSourceId::new();
@@ -2186,10 +2186,9 @@ async fn scraper_candidate_should_carry_the_title_of_the_last_product_capture() 
     .await;
     let url = url::Url::parse("https://scraper-captured-title.example.com/p/1").unwrap();
     insert_product_url(&pool, listing_source_id, url.as_str()).await;
-    assert_eq!(candidate_title(&service, &url).await, Some(None));
-
-    service
-        .mark_as_scraped(scrape_completion(
+    let completion = |title: Option<&str>, expected: Option<Vec<u8>>| ScrapeCompletion {
+        title: title.map(str::to_owned),
+        ..scrape_completion(
             listing_source_id,
             url.clone(),
             (
@@ -2198,37 +2197,27 @@ async fn scraper_candidate_should_carry_the_title_of_the_last_product_capture() 
                 raw_input_hash(),
                 "SKU-123",
                 CrawlerDisposition::Active,
-                None,
+                expected,
             ),
-        ))
+        )
+    };
+
+    service
+        .mark_as_scraped(completion(Some("Captured title"), None))
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
-    )
-    .bind(url.as_str())
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    assert_eq!(
-        candidate_title(&service, &url).await,
-        Some(Some("Captured title".to_owned()))
-    );
-}
-
-/// The `last_captured_title` of `url`'s scraper candidate, `None` when it is not due.
-async fn candidate_title(
-    service: &ScraperCandidateServiceImpl,
-    url: &url::Url,
-) -> Option<Option<String>> {
     service
-        .get_candidates(10, 10, &[])
+        .mark_as_scraped(completion(None, Some(raw_input_hash())))
         .await
-        .unwrap()
-        .into_iter()
-        .find(|candidate| candidate.url == *url)
-        .map(|candidate| candidate.last_captured_title)
+        .unwrap();
+
+    let title: Option<String> =
+        sqlx::query_scalar("SELECT last_captured_title FROM listing_source_urls WHERE url = $1")
+            .bind(url.as_str())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(title.as_deref(), Some("Captured title"));
 }
 
 /// A removal whose capture commits but whose `mark_removed` write fails leaves the URL as
@@ -3048,7 +3037,7 @@ async fn redirected_scrape_should_move_unknown_destination_and_preserve_identity
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![4; 32],
                 source_listing_id: "stable-source-id".to_owned(),
-                title: "Captured title".to_owned(),
+                title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
             })
@@ -3104,7 +3093,7 @@ async fn redirected_scrape_should_reject_known_destination_without_mutating_rows
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![5; 32],
             source_listing_id: "stable-source-id".to_owned(),
-            title: "Captured title".to_owned(),
+            title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: None,
         })
@@ -3288,7 +3277,7 @@ async fn redirected_scrape_should_reject_destination_known_under_other_trailing_
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![6; 32],
                 source_listing_id: "stable-source-id".to_owned(),
-                title: "Captured title".to_owned(),
+                title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: None,
             })
@@ -3356,7 +3345,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
             schema_fingerprint: "redirect-schema".to_owned(),
             raw_input_sha256: vec![7; 32],
             source_listing_id: "SKU-2".to_owned(),
-            title: "Captured title".to_owned(),
+            title: Some("Captured title".to_owned()),
             disposition: CrawlerDisposition::Active,
             expected_last_captured_raw_input_sha256: Some(vec![6; 32]),
         })
@@ -3374,7 +3363,7 @@ async fn redirected_scrape_should_reject_identity_conflict_and_stale_fence() {
                 schema_fingerprint: "stale-schema".to_owned(),
                 raw_input_sha256: vec![8; 32],
                 source_listing_id: "SKU-1".to_owned(),
-                title: "Captured title".to_owned(),
+                title: Some("Captured title".to_owned()),
                 disposition: CrawlerDisposition::Active,
                 expected_last_captured_raw_input_sha256: Some(vec![9; 32]),
             })

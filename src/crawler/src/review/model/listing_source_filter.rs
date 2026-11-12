@@ -20,15 +20,18 @@ impl QueryValue for SourceActivity {
     ];
 }
 
-/// How a ListingSource stands. Only a crawl-enabled one can need attention.
+/// How a ListingSource stands. Only a crawl-enabled one can need attention; `Disabled` and
+/// `Labelled` are disjoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceStatus {
     /// Any of the five conditions below.
     NeedsAttention,
     /// Crawl-enabled and none of the conditions.
     Healthy,
-    /// Crawling is switched off.
+    /// Crawling is switched off, and no human labelled the source.
     Disabled,
+    /// A human labelled the source: its crawling is off until the label is cleared.
+    Labelled,
     /// Its last crawl failed and is retried by the schedule.
     CrawlFailing,
     /// Its crawl waits for an operator.
@@ -46,6 +49,7 @@ impl QueryValue for SourceStatus {
         ("needs_attention", Self::NeedsAttention),
         ("healthy", Self::Healthy),
         ("disabled", Self::Disabled),
+        ("labelled", Self::Labelled),
         ("crawl_failing", Self::CrawlFailing),
         ("crawl_needs_operator", Self::CrawlNeedsOperator),
         ("blocked", Self::Blocked),

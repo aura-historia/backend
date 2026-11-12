@@ -68,19 +68,19 @@ fn rule(selector: &str, extract: ExtractionKind) -> ExtractionRule {
 fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: Some(rule("span.id", ExtractionKind::Text)),
-        title: rule(title_selector, ExtractionKind::Text),
+        title: Some(rule(title_selector, ExtractionKind::Text)),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule("span.state", ExtractionKind::Text),
-        images: ExtractionRule {
+        state: Some(rule("span.state", ExtractionKind::Text)),
+        images: Some(ExtractionRule {
             cardinality: ExtractionCardinality::All,
             ..rule(
                 "img.product",
                 ExtractionKind::Attribute { name: "src".into() },
             )
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }
@@ -334,17 +334,20 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "list_pending_reviews",
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
             "evaluate_candidate",
             "update_candidate",
+            "stage_and_check",
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
+            "label_source",
         ]
     );
     assert_eq!(
@@ -353,6 +356,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "list_pending_reviews",
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -384,6 +388,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         [
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -465,12 +470,35 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .unwrap();
     assert_eq!(markdown["view"], "MARKDOWN");
     assert!(markdown["projection"].as_str().unwrap().contains("chair"));
+    // A probe answers only what each selector matches, on a review page and a URL of the shop.
+    let probed = reviewer
+        .call(
+            "probe_selectors",
+            json!({
+                "review_id": product_schema.to_string(),
+                "pages": [{ "review_page_id": page_id }, { "url": format!("{SHOP}/item/table") }],
+                "selectors": [{ "selector": "h1" }, { "selector": "h1[" }],
+            }),
+        )
+        .await
+        .unwrap();
+    let probed_pages = probed["pages"].as_array().unwrap();
+    assert_eq!(probed_pages.len(), 2);
+    assert_eq!(probed_pages[1]["url"], format!("{SHOP}/item/table"));
+    for page in probed_pages {
+        assert_eq!(page["results"][0]["matches"], 1, "{page}");
+        assert!(page["results"][1]["error"].is_string(), "{page}");
+    }
 
     // Every tool that takes a URL refuses one off the review's ListingSource before a request.
     for (tool, arguments) in [
         (
             "inspect_page",
             json!({ "review_id": product_schema.to_string(), "url": "https://elsewhere.example/item/chair" }),
+        ),
+        (
+            "probe_selectors",
+            json!({ "review_id": product_schema.to_string(), "pages": [{ "url": "https://elsewhere.example/item/chair" }], "selectors": [{ "selector": "h1" }] }),
         ),
         (
             "add_review_page",
@@ -591,9 +619,10 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (json!("CONFLICT"), json!(2))
     );
 
-    // The shop shows no sold page: the author records the pages it inspected, which the approval
-    // guard needs next to the matrix. A page it did not inspect is refused.
-    let checked = ["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"));
+    // The shop shows no sold page: the author records the pages it inspected or probed, which the
+    // approval guard needs next to the matrix. A page it did neither on is refused.
+    let checked =
+        ["a", "b", "c", "d", "e", "f", "g", "h"].map(|slug| format!("{SHOP}/item/{slug}"));
     let uninspected = author
         .call(
             "record_no_sold_page",
@@ -609,11 +638,12 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (uninspected["kind"].clone(), uninspected["reason"].clone()),
         (json!("CONFLICT"), json!("PAGES_NOT_INSPECTED"))
     );
-    for url in &checked {
+    for pages in checked.chunks(4) {
+        let pages: Vec<_> = pages.iter().map(|url| json!({ "url": url })).collect();
         author
             .call(
-                "inspect_page",
-                json!({ "review_id": product_schema.to_string(), "url": url }),
+                "probe_selectors",
+                json!({ "review_id": product_schema.to_string(), "pages": pages, "selectors": [{ "selector": "span.state" }] }),
             )
             .await
             .unwrap();
@@ -623,13 +653,13 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "record_no_sold_page",
             json!({
                 "review_id": product_schema.to_string(),
-                "urls": (["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"))),
+                "urls": checked,
                 "notes": "searched the listing and its sold section",
             }),
         )
         .await
         .unwrap();
-    assert_eq!(recorded["recorded_urls"], 3);
+    assert_eq!(recorded["recorded_urls"], 8);
 
     // The reviewer's approval is the console's to take: refused without a live matrix of the
     // staged version, taken once the matrix is refreshed.
@@ -771,6 +801,60 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             (json!("AGENT_REVIEWER"), json!("APPROVED")),
         ]
     );
+
+    // The author labels the shop of a pending review it works, never through a decided one; the
+    // label switches the source's crawling off.
+    let decided = author
+        .call(
+            "label_source",
+            json!({ "review_id": url_pattern.to_string(), "label": "NOT_AN_ESHOP", "note": "enquiry only" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        decided["reason"], "AGENT_CHANGES_ONLY_PENDING_REVIEWS",
+        "{decided}"
+    );
+    let listing_source_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT listing_source_id FROM crawler_reviews WHERE review_id = $1")
+            .bind(url_pattern.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let pending = CrawlerReviewRepository::new(pool.clone())
+        .create_url_pattern_review(
+            &ListingSourceId::try_from(listing_source_id).unwrap(),
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &[format!("{SHOP}/item/chair"), format!("{SHOP}/about")],
+            None,
+        )
+        .await
+        .unwrap();
+    let labelled = author
+        .call(
+            "label_source",
+            json!({
+                "review_id": pending.to_string(),
+                "label": "NOT_AN_ESHOP",
+                "note": "/item/chair shows a price on request and an enquiry form, no cart",
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (&labelled["review_id"], &labelled["label"]),
+        (&json!(pending.to_string()), &json!("NOT_AN_ESHOP")),
+        "{labelled}"
+    );
+    let crawl_enabled: bool = sqlx::query_scalar(
+        "SELECT crawl_enabled FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!crawl_enabled);
 
     author.close().await;
     reviewer.close().await;

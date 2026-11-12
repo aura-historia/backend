@@ -10,7 +10,7 @@ use crawler::review::model::{
     ArtifactType, HandoverCategory, HandoverCause, HandoverReason, ListPage, ListWindow,
     ListingSourceOverview, PAGE_ROLE_PRIMARY, ReviewActor, ReviewQueueEntry, ReviewSort,
     ReviewStatus, ReviewWaiting, SchemaReviewPageInput, SearchTerm, SortDirection, SourceActivity,
-    SourceEventKind, SourceSort, SourceStatus, UrlPatternDecision,
+    SourceEventKind, SourceLabel, SourceLabelRequest, SourceSort, SourceStatus, UrlPatternDecision,
 };
 use crawler::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
@@ -44,18 +44,18 @@ fn rule(selector: &str) -> ExtractionRule {
 fn schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: Some(rule("span.id")),
-        title: rule("h1"),
+        title: Some(rule("h1")),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule("span.state"),
-        images: ExtractionRule {
+        state: Some(rule("span.state")),
+        images: Some(ExtractionRule {
             selector: "img.product".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Attribute { name: "src".into() },
             cardinality: ExtractionCardinality::All,
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }
@@ -530,11 +530,25 @@ async fn should_filter_and_search_listing_sources_in_sql() {
     let stopped = source(&pool, "Stopped Shop", "stopped.example.com", true).await;
     let failing = source(&pool, "Failing Shop", "failing.example.com", true).await;
     let disabled = source(&pool, "Disabled Shop", "disabled.example.com", false).await;
-    SpiderCandidateServiceImpl::new(pool.clone())
-        .mark_crawl_needs_operator(
-            &CrawledRoot::new(stopped, "https://stopped.example.com/".to_owned()),
-            "RobotsBlocked",
-            5,
+    let labelled = source(&pool, "Gallery", "gallery.example.com", true).await;
+    for (root, listing_source_id) in [
+        ("https://stopped.example.com/", stopped),
+        ("https://gallery.example.com/", labelled),
+    ] {
+        SpiderCandidateServiceImpl::new(pool.clone())
+            .mark_crawl_needs_operator(
+                &CrawledRoot::new(listing_source_id, root.to_owned()),
+                "RobotsBlocked",
+                5,
+            )
+            .await
+            .unwrap();
+    }
+    repository
+        .label_source(
+            &labelled,
+            ReviewActor::Human,
+            &SourceLabelRequest::new(SourceLabel::NotAnEshop, None).unwrap(),
         )
         .await
         .unwrap();
@@ -556,6 +570,7 @@ async fn should_filter_and_search_listing_sources_in_sql() {
     let failing_page = list_sources(&pool, with(SourceStatus::Failing)).await;
     let healthy_page = list_sources(&pool, with(SourceStatus::Healthy)).await;
     let disabled_page = list_sources(&pool, with(SourceStatus::Disabled)).await;
+    let labelled_page = list_sources(&pool, with(SourceStatus::Labelled)).await;
     let by_name = list_sources(
         &pool,
         ListingSourceQuery {
@@ -573,7 +588,11 @@ async fn should_filter_and_search_listing_sources_in_sql() {
     )
     .await;
 
-    assert_eq!(sorted(&source_ids(&attention)), sorted(&[stopped, failing]));
+    assert_eq!(
+        sorted(&source_ids(&attention)),
+        sorted(&[stopped, failing]),
+        "a labelled source never needs attention, whatever its crawl left"
+    );
     assert_eq!(source_ids(&operator), vec![stopped]);
     assert_eq!(source_ids(&failing_page), vec![failing]);
     assert_eq!(
@@ -581,7 +600,19 @@ async fn should_filter_and_search_listing_sources_in_sql() {
         vec![healthy],
         "a source that is not crawled is neither healthy nor in need of attention"
     );
-    assert_eq!(source_ids(&disabled_page), vec![disabled]);
+    assert_eq!(
+        source_ids(&disabled_page),
+        vec![disabled],
+        "labelled is not disabled"
+    );
+    assert_eq!(source_ids(&labelled_page), vec![labelled]);
+    assert_eq!(
+        labelled_page.items[0]
+            .source_label
+            .as_ref()
+            .map(|applied| applied.label),
+        Some(SourceLabel::NotAnEshop)
+    );
     assert_eq!(source_ids(&by_name), vec![stopped]);
     assert_eq!(source_ids(&by_host), vec![failing]);
 }
@@ -840,7 +871,7 @@ async fn should_count_the_sources_and_pending_reviews_of_the_first_page() {
             "sources": {
                 "crawling_now": 0, "scraping_now": 0, "needs_attention": 2,
                 "crawl_failing": 0, "crawl_needs_operator": 1, "blocked_by_review": 0,
-                "failing_to_scrape": 1, "held_removals": 0
+                "failing_to_scrape": 1, "held_removals": 0, "labelled": 0
             },
             "reviews": {
                 "pending_total": 3,

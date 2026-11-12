@@ -262,13 +262,18 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
-    #[case::author_token_opens_no_missing_value_page_review(
-        "POST /api/listing-sources/ls_1/missing-value-pages/review",
+    #[case::review_token_labels_a_source(
+        "PUT /api/listing-sources/ls_1/label",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::author_token_labels_no_source(
+        "PUT /api/listing-sources/ls_1/label",
         Some(AUTHOR_TOKEN),
         None
     )]
-    #[case::reviewer_token_opens_no_missing_value_page_review(
-        "POST /api/listing-sources/ls_1/missing-value-pages/review",
+    #[case::reviewer_token_clears_no_source_label(
+        "DELETE /api/listing-sources/ls_1/label",
         Some(REVIEWER_TOKEN),
         None
     )]

@@ -4,6 +4,8 @@
 
 use async_trait::async_trait;
 use crawler::CrawlRoot;
+use crawler::review::model::{ReviewActor, SourceLabel, SourceLabelRequest};
+use crawler::review::repository::CrawlerReviewRepository;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ListingSourceRegistrationService, ListingSourceRegistrationSource, ListingSourceSyncError,
@@ -305,6 +307,55 @@ async fn should_keep_the_history_of_a_source_that_leaves_and_returns_to_the_scop
 
     sync(&pool, vec![registered(listing_source_id, Some(root))]).await;
     assert_eq!(crawl_state(&pool, listing_source_id).await, crawled);
+}
+
+/// A source a human labelled stays disabled while the scope keeps admitting it and keeps its crawl
+/// root and URLs; once the label is cleared, the next sync enables it again with a new failure
+/// streak.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_keep_a_labelled_source_disabled_until_its_label_is_cleared() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = ListingSourceId::new();
+    let root = "https://gallery.example/";
+    sync(&pool, vec![registered(listing_source_id, Some(root))]).await;
+    crawl_once(&pool, listing_source_id, root).await;
+    let reviews = CrawlerReviewRepository::new(pool.clone());
+    let not_an_eshop = SourceLabelRequest::new(SourceLabel::NotAnEshop, None).unwrap();
+
+    reviews
+        .label_source(&listing_source_id, ReviewActor::Human, &not_an_eshop)
+        .await
+        .unwrap();
+    sync(&pool, vec![registered(listing_source_id, Some(root))]).await;
+
+    assert!(!crawl_enabled(&pool, listing_source_id).await);
+    assert_eq!(
+        crawl_state(&pool, listing_source_id).await.1.as_deref(),
+        Some(root)
+    );
+    assert_eq!(stored_urls(&pool, listing_source_id).await, 1);
+
+    reviews
+        .clear_source_label(&listing_source_id, ReviewActor::Human)
+        .await
+        .unwrap();
+    assert!(
+        !crawl_enabled(&pool, listing_source_id).await,
+        "clearing leaves enabling to the scope"
+    );
+    sync(&pool, vec![registered(listing_source_id, Some(root))]).await;
+
+    assert!(crawl_enabled(&pool, listing_source_id).await);
+    let cleared = crawl_state(&pool, listing_source_id).await;
+    assert_eq!((cleared.5, cleared.6, cleared.7), (0, None, None));
+}
+
+async fn crawl_enabled(pool: &PgPool, listing_source_id: ListingSourceId) -> bool {
+    sqlx::query_scalar("SELECT crawl_enabled FROM listing_sources WHERE listing_source_id = $1")
+        .bind(listing_source_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
 
 /// One snapshot that swaps two crawl hosts between sources, or hands a disabled source's host to

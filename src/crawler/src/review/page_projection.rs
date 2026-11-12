@@ -8,6 +8,7 @@
 //! (`docs/crawler/extraction-and-review.md`, approval guard). The console's browser preview is
 //! another view: the instrumented page of `/api/review-pages/{id}/inspect`.
 
+use crate::review::field_candidates::field_candidates;
 use crate::review::model::QueryValue;
 use crate::review::product_markup::{JsonLdProductIds, describes_one_product, json_ld_product_ids};
 use crate::scraper::css_selector::product_schema_service::{
@@ -29,6 +30,10 @@ pub enum PageView {
     /// The readable content as markdown: headings, paragraphs, list items, table rows, the text of
     /// links and buttons and image alt text, without tags, attributes or URLs.
     Markdown,
+    /// Per product-schema field, the few elements that could hold its value, in CSS notation with
+    /// their values, and the page's JSON-LD values: a fraction of the outline, to write a schema
+    /// from ([`field_candidates`]).
+    Fields,
 }
 
 impl PageView {
@@ -42,8 +47,11 @@ impl PageView {
 }
 
 impl QueryValue for PageView {
-    const VALUES: &'static [(&'static str, Self)] =
-        &[("outline", Self::Outline), ("markdown", Self::Markdown)];
+    const VALUES: &'static [(&'static str, Self)] = &[
+        ("outline", Self::Outline),
+        ("markdown", Self::Markdown),
+        ("fields", Self::Fields),
+    ];
 }
 
 /// The projected view of one page fetched live for a review, as
@@ -92,6 +100,7 @@ impl ProjectedHtml {
             projection: match view {
                 PageView::Outline => html_to_agent_page_outline(html),
                 PageView::Markdown => html_to_agent_page_markdown(html),
+                PageView::Fields => field_candidates(html),
             },
             describes_one_product: describes_one_product(html),
             json_ld_product_ids: json_ld_product_ids(html),
@@ -176,8 +185,9 @@ mod tests {
         assert_eq!(PageView::parse("markdown"), Some(PageView::Markdown));
         assert_eq!(PageView::parse("outline"), Some(PageView::Outline));
         assert_eq!(PageView::parse("MARKDOWN"), None);
-        assert_eq!(PageView::accepted(), "outline, markdown");
-        for view in [PageView::Outline, PageView::Markdown] {
+        assert_eq!(PageView::parse("fields"), Some(PageView::Fields));
+        assert_eq!(PageView::accepted(), "outline, markdown, fields");
+        for view in [PageView::Outline, PageView::Markdown, PageView::Fields] {
             assert_eq!(PageView::parse(view.query_name()), Some(view));
         }
         assert_eq!(

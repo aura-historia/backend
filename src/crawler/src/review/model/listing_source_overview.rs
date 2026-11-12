@@ -1,4 +1,4 @@
-use super::ReviewActor;
+use super::{AppliedSourceLabel, ReviewActor};
 use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
@@ -8,6 +8,9 @@ pub struct ListingSourceOverview {
     pub listing_source_id: ListingSourceId,
     pub listing_source_name: Option<String>,
     pub crawl_enabled: bool,
+    /// The label a human gave the source because the crawler should not crawl it; `None` while
+    /// it has none. A labelled source has crawling disabled and the scope sync keeps it so.
+    pub source_label: Option<AppliedSourceLabel>,
     /// Where the source's crawl starts, derived from its presentation URL; `None` while the scope
     /// gives it no crawl root (`docs/crawler/README.md#listingsource-scope`).
     pub crawl_root_url: Option<String>,
@@ -51,9 +54,6 @@ pub struct ListingSourceOverview {
     /// Only on the ListingSource's own page; the list leaves it out.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_error_kinds: Vec<UrlErrorKindCount>,
-    /// Product pages whose last scrape recorded `MissingRequiredValue`, listed by
-    /// `GET /api/listing-sources/{id}/missing-value-pages`.
-    pub missing_value_urls: i64,
     /// Since when the spider has been crawling the source in this process; `None` while it is not.
     #[serde(with = "time::serde::rfc3339::option")]
     pub crawling_since: Option<time::OffsetDateTime>,
@@ -111,6 +111,7 @@ mod tests {
                 .expect("v7 uuid is a valid listing source id"),
             listing_source_name: None,
             crawl_enabled: true,
+            source_label: None,
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,
             last_successful_scrape: last_successful,
@@ -124,7 +125,6 @@ mod tests {
             mass_removal_confirmed_until: None,
             mass_removal_confirmed_by: None,
             url_error_kinds: Vec::new(),
-            missing_value_urls: 0,
             crawling_since: None,
             scraping_since: None,
             crawl_state: CrawlStateOverview {

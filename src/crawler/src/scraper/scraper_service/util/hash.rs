@@ -79,12 +79,14 @@ fn hash_extraction(page: &mut Sha256, raw: &RawExtractedProduct) {
         raw_attributes,
     } = raw;
     hash_text(page, source_listing_id);
-    hash_text(page, title);
+    // A missing title or state hashes as a blank one: both leave the field unchanged, and a
+    // present value hashes as it did when the fields were required.
+    hash_text(page, title.as_deref().unwrap_or_default());
     hash_texts(page, description);
     hash_optional_text(page, price.as_deref());
     hash_optional_text(page, price_estimate_min.as_deref());
     hash_optional_text(page, price_estimate_max.as_deref());
-    hash_text(page, state);
+    hash_text(page, state.as_deref().unwrap_or_default());
     hash_texts(page, images);
     hash_len(page, raw_attributes.len());
     for (field, values) in raw_attributes {
@@ -168,16 +170,16 @@ mod tests {
     fn schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: None,
-            title: rule("h1", ExtractionKind::Text),
+            title: Some(rule("h1", ExtractionKind::Text)),
             description: None,
             price: Some(rule("#price", ExtractionKind::Text)),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: rule("#state", ExtractionKind::Text),
-            images: ExtractionRule {
+            state: Some(rule("#state", ExtractionKind::Text)),
+            images: Some(ExtractionRule {
                 cardinality: ExtractionCardinality::All,
                 ..rule("a.gallery", ExtractionKind::ImageUrl)
-            },
+            }),
             raw_attributes: Default::default(),
         }
     }

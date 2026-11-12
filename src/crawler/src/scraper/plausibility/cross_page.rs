@@ -110,7 +110,9 @@ impl CrossPageFindings {
                 .collect()
         });
         let title_keys = keyed_values(pages, |page| {
-            non_blank(page.raw.title.trim())
+            page.raw
+                .title()
+                .map(str::trim)
                 .map(|title| (collapse_whitespace(title), title.to_owned()))
                 .into_iter()
                 .collect()
@@ -259,12 +261,12 @@ mod tests {
     fn product(identity: &str, title: &str, images: &[&str]) -> RawExtractedProduct {
         RawExtractedProduct {
             source_listing_id: identity.to_owned(),
-            title: title.to_owned(),
+            title: Some(title.to_owned()),
             description: Vec::new(),
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: "Available".to_owned(),
+            state: Some("Available".to_owned()),
             images: images.iter().map(|image| (*image).to_owned()).collect(),
             raw_attributes: Default::default(),
         }

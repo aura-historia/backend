@@ -17,7 +17,6 @@ use crate::review::page_coverage::{PageCoverage, page_coverages};
 use crate::review::schema_evaluation::{
     ImplausiblePage, OptionalRuleTotalMiss, implausible_pages, optional_rules_missing_on_every_page,
 };
-use crate::scraper::plausibility::{PlausibilityCheck, PlausibilityField};
 use crate::spider::utils::url::CrawledUrl;
 use serde::Serialize;
 use std::fmt;
@@ -54,11 +53,6 @@ pub enum FailedApprovalCheck {
     /// removed.
     PagesNotCovered {
         pages: Vec<GuardedPage>,
-    },
-    /// Product pages on which a candidate schema leaves `title` or `state` empty and no other
-    /// schema applies.
-    RequiredFieldEmpty {
-        fields: Vec<EmptyRequiredField>,
     },
     /// Rules of a candidate schema that match nothing on every page the schema applies to.
     RuleMatchesNothing {
@@ -164,15 +158,6 @@ pub struct GuardedPage {
     pub url: String,
 }
 
-/// A required field a candidate schema leaves empty on a product page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct EmptyRequiredField {
-    pub review_page_id: CrawlerReviewPageId,
-    pub url: String,
-    pub schema_index: usize,
-    pub field: &'static str,
-}
-
 impl fmt::Display for FailedApprovalCheck {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -201,11 +186,6 @@ impl fmt::Display for FailedApprovalCheck {
                 formatter,
                 "{} review page(s) covered by no schema and captured as removed by no template",
                 pages.len()
-            ),
-            Self::RequiredFieldEmpty { fields } => write!(
-                formatter,
-                "{} required field(s) empty on product pages",
-                fields.len()
             ),
             Self::RuleMatchesNothing { rules } => write!(
                 formatter,
@@ -314,14 +294,8 @@ pub(crate) fn product_schema_approval_checks(
         });
     }
     let not_covered = pages_with(PageCoverage::NotCovered);
-    let empty_fields = empty_required_fields(matrix, &not_covered);
     if !not_covered.is_empty() {
         failed.push(FailedApprovalCheck::PagesNotCovered { pages: not_covered });
-    }
-    if !empty_fields.is_empty() {
-        failed.push(FailedApprovalCheck::RequiredFieldEmpty {
-            fields: empty_fields,
-        });
     }
     let rules = optional_rules_missing_on_every_page(matrix);
     if !rules.is_empty() {
@@ -389,45 +363,6 @@ fn outdated_reason(
         )
         .all(evaluates_a_review_page))
     .then(|| "it evaluated a page that is no longer on the review".to_owned())
-}
-
-/// The required fields a candidate schema leaves empty on the product pages no schema covers:
-/// the schema found the `title` or `state` element, but it holds no text.
-fn empty_required_fields(
-    matrix: &SchemaMatrix,
-    not_covered: &[GuardedPage],
-) -> Vec<EmptyRequiredField> {
-    let mut fields = Vec::new();
-    for page in not_covered {
-        let reference = SchemaPageReference::Persisted {
-            review_page_id: page.review_page_id,
-        };
-        for candidate in &matrix.candidates {
-            let Some(evaluation) = candidate
-                .pages
-                .iter()
-                .find(|evaluation| evaluation.page_reference == reference)
-            else {
-                continue;
-            };
-            for finding in evaluation.plausibility_findings.as_slice() {
-                let field = match finding.field {
-                    PlausibilityField::Title => "title",
-                    PlausibilityField::State => "state",
-                    _ => continue,
-                };
-                if finding.check == PlausibilityCheck::Blank {
-                    fields.push(EmptyRequiredField {
-                        review_page_id: page.review_page_id,
-                        url: page.url.clone(),
-                        schema_index: candidate.schema_index,
-                        field,
-                    });
-                }
-            }
-        }
-    }
-    fields
 }
 
 /// The checks an agent approval of the URL-pattern `candidate` fails, none when it may go ahead.
@@ -526,6 +461,7 @@ mod tests {
     use crate::scraper::css_selector::rule::{
         ExtractionCardinality, ExtractionKind, ExtractionRule,
     };
+    use crate::scraper::plausibility::PlausibilityField;
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck};
     use crate::spider::classification::product_url_pattern::UrlPatternMatching;
     use crate::{CrawlerReviewId, CrawlerReviewPageId};
@@ -546,13 +482,16 @@ mod tests {
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: Some(rule("#product-id", ExtractionKind::Text)),
-            title: rule(title_selector, ExtractionKind::Text),
+            title: Some(rule(title_selector, ExtractionKind::Text)),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: rule("#state", ExtractionKind::Text),
-            images: rule("img", ExtractionKind::Attribute { name: "src".into() }),
+            state: Some(rule("#state", ExtractionKind::Text)),
+            images: Some(rule(
+                "img",
+                ExtractionKind::Attribute { name: "src".into() },
+            )),
             raw_attributes: Default::default(),
         }
     }
@@ -784,7 +723,7 @@ mod tests {
     fn should_not_refuse_a_marked_primary_page_as_not_covered() {
         let product = product_page("chair", "h1", "Chair");
         let (mut profile, _) = product_page("profile", "h1", "Chair");
-        let profile_html = "<html><body><h1>Simon Wharton Antiques</h1></body></html>".to_owned();
+        let profile_html = "<html><body><h2>Simon Wharton Antiques</h2></body></html>".to_owned();
         let unmarked = [product.clone(), (profile.clone(), profile_html.clone())];
         profile.not_product_reason = Some("the dealer's profile".to_owned());
         let marked = [product, (profile, profile_html)];
@@ -874,10 +813,10 @@ mod tests {
         );
     }
 
-    /// A schema that finds the title element but no text in it leaves the product untitled; the
-    /// blank title is also a plausibility finding the `auto` gate refuses.
+    /// Every field is optional: a page on which the schema finds the title element without text is
+    /// captured without a title, which neither leaves it uncovered nor refuses the approval.
     #[test]
-    fn should_name_the_required_field_a_schema_leaves_empty_on_a_product_page() {
+    fn should_accept_a_schema_that_leaves_the_title_empty_on_a_product_page() {
         let pages = [
             product_page("chair", "h1", "Chair"),
             product_page("untitled", "h1", " "),
@@ -886,25 +825,8 @@ mod tests {
 
         let refused = checks(Some(&matrix), &review_pages(&pages));
 
-        assert_eq!(
-            refused,
-            vec![
-                FailedApprovalCheck::PagesNotCovered {
-                    pages: vec![guarded(&pages[1].0)],
-                },
-                FailedApprovalCheck::RequiredFieldEmpty {
-                    fields: vec![EmptyRequiredField {
-                        review_page_id: pages[1].0.review_page_id,
-                        url: pages[1].0.url.clone(),
-                        schema_index: 0,
-                        field: "title",
-                    }],
-                },
-                FailedApprovalCheck::ImplausibleExtraction {
-                    pages: implausible_pages(&matrix),
-                },
-            ]
-        );
+        assert_eq!(refused, Vec::new());
+        assert!(schema_matrix_deterministic_approval_ok(&matrix));
     }
 
     /// The pages of a matrix whose only refusal is its implausible extractions, asserting that

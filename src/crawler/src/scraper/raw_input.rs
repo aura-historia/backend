@@ -31,16 +31,16 @@ pub(crate) fn capture_source_listing_id(
 /// crawler-validated image projection and keep every supplied price, state and text
 /// value as extracted: the worker (the sole canonical normalization authority) parses
 /// them, leaves a canonical field it cannot resolve unchanged and reports why. Only a
-/// missing extraction clears a price. `carried_forward_title`, the title the listing was last
-/// captured with, stands in for a title the page left blank; the source payload still shows the
-/// blank one. A raw attribute whose rule found only a blank value is left out of the generic raw
-/// values, which keep attributes as given; the source payload still shows it.
+/// missing extraction clears a price. A title or state the page left out or blank is sent
+/// unchanged, so the listing keeps the one it was last captured with, and a new listing starts
+/// without it; the source payload still shows the blank one. A raw attribute whose rule found
+/// only a blank value is left out of the generic raw values, which keep attributes as given; the
+/// source payload still shows it.
 pub(crate) fn crawler_raw_input(
     raw: &RawExtractedProduct,
     validated_image_urls: &[String],
     candidate_url: &Url,
     source_listing_id: &str,
-    carried_forward_title: Option<&str>,
 ) -> Result<ProductListingNormalizationInput, NormalizationInputError> {
     let source_payload = serde_json::to_value(raw)
         .map_err(NormalizationInputError::JsonSerialization)
@@ -58,15 +58,13 @@ pub(crate) fn crawler_raw_input(
         .collect::<BTreeMap<_, _>>();
     let raw_values = RawProductListingValues::new(json!({
         "sourceListingId": source_listing_id,
-        "title": ProductListingRawValuesPatch::Set(
-            carried_forward_title.map_or_else(|| raw.title.clone(), str::to_owned)
-        ),
+        "title": unless_blank(raw.title()),
         "description": ProductListingRawValuesPatch::Set(raw.description.clone()),
         "priceFormat": ProductListingRawValuesPriceFormat::DisplayText,
         "price": patch(raw.price.clone()),
         "priceEstimateMin": patch(raw.price_estimate_min.clone()),
         "priceEstimateMax": patch(raw.price_estimate_max.clone()),
-        "availability": ProductListingRawValuesPatch::Set(raw.state.clone()),
+        "availability": unless_blank(raw.state()),
         "url": ProductListingRawValuesPatch::Set(candidate_url.to_string()),
         "images": ProductListingRawValuesPatch::Set(validated_image_urls.to_vec()),
         "attributes": attributes,
@@ -117,6 +115,15 @@ pub(crate) fn crawler_provenance(
     }))
 }
 
+/// `SET` for a non-blank value, `UNCHANGED` for none: a field the page leaves out never clears
+/// what the listing holds.
+fn unless_blank(value: Option<&str>) -> ProductListingRawValuesPatch<String> {
+    match value {
+        Some(value) => ProductListingRawValuesPatch::Set(value.to_owned()),
+        None => ProductListingRawValuesPatch::Unchanged,
+    }
+}
+
 fn patch(value: Option<String>) -> ProductListingRawValuesPatch<String> {
     match value {
         Some(value) => ProductListingRawValuesPatch::Set(value),
@@ -132,12 +139,12 @@ mod tests {
     fn raw() -> RawExtractedProduct {
         RawExtractedProduct {
             source_listing_id: "SKU-1".to_owned(),
-            title: "Chair".to_owned(),
+            title: Some("Chair".to_owned()),
             description: vec!["Oak".to_owned()],
             price: Some("100 EUR".to_owned()),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: "In Stock".to_owned(),
+            state: Some("In Stock".to_owned()),
             images: vec!["/chair.jpg".to_owned()],
             raw_attributes: BTreeMap::new(),
         }
@@ -149,7 +156,7 @@ mod tests {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
-        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id")?;
 
         assert_eq!(
             Some(&serde_json::Value::String("100 EUR".to_owned())),
@@ -179,7 +186,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
 
-        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id")?;
 
         assert_eq!(
             Some(&serde_json::Value::String("100 EUR".to_owned())),
@@ -225,7 +232,6 @@ mod tests {
             &extracted.images,
             &effective_url,
             identity.as_ref(),
-            None,
         )?;
 
         assert_eq!(identity, expected);
@@ -262,7 +268,7 @@ mod tests {
             "https://example.com/images/second-fallback-640x480.jpg".to_owned(),
         ];
 
-        let input = crawler_raw_input(&extracted, &validated_image_urls, &url, "stable-id", None)?;
+        let input = crawler_raw_input(&extracted, &validated_image_urls, &url, "stable-id")?;
 
         assert_eq!(
             input.source_payload().value().get("images"),
@@ -304,7 +310,7 @@ mod tests {
             .raw_attributes
             .insert("rawYear".to_owned(), vec![String::new()]);
 
-        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?;
+        let input = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id")?;
 
         assert_eq!(
             input.raw_values().value().get("attributes"),
@@ -324,47 +330,42 @@ mod tests {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let extracted = raw();
-        let first =
-            crawler_raw_input(&extracted, &extracted.images, &url, "stable-id", None)?.hash()?;
+        let first = crawler_raw_input(&extracted, &extracted.images, &url, "stable-id")?.hash()?;
         let mut changed = raw();
         changed
             .raw_attributes
             .insert("rawMaterial".to_owned(), vec!["Oak".to_owned()]);
-        let second =
-            crawler_raw_input(&changed, &changed.images, &url, "stable-id", None)?.hash()?;
+        let second = crawler_raw_input(&changed, &changed.images, &url, "stable-id")?.hash()?;
         assert_ne!(first, second);
         Ok(())
     }
 
+    /// A page that leaves its title out, or blank, and its state out leaves the listing's title
+    /// and availability unchanged; the source payload still shows what the page held.
     #[test]
-    fn should_capture_a_carried_forward_title_and_keep_the_blank_extraction_as_evidence()
+    fn should_leave_the_title_and_availability_unchanged_when_the_page_has_none()
     -> Result<(), NormalizationInputError> {
         let url = Url::parse("https://example.com/products/1")
             .unwrap_or_else(|error| panic!("static test URL must parse: {error}"));
         let mut untitled = raw();
-        untitled.title = String::new();
-        untitled.state = "Sold".to_owned();
+        untitled.title = Some(" ".to_owned());
+        untitled.state = None;
 
-        let input = crawler_raw_input(
-            &untitled,
-            &untitled.images,
-            &url,
-            "stable-id",
-            Some("Chair"),
-        )?;
+        let input = crawler_raw_input(&untitled, &untitled.images, &url, "stable-id")?;
 
         assert_eq!(
             input.raw_values().value().get("title"),
-            Some(&serde_json::json!({"action": "SET", "value": "Chair"}))
+            Some(&serde_json::json!({"action": "UNCHANGED"}))
         );
         assert_eq!(
             input.raw_values().value().get("availability"),
-            Some(&serde_json::json!({"action": "SET", "value": "Sold"}))
+            Some(&serde_json::json!({"action": "UNCHANGED"}))
         );
         assert_eq!(
             input.source_payload().value().get("title"),
-            Some(&serde_json::Value::String(String::new()))
+            Some(&serde_json::Value::String(" ".to_owned()))
         );
+        assert_eq!(input.source_payload().value().get("state"), None);
         Ok(())
     }
 }

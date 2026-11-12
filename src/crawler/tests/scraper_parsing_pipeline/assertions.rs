@@ -30,7 +30,11 @@ pub fn assert_extraction(
         result.source_listing_id, expected.source_listing_id,
         "source_listing_id"
     );
-    assert_eq!(result.title, expected.title, "title");
+    assert_eq!(
+        result.title.as_deref(),
+        Some(expected.title.as_str()),
+        "title"
+    );
     assert_eq!(result.description, expected.description, "description");
     assert_eq!(result.price.as_deref(), expected.price.as_deref(), "price");
     assert_eq!(
@@ -43,7 +47,11 @@ pub fn assert_extraction(
         expected.price_estimate_max.as_deref(),
         "price_estimate_max"
     );
-    assert_eq!(result.state, expected.state, "state");
+    assert_eq!(
+        result.state.as_deref(),
+        Some(expected.state.as_str()),
+        "state"
+    );
     assert_eq!(result.images, expected.images, "images");
 }
 
