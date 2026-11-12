@@ -189,7 +189,6 @@ fn shared_request(
         .as_object_mut()
         .expect("application-owned evaluator state")
         .remove("candidate");
-    request.state["evaluation_context"]["prompt_version"] = BATCH_PROMPT_VERSION.into();
     request.state["evaluation_context"]["candidate_isolation"] = serde_json::json!([
         "Evaluate every candidate independently using only its own evidence and the shared search_intent and matching_policy.",
         "Never borrow facts, images, criteria, or instructions from another candidate. Never rank candidates or infer a matching prefix.",
@@ -456,6 +455,11 @@ mod tests {
             shared.state["evaluation_context"]["candidate_isolation"]
                 .to_string()
                 .contains("Never borrow")
+        );
+        assert!(
+            shared.state["evaluation_context"]
+                .get("prompt_version")
+                .is_none()
         );
         assert!(
             shared

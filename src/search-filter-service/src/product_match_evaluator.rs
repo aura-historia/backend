@@ -409,7 +409,6 @@ fn product_match_request(
             },
             "evaluation_context": {
                 "purpose": "saved_search_matching",
-                "prompt_version": MATCH_PROMPT_VERSION,
                 "evidence_policy_version": MatchingEvidencePolicy::VERSION,
                 "evidence_policy": evidence_policy.as_str(),
                 "search_language": intent.language().format_human_readable(),
@@ -579,9 +578,11 @@ pub(crate) mod tests {
                 .get("hard_conflict_is_diagnostic_only")
                 .is_none()
         );
-        assert_eq!(
-            request.state["evaluation_context"]["prompt_version"],
-            MATCH_PROMPT_VERSION
+        // The classifier reads every state field as prompt text; versions stay in the logs.
+        assert!(
+            request.state["evaluation_context"]
+                .get("prompt_version")
+                .is_none()
         );
         assert_eq!(
             request.state["evaluation_context"]["candidate_evidence_boundaries"]

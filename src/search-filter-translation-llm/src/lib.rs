@@ -33,8 +33,8 @@ Detect the source language from the text itself. When all of it is already Engli
 Otherwise translate faithfully:
 - Return exactly one product_queries entry per input entry, in the same order.
 - Keep query syntax exactly: the operators AND, OR and NOT, double quotes and parentheses. Never add, drop or move them.
-- Keep proper nouns and terms of art (makers, places, styles, techniques, for example Meissen or qingbai) as they are written or in their usual English form.
-- Keep every number, date, period and dimension.
+- Translate every product query into English, including short keyword queries such as Kerzenleuchter Messing (brass candlestick). Only proper nouns and established terms of art (makers, places, styles, techniques, for example Meissen or qingbai) stay as they are written or take their usual English form.
+- Keep every number, date, period and dimension, written in digits exactly as in the source.
 - Keep requirement strength: wishes and preferences stay wishes and preferences, requirements and exclusions stay requirements and exclusions. Never harden or soften the wording.
 - Translate the enhanced search description when there is one, otherwise return null.";
 
@@ -224,17 +224,58 @@ fn query_syntax(text: &str) -> (Vec<&str>, Vec<char>) {
     (operators, punctuation)
 }
 
-/// Every digit run of the original appears in the translation; a translation may spell out a
-/// written number in digits, but never lose or change one.
+/// Every digit run of the original appears in the translation, as digits or, for small counts,
+/// as an English number word ("4点" becomes "four"). A translation may also write a spelled-out
+/// number in digits, but never loses or changes one.
 fn preserves_numbers(original: &str, translated: &str) -> bool {
-    let mut available = digit_runs(translated);
+    let mut digits = digit_runs(translated);
+    let mut words = number_words(translated);
     digit_runs(original).into_iter().all(|run| {
-        available
+        if let Some(position) = digits.iter().position(|candidate| *candidate == run) {
+            digits.swap_remove(position);
+            return true;
+        }
+        let Some(word) = run.parse::<usize>().ok().and_then(|n| NUMBER_WORDS.get(n)) else {
+            return false;
+        };
+        words
             .iter()
-            .position(|candidate| *candidate == run)
-            .map(|position| available.swap_remove(position))
+            .position(|candidate| candidate == word)
+            .map(|position| words.swap_remove(position))
             .is_some()
     })
+}
+
+/// English words for the counts a translation commonly spells out.
+const NUMBER_WORDS: [&str; 21] = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+];
+
+fn number_words(text: &str) -> Vec<String> {
+    text.split(|character: char| !character.is_ascii_alphabetic())
+        .map(str::to_ascii_lowercase)
+        .filter(|word| NUMBER_WORDS.contains(&word.as_str()))
+        .collect()
 }
 
 fn digit_runs(text: &str) -> Vec<String> {
@@ -568,5 +609,20 @@ mod tests {
         assert!(preserves_numbers("1,5 m", "1.5 m"));
         assert!(!preserves_numbers("1,5 m", "1 m"));
         assert!(!preserves_numbers("1890", "1980"));
+    }
+
+    #[test]
+    fn should_accept_small_counts_spelled_out_in_english_but_not_changed_ones() {
+        assert!(preserves_numbers(
+            "4点の絵画セット",
+            "set of four paintings"
+        ));
+        assert!(preserves_numbers("4点すべて", "All Four"));
+        assert!(!preserves_numbers(
+            "4点の絵画セット",
+            "set of three paintings"
+        ));
+        assert!(!preserves_numbers("2 Paar, 2 Vasen", "two pairs and vases"));
+        assert!(!preserves_numbers("45 Stück", "forty-five pieces"));
     }
 }
