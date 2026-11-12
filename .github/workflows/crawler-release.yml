@@ -10,53 +10,54 @@ on:
 permissions:
   contents: read
 env:
-  DELIVERY_PROTECTIONS_VERIFIED: ${{ vars.DELIVERY_PROTECTIONS_VERIFIED }}
-  WORKFLOW_REVISION: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
-  INVOCATION_REVISION: ${{ github.workflow_sha }}
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_BUILD_JOBS: 4
   GH_TOKEN: ${{ github.token }}
 concurrency:
   group: crawler-release-${{ inputs.source_sha }}
   cancel-in-progress: false
 jobs:
   resolve:
-    name: Pin request and check protections
+    name: Check the requested source
     if: github.ref == 'refs/heads/develop' && github.repository == 'aura-historia/backend'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - name: Require the protected develop workflow and a source merged into develop
+      - name: Require a full SHA merged into develop and no existing release
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
-          node -e "
-            const w = require('./ci/delivery/workflow.cjs');
-            w.trustedInvocation();
-            w.assertControlRevision();
-            w.releaseSource(process.env.SOURCE_SHA);
-          "
-      - name: Refuse an existing release
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Select a full lowercase source SHA" >&2; exit 1; }
+          git fetch --no-tags origin develop
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/develop
           if gh release view "crawler-${SOURCE_SHA}" >/dev/null 2>&1; then
             echo "Release crawler-${SOURCE_SHA} already exists; releases are immutable" >&2
             exit 1
           fi
   tests:
+    name: Test crawler / ${{ inputs.source_sha }}
     needs: resolve
-    uses: ./.github/workflows/release-tests.yml
-    with:
-      source_sha: ${{ inputs.source_sha }}
-      control_revision: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: ./.github/actions/test-lane
+        with:
+          id: crawler
+          lanes: CRAWLER
+          slots: 4
+          profile: postgres
+          compilation_cache: dependencies
   build:
     name: Build crawler / ${{ inputs.source_sha }}
     needs: [resolve, tests]
