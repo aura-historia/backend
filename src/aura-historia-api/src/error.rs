@@ -761,10 +761,11 @@ impl From<ListOwnedSearchFiltersError> for ApiError {
             ListOwnedSearchFiltersError::ActorMayNotManageSearchFilter => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. }
-            | ListOwnedSearchFiltersError::ListingSourceReadFailed { .. } => {
+            error @ (ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. }
+            | ListOwnedSearchFiltersError::ListingSourceReadFailed { .. }) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filters are temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
             error @ ListOwnedSearchFiltersError::ListingSourceStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
@@ -790,10 +791,11 @@ impl From<GetOwnedSearchFilterError> for ApiError {
                 ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                     .with_detail("Search filter was not found.")
             }
-            GetOwnedSearchFilterError::SearchFilterReadFailed { .. }
-            | GetOwnedSearchFilterError::ListingSourceReadFailed { .. } => {
+            error @ (GetOwnedSearchFilterError::SearchFilterReadFailed { .. }
+            | GetOwnedSearchFilterError::ListingSourceReadFailed { .. }) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter is temporarily unavailable.")
+                    .with_cause(Box::new(error))
             }
             error @ GetOwnedSearchFilterError::ListingSourceStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)

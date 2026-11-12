@@ -1,4 +1,5 @@
 use crate::mapping::{FILTER_COLUMNS, FilterRow};
+use application::error::box_error;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{SearchFilterReadError, SearchFilterReader, SearchFilterView};
 use sqlx::{PgPool, Postgres, QueryBuilder};
@@ -30,7 +31,7 @@ impl SearchFilterReader for SqlxSearchFilterReader {
             .bind(user_id.into_uuid())
             .fetch_all(&self.pool)
             .await
-            .map_err(|_| SearchFilterReadError::ReadFailed)?
+            .map_err(read_failed)?
             .into_iter()
             .map(FilterRow::into_view)
             .collect()
@@ -52,8 +53,14 @@ impl SearchFilterReader for SqlxSearchFilterReader {
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|_| SearchFilterReadError::ReadFailed)?
+            .map_err(read_failed)?
             .map(FilterRow::into_view)
             .transpose()
+    }
+}
+
+fn read_failed(source: sqlx::Error) -> SearchFilterReadError {
+    SearchFilterReadError::ReadFailed {
+        source: box_error(source),
     }
 }
