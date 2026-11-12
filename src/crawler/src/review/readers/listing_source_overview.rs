@@ -4,8 +4,9 @@
 //! ListingSources.
 
 use crate::review::model::{
-    CrawlStateOverview, ListPage, ListWindow, ListingSourceOverview, ReviewActor, SearchTerm,
-    SortDirection, SourceActivity, SourceSort, SourceStatus, UrlErrorKindCount,
+    AppliedSourceLabel, CrawlStateOverview, ListPage, ListWindow, ListingSourceOverview,
+    ReviewActor, SearchTerm, SortDirection, SourceActivity, SourceLabel, SourceSort, SourceStatus,
+    UrlErrorKindCount,
 };
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
@@ -39,6 +40,8 @@ pub struct HealthCounts {
     pub blocked_by_review: i64,
     pub failing_to_scrape: i64,
     pub held_removals: i64,
+    /// Sources a human labelled, over all sources.
+    pub labelled: i64,
 }
 
 /// The ListingSources with everything the overview shows, computed in SQL for every ListingSource
@@ -77,6 +80,10 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.listing_source_name,
         s.crawl_host,
         s.crawl_enabled,
+        s.source_label,
+        s.source_label_note,
+        s.source_labelled_at,
+        s.source_labelled_by,
         s.updated,
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
@@ -236,7 +243,8 @@ impl ListingSourceOverviewReader {
                     COUNT(*) FILTER (WHERE crawl_enabled AND blocked_urls > 0) AS blocked_by_review,
                     COUNT(*) FILTER (WHERE crawl_enabled AND scrape_failure_streak > 0)
                         AS failing_to_scrape,
-                    COUNT(*) FILTER (WHERE crawl_enabled AND held_removal_urls > 0) AS held_removals
+                    COUNT(*) FILTER (WHERE crawl_enabled AND held_removal_urls > 0) AS held_removals,
+                    COUNT(*) FILTER (WHERE source_label IS NOT NULL) AS labelled
              FROM ranked"
         )))
         .bind(None::<uuid::Uuid>)
@@ -251,6 +259,7 @@ impl ListingSourceOverviewReader {
             blocked_by_review: row.try_get("blocked_by_review")?,
             failing_to_scrape: row.try_get("failing_to_scrape")?,
             held_removals: row.try_get("held_removals")?,
+            labelled: row.try_get("labelled")?,
         })
     }
 
@@ -348,6 +357,7 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::NeedsAttention => "needs_attention",
         SourceStatus::Healthy => "healthy",
         SourceStatus::Disabled => "disabled",
+        SourceStatus::Labelled => "labelled",
         SourceStatus::CrawlFailing => "crawl_failing",
         SourceStatus::CrawlNeedsOperator => "crawl_needs_operator",
         SourceStatus::Blocked => "blocked",
@@ -391,7 +401,8 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                AND ($8::text IS NULL
                     OR ($8 = 'needs_attention' AND needs_attention)
                     OR ($8 = 'healthy' AND crawl_enabled AND NOT needs_attention)
-                    OR ($8 = 'disabled' AND NOT crawl_enabled)
+                    OR ($8 = 'disabled' AND NOT crawl_enabled AND source_label IS NULL)
+                    OR ($8 = 'labelled' AND source_label IS NOT NULL)
                     OR ($8 = 'crawl_failing' AND crawl_enabled AND crawl_failed)
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
@@ -409,13 +420,15 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
 }
 
 /// The `ORDER BY` list of `sort` in `direction`: every key in that direction, nulls last, the
-/// ListingSource id last. `Attention` ranks crawl-enabled sources first, then those whose crawl
-/// waits for an operator, those whose last crawl failed, those with blocked URLs, the longest scrape failure streaks, those with
-/// held removals, the most pending reviews and the most recently updated.
+/// ListingSource id last. `Attention` ranks crawl-enabled sources first and labelled ones last,
+/// then those whose crawl waits for an operator, those whose last crawl failed, those with blocked
+/// URLs, the longest scrape failure streaks, those with held removals, the most pending reviews and
+/// the most recently updated.
 fn order_by(sort: SourceSort, direction: SortDirection) -> String {
     let keys: &[&str] = match sort {
         SourceSort::Attention => &[
             "crawl_enabled",
+            "(source_label IS NULL)",
             "needs_operator",
             "crawl_failed",
             "(blocked_urls > 0)",
@@ -449,6 +462,7 @@ fn overview_of_row(
         listing_source_id,
         listing_source_name: row.try_get("listing_source_name")?,
         crawl_enabled: row.try_get("crawl_enabled")?,
+        source_label: applied_source_label(row)?,
         crawl_root_url: row.try_get("crawl_root_url")?,
         last_successful_crawl: row.try_get("last_successful_crawl")?,
         last_successful_scrape: row.try_get("last_successful_scrape")?,
@@ -463,7 +477,10 @@ fn overview_of_row(
         held_removal_urls: row.try_get("held_removal_urls")?,
         held_since: row.try_get("held_since")?,
         mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
-        mass_removal_confirmed_by: confirming_actor(row.try_get("mass_removal_confirmed_by")?)?,
+        mass_removal_confirmed_by: persisted_actor(
+            "mass_removal_confirmed_by",
+            row.try_get("mass_removal_confirmed_by")?,
+        )?,
         url_error_kinds: Vec::new(),
         missing_value_urls: row.try_get("missing_value_urls")?,
         crawling_since: running_since(running, WorkLockScope::Spider, listing_source_id, now),
@@ -496,17 +513,37 @@ fn running_since(
         .map(|work| now - work.since.elapsed())
 }
 
-/// The actor a persisted confirmation names; an unknown name fails, so the console never shows a
-/// confirmation it cannot attribute.
-fn confirming_actor(name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
+/// The actor the persisted `column` names; an unknown name fails, so the console never shows a
+/// decision it cannot attribute.
+fn persisted_actor(column: &str, name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
     name.map(|name| {
         ReviewActor::from_persisted(&name).ok_or_else(|| {
-            sqlx::Error::Decode(
-                format!("invalid persisted mass_removal_confirmed_by `{name}`").into(),
-            )
+            sqlx::Error::Decode(format!("invalid persisted {column} `{name}`").into())
         })
     })
     .transpose()
+}
+
+/// The label the row's source carries; an unknown label or actor, or a label without its time
+/// or actor, fails, so the console never shows a label it cannot read whole.
+fn applied_source_label(row: &PgRow) -> Result<Option<AppliedSourceLabel>, sqlx::Error> {
+    let Some(name) = row.try_get::<Option<String>, _>("source_label")? else {
+        return Ok(None);
+    };
+    let label = SourceLabel::from_persisted(&name).ok_or_else(|| {
+        sqlx::Error::Decode(format!("invalid persisted source_label `{name}`").into())
+    })?;
+    let labelled_by = persisted_actor("source_labelled_by", row.try_get("source_labelled_by")?)?
+        .ok_or_else(|| sqlx::Error::Decode("source_label without source_labelled_by".into()))?;
+    let labelled_at = row
+        .try_get::<Option<OffsetDateTime>, _>("source_labelled_at")?
+        .ok_or_else(|| sqlx::Error::Decode("source_label without source_labelled_at".into()))?;
+    Ok(Some(AppliedSourceLabel {
+        label,
+        note: row.try_get("source_label_note")?,
+        labelled_at,
+        labelled_by,
+    }))
 }
 
 #[cfg(test)]

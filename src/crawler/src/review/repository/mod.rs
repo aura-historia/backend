@@ -49,6 +49,7 @@ mod reviewer_page_url;
 mod revocation;
 mod sample_labels;
 mod schema_payload;
+mod source_label;
 mod url_pattern_sample;
 mod verdicts;
 
@@ -131,6 +132,10 @@ pub enum ReviewRepositoryError {
     MissingHandoverNote,
     #[error("only a review agent hands a review to a human; a human changes or judges it instead")]
     OnlyAgentsHandOver,
+    #[error(
+        "a review agent labels a ListingSource only with a note naming the evidence: what it read and why the crawler should not crawl the shop"
+    )]
+    AgentSourceLabelNeedsNote,
     #[error(
         "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
     )]

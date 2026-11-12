@@ -146,7 +146,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 /* ───────────────────────────── 4. Badges and dots ───────────────────────────── */
 /* A badge is words in a tone. `.badge-kind` is the artifact type: outlined, never a status. */
 .badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 20px; padding: 0 7px; border: 1px solid transparent; border-radius: var(--r-sm);
-    background: var(--neutral-soft); color: var(--neutral); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; vertical-align: middle; }
+    background: var(--neutral-soft); color: var(--neutral); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap; vertical-align: middle; }
 .badge-ok { background: var(--ok-soft); color: var(--ok); }
 .badge-warn { background: var(--warn-soft); color: var(--warn); }
 .badge-bad { background: var(--bad-soft); color: var(--bad); }
@@ -316,6 +316,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .data-table .row-link:hover { color: var(--accent); text-decoration: none; }
 .data-table td .badge + .badge { margin-left: 4px; }
 .data-table .more { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+/* A label's free-text note stays on one line, cut short, so it never widens the table. */
+.data-table .more-note { display: inline-block; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .data-table td.state-cell { padding: 0; }
 .data-table td.state-cell .state { padding: var(--s-5) var(--s-4); }
 .data-table .url { font-family: var(--mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
@@ -435,9 +437,10 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .preview .frame-placeholder { display: grid; place-items: center; background: repeating-linear-gradient(45deg, var(--surface-2) 0 12px, var(--surface-3) 12px 24px); color: var(--muted); font-size: var(--fs-sm); }
 
 .inspector { display: grid; container-type: inline-size; min-width: 0; }
-.tabs { display: flex; gap: 2px; padding: 0 var(--s-2); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 var(--s-2); border-bottom: 1px solid var(--line); }
 .tab { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin-bottom: -1px; padding: 0 var(--s-3); border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .tab:hover { color: var(--ink); }
+.inspector .tabs { justify-content: center; }
 .tab.active, .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }
 .tab .count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 @container (max-width: 440px) { .tabs { padding: 0; } .tab { padding: 0 var(--s-2); } }
@@ -565,9 +568,12 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .queue-bar .spacer { flex: 1; }
 .kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); font: 600 11px/16px var(--mono); text-align: center; vertical-align: middle; }
 .kbd-hint { color: var(--muted); font-size: var(--fs-xs); }
-/* Rail header: the source's health next to its name. */
-.rail .card-head .badge { margin-left: auto; }
-.rail .card-head .btn { margin-left: var(--s-1); }
+/* Rail header: the source's name with its health right after it, the hide button at the end. */
+.rail .card-head { flex-wrap: nowrap; }
+.rail .card-head h3 { flex-wrap: wrap; min-width: 0; }
+.rail .card-head .rail-source { color: var(--ink); text-decoration: none; }
+.rail .card-head a.rail-source:hover { text-decoration: underline; }
+.rail .card-head .btn { flex: none; margin-left: auto; }
 @media (max-width: 1319px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 719px) { .refresh-state { display: none; } .queue-bar .kbd-hint { display: none; } }
 
@@ -585,7 +591,6 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .pager-note { color: var(--warn); font-weight: 500; }
 .banner .spinner { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--info); animation: pulse 1s ease-in-out infinite; }
 .dimmed { opacity: 0.5; pointer-events: none; }
-@media (max-width: 479px) { .rail .card-head { flex-wrap: wrap; } .rail .card-head .badge { margin-left: 0; order: 3; } }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .tile-link { display: grid; gap: 2px; color: inherit; }
 .tile-link:hover { text-decoration: none; }

@@ -59,6 +59,7 @@ mod pending_reviews;
 mod query_params;
 mod review_list;
 mod schema_matrix;
+mod source_label;
 mod source_pages;
 
 use schema_matrix::NoMatrixAnswer;
@@ -274,6 +275,12 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_source_label(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_review_source_label(&request, actor).await {
             return response;
         }
         // Preview responses, including their errors, are framed by the console.
@@ -1232,6 +1239,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::NoRejectionToRevoke(_)
         | ReviewRepositoryError::NoSoldPageUrlCount
         | ReviewRepositoryError::InvalidNoSoldPageNote
+        | ReviewRepositoryError::AgentSourceLabelNeedsNote
         | ReviewRepositoryError::InvalidNotProductReason
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
@@ -5707,6 +5715,128 @@ Origin: http://127.0.0.1:7878/x
             );
             let (status, missing) = send(&server, &format!("POST {unknown}"), "").await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod source_label {
+        use super::mass_removal_confirmation::{console, overview_of};
+        use super::needs_repair::{AUTHOR_TOKEN, send, send_as};
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// A human labels a source, which switches its crawling off and lists it as labelled,
+        /// not disabled, and clears the label; a request the label contract refuses answers 400,
+        /// an agent token 401 and an unknown source 404.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_label_and_clear_a_source_for_a_human_only() {
+            let (server, listing_source_id) = console().await;
+            let route = format!("/api/listing-sources/{listing_source_id}/label");
+            let body = json!({ "label": "OTHER", "note": " catalogue only " }).to_string();
+
+            let (status, _) = send_as(&server, AUTHOR_TOKEN, &format!("PUT {route}"), &body).await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+
+            let (status, applied) = send(&server, &format!("PUT {route}"), &body).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {applied}");
+            assert_eq!(
+                (&applied["label"], &applied["note"], &applied["labelled_by"]),
+                (&json!("OTHER"), &json!("catalogue only"), &json!("HUMAN"))
+            );
+            let source = overview_of(&server, listing_source_id).await;
+            assert_eq!(source["source_label"], applied, "{source}");
+            assert_eq!(source["crawl_enabled"], false, "{source}");
+            for (status_filter, total) in [("labelled", 1), ("disabled", 0)] {
+                let (_, listed) = send(
+                    &server,
+                    &format!("GET /api/listing_sources?status={status_filter}"),
+                    "",
+                )
+                .await;
+                assert_eq!(listed["total"], total, "{status_filter}: {listed}");
+            }
+            let (_, overview) = send(&server, "GET /api/overview", "").await;
+            assert_eq!(overview["sources"]["labelled"], 1, "{overview}");
+
+            for refused in [
+                json!({ "label": "OTHER" }),
+                json!({ "label": "not_an_eshop" }),
+                json!({ "label": "NOT_AN_ESHOP", "extra": true }),
+                json!({ "label": "NOT_AN_ESHOP", "note": "  " }),
+            ] {
+                let (status, error) =
+                    send(&server, &format!("PUT {route}"), &refused.to_string()).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused} {status} {error}"
+                );
+            }
+
+            let (status, cleared) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {cleared}");
+            assert_eq!(cleared, json!({ "ok": true }));
+            let source = overview_of(&server, listing_source_id).await;
+            assert!(source["source_label"].is_null(), "{source}");
+            assert_eq!(
+                source["crawl_enabled"], false,
+                "clearing leaves enabling to the scope sync"
+            );
+            let (status, _) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "clearing twice succeeds"
+            );
+
+            let unknown = format!("/api/listing-sources/{}/label", ListingSourceId::new());
+            for request in [format!("PUT {unknown}"), format!("DELETE {unknown}")] {
+                let (status, missing) = send(&server, &request, &body).await;
+                assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+            }
+        }
+    }
+    mod review_source_label {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, send, send_as};
+        use super::schema_editing::pending_review_server;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// The author agent labels the ListingSource of the pending review it works, with its
+        /// evidence as the note, which switches the source's crawling off and takes the review out
+        /// of the agents' queue; a label without a note and the reviewer agent are refused.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_let_the_author_agent_label_the_source_of_its_review_with_evidence() {
+            let (server, review_id) = pending_review_server().await;
+            let route = format!("POST /api/reviews/{review_id}/source-label");
+            let labelled = json!({
+                "label": "NOT_AN_ESHOP",
+                "note": "/werke/1 and /werke/2 show prices on request and an enquiry form only"
+            })
+            .to_string();
+
+            let (status, error) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &route,
+                &json!({ "label": "NOT_AN_ESHOP" }).to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {error}");
+            let (status, error) = send_as(&server, REVIEWER_TOKEN, &route, &labelled).await;
+            assert!(status.starts_with("HTTP/1.1 403"), "{status} {error}");
+            assert_eq!(error["reason"], "REVIEWER_CANNOT_CHANGE_CANDIDATES");
+
+            let (status, applied) = send_as(&server, AUTHOR_TOKEN, &route, &labelled).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {applied}");
+            assert_eq!(
+                (&applied["label"], &applied["labelled_by"]),
+                (&json!("NOT_AN_ESHOP"), &json!("AGENT_AUTHOR"))
+            );
+            let (_, labelled_sources) =
+                send(&server, "GET /api/listing_sources?status=labelled", "").await;
+            assert_eq!(labelled_sources["total"], 1, "{labelled_sources}");
+            assert_eq!(labelled_sources["items"][0]["crawl_enabled"], false);
+            let (_, queue) = send_as(&server, AUTHOR_TOKEN, "GET /api/pending-reviews", "").await;
+            assert_eq!(queue["totals"]["workable"], 0, "{queue}");
+            assert_eq!(queue["reviews"], json!([]), "{queue}");
         }
     }
     mod console_lists {

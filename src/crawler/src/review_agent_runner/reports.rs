@@ -20,6 +20,9 @@ const MAX_ITEMS: usize = 30;
 pub enum AuthorAction {
     /// The author staged a candidate for the reviewer.
     Staged,
+    /// The author labelled the review's ListingSource because the crawler should not crawl it,
+    /// which switched its crawling off and took its reviews out of the agents' queue.
+    SourceLabelled,
     /// The current candidate already holds, or no candidate can work.
     NothingToStage,
     /// The author could not work the review.
