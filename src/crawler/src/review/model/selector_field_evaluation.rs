@@ -11,10 +11,6 @@ pub struct SelectorFieldEvaluation {
     /// The same count for each additional selector, `0` for one that does not parse.
     pub additional_selector_match_counts: Vec<usize>,
     pub error: Option<String>,
-    /// Whether a miss of this rule fails the page (`title`, `state`). Set by the
-    /// evaluator from the schema field it iterates, never derived from the name.
-    #[serde(default)]
-    pub required: bool,
     /// Matched elements the `images` rule skipped on this page because they hold no
     /// value (no image URL candidate, or no attribute of an attribute rule), such as
     /// `href="#"` anchors in a gallery. Next to extracted images a count above zero shows

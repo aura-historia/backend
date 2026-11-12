@@ -103,7 +103,7 @@ struct CandidateMeta {
     schema_fingerprint: String,
     raw_input_sha256: Vec<u8>,
     source_listing_id: String,
-    title: String,
+    title: Option<String>,
     expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
@@ -987,7 +987,6 @@ fn scrape_request(candidate: &ScraperCandidate, mode: ScrapeMode) -> ScrapeReque
         url: candidate.url.clone(),
         source_record_key: candidate.source_record_key.clone(),
         last_source_listing_id: candidate.last_source_listing_id.clone(),
-        last_captured_title: candidate.last_captured_title.clone(),
         product_url_pattern: candidate.url_pattern.clone(),
         last_scraped_hash: candidate.last_scraped_hash.clone(),
         last_scraped_schema_fingerprint: candidate.last_scraped_schema_fingerprint.clone(),
@@ -1803,19 +1802,12 @@ enum NonHttpFailureRecord {
     SchemaRetryCooldown,
     /// Any other failure: recorded without delaying the next scrape.
     ScraperFailure,
-    /// The page was evaluated and has nothing to capture: the URL counts as scraped and
-    /// keeps the outcome until a later scrape completes, without a retry.
-    ScrapedWithoutCapture,
 }
 
 impl NonHttpFailureRecord {
     fn of(error: &ScraperError) -> Self {
-        match error {
-            ScraperError::MissingRequiredValue { .. } => return Self::ScrapedWithoutCapture,
-            ScraperError::PendingSchemaReview { review_id, .. } => {
-                return Self::SchemaReviewWait(*review_id);
-            }
-            _ => {}
+        if let ScraperError::PendingSchemaReview { review_id, .. } = error {
+            return Self::SchemaReviewWait(*review_id);
         }
         let schema_work_outcome = matches!(
             error,
@@ -1848,9 +1840,6 @@ async fn persist_non_http_failure(
         }
         NonHttpFailureRecord::ScraperFailure => {
             persist_scraper_failure(candidate, ctx, error_kind, error_message).await;
-        }
-        NonHttpFailureRecord::ScrapedWithoutCapture => {
-            persist_scraped_without_capture(candidate, ctx, error_kind, error_message).await;
         }
     }
 }
@@ -2019,9 +2008,6 @@ async fn record_batch_error_state(ctx: &ScrapeBatchContext, error: &ScraperError
             | ScraperError::NotProductPage { .. }
             | ScraperError::RedirectToKnownProduct { .. }
             | ScraperError::PendingSchemaReview { .. }
-            // The pipeline already logged the blank fields, and in `agent` mode the review the
-            // page joined.
-            | ScraperError::MissingRequiredValue { .. }
     ) || is_robots_refusal(error)
     {
         debug!(error = %error, "Scraper run failed");
@@ -2056,7 +2042,6 @@ fn scraper_error_kind(e: &ScraperError) -> &'static str {
         ScraperError::SchemaRegenerationExhausted { .. } => "SchemaRegenerationExhausted",
         // The label predates plausibility checks and stays stable for persisted rows.
         ScraperError::FreshSchemaImplausible { .. } => "FreshSchemaNormalizationFailed",
-        ScraperError::MissingRequiredValue { .. } => "MissingRequiredValue",
         ScraperError::LlmBudgetExceeded { .. } => "LlmBudgetExceeded",
         ScraperError::NormalizationError(_) => "NormalizationError",
         ScraperError::RawNormalizationInput(_) => "RawNormalizationInput",
@@ -2947,7 +2932,7 @@ mod tests {
             schema_fingerprint: "schema-fingerprint".to_owned(),
             raw_input_sha256: vec![3; 32],
             source_listing_id: "source-id".to_owned(),
-            title: "Chair".to_owned(),
+            title: Some("Chair".to_owned()),
             expected_last_captured_raw_input_sha256: None,
         }
     }
@@ -3640,7 +3625,7 @@ mod tests {
                         raw_input_sha256: vec![7; 32],
                         effective_url: url::Url::parse("https://example.com/product/1").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
-                        title: "Chair".to_owned(),
+                        title: Some("Chair".to_owned()),
                     })))
                 })
             });
@@ -4108,7 +4093,7 @@ mod tests {
                         raw_input_sha256: vec![3; 32],
                         effective_url: url::Url::parse("https://example.com/product/sold").unwrap(),
                         source_listing_id: "ListingSource".to_owned(),
-                        title: "Chair".to_owned(),
+                        title: Some("Chair".to_owned()),
                     })))
                 })
             });
@@ -4155,7 +4140,7 @@ mod tests {
                 raw_input,
                 effective_url: effective_url.clone(),
                 source_listing_id: "SKU-123".to_owned(),
-                title: "Chair".to_owned(),
+                title: Some("Chair".to_owned()),
                 hash: "redirect-hash".to_owned(),
                 schema_fingerprint: "redirect-schema".to_owned(),
                 raw_input_sha256: vec![9; 32],
@@ -4635,19 +4620,18 @@ mod tests {
             let raw_input = crawler_raw_input(
                 &RawExtractedProduct {
                     source_listing_id: "SKU-1".to_owned(),
-                    title: "Chair".to_owned(),
+                    title: Some("Chair".to_owned()),
                     description: vec!["Oak".to_owned()],
                     price: Some("100 EUR".to_owned()),
                     price_estimate_min: None,
                     price_estimate_max: None,
-                    state: "In Stock".to_owned(),
+                    state: Some("In Stock".to_owned()),
                     images: vec!["https://example.com/chair.jpg".to_owned()],
                     raw_attributes: BTreeMap::new(),
                 },
                 &["https://example.com/chair.jpg".to_owned()],
                 &url,
                 "SKU-1",
-                None,
             )
             .unwrap_or_else(|error| panic!("test product input: {error}"));
             let mut scraper_service = MockScraperService::new();
@@ -4664,7 +4648,7 @@ mod tests {
                             raw_input_sha256: product_sha256,
                             effective_url: url,
                             source_listing_id: "SKU-1".to_owned(),
-                            title: "Chair".to_owned(),
+                            title: Some("Chair".to_owned()),
                         })))
                     })
                 });
@@ -5309,7 +5293,7 @@ mod tests {
                             raw_input_sha256: vec![2; 32],
                             effective_url: url.clone(),
                             source_listing_id: "ListingSource".to_owned(),
-                            title: "Chair".to_owned(),
+                            title: Some("Chair".to_owned()),
                         })))
                     }
                 })
@@ -6581,56 +6565,6 @@ mod tests {
         job.run_scraper_once().await;
     }
 
-    /// A page that leaves a required value empty is recorded as scraped with its outcome:
-    /// no retry cooldown, and no failure that keeps the URL due on every pass.
-    #[tokio::test]
-    async fn should_mark_scraped_without_capture_for_missing_required_value() {
-        let url = url::Url::parse("https://example.com/product/1").unwrap();
-        let mut scraper_candidates = MockScraperCandidateService::new();
-        scraper_candidates
-            .expect_get_candidates()
-            .returning(get_candidates_once_by_source({
-                let url = url.clone();
-                move || vec![scraper_candidate("Test ListingSource", url.clone())]
-            }));
-        scraper_candidates
-            .expect_mark_scraped_without_capture()
-            .once()
-            .withf({
-                let url = url.clone();
-                move |_, received_url, kind, message, expected_raw_input_sha256| {
-                    *received_url == url
-                        && kind == "MissingRequiredValue"
-                        && message.starts_with(
-                            "Required value missing from 'https://example.com/product/1'",
-                        )
-                        && expected_raw_input_sha256.is_none()
-                }
-            })
-            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
-        scraper_candidates.expect_mark_fetch_failure().never();
-        scraper_candidates.expect_mark_scraper_failure().never();
-
-        let mut scraper_service = MockScraperService::new();
-        scraper_service.expect_scrape().once().returning(|request| {
-            let url = request.url;
-            Box::pin(async move {
-                scrape_outcome(Err(ScraperError::MissingRequiredValue {
-                    url,
-                    findings: Default::default(),
-                }))
-            })
-        });
-
-        let job = scraper_job(
-            CrawlerCronConfig::default(),
-            scraper_candidates,
-            scraper_service,
-        );
-
-        job.run_scraper_once().await;
-    }
-
     #[tokio::test]
     async fn should_mark_fetch_failure_for_schema_classification_rejection() {
         let before = time::OffsetDateTime::now_utc();
@@ -7088,16 +7022,16 @@ mod tests {
         fn schema(identity: ExtractionRule, state_selector: &str) -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
                 source_listing_id: Some(identity),
-                title: rule("h1", ExtractionKind::Text),
+                title: Some(rule("h1", ExtractionKind::Text)),
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: rule(state_selector, ExtractionKind::Text),
-                images: ExtractionRule {
+                state: Some(rule(state_selector, ExtractionKind::Text)),
+                images: Some(ExtractionRule {
                     cardinality: ExtractionCardinality::All,
                     ..attribute("div.product img", "src")
-                },
+                }),
                 raw_attributes: Default::default(),
             }
         }
@@ -7329,7 +7263,7 @@ mod tests {
                 raw_input_sha256: vec![7; 32],
                 effective_url: url,
                 source_listing_id: IDENTITY.to_owned(),
-                title: "Chair".to_owned(),
+                title: Some("Chair".to_owned()),
             }
         }
 
@@ -7447,7 +7381,7 @@ mod tests {
                 raw_input_sha256: vec![7; 32],
                 effective_url: url,
                 source_listing_id: "source-listing".to_owned(),
-                title: "Chair".to_owned(),
+                title: Some("Chair".to_owned()),
             }
         }
 

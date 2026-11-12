@@ -109,7 +109,6 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
             AS mass_removal_confirmed_until,
         CASE WHEN s.mass_removal_confirmed_until > NOW() THEN s.mass_removal_confirmed_by END
             AS mass_removal_confirmed_by,
-        COALESCE(u.missing_value_urls, 0) AS missing_value_urls,
         s.last_crawl_outcome IS NOT DISTINCT FROM $2 AS needs_operator
     FROM listing_sources s
     LEFT JOIN (
@@ -123,8 +122,6 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
                COUNT(*) FILTER (WHERE url_class = 'product') AS product_urls,
                COUNT(*) FILTER (WHERE url_class = 'product'
                                   AND last_error_kind = $3) AS held_removal_urls,
-               COUNT(*) FILTER (WHERE url_class = 'product'
-                                  AND last_error_kind = 'MissingRequiredValue') AS missing_value_urls,
                MAX(last_scraped) FILTER (WHERE url_class = 'product'
                                            AND last_error_kind IS DISTINCT FROM $3) AS last_successful_scrape,
                MIN(last_scraped) FILTER (WHERE url_class = 'product'
@@ -482,7 +479,6 @@ fn overview_of_row(
             row.try_get("mass_removal_confirmed_by")?,
         )?,
         url_error_kinds: Vec::new(),
-        missing_value_urls: row.try_get("missing_value_urls")?,
         crawling_since: running_since(running, WorkLockScope::Spider, listing_source_id, now),
         scraping_since: running_since(running, WorkLockScope::Scraper, listing_source_id, now),
         crawl_state: CrawlStateOverview {

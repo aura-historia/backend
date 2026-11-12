@@ -277,16 +277,6 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
-    #[case::author_token_opens_no_missing_value_page_review(
-        "POST /api/listing-sources/ls_1/missing-value-pages/review",
-        Some(AUTHOR_TOKEN),
-        None
-    )]
-    #[case::reviewer_token_opens_no_missing_value_page_review(
-        "POST /api/listing-sources/ls_1/missing-value-pages/review",
-        Some(REVIEWER_TOKEN),
-        None
-    )]
     #[case::author_token_fetches_no_live_preview(
         "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem&review=cr_1",
         Some(AUTHOR_TOKEN),

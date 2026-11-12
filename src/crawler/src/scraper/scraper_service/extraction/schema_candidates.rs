@@ -46,19 +46,13 @@ fn any_populated(values: &[String]) -> bool {
 /// the final score is a single sum over them. Adding a new scored field is a
 /// one-line change in the relevant array.
 pub(crate) fn score_raw_product(raw: &RawExtractedProduct) -> ExtractionCompletenessScore {
-    // Mandatory `String` fields: populated when the trimmed value is non-empty.
-    let scalar_strings: [&str; 3] = [
-        raw.source_listing_id.as_str(),
-        raw.title.as_str(),
-        raw.state.as_str(),
-    ];
-    let populated_scalar_strings = scalar_strings
-        .iter()
-        .filter(|s| !s.trim().is_empty())
-        .count();
+    // The identity: populated when the trimmed value is non-empty.
+    let populated_scalar_strings = usize::from(!raw.source_listing_id.trim().is_empty());
 
     // Optional `Option<String>` fields: populated when `Some` and trimmed-non-empty.
-    let optional_strings: [Option<&str>; 3] = [
+    let optional_strings: [Option<&str>; 5] = [
+        raw.title.as_deref(),
+        raw.state.as_deref(),
         raw.price.as_deref(),
         raw.price_estimate_min.as_deref(),
         raw.price_estimate_max.as_deref(),
@@ -110,6 +104,8 @@ pub(crate) struct CheckedSchemaCandidate<'a> {
     pub validated_image_urls: Vec<String>,
     /// Findings that lower the rank or are only reported.
     pub findings: PlausibilityFindings,
+    /// The schema's `title`, `state` and `images` rules that left their field empty.
+    pub unfilled_core_rules: usize,
     pub score: ExtractionCompletenessScore,
 }
 
@@ -121,16 +117,19 @@ impl<'a> CheckedSchemaCandidate<'a> {
         findings: PlausibilityFindings,
         validated_image_urls: Vec<String>,
     ) -> Self {
-        let score = score_raw_product(&RawExtractedProduct {
+        let validated = RawExtractedProduct {
             images: validated_image_urls.clone(),
             ..applied.raw.clone()
-        });
+        };
+        let score = score_raw_product(&validated);
+        let unfilled_core_rules = applied.schema.unfilled_core_rules(&validated);
         Self {
             schema_index: applied.schema_index,
             schema: applied.schema,
             raw: applied.raw,
             validated_image_urls,
             findings,
+            unfilled_core_rules,
             score,
         }
     }
@@ -210,16 +209,23 @@ pub fn rank_applicable_schemas(
 
 /// Orders candidates by:
 ///
-/// 1. fewer rank-lowering plausibility findings (price, estimates, images);
-/// 2. higher completeness score;
-/// 3. original schema index as deterministic tie-breaker.
+/// 1. fewer of the schema's own `title`, `state` and `images` rules left empty on the page,
+///    so a schema that fits the page wins over one that applies only because every field is
+///    optional, whose missing images also spare it the image findings;
+/// 2. fewer rank-lowering plausibility findings (price, estimates, images);
+/// 3. higher completeness score;
+/// 4. original schema index as deterministic tie-breaker.
 ///
 /// Stored order therefore affects only ties.
 pub(crate) fn rank_checked_candidates(candidates: &mut [CheckedSchemaCandidate<'_>]) {
     candidates.sort_by(|left, right| {
-        left.findings
-            .rank_penalty()
-            .cmp(&right.findings.rank_penalty())
+        left.unfilled_core_rules
+            .cmp(&right.unfilled_core_rules)
+            .then(
+                left.findings
+                    .rank_penalty()
+                    .cmp(&right.findings.rank_penalty()),
+            )
             .then(right.score.cmp(&left.score))
             .then(left.schema_index.cmp(&right.schema_index))
     });
@@ -233,12 +239,12 @@ mod tests {
     fn raw_product() -> RawExtractedProduct {
         RawExtractedProduct {
             source_listing_id: String::new(),
-            title: String::new(),
+            title: Some(String::new()),
             description: vec![],
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: String::new(),
+            state: Some(String::new()),
             images: vec![],
             raw_attributes: BTreeMap::new(),
         }
@@ -253,8 +259,8 @@ mod tests {
     fn should_count_each_populated_scalar_field_once() {
         let mut raw = raw_product();
         raw.source_listing_id = "SKU-1".to_string();
-        raw.title = "Chair".to_string();
-        raw.state = "In Stock".to_string();
+        raw.title = Some("Chair".to_string());
+        raw.state = Some("In Stock".to_string());
         assert_eq!(score_raw_product(&raw).as_usize(), 3);
     }
 
@@ -262,7 +268,7 @@ mod tests {
     fn should_not_count_blank_or_whitespace_only_strings() {
         let mut raw = raw_product();
         raw.source_listing_id = "   ".to_string();
-        raw.title = "\n\t".to_string();
+        raw.title = Some("\n\t".to_string());
         assert_eq!(score_raw_product(&raw).as_usize(), 0);
     }
 
@@ -320,7 +326,7 @@ mod tests {
     fn should_score_validated_images_instead_of_raw_image_candidates() {
         let schema = schema();
         let mut raw = raw_product();
-        raw.title = "Chair".to_string();
+        raw.title = Some("Chair".to_string());
         raw.images = vec!["/thumb-100x100.jpg".to_string()];
 
         let without_valid_image = checked(&schema, 0, raw.clone(), Vec::new());
@@ -344,11 +350,11 @@ mod tests {
     fn should_rank_richer_candidate_first() {
         let schema = schema();
         let mut poor = raw_product();
-        poor.title = "Chair".to_string();
+        poor.title = Some("Chair".to_string());
         let mut rich = raw_product();
-        rich.title = "Chair".to_string();
+        rich.title = Some("Chair".to_string());
         rich.price = Some("100 EUR".to_string());
-        rich.state = "Available".to_string();
+        rich.state = Some("Available".to_string());
 
         let mut candidates = vec![
             checked(&schema, 0, poor, Vec::new()),
@@ -365,13 +371,13 @@ mod tests {
     fn should_rank_candidate_with_fewer_price_or_image_findings_first() {
         let schema = schema();
         let mut zero_price = raw_product();
-        zero_price.title = "Chair".to_string();
-        zero_price.state = "Sold".to_string();
+        zero_price.title = Some("Chair".to_string());
+        zero_price.state = Some("Sold".to_string());
         zero_price.price = Some("£0.00".to_string());
         zero_price.description = vec!["Oak".to_string()];
         let mut without_price = raw_product();
-        without_price.title = "Chair".to_string();
-        without_price.state = "Sold".to_string();
+        without_price.title = Some("Chair".to_string());
+        without_price.state = Some("Sold".to_string());
 
         let mut candidates = vec![
             checked(&schema, 0, zero_price, Vec::new()),
@@ -387,11 +393,35 @@ mod tests {
         );
     }
 
+    /// A schema whose images rule finds nothing on the page applies, since every field is
+    /// optional, but one that fills its rules fits the page better, even with a repeated image.
+    #[test]
+    fn should_rank_a_candidate_that_fills_its_images_rule_above_one_that_finds_none() {
+        let schema = schema();
+        let mut with_images = raw_product();
+        with_images.title = Some("Chair".to_string());
+        with_images.state = Some("Available".to_string());
+        with_images.images = vec!["/a.jpg".to_string(), "/a.jpg".to_string()];
+        let mut without_images = with_images.clone();
+        without_images.images = Vec::new();
+        without_images.description = vec!["Oak".to_string()];
+
+        let mut candidates = vec![
+            checked(&schema, 0, without_images, Vec::new()),
+            checked(&schema, 1, with_images, vec!["/a.jpg".to_string()]),
+        ];
+        assert!(candidates[1].findings.rank_penalty() > candidates[0].findings.rank_penalty());
+
+        rank_checked_candidates(&mut candidates);
+
+        assert_eq!(candidates[0].schema_index, 1);
+    }
+
     #[test]
     fn should_break_score_ties_by_original_schema_index() {
         let schema = schema();
         let mut raw = raw_product();
-        raw.title = "Chair".to_string();
+        raw.title = Some("Chair".to_string());
 
         let mut candidates = vec![
             checked(&schema, 2, raw.clone(), Vec::new()),
@@ -449,7 +479,8 @@ mod tests {
 
     fn schema_with_images(selector: &str) -> ProductCssSelectorSchema {
         let mut schema = schema();
-        schema.images.selector = crate::scraper::css_selector::rule::CssSelector::from(selector);
+        schema.images.as_mut().unwrap().selector =
+            crate::scraper::css_selector::rule::CssSelector::from(selector);
         schema
     }
 
@@ -480,22 +511,22 @@ mod tests {
         };
         ProductCssSelectorSchema {
             source_listing_id: None,
-            title: rule(
+            title: Some(rule(
                 "h1",
                 crate::scraper::css_selector::rule::ExtractionKind::Text,
-            ),
+            )),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: rule(
+            state: Some(rule(
                 "#state",
                 crate::scraper::css_selector::rule::ExtractionKind::Text,
-            ),
-            images: rule(
+            )),
+            images: Some(rule(
                 "img",
                 crate::scraper::css_selector::rule::ExtractionKind::ImageUrl,
-            ),
+            )),
             raw_attributes: BTreeMap::new(),
         }
     }

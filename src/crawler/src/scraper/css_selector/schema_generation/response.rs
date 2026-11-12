@@ -387,8 +387,10 @@ mod tests {
             .collect()
     }
 
+    /// Every product-schema field is optional, so generation may leave out a field the pages do
+    /// not show.
     #[test]
-    fn should_generate_required_product_schema_fields_for_vertex() {
+    fn should_generate_only_optional_product_schema_fields_for_vertex() {
         let schema: serde_json::Value =
             serde_json::from_str(&product_schema_generation_response_json_schema())
                 .unwrap_or_else(|error| panic!("response schema should serialize: {error}"));
@@ -400,10 +402,14 @@ mod tests {
             .unwrap_or_else(|| panic!("product schema definition should exist"));
         let required = required_fields(product);
 
-        for field in ["title", "state", "images"] {
-            assert!(required.contains(&field), "{field} should be required");
-        }
-        for field in ["description", "price", "source_listing_id"] {
+        for field in [
+            "source_listing_id",
+            "title",
+            "description",
+            "price",
+            "state",
+            "images",
+        ] {
             assert!(!required.contains(&field), "{field} should be optional");
         }
 

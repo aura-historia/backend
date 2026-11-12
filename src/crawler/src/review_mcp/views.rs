@@ -234,7 +234,7 @@ pub struct SourceProductUrlView {
     pub url: String,
     /// When the scraper last evaluated the page; null before its first scrape.
     pub last_scraped: Option<String>,
-    /// The error kind of the last scrape, such as `MissingRequiredValue`; null when it scraped
+    /// The error kind of the last scrape, such as `BotChallenge`; null when it scraped
     /// without one.
     pub last_error_kind: Option<String>,
 }
@@ -265,6 +265,49 @@ pub struct EventView {
     pub candidate_version: i64,
     pub notes: Option<String>,
     pub created: String,
+}
+
+/// What a selector probe matched, page by page, as the console answers it: the console already
+/// cuts each value and bounds how many it answers, so the answer passes as decoded.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SelectorProbeView {
+    pub pages: Vec<ProbedPageView>,
+}
+
+/// What the selectors matched on one page, or why the page was not probed.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ProbedPageView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_page_id: Option<String>,
+    pub url: String,
+    /// Where the fetch ended after redirects, when the page was fetched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub results: Vec<ProbedSelectorView>,
+    /// Why the page was not probed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// `BOT_CHALLENGE` or `TIMEOUT` with `error`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// What one selector matched on one page.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ProbedSelectorView {
+    pub selector: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribute: Option<String>,
+    /// Matched elements that hold a value.
+    pub matches: usize,
+    /// Matched elements without visible text, for a text probe.
+    pub empty: usize,
+    /// The first values, in document order.
+    pub values: Vec<String>,
+    /// Why the selector could not be applied, such as a selector that does not parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// A page as the review agents read it.
@@ -765,6 +808,7 @@ impl PageProjectionView {
             let view = match projection.view {
                 PageView::Outline => "",
                 PageView::Markdown => " and view MARKDOWN",
+                PageView::Fields => " and view FIELDS",
             };
             text.push_str(&format!(
                 "\n# [truncated: {} more characters; call inspect_page with offset {end}{view} to read on]\n",
@@ -1063,7 +1107,7 @@ mod tests {
         let mut detail = url_pattern_detail(&candidate, 0, 0);
         detail.source_product_urls = decoded(json!([
             { "url": "https://antiques.example/item/1", "last_scraped": "2026-11-01T10:00:00Z", "last_error_kind": null },
-            { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "MissingRequiredValue" },
+            { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "BotChallenge" },
         ]));
 
         let view = ReviewView::of(
@@ -1076,7 +1120,7 @@ mod tests {
             json!(view)["source_product_urls"],
             json!([
                 { "url": "https://antiques.example/item/1", "last_scraped": "2026-11-01T10:00:00Z", "last_error_kind": null },
-                { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "MissingRequiredValue" },
+                { "url": "https://antiques.example/item/2", "last_scraped": null, "last_error_kind": "BotChallenge" },
             ])
         );
     }

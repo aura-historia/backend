@@ -46,27 +46,40 @@ pub(crate) fn page_signals(
     url: &str,
     html: &Html,
 ) -> PageSignals {
-    let mut signals = PageSignals {
+    let shown = ShownContent::of(html);
+    PageSignals {
         page_reference,
         url: url.to_owned(),
-        shows_price_text: false,
-        shows_description_block: false,
-    };
-    for element in html
-        .root_element()
-        .descendants()
-        .filter_map(ElementRef::wrap)
-    {
-        if (signals.shows_price_text && signals.shows_description_block)
-            || !is_page_content(element)
-        {
-            continue;
-        }
-        signals.shows_price_text |= is_price_element(element) && holds_price_text(element);
-        signals.shows_description_block |= is_description_element(element) && holds_prose(element);
+        shows_price_text: shown.price_text,
+        shows_description_block: shown.description_block,
     }
-    signals.shows_price_text = signals.shows_price_text || offers_a_shown_price(html);
-    signals
+}
+
+/// Whether a page's own content shows a price and a description block, as [`page_signals`]
+/// reports them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ShownContent {
+    pub(crate) price_text: bool,
+    pub(crate) description_block: bool,
+}
+
+impl ShownContent {
+    pub(crate) fn of(html: &Html) -> Self {
+        let mut shown = Self::default();
+        for element in html
+            .root_element()
+            .descendants()
+            .filter_map(ElementRef::wrap)
+        {
+            if (shown.price_text && shown.description_block) || !is_page_content(element) {
+                continue;
+            }
+            shown.price_text |= is_price_element(element) && holds_price_text(element);
+            shown.description_block |= is_description_element(element) && holds_prose(element);
+        }
+        shown.price_text = shown.price_text || offers_a_shown_price(html);
+        shown
+    }
 }
 
 /// Whether the offers of the item a JSON-LD script of the page is about state a price above zero,
@@ -80,14 +93,15 @@ fn offers_a_shown_price(html: &Html) -> bool {
         .filter_map(|json| json_ld_offer_value(&json, JsonLdOfferProperty::Price))
         .filter_map(|price| whole_amount(&price))
         .collect();
-    if offered.is_empty() {
-        return false;
-    }
+    !offered.is_empty() && shows_one_of_amounts(html, &offered)
+}
+
+fn shows_one_of_amounts(html: &Html, amounts: &[String]) -> bool {
     let shown = content_text(html);
     SHOWN_NUMBER
         .find_iter(&shown)
         .map(|number| digits_of(number.as_str()))
-        .any(|number| offered.contains(&number))
+        .any(|number| amounts.contains(&number))
 }
 
 /// The whole units of a JSON-LD price such as `7900`, `5600.00` or `5600.00 CHF`, as digits.

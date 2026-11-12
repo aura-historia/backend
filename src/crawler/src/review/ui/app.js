@@ -1045,9 +1045,8 @@ function primaryStatus(source) {
         const since = condition.since ? ` · ${elapsedTime(condition.since).replace(/ ago$/, '')}` : '';
         return {key: condition.key, text: condition.text, more: `${condition.more}${since}`, title: condition.title};
     }
-    const missing = Number(source.missing_value_urls) || 0;
     if (!source.last_successful_scrape) return {key: 'not_scraped_yet', text: 'Not scraped yet', more: ''};
-    return {key: 'healthy', text: 'Healthy', more: missing > 0 ? `${pluralize(missing, 'page', 'pages')} missing a value` : ''};
+    return {key: 'healthy', text: 'Healthy', more: ''};
 }
 
 function statusKeyBadge(status) {
@@ -1252,7 +1251,6 @@ function renderReviewRow(review, index) {
 // A ListingSource's own page: `detail` is its overview with its live configuration, `reviews` its
 // review history. Each loads on its own, so one that fails does not hide the other.
 let sourcePage = null;
-const expandedMissingValueSources = new Map();
 const openMassRemovalConfirmations = new Set();
 // The sources whose label form is open on their page.
 const openSourceLabelForms = new Set();
@@ -1415,12 +1413,6 @@ function renderSourceHealth(source) {
     const activity = [];
     if (source.crawling_since) activity.push(`<div class="status-line"><span class="badge badge-info"><span class="dot dot-info"></span>Crawling</span><div class="status-line-text">since ${timeBadge(source.crawling_since, 'Crawling since', true)}</div></div>`);
     if (source.scraping_since) activity.push(`<div class="status-line"><span class="badge badge-info"><span class="dot dot-info"></span>Scraping</span><div class="status-line-text">since ${timeBadge(source.scraping_since, 'Scraping since', true)}</div></div>`);
-    const missing = Number(source.missing_value_urls) || 0;
-    if (source.crawl_enabled && missing > 0) {
-        const open = expandedMissingValueSources.has(source.listing_source_id);
-        lines.push(`<div class="status-line"><span class="badge badge-neutral">Missing a value</span><div class="status-line-text">${pluralize(missing, 'page', 'pages')} missing a required value · <button class="btn-link" aria-expanded="${open}" onclick="toggleMissingValuePages('${id}')" type="button">${open ? 'hide' : 'show'}</button></div></div>`);
-        if (open) lines.push(renderMissingValuePages(source.listing_source_id, expandedMissingValueSources.get(source.listing_source_id)));
-    }
     if (source.source_label) lines.push(renderSourceLabelLine(source));
     else if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
     if (!source.source_label && openSourceLabelForms.has(source.listing_source_id)) lines.push(renderSourceLabelForm(source.listing_source_id));
@@ -1553,58 +1545,6 @@ function renderSourceRemovedTemplates(source) {
       <div class="card-body"><div class="rule-list">${templates.map((template, index) =>
           `<div class="rule"><span class="rule-field">Template ${index + 1}</span><code>${escapeHtml(template.selector || '')}</code><span class="rule-meta">${escapeHtml(template.regex !== undefined && template.regex !== null ? `regex ${template.regex}` : `text “${template.text || ''}”`)}</span></div>`).join('')}</div></div>
     </details>`;
-}
-
-// A page whose last scrape left a required value empty opens and joins no review, such as a
-// removal page that keeps an empty title element. The source page lists such pages, so a reviewer
-// adds one to the product-schema review (opened for it when none is pending) and declares a
-// removed-page template for it there. The scrape's outcome message names the blank values in
-// backticks, such as "`title` is blank".
-function missingValuesText(message) {
-    const fields = [...String(message || '').matchAll(/`([^`]+)`/g)].map(match => displayName(match[1]));
-    if (!fields.length) return String(message || '').trim();
-    return `${fields.join(' and ')} ${fields.length === 1 ? 'is' : 'are'} empty`;
-}
-
-// The handler names a page by its position in the listed pages, never by its URL: a shop's URL
-// may hold a quote, which the browser decodes from an HTML entity before the handler runs, so a
-// URL in the handler's source would let the shop run script in the console.
-function renderMissingValuePages(listingSourceId, pages) {
-    if (pages.error) return `<div class="list"><div class="list-row muted">${escapeHtml(pages.error)}</div></div>`;
-    return `<div class="list">${pages.map((page, index) => {
-        const label = missingValuesText(page.missing);
-        return `<div class="list-row"><span class="grow">${pageUrlLink(page.url)}${label ? ` <span class="muted">${escapeHtml(label)}</span>` : ''}</span>
-        <button class="btn btn-sm" onclick="reviewMissingValuePage('${escapeHtmlAttr(listingSourceId)}', ${index})" type="button">Add to review</button></div>`;
-    }).join('')}</div>`;
-}
-
-async function toggleMissingValuePages(listingSourceId) {
-    if (expandedMissingValueSources.has(listingSourceId)) {
-        expandedMissingValueSources.delete(listingSourceId);
-    } else {
-        try {
-            const answer = await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/missing-value-pages`);
-            expandedMissingValueSources.set(listingSourceId, answer.pages || []);
-        } catch (error) {
-            expandedMissingValueSources.set(listingSourceId, {error: apiErrorMessage(error)});
-        }
-    }
-    updateSourcePage();
-}
-
-async function reviewMissingValuePage(listingSourceId, index) {
-    const pages = expandedMissingValueSources.get(listingSourceId);
-    const url = Array.isArray(pages) ? pages[index]?.url : undefined;
-    if (!url) return;
-    try {
-        const added = await api(
-            `/api/listing-sources/${encodeURIComponent(listingSourceId)}/missing-value-pages/review`,
-            {method: 'POST', body: JSON.stringify({url})}
-        );
-        location.hash = reviewHash(added.review_id);
-    } catch (error) {
-        alert(apiErrorMessage(error));
-    }
 }
 
 // A source whose removals the mass-removal guard holds is confirmed as a real bulk clearance for
@@ -3107,8 +3047,9 @@ async function saveNoUrlPattern() {
     await saveUrlPatternDecision({type: 'NO_PATTERN'});
 }
 
-// The handler names a URL by its index in the review's sample, never by the URL itself, which a
-// shop controls (see `renderMissingValuePages`).
+// The handler names a URL by its index in the review's sample, never by the URL itself: a shop's
+// URL may hold a quote, which the browser decodes from an HTML entity before the handler runs, so
+// a URL in the handler's source would let the shop run script in the console.
 function renderUrls(review, view) {
     const editable = sampleLabelsEditable(review);
     const labels = currentSampleLabels(review);

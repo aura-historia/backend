@@ -44,18 +44,18 @@ fn rule(selector: &str) -> ExtractionRule {
 fn schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: Some(rule("span.id")),
-        title: rule("h1"),
+        title: Some(rule("h1")),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule("span.state"),
-        images: ExtractionRule {
+        state: Some(rule("span.state")),
+        images: Some(ExtractionRule {
             selector: "img.product".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Attribute { name: "src".into() },
             cardinality: ExtractionCardinality::All,
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }

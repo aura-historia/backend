@@ -21,28 +21,28 @@ fn minimal_css_schema() -> ProductCssSelectorSchema {
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
         }),
-        title: ExtractionRule {
+        title: Some(ExtractionRule {
             selector: "h1".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
-        },
+        }),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: ExtractionRule {
+        state: Some(ExtractionRule {
             selector: "span.state".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
-        },
-        images: ExtractionRule {
+        }),
+        images: Some(ExtractionRule {
             selector: "img".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Attribute { name: "src".into() },
             cardinality: ExtractionCardinality::All,
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }
@@ -55,12 +55,12 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
         }),
-        title: ExtractionRule {
+        title: Some(ExtractionRule {
             selector: "h1.product-title".into(),
             additional_selectors: vec!["h2.alt-title".into()],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
-        },
+        }),
         description: Some(ExtractionRule {
             selector: "div.description p".into(),
             additional_selectors: vec![],
@@ -85,18 +85,18 @@ fn full_css_schema() -> ProductCssSelectorSchema {
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
         }),
-        state: ExtractionRule {
+        state: Some(ExtractionRule {
             selector: "div.availability".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Text,
             cardinality: ExtractionCardinality::First,
-        },
-        images: ExtractionRule {
+        }),
+        images: Some(ExtractionRule {
             selector: "img.gallery-image".into(),
             additional_selectors: vec!["img.thumbnail".into()],
             extract: ExtractionKind::Attribute { name: "src".into() },
             cardinality: ExtractionCardinality::All,
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }

@@ -8,6 +8,7 @@ use crate::review::model::{
     CrawlerReviewPage, PageSignals, SchemaMatrix, SchemaPageEvaluation, SchemaPageReference,
 };
 use crate::review::page_coverage::PageCoverage;
+use crate::scraper::css_selector::product_schema::RawExtractedProduct;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_normalization::{ListingAvailabilityQuickCheck, quick_check_availability};
 use serde::Serialize;
@@ -175,7 +176,8 @@ pub(crate) fn candidate_has_sold_state(pages: &[SchemaPageEvaluation]) -> bool {
         .iter()
         .filter(|page| page.apply_ok)
         .filter_map(|page| page.extracted.as_ref())
-        .any(|extracted| StateReading::of(&extracted.state).shows_sold_or_unavailable())
+        .filter_map(RawExtractedProduct::state)
+        .any(|state| StateReading::of(state).shows_sold_or_unavailable())
 }
 
 /// The `state` each candidate schema extracts on `page`, for the schemas that apply to it.
@@ -192,7 +194,7 @@ fn applied_states<'a>(
         .flat_map(|candidate| &candidate.pages)
         .filter(move |evaluation| evaluation.page_reference == reference && evaluation.apply_ok)
         .filter_map(|evaluation| evaluation.extracted.as_ref())
-        .map(|extracted| extracted.state.as_str())
+        .filter_map(RawExtractedProduct::state)
 }
 
 /// Whether a review page shows a sold or unavailable product: a template captures it as removed,

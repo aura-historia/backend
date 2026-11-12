@@ -767,6 +767,7 @@ mod tests {
             listing_source_name: None,
             handed_back: None,
             created: TO - Duration::hours(hours_before),
+            repair_requested: false,
         };
         let queue = ReviewQueue {
             workable: vec![

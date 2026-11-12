@@ -18,9 +18,9 @@ pub struct ScrapedProduct {
     pub raw_input: ProductListingNormalizationInput,
     pub effective_url: Url,
     pub source_listing_id: String,
-    /// The title the raw input captures: the extracted one, or the one carried forward from the
-    /// last capture when the page left its title blank.
-    pub title: String,
+    /// The title the raw input captures, `None` when the page left it out or blank: the raw
+    /// input then leaves the listing's title unchanged.
+    pub title: Option<String>,
     /// SHA-256 of what the effective ordered schema set extracts from the page, which the
     /// next scrape compares to skip an unchanged page.
     pub hash: String,
@@ -69,9 +69,6 @@ pub struct ScrapeRequest {
     /// Source listing id captured by the last successful scrape of this URL, when
     /// known. The removal guard only accepts product evidence under this identity.
     pub last_source_listing_id: Option<String>,
-    /// Title captured by the last successful scrape of this URL, when known. It stands in for
-    /// a title the page later leaves blank, so the change the page still shows is captured.
-    pub last_captured_title: Option<String>,
     pub product_url_pattern: Option<ProductUrlPattern>,
     pub last_scraped_hash: Option<String>,
     pub last_scraped_schema_fingerprint: Option<String>,
@@ -357,7 +354,6 @@ pub(crate) fn scrape_health_for_scraper_error(error: &ScraperError) -> DomainFet
         | ScraperError::RemovedPageSchemaDatabaseError(_)
         | ScraperError::SchemaRegenerationExhausted { .. }
         | ScraperError::FreshSchemaImplausible { .. }
-        | ScraperError::MissingRequiredValue { .. }
         | ScraperError::NormalizationError(_)
         | ScraperError::RawNormalizationInput(_)
         | ScraperError::SchemaFingerprint(_)

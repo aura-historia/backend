@@ -439,28 +439,28 @@ mod tests {
                 extract: ExtractionKind::Text,
                 cardinality: ExtractionCardinality::First,
             }),
-            title: ExtractionRule {
+            title: Some(ExtractionRule {
                 selector: "h1.title".into(),
                 additional_selectors: vec![],
                 extract: ExtractionKind::Text,
                 cardinality: ExtractionCardinality::First,
-            },
+            }),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: ExtractionRule {
+            state: Some(ExtractionRule {
                 selector: "span.state".into(),
                 additional_selectors: vec![],
                 extract: ExtractionKind::Text,
                 cardinality: ExtractionCardinality::First,
-            },
-            images: ExtractionRule {
+            }),
+            images: Some(ExtractionRule {
                 selector: "img.product-image".into(),
                 additional_selectors: vec![],
                 extract: ExtractionKind::Attribute { name: "src".into() },
                 cardinality: ExtractionCardinality::All,
-            },
+            }),
             raw_attributes: Default::default(),
         }
     }
@@ -1525,10 +1525,12 @@ mod tests {
 
     fn invalid_selector_schemas() -> [ProductCssSelectorSchema; 2] {
         let mut invalid_primary = sample_css_schema();
-        invalid_primary.title.selector = "[".into();
+        invalid_primary.title.as_mut().unwrap().selector = "[".into();
         let mut invalid_additional = sample_css_schema();
         invalid_additional
             .state
+            .as_mut()
+            .unwrap()
             .additional_selectors
             .push("[".into());
         [invalid_primary, invalid_additional]

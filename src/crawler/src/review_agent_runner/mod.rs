@@ -13,6 +13,7 @@
 //! running agent processes and records their cost before it exits. The contract is in
 //! `docs/crawler/operations.md` (review agent runner).
 
+mod cache_warm_up;
 mod child;
 mod context_use;
 mod decision_cap;
@@ -1115,6 +1116,10 @@ echo "end $role $review" >> "$dir/order.log"
                     "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES".to_owned(),
                     "1".to_owned(),
                 ),
+                (
+                    "CRAWLER_REVIEW_AGENT_RUNNER_CACHE_WARM_UP_SECONDS".to_owned(),
+                    "0".to_owned(),
+                ),
                 ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default()),
                 ("HOME".to_owned(), self.state.path().display().to_string()),
             ]);
@@ -1268,8 +1273,15 @@ echo "end $role $review" >> "$dir/order.log"
         let ledger = fixture.ledger();
         assert_eq!(ledger.len(), 4);
         assert_eq!(ledger[0]["role"], "author");
-        assert_eq!(ledger[0]["prompt_version"], "author.v16");
-        assert_eq!(ledger[1]["prompt_version"], "reviewer.v10");
+        let prompt_hashes = [&ledger[0]["prompt_sha256"], &ledger[1]["prompt_sha256"]];
+        assert!(
+            prompt_hashes
+                .iter()
+                .all(|hash| hash.as_str().is_some_and(|hash| hash.len() == 12)),
+            "{prompt_hashes:?}"
+        );
+        assert_ne!(prompt_hashes[0], prompt_hashes[1]);
+        assert_eq!(ledger[0]["repair_round"], false);
         assert_eq!(ledger[0]["report"]["action"], "STAGED");
         assert_eq!(ledger[1]["report"]["decision"], "APPROVE");
         assert_eq!(ledger[1]["total_cost_usd"], 0.25);

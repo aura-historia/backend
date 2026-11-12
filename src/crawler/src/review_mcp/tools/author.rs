@@ -1,6 +1,6 @@
 //! The author agent's tools: evaluating, staging and labelling candidates and the review's pages.
 
-use super::shared::encoded;
+use super::shared::{ApprovalChecks, approval_checks, encoded, refreshed_matrix};
 use super::{
     Artifact, Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail,
     review_path, review_source_crawl_host, review_source_url, review_source_urls, settled,
@@ -36,7 +36,7 @@ const MARK_PAGE_NOT_PRODUCT: &str = "Mark a review page of a pending product-sch
 
 const DECLARE_REMOVED_PAGE: &str = "Declare a kind of review page removed instead of authoring a schema for it: for a sold or withdrawn item the shop still serves with HTTP 200, a removal notice and no product. Adds one removed-page template to the pending product-schema candidate: selector selects the element holding the notice, and exactly one of text (the notice's text) or regex (a regex the notice's text matches; one that matches any text is refused). Declare a page removed only where the page itself shows a removal notice. The matrix then lists the pages the template matches and whether a schema still extracts a product from them (PRODUCT_STILL_EXTRACTS, a template too broad for that page). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT. Answers the new candidate_version; refresh_matrix afterwards.";
 
-const RECORD_NO_SOLD_PAGE: &str = "Record that you looked for a sold or unavailable product page of the review's ListingSource and found none, so the console accepts a candidate tested on none. An approval needs a review page whose extracted state is sold, out of stock or unavailable (or that a removed-page template captures), or this record. Use it only after you searched: open the shop's listing pages, its sold or archive section and filters, and product pages with inspect_page; when you find a sold or unavailable page, add it with add_review_page instead. urls are 3 to 50 distinct pages of the review's ListingSource you opened with inspect_page on this review since a human last changed or judged it (a URL off its crawl host is refused with URL_OUTSIDE_REVIEW_SOURCE; fewer or more with INVALID_REQUEST; a page not inspected so with CONFLICT and reason PAGES_NOT_INSPECTED, whose error names those pages: inspect them, or leave them out), notes say how you searched and what you saw, in a few sentences. The record changes no candidate and does not move candidate_version. A review agent's approval is judged on it as the trail shows it until a human changes or judges the review; after that, search and record again.";
+const RECORD_NO_SOLD_PAGE: &str = "Record that you looked for a sold or unavailable product page of the review's ListingSource and found none, so the console accepts a candidate tested on none. An approval needs a review page whose extracted state is sold, out of stock or unavailable (or that a removed-page template captures), or this record. Use it only after you searched: probe your state rule, and the elements where a sold label would sit, on the shop's product pages with probe_selectors, four pages per call, and open its listing pages, its sold or archive section and filters with inspect_page; when you find a sold or unavailable page, add it with add_review_page instead. urls are 8 to 50 distinct pages of the review's ListingSource you opened with inspect_page or probed with probe_selectors on this review since a human last changed or judged it (a URL off its crawl host is refused with URL_OUTSIDE_REVIEW_SOURCE; fewer or more with INVALID_REQUEST; a page not inspected so with CONFLICT and reason PAGES_NOT_INSPECTED, whose error names those pages: inspect them, or leave them out), notes say how you searched and what you saw, in a few sentences. The record changes no candidate and does not move candidate_version. A review agent's approval is judged on it as the trail shows it until a human changes or judges the review; after that, search and record again.";
 
 const LABEL_SOURCE: &str = "Label the review's ListingSource when the crawler should not crawl the shop at all, instead of authoring a candidate for it. NOT_AN_ESHOP: the site shows items but sells nothing online, with no price, cart or buy button and only enquiries, such as a gallery or a dealer's catalogue. APPROACH_NOT_APPLICABLE: the shop sells online but the crawler's approach does not fit it, such as items without a page of their own. BOT_PROTECTION: the shop answers bot challenges instead of its pages, again and again. JAVASCRIPT_RENDERED: the product pages carry no product content without running JavaScript. LOGIN_REQUIRED: the products are behind a login. OTHER: none of these; the note names the reason. Label only on evidence you read for this review, never on a single failed fetch, and never because a candidate is hard to write. note is required, 1 to 500 characters: what you read and why the shop cannot be crawled, naming the URLs. The label switches crawling of the whole ListingSource off at once and takes its reviews out of the agents' queue; the review stays pending, and only a human clears the label. Refused with CONFLICT and reason HUMAN_REQUIRED on a review with human_required true. After it, change nothing more and report SOURCE_LABELLED.";
 
@@ -54,6 +54,36 @@ pub(super) struct EvaluateCandidateArguments {
     /// Up to four further URLs of the review's ListingSource to evaluate on.
     #[serde(default)]
     urls: Vec<String>,
+}
+
+const STAGE_AND_CHECK: &str = "Stage a product-schema candidate, refresh its matrix and run the approval guard in one call: what update_candidate, refresh_matrix and check_approval answer one after the other, in one turn. With `schemas` it stages that whole schema list (and `removed_page_schemas` when given) as update_candidate does, naming expected_candidate_version; without `schemas` it stages nothing and refreshes and checks the current candidate, as after add_review_page, mark_page_not_product or record_no_sold_page. Answers candidate_version, the matrix refresh_matrix answers and the guard's failed_checks: empty when an approval would pass. Errors as those three tools answer them; on CONFLICT nothing was staged.";
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StageAndCheckArguments {
+    /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
+    #[schemars(with = "String")]
+    review_id: CrawlerReviewId,
+    /// The candidate_version you read; required with `schemas`.
+    #[serde(default)]
+    expected_candidate_version: Option<i64>,
+    /// The whole schema list to stage; left out, the current candidate is checked.
+    #[serde(default)]
+    schemas: Option<Vec<ProductCssSelectorSchema>>,
+    /// The removed-page templates that replace the candidate's; left out, they stay.
+    #[serde(default)]
+    removed_page_schemas: Option<Vec<RemovedPageSchema>>,
+}
+
+/// A candidate staged, its matrix refreshed and the approval guard run on it.
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub(super) struct StagedAndChecked {
+    review_id: String,
+    /// The candidate's version after the call; name it in the next edit.
+    candidate_version: i64,
+    matrix: MatrixView,
+    #[serde(flatten)]
+    approval: ApprovalChecks,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -182,7 +212,7 @@ pub(super) struct RecordNoSoldPageArguments {
     /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
     #[schemars(with = "String")]
     review_id: CrawlerReviewId,
-    /// The pages of the review's ListingSource you checked: 3 to 50 distinct URLs on its crawl host.
+    /// The pages of the review's ListingSource you checked: 8 to 50 distinct URLs on its crawl host.
     urls: Vec<String>,
     /// How you searched and what you saw, in a few sentences.
     notes: String,
@@ -217,6 +247,14 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             Effect::Changes,
             update_candidate,
         )?,
+        ToolDefinition::new(
+            "stage_and_check",
+            STAGE_AND_CHECK,
+            Effect::Changes,
+            stage_and_check,
+        )?
+        .only_for(Artifact::ProductSchema)
+        .without_nested_descriptions(),
         ToolDefinition::new(
             "update_schema_field",
             UPDATE_SCHEMA_FIELD,
@@ -376,6 +414,56 @@ async fn update_candidate(
         &Value::Object(edit),
     )
     .await
+}
+
+async fn stage_and_check(
+    arguments: StageAndCheckArguments,
+    context: Arc<ToolContext>,
+) -> Result<StagedAndChecked, ToolError> {
+    let review_id = arguments.review_id;
+    let candidate_version = match (arguments.schemas, arguments.expected_candidate_version) {
+        (Some(schemas), Some(expected_candidate_version)) => {
+            let mut edit = json!({
+                "expected_candidate_version": expected_candidate_version,
+                "schemas": schemas,
+            });
+            if let Some(templates) = arguments.removed_page_schemas {
+                edit["removed_page_schemas"] = json!(templates);
+            }
+            candidate_changed(
+                &context,
+                review_id,
+                &review_path(review_id, "/candidate"),
+                &edit,
+            )
+            .await?
+            .candidate_version
+        }
+        (Some(_), None) => {
+            return Err(ToolError::InvalidArguments(
+                "staging schemas needs the expected_candidate_version you read".to_owned(),
+            ));
+        }
+        (None, _) if arguments.removed_page_schemas.is_some() => {
+            return Err(ToolError::InvalidArguments(
+                "removed_page_schemas are staged with the schemas they belong to".to_owned(),
+            ));
+        }
+        (None, _) => {
+            review_detail(&context, review_id)
+                .await?
+                .review
+                .candidate_version
+        }
+    };
+    let matrix = refreshed_matrix(&context, review_id).await?;
+    let approval = approval_checks(&context, review_id).await?;
+    Ok(StagedAndChecked {
+        review_id: review_id.to_string(),
+        candidate_version,
+        matrix,
+        approval,
+    })
 }
 
 async fn update_schema_field(

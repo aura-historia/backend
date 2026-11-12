@@ -73,7 +73,6 @@ pub(super) mod test_support {
             url: url.clone(),
             source_record_key: url.to_string(),
             last_source_listing_id: None,
-            last_captured_title: None,
             last_scraped_hash: None,
             last_scraped_schema_fingerprint: None,
             last_captured_raw_input_sha256: None,

@@ -311,13 +311,13 @@ impl SchemaField {
     ) -> impl Iterator<Item = (Self, &ExtractionRule)> {
         [
             (Self::SourceListingId, schema.source_listing_id.as_ref()),
-            (Self::Title, Some(&schema.title)),
+            (Self::Title, schema.title.as_ref()),
             (Self::Description, schema.description.as_ref()),
             (Self::Price, schema.price.as_ref()),
             (Self::PriceEstimateMin, schema.price_estimate_min.as_ref()),
             (Self::PriceEstimateMax, schema.price_estimate_max.as_ref()),
-            (Self::State, Some(&schema.state)),
-            (Self::Images, Some(&schema.images)),
+            (Self::State, schema.state.as_ref()),
+            (Self::Images, schema.images.as_ref()),
         ]
         .into_iter()
         .filter_map(|(field, rule)| rule.map(|rule| (field, rule)))
@@ -349,24 +349,21 @@ impl SchemaField {
         })
     }
 
-    /// Sets this field of `schema` to `rule`, or deletes it when `rule` is `None`; a required
-    /// field cannot be deleted.
+    /// Sets this field of `schema` to `rule`, or deletes it when `rule` is `None`.
     fn set_rule(
         &self,
         schema: &mut ProductCssSelectorSchema,
         rule: Option<ExtractionRule>,
     ) -> Result<(), ReviewRepositoryError> {
-        let required =
-            |rule: Option<ExtractionRule>| rule.ok_or_else(|| self.required_field_error());
         match self {
             Self::SourceListingId => schema.source_listing_id = rule,
-            Self::Title => schema.title = required(rule)?,
+            Self::Title => schema.title = rule,
             Self::Description => schema.description = rule,
             Self::Price => schema.price = rule,
             Self::PriceEstimateMin => schema.price_estimate_min = rule,
             Self::PriceEstimateMax => schema.price_estimate_max = rule,
-            Self::State => schema.state = required(rule)?,
-            Self::Images => schema.images = required(rule)?,
+            Self::State => schema.state = rule,
+            Self::Images => schema.images = rule,
             Self::RawAttribute(key) => match rule {
                 Some(rule) => {
                     schema.raw_attributes.insert(key.clone(), rule);
@@ -377,10 +374,6 @@ impl SchemaField {
             },
         }
         Ok(())
-    }
-
-    fn required_field_error(&self) -> ReviewRepositoryError {
-        ReviewRepositoryError::RequiredSchemaField(self.to_string())
     }
 }
 
@@ -431,13 +424,13 @@ mod tests {
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule(title_selector),
+            title: Some(text_rule(title_selector)),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: image_rule("img"),
+            state: Some(text_rule("#state")),
+            images: Some(image_rule("img")),
             raw_attributes: Default::default(),
         }
     }
@@ -635,6 +628,8 @@ mod tests {
         let mut invalid_additional_schema = schema("h1.product");
         invalid_additional_schema
             .title
+            .as_mut()
+            .unwrap()
             .additional_selectors
             .push(CssSelector::from("["));
         let invalid_additional = serde_json::json!({ "schemas": [invalid_additional_schema] });
@@ -751,21 +746,20 @@ mod tests {
         assert!(candidate.schemas[0].price.is_none());
     }
 
+    /// Every field is optional, the title among them.
     #[test]
-    fn update_schema_rule_rejects_required_rule_deletion() {
+    fn update_schema_rule_deletes_the_title_rule() {
         let schema = schema("h1.template-a");
 
-        let err = update_schema_field_payload(
+        let candidate = update_schema_field_payload(
             &serde_json::json!({ "schemas": [schema] }),
             0,
             "title",
             None,
         )
-        .unwrap_err();
+        .expect("the title rule can be deleted");
 
-        assert!(
-            matches!(err, ReviewRepositoryError::RequiredSchemaField(field) if field == "title")
-        );
+        assert!(candidate.schemas[0].title.is_none());
     }
 
     #[test]
@@ -940,7 +934,7 @@ mod tests {
     #[test]
     fn should_name_the_validation_failure_of_exactly_the_candidates_approval_refuses() {
         let mut invalid_rule = schema("h1.product");
-        invalid_rule.title = text_rule("[");
+        invalid_rule.title = Some(text_rule("["));
         let cases = [
             (
                 serde_json::json!({ "schemas": [schema("h1.product")] }),

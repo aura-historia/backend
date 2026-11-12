@@ -34,7 +34,6 @@ mod crawl_resumption;
 mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
-mod missing_value_pages;
 mod no_sold_page;
 mod not_product_pages;
 mod pending_reviews;
@@ -56,9 +55,6 @@ mod verdicts;
 pub use crawl_resumption::CrawlResumption;
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use mass_removal_confirmation::MassRemovalConfirmation;
-pub use missing_value_pages::{
-    MAX_LISTED_MISSING_VALUE_PAGES, MISSING_REQUIRED_VALUE_REVIEW_REASON, MissingValuePage,
-};
 pub use pending_reviews::PendingReviewQuery;
 pub(crate) use rejected_pages::RejectedPages;
 pub use review_source::MAX_EVALUATED_URLS;
@@ -153,8 +149,6 @@ pub enum ReviewRepositoryError {
     UnsupportedArtifact(CrawlerReviewId, String),
     #[error("invalid schema field `{0}`")]
     InvalidSchemaField(String),
-    #[error("field `{0}` is required and cannot be deleted")]
-    RequiredSchemaField(String),
     #[error(
         "raw attribute key `{0}` is not in the raw attribute registry; an edit may add only registered keys"
     )]
@@ -210,10 +204,6 @@ pub enum ReviewRepositoryError {
         "approved review {0} no longer holds the live product schemas; edit the review whose candidate is live"
     )]
     StaleApprovedReview(CrawlerReviewId),
-    #[error(
-        "`{0}` is no product page of the ListingSource whose last scrape recorded MissingRequiredValue"
-    )]
-    NotMissingValuePage(String),
     #[error(
         "ListingSource {0} has no live product schemas; its pages need a product schema, not a removed-page template"
     )]

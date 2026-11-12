@@ -56,6 +56,9 @@ pub struct QueuedReview {
     pub handed_back: Option<OffsetDateTime>,
     /// When the review opened, from which the digest tells how long it waits.
     pub created: OffsetDateTime,
+    /// Whether the review waits on a needs-repair verdict, so its author process is a repair
+    /// round.
+    pub repair_requested: bool,
 }
 
 /// A pending review that waits for a human: the agents' needs-repair rounds on it reached the
@@ -155,6 +158,7 @@ impl ReviewQueue {
                         listing_source_name: Some(review.listing_source_name),
                         handed_back: review.handed_back,
                         created: review.created,
+                        repair_requested: review.repair_request.is_some(),
                     })
                 })
                 .collect(),
@@ -456,6 +460,7 @@ mod tests {
                 listing_source_name: None,
                 handed_back: None,
                 created: OffsetDateTime::UNIX_EPOCH,
+                repair_requested: false,
             })
             .collect()
     }
@@ -772,6 +777,32 @@ mod tests {
                 .map(|review| (review.review_id, review.agent_rounds))
                 .collect::<Vec<_>>(),
             [(waiting.review_id, 3), (handed_over_now.review_id, 3)]
+        );
+    }
+
+    /// A review that waits on a needs-repair verdict is a repair round, which the ledger records.
+    #[test]
+    fn should_mark_a_review_with_a_repair_request_as_a_repair_round() {
+        let first = summary(false);
+        let repair = PendingReviewSummary {
+            repair_request: Some(crate::review::model::RepairRequest {
+                note: "https://shop.example/item/1 · 0.price · span.price reads the shipping cost"
+                    .to_owned(),
+                requested: OffsetDateTime::UNIX_EPOCH,
+            }),
+            agent_rounds: 1,
+            ..summary(false)
+        };
+
+        let queue = ReviewQueue::of(vec![first, repair], Vec::new());
+
+        assert_eq!(
+            queue
+                .workable
+                .iter()
+                .map(|review| review.repair_requested)
+                .collect::<Vec<_>>(),
+            [false, true]
         );
     }
 

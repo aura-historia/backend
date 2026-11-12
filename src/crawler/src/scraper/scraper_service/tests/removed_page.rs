@@ -593,7 +593,8 @@ async fn should_mark_product_removed_when_cached_schema_only_extracts_a_related_
         .once()
         .returning(move |_| {
             let mut schemas = listing_source_product_schemas(id);
-            schemas.product_schemas[0].title.selector = CssSelector::from(".related h2");
+            schemas.product_schemas[0].title.as_mut().unwrap().selector =
+                CssSelector::from(".related h2");
             Box::pin(async move { Ok(Some(schemas)) })
         });
     schema_svc.expect_generate_single_schema_for_page().never();
@@ -639,7 +640,7 @@ async fn should_not_mark_product_removed_when_cached_candidate_is_implausible_un
         .once()
         .returning(|_| {
             let mut schema = minimal_schema();
-            schema.title.selector = CssSelector::from("missing-title");
+            schema.title.as_mut().unwrap().selector = CssSelector::from("missing-title");
             Box::pin(async move {
                 Ok(generated_single_product(
                     schema,

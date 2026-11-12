@@ -51,8 +51,10 @@ pub fn removed_page_verdict<'a>(
     }
 
     let product_still_extracts = extractions.into_iter().any(|raw| {
-        let title = raw.title.trim();
-        if title.is_empty() || matches.iter().any(|matched| matched.is_notice(title)) {
+        let Some(title) = raw.title().map(str::trim) else {
+            return false;
+        };
+        if matches.iter().any(|matched| matched.is_notice(title)) {
             return false;
         }
         last_source_listing_id.is_none_or(|known| {
@@ -96,12 +98,12 @@ mod tests {
     fn extraction(title: &str, source_listing_id: &str) -> RawExtractedProduct {
         RawExtractedProduct {
             source_listing_id: source_listing_id.to_owned(),
-            title: title.to_owned(),
+            title: Some(title.to_owned()),
             description: vec![],
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: "Sold".to_owned(),
+            state: Some("Sold".to_owned()),
             images: vec![],
             raw_attributes: BTreeMap::new(),
         }

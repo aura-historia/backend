@@ -31,7 +31,6 @@ fn primary_request(
         listing_source_id,
         source_record_key: url.to_string(),
         last_source_listing_id: None,
-        last_captured_title: None,
         url,
         product_url_pattern: None,
         last_scraped_hash: None,
@@ -169,7 +168,6 @@ async fn primary_bot_challenge_fails_as_a_responsive_fetch_outcome() {
     });
 
     let outcome = with_test_scrape_observation(service.scrape(ScrapeRequest {
-        last_captured_title: Some("Biedermeier Chair".to_owned()),
         ..primary_request(listing_source_id, url.clone(), fence.clone())
     }))
     .await;

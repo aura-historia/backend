@@ -164,8 +164,9 @@ fn content_blocks<'a>(message: &'a Value, kind: &'a str) -> impl Iterator<Item =
 }
 
 /// The id and the recorded name of a `tool_use` block. An `inspect_page` call is recorded by the
-/// view it asked for, `inspect_page_outline` (the default) or `inspect_page_markdown`, since the
-/// outline is several times the markdown's size and the two views cost differently.
+/// view it asked for, `inspect_page_outline` (the default), `inspect_page_markdown` or
+/// `inspect_page_fields`, since the outline is several times the size of the others and the views
+/// cost differently.
 fn tool_use(block: &Value) -> Option<(String, String)> {
     let id = block.get("id").and_then(Value::as_str)?;
     let name = block.get("name").and_then(Value::as_str)?;
@@ -178,6 +179,7 @@ fn tool_use(block: &Value) -> Option<(String, String)> {
                 .and_then(Value::as_str);
             match view {
                 Some("MARKDOWN") => "inspect_page_markdown",
+                Some("FIELDS") => "inspect_page_fields",
                 _ => "inspect_page_outline",
             }
         }
@@ -463,6 +465,8 @@ mod tests {
             tool_result("t2", json!("md")),
             inspect("t3", json!({ "review_id": "cr_1", "view": "OUTLINE" })),
             tool_result("t3", json!("outline")),
+            inspect("t4", json!({ "review_id": "cr_1", "view": "FIELDS" })),
+            tool_result("t4", json!("fields")),
         ]);
 
         let context = ContextUse::parse(&stdout);
@@ -474,6 +478,7 @@ mod tests {
                 .map(|(tool, answers)| (tool.as_str(), answers.calls, answers.chars))
                 .collect::<Vec<_>>(),
             [
+                ("inspect_page_fields", 1, 6),
                 ("inspect_page_markdown", 1, 2),
                 ("inspect_page_outline", 2, 14)
             ]

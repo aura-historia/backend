@@ -47,12 +47,8 @@ pub(crate) struct SelectedSchemaCandidate {
     /// The index of `schema` in the ListingSource's ordered schema set; `None` for a fresh
     /// schema, which takes the next index.
     pub(crate) cached_schema_index: Option<usize>,
-    /// The ranking score of the cached extraction; `None` for a fresh schema and for a
-    /// title-less extraction, which is not ranked.
+    /// The ranking score of the cached extraction; `None` for a fresh schema.
     pub(crate) score: Option<usize>,
-    /// The title the URL was last captured with, captured in place of the blank title of
-    /// `raw` (see [`CheckedCachedCandidates::untitled`]). `None` captures the extracted title.
-    pub(crate) carried_forward_title: Option<String>,
 }
 
 pub(crate) enum ExistingSchemaSelection {
@@ -63,12 +59,6 @@ pub(crate) enum ExistingSchemaSelection {
     GenerateNewSchema {
         reason: FreshSchemaGenerationReason,
     },
-    /// No cached candidate is plausible, and one fails only because the page leaves a
-    /// required value empty where it found the element: the page lacks the value, not a
-    /// fitting schema, so no schema work starts for it.
-    MissingRequiredValue {
-        findings: PlausibilityFindings,
-    },
 }
 
 /// Cached candidates that applied to the page and passed the rejecting
@@ -76,15 +66,7 @@ pub(crate) enum ExistingSchemaSelection {
 pub(crate) struct CheckedCachedCandidates<'a> {
     /// How many cached schemas applied, before plausibility rejected any.
     pub(crate) applied_schema_count: usize,
-    /// The rejecting findings of the first applied candidate, in schema order, that blank
-    /// required values alone rejected (see [`PlausibilityFindings::missing_required_values`]).
-    pub(crate) missing_required_values: Option<PlausibilityFindings>,
     pub(crate) candidates: Vec<CheckedSchemaCandidate<'a>>,
-    /// Candidates that a blank `title` alone rejected, in production ranking order, checked only
-    /// when the URL was captured with a title before: the shop blanked the name of a listing
-    /// the crawler already knows, as some do when an item sells, and the page still says what
-    /// changed. Empty otherwise.
-    pub(crate) untitled: Vec<CheckedSchemaCandidate<'a>>,
 }
 
 /// Logs how many cached schemas applied, and each apply failure with its field and error
@@ -234,36 +216,24 @@ impl ExtractedSchemaSet {
 impl ScraperServiceImpl {
     /// Takes the cached schemas that applied to the current page, rejects extractions that
     /// fail a rejecting plausibility check, validates the images of the rest and
-    /// ranks them. When the URL was captured with `last_captured_title`, the candidates a blank
-    /// title alone rejected are validated and ranked apart. It never generates schemas or
-    /// spends LLM budget.
+    /// ranks them. It never generates schemas or spends LLM budget.
     pub(crate) async fn check_cached_candidates<'a>(
         &self,
         extracted: &'a ExtractedSchemaSet,
         effective_url: &Url,
-        last_captured_title: Option<&str>,
     ) -> CheckedCachedCandidates<'a> {
         let candidates = extracted.applied_candidates();
         let applied_schema_count = candidates.len();
-        let mut missing_required_values = None;
         let mut checked_candidates = Vec::new();
-        let mut untitled = Vec::new();
         for candidate in candidates {
             let findings = PlausibilityFindings::of(&candidate.raw);
-            let carries_title_forward =
-                last_captured_title.is_some() && findings.rejects_only_for_blank_title();
             if findings.rejects_candidate() {
                 debug!(
                     candidate_schema_index = candidate.schema_index,
                     candidate_plausibility_findings = %findings,
                     "Cached candidate rejected by plausibility checks"
                 );
-                if missing_required_values.is_none() {
-                    missing_required_values = findings.missing_required_values();
-                }
-                if !carries_title_forward {
-                    continue;
-                }
+                continue;
             }
             // Image validation is candidate-local and does not call the LLM. It
             // runs before scoring so thumbnails and malformed URLs cannot inflate
@@ -274,15 +244,13 @@ impl ScraperServiceImpl {
                 &*self.image_validator,
             )
             .await;
-            let checked = CheckedSchemaCandidate::new(candidate, findings, validated_image_urls);
-            if carries_title_forward {
-                untitled.push(checked);
-            } else {
-                checked_candidates.push(checked);
-            }
+            checked_candidates.push(CheckedSchemaCandidate::new(
+                candidate,
+                findings,
+                validated_image_urls,
+            ));
         }
         rank_checked_candidates(&mut checked_candidates);
-        rank_checked_candidates(&mut untitled);
         for candidate in &checked_candidates {
             debug!(
                 candidate_schema_index = candidate.schema_index,
@@ -295,9 +263,7 @@ impl ScraperServiceImpl {
 
         CheckedCachedCandidates {
             applied_schema_count,
-            missing_required_values,
             candidates: checked_candidates,
-            untitled,
         }
     }
 
@@ -308,13 +274,9 @@ impl ScraperServiceImpl {
     /// every extraction failed a rejecting check — returns
     /// [`ExistingSchemaSelection::GenerateNewSchema`] so the caller falls back to
     /// fresh schema generation. No cached schema is ever selected as generation
-    /// input. A page that one cached candidate fails only for blank required values
-    /// returns [`ExistingSchemaSelection::MissingRequiredValue`] instead, unless a blank title
-    /// is all that is missing and the URL was captured with `last_captured_title` before: then
-    /// the best such candidate is selected and captures that title in place of the blank one
-    /// (`docs/crawler/extraction-and-review.md`, missing required values).
+    /// input.
     #[tracing::instrument(
-        skip(self, extracted, last_captured_title),
+        skip(self, extracted),
         fields(
             listing_source_id = %listing_source_id,
             url = %url,
@@ -326,42 +288,13 @@ impl ScraperServiceImpl {
         listing_source_id: &ListingSourceId,
         url: &Url,
         extracted: &ExtractedSchemaSet,
-        last_captured_title: Option<&str>,
     ) -> ExistingSchemaSelection {
         let CheckedCachedCandidates {
             applied_schema_count,
-            missing_required_values,
             candidates,
-            untitled,
-        } = self
-            .check_cached_candidates(extracted, url, last_captured_title)
-            .await;
+        } = self.check_cached_candidates(extracted, url).await;
 
         let Some(selected) = candidates.into_iter().next() else {
-            if let (Some(untitled), Some(title)) =
-                (untitled.into_iter().next(), last_captured_title)
-            {
-                debug!(
-                    selected_schema_index = untitled.schema_index,
-                    "No plausible cached schema candidate; the page blanked the title it was captured with, which is carried forward"
-                );
-                return ExistingSchemaSelection::Selected(Box::new(SelectedSchemaCandidate {
-                    raw: untitled.raw,
-                    validated_image_urls: untitled.validated_image_urls,
-                    schema: untitled.schema.clone(),
-                    fresh_schema: false,
-                    cached_schema_index: Some(untitled.schema_index),
-                    score: None,
-                    carried_forward_title: Some(title.to_owned()),
-                }));
-            }
-            if let Some(findings) = missing_required_values {
-                debug!(
-                    missing_required_values = %findings,
-                    "No plausible cached schema candidate; the page leaves a required value empty"
-                );
-                return ExistingSchemaSelection::MissingRequiredValue { findings };
-            }
             let reason = if applied_schema_count == 0 {
                 FreshSchemaGenerationReason::NoCachedSchemaApplied
             } else {
@@ -387,7 +320,6 @@ impl ScraperServiceImpl {
             fresh_schema: false,
             cached_schema_index: Some(selected.schema_index),
             score: Some(selected.score.as_usize()),
-            carried_forward_title: None,
         }))
     }
 }
@@ -421,23 +353,23 @@ mod tests {
     fn applying_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: None,
-            title: rule("h1", ExtractionKind::Text),
+            title: Some(rule("h1", ExtractionKind::Text)),
             description: Some(rule("#description", ExtractionKind::Text)),
             price: Some(rule("#price", ExtractionKind::Text)),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: rule("#state", ExtractionKind::Text),
-            images: ExtractionRule {
+            state: Some(rule("#state", ExtractionKind::Text)),
+            images: Some(ExtractionRule {
                 cardinality: ExtractionCardinality::All,
                 ..rule("a.gallery", ExtractionKind::ImageUrl)
-            },
+            }),
             raw_attributes: Default::default(),
         }
     }
 
     fn failing_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            title: rule("h2.missing", ExtractionKind::Text),
+            title: Some(rule("h2.missing", ExtractionKind::Text)),
             ..applying_schema()
         }
     }
@@ -453,9 +385,9 @@ mod tests {
     }
 
     /// Fails on its required `state` after missing [`PAGE`]'s optional description.
-    fn failing_state_schema() -> ProductCssSelectorSchema {
+    fn failing_title_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
-            state: rule("#missing-state", ExtractionKind::Text),
+            title: Some(rule("#missing-title", ExtractionKind::Text)),
             ..applying_schema()
         }
     }
@@ -512,13 +444,13 @@ mod tests {
         }
     }
 
-    /// Selector drift that breaks a required rule shows the optional rules it broke too.
+    /// Selector drift that breaks the anchoring title rule shows the other rules it broke too.
     #[test]
-    fn should_log_a_required_failure_with_its_selector_and_the_optional_misses() {
+    fn should_log_a_title_failure_with_its_selector_and_the_optional_misses() {
         let (logged, _guard) = LoggedEvents::capture();
         {
             let extracted = ExtractedSchemaSet::parse_and_extract(
-                schema_set(vec![failing_state_schema()]),
+                schema_set(vec![failing_title_schema()]),
                 PAGE,
             );
 
@@ -537,11 +469,11 @@ mod tests {
                 panic!("expected one apply failure, logged {failures:?}");
             };
             assert_eq!(failure.level, tracing::Level::DEBUG);
-            assert_eq!(failure.field("candidate_apply_field"), Some("state"));
+            assert_eq!(failure.field("candidate_apply_field"), Some("title"));
             assert!(
                 failure
                     .field("candidate_apply_error")
-                    .is_some_and(|error| error.contains("`#missing-state`")),
+                    .is_some_and(|error| error.contains("`#missing-title`")),
                 "{failure:?}"
             );
             assert_eq!(
