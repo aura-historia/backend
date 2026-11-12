@@ -1332,6 +1332,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         ReviewRepositoryError::Database(_)
         | ReviewRepositoryError::Json(_)
         | ReviewRepositoryError::Pattern(_)
+        | ReviewRepositoryError::StoredUrls(_)
         | ReviewRepositoryError::MatrixEvaluationStopped { .. } => internal_error(error),
     }
 }

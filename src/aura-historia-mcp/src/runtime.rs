@@ -2,21 +2,24 @@ use crate::public::{PublicServices, operations};
 use crate::{AuraTokenGate, ConfigError, RegistryError, TransportConfig, router};
 use aura_historia_runtime::{
     ProductListingConfig, ProductListingDependencies, ProductListingProviderError, Runtime,
-    RuntimeError,
+    RuntimeError, SearchIntentTranslatorConfigError,
 };
 use axum::Router;
 use platform_lambda_bootstrap::LazyComposition;
+use search_filter_service::ports::SearchIntentTranslator;
 use std::sync::Arc;
 
 /// Provider handles selected by the production catalogue; applications may inject local adapters.
 pub struct McpDependencies {
     pub listings: ProductListingDependencies,
+    pub search_intent_translator: Arc<dyn SearchIntentTranslator>,
 }
 
 impl McpDependencies {
     pub fn from_env(listings: &ProductListingConfig) -> Result<Self, McpStartupError> {
         Ok(Self {
             listings: ProductListingDependencies::from_env(listings)?,
+            search_intent_translator: aura_historia_runtime::search_intent_translator_from_env()?,
         })
     }
 }
@@ -39,7 +42,10 @@ fn production_registry(
     dependencies: McpDependencies,
 ) -> Result<crate::Registry, RegistryError> {
     let saved_searches = runtime
-        .saved_searches(Arc::clone(&dependencies.listings.embeddings))
+        .saved_searches(
+            Arc::clone(&dependencies.listings.embeddings),
+            dependencies.search_intent_translator,
+        )
         .clone();
     let mut registered = operations(PublicServices::from_runtime(runtime, dependencies.listings))?;
     registered.extend(crate::tools::account::operations(
@@ -95,6 +101,8 @@ pub enum McpStartupError {
     Runtime(#[from] RuntimeError),
     #[error("MCP listing providers unavailable")]
     Providers(#[from] ProductListingProviderError),
+    #[error("MCP saved-search intent translator unavailable")]
+    SearchIntentTranslator(#[from] SearchIntentTranslatorConfigError),
     #[error("invalid MCP operation registry")]
     Registry(#[from] RegistryError),
     #[error("invalid MCP transport configuration")]

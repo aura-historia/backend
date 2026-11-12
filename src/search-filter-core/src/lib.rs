@@ -9,7 +9,12 @@ use product_listing_core::product_listing_search::ProductListingSearch;
 use user_core::user_id::UserId;
 mod matching_evidence_policy;
 pub mod search_filter_state;
+mod search_intent_translation;
 pub use matching_evidence_policy::MatchingEvidencePolicy;
+pub use search_intent_translation::{
+    EnglishSearchIntent, SearchIntentFingerprint, SearchIntentTranslation,
+    SearchIntentTranslationError,
+};
 pub mod user_search_filter_id;
 pub mod user_search_filter_name;
 
@@ -23,6 +28,8 @@ pub struct SearchFilter {
     search: ProductListingSearch,
     embedding: Option<Vec<f32>>,
     matching_evidence_policy: MatchingEvidencePolicy,
+    /// Internal matching state; always current for `search` when present.
+    intent_translation: Option<SearchIntentTranslation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,10 +42,20 @@ pub struct NewSearchFilter {
     pub search: ProductListingSearch,
     pub embedding: Option<Vec<f32>>,
     pub matching_evidence_policy: MatchingEvidencePolicy,
+    pub intent_translation: Option<SearchIntentTranslation>,
 }
+
+/// A translation made from different text than the filter's current search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("search intent translation does not match the filter's current search")]
+pub struct StaleSearchIntentTranslation;
 
 impl SearchFilter {
     pub fn create(new: NewSearchFilter) -> Self {
+        // Only a translation usable for the current search is kept; the next write clears others.
+        let intent_translation = new.intent_translation.filter(|translation| {
+            translation.is_current_for(&new.search) && translation.english_for(&new.search).is_ok()
+        });
         Self {
             user_search_filter_id: new.user_search_filter_id,
             user_id: new.user_id,
@@ -48,6 +65,7 @@ impl SearchFilter {
             search: new.search,
             embedding: new.embedding,
             matching_evidence_policy: new.matching_evidence_policy,
+            intent_translation,
         }
     }
 
@@ -91,6 +109,8 @@ impl SearchFilter {
         ChangeOutcome::Changed
     }
 
+    /// Replacing the semantic text discards the translation made from the old text; changing
+    /// only other criteria keeps it.
     pub fn replace_search(
         &mut self,
         search: ProductListingSearch,
@@ -101,7 +121,32 @@ impl SearchFilter {
         }
         self.search = search;
         self.embedding = embedding;
+        if self
+            .intent_translation
+            .as_ref()
+            .is_some_and(|translation| !translation.is_current_for(&self.search))
+        {
+            self.intent_translation = None;
+        }
         ChangeOutcome::Changed
+    }
+
+    pub fn record_intent_translation(
+        &mut self,
+        translation: SearchIntentTranslation,
+    ) -> Result<ChangeOutcome, StaleSearchIntentTranslation> {
+        if !translation.is_current_for(&self.search) {
+            return Err(StaleSearchIntentTranslation);
+        }
+        if self.intent_translation.as_ref() == Some(&translation) {
+            return Ok(ChangeOutcome::Unchanged);
+        }
+        self.intent_translation = Some(translation);
+        Ok(ChangeOutcome::Changed)
+    }
+
+    pub fn intent_translation(&self) -> Option<&SearchIntentTranslation> {
+        self.intent_translation.as_ref()
     }
 
     pub fn id(&self) -> UserSearchFilterId {
@@ -180,7 +225,20 @@ mod tests {
             search: ProductListingSearch::new(Language::En, Currency::Eur),
             embedding: None,
             matching_evidence_policy: MatchingEvidencePolicy::EnhancedTextAndFourImages,
+            intent_translation: None,
         })
+    }
+
+    fn translated_filter() -> SearchFilter {
+        let search = ProductListingSearch::new(Language::De, Currency::Eur)
+            .with_product_listing_query("Manschettenknöpfe".try_into().unwrap());
+        let english = EnglishSearchIntent::new(vec!["cufflinks".try_into().unwrap()], None);
+        let mut filter = sample_filter();
+        filter.replace_search(search.clone(), None);
+        filter
+            .record_intent_translation(SearchIntentTranslation::english(&search, english).unwrap())
+            .unwrap();
+        filter
     }
 
     #[test]
@@ -221,6 +279,41 @@ mod tests {
         );
         assert_eq!(Language::De, filter.search().language);
         assert_eq!(Some(&vec![1.0, 2.0]), filter.embedding());
+    }
+
+    #[test]
+    fn should_keep_translation_when_only_structured_criteria_change() {
+        let mut filter = translated_filter();
+        let mut search = filter.search().clone();
+        search.currency = Currency::Usd;
+
+        filter.replace_search(search, None);
+
+        assert!(filter.intent_translation().is_some());
+    }
+
+    #[test]
+    fn should_discard_translation_when_semantic_text_changes() {
+        let mut filter = translated_filter();
+        let search = ProductListingSearch::new(Language::De, Currency::Eur)
+            .with_product_listing_query("Broschen".try_into().unwrap());
+
+        filter.replace_search(search, None);
+
+        assert_eq!(None, filter.intent_translation());
+    }
+
+    #[test]
+    fn should_refuse_a_translation_of_other_text() {
+        let mut filter = translated_filter();
+        let other = ProductListingSearch::new(Language::De, Currency::Eur)
+            .with_product_listing_query("Broschen".try_into().unwrap());
+
+        assert_eq!(
+            Err(StaleSearchIntentTranslation),
+            filter.record_intent_translation(SearchIntentTranslation::already_english(&other))
+        );
+        assert!(filter.intent_translation().is_some());
     }
 
     #[test]

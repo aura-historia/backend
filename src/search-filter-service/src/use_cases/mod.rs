@@ -1,6 +1,7 @@
 use embedding::{EmbeddingError, EmbeddingText};
 use product_listing_core::product_listing_search::ProductListingSearch;
 
+mod backfill_search_intent_translations;
 mod create_search_filter;
 mod delete_owned_search_filter;
 mod generate_search_filter_match_notification;
@@ -12,6 +13,7 @@ mod run_periodic_search_filter_matching;
 mod update_owned_search_filter;
 mod update_search_filter_match_feedback;
 
+pub use backfill_search_intent_translations::*;
 pub use create_search_filter::*;
 pub use delete_owned_search_filter::*;
 pub use generate_search_filter_match_notification::*;

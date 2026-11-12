@@ -148,6 +148,7 @@ async fn seed_enhanced_filter(unit: &SqlxUnitOfWork, user_id: UserId, name: &str
         embedding: Some(vec![1.0; 768]),
         matching_evidence_policy:
             search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
+        intent_translation: None,
     });
     let repository = SqlxSearchFilterRepositoryFactory;
     let mut tx = unit
@@ -199,6 +200,7 @@ async fn ordinary_and_deterministic_active_filters_are_candidates_without_enhanc
             search,
             embedding: None,
             matching_evidence_policy: search_filter_core::MatchingEvidencePolicy::TextOnly,
+            intent_translation: None,
         });
         let mut tx = unit.begin().await.unwrap();
         SqlxSearchFilterRepositoryFactory

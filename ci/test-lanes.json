@@ -111,6 +111,7 @@
     "public-network-policy",
     "search-filter-core",
     "search-filter-service",
+    "search-filter-translation-llm",
     "shipping-core",
     "shipping-json",
     "shipping-service",
