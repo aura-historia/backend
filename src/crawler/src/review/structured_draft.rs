@@ -553,6 +553,26 @@ mod tests {
     }
 
     #[test]
+    fn should_count_an_image_the_json_ld_lists_twice_once() {
+        let pages: Vec<Page> = [("Chest of drawers", "101"), ("Mahogany chest", "102")]
+            .into_iter()
+            .map(|(title, id)| {
+                let key = image_key(title);
+                let mut page = woo_page(title, id, "InStock", "1 in stock");
+                page.json_ld = page.json_ld.replace(
+                    &format!(r#""https://shop.example/{key}-b.jpg""#),
+                    &format!(r#""https://shop.example/{key}-b.jpg",{{"@type":"ImageObject","url":"https://shop.example/{key}-a.jpg"}}"#),
+                );
+                page
+            })
+            .collect();
+
+        let draft = draft(&pages).expect("draft");
+
+        assert!(draft.schema.images.is_some(), "{:?}", draft.undrafted);
+    }
+
+    #[test]
     fn should_draft_no_identity_that_two_pages_share() {
         let draft = draft(&[
             woo_page("Chest of drawers", "7", "InStock", "1 in stock"),

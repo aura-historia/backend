@@ -91,7 +91,8 @@ pub fn json_ld_product_ids(html: &str) -> JsonLdProductIds {
 pub(crate) struct JsonLdProductReference {
     /// `description`, its whitespace collapsed; `None` when blank or absent.
     pub(crate) description: Option<String>,
-    /// How many images `image` names: one for a URL or an `ImageObject`, each member of an array.
+    /// How many distinct images `image` names, as URLs or `ImageObject`s: a theme that lists the
+    /// featured image twice names it once.
     pub(crate) image_count: usize,
 }
 
@@ -112,16 +113,28 @@ fn reference_of(node: &Map<String, Value>) -> JsonLdProductReference {
         .and_then(Value::as_str)
         .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|text| !text.is_empty());
-    let image_count = match node.get("image") {
-        Some(Value::Array(images)) => images.iter().filter(|image| !image.is_null()).count(),
-        Some(Value::String(url)) if !url.trim().is_empty() => 1,
-        Some(Value::Object(_)) => 1,
-        _ => 0,
+    let images: BTreeSet<String> = match node.get("image") {
+        Some(Value::Array(images)) => images.iter().filter_map(image_url).collect(),
+        Some(image) => image_url(image).into_iter().collect(),
+        None => BTreeSet::new(),
     };
+    let image_count = images.len();
     JsonLdProductReference {
         description,
         image_count,
     }
+}
+
+/// The URL of a JSON-LD image: a URL, or an `ImageObject`'s `url` or `contentUrl`.
+fn image_url(image: &Value) -> Option<String> {
+    let url = match image {
+        Value::String(url) => url.as_str(),
+        Value::Object(object) => ["url", "contentUrl"]
+            .into_iter()
+            .find_map(|key| object.get(key).and_then(Value::as_str))?,
+        _ => return None,
+    };
+    Some(url.trim().to_owned()).filter(|url| !url.is_empty())
 }
 
 /// What names the product a node describes: its `url`, or else its `@id`.
