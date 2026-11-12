@@ -46,63 +46,56 @@ impl MetricUnit {
     }
 }
 
-/// The metrics the crawler publishes. Adding one is a cost decision, because each is billed
-/// as a custom metric: keep the list short and never give one a dimension.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CrawlerMetric {
+/// Defines [`CrawlerMetric`] from one list, so its names, units and the test-only list of every
+/// metric cannot drift apart.
+macro_rules! crawler_metrics {
+    ($($(#[$doc:meta])* $variant:ident => $unit:ident),+ $(,)?) => {
+        /// The metrics the crawler publishes. Adding one is a cost decision, because CloudWatch
+        /// bills each as a custom metric and the account's free tier covers ten, shared with the
+        /// ingestion Lambda's metric filters: keep the list short and never give one a dimension.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub(crate) enum CrawlerMetric {
+            $($(#[$doc])* $variant),+
+        }
+
+        impl CrawlerMetric {
+            #[cfg(test)]
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub(crate) const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => stringify!($variant)),+
+                }
+            }
+
+            const fn unit(self) -> MetricUnit {
+                match self {
+                    $(Self::$variant => MetricUnit::$unit),+
+                }
+            }
+        }
+    };
+}
+
+crawler_metrics! {
     /// Raw observations the ingestion queue accepted, per scraper pass.
-    ProductsCaptured,
-    /// Scraper URLs whose scrape completed, changed or not, per scraper pass.
-    ScrapesSucceeded,
+    ProductsCaptured => Count,
+    /// Scraper URLs whose scrape produced a capture, per scraper pass. A page that matches its
+    /// last capture is skipped, not scraped, and counts here no more than a failure.
+    ScrapesSucceeded => Count,
     /// Scraper URLs whose scrape failed, per scraper pass.
-    ScrapesFailed,
+    ScrapesFailed => Count,
     /// Scraper URL failures that recorded a failure kind, per scraper pass. A page that waits
     /// on a pending product-schema review is no failure and counts in neither this nor
     /// `ScrapesFailed`.
-    UrlFailures,
+    UrlFailures => Count,
     /// Spider runs that ended in a failure, including one that stopped its ListingSource for an
     /// operator, per spider pass.
-    CrawlRunsFailed,
-    ScraperPassDuration,
-    SpiderPassDuration,
+    CrawlRunsFailed => Count,
+    ScraperPassDuration => Milliseconds,
+    SpiderPassDuration => Milliseconds,
     /// URLs due for scraping when a scraper pass starts.
-    ScraperDueUrls,
-}
-
-impl CrawlerMetric {
-    /// Every published metric; the CloudWatch free tier covers ten custom metrics for the whole
-    /// account, so this list stays at the eight the crawler may use.
-    #[cfg(test)]
-    pub(crate) const ALL: [Self; 8] = [
-        Self::ProductsCaptured,
-        Self::ScrapesSucceeded,
-        Self::ScrapesFailed,
-        Self::UrlFailures,
-        Self::CrawlRunsFailed,
-        Self::ScraperPassDuration,
-        Self::SpiderPassDuration,
-        Self::ScraperDueUrls,
-    ];
-
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::ProductsCaptured => "ProductsCaptured",
-            Self::ScrapesSucceeded => "ScrapesSucceeded",
-            Self::ScrapesFailed => "ScrapesFailed",
-            Self::UrlFailures => "UrlFailures",
-            Self::CrawlRunsFailed => "CrawlRunsFailed",
-            Self::ScraperPassDuration => "ScraperPassDuration",
-            Self::SpiderPassDuration => "SpiderPassDuration",
-            Self::ScraperDueUrls => "ScraperDueUrls",
-        }
-    }
-
-    const fn unit(self) -> MetricUnit {
-        match self {
-            Self::ScraperPassDuration | Self::SpiderPassDuration => MetricUnit::Milliseconds,
-            _ => MetricUnit::Count,
-        }
-    }
+    ScraperDueUrls => Count,
 }
 
 /// One EMF record: the metric values of one pass, under the empty dimension set.
@@ -309,11 +302,11 @@ mod tests {
         assert_eq!(record["ScraperPassDuration"], 1_500);
     }
 
-    /// Each distinct metric and dimension value is billed as a custom metric, and the account
-    /// stays inside the free tier of ten only while the crawler publishes these eight and no
-    /// dimension.
+    /// Each distinct metric and dimension value is billed as a custom metric: the crawler may use
+    /// eight of the account's ten free ones, and no dimension.
     #[test]
     fn should_publish_at_most_eight_metrics_and_no_dimension() {
+        assert!(CrawlerMetric::ALL.len() <= 8, "{:?}", CrawlerMetric::ALL);
         let record = CrawlerMetric::ALL
             .iter()
             .fold(MetricRecord::default(), |record, metric| {

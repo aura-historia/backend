@@ -268,12 +268,17 @@ struct ScrapeBatchOutcome {
     deferred_reasons: BTreeMap<&'static str, usize>,
     /// The whole scraper batch was deferred by scraper ListingSource lock contention.
     deferred: bool,
-    /// URLs whose failure recorded a failure kind: the pass publishes their sum as `UrlFailures`,
-    /// and the kinds themselves stay in the per-URL outcome events.
-    url_failures: u64,
+    /// URLs whose failure recorded a failure kind, by kind such as `HTTP_503`: the pass publishes
+    /// their sum as `UrlFailures` and logs the kinds in its summary, so no kind is a metric
+    /// dimension.
+    failure_kinds: BTreeMap<String, usize>,
 }
 
 impl ScrapeBatchOutcome {
+    fn url_failures(&self) -> u64 {
+        self.failure_kinds.values().sum::<usize>() as u64
+    }
+
     fn record_deferred(&mut self, reason: DeferralReason, urls: usize) {
         self.deferred_urls += urls;
         if urls > 0 {
@@ -1981,7 +1986,9 @@ async fn scrape_batch_candidates(
         let candidate_url = candidate.url.clone();
         candidate.scrape_health = scrape_health.clone();
         let candidate_outcome = scrape_candidate_in_batch(candidate, &ctx, &evidence).await;
-        outcome.url_failures += u64::from(candidate_outcome.failure_kind.is_some());
+        if let Some(kind) = &candidate_outcome.failure_kind {
+            *outcome.failure_kinds.entry(kind.clone()).or_default() += 1;
+        }
         if candidate_outcome.scraped
             && !matches!(candidate_outcome.removal, Some(CandidateRemoval::Rechecked))
         {
@@ -2529,7 +2536,7 @@ impl CrawlerCronJob {
                     awaiting_schema_review += scheduled.outcome.awaiting_schema_review;
                     skipped += scheduled.outcome.skipped;
                     unchanged += scheduled.outcome.unchanged;
-                    url_failures += scheduled.outcome.url_failures;
+                    url_failures += scheduled.outcome.url_failures();
                     deferred_urls += scheduled.outcome.deferred_urls;
                     if scheduled.outcome.deferred {
                         deferred_batches += 1;
@@ -2585,6 +2592,7 @@ impl CrawlerCronJob {
                     deferred_urls,
                     deferred_batches,
                     duration_ms,
+                    failure_kinds = %PassSummary::reasons_json(&pass_summary.failure_kinds()),
                     skip_reasons = %PassSummary::reasons_json(&pass_summary.skip_reasons()),
                     deferred_reasons = %PassSummary::reasons_json(&pass_summary.deferred_reasons()),
                     by_domain = %pass_summary.by_domain_json(),
@@ -6994,10 +7002,12 @@ mod tests {
 
             let outcome = scrape_batch_candidates(candidates, ctx).await;
 
+            assert_eq!((outcome.succeeded, outcome.failed), (1, 1));
             assert_eq!(
-                (outcome.succeeded, outcome.failed, outcome.url_failures),
-                (1, 1, 1)
+                outcome.failure_kinds,
+                BTreeMap::from([("HTTP_500".to_owned(), 1)])
             );
+            assert_eq!(outcome.url_failures(), 1);
             assert!(metrics.records().is_empty());
         }
 
@@ -7051,7 +7061,7 @@ mod tests {
                 (
                     outcome.failed,
                     outcome.awaiting_schema_review,
-                    outcome.url_failures
+                    outcome.url_failures()
                 ),
                 (1, 1, 1)
             );
@@ -7077,7 +7087,7 @@ mod tests {
             let outcome = scrape_batch_candidates(candidates, ctx).await;
 
             assert!(outcome.deferred);
-            assert_eq!(outcome.url_failures, 0);
+            assert_eq!(outcome.url_failures(), 0);
         }
 
         #[tokio::test]
