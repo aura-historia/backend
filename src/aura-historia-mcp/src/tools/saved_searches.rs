@@ -799,11 +799,15 @@ mod tests {
 
     mod fixtures {
         use super::*;
+        use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::{
+            GetPublicListingSourcesByIdsError, GetPublicListingSourcesByIdsRequest,
+            GetPublicListingSourcesByIdsResult, GetPublicListingSourcesByIdsUseCase,
+        };
         use search_filter_service::use_cases::{
             CreateSearchFilterCommand, CreateSearchFilterResult, DeleteOwnedSearchFilterError,
             DeleteOwnedSearchFilterResult, GetOwnedSearchFilterHandler,
             ListOwnedSearchFiltersHandler, ListSearchFilterMatchesError,
-            ListSearchFilterMatchesRequest, ListSearchFilterMatchesResult,
+            ListSearchFilterMatchesRequest, ListSearchFilterMatchesResult, SearchFilterDetails,
             UpdateOwnedSearchFilterCommand, UpdateOwnedSearchFilterResult,
             UpdateSearchFilterMatchFeedbackError, UpdateSearchFilterMatchFeedbackResult,
         };
@@ -842,8 +846,14 @@ mod tests {
             }
             fn services(&self) -> SavedSearches {
                 SavedSearches {
-                    list: Arc::new(ListOwnedSearchFiltersHandler::new(self.clone())),
-                    get: Arc::new(GetOwnedSearchFilterHandler::new(self.clone())),
+                    list: Arc::new(ListOwnedSearchFiltersHandler::new(
+                        self.clone(),
+                        Arc::new(self.clone()),
+                    )),
+                    get: Arc::new(GetOwnedSearchFilterHandler::new(
+                        self.clone(),
+                        Arc::new(self.clone()),
+                    )),
                     create: Arc::new(self.clone()),
                     update: Arc::new(self.clone()),
                     delete: Arc::new(self.clone()),
@@ -881,6 +891,18 @@ mod tests {
                 } else {
                     vec![]
                 })
+            }
+        }
+        /// The fixture's filters reference no ListingSources.
+        #[async_trait::async_trait]
+        impl GetPublicListingSourcesByIdsUseCase for Fixture {
+            async fn execute(
+                &self,
+                _context: &OperationContext,
+                _request: GetPublicListingSourcesByIdsRequest,
+            ) -> Result<GetPublicListingSourcesByIdsResult, GetPublicListingSourcesByIdsError>
+            {
+                Ok(vec![])
             }
         }
         #[async_trait::async_trait]
@@ -922,7 +944,12 @@ mod tests {
                 filter.name = command.name;
                 filter.notifications = command.notifications;
                 filter.search = command.search;
-                Ok(CreateSearchFilterResult { filter })
+                Ok(CreateSearchFilterResult {
+                    filter: SearchFilterDetails {
+                        view: filter,
+                        listing_sources: vec![],
+                    },
+                })
             }
         }
         #[async_trait::async_trait]
@@ -945,7 +972,10 @@ mod tests {
                     return Err(UpdateOwnedSearchFilterError::SearchFilterNotFound);
                 }
                 Ok(UpdateOwnedSearchFilterResult {
-                    filter: self.view(),
+                    filter: SearchFilterDetails {
+                        view: self.view(),
+                        listing_sources: vec![],
+                    },
                 })
             }
         }

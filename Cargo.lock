@@ -8065,6 +8065,7 @@ dependencies = [
  "geo",
  "indexmap 2.14.2",
  "listing-source-core",
+ "listing-source-service",
  "localization",
  "money",
  "notification-core",

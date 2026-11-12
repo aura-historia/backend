@@ -761,9 +761,16 @@ impl From<ListOwnedSearchFiltersError> for ApiError {
             ListOwnedSearchFiltersError::ActorMayNotManageSearchFilter => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. } => {
+            error @ (ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. }
+            | ListOwnedSearchFiltersError::ListingSourceReadFailed { .. }) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filters are temporarily unavailable.")
+                    .with_cause(Box::new(error))
+            }
+            error @ ListOwnedSearchFiltersError::ListingSourceStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filters failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -784,9 +791,16 @@ impl From<GetOwnedSearchFilterError> for ApiError {
                 ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                     .with_detail("Search filter was not found.")
             }
-            GetOwnedSearchFilterError::SearchFilterReadFailed { .. } => {
+            error @ (GetOwnedSearchFilterError::SearchFilterReadFailed { .. }
+            | GetOwnedSearchFilterError::ListingSourceReadFailed { .. }) => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter is temporarily unavailable.")
+                    .with_cause(Box::new(error))
+            }
+            error @ GetOwnedSearchFilterError::ListingSourceStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -825,11 +839,13 @@ impl From<CreateSearchFilterError> for ApiError {
                     ),
                 )
             }
-            CreateSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+            CreateSearchFilterError::PersistedSearchFilterStateInvalid { .. }
+            | CreateSearchFilterError::ListingSourceStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter state is invalid.")
             }
             CreateSearchFilterError::EmbeddingGenerationFailed { .. }
+            | CreateSearchFilterError::ListingSourceReadFailed { .. }
             | CreateSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | CreateSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | CreateSearchFilterError::SearchFilterInsertFailed { .. }
@@ -939,11 +955,13 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
             UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict => {
                 ApiError::conflict(CONFLICT).with_detail("Search filter was changed concurrently.")
             }
-            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { .. }
+            | UpdateOwnedSearchFilterError::ListingSourceStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter state is invalid.")
             }
             UpdateOwnedSearchFilterError::EmbeddingGenerationFailed { .. }
+            | UpdateOwnedSearchFilterError::ListingSourceReadFailed { .. }
             | UpdateOwnedSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterLookupFailed { .. }

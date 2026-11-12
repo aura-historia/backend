@@ -1364,6 +1364,12 @@ async fn periodic_shipping_change(fx_mode: bool) {
         aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         user_postgres::SqlxUserTierEntitlementsFactory::new(),
+        std::sync::Arc::new(
+            listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory::new(),
+            ),
+        ),
     )
     .execute(
         &ctx(Principal::User(owner)),
@@ -1377,7 +1383,8 @@ async fn periodic_shipping_change(fx_mode: bool) {
     )
     .await
     .unwrap()
-    .filter;
+    .filter
+    .view;
     sqlx::query(
         "UPDATE search_filters SET created=now()-interval '31 days' WHERE user_search_filter_id=$1",
     )
