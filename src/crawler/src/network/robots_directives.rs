@@ -100,6 +100,13 @@ pub fn refusal_for_meta(html: &str) -> Option<DirectiveRefusal> {
     })
 }
 
+/// Whether the response's `X-Robots-Tag` headers or the page's meta robots tags forbid following
+/// the page's links for the crawler (`nofollow`, `none`).
+pub fn forbids_following(headers: &HeaderMap, html: &str) -> bool {
+    forbidding_header_directive(headers, Restriction::Following).is_some()
+        || forbidding_meta_directive(html, Restriction::Following).is_some()
+}
+
 fn forbidding_header_directive(
     headers: &HeaderMap,
     restriction: Restriction,
@@ -131,7 +138,13 @@ fn forbidding_in_header_value(value: &str, restriction: Restriction) -> Option<&
 }
 
 fn forbidding_meta_directive(html: &str, restriction: Restriction) -> Option<&'static str> {
-    let head = Html::parse_document(head_of(html));
+    let head = head_of(html);
+    if !contains_ignore_ascii_case(head, "robots")
+        && !contains_ignore_ascii_case(head, CRAWLER_PRODUCT_TOKEN)
+    {
+        return None;
+    }
+    let head = Html::parse_document(head);
     head.select(&META_ROBOTS)
         .filter(|meta| {
             meta.value().attr("name").is_some_and(|name| {
@@ -142,6 +155,15 @@ fn forbidding_meta_directive(html: &str, restriction: Restriction) -> Option<&'s
         .filter_map(|meta| meta.value().attr("content"))
         .flat_map(|content| content.split(','))
         .find_map(|token| restriction.forbidden_by(&token.trim().to_ascii_lowercase()))
+}
+
+/// A cheap test that spares most pages the HTML parse: a page without the word names no
+/// robots tag.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 /// The page up to the end of its `<head>`, which is all a meta robots tag may sit in; the whole
@@ -280,5 +302,38 @@ mod tests {
             from_meta.map(|refusal| refusal.describe()),
             Some("meta robots tag forbids capture (noindex)".to_owned())
         );
+    }
+    #[test]
+    fn should_forbid_following_when_a_header_or_meta_tag_says_nofollow_or_none() {
+        let follows =
+            |values: &[&str], head: &str| forbids_following(&headers(values), &page(head));
+
+        assert!(follows(&["nofollow"], ""));
+        assert!(follows(&["aurahistoriabot: none"], ""));
+        assert!(follows(
+            &[],
+            r#"<meta name="robots" content="index, nofollow">"#
+        ));
+        assert!(follows(
+            &[],
+            r#"<meta name="AuraHistoriaBot" content="none">"#
+        ));
+    }
+
+    #[test]
+    fn should_allow_following_when_the_directive_is_for_another_bot_or_only_noindex() {
+        let follows =
+            |values: &[&str], head: &str| forbids_following(&headers(values), &page(head));
+
+        assert!(!follows(&["googlebot: nofollow"], ""));
+        assert!(!follows(
+            &["noindex"],
+            r#"<meta name="robots" content="noindex">"#
+        ));
+        assert!(!follows(
+            &[],
+            r#"<meta name="googlebot" content="nofollow">"#
+        ));
+        assert!(!follows(&[], ""));
     }
 }

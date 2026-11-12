@@ -28,6 +28,7 @@ use crate::network::policy::{
     location_text, network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
+use crate::network::robots_directives::{forbids_following, refusal_for_headers, refusal_for_meta};
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
@@ -337,6 +338,12 @@ pub struct CrawlDiagnostics {
     /// Pages below the crawl root that answered a page error, such as HTTP 500, after Spider's
     /// retries, and so are not stored (`docs/crawler/networking.md#stored-urls`).
     pub rejected_page_error: usize,
+    /// Pages whose own robots directives forbid capture (`noindex`, `none`, `noai`), so they are
+    /// not stored (`docs/crawler/networking.md#page-robots-directives`).
+    pub rejected_page_directive: usize,
+    /// Pages whose own robots directives forbid following their links (`nofollow`, `none`): the
+    /// crawl did not follow those links.
+    pub nofollow_pages: usize,
     /// Redirects pages answered whose target the crawl followed, each requested as a page of
     /// its own (`docs/crawler/networking.md#destination-policy`).
     pub redirects_followed: usize,
@@ -406,6 +413,7 @@ impl CrawlDiagnostics {
             LocalRejection::Blacklist => self.rejected_blacklist += 1,
             LocalRejection::Duplicate => self.rejected_duplicate += 1,
             LocalRejection::PageError => self.rejected_page_error += 1,
+            LocalRejection::PageDirective => self.rejected_page_directive += 1,
         }
     }
 }
@@ -1455,6 +1463,8 @@ enum LocalRejection {
     Duplicate,
     /// A page below the crawl root answered a [page error](is_page_error_status).
     PageError,
+    /// The page's robots directives forbid capturing it.
+    PageDirective,
 }
 
 /// Local admission of the pages Spider delivers: the configured host only,
@@ -1743,6 +1753,7 @@ impl SpiderImpl {
             .with_whitelist_url(Some(vec![host_whitelist.into()]))
             .with_respect_robots_txt(false)
             .with_return_page_links(true)
+            .with_on_should_crawl_callback(Some(page_allows_following))
             .with_headers(Some(spider_request_headers()))
             .with_user_agent(Some(CRAWLER_USER_AGENT))
             .with_request_timeout(Some(request_timeout))
@@ -2065,9 +2076,15 @@ async fn relay_library_pages(
         // frontier for the next crawl, and neither its links nor its head are
         // the shop's.
         let is_page = challenge.is_none() && rate_limit_answer.is_none();
+        // Spider marks a page whose directives forbid following its links; they are neither
+        // crawled nor kept for the frontier.
+        let links_followable = !page.blocked_crawl;
+        if page.blocked_crawl {
+            diagnostics.nofollow_pages += 1;
+        }
         if is_page {
             filter.found_links.record_delivered(page.get_url());
-            if let Some(page_links) = page.page_links.as_deref() {
+            if links_followable && let Some(page_links) = page.page_links.as_deref() {
                 filter.found_links.record(page.get_url(), page_links);
             }
         }
@@ -2091,6 +2108,11 @@ async fn relay_library_pages(
         // links are kept, and the next crawl that finds it again asks for it again.
         if !is_root && is_page_error_status(status_code) {
             diagnostics.count_rejection(LocalRejection::PageError);
+            continue;
+        }
+
+        if is_page && page_directives_forbid_capture(status_code, &page) {
+            diagnostics.count_rejection(LocalRejection::PageDirective);
             continue;
         }
 
@@ -2121,6 +2143,27 @@ impl Spider for SpiderImpl {
         self.crawl_with_body_limit(request, configured_body_limit.as_deref())
             .await
     }
+}
+
+/// Spider's should-crawl hook: false when the page's robots directives forbid following its
+/// links, so Spider does not crawl them (`docs/crawler/networking.md#page-robots-directives`).
+fn page_allows_following(page: &Page) -> bool {
+    let no_headers = HeaderMap::new();
+    !forbids_following(
+        page.headers.as_ref().unwrap_or(&no_headers),
+        &String::from_utf8_lossy(page.get_html_bytes_u8()),
+    )
+}
+
+/// Whether the page's robots directives forbid capturing it. Only an answered page has
+/// directives to honour; a redirect or an error page is judged by its status.
+fn page_directives_forbid_capture(status_code: u16, page: &Page) -> bool {
+    if !(200..300).contains(&status_code) {
+        return false;
+    }
+    let no_headers = HeaderMap::new();
+    refusal_for_headers(page.headers.as_ref().unwrap_or(&no_headers)).is_some()
+        || refusal_for_meta(&String::from_utf8_lossy(page.get_html_bytes_u8())).is_some()
 }
 
 /// The bot challenge a delivered page is instead of the page it was asked for, if it provably
@@ -4815,6 +4858,65 @@ mod tests {
             self.builds.fetch_add(1, Ordering::Relaxed);
             self.inner.client_for(url, timeout).await
         }
+    }
+
+    /// A page that says `nofollow` keeps its links uncrawled and out of the frontier; a page that
+    /// says `noindex` is not stored but its links are followed (#2917).
+    #[tokio::test]
+    async fn should_honour_the_robots_directives_of_the_pages_it_crawls() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/hidden-index">a</a> <a href="/no-follow">b</a> <a href="/visible">c</a>"#
+                    .to_string(),
+            ),
+            "/hidden-index" => SiteResponse::HtmlWithHeaders(
+                "200 OK",
+                "X-Robots-Tag: noindex\r\n",
+                r#"<a href="/via-noindex">d</a>"#.to_string(),
+            ),
+            "/no-follow" => SiteResponse::Html(
+                "200 OK",
+                r#"<head><meta name="robots" content="nofollow"></head><a href="/behind-nofollow">e</a>"#
+                    .to_string(),
+            ),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        let requested = site.requests.lock().await.clone();
+        site.finish().await;
+
+        assert!(
+            discovered.contains("http://example.com/visible"),
+            "{discovered:?}"
+        );
+        assert!(
+            discovered.contains("http://example.com/no-follow"),
+            "{discovered:?}"
+        );
+        assert!(
+            discovered.contains("http://example.com/via-noindex"),
+            "{discovered:?}"
+        );
+        assert!(
+            !discovered.contains("http://example.com/hidden-index"),
+            "{discovered:?}"
+        );
+        assert!(
+            !discovered.contains("http://example.com/behind-nofollow"),
+            "{discovered:?}"
+        );
+        assert!(
+            requested
+                .iter()
+                .all(|(_, target, ..)| target != "/behind-nofollow"),
+            "{requested:?}"
+        );
+        assert_eq!(diagnostics.rejected_page_directive, 1, "{diagnostics:?}");
+        assert_eq!(diagnostics.nofollow_pages, 1, "{diagnostics:?}");
     }
 
     /// A link the shop builds wrongly, such as `/collection//<slug>/new-arrivals` on a shop that
