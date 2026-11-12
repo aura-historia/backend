@@ -279,15 +279,25 @@ fn is_bare_price(value: &str) -> bool {
 }
 
 /// A product's own ID on every page, a different one on each: a value two pages share names a
-/// template or the shop. With one page nothing shows it differs, so no ID is drafted.
+/// template or the shop, and one that names an availability, such as a SKU a shop writes as
+/// `35616 - SOLD` once the item sells, changes with it. With one page nothing shows it differs, so
+/// no ID is drafted.
 fn draft_source_listing_id(pages: &[DraftPage]) -> Option<ExtractionRule> {
     if pages.len() < 2 {
         return None;
     }
     candidates::source_listing_id().into_iter().find(|rule| {
         let ids: Option<Vec<String>> = pages.iter().map(|page| page.identity(rule)).collect();
-        ids.is_some_and(|ids| ids.iter().collect::<HashSet<_>>().len() == ids.len())
+        ids.is_some_and(|ids| {
+            ids.iter().collect::<HashSet<_>>().len() == ids.len()
+                && !ids.iter().any(|id| names_an_availability(id))
+        })
     })
+}
+
+fn names_an_availability(value: &str) -> bool {
+    let reading = StateReading::of(value);
+    reading.resolved.is_some() || reading.mentioned.is_some()
 }
 
 /// Prose on every page that shows a description block, holding the start of the page's JSON-LD
@@ -582,6 +592,22 @@ mod tests {
 
         assert!(draft.schema.source_listing_id.is_none());
         assert!(draft.is_complete());
+    }
+
+    #[test]
+    fn should_draft_no_identity_that_names_the_product_s_availability() {
+        let draft = draft(&[
+            woo_page("Chest of drawers", "35351", "InStock", "1 in stock"),
+            woo_page(
+                "Mahogany chest",
+                "35616 - SOLD",
+                "OutOfStock",
+                "Out of stock",
+            ),
+        ])
+        .expect("draft");
+
+        assert!(draft.schema.source_listing_id.is_none());
     }
 
     #[test]
