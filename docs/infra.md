@@ -588,7 +588,8 @@ approved administration with private secret injection, never passwords in CLI lo
 
 Before a release adopts existing API/PostConfirmation evidence log groups, inspect
 selected templates and exact names/ownership from the Lambda construct. Do not
-let a normal release create colliding groups. Under separate approval, remove expiry
+let a normal release create colliding evidence groups; the other Lambda log groups are
+covered under [CloudWatch log cost controls](#cloudwatch-log-cost-controls). Under separate approval, remove expiry
 without deleting events and execute an **import-only** change set for the two
 verified `AWS::Logs::LogGroup` resources, with no unrelated changes. Require only
 `Import` actions before execution. `GetTemplate` can lose non-ASCII characters;
@@ -604,10 +605,14 @@ CloudWatch bills log ingestion and custom metrics, so production logs only what 
 and publishes no per-source metric.
 
 - Every Lambda reads `LOG_LEVEL` (`warn` in production, `info` in dev) and logs only at that
-  level and above. To read more from one function, set `LOG_LEVEL` to `info` or `debug` on that
-  function and set it back afterwards; the next release restores it. Consent evidence stays at
-  INFO whatever the level, and the ingestion outcome lines the metric filters read are not
-  level-filtered.
+  level and above; spans stay at INFO so a WARN or ERROR line keeps its request and correlation
+  IDs. Consent evidence stays at INFO whatever the level, and the ingestion outcome lines the
+  metric filters read are not level-filtered. Raise the level for one function by changing its
+  `LOG_LEVEL` in CDK and releasing. Consumers invoke published versions, which snapshot the
+  configuration, so editing `$LATEST` in the console changes nothing for them. The API, MCP and
+  Cognito triggers get a new version from the change; the queue workers and the CDC router
+  run explicit versions identified by artifact and credentials only, so a change of `LOG_LEVEL`
+  alone reaches them with their next artifact release.
 - Lambda's JSON log format and system log level `WARN` drop the START, END and REPORT lines, so
   REPORT's memory and init figures are gone; set the system level to `INFO` on one function to see
   them again. The application log level is deliberately not set to `WARN`: Lambda filters a custom
@@ -618,8 +623,8 @@ and publishes no per-source metric.
   groups (30 days) and the two consent evidence groups, which never expire. The retention handler
   gives 30 days to any other new group, unless it was created with a retention.
 - Neither API Gateway writes an access log. After the release that removes them, the production
-  groups `/aws/apigateway/api-prod` and `/aws/apigateway/mcp-prod` stay, empty, because they are
-  retained; delete them when convenient.
+  groups `/aws/apigateway/api-prod` and `/aws/apigateway/mcp-prod` stay, because they are
+  retained, hold their last week of access logs and then nothing; delete them when convenient.
 - The crawler's log group lives outside CloudFormation: set its retention once with
   `aws logs put-retention-policy --log-group-name <CRAWLER_CLOUDWATCH_LOG_GROUP> --retention-in-days 7`.
 

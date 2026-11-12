@@ -1357,6 +1357,8 @@ Examples include creation, publication, permission changes, destructive actions,
 
 Success events for authoritative mutations SHOULD be logged after the transaction commits. This avoids recording a successful action that was later rolled back.
 
+The level a runtime logs at is operational configuration, and production runs at `warn` to bound log cost ([CloudWatch log cost controls](infra.md#cloudwatch-log-cost-controls)). Success events are INFO, so in production they exist only while an operator raises the level; failure outcomes are WARN or ERROR and always exist. A fact that production must retain, such as consent evidence, is logged at a target that stays at INFO or is written as an audit record, never left to the configured level.
+
 Expected validation or authorization failures SHOULD be recorded with an appropriate outcome and severity, without dumping request payloads or secrets.
 
 Business audit records are not ordinary diagnostic logs. Actions requiring durable, queryable, access-controlled, or legally retained history SHOULD also produce an explicit audit record through the project's audit mechanism. Diagnostic logs alone MUST NOT be treated as a compliance-grade audit trail.
