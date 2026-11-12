@@ -1468,6 +1468,29 @@ echo "end $role $review" >> "$dir/order.log"
         assert!(state.cooldowns.is_empty(), "{state:?}");
     }
 
+    /// An author that labels the review's ListingSource took the review out of the agents' queue:
+    /// no reviewer process starts and nothing is handed to a human.
+    #[tokio::test]
+    async fn should_start_no_reviewer_and_hand_nothing_over_when_the_author_labels_the_source() {
+        let labelled = review("PENDING_REVIEW", true);
+        let fixture = Fixture::new(vec![labelled.clone()]).await;
+        fixture
+            .claude
+            .answer("author", author_envelope("SOURCE_LABELLED", 0.5));
+
+        let run = summary(&run_with(&fixture.settings(&[], &[])).await);
+
+        assert_eq!((run.processes, run.handed_to_human, run.decided), (1, 0, 0));
+        assert_eq!(
+            fixture.claude.order(),
+            [
+                format!("start author {}", labelled.review_id),
+                format!("end author {}", labelled.review_id),
+            ]
+        );
+        assert!(fixture.claude.handovers().is_empty());
+    }
+
     /// A candidate the approval guard already refuses gets no reviewer process, which could only
     /// be refused: the review cools down, while one the guard passes gets its reviewer. Both
     /// artifact types are guarded.

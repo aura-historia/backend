@@ -946,10 +946,15 @@ impl Pass<'_> {
 }
 
 /// Whether the author's pass left a candidate for the reviewer to decide: the author reported
-/// that it staged one or found nothing to stage, not that it skipped the review.
+/// that it staged one or found nothing to stage, not that it skipped the review or labelled its
+/// ListingSource, which took the review out of the agents' queue.
 fn leaves_a_candidate_to_decide(author_report: Option<&AgentReport>) -> bool {
     author_report.is_some_and(|report| {
-        !matches!(report, AgentReport::Author(report) if report.action == AuthorAction::Skipped)
+        !matches!(
+            report,
+            AgentReport::Author(report)
+                if matches!(report.action, AuthorAction::Skipped | AuthorAction::SourceLabelled)
+        )
     })
 }
 
@@ -1032,6 +1037,7 @@ fn decision_name(report: &AgentReport) -> &'static str {
     match report {
         AgentReport::Author(report) => match report.action {
             AuthorAction::Staged => "staged",
+            AuthorAction::SourceLabelled => "source_labelled",
             AuthorAction::NothingToStage => "nothing_to_stage",
             AuthorAction::Skipped => "skipped",
             AuthorAction::NeedsHuman => "needs_human",

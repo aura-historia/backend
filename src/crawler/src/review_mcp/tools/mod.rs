@@ -543,6 +543,7 @@ mod tests {
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
+            "label_source",
         ];
         let reviewer = ["approve", "reject"];
 
@@ -670,6 +671,7 @@ mod tests {
                 "check_approval",
                 "mark_needs_repair",
                 "update_candidate",
+                "label_source",
             ]
         );
         assert_eq!(
@@ -691,6 +693,7 @@ mod tests {
                 "mark_page_not_product",
                 "declare_removed_page",
                 "record_no_sold_page",
+                "label_source",
             ]
         );
         assert_eq!(
@@ -712,7 +715,8 @@ mod tests {
                 "inspect_page",
                 "check_approval",
                 "mark_needs_repair",
-                "update_candidate"
+                "update_candidate",
+                "label_source"
             ]
         );
     }

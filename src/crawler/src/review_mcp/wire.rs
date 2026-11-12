@@ -90,6 +90,13 @@ pub(super) struct NoSoldPageRecorded {
     pub(super) recorded_urls: usize,
 }
 
+/// The answer of an accepted label of the review's ListingSource.
+#[derive(Debug, Deserialize)]
+pub(super) struct SourceLabelled {
+    pub(super) label: crate::review::model::SourceLabel,
+    pub(super) labelled_at: String,
+}
+
 /// The answer of an accepted candidate edit.
 #[derive(Debug, Deserialize)]
 pub(super) struct CandidateEdited {

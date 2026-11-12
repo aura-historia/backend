@@ -131,7 +131,7 @@ pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
             prompt: include_str!("prompts/author.md"),
             product_schema_rules: include_str!("prompts/author.product-schema.md"),
             url_pattern_rules: include_str!("prompts/author.url-pattern.md"),
-            report_schema: include_str!("schemas/author-report.v2.json"),
+            report_schema: include_str!("schemas/author-report.v3.json"),
         },
         AgentRole::Reviewer => RoleContract {
             prompt: include_str!("prompts/reviewer.md"),

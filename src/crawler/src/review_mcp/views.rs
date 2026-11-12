@@ -358,6 +358,15 @@ pub struct NoSoldPageRecorded {
     pub recorded_urls: usize,
 }
 
+/// The label the author gave the review's ListingSource, which switched its crawling off.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SourceLabelled {
+    pub review_id: String,
+    pub label: crate::review::model::SourceLabel,
+    /// When the label was stored, RFC 3339.
+    pub labelled_at: String,
+}
+
 /// A page added to the review.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PageAdded {
