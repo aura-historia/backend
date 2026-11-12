@@ -38,7 +38,7 @@ For the same local trial, `server` with `CRAWLER_START_REVIEW_AGENT_RUNNER=true`
 
 [`src/crawler/docker-compose.yml`](../../src/crawler/docker-compose.yml) starts PostgreSQL 16. The Linux and Windows scripts both create the crawler server and demo databases, migrate them, report their status, reset them, and stop the container. Keep both script sets aligned.
 
-The container runs Postgres with `max_connections=300`. The crawler's connection pool defaults to the sum of the spider and scraper concurrency plus 10, which is 120 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pool size plus the sessions you open yourself.
+The container runs Postgres with `max_connections=300`. The crawler's [pools](#postgres-pools) together default to the sum of the spider and scraper concurrency plus 18, which is 128 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pools' sum plus the sessions you open yourself.
 
 The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From `src/crawler`, use the matching scripts in `scripts/linux/` or `scripts/windows/`:
 
@@ -51,6 +51,12 @@ The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From 
 To run `server` against this container, start it with `db-up` and set `LOCAL_DB_URL=postgres://postgres:postgres@localhost:5432/crawler_server`; `server` never starts Docker itself.
 
 The `dev` entry points wait for this container while it starts: a server on a Unix socket or on a host that resolves only to loopback addresses is retried 30 times with back-off. They fail at once on answers that waiting cannot change, an unknown database or a refused login, and on a `LOCAL_DB_URL` host that does not resolve. A server on any other host, which no dev run starts, fails startup when it has not accepted a connection within 30 seconds. A wrong port on a loopback host is indistinguishable from a starting container and still waits the full 30 attempts.
+
+## Postgres pools
+
+The crawler holds two connection pools on its database. Spiders, scrapers and raw capture share the crawl pool, sized by `db_max_connections` (by default the spider and scraper concurrency plus 10). The review console has its own pool of at most 8 connections, opened on first use, so console reads cannot take the connections crawling waits for and saturated crawling cannot time out the console. Both wait at most 30 seconds for a connection before failing with `PoolTimedOut`.
+
+Each pool is sampled every second and reported once a minute as the `DbPool*` [metrics](#metrics-and-alarms). A minute in which every connection of a pool was in use at a sample also logs `Crawler Postgres pool had every connection in use` with the pool, its limit, its peak and the saturated samples, so sqlx's slow-acquire warnings and `PoolTimedOut` failures can be read against those numbers when the pool size is tuned.
 
 ## Review service
 
@@ -409,6 +415,7 @@ All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are Listi
 | `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing on pages that were not mostly [bot challenges](networking.md#bot-challenges): the product URLs the crawl stored, each page once whether the shop links it with or without its trailing slash, and without the pages the pattern matches that are stored `other` because an operator [rejected](#manual-authoring) them, plus, for an [incremental crawl](scheduling-and-retries.md#discovery-coverage), the stored product pages it found linked and did not fetch again; and 1 when the crawl was cut short, else 0. |
 | `ScraperDueUrls` | Count | none | URLs due for scraping when a scraper pass starts. |
 | `ScraperPassDuration`, `SpiderPassDuration` | Milliseconds | none | Per scheduler pass, including a pass that finds no work. |
+| `DbPoolMaxConnections`, `DbPoolInUsePeak`, `DbPoolSaturatedSamples` | Count | `db_pool` (`crawl` or `review`) | Once a minute per [Postgres pool](#postgres-pools): its connection limit, the most connections in use at one of the minute's one-second samples, and the samples at which every connection was in use. |
 | `ReviewsWaitingForHuman`, `OldestReviewWaitingForHumanAge` | Count, Seconds | none | In `agent` mode only, every 5 minutes from the console's start: the pending reviews of crawl-enabled ListingSources that [wait for a human](#review-agents), as the [agents' queue](#review-service) counts them, and how long ago the oldest of them opened, 0 when none waits. A read that fails is warned about and skipped. |
 
 Create these alarms from the metrics; each is an operator requirement, not a deployed resource:
