@@ -14,7 +14,9 @@ use crate::review::page_content_checks::StateReading;
 use crate::review::page_signals::{ShownContent, shows_amount};
 use crate::review::product_markup::{JsonLdProductReference, json_ld_product_reference};
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
-use crate::scraper::css_selector::rule::{ExtractionKind, ExtractionRule};
+use crate::scraper::css_selector::rule::{
+    ExtractionKind, ExtractionRule, split_image_candidate_group,
+};
 use crate::scraper::plausibility::is_price_text;
 use product_listing_core::listing_availability::ListingAvailability;
 use scraper::Html;
@@ -307,11 +309,41 @@ fn draft_description(pages: &[DraftPage]) -> Option<ExtractionRule> {
     })
 }
 
-/// A gallery on every page with at least as many images as the page's JSON-LD names.
+/// A gallery on every page with at least as many images as the page's JSON-LD names, and no image
+/// every page shows: one photo never shows two products, so a URL on every page is a placeholder,
+/// a lazy-loading sticker or the shop's logo, and a rule that takes it takes more than the gallery.
 fn draft_images(pages: &[DraftPage]) -> Option<ExtractionRule> {
-    first_fitting(pages, candidates::images(), |page, values| {
-        values.is_some_and(|images| images.len() >= page.reference.image_count.max(1))
+    candidates::images().into_iter().find(|rule| {
+        let galleries: Option<Vec<Vec<String>>> = pages
+            .iter()
+            .map(|page| {
+                page.values(rule)
+                    .filter(|images| images.len() >= page.reference.image_count.max(1))
+                    .map(|images| images.iter().map(|group| first_image(group)).collect())
+            })
+            .collect();
+        galleries.is_some_and(|galleries| !shares_an_image(&galleries))
     })
+}
+
+/// The first URL of an image candidate group, as capture keeps it.
+fn first_image(group: &str) -> String {
+    split_image_candidate_group(group)
+        .into_iter()
+        .next()
+        .unwrap_or(group)
+        .to_owned()
+}
+
+/// Whether one image is in every gallery of two or more pages.
+fn shares_an_image(galleries: &[Vec<String>]) -> bool {
+    let [first, rest @ ..] = galleries else {
+        return false;
+    };
+    !rest.is_empty()
+        && first
+            .iter()
+            .any(|image| rest.iter().all(|gallery| gallery.contains(image)))
 }
 
 fn distinct_across_pages(values: &[String]) -> bool {
@@ -376,16 +408,22 @@ mod tests {
     }
 
     fn woo_page(title: &'static str, id: &'static str, availability: &str, stock: &str) -> Page {
+        let key = image_key(title);
         Page {
             title,
             id,
             json_ld: format!(
-                r#"{{"@context":"https://schema.org","@type":"Product","name":"{title}","description":"{DESCRIPTION}","image":["https://shop.example/a.jpg","https://shop.example/b.jpg"],"offers":{{"@type":"Offer","price":"1250.00","priceCurrency":"GBP","availability":"https://schema.org/{availability}"}}}}"#
+                r#"{{"@context":"https://schema.org","@type":"Product","name":"{title}","description":"{DESCRIPTION}","image":["https://shop.example/{key}-a.jpg","https://shop.example/{key}-b.jpg"],"offers":{{"@type":"Offer","price":"1250.00","priceCurrency":"GBP","availability":"https://schema.org/{availability}"}}}}"#
             ),
             body: format!(
-                r#"<div class="woocommerce-product-gallery__image"><img src="https://shop.example/a.jpg"></div><div class="woocommerce-product-gallery__image"><img src="https://shop.example/b.jpg"></div><div class="summary"><p class="price">£1,250.00</p><div class="woocommerce-product-details__short-description"><p>{DESCRIPTION} Restored by our workshop.</p></div><p class="stock">{stock}</p></div>"#
+                r#"<div class="woocommerce-product-gallery__image"><img src="https://shop.example/{key}-a.jpg"></div><div class="woocommerce-product-gallery__image"><img src="https://shop.example/{key}-b.jpg"></div><div class="summary"><p class="price">£1,250.00</p><div class="woocommerce-product-details__short-description"><p>{DESCRIPTION} Restored by our workshop.</p></div><p class="stock">{stock}</p></div>"#
             ),
         }
+    }
+
+    /// The image name of a product, one per title, so no two products share a photo.
+    fn image_key(title: &str) -> String {
+        title.replace(' ', "-")
     }
 
     fn draft(pages: &[Page]) -> Option<StructuredDraft> {
@@ -475,10 +513,34 @@ mod tests {
         let pages: Vec<Page> = [("Chest of drawers", "101"), ("Mahogany chest", "102")]
             .into_iter()
             .map(|(title, id)| {
+                let key = image_key(title);
                 let mut page = woo_page(title, id, "InStock", "1 in stock");
                 page.json_ld = page.json_ld.replace(
-                    r#""https://shop.example/b.jpg""#,
-                    r#""https://shop.example/b.jpg","https://shop.example/c.jpg""#,
+                    &format!(r#""https://shop.example/{key}-b.jpg""#),
+                    &format!(
+                        r#""https://shop.example/{key}-b.jpg","https://shop.example/{key}-c.jpg""#
+                    ),
+                );
+                page
+            })
+            .collect();
+
+        let draft = draft(&pages).expect("draft");
+
+        assert!(draft.schema.images.is_none());
+        assert!(draft.undrafted.contains(&UndraftedField::Images));
+    }
+
+    #[test]
+    fn should_leave_the_images_to_the_author_when_every_gallery_holds_the_same_placeholder() {
+        let pages: Vec<Page> = [("Chest of drawers", "101"), ("Mahogany chest", "102")]
+            .into_iter()
+            .map(|(title, id)| {
+                let key = image_key(title);
+                let mut page = woo_page(title, id, "InStock", "1 in stock");
+                page.body = page.body.replace(
+                    &format!(r#"<img src="https://shop.example/{key}-b.jpg">"#),
+                    &format!(r#"<img src="https://shop.example/{key}-b.jpg"></div><div class="woocommerce-product-gallery__image"><img src="https://shop.example/loading.png">"#),
                 );
                 page
             })

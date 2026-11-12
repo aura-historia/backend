@@ -128,6 +128,7 @@ pub(super) fn description() -> Vec<ExtractionRule> {
     rules.extend(
         [
             ".product__description",
+            ".et_pb_wc_description",
             ".product-single__description",
             ".product-detail-description-text",
             ".product-description",
@@ -143,6 +144,7 @@ pub(super) fn description() -> Vec<ExtractionRule> {
 pub(super) fn images() -> Vec<ExtractionRule> {
     [
         ".woocommerce-product-gallery__image img",
+        "a.wcgs-slider-lightbox",
         ".product__media-list img",
         ".product__media img",
         ".product-single__media img",
