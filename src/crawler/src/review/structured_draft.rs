@@ -353,12 +353,19 @@ fn draft_images(pages: &[DraftPage]) -> Option<ExtractionRule> {
             .iter()
             .map(|page| {
                 page.values(rule)
-                    .filter(|images| images.len() >= page.reference.image_count.max(1))
+                    .filter(|images| holds_the_gallery(images.len(), page.reference.image_count))
                     .map(|images| images.iter().map(|group| first_image(group)).collect())
             })
             .collect();
         galleries.is_some_and(|galleries| !shares_an_image(&galleries))
     })
+}
+
+/// Whether `extracted` images fit a gallery whose JSON-LD names `stated` distinct images: at least
+/// as many, and fewer than twice as many where it names two or more, since a rule that takes every
+/// picture twice, as a zoom copy in another size beside the slider image, doubles the gallery.
+fn holds_the_gallery(extracted: usize, stated: usize) -> bool {
+    extracted >= stated.max(1) && (stated < 2 || extracted < stated * 2)
 }
 
 /// The first URL of an image candidate group, as capture keeps it.
@@ -640,6 +647,15 @@ mod tests {
             selector(draft.schema.state.as_ref()).as_deref(),
             Some("link[itemprop='availability']")
         );
+    }
+
+    #[test]
+    fn should_refuse_a_gallery_that_takes_every_picture_twice() {
+        assert!(holds_the_gallery(6, 6));
+        assert!(holds_the_gallery(9, 6));
+        assert!(!holds_the_gallery(12, 6));
+        assert!(!holds_the_gallery(5, 6));
+        assert!(holds_the_gallery(8, 1));
     }
 
     #[test]

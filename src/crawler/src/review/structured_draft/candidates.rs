@@ -162,6 +162,7 @@ pub(super) fn images() -> Vec<ExtractionRule> {
         ".product-single__media img",
         ".product-gallery img",
         ".product__photos img",
+        "img.gallery-slider-image.magnifier-image",
         ".gallery-slider-image",
         ".product-detail-media img",
         ".product-images img",
