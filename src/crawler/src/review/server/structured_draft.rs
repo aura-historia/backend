@@ -55,8 +55,9 @@ struct DraftAnswer {
     /// The sold page the draft added as a review page, if it searched and found one.
     #[serde(skip_serializing_if = "Option::is_none")]
     sold_page_added: Option<String>,
-    /// How many ListingSource URLs the sold-page search fetched.
-    sold_page_candidates_checked: usize,
+    /// The ListingSource URLs the sold-page search fetched, each recorded as inspected; when it
+    /// added no page, the draft's state rule read no sold product on any of them.
+    sold_page_candidates: Vec<String>,
 }
 
 impl ReviewServer {
@@ -132,15 +133,20 @@ impl ReviewServer {
             Ok(None) => return answer(review_id, NotDrafted::NoStarterSchema),
             Err(error) => return review_error(error),
         };
-        let (sold_page_added, checked) = match state {
+        let (sold_page_added, sold_page_candidates) = match state {
             Some(state) if !sold_shown => {
                 self.find_sold_page(review_id, actor, &state, deadline)
                     .await
             }
-            _ => (None, 0),
+            _ => (None, Vec::new()),
         };
         drop(live_job);
-        log_draft(review_id, &draft, sold_page_added.as_deref(), checked);
+        log_draft(
+            review_id,
+            &draft,
+            sold_page_added.as_deref(),
+            sold_page_candidates.len(),
+        );
         HttpResponse::json(
             200,
             &DraftAnswer {
@@ -151,7 +157,7 @@ impl ReviewServer {
                 complete: draft.is_complete(),
                 undrafted: draft.undrafted,
                 sold_page_added,
-                sold_page_candidates_checked: checked,
+                sold_page_candidates,
             },
         )
     }
@@ -159,22 +165,22 @@ impl ReviewServer {
     /// Fetches up to [`MAX_SOLD_PAGE_CANDIDATES`] product URLs of the review's ListingSource,
     /// those that last failed to scrape first, until `state` reads a sold or unavailable product on
     /// one, which joins the review as a page. Each fetched page counts as inspected. Answers the
-    /// added page's URL and how many URLs were fetched.
+    /// added page's URL and the URLs fetched.
     async fn find_sold_page(
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
         state: &ExtractionRule,
         deadline: Instant,
-    ) -> (Option<String>, usize) {
+    ) -> (Option<String>, Vec<String>) {
         let candidates = match self.source_product_urls.list(review_id).await {
             Ok(urls) => urls,
             Err(error) => {
                 warn!(review_id = %review_id, error = %error, "Cannot list the ListingSource's product URLs to find a sold page for the draft");
-                return (None, 0);
+                return (None, Vec::new());
             }
         };
-        let mut checked = 0;
+        let mut checked = Vec::new();
         for candidate in candidates.iter().rev().take(MAX_SOLD_PAGE_CANDIDATES) {
             let Ok(url) = Url::parse(&candidate.url) else {
                 continue;
@@ -186,7 +192,7 @@ impl ReviewServer {
                 }
                 continue;
             };
-            checked += 1;
+            checked.push(url.to_string());
             let html = fetched.html;
             let rule = state.clone();
             let page = tokio::task::spawn_blocking(move || {
@@ -234,7 +240,7 @@ fn answer(review_id: CrawlerReviewId, reason: NotDrafted) -> HttpResponse {
             undrafted: Vec::new(),
             complete: false,
             sold_page_added: None,
-            sold_page_candidates_checked: 0,
+            sold_page_candidates: Vec::new(),
         },
     )
 }

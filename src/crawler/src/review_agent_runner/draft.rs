@@ -26,6 +26,8 @@ pub(super) struct DraftOutcome {
     pub(super) failed_checks: Option<Vec<String>>,
     /// The sold page the draft added as a review page.
     pub(super) sold_page_added: Option<String>,
+    /// The ListingSource URLs the draft's sold-page search fetched.
+    pub(super) sold_page_candidates: Vec<String>,
 }
 
 impl DraftOutcome {
@@ -35,8 +37,9 @@ impl DraftOutcome {
         self.undrafted.is_empty() && self.failed_checks.as_ref().is_some_and(Vec::is_empty)
     }
 
-    /// The author's starting point, appended to its prompt: only names the console gives, no shop
-    /// content, which the author reads through its tools as data.
+    /// The author's starting point, appended to its prompt: the field and check names the console
+    /// gives and the stored product URLs its sold-page search fetched, no page content, which the
+    /// author reads through its tools as data.
     pub(super) fn author_note(&self) -> String {
         let mut note = String::from(
             "\n\nA structured-data draft of this review's pages is staged as its candidate. Start from it: change only what it lacks or gets wrong.",
@@ -57,6 +60,12 @@ impl DraftOutcome {
         }
         if self.sold_page_added.is_some() {
             note.push_str(" The draft added a sold page it found among the source_product_urls.");
+        } else if !self.sold_page_candidates.is_empty() {
+            note.push_str(&format!(
+                " The draft's state rule read no sold product on these {} source_product_urls, which count as inspected for record_no_sold_page: {}. Search on the other pages and elements where a sold label could sit.",
+                self.sold_page_candidates.len(),
+                self.sold_page_candidates.join(", ")
+            ));
         }
         note
     }
@@ -69,6 +78,8 @@ struct DraftAnswer {
     undrafted: Vec<String>,
     #[serde(default)]
     sold_page_added: Option<String>,
+    #[serde(default)]
+    sold_page_candidates: Vec<String>,
 }
 
 /// Stages the console's draft of `review_id`, refreshes its matrix and reads the guard's checks;
@@ -97,6 +108,7 @@ pub(super) async fn stage_draft(
         undrafted: answer.undrafted,
         failed_checks,
         sold_page_added: answer.sold_page_added,
+        sold_page_candidates: answer.sold_page_candidates,
     }))
 }
 
@@ -132,6 +144,7 @@ mod tests {
             undrafted: names(undrafted),
             failed_checks: failed_checks.map(names),
             sold_page_added: None,
+            sold_page_candidates: names(&["https://shop.example/a", "https://shop.example/b"]),
         }
     }
 
@@ -153,6 +166,10 @@ mod tests {
         );
         assert!(
             note.contains("refuses it with: NO_SOLD_PAGE_TESTED"),
+            "{note}"
+        );
+        assert!(
+            note.contains("on these 2 source_product_urls, which count as inspected for record_no_sold_page: https://shop.example/a, https://shop.example/b."),
             "{note}"
         );
     }
