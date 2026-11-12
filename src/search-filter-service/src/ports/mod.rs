@@ -10,6 +10,8 @@ mod search_filter_monthly_match_quota_reader;
 mod search_filter_quota_reader;
 mod search_filter_reader;
 mod search_filter_repository;
+mod search_intent_translation_store;
+mod search_intent_translator;
 
 pub use existing_search_filter_match_reader::*;
 pub use periodic_search_filter_candidate_reader::*;
@@ -23,3 +25,5 @@ pub use search_filter_monthly_match_quota_reader::*;
 pub use search_filter_quota_reader::*;
 pub use search_filter_reader::*;
 pub use search_filter_repository::*;
+pub use search_intent_translation_store::*;
+pub use search_intent_translator::*;

@@ -1361,8 +1361,15 @@ async fn periodic_shipping_change(fx_mode: bool) {
         SqlxUnitOfWork::new(pool.clone()),
         SqlxSearchFilterRepositoryFactory,
         NoEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         user_postgres::SqlxUserTierEntitlementsFactory::new(),
+        std::sync::Arc::new(
+            listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsHandler::new(
+                SqlxUnitOfWork::new(pool.clone()),
+                listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory::new(),
+            ),
+        ),
     )
     .execute(
         &ctx(Principal::User(owner)),
@@ -1376,7 +1383,8 @@ async fn periodic_shipping_change(fx_mode: bool) {
     )
     .await
     .unwrap()
-    .filter;
+    .filter
+    .view;
     sqlx::query(
         "UPDATE search_filters SET created=now()-interval '31 days' WHERE user_search_filter_id=$1",
     )
@@ -1418,6 +1426,15 @@ async fn periodic_shipping_change(fx_mode: bool) {
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
             notification_postgres::SqlxSavedSearchDigestStoreFactory,
+            search_filter_service::use_cases::BackfillSearchIntentTranslationsHandler::new(
+                search_filter_postgres::SqlxSearchIntentTranslationStore::new(pool.clone()),
+                aura_historia_runtime::UnavailableSearchIntentTranslator,
+                search_filter_service::use_cases::SearchIntentTranslationBackfillPolicy {
+                    page_size: std::num::NonZeroUsize::new(100).unwrap(),
+                    max_translations: 100,
+                    concurrency: std::num::NonZeroUsize::MIN,
+                },
+            ),
             PeriodicSearchFilterMatchingPolicy {
                 filter_page_size: std::num::NonZeroUsize::new(100).unwrap(),
                 hybrid_scan_limit: std::num::NonZeroUsize::new(100).unwrap(),

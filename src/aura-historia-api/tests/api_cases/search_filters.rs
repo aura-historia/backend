@@ -1,8 +1,8 @@
 use crate::{AURA_API, BUSINESS_SCHEMA, OPENSEARCH, api_support};
 
 use api_support::{
-    assert_problem, json_response, seed_access_token_for, seed_product, seed_user,
-    seed_user_with_tier,
+    assert_problem, json_response, seed_access_token_for, seed_listing_source, seed_product,
+    seed_user, seed_user_with_tier,
 };
 use listing_source_core::ListingSourceId;
 use product_listing_core::product_listing_id::ProductListingId;
@@ -157,6 +157,90 @@ async fn should_update_owned_search_filter_without_replacing_unsupplied_search_f
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_echo_typed_intent_while_storing_its_internal_translation() {
+    let user_id = seed_user_with_tier("USER", UserTier::Ultimate).await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let typed = serde_json::json!({
+        "productQuery": ["Manschettenknöpfe Gold"],
+        "enhancedSearchDescription": "Goldene Manschettenknöpfe mit rotem Stein"
+    });
+    let created = client
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({
+            "name": "Manschettenknöpfe",
+            "search": {
+                "language": "en",
+                "currency": "EUR",
+                "productQuery": typed["productQuery"],
+                "enhancedSearchDescription": typed["enhancedSearchDescription"]
+            }
+        }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create search filter: {error}"));
+    let (status, created) = json_response(created).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status);
+    let filter_id = search_filter_id(&created);
+    let renamed = client
+        .patch(format!(
+            "{}/v1/me/search-filters/{filter_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .json(&serde_json::json!({ "name": "Renamed" }))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to rename search filter: {error}"));
+    let (_, renamed) = json_response(renamed).await;
+    let fetched = client
+        .get(format!(
+            "{}/v1/me/search-filters/{filter_id}",
+            AURA_API.base_url()
+        ))
+        .bearer_auth(String::from(token.clone()))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to get search filter: {error}"));
+    let (_, fetched) = json_response(fetched).await;
+    let listed = client
+        .get(format!("{}/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token))
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to list search filters: {error}"));
+    let (_, listed) = json_response(listed).await;
+
+    for (response, filter) in [
+        ("create", &created),
+        ("rename", &renamed),
+        ("get", &fetched),
+        ("list", &listed["items"][0]),
+    ] {
+        assert_eq!(
+            typed["productQuery"], filter["search"]["productQuery"],
+            "{response}"
+        );
+        assert_eq!(
+            typed["enhancedSearchDescription"], filter["search"]["enhancedSearchDescription"],
+            "{response}"
+        );
+        assert!(!filter.to_string().contains("ENGLISH"), "{response}");
+    }
+    let stored: serde_json::Value =
+        sqlx::query_scalar("SELECT intent_translation FROM search_filters WHERE user_id = $1")
+            .bind(user_id.into_uuid())
+            .fetch_one(&get_postgres_client().await)
+            .await
+            .unwrap();
+    assert_eq!(
+        serde_json::json!(["ENGLISH Manschettenknöpfe Gold"]),
+        stored["english"]["product_queries"]
+    );
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_preserve_saved_filter_and_freshness_for_top_level_null_patches() {
     let user_id = seed_user("USER").await;
     let token = search_filters_token(user_id).await;
@@ -237,6 +321,7 @@ fn assert_saved_filter_response(body: &serde_json::Value) {
         "search",
         "created",
         "updated",
+        "listingSources",
     ] {
         assert!(
             !body[field].is_null(),
@@ -836,6 +921,86 @@ async fn should_accept_typed_object_ids_in_search_filter_body_and_response() {
         serde_json::json!([product_listing_id]),
         response_body["search"]["excludeProductListingId"]
     );
+}
+
+#[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
+async fn should_return_referenced_listing_sources_on_every_search_filter_response() {
+    let user_id = seed_user_with_tier("USER", UserTier::Pro).await;
+    let token = search_filters_token(user_id).await;
+    let client = reqwest::Client::new();
+    let [included, excluded] = [seed_listing_source().await, seed_listing_source().await]
+        .map(|id| ListingSourceId::try_from(id).unwrap_or_else(|error| panic!("{error}")));
+    let mut body = search_filter_body();
+    body["search"]["listingSourceId"] = serde_json::json!([included]);
+    body["search"]["excludeListingSourceId"] = serde_json::json!([excluded]);
+    let mut both = [included, excluded];
+    both.sort();
+
+    let response = client
+        .post(format!("{}/v1/me/search-filters", AURA_API.base_url()))
+        .bearer_auth(String::from(token.clone()))
+        .json(&body)
+        .send()
+        .await
+        .unwrap_or_else(|error| panic!("failed to create search filter: {error}"));
+    let (status, created) = json_response(response).await;
+    assert_eq!(reqwest::StatusCode::CREATED, status, "{created}");
+    assert_eq!(both.to_vec(), listing_source_ids(&created));
+    assert!(created["listingSources"][0]["name"].is_string());
+    let filter_id = search_filter_id(&created);
+
+    let (_, fetched) = json_response(
+        client
+            .get(format!(
+                "{}/v1/me/search-filters/{filter_id}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token.clone()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to get search filter: {error}")),
+    )
+    .await;
+    assert_eq!(both.to_vec(), listing_source_ids(&fetched));
+
+    let (_, listed) = json_response(
+        client
+            .get(format!("{}/v1/me/search-filters", AURA_API.base_url()))
+            .bearer_auth(String::from(token.clone()))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to list search filters: {error}")),
+    )
+    .await;
+    assert_eq!(both.to_vec(), listing_source_ids(&listed["items"][0]));
+
+    let (status, patched) = json_response(
+        client
+            .patch(format!(
+                "{}/v1/me/search-filters/{filter_id}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(token))
+            .json(&serde_json::json!({"search": {"excludeListingSourceId": []}}))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to patch search filter: {error}")),
+    )
+    .await;
+    assert_eq!(reqwest::StatusCode::OK, status, "{patched}");
+    assert_eq!(vec![included], listing_source_ids(&patched));
+}
+
+fn listing_source_ids(filter: &serde_json::Value) -> Vec<ListingSourceId> {
+    serde_json::from_value(
+        filter["listingSources"]
+            .as_array()
+            .unwrap_or_else(|| panic!("listingSources must be an array: {filter}"))
+            .iter()
+            .map(|source| source["listingSourceId"].clone())
+            .collect(),
+    )
+    .unwrap_or_else(|error| panic!("listingSources IDs must be canonical: {error}"))
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

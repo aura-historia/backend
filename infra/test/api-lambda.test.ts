@@ -92,6 +92,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "CLOUDFLARE_ACCOUNT_ID",
     "CLOUDFLARE_API_TOKEN",
     "SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS",
+    "ANTHROPIC_API_KEY",
   ];
 
   keys.push("OPENSEARCH_PASSWORD", "OPENSEARCH_USERNAME", "POSTGRES_PASSWORD", "POSTGRES_USERNAME");
@@ -158,6 +159,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(environment.Variables.LOOPS_WEBHOOK_SIGNING_SECRET)
       .toEqual(credentialReference(credentialSecrets(stage).loops, "webhookSigningSecret"));
     expect(environment.Variables.STRIPE_API_KEY).toEqual(credentialReference(credentialSecrets(stage).stripe, "apiKey"));
+    expect(environment.Variables.ANTHROPIC_API_KEY).toEqual(credentialReference(credentialSecrets(stage).anthropic, "apiKey"));
     // Previews must decide as the periodic matcher does: same model, threshold and token.
     expect(environment.Variables).toMatchObject({
       CLASSIFIER_MODEL_PROVIDER: stageConfig(stage).searchFilterClassifier.provider,
@@ -229,7 +231,7 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     expect(alias.Properties).toMatchObject({ Name: "live", FunctionName: { Ref: functionId } });
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
     expect(version.Properties.Description)
-      .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).cloudflare, credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
+      .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).anthropic, credentialSecrets(stage).cloudflare, credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
     expect(code.S3Key).toEqual({ Ref: "AuraHistoriaApiArtifactKey" });
     expect((apiFunction(template, stage).Properties.Code as Record<string, unknown>).S3ObjectVersion)
       .toEqual({ Ref: "AuraHistoriaApiArtifactVersion" });
@@ -367,7 +369,7 @@ test("configuration-only API updates still change the currentVersion target", ()
   expect(alias.Properties.FunctionVersion).toEqual({ "Fn::GetAtt": [after, "Version"] });
   const stage = "dev";
   expect(afterTemplate.findResources("AWS::Lambda::Version")[after].Properties.Description)
-    .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).cloudflare, credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
+    .toEqual(releaseVersionDescription("AuraHistoriaApiArtifactSha256", [credentialSecrets(stage).anthropic, credentialSecrets(stage).cloudflare, credentialSecrets(stage).google, credentialSecrets(stage).loops, credentialSecrets(stage).openSearch, credentialSecrets(stage).postgresRuntime, credentialSecrets(stage).stripe]));
 });
 
 test("grants only API session-revocation actions against the Cognito user pool", () => {

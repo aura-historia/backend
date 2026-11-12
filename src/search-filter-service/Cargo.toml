@@ -15,6 +15,7 @@ fxrate-core = { workspace = true }
 fxrate-service = { workspace = true }
 futures = { workspace = true }
 listing-source-core = { workspace = true }
+listing-source-service = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
 notification-core = { workspace = true }
@@ -35,3 +36,4 @@ product-listing-service = { workspace = true, features = ["test-data"] }
 indexmap = { workspace = true }
 strum = { workspace = true }
 url = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

@@ -12,9 +12,10 @@ use crate::ports::{
     SearchFilterMatchWriteError, SearchFilterMatchWriter, SearchFilterMatchWriterFactory,
 };
 use crate::product_match_evaluator::{
-    ProductListingMatchEvaluationOutcome, ProductListingMatchEvaluationRequest,
+    MatchIntent, ProductListingMatchEvaluationOutcome, ProductListingMatchEvaluationRequest,
     evaluate_product_matches,
 };
+use crate::use_cases::BackfillSearchIntentTranslationsUseCase;
 use application::error::{BoxError, box_error};
 use application::transaction::{Transaction, UnitOfWork};
 use classifier_model::{ClassifierModel, Probability};
@@ -278,7 +279,7 @@ pub trait RunPeriodicSearchFilterMatchingUseCase: Send + Sync {
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError>;
 }
 
-pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D> {
+pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D, T> {
     unit_of_work: U,
     run_lock: L,
     candidates: C,
@@ -291,11 +292,12 @@ pub struct RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, 
     matches: W,
     progress: Q,
     digests: D,
+    intent_translations: T,
     policy: PeriodicSearchFilterMatchingPolicy,
 }
 
-impl<U, L, C, F, P, X, S, E, G, W, Q, D>
-    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D, T>
+    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D, T>
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -311,6 +313,7 @@ impl<U, L, C, F, P, X, S, E, G, W, Q, D>
         matches: W,
         progress: Q,
         digests: D,
+        intent_translations: T,
         policy: PeriodicSearchFilterMatchingPolicy,
     ) -> Result<Self, RunPeriodicSearchFilterMatchingError> {
         if policy.classification_batch_candidates.get() > 50
@@ -335,14 +338,15 @@ impl<U, L, C, F, P, X, S, E, G, W, Q, D>
             matches,
             progress,
             digests,
+            intent_translations,
             policy,
         })
     }
 }
 
 #[async_trait::async_trait]
-impl<U, L, C, F, P, X, S, E, G, W, Q, D> RunPeriodicSearchFilterMatchingUseCase
-    for RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D, T> RunPeriodicSearchFilterMatchingUseCase
+    for RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D, T>
 where
     U: UnitOfWork,
     L: PeriodicSearchFilterMatchingRunLock,
@@ -356,6 +360,7 @@ where
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
     D: SavedSearchDigestStoreFactory<U::Tx>,
+    T: BackfillSearchIntentTranslationsUseCase,
 {
     #[tracing::instrument(name = "run_periodic_search_filter_matching", skip_all, fields(window_end = tracing::field::Empty))]
     async fn execute(
@@ -382,8 +387,8 @@ where
     }
 }
 
-impl<U, L, C, F, P, X, S, E, G, W, Q, D>
-    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D>
+impl<U, L, C, F, P, X, S, E, G, W, Q, D, T>
+    RunPeriodicSearchFilterMatchingHandler<U, L, C, F, P, X, S, E, G, W, Q, D, T>
 where
     U: UnitOfWork,
     C: PeriodicSearchFilterCandidateReader,
@@ -396,11 +401,17 @@ where
     W: SearchFilterMatchWriterFactory<U::Tx>,
     Q: PeriodicSearchFilterProgressFactory<U::Tx>,
     D: SavedSearchDigestStoreFactory<U::Tx>,
+    T: BackfillSearchIntentTranslationsUseCase,
 {
     async fn execute_locked(
         &self,
         command: RunPeriodicSearchFilterMatchingCommand,
     ) -> Result<RunPeriodicSearchFilterMatchingOutcome, RunPeriodicSearchFilterMatchingError> {
+        // Before the run freezes its filters, so it classifies their English intent. Matching
+        // never depends on it: an untranslated filter is classified as the user typed it.
+        if let Err(error) = self.intent_translations.execute().await {
+            tracing::warn!(error = %error, "search_filter.intent_translation_backfill.failed");
+        }
         let mut run_tx = self.unit_of_work.begin().await.map_err(|source| {
             RunPeriodicSearchFilterMatchingError::BeginFinalTransactionFailed {
                 source: box_error(source),
@@ -660,6 +671,9 @@ where
         if window_end <= filter.matched_through {
             return Ok(FilterOutcome::AlreadyCovered);
         }
+        let Some(intent) = match_intent(filter) else {
+            return Ok(FilterOutcome::InvalidPersistedState);
+        };
         let semantic = has_semantic_intent(&filter.search);
         let embedding = if retrieves_with_embedding(&filter.search) {
             match filter_embedding(filter) {
@@ -795,7 +809,7 @@ where
                     evaluations.push(ProductListingMatchEvaluationRequest {
                         key: *reference,
                         product: source,
-                        search: &filter.search,
+                        intent,
                         evidence_policy: filter.matching_evidence_policy,
                         correlation_id: Some(format!(
                             "{}:{}:{}:{}:{}",
@@ -1129,6 +1143,25 @@ fn filter_embedding(filter: &PeriodicSearchFilterCandidate) -> Result<&[f32], Fi
         .ok_or(FilterOutcome::InvalidPersistedState)
 }
 
+/// Fails closed on an invalid persisted translation; a stale one falls back to the original.
+fn match_intent(filter: &PeriodicSearchFilterCandidate) -> Option<MatchIntent<'_>> {
+    let resolved = match &filter.intent_translation {
+        Ok(translation) => {
+            MatchIntent::resolve(&filter.search, translation.as_ref()).map_err(|_| "shape_mismatch")
+        }
+        Err(error) => Err(error.reason),
+    };
+    resolved
+        .inspect_err(|reason| {
+            tracing::error!(
+                search_filter_id = %filter.search_filter_id,
+                reason,
+                "search_filter.periodic_match.invalid_intent_translation"
+            );
+        })
+        .ok()
+}
+
 fn mark_invalid_persisted_state(report: &mut PeriodicSearchFilterMatchingReport) {
     report.filters_failed += 1;
     report.filters_invalid_persisted_state += 1;
@@ -1378,6 +1411,33 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             Ok(FakeTransaction(Arc::clone(&self.0)))
+        }
+    }
+
+    /// Records runs; a failing backfill must never fail matching.
+    #[derive(Default)]
+    struct FakeIntentTranslations {
+        fail: bool,
+        runs: Arc<Mutex<usize>>,
+    }
+
+    #[async_trait::async_trait]
+    impl BackfillSearchIntentTranslationsUseCase for FakeIntentTranslations {
+        async fn execute(
+            &self,
+        ) -> Result<
+            crate::use_cases::SearchIntentTranslationBackfillReport,
+            crate::ports::SearchIntentTranslationStoreError,
+        > {
+            *self.runs.lock().unwrap() += 1;
+            if self.fail {
+                return Err(
+                    crate::ports::SearchIntentTranslationStoreError::ReadFailed {
+                        source: application::error::static_error("database unavailable"),
+                    },
+                );
+            }
+            Ok(Default::default())
         }
     }
 
@@ -1803,6 +1863,7 @@ mod tests {
         FakeMatches,
         FakeProgress,
         TestDigests,
+        FakeIntentTranslations,
     >;
 
     fn state(lock_outcome: PeriodicSearchFilterProgressLockOutcome) -> Arc<Mutex<State>> {
@@ -1838,6 +1899,7 @@ mod tests {
             FakeMatches(Arc::clone(&state)),
             FakeProgress(state),
             TestDigests::default(),
+            FakeIntentTranslations::default(),
             PeriodicSearchFilterMatchingPolicy {
                 filter_page_size: NonZeroUsize::MIN,
                 hybrid_scan_limit: NonZeroUsize::MIN,
@@ -1862,6 +1924,7 @@ mod tests {
             state: SearchFilterState::Active,
             search: ProductListingSearch::new(Language::En, Currency::Eur),
             embedding: None,
+            intent_translation: Ok(None),
             matching_evidence_policy:
                 search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
             created: OffsetDateTime::UNIX_EPOCH,
@@ -1977,6 +2040,31 @@ mod tests {
         assert_eq!(1, report.filters_completed);
         assert_eq!(0, report.matches_inserted);
         assert_eq!(vec![(filter.user_id, end)], *checks.lock().unwrap());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn should_run_matching_even_when_the_translation_backfill_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        let mut handler = handler(state)?;
+        handler.candidates = TestCandidates(vec![filter()]);
+        handler.intent_translations.fail = true;
+        let runs = Arc::clone(&handler.intent_translations.runs);
+
+        let outcome = handler
+            .execute(RunPeriodicSearchFilterMatchingCommand {
+                started_at: OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+            })
+            .await?;
+
+        let RunPeriodicSearchFilterMatchingOutcome::Applied(report) = outcome else {
+            panic!("expected completed run")
+        };
+        assert_eq!(1, report.filters_completed);
+        assert_eq!(1, *runs.lock().unwrap());
         Ok(())
     }
 
@@ -2454,6 +2542,92 @@ mod tests {
             .push("antique".try_into().unwrap());
         filter.matching_evidence_policy = search_filter_core::MatchingEvidencePolicy::TextOnly;
         filter
+    }
+
+    fn translated(search: &ProductListingSearch) -> search_filter_core::SearchIntentTranslation {
+        search_filter_core::SearchIntentTranslation::english(
+            search,
+            crate::intent_translation::tests::english_of(search),
+        )
+        .unwrap()
+    }
+
+    async fn classify_one(
+        filter: &PeriodicSearchFilterCandidate,
+    ) -> (FilterOutcome, Vec<ClassificationRequest>) {
+        let state = state(PeriodicSearchFilterProgressLockOutcome::Current {
+            matched_through: OffsetDateTime::UNIX_EPOCH,
+        });
+        seed_candidates(&state, 1);
+        state.lock().unwrap().evaluator_results = [decision(true)].into();
+        let handler = full_budget_handler(Arc::clone(&state));
+        let outcome = handler
+            .process_filter(
+                filter,
+                &test_snapshot(),
+                OffsetDateTime::UNIX_EPOCH + Duration::hours(1),
+                &mut None,
+                &mut FilterAttemptReport::default(),
+            )
+            .await
+            .unwrap();
+        let requests = state.lock().unwrap().evaluator_requests.clone();
+        (outcome, requests)
+    }
+
+    #[tokio::test]
+    async fn should_classify_the_current_english_translation() {
+        let mut filter = ordinary_filter();
+        filter.intent_translation = Ok(Some(translated(&filter.search)));
+
+        let (outcome, requests) = classify_one(&filter).await;
+
+        assert_eq!(FilterOutcome::Completed, outcome);
+        assert_eq!(
+            serde_json::json!(["english antique"]),
+            requests[0].state["search_intent"]["base_product_queries"]
+        );
+    }
+
+    #[tokio::test]
+    async fn should_classify_the_original_text_without_a_current_translation() {
+        let mut filter = ordinary_filter();
+        let mut previous = filter.search.clone();
+        previous.product_listing_query = vec!["vintage".try_into().unwrap()];
+        for translation in [None, Some(translated(&previous))] {
+            filter.intent_translation = Ok(translation);
+
+            let (outcome, requests) = classify_one(&filter).await;
+
+            assert_eq!(FilterOutcome::Completed, outcome);
+            assert_eq!(
+                serde_json::json!(["antique"]),
+                requests[0].state["search_intent"]["base_product_queries"]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn should_fail_closed_on_an_invalid_persisted_translation() {
+        let mut filter = ordinary_filter();
+        let mismatched = search_filter_core::SearchIntentTranslation::rehydrate(
+            search_filter_core::SearchIntentFingerprint::of(&filter.search),
+            Some(search_filter_core::EnglishSearchIntent::new(
+                Vec::new(),
+                None,
+            )),
+        );
+        for translation in [
+            Err(crate::ports::InvalidPersistedIntentTranslation { reason: "schema" }),
+            Ok(Some(mismatched)),
+        ] {
+            filter.intent_translation = translation;
+
+            let (outcome, requests) = classify_one(&filter).await;
+
+            assert_eq!(FilterOutcome::InvalidPersistedState, outcome);
+            assert!(requests.is_empty());
+        }
     }
 
     #[tokio::test]

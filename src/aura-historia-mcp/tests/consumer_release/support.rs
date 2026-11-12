@@ -62,6 +62,9 @@ impl Server {
                 source_cache: config.source_cache(),
                 read_execution_policy: config.read_execution_policy(),
             },
+            search_intent_translator: Arc::new(
+                aura_historia_runtime::UnavailableSearchIntentTranslator,
+            ),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();

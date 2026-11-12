@@ -337,6 +337,7 @@ fn sample_filter(user_id: UserId, name: &str) -> SearchFilter {
         embedding: None,
         matching_evidence_policy:
             search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
+        intent_translation: None,
     })
 }
 

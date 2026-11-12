@@ -921,7 +921,14 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
         (&removed_by_response, vec![], [3; 32]),
     ] {
         candidates
-            .mark_removed(&fixture.listing_source_id, url, &hash, None, &templates)
+            .mark_removed(
+                &fixture.listing_source_id,
+                url,
+                &hash,
+                None,
+                &templates,
+                None,
+            )
             .await
             .unwrap();
     }
@@ -944,6 +951,7 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
             &[4; 32],
             None,
             &[notice_schema("no longer available")],
+            None,
         )
         .await
         .unwrap();
@@ -1061,7 +1069,7 @@ async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
         let narrowed = narrowed.clone();
         async move {
             ScraperCandidateServiceImpl::new(pool)
-                .mark_removed(&listing_source_id, &url, &[1; 32], None, &[narrowed])
+                .mark_removed(&listing_source_id, &url, &[1; 32], None, &[narrowed], None)
                 .await
         }
     });
@@ -1096,6 +1104,7 @@ async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
                 &[2; 32],
                 None,
                 &[kept],
+                None,
             )
             .await
             .unwrap(),
@@ -1140,6 +1149,7 @@ async fn should_rearm_pages_of_the_templates_a_restore_retires() {
             &[1; 32],
             None,
             &[added],
+            None,
         )
         .await
         .unwrap();
@@ -3959,6 +3969,102 @@ async fn should_keep_a_rejected_page_other_when_url_pattern_is_approved() {
         vec![
             (urls[0].to_string(), "product".to_owned()),
             (urls[1].to_string(), "other".to_owned()),
+        ]
+    );
+}
+
+/// A row stored before `cur` counted as a presentation parameter keeps it in its URL. When an
+/// approved pattern makes a product of such a row, the approval collapses it onto its current
+/// spelling, as a spider pass does with product rows: it moves there while no row has that
+/// spelling and is retired as `DUPLICATE` otherwise. A row that does not become a product stays.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_collapse_old_spellings_that_become_products_when_url_pattern_is_approved() {
+    let pool = get_postgres_client().await;
+    let repository = CrawlerReviewRepository::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id).await;
+    set_crawl_root(&pool, listing_source_id, "spelling-pattern.example.com").await;
+    let shop = "https://spelling-pattern.example.com";
+    let stored = [
+        "/item/twin-1?cur=EUR",
+        "/item/twin-1",
+        "/item/alone-2?cur=GBP",
+        "/about?cur=EUR",
+    ]
+    .map(|path| format!("{shop}{path}"));
+    sqlx::query(
+        "INSERT INTO listing_source_urls (listing_source_id, url, raw_source_record_key, url_class) \
+         SELECT $1, url, url, 'other' FROM UNNEST($2::text[]) AS stored(url)",
+    )
+    .bind(listing_source_id.as_uuid())
+    .bind(&stored)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let review_id = undecided_url_pattern_review(&repository, listing_source_id, &stored).await;
+    repository
+        .update_candidate_payload(
+            review_id,
+            ReviewActor::Human,
+            candidate_version(&repository, review_id).await,
+            json!(UrlPatternReviewCandidate {
+                decision: UrlPatternDecision::Pattern {
+                    value: "/item/".to_owned(),
+                    exclude: None,
+                    matching: UrlPatternMatching::FullUrlSearch,
+                },
+                current_pattern: None,
+                current_exclude: None,
+                current_matching: UrlPatternMatching::FullUrlSearch,
+                sample_labels: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+    approve(
+        &repository,
+        review_id,
+        ReviewActor::Human,
+        None,
+        IncompleteCoverage::Refuse,
+    )
+    .await
+    .unwrap();
+
+    let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+        "SELECT url, url_class, crawler_disposition, raw_source_record_key \
+         FROM listing_source_urls WHERE listing_source_id = $1 ORDER BY url",
+    )
+    .bind(listing_source_id.as_uuid())
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let row = |url: &str, class: &str, disposition: &str, key: &str| {
+        (
+            format!("{shop}{url}"),
+            class.to_owned(),
+            disposition.to_owned(),
+            format!("{shop}{key}"),
+        )
+    };
+    assert_eq!(
+        rows,
+        vec![
+            row("/about?cur=EUR", "info", "ACTIVE", "/about?cur=EUR"),
+            row(
+                "/item/alone-2",
+                "product",
+                "ACTIVE",
+                "/item/alone-2?cur=GBP"
+            ),
+            row("/item/twin-1", "product", "ACTIVE", "/item/twin-1"),
+            row(
+                "/item/twin-1?cur=EUR",
+                "product",
+                "DUPLICATE",
+                "/item/twin-1?cur=EUR"
+            ),
         ]
     );
 }

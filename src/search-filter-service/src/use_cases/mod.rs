@@ -1,23 +1,27 @@
 use embedding::{EmbeddingError, EmbeddingText};
 use product_listing_core::product_listing_search::ProductListingSearch;
 
+mod backfill_search_intent_translations;
 mod create_search_filter;
 mod delete_owned_search_filter;
 mod generate_search_filter_match_notification;
 mod get_owned_search_filter;
 mod list_owned_search_filters;
 mod list_search_filter_matches;
+mod listing_source_references;
 mod preview_search_filter_matches;
 mod run_periodic_search_filter_matching;
 mod update_owned_search_filter;
 mod update_search_filter_match_feedback;
 
+pub use backfill_search_intent_translations::*;
 pub use create_search_filter::*;
 pub use delete_owned_search_filter::*;
 pub use generate_search_filter_match_notification::*;
 pub use get_owned_search_filter::*;
 pub use list_owned_search_filters::*;
 pub use list_search_filter_matches::*;
+pub use listing_source_references::SearchFilterDetails;
 pub use preview_search_filter_matches::*;
 pub use run_periodic_search_filter_matching::*;
 pub use update_owned_search_filter::*;

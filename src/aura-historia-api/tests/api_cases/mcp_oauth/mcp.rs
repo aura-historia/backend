@@ -29,6 +29,9 @@ impl McpServer {
                     &ProductListingConfig::from_getter(|_| None).unwrap(),
                 )
                 .unwrap(),
+                search_intent_translator: std::sync::Arc::new(
+                    aura_historia_runtime::UnavailableSearchIntentTranslator,
+                ),
             },
         )
         .unwrap();

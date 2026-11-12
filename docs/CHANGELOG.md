@@ -2,6 +2,19 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-11 — Provider names on search filters (#2902)
+
+- `UserSearchFilterData` has a new required, read-only `listingSources`: the `PublicListingSourceData` cards of every ListingSource that `search.listingSourceId` or `search.excludeListingSourceId` references, one per ID, ordered by `listingSourceId`, so clients can show provider names without further requests. An ID whose source no longer exists stays in `search` but has no card; the list is empty when the filter references no sources. It is returned by `GET /v1/me/search-filters`, `GET /v1/me/search-filters/{userSearchFilterId}`, `POST /v1/me/search-filters` and `PATCH /v1/me/search-filters/{userSearchFilterId}`, and by the MCP tools `getUserSearchFilters`, `getUserSearchFilter`, `createUserSearchFilter` and `updateUserSearchFilter`, whose descriptions now carry the `viewUrl` guidance. Request bodies are unchanged; the field cannot be set.
+- These operations never return incomplete cards. If the provider lookup is temporarily unavailable they fail with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`; if a referenced provider's stored data is invalid they fail with `500 SEARCH_FILTER_INTERNAL_ERROR`. A create or update that fails this way has not been saved.
+- `PATCH /v1/me/search-filters/{userSearchFilterId}` and `updateUserSearchFilter` can now return `409 CONFLICT` for a patch that does not touch `search` when another write changed the filter's ListingSource IDs at the same time. Re-read the filter and retry, as for other concurrent changes.
+- The OpenAPI document now lists the `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` these search-filter operations already returned: list, create, get, update and delete a filter, and update match feedback. Behaviour is unchanged.
+
+## 2026-11-11 — Saved-search matching classifies an English translation of the intent (#2904)
+
+- Scheduled saved-search matching and `POST /v1/me/search-filters/preview` now classify candidates against an English translation of `productQuery` and `enhancedSearchDescription`, with the listing's English title (its original title when none exists yet) and its original description. The classifier enforces English intent more reliably, so intent written in other languages produces fewer unwanted matches. The source language is detected from the text, not from `language`.
+- Search filters, previews, MCP saved-search tools, match notifications and digests keep, return and edit the text exactly as written. Request and response shapes are unchanged.
+- Saving a filter never fails because translation fails: the filter is saved and matched with the text as written until a later scheduled run translates it. Existing filters are translated over the following scheduled runs.
+
 ## 2026-11-11 — Provider link guidance for agents
 
 - `viewUrl` and its paired `url` now carry descriptions in the OpenAPI document and the MCP output schemas: `viewUrl` is the referral-tagged link meant to be shared, `url` the provider's untagged address. Every MCP tool whose result contains a `viewUrl` states this in its description, the MCP server returns `instructions` asking agents to share `viewUrl` unchanged, and the `catalogue-search` agent skill says the same. Values and fields are unchanged.

@@ -4,6 +4,9 @@ use application::transaction::{Transaction, UnitOfWork};
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::{
+    GetPublicListingSourcesByIdsHandler, GetPublicListingSourcesByIdsUseCase,
+};
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
@@ -28,6 +31,13 @@ use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+fn listing_sources(pool: &sqlx::PgPool) -> std::sync::Arc<dyn GetPublicListingSourcesByIdsUseCase> {
+    std::sync::Arc::new(GetPublicListingSourcesByIdsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory::new(),
+    ))
+}
 
 struct TestEmbeddings;
 #[async_trait::async_trait]
@@ -85,8 +95,10 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
         unit,
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     for (tier, expected) in [
         ("FREE", MatchingEvidencePolicy::TextOnly),
@@ -119,10 +131,15 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
                 .unwrap();
             assert_eq!(
                 expected.as_str(),
-                policy_row(&pool, result.filter.search_filter_id).await.0
+                policy_row(&pool, result.filter.view.search_filter_id)
+                    .await
+                    .0
             );
-            assert_eq!(Some(768), result.filter.embedding.as_ref().map(Vec::len));
-            assert_eq!(SearchFilterState::Active, result.filter.state);
+            assert_eq!(
+                Some(768),
+                result.filter.view.embedding.as_ref().map(Vec::len)
+            );
+            assert_eq!(SearchFilterState::Active, result.filter.view.state);
         }
     }
 }
@@ -134,8 +151,10 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
         SqlxUnitOfWork::new(pool.clone()),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     for tier in ["FREE", "PRO"] {
         let user_id = seed_user(&pool, tier).await;
@@ -165,6 +184,122 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
     }
 }
 
+/// Reads filters as they were before a concurrent write gave them ListingSource references.
+struct ReaderBeforeListingSourceChange(SqlxSearchFilterReader);
+
+#[async_trait::async_trait]
+impl search_filter_service::ports::SearchFilterReader for ReaderBeforeListingSourceChange {
+    async fn find_for_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<
+        Vec<search_filter_service::ports::SearchFilterView>,
+        search_filter_service::ports::SearchFilterReadError,
+    > {
+        let mut views = self.0.find_for_user(user_id).await?;
+        for view in &mut views {
+            view.search.listing_source_id_query = Default::default();
+        }
+        Ok(views)
+    }
+}
+
+fn update_reading_with<F>(
+    pool: &sqlx::PgPool,
+    reader: F,
+) -> UpdateOwnedSearchFilterHandler<
+    SqlxUnitOfWork,
+    SqlxSearchFilterRepositoryFactory,
+    TestEmbeddings,
+    aura_historia_runtime::UnavailableSearchIntentTranslator,
+    F,
+    SqlxSearchFilterQuotaReaderFactory,
+    SqlxUserTierEntitlementsFactory,
+> {
+    UpdateOwnedSearchFilterHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
+        reader,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+        listing_sources(pool),
+    )
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reject_a_patch_when_listing_sources_changed_since_they_were_looked_up() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let user_id = seed_user(&pool, "PRO").await;
+    let created = CreateSearchFilterHandler::new(
+        unit.clone(),
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
+    )
+    .execute(
+        &context(Principal::User(user_id)),
+        CreateSearchFilterCommand {
+            accept_shipping_destination: None,
+            user_id,
+            name: "original".into(),
+            notifications: false,
+            search: ProductListingSearch::new(Language::En, Currency::Eur)
+                .with_product_listing_query("lamp".try_into().unwrap())
+                .with_listing_source_id_query(
+                    [listing_source_core::ListingSourceId::new()]
+                        .into_iter()
+                        .collect(),
+                ),
+        },
+    )
+    .await
+    .unwrap()
+    .filter
+    .view;
+    let rename = UpdateOwnedSearchFilterCommand {
+        accept_shipping_destination: None,
+        user_id,
+        search_filter_id: created.search_filter_id,
+        name: PatchField::Set("renamed".into()),
+        notifications: PatchField::Unchanged,
+        state: PatchField::Unchanged,
+        search: ProductListingSearchPatch::default(),
+    };
+
+    let raced = update_reading_with(
+        &pool,
+        ReaderBeforeListingSourceChange(SqlxSearchFilterReader::new(pool.clone())),
+    )
+    .execute(&context(Principal::User(user_id)), rename.clone())
+    .await;
+
+    assert!(matches!(
+        raced,
+        Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict)
+    ));
+    let stored_name: String =
+        sqlx::query_scalar("SELECT name FROM search_filters WHERE user_search_filter_id=$1")
+            .bind(created.search_filter_id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        "original", stored_name,
+        "the conflicting patch saved nothing"
+    );
+    let retried = update_reading_with(&pool, SqlxSearchFilterReader::new(pool.clone()))
+        .execute(&context(Principal::User(user_id)), rename)
+        .await
+        .unwrap();
+    assert_eq!("renamed", retried.filter.view.name.as_ref());
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
     let pool = get_postgres_client().await;
@@ -174,16 +309,20 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let update = UpdateOwnedSearchFilterHandler::new(
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterReader::new(pool.clone()),
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let created = create
         .execute(
@@ -200,7 +339,8 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         )
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     let mut tx = unit.begin().await.unwrap();
     SqlxUserTierEntitlementsFactory
         .in_transaction(&mut tx)
@@ -259,7 +399,8 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         .execute(&context(Principal::System), command)
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     assert_eq!(SearchFilterState::Active, restored.state);
     assert!(restored.search.enhanced_search_description.is_none());
     assert_eq!(
@@ -278,8 +419,10 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let filter = create
         .execute(
@@ -295,7 +438,8 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         )
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     let mut tier_tx = unit.begin().await.unwrap();
     SqlxUserTierEntitlementsFactory
         .in_transaction(&mut tier_tx)
@@ -341,9 +485,11 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         unit,
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterReader::new(pool.clone()),
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let repaired = update
         .execute(
@@ -360,7 +506,8 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         )
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     assert_eq!(Some(768), repaired.embedding.as_ref().map(Vec::len));
     assert_eq!(3, policy_row(&pool, filter.search_filter_id).await.1);
 }
@@ -435,8 +582,10 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         unit.clone(),
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     )
     .with_shipping_destinations(book.clone());
     let command = CreateSearchFilterCommand {
@@ -466,7 +615,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
             AddressBookError::Forbidden
         ))
     ));
-    let filter = create.execute(&ctx, command).await.unwrap().filter;
+    let filter = create.execute(&ctx, command).await.unwrap().filter.view;
     // Address ownership and a saved predicate do not select any browsing destination.
     assert_eq!(
         BrowsingDestination::None,
@@ -527,9 +676,11 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         unit,
         SqlxSearchFilterRepositoryFactory,
         TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         reader,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     )
     .with_shipping_destinations(book.clone());
     let patch = UpdateOwnedSearchFilterCommand {
@@ -559,7 +710,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         )
         .unwrap(),
     );
-    let changed = update.execute(&ctx, accepted).await.unwrap().filter;
+    let changed = update.execute(&ctx, accepted).await.unwrap().filter.view;
     assert_eq!(
         Some(CountryCode::FRA),
         changed.search.shipping.unwrap().country()
@@ -575,4 +726,175 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         .await
         .unwrap();
     assert_eq!(0, remaining);
+}
+
+/// Translates to `english <text>` and counts its calls.
+#[derive(Default)]
+struct CountingTranslator {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl search_filter_service::ports::SearchIntentTranslator for CountingTranslator {
+    async fn translate(
+        &self,
+        search: &ProductListingSearch,
+    ) -> Result<
+        search_filter_core::SearchIntentTranslation,
+        search_filter_service::ports::SearchIntentTranslatorError,
+    > {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let english = search_filter_core::EnglishSearchIntent::new(
+            search
+                .product_listing_query
+                .iter()
+                .map(|query| format!("english {}", query.as_ref()).try_into().unwrap())
+                .collect(),
+            None,
+        );
+        Ok(search_filter_core::SearchIntentTranslation::english(search, english).unwrap())
+    }
+}
+
+async fn stored_translation(
+    pool: &sqlx::PgPool,
+    id: search_filter_core::user_search_filter_id::UserSearchFilterId,
+) -> Option<serde_json::Value> {
+    sqlx::query_scalar(
+        "SELECT intent_translation FROM search_filters WHERE user_search_filter_id=$1",
+    )
+    .bind(id.into_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn writes_never_depend_on_the_translator_and_replace_translations_only_with_their_text() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let user_id = seed_user(&pool, "PRO").await;
+    let translator = std::sync::Arc::new(CountingTranslator::default());
+    let update =
+        |translator: std::sync::Arc<dyn search_filter_service::ports::SearchIntentTranslator>| {
+            UpdateOwnedSearchFilterHandler::new(
+                unit.clone(),
+                SqlxSearchFilterRepositoryFactory,
+                TestEmbeddings,
+                translator,
+                SqlxSearchFilterReader::new(pool.clone()),
+                SqlxSearchFilterQuotaReaderFactory,
+                SqlxUserTierEntitlementsFactory,
+                listing_sources(&pool),
+            )
+        };
+    let patch = |search_filter_id, search: ProductListingSearchPatch, name| {
+        UpdateOwnedSearchFilterCommand {
+            accept_shipping_destination: None,
+            user_id,
+            search_filter_id,
+            name,
+            notifications: PatchField::Unchanged,
+            state: PatchField::Unchanged,
+            search,
+        }
+    };
+
+    let created = CreateSearchFilterHandler::new(
+        unit.clone(),
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
+    )
+    .execute(
+        &context(Principal::User(user_id)),
+        CreateSearchFilterCommand {
+            accept_shipping_destination: None,
+            user_id,
+            name: "Leuchter".into(),
+            notifications: false,
+            search: ProductListingSearch::new(Language::En, Currency::Eur)
+                .with_product_listing_query("Leuchter".try_into().unwrap()),
+        },
+    )
+    .await
+    .unwrap()
+    .filter
+    .view;
+    assert_eq!(
+        None,
+        stored_translation(&pool, created.search_filter_id).await
+    );
+
+    let text_change = patch(
+        created.search_filter_id,
+        ProductListingSearchPatch {
+            product_listing_query: PatchField::Set(vec!["Kerzenleuchter".try_into().unwrap()]),
+            ..Default::default()
+        },
+        PatchField::Unchanged,
+    );
+    let updated = update(translator.clone())
+        .execute(&context(Principal::User(user_id)), text_change)
+        .await
+        .unwrap();
+    assert_eq!(
+        vec!["Kerzenleuchter"],
+        updated
+            .filter
+            .view
+            .search
+            .product_listing_query
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<&str>>()
+    );
+    let translated = stored_translation(&pool, created.search_filter_id).await;
+    assert_eq!(
+        serde_json::json!(["english Kerzenleuchter"]),
+        translated.as_ref().unwrap()["english"]["product_queries"]
+    );
+
+    let other_change = patch(
+        created.search_filter_id,
+        ProductListingSearchPatch {
+            currency: PatchField::Set(Currency::Usd),
+            ..Default::default()
+        },
+        PatchField::Set("renamed".into()),
+    );
+    update(translator.clone())
+        .execute(&context(Principal::User(user_id)), other_change)
+        .await
+        .unwrap();
+    assert_eq!(
+        translated,
+        stored_translation(&pool, created.search_filter_id).await
+    );
+    assert_eq!(
+        1,
+        translator.calls.load(std::sync::atomic::Ordering::SeqCst)
+    );
+
+    let failed_change = patch(
+        created.search_filter_id,
+        ProductListingSearchPatch {
+            product_listing_query: PatchField::Set(vec!["Spiegel".try_into().unwrap()]),
+            ..Default::default()
+        },
+        PatchField::Unchanged,
+    );
+    update(std::sync::Arc::new(
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
+    ))
+    .execute(&context(Principal::User(user_id)), failed_change)
+    .await
+    .unwrap();
+    assert_eq!(
+        None,
+        stored_translation(&pool, created.search_filter_id).await
+    );
 }

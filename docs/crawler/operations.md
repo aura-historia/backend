@@ -38,7 +38,7 @@ For the same local trial, `server` with `CRAWLER_START_REVIEW_AGENT_RUNNER=true`
 
 [`src/crawler/docker-compose.yml`](../../src/crawler/docker-compose.yml) starts PostgreSQL 16. The Linux and Windows scripts both create the crawler server and demo databases, migrate them, report their status, reset them, and stop the container. Keep both script sets aligned.
 
-The container runs Postgres with `max_connections=300`. The crawler's connection pool defaults to the sum of the spider and scraper concurrency plus 10, which is 120 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pool size plus the sessions you open yourself.
+The container runs Postgres with `max_connections=300`. The crawler's [pools](#postgres-pools) together default to the sum of the spider and scraper concurrency plus 18, which is 128 for `dev`, and stock PostgreSQL's 100 connections make a large `dev` run fail with `too many clients already`. A Postgres you point `LOCAL_DB_URL` at instead needs `max_connections` above the pools' sum plus the sessions you open yourself.
 
 The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From `src/crawler`, use the matching scripts in `scripts/linux/` or `scripts/windows/`:
 
@@ -51,6 +51,12 @@ The local workflow requires Docker and `sqlx-cli` with PostgreSQL support. From 
 To run `server` against this container, start it with `db-up` and set `LOCAL_DB_URL=postgres://postgres:postgres@localhost:5432/crawler_server`; `server` never starts Docker itself.
 
 The `dev` entry points wait for this container while it starts: a server on a Unix socket or on a host that resolves only to loopback addresses is retried 30 times with back-off. They fail at once on answers that waiting cannot change, an unknown database or a refused login, and on a `LOCAL_DB_URL` host that does not resolve. A server on any other host, which no dev run starts, fails startup when it has not accepted a connection within 30 seconds. A wrong port on a loopback host is indistinguishable from a starting container and still waits the full 30 attempts.
+
+## Postgres pools
+
+The crawler holds two connection pools on its database. Spiders, scrapers and raw capture share the crawl pool, sized by `db_max_connections` (by default the spider and scraper concurrency plus 10). The review console has its own pool of at most 8 connections, opened on first use, so console reads cannot take the connections crawling waits for and saturated crawling cannot time out the console. Both wait at most 30 seconds for a connection before failing with `PoolTimedOut`.
+
+Each pool is sampled every second and logged once a minute with `db_pool` (`crawl` or `review`), `max_connections`, `in_use_peak` (the most connections in use at one of the minute's samples), `saturated_samples` (the samples at which every connection was in use) and `samples`. A minute in which every connection was in use at a sample logs `Crawler Postgres pool had every connection in use` at WARN, a minute in which the pool was used `Crawler Postgres pool usage` at INFO, and an idle minute DEBUG, so sqlx's slow-acquire warnings and `PoolTimedOut` failures can be read against those numbers when the pool size is tuned. It is no metric: each metric and each of its dimension values is billed, and the [crawler's metrics](#metrics-and-alarms) are held to a fixed few.
 
 ## Review service
 

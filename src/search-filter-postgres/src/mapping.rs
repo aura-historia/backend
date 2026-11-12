@@ -33,6 +33,9 @@ use strum::IntoEnumIterator;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub(crate) const FILTER_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, matching_evidence_policy, created, updated, version";
+/// The aggregate's columns; presentation readers select [`FILTER_COLUMNS`] and never the
+/// internal intent translation.
+pub(crate) const AGGREGATE_COLUMNS: &str = "user_search_filter_id, user_id, name, notifications, state, search, embedding, matching_evidence_policy, created, updated, version, intent_translation";
 pub(crate) const MATCH_COLUMNS: &str = "user_id, user_search_filter_id, product_listing_id, origin_event_id, price_valuation_basis, price_fx_rate_id, shipping_fx_rate_id, shipping_fx_captured_at, shipping_target_currency, shipping_maximum_minor, user_search_filter_name, feedback, created, updated";
 
 #[derive(Debug)]
@@ -153,8 +156,9 @@ pub(crate) struct FilterRow {
     pub version: i64,
 }
 impl FilterRow {
-    pub(crate) fn into_persisted(
+    fn into_persisted(
         self,
+        intent_translation: Option<search_filter_core::SearchIntentTranslation>,
     ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
         let created = self.created;
         let updated = self.updated;
@@ -193,6 +197,7 @@ impl FilterRow {
                         source: box_error(source),
                     },
                 )?,
+            intent_translation,
         });
         Ok(PersistedSearchFilter {
             filter,
@@ -202,26 +207,59 @@ impl FilterRow {
         })
     }
     pub(crate) fn into_view(self) -> Result<SearchFilterView, SearchFilterReadError> {
-        matching_evidence_policy(&self.matching_evidence_policy)
-            .map_err(|_| SearchFilterReadError::InvalidPersistedState)?;
+        matching_evidence_policy(&self.matching_evidence_policy).map_err(invalid_view)?;
         let created = self.created;
         let updated = self.updated;
         Ok(SearchFilterView {
             search_filter_id: UserSearchFilterId::try_from(self.user_search_filter_id)
-                .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
-            user_id: UserId::try_from(self.user_id)
-                .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
-            name: name(self.name).map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
+                .map_err(invalid_view)?,
+            user_id: UserId::try_from(self.user_id).map_err(invalid_view)?,
+            name: name(self.name).map_err(invalid_view)?,
             notifications: self.notifications,
-            state: state(&self.state).map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
-            search: product_search_from_json(self.search)
-                .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
+            state: state(&self.state).map_err(invalid_view)?,
+            search: product_search_from_json(self.search).map_err(invalid_view)?,
             embedding: self.embedding,
             created,
             updated,
         })
     }
 }
+fn invalid_view(source: impl Error + Send + Sync + 'static) -> SearchFilterReadError {
+    SearchFilterReadError::InvalidPersistedState {
+        source: box_error(source),
+    }
+}
+
+#[derive(Debug, FromRow)]
+pub(crate) struct AggregateRow {
+    #[sqlx(flatten)]
+    filter: FilterRow,
+    intent_translation: Option<serde_json::Value>,
+}
+
+impl AggregateRow {
+    /// An invalid translation is rebuildable matching state, not the user's filter: the
+    /// aggregate loads without it, so the owner can still edit or delete the filter and the
+    /// next write clears it. Matching fails that filter closed through its candidate reader.
+    pub(crate) fn into_persisted(
+        self,
+    ) -> Result<PersistedSearchFilter, SearchFilterRepositoryError> {
+        let filter_id = self.filter.user_search_filter_id;
+        let intent_translation = self.intent_translation.and_then(|value| {
+            crate::intent_translation::intent_translation_from_json(value)
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        search_filter_id = %filter_id,
+                        reason = error.category(),
+                        "search_filter.intent_translation.invalid_persisted_state"
+                    );
+                })
+                .ok()
+        });
+        self.filter.into_persisted(intent_translation)
+    }
+}
+
 #[derive(Debug, FromRow)]
 pub(crate) struct MatchRow {
     pub user_id: uuid::Uuid,
@@ -905,7 +943,7 @@ mod tests {
         let user_id = UserId::new();
 
         let persisted =
-            filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_persisted()?;
+            filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_persisted(None)?;
         let view = filter_row(search_filter_id.into_uuid(), user_id.into_uuid())?.into_view()?;
 
         assert_eq!(search_filter_id, persisted.filter.id());
@@ -918,12 +956,12 @@ mod tests {
     #[test]
     fn should_reject_v4_filter_row_ids() -> Result<(), Box<dyn Error>> {
         assert!(matches!(
-            filter_row(uuid::Uuid::new_v4(), UserId::new().into_uuid())?.into_persisted(),
+            filter_row(uuid::Uuid::new_v4(), UserId::new().into_uuid())?.into_persisted(None),
             Err(SearchFilterRepositoryError::InvalidPersistedState { .. })
         ));
         assert!(matches!(
             filter_row(UserSearchFilterId::new().into_uuid(), uuid::Uuid::new_v4())?.into_view(),
-            Err(SearchFilterReadError::InvalidPersistedState)
+            Err(SearchFilterReadError::InvalidPersistedState { .. })
         ));
         Ok(())
     }
@@ -1421,7 +1459,7 @@ mod tests {
             updated: OffsetDateTime::UNIX_EPOCH,
             version: 1,
         })
-        .into_persisted()
+        .into_persisted(None)
         {
             Ok(_) => panic!("overlong persisted filter name must fail"),
             Err(error) => error,

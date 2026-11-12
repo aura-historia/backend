@@ -1,9 +1,14 @@
-use crate::ports::{SearchFilterReadError, SearchFilterReader, SearchFilterView};
+use super::listing_source_references::{
+    ListingSourceLookupError, ReferencedListingSources, SearchFilterDetails,
+};
+use crate::ports::{SearchFilterReadError, SearchFilterReader};
 use application::error::{BoxError, box_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsUseCase;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
+use std::sync::Arc;
 use user_core::user_id::UserId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -14,7 +19,7 @@ pub struct GetOwnedSearchFilterRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetOwnedSearchFilterResult {
-    pub filter: SearchFilterView,
+    pub filter: SearchFilterDetails,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -27,6 +32,16 @@ pub enum GetOwnedSearchFilterError {
     SearchFilterNotFound,
     #[error("search filter read failed")]
     SearchFilterReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter listing source read failed")]
+    ListingSourceReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter listing source state is invalid")]
+    ListingSourceStateInvalid {
         #[source]
         source: BoxError,
     },
@@ -43,11 +58,15 @@ pub trait GetOwnedSearchFilterUseCase: Send + Sync {
 
 pub struct GetOwnedSearchFilterHandler<R> {
     filters: R,
+    listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
 }
 
 impl<R> GetOwnedSearchFilterHandler<R> {
-    pub fn new(filters: R) -> Self {
-        Self { filters }
+    pub fn new(filters: R, listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>) -> Self {
+        Self {
+            filters,
+            listing_sources,
+        }
     }
 }
 
@@ -72,13 +91,22 @@ where
         request: GetOwnedSearchFilterRequest,
     ) -> Result<GetOwnedSearchFilterResult, GetOwnedSearchFilterError> {
         authorize_owner(context, request.user_id)?;
-        let filter = self
+        let view = self
             .filters
             .find_for_user_by_id(request.user_id, request.search_filter_id)
             .await
             .map_err(read_error)?
             .ok_or(GetOwnedSearchFilterError::SearchFilterNotFound)?;
-        Ok(GetOwnedSearchFilterResult { filter })
+        let listing_sources = ReferencedListingSources::resolve(
+            self.listing_sources.as_ref(),
+            context,
+            [&view.search],
+        )
+        .await
+        .map_err(GetOwnedSearchFilterError::from)?;
+        Ok(GetOwnedSearchFilterResult {
+            filter: listing_sources.details(view),
+        })
     }
 }
 
@@ -110,6 +138,19 @@ impl From<OperationAuthorizationError> for GetOwnedSearchFilterError {
             | OperationAuthorizationError::InsufficientCapability { .. } => {
                 Self::ActorMayNotManageSearchFilter
             }
+        }
+    }
+}
+
+impl From<ListingSourceLookupError> for GetOwnedSearchFilterError {
+    fn from(error: ListingSourceLookupError) -> Self {
+        match error {
+            ListingSourceLookupError::Unavailable(source) => Self::ListingSourceReadFailed {
+                source: box_error(source),
+            },
+            ListingSourceLookupError::Invalid(source) => Self::ListingSourceStateInvalid {
+                source: box_error(source),
+            },
         }
     }
 }
