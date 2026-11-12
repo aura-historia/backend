@@ -184,6 +184,122 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
     }
 }
 
+/// Reads filters as they were before a concurrent write gave them ListingSource references.
+struct ReaderBeforeListingSourceChange(SqlxSearchFilterReader);
+
+#[async_trait::async_trait]
+impl search_filter_service::ports::SearchFilterReader for ReaderBeforeListingSourceChange {
+    async fn find_for_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<
+        Vec<search_filter_service::ports::SearchFilterView>,
+        search_filter_service::ports::SearchFilterReadError,
+    > {
+        let mut views = self.0.find_for_user(user_id).await?;
+        for view in &mut views {
+            view.search.listing_source_id_query = Default::default();
+        }
+        Ok(views)
+    }
+}
+
+fn update_reading_with<F>(
+    pool: &sqlx::PgPool,
+    reader: F,
+) -> UpdateOwnedSearchFilterHandler<
+    SqlxUnitOfWork,
+    SqlxSearchFilterRepositoryFactory,
+    TestEmbeddings,
+    aura_historia_runtime::UnavailableSearchIntentTranslator,
+    F,
+    SqlxSearchFilterQuotaReaderFactory,
+    SqlxUserTierEntitlementsFactory,
+> {
+    UpdateOwnedSearchFilterHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
+        reader,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+        listing_sources(pool),
+    )
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reject_a_patch_when_listing_sources_changed_since_they_were_looked_up() {
+    let pool = get_postgres_client().await;
+    let unit = SqlxUnitOfWork::new(pool.clone());
+    let user_id = seed_user(&pool, "PRO").await;
+    let created = CreateSearchFilterHandler::new(
+        unit.clone(),
+        SqlxSearchFilterRepositoryFactory,
+        TestEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
+        SqlxSearchFilterQuotaReaderFactory,
+        SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
+    )
+    .execute(
+        &context(Principal::User(user_id)),
+        CreateSearchFilterCommand {
+            accept_shipping_destination: None,
+            user_id,
+            name: "original".into(),
+            notifications: false,
+            search: ProductListingSearch::new(Language::En, Currency::Eur)
+                .with_product_listing_query("lamp".try_into().unwrap())
+                .with_listing_source_id_query(
+                    [listing_source_core::ListingSourceId::new()]
+                        .into_iter()
+                        .collect(),
+                ),
+        },
+    )
+    .await
+    .unwrap()
+    .filter
+    .view;
+    let rename = UpdateOwnedSearchFilterCommand {
+        accept_shipping_destination: None,
+        user_id,
+        search_filter_id: created.search_filter_id,
+        name: PatchField::Set("renamed".into()),
+        notifications: PatchField::Unchanged,
+        state: PatchField::Unchanged,
+        search: ProductListingSearchPatch::default(),
+    };
+
+    let raced = update_reading_with(
+        &pool,
+        ReaderBeforeListingSourceChange(SqlxSearchFilterReader::new(pool.clone())),
+    )
+    .execute(&context(Principal::User(user_id)), rename.clone())
+    .await;
+
+    assert!(matches!(
+        raced,
+        Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict)
+    ));
+    let stored_name: String =
+        sqlx::query_scalar("SELECT name FROM search_filters WHERE user_search_filter_id=$1")
+            .bind(created.search_filter_id.into_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        "original", stored_name,
+        "the conflicting patch saved nothing"
+    );
+    let retried = update_reading_with(&pool, SqlxSearchFilterReader::new(pool.clone()))
+        .execute(&context(Principal::User(user_id)), rename)
+        .await
+        .unwrap();
+    assert_eq!("renamed", retried.filter.view.name.as_ref());
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
     let pool = get_postgres_client().await;
