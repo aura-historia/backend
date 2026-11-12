@@ -1136,8 +1136,9 @@ function failureDetail(failure) {
     return [failure.cause, failure.next].filter(Boolean).join(' ');
 }
 
+// A source with crawling off, labelled or disabled, has no next crawl whatever its timer says.
 function nextCrawlText(source) {
-    const next = source.next_crawl_at;
+    const next = source.crawl_enabled ? source.next_crawl_at : null;
     if (!next) return '<span class="muted">—</span>';
     return timeSpan(next, 'due', `Next crawl: ${formatDate(next)}`);
 }
