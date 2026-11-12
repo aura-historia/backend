@@ -988,10 +988,10 @@ mod tests {
         );
         assert_eq!(Some(auction_id), products[0].item.auction_id);
         assert_eq!(
-            vec![crate::use_cases::ProductListingImageView {
+            Some(crate::use_cases::ProductListingImageView {
                 url: Some(image_url),
-            }],
-            products[0].item.images
+            }),
+            products[0].item.image
         );
         let requests = match requests.lock() {
             Ok(requests) => requests,

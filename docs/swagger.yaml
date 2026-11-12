@@ -5805,8 +5805,8 @@ paths:
                       lifecycle: ACTIVE
                       url: https://tech-store.com/smartphone-case
                       viewUrl: https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral
-                      images:
-                        - url: https://tech-store.com/images/case-1.jpg
+                      image:
+                        url: https://tech-store.com/images/case-1.jpg
                       contentPolicy:
                         decision: ALLOWED
                       created: "2024-01-01T10:00:00Z"
@@ -21456,7 +21456,6 @@ components:
         - lifecycle
         - url
         - viewUrl
-        - images
         - updated
       properties:
         shipping:
@@ -21500,10 +21499,10 @@ components:
           type: string
           format: uri
           description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
-        images:
-          type: array
-          items:
-            $ref: "#/components/schemas/ProductListingImageData"
+        image:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingImageData"
+          description: The listing's first image. Omitted when the listing has no images.
         contentPolicy:
           $ref: '#/components/schemas/ContentPolicyData'
         updated:
@@ -21633,7 +21632,8 @@ components:
     ProductListingCollectionDetailsData:
       type: object
       description: Canonical ProductListing detail inside a collection (watchlist, saved-search matches and auction
-        catalogue). Identical to ProductListingDetailsData except that shipping is the bounded collection summary.
+        catalogue). Identical to ProductListingDetailsData except that shipping is the bounded collection summary and
+        only the first image is returned as `image`.
       required:
         - productListingId
         - eventId
@@ -21643,7 +21643,6 @@ components:
         - lifecycle
         - url
         - viewUrl
-        - images
         - created
         - updated
       properties:
@@ -21696,10 +21695,10 @@ components:
           type: string
           format: uri
           description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
-        images:
-          type: array
-          items:
-            $ref: "#/components/schemas/ProductListingImageData"
+        image:
+          allOf:
+            - $ref: "#/components/schemas/ProductListingImageData"
+          description: The listing's first image. Omitted when the listing has no images.
         contentPolicy:
           $ref: '#/components/schemas/ContentPolicyData'
         auction:

@@ -527,19 +527,19 @@ mod tests {
         )
         .await
         .unwrap();
-        let expected =
-            serde_json::to_value(personalized_product_details_data(fixture.product.clone()))
-                .unwrap();
+        let expected = serde_json::to_value(aura_historia_contracts::product_listings::product_data::personalized_product_collection_details_data(
+            fixture.product.clone(),
+        ))
+        .unwrap();
         assert_eq!(expected, result["items"][0]);
         assert_eq!(1, result["size"]);
         assert_eq!(1, result["total"]);
-        assert_eq!(
-            12,
-            result["items"][0]["item"]["images"]
-                .as_array()
-                .unwrap()
-                .len()
+        assert!(
+            result["items"][0]["item"]["image"]["url"]
+                .as_str()
+                .is_some_and(|url| url.starts_with("https://images.example.test/0?"))
         );
+        assert!(result["items"][0]["item"].get("images").is_none());
         assert_eq!(
             u64::MAX,
             result["items"][0]["item"]["pricing"]["source"]["price"]["amount"]

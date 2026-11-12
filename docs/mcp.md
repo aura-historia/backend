@@ -277,10 +277,11 @@ seller-location discovery (`GET /v1/party-locations`) is REST-only.
 Search retains geography, shipping, all identifier inclusion/exclusion sets, price/date ranges,
 availability, orderability and unspecified-availability predicates. Geography includes countries,
 subdivisions, numeric origin, radius/unit, mode and distance order. Shared contracts preserve
-presentation defaults, size clamping, localization/fallback, source-local identifiers, full image
-collections and long URLs, content policy, shipping disclosure and withdrawn-listing handling.
-Collection tools return bounded shipping summaries and single-listing tools return detail
-shipping, as [listing reads](shipping.md#shipping-on-listing-reads) define.
+presentation defaults, size clamping, localization/fallback, source-local identifiers, long image
+URLs, content policy, shipping disclosure and withdrawn-listing handling.
+Collection tools return bounded shipping summaries and only the first image; single-listing tools
+return detail shipping, as [listing reads](shipping.md#shipping-on-listing-reads) define, and every
+image.
 Anonymous results omit `userState`. Delegated listing results disclose `watchlist` only with
 `watchlist:read`, `searchFilter` (including saved-search references and match feedback) only with
 `search-filters:read`, `notification` only with `notifications:read`, and `contentVisibility` and

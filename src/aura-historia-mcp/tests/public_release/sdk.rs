@@ -111,12 +111,12 @@ fn assert_complete_payload(name: &str, result: &Value, output: &Value) {
         "simpleSearchProductListings" => {
             assert_eq!(100, output["items"].as_array().unwrap().len());
             assert!(serde_json::to_vec(result).unwrap().len() > 64 * 1024);
-            assert_eq!(
-                3,
-                output["items"][99]["item"]["images"]
-                    .as_array()
+            assert!(
+                output["items"][99]["item"]["image"]["url"]
+                    .as_str()
                     .unwrap()
                     .len()
+                    > 512
             );
         }
         "getProductListing" | "getProductListingByTitleSlug" => {
