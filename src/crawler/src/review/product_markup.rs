@@ -84,6 +84,46 @@ pub fn json_ld_product_ids(html: &str) -> JsonLdProductIds {
     }
 }
 
+/// What the page's first top-level JSON-LD `Product` says about the content its page shows: the
+/// structured data is a reference to check visible extractions against, never their source, since
+/// shops often shorten its description and list one image of a larger gallery.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct JsonLdProductReference {
+    /// `description`, its whitespace collapsed; `None` when blank or absent.
+    pub(crate) description: Option<String>,
+    /// How many images `image` names: one for a URL or an `ImageObject`, each member of an array.
+    pub(crate) image_count: usize,
+}
+
+pub(crate) fn json_ld_product_reference(document: &Html) -> JsonLdProductReference {
+    json_ld_scripts(document)
+        .filter_map(|script| serde_json::from_str::<Value>(script.trim()).ok())
+        .find_map(|json| {
+            top_level_products(&json)
+                .first()
+                .map(|node| reference_of(node))
+        })
+        .unwrap_or_default()
+}
+
+fn reference_of(node: &Map<String, Value>) -> JsonLdProductReference {
+    let description = node
+        .get("description")
+        .and_then(Value::as_str)
+        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|text| !text.is_empty());
+    let image_count = match node.get("image") {
+        Some(Value::Array(images)) => images.iter().filter(|image| !image.is_null()).count(),
+        Some(Value::String(url)) if !url.trim().is_empty() => 1,
+        Some(Value::Object(_)) => 1,
+        _ => 0,
+    };
+    JsonLdProductReference {
+        description,
+        image_count,
+    }
+}
+
 /// What names the product a node describes: its `url`, or else its `@id`.
 fn identity(node: &Map<String, Value>) -> Option<String> {
     ["url", "@id"].into_iter().find_map(|key| {

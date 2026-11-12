@@ -536,6 +536,7 @@ mod tests {
         let author = [
             "evaluate_candidate",
             "update_candidate",
+            "stage_and_check",
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
@@ -683,6 +684,7 @@ mod tests {
                 "mark_needs_repair",
                 "evaluate_candidate",
                 "update_candidate",
+                "stage_and_check",
                 "update_schema_field",
                 "add_review_page",
                 "remove_review_page",

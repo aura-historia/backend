@@ -1,6 +1,6 @@
 //! The author agent's tools: evaluating, staging and labelling candidates and the review's pages.
 
-use super::shared::encoded;
+use super::shared::{ApprovalChecks, approval_checks, encoded, refreshed_matrix};
 use super::{
     Artifact, Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail,
     review_path, review_source_crawl_host, review_source_url, review_source_urls, settled,
@@ -52,6 +52,36 @@ pub(super) struct EvaluateCandidateArguments {
     /// Up to four further URLs of the review's ListingSource to evaluate on.
     #[serde(default)]
     urls: Vec<String>,
+}
+
+const STAGE_AND_CHECK: &str = "Stage a product-schema candidate, refresh its matrix and run the approval guard in one call: what update_candidate, refresh_matrix and check_approval answer one after the other, in one turn. With `schemas` it stages that whole schema list (and `removed_page_schemas` when given) as update_candidate does, naming expected_candidate_version; without `schemas` it stages nothing and refreshes and checks the current candidate, as after add_review_page, mark_page_not_product or record_no_sold_page. Answers candidate_version, the matrix refresh_matrix answers and the guard's failed_checks: empty when an approval would pass. Errors as those three tools answer them; on CONFLICT nothing was staged.";
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StageAndCheckArguments {
+    /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
+    #[schemars(with = "String")]
+    review_id: CrawlerReviewId,
+    /// The candidate_version you read; required with `schemas`.
+    #[serde(default)]
+    expected_candidate_version: Option<i64>,
+    /// The whole schema list to stage; left out, the current candidate is checked.
+    #[serde(default)]
+    schemas: Option<Vec<ProductCssSelectorSchema>>,
+    /// The removed-page templates that replace the candidate's; left out, they stay.
+    #[serde(default)]
+    removed_page_schemas: Option<Vec<RemovedPageSchema>>,
+}
+
+/// A candidate staged, its matrix refreshed and the approval guard run on it.
+#[derive(Debug, serde::Serialize, JsonSchema)]
+pub(super) struct StagedAndChecked {
+    review_id: String,
+    /// The candidate's version after the call; name it in the next edit.
+    candidate_version: i64,
+    matrix: MatrixView,
+    #[serde(flatten)]
+    approval: ApprovalChecks,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -204,6 +234,14 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             Effect::Changes,
             update_candidate,
         )?,
+        ToolDefinition::new(
+            "stage_and_check",
+            STAGE_AND_CHECK,
+            Effect::Changes,
+            stage_and_check,
+        )?
+        .only_for(Artifact::ProductSchema)
+        .without_nested_descriptions(),
         ToolDefinition::new(
             "update_schema_field",
             UPDATE_SCHEMA_FIELD,
@@ -362,6 +400,56 @@ async fn update_candidate(
         &Value::Object(edit),
     )
     .await
+}
+
+async fn stage_and_check(
+    arguments: StageAndCheckArguments,
+    context: Arc<ToolContext>,
+) -> Result<StagedAndChecked, ToolError> {
+    let review_id = arguments.review_id;
+    let candidate_version = match (arguments.schemas, arguments.expected_candidate_version) {
+        (Some(schemas), Some(expected_candidate_version)) => {
+            let mut edit = json!({
+                "expected_candidate_version": expected_candidate_version,
+                "schemas": schemas,
+            });
+            if let Some(templates) = arguments.removed_page_schemas {
+                edit["removed_page_schemas"] = json!(templates);
+            }
+            candidate_changed(
+                &context,
+                review_id,
+                &review_path(review_id, "/candidate"),
+                &edit,
+            )
+            .await?
+            .candidate_version
+        }
+        (Some(_), None) => {
+            return Err(ToolError::InvalidArguments(
+                "staging schemas needs the expected_candidate_version you read".to_owned(),
+            ));
+        }
+        (None, _) if arguments.removed_page_schemas.is_some() => {
+            return Err(ToolError::InvalidArguments(
+                "removed_page_schemas are staged with the schemas they belong to".to_owned(),
+            ));
+        }
+        (None, _) => {
+            review_detail(&context, review_id)
+                .await?
+                .review
+                .candidate_version
+        }
+    };
+    let matrix = refreshed_matrix(&context, review_id).await?;
+    let approval = approval_checks(&context, review_id).await?;
+    Ok(StagedAndChecked {
+        review_id: review_id.to_string(),
+        candidate_version,
+        matrix,
+        approval,
+    })
 }
 
 async fn update_schema_field(

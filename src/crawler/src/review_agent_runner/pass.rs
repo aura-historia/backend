@@ -24,6 +24,7 @@ use super::decision_cap::{
     report_shows_decision_cap,
 };
 use super::digest::timestamp;
+use super::draft::{DraftOutcome, stage_draft};
 use super::envelope::{EnvelopeOutcome, ResultEnvelope, UsageLimit, UsageLimitKind};
 use super::invocation::{agent_command, role_contract};
 use super::ledger::{ProcessEnd, ProcessLedger, ProcessRecord};
@@ -75,6 +76,11 @@ pub struct PassSummary {
     /// URL-pattern reviews whose reviewer process did not start because the approval guard
     /// already refuses the candidate the author left: the reviewer could only refuse it again.
     pub guard_blocked: usize,
+    /// Product-schema reviews the console staged a structured-data draft on.
+    pub drafted: usize,
+    /// Drafted reviews whose reviewer process started without an author process: the draft has
+    /// every field the pages need and the approval guard accepts it.
+    pub drafts_to_reviewer: usize,
     /// Why the pass started no or no further process, if it stopped early.
     pub stopped: Option<PassStop>,
 }
@@ -300,57 +306,128 @@ impl Pass<'_> {
         Ok(selected)
     }
 
-    /// The author's pass, then the reviewer's when the author left a candidate to decide. A review
-    /// that waits for a human after either pass, whichever process's needs-repair verdict brought
-    /// it to the cap, gets no further process and no cooldown.
+    /// The draft step on a first-round product-schema review, then the author's pass unless the
+    /// draft is ready for the reviewer, then the reviewer's when a candidate is left to decide. A
+    /// review that waits for a human after either pass, whichever process's needs-repair verdict
+    /// brought it to the cap, gets no further process and no cooldown.
     async fn work_review(&self, review: QueuedReview) {
-        let author_report = match self.run_process(AgentRole::Author, &review).await.step {
-            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return,
+        let draft = self.stage_draft(&review).await;
+        if draft
+            .as_ref()
+            .is_some_and(DraftOutcome::is_ready_for_reviewer)
+        {
+            self.with(|shared| {
+                shared.summary.worked += 1;
+                shared.summary.drafts_to_reviewer += 1;
+            });
+        } else {
+            let starting_point = draft
+                .as_ref()
+                .map(DraftOutcome::author_note)
+                .unwrap_or_default();
+            if !self.author_pass(&review, &starting_point).await {
+                return;
+            }
+        }
+        self.reviewer_pass(&review).await;
+    }
+
+    /// The console's structured-data draft of a product-schema review no agent changed yet, the
+    /// matrix refreshed and the guard's checks read; `None` for any other review, when the console
+    /// drafted nothing or the step failed, which leaves the author to work the review as before.
+    async fn stage_draft(&self, review: &QueuedReview) -> Option<DraftOutcome> {
+        if review.artifact_type != ReviewArtifact::ProductSchema || review.repair_requested {
+            return None;
+        }
+        match stage_draft(self.console, review.review_id).await {
+            Ok(Some(outcome)) => {
+                info!(
+                    event = "crawler.review_agent.draft_staged",
+                    review_id = %review.review_id,
+                    listing_source_name = review.listing_source_name.as_deref(),
+                    undrafted = ?outcome.undrafted,
+                    failed_checks = ?outcome.failed_checks,
+                    sold_page_added = outcome.sold_page_added.as_deref(),
+                    ready_for_reviewer = outcome.is_ready_for_reviewer(),
+                    "The console staged a structured-data draft"
+                );
+                self.with(|shared| shared.summary.drafted += 1);
+                Some(outcome)
+            }
+            Ok(None) => None,
+            Err(error) => {
+                warn!(
+                    review_id = %review.review_id,
+                    error = %error,
+                    cause = ?std::error::Error::source(&error),
+                    "Cannot stage a structured-data draft; the author works the review"
+                );
+                None
+            }
+        }
+    }
+
+    /// The author's pass, its prompt followed by `starting_point`: whether a candidate is left
+    /// for the reviewer. A review handed to a human or left without a candidate needs no
+    /// reviewer, and one that is left none cools down.
+    async fn author_pass(&self, review: &QueuedReview, starting_point: &str) -> bool {
+        let author_report = match self
+            .run_process(AgentRole::Author, review, starting_point)
+            .await
+            .step
+        {
+            Step::NotStarted | Step::UsageLimit | Step::RunnerStop => return false,
             Step::NoDecision => None,
             Step::Reported(report) => Some(report),
         };
-        if self.waits_for_human_after(AgentRole::Author, &review).await {
+        if self.waits_for_human_after(AgentRole::Author, review).await {
             self.with(|shared| shared.summary.handed_to_human += 1);
-            return;
+            return false;
         }
         if let Some(AgentReport::Author(report)) = &author_report
             && report.action == AuthorAction::NeedsHuman
         {
-            self.hand_over_to_human(&review, HandoverReason::NeedsHuman, report)
+            self.hand_over_to_human(review, HandoverReason::NeedsHuman, report)
                 .await;
-            return;
+            return false;
         }
         if let Some(AgentReport::Author(report)) = &author_report
             && report.action == AuthorAction::NothingToStage
-            && self.reviewer_judged_review(&review).await
+            && self.reviewer_judged_review(review).await
         {
-            self.hand_over_to_human(&review, HandoverReason::NothingToStageAfterReview, report)
+            self.hand_over_to_human(review, HandoverReason::NothingToStageAfterReview, report)
                 .await;
-            return;
+            return false;
         }
         if !leaves_a_candidate_to_decide(author_report.as_ref()) {
-            self.cool_down(&review);
-            return;
+            self.cool_down(review);
+            return false;
         }
-        if self.guard_refuses(&review).await {
+        true
+    }
+
+    /// The reviewer's pass on the candidate left to decide, unless the approval guard already
+    /// refuses it or the reviewers pause.
+    async fn reviewer_pass(&self, review: &QueuedReview) {
+        if self.guard_refuses(review).await {
             self.with(|shared| shared.summary.guard_blocked += 1);
-            self.cool_down(&review);
+            self.cool_down(review);
             return;
         }
         if let Some(until) = self.reviewer_pause_until(OffsetDateTime::now_utc()) {
-            self.hold_back_reviewer(&review, until);
+            self.hold_back_reviewer(review, until);
             return;
         }
-        let processed = self.run_process(AgentRole::Reviewer, &review).await;
+        let processed = self.run_process(AgentRole::Reviewer, review, "").await;
         match processed.step {
             Step::NotStarted | Step::UsageLimit | Step::RunnerStop => {}
             Step::Reported(report) => {
                 self.pause_reviewers_at_decision_cap(&report).await;
-                self.finish_reviewer_pass(&review, processed.trail_verdict)
+                self.finish_reviewer_pass(review, processed.trail_verdict)
                     .await;
             }
             Step::NoDecision => {
-                self.finish_reviewer_pass(&review, processed.trail_verdict)
+                self.finish_reviewer_pass(review, processed.trail_verdict)
                     .await;
             }
         }
@@ -643,7 +720,12 @@ impl Pass<'_> {
     /// Runs one agent process of `role` on `review` and records it. After a reviewer process that
     /// ended without being stopped, it reads the event trail for the verdict the console took and
     /// records that with the process, next to the report's own claim.
-    async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Processed {
+    async fn run_process(
+        &self,
+        role: AgentRole,
+        review: &QueuedReview,
+        starting_point: &str,
+    ) -> Processed {
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Processed::of(Step::NotStarted);
@@ -667,7 +749,7 @@ impl Pass<'_> {
         );
         let mut record =
             ProcessRecord::started(review, role, contract.prompt_sha256(review.artifact_type));
-        let step = match agent_command(self.settings, role, review) {
+        let step = match agent_command(self.settings, role, review, starting_point) {
             Ok(command) => {
                 let output = run_agent(
                     &command,

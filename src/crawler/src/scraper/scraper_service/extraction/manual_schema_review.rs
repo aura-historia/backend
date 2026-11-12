@@ -151,7 +151,9 @@ impl ScraperServiceImpl {
 }
 
 /// A valid placeholder the operator replaces: generic selectors that rarely fit a shop as-is.
-fn starter_schema() -> ProductCssSelectorSchema {
+/// The placeholder schema a manual review opens with, at the index its `validation_summary` names
+/// as `starter_schema_index`, until someone writes the real one.
+pub(crate) fn starter_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: None,
         title: Some(rule(

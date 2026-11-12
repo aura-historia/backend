@@ -799,6 +799,7 @@ impl PageProjectionView {
             let view = match projection.view {
                 PageView::Outline => "",
                 PageView::Markdown => " and view MARKDOWN",
+                PageView::Fields => " and view FIELDS",
             };
             text.push_str(&format!(
                 "\n# [truncated: {} more characters; call inspect_page with offset {end}{view} to read on]\n",

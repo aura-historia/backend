@@ -48,6 +48,7 @@ mod reviewer_page_url;
 mod revocation;
 mod sample_labels;
 mod schema_payload;
+mod structured_draft;
 mod url_pattern_sample;
 mod verdicts;
 
