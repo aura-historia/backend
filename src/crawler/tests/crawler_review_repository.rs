@@ -95,13 +95,13 @@ fn image_rule(selector: &str) -> ExtractionRule {
 fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: Some(rule("span.id")),
-        title: rule(title_selector),
+        title: Some(rule(title_selector)),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule("span.state"),
-        images: image_rule("img.product"),
+        state: Some(rule("span.state")),
+        images: Some(image_rule("img.product")),
         raw_attributes: Default::default(),
     }
 }
@@ -647,7 +647,7 @@ async fn should_read_a_pending_review_whose_persisted_candidate_fails_validation
         .await
         .unwrap();
     let mut invalid = schema("h1");
-    invalid.title = rule("[");
+    invalid.title = Some(rule("["));
     sqlx::query("UPDATE crawler_reviews SET candidate_payload = $2 WHERE review_id = $1")
         .bind(review_id.as_uuid())
         .bind(json!({ "schemas": [invalid] }))
@@ -878,11 +878,11 @@ async fn should_release_pages_backed_off_on_a_schema_review_for_immediate_retry_
 }
 
 /// Approving a product-schema review re-arms, for an immediate scrape, the ListingSource's pages
-/// that recorded `MissingRequiredValue` and the pages a removed-page template the approval
-/// retires or narrows captured as removed. A rejection changes no configuration and re-arms
-/// nothing; a removal the shop's response showed and one by a kept template stay as they are.
+/// a removed-page template the approval retires or narrows captured as removed. A rejection
+/// changes no configuration and re-arms nothing; a removal the shop's response showed, one by a
+/// kept template and a page scraped without a capture stay as they are.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_approved() {
+async fn should_rearm_pages_of_retired_templates_when_approved() {
     let pool = get_postgres_client().await;
     let fixture = WaitingPageFixture::new(&pool).await;
     fixture
@@ -905,38 +905,37 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
     let removed_by_response = fixture
         .add_product_url(&pool, "https://example.com/products/gone")
         .await;
-    let missing_value = fixture
-        .add_product_url(&pool, "https://example.com/products/untitled")
+    let scraped_without_capture = fixture
+        .add_product_url(&pool, "https://example.com/products/held")
         .await;
     let retired_duplicate = fixture
-        .add_product_url(&pool, "https://example.com/products/untitled-copy")
+        .add_product_url(&pool, "https://example.com/products/removed-copy")
         .await;
     let cooling_down = fixture
         .add_product_url(&pool, "https://example.com/products/challenged")
         .await;
     let candidates = &fixture.candidates;
     for (url, templates, hash) in [
-        (&removed_by_narrowed, vec![narrowed], [1; 32]),
+        (&removed_by_narrowed, vec![narrowed.clone()], [1; 32]),
         (&removed_by_kept, vec![kept], [2; 32]),
         (&removed_by_response, vec![], [3; 32]),
+        (&retired_duplicate, vec![narrowed], [5; 32]),
     ] {
         candidates
             .mark_removed(&fixture.listing_source_id, url, &hash, None, &templates)
             .await
             .unwrap();
     }
-    for url in [&missing_value, &retired_duplicate] {
-        candidates
-            .mark_scraped_without_capture(
-                &fixture.listing_source_id,
-                url,
-                "MissingRequiredValue",
-                "`title` is blank",
-                None,
-            )
-            .await
-            .unwrap();
-    }
+    candidates
+        .mark_scraped_without_capture(
+            &fixture.listing_source_id,
+            &scraped_without_capture,
+            "MassRemovalHeld",
+            "the mass-removal guard holds the removal",
+            None,
+        )
+        .await
+        .unwrap();
     candidates
         .mark_removed(
             &fixture.listing_source_id,
@@ -948,8 +947,8 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
         .await
         .unwrap();
     // A later fetch of the removed page met a bot challenge, whose cooldown still holds, and a
-    // duplicate of the missing-value page was retired: re-arming honours the one and never
-    // resurrects the other.
+    // duplicate of a removed page was retired: re-arming honours the one and never resurrects
+    // the other.
     sqlx::query(
         "UPDATE listing_source_urls SET next_retry_at = NOW() + INTERVAL '5 minutes', \
          last_error_kind = 'BotChallenge' WHERE url = $1",
@@ -999,9 +998,7 @@ async fn should_rearm_missing_value_pages_and_pages_of_retired_templates_when_ap
 
     let mut rearmed = fixture.candidate_urls().await;
     rearmed.sort();
-    let mut expected = vec![missing_value, removed_by_narrowed];
-    expected.sort();
-    assert_eq!(rearmed, expected);
+    assert_eq!(rearmed, vec![removed_by_narrowed]);
     let held: (Option<OffsetDateTime>, Option<OffsetDateTime>) = sqlx::query_as(
         "SELECT last_scraped, next_retry_at FROM listing_source_urls WHERE url = $1",
     )
@@ -1106,8 +1103,8 @@ async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
 }
 
 /// Restoring what an approval replaced re-arms as the approval did: a page a template the
-/// approval added captured as removed is due at once once the restore retires the template, as
-/// is a page that recorded `MissingRequiredValue`.
+/// approval added captured as removed is due at once once the restore retires the template, and a
+/// page scraped without a capture waits for its next scrape.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_rearm_pages_of_the_templates_a_restore_retires() {
     let pool = get_postgres_client().await;
@@ -1129,8 +1126,8 @@ async fn should_rearm_pages_of_the_templates_a_restore_retires() {
     approve_acknowledging_coverage(&fixture.review_repository, fixture.review_id)
         .await
         .unwrap();
-    let missing_value = fixture
-        .add_product_url(&pool, "https://example.com/products/untitled")
+    let scraped_without_capture = fixture
+        .add_product_url(&pool, "https://example.com/products/held")
         .await;
     let candidates = &fixture.candidates;
     candidates
@@ -1146,9 +1143,9 @@ async fn should_rearm_pages_of_the_templates_a_restore_retires() {
     candidates
         .mark_scraped_without_capture(
             &fixture.listing_source_id,
-            &missing_value,
-            "MissingRequiredValue",
-            "`title` is blank",
+            &scraped_without_capture,
+            "MassRemovalHeld",
+            "the mass-removal guard holds the removal",
             None,
         )
         .await
@@ -1164,11 +1161,7 @@ async fn should_rearm_pages_of_the_templates_a_restore_retires() {
         .await
         .unwrap();
 
-    let mut rearmed = fixture.candidate_urls().await;
-    rearmed.sort();
-    let mut expected = vec![missing_value, fixture.url.clone()];
-    expected.sort();
-    assert_eq!(rearmed, expected);
+    assert_eq!(fixture.candidate_urls().await, vec![fixture.url.clone()]);
 }
 
 /// Opens a product-schema review of the fixture's ListingSource with its live schema.

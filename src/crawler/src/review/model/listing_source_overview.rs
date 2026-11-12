@@ -51,9 +51,6 @@ pub struct ListingSourceOverview {
     /// Only on the ListingSource's own page; the list leaves it out.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub url_error_kinds: Vec<UrlErrorKindCount>,
-    /// Product pages whose last scrape recorded `MissingRequiredValue`, listed by
-    /// `GET /api/listing-sources/{id}/missing-value-pages`.
-    pub missing_value_urls: i64,
     /// Since when the spider has been crawling the source in this process; `None` while it is not.
     #[serde(with = "time::serde::rfc3339::option")]
     pub crawling_since: Option<time::OffsetDateTime>,
@@ -124,7 +121,6 @@ mod tests {
             mass_removal_confirmed_until: None,
             mass_removal_confirmed_by: None,
             url_error_kinds: Vec::new(),
-            missing_value_urls: 0,
             crawling_since: None,
             scraping_since: None,
             crawl_state: CrawlStateOverview {

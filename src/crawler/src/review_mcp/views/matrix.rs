@@ -76,8 +76,8 @@ pub struct SchemaPageView {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ExtractedView {
     pub source_listing_id: String,
-    pub title: String,
-    pub state: String,
+    pub title: Option<String>,
+    pub state: Option<String>,
     pub state_availability: Option<String>,
     pub state_mentions: Option<String>,
     pub price: Option<String>,
@@ -110,8 +110,6 @@ pub struct FieldMatchView {
     /// Matched `images` elements without an image URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_elements: Option<usize>,
-    /// Whether a miss of this rule fails the page.
-    pub required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -295,12 +293,12 @@ fn code_of(check: &impl Serialize) -> String {
 
 impl ExtractedView {
     fn of(extracted: RawExtractedProduct) -> Self {
-        let reading = StateReading::of(&extracted.state);
+        let reading = StateReading::of(extracted.state.as_deref().unwrap_or_default());
         let code = |availability: ListingAvailability| availability.as_str().to_owned();
         Self {
             source_listing_id: value(&extracted.source_listing_id),
-            title: value(&extracted.title),
-            state: value(&extracted.state),
+            title: extracted.title.as_deref().map(value),
+            state: extracted.state.as_deref().map(value),
             state_availability: reading.resolved.map(code),
             state_mentions: reading.mentioned.map(code),
             price: extracted.price.as_deref().map(value),
@@ -327,7 +325,6 @@ impl FieldMatchView {
             additional_matches: field.additional_selector_match_counts,
             empty_elements: field.empty_element_count,
             skipped_elements: field.skipped_element_count,
-            required: field.required,
             error: field.error.as_deref().map(note),
         }
     }
@@ -399,8 +396,8 @@ mod tests {
                     "cross_page_findings": [{ "field": "price", "check": "REPEATED_ACROSS_PAGES", "values": ["£120"] }],
                     "identity_agreement_findings": [],
                     "fields": [
-                        { "field": "title", "selector": "h1", "selector_match_count": 1, "additional_selector_match_counts": [], "error": null, "required": true, "empty_element_count": 1 },
-                        { "field": "price", "selector": ".p", "selector_match_count": 0, "additional_selector_match_counts": [2], "error": null, "required": false },
+                        { "field": "title", "selector": "h1", "selector_match_count": 1, "additional_selector_match_counts": [], "error": null, "empty_element_count": 1 },
+                        { "field": "price", "selector": ".p", "selector_match_count": 0, "additional_selector_match_counts": [2], "error": null },
                     ],
                 }],
             }],
@@ -447,8 +444,8 @@ mod tests {
         assert_eq!(
             page["fields"],
             json!([
-                { "field": "title", "matches": 1, "empty_elements": 1, "required": true },
-                { "field": "price", "matches": 0, "additional_matches": [2], "required": false },
+                { "field": "title", "matches": 1, "empty_elements": 1 },
+                { "field": "price", "matches": 0, "additional_matches": [2] },
             ])
         );
         assert_eq!(

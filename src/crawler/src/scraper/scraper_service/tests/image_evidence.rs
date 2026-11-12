@@ -42,18 +42,18 @@ impl ImageValidator for PrimaryImageValidator {
 
 fn image_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();
-    schema.images = ExtractionRule {
+    schema.images = Some(ExtractionRule {
         selector: CssSelector::from("img"),
         additional_selectors: Vec::new(),
         extract: ExtractionKind::ImageUrl,
         cardinality: ExtractionCardinality::All,
-    };
+    });
     schema
 }
 
 fn invalid_schema() -> ProductCssSelectorSchema {
     let mut schema = image_schema();
-    schema.title.selector = CssSelector::from("missing-title");
+    schema.title.as_mut().unwrap().selector = CssSelector::from("missing-title");
     schema
 }
 
@@ -449,12 +449,10 @@ async fn should_hash_validated_image_projection_without_mutating_source_evidence
     assert_eq!(raw.images, source_images);
     assert_eq!(raw.images, source_image_groups());
 
-    let accepted_input =
-        crawler_raw_input(&raw, &accepted_primary, &url, &raw.source_listing_id, None)
-            .unwrap_or_else(|error| panic!("accepted image projection must build: {error}"));
-    let rejected_input =
-        crawler_raw_input(&raw, &rejected_primary, &url, &raw.source_listing_id, None)
-            .unwrap_or_else(|error| panic!("fallback image projection must build: {error}"));
+    let accepted_input = crawler_raw_input(&raw, &accepted_primary, &url, &raw.source_listing_id)
+        .unwrap_or_else(|error| panic!("accepted image projection must build: {error}"));
+    let rejected_input = crawler_raw_input(&raw, &rejected_primary, &url, &raw.source_listing_id)
+        .unwrap_or_else(|error| panic!("fallback image projection must build: {error}"));
 
     assert_eq!(
         accepted_input.source_payload().value().get("images"),

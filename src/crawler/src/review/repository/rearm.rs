@@ -7,13 +7,10 @@ use listing_source_core::ListingSourceId;
 use tracing::debug;
 
 /// Makes due at once, inside the transaction that makes `live_removed_page_schemas` and the
-/// ListingSource's new schemas live, every product page of the ListingSource that:
-///
-/// - recorded `MissingRequiredValue`: the new schemas may find the value, and only a scrape
-///   tells, which would otherwise wait for the page's scrape interval; and
-/// - was last captured as removed by a removed-page template the live list no longer holds
-///   unchanged, because the template was retired or narrowed: the page may be a product page
-///   the old template withdrew, and only a scrape recaptures it.
+/// ListingSource's new schemas live, every product page of the ListingSource that was last
+/// captured as removed by a removed-page template the live list no longer holds unchanged,
+/// because the template was retired or narrowed: the page may be a product page the old template
+/// withdrew, and only a scrape recaptures it.
 ///
 /// A re-armed page is due as if never scraped, unless a retry cooldown a later fetch outcome set,
 /// such as a bot challenge's, still holds it back; its outcome and capture stay until the scrape
@@ -31,13 +28,12 @@ pub(super) async fn rearm_pages_for_new_configuration(
          WHERE listing_source_id = $1 \
            AND url_class = 'product' \
            AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD') \
-           AND (last_error_kind = 'MissingRequiredValue' \
-                OR (removed_by_templates IS NOT NULL \
-                    AND EXISTS ( \
-                        SELECT 1 FROM jsonb_array_elements(removed_by_templates) AS used(template) \
-                        WHERE NOT EXISTS ( \
-                            SELECT 1 FROM jsonb_array_elements($2::jsonb) AS live(template) \
-                            WHERE live.template = used.template))))",
+           AND removed_by_templates IS NOT NULL \
+           AND EXISTS ( \
+               SELECT 1 FROM jsonb_array_elements(removed_by_templates) AS used(template) \
+               WHERE NOT EXISTS ( \
+                   SELECT 1 FROM jsonb_array_elements($2::jsonb) AS live(template) \
+                   WHERE live.template = used.template))",
     )
     .bind(uuid::Uuid::from(*listing_source_id))
     .bind(live_templates)

@@ -2,7 +2,7 @@ use super::*;
 
 fn invalid_schema() -> ProductCssSelectorSchema {
     let mut schema = minimal_schema();
-    schema.title.selector = CssSelector::from("missing-title");
+    schema.title.as_mut().unwrap().selector = CssSelector::from("missing-title");
     schema
 }
 

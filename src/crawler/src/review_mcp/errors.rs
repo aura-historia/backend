@@ -55,6 +55,10 @@ pub enum ToolError {
         "inspect_page answers at most {0} calls per agent process and this process has made them all; work with the pages you have read"
     )]
     InspectLimitReached(usize),
+    #[error(
+        "probe_selectors answers at most {0} calls per agent process and this process has made them all; work with what you have read and probed"
+    )]
+    ProbeLimitReached(usize),
 }
 
 #[derive(Serialize)]
@@ -106,6 +110,7 @@ impl ToolError {
             Self::NotApplicable(_) => "NOT_APPLICABLE",
             Self::AnswerTooLarge => "ANSWER_TOO_LARGE",
             Self::InspectLimitReached(_) => "INSPECT_LIMIT_REACHED",
+            Self::ProbeLimitReached(_) => "PROBE_LIMIT_REACHED",
         }
     }
 
@@ -289,6 +294,7 @@ mod tests {
             ),
             (ToolError::StillRunning("matrix refresh"), "STILL_RUNNING"),
             (ToolError::InspectLimitReached(12), "INSPECT_LIMIT_REACHED"),
+            (ToolError::ProbeLimitReached(12), "PROBE_LIMIT_REACHED"),
             (
                 refused(
                     502,

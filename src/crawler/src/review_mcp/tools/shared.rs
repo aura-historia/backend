@@ -3,14 +3,14 @@
 
 use super::{
     Artifact, Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail,
-    review_path, review_source_crawl_host, review_source_url, settled,
+    review_path, review_source_crawl_host, review_source_url, review_source_urls, settled,
 };
 use crate::review::model::PendingReviewPage;
 use crate::review::page_projection::PageView;
 use crate::review_mcp::errors::ToolError;
 use crate::review_mcp::views::{
     MAX_PENDING_REVIEWS, MatrixAnswer, MatrixView, PageProjectionView, PendingReviews, ReviewView,
-    VerdictTaken,
+    SelectorProbeView, VerdictTaken,
 };
 use crate::review_mcp::wire;
 use crate::{CrawlerReviewId, CrawlerReviewPageId};
@@ -25,25 +25,51 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// chooses the pages it reads. A call that answers an error holds no page and is not counted.
 pub(super) const MAX_INSPECTIONS_PER_PROCESS: usize = 12;
 
-/// The `inspect_page` calls a process has made, at most [`MAX_INSPECTIONS_PER_PROCESS`].
-#[derive(Debug, Default)]
-pub(super) struct InspectionBudget(AtomicUsize);
+/// The most `probe_selectors` calls one process answers: each fetches up to four pages of the
+/// shop, so the cap bounds an agent's requests to the shop as the inspection cap does.
+pub(super) const MAX_PROBES_PER_PROCESS: usize = 12;
 
-impl InspectionBudget {
+/// The calls of one live-fetching tool a process has made, at most its limit.
+#[derive(Debug)]
+pub(super) struct CallBudget {
+    made: AtomicUsize,
+    limit: usize,
+    exhausted: fn(usize) -> ToolError,
+}
+
+impl CallBudget {
+    /// The `inspect_page` budget, at most [`MAX_INSPECTIONS_PER_PROCESS`] calls.
+    pub(super) fn inspections() -> Self {
+        Self {
+            made: AtomicUsize::new(0),
+            limit: MAX_INSPECTIONS_PER_PROCESS,
+            exhausted: ToolError::InspectLimitReached,
+        }
+    }
+
+    /// The `probe_selectors` budget, at most [`MAX_PROBES_PER_PROCESS`] calls.
+    pub(super) fn probes() -> Self {
+        Self {
+            made: AtomicUsize::new(0),
+            limit: MAX_PROBES_PER_PROCESS,
+            exhausted: ToolError::ProbeLimitReached,
+        }
+    }
+
     /// Takes one call of the budget, or refuses when the process made them all.
     pub(super) fn take(&self) -> Result<(), ToolError> {
-        self.0
+        self.made
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |made| {
-                (made < MAX_INSPECTIONS_PER_PROCESS).then_some(made + 1)
+                (made < self.limit).then_some(made + 1)
             })
             .map(|_| ())
-            .map_err(|_| ToolError::InspectLimitReached(MAX_INSPECTIONS_PER_PROCESS))
+            .map_err(|_| (self.exhausted)(self.limit))
     }
 
     /// Gives back a call taken with [`Self::take`] that answered no page.
     pub(super) fn refund(&self) {
         // `take` counted the call, so the count is above zero.
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        self.made.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -51,9 +77,11 @@ const LIST_PENDING_REVIEWS: &str = "List the reviews you can work in the crawler
 
 const GET_REVIEW: &str = "Read one review: its status, its candidate (the product CSS schemas and removed-page templates, or the URL-pattern decision with its sample labels), candidate_version, the review pages a product-schema candidate is evaluated on, source_product_urls (a product-schema review only: up to 40 product URLs of the ListingSource that are not review pages, each with last_scraped and last_error_kind, those that scraped without an error first, most recent first; they are there for picking live, sold, price-on-application or photo-less pages to test with evaluate_candidate or to add with add_review_page), the URL sample of a URL-pattern review with how the candidate classifies each URL (candidate_pattern_match and candidate_class; the sample holds up to 1,000 of the ListingSource's URLs: at least 200 when the review opens unless the crawl completed with fewer, and, refreshed at most once a minute, ones it stored while the review waits; each URL is listed as its path and ?query without scheme and host, the string a pattern is matched against, and the sample in a fixed pseudorandom order by a hash of the URL, so the first page is a shuffle of the whole sample rather than the crawl's first URLs; the agents see only the sample's first 200 URLs in that order, the seed a pattern is induced from, and never the rest, which the approval guard still checks a pattern against; sample_urls_total is the whole sample and sample_urls_next_offset, when not null (only when a seed of long URLs passes the answer's byte bound), is the sample_offset that reads the rest of the seed; the sample can grow while the review waits, and a URL it gains can enter the seed; an answer with a sample_offset above 0 carries only that page of the sample with the review's status and candidate_version, not the candidate, pages, source URLs, matrix and events the first answer gave, which stay valid while candidate_version is the same, so read the review again without sample_offset when it changed), the schema matrix the console stored for the current candidate with not_evaluated_pages (null after any candidate change; refresh_matrix evaluates a new one), the latest 10 events of the review's trail with their actors and notes cut to 400 characters (the needs-repair request you repair comes whole as repair_request), agent_rounds (as list_pending_reviews names them) and human_required (leave a review with human_required true to a human). Each edit and approval names the candidate_version it is based on; the tools that change the candidate answer the new one, so name that and read the review again only when a call is refused with CONFLICT, which carries the current candidate_version. Reads only; fetches nothing from the shop.";
 
-const INSPECT_PAGE: &str = "Fetch one page live and read its outline: one element per line in CSS notation, indented one space per level, with its text after ` | `, as in `span.price[itemprop='price'] | £120`; scripts, styles, navigation, header and footer are left out, long texts shortened. A line `… N more li.option with the same structure` counts siblings like the ones shown above it; siblings whose text holds a digit are always shown. Write selectors only from elements the outline shows. Two notations are not page content, so never put them in a selector: a srcset or data-srcset shows only its widest candidate followed by (+N more srcset candidates), so match it with a contains selector such as img[srcset*='/files/vase']; a data: URI shows only its media type, as in data:image/svg+xml,…, so select that element by its other attributes. Give review_id and either review_page_id (a page of the review) or url (an http(s) URL on the crawl host of the review's ListingSource, otherwise URL_OUTSIDE_REVIEW_SOURCE before anything is fetched). describes_one_product says whether the page's JSON-LD or microdata describes exactly one schema.org Product: a hint for labelling, never proof. json_ld_product_ids holds the productID and sku of the page's top-level JSON-LD Product, the values a json_ld_product rule reads; look at them, and at hidden inputs and data attributes, before leaving source_listing_id null. view MARKDOWN answers the page's readable content instead, a fraction of the outline's size: headings as #, paragraphs, list items, table rows as | a | b |, the text of links and buttons, image alt text as ![alt], whole texts and no tags, attributes or URLs; elements the page hides are left out. Use it to read content: to find sold or live pages, to check whether a page shows a price or a description, to decide whether a page is no product page (mark_page_not_product), or, as reviewer, to confirm an extracted value. Write selectors only from the default view OUTLINE, never from MARKDOWN. Either view counts as inspecting the page, for record_no_sold_page too. One agent process gets at most 12 inspect_page calls that answer a page, in either view and offset reads included; a call that answers an error, such as RATE_LIMITED, a BOT_CHALLENGE or URL_OUTSIDE_REVIEW_SOURCE, is not counted; later calls answer INSPECT_LIMIT_REACHED without fetching, so choose the pages you read and work with what you have read. An answer holds at most 24,000 characters of the view: projection_truncated and a marker line show where it stops, and offset with the same view reads on, fetching the page again. A URL-pattern review has no inspect_page for the agents: the console refuses it with AGENTS_CANNOT_INSPECT_URL_PATTERN_PAGES. Every answer stays in your context, so read on only when the part you need is not shown yet, and prefer refresh_matrix or evaluate_candidate to check what a selector extracts. The fetch is paced at the shop's crawl delay. Refused with CONFLICT and reason HUMAN_REQUIRED on a review with human_required true; RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs; CONSOLE_FAILED with status 502 and reason BOT_CHALLENGE means the shop did not serve the page, which says nothing about the candidate: retry later. Reads only.";
+const INSPECT_PAGE: &str = "Fetch one page live and read its outline: one element per line in CSS notation, indented one space per level, with its text after ` | `, as in `span.price[itemprop='price'] | £120`; scripts, styles, navigation, header and footer are left out, long texts shortened. A line `… N more li.option with the same structure` counts siblings like the ones shown above it; siblings whose text holds a digit are always shown. Write selectors only from elements the outline shows. Two notations are not page content, so never put them in a selector: a srcset or data-srcset shows only its widest candidate followed by (+N more srcset candidates), so match it with a contains selector such as img[srcset*='/files/vase']; a data: URI shows only its media type, as in data:image/svg+xml,…, so select that element by its other attributes. Give review_id and either review_page_id (a page of the review) or url (an http(s) URL on the crawl host of the review's ListingSource, otherwise URL_OUTSIDE_REVIEW_SOURCE before anything is fetched). describes_one_product says whether the page's JSON-LD or microdata describes exactly one schema.org Product: a hint for labelling, never proof. json_ld_product_ids holds the productID and sku of the page's top-level JSON-LD Product, the values a json_ld_product rule reads; look at them, and at hidden inputs and data attributes, before leaving source_listing_id null. view MARKDOWN answers the page's readable content instead, a fraction of the outline's size: headings as #, paragraphs, list items, table rows as | a | b |, the text of links and buttons, image alt text as ![alt], whole texts and no tags, attributes or URLs; elements the page hides are left out. Use it to read content: to find sold or live pages, to check whether a page shows a price or a description, to decide whether a page is no product page (mark_page_not_product), or, as reviewer, to confirm an extracted value. Write selectors only from the default view OUTLINE, never from MARKDOWN. Either view counts as inspecting the page, for record_no_sold_page too. One agent process gets at most 12 inspect_page calls that answer a page, in either view and offset reads included; a call that answers an error, such as RATE_LIMITED, a BOT_CHALLENGE or URL_OUTSIDE_REVIEW_SOURCE, is not counted; later calls answer INSPECT_LIMIT_REACHED without fetching, so choose the pages you read and work with what you have read. An answer holds at most 24,000 characters of the view: projection_truncated and a marker line show where it stops, and offset with the same view reads on, fetching the page again. A URL-pattern review has no inspect_page for the agents: the console refuses it with AGENTS_CANNOT_INSPECT_URL_PATTERN_PAGES. Every answer stays in your context, so read on only when the part you need is not shown yet, and prefer probe_selectors, refresh_matrix or evaluate_candidate to check what a selector extracts. The fetch is paced at the shop's crawl delay. Refused with CONFLICT and reason HUMAN_REQUIRED on a review with human_required true; RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs; CONSOLE_FAILED with status 502 and reason BOT_CHALLENGE means the shop did not serve the page, which says nothing about the candidate: retry later. Reads only.";
 
-const REFRESH_MATRIX: &str = "Evaluate a product-schema review's current candidate live: the console fetches every review page at the shop's crawl delay, evaluates on them what approving the candidate would make live, stores this matrix for the review and returns it. Per schema and page: applies (the schema extracts a plausible product from the page), the extracted values (state_availability is what the normalization resolves the extracted state to, the only thing that counts for availability at runtime and for the sold-page check, null when it resolves to nothing), how each field's selectors matched (matches 0 on a required field fails the page; an optional field may miss on some pages, but a rule that matches nothing on any page is wrong), the plausibility findings, notices that block no approval (a price in another currency than the fallback currency), and which pages the removed-page templates match. not_evaluated_pages lists review pages the matrix did not evaluate. An approval of product schemas rests on the stored matrix of the candidate version it approves, fetched recently, so refresh after the last change. The tool waits while the console fetches, minutes for a slow shop, and answers STILL_RUNNING after 15 minutes; call it again to keep waiting. Only this tool fetches the pages: get_review shows the stored matrix and fetches nothing. A refresh is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. On a review with human_required true it is refused with CONFLICT and reason HUMAN_REQUIRED, also when the review comes to wait for a human while the pages are fetched. NOT_FOUND with reason NO_MATRIX means the matrix was dropped after it was stored, because the candidate or the review pages changed: read the review and call refresh_matrix again. A URL-pattern review has no matrix (INVALID_REQUEST). When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is. Changes no candidate.";
+const PROBE_SELECTORS: &str = "Fetch up to 4 pages live and answer, for each of up to 8 CSS selectors, only what it matches on each page: matches (elements with a value), empty (matched elements without visible text), the first 3 values, each cut to 300 characters, and error for a selector that does not parse. Give review_id, pages (each either review_page_id, a page of the review, or url, an http(s) URL on the crawl host of the review's ListingSource, otherwise URL_OUTSIDE_REVIEW_SOURCE before anything is fetched) and selectors (each a selector, with attribute to read that attribute, or the element's text where the element has none; without attribute the text). A value is what a rule on that selector extracts at runtime, every matched element in document order, so the first values show whether the selector names the product's own element and not a related item's. Use it instead of reading another outline: read one page's outline with inspect_page, write the selectors from it, and probe them on the other pages; or check a doubtful value, or find which of a few candidate selectors holds a sold label or an ID on a sold page. A selector you write must still come from markup you have seen, in an outline or a probe answer. A probed page counts as inspected, for record_no_sold_page too. A page the probe could not fetch has error and reason instead of results: BOT_CHALLENGE (retry later) or TIMEOUT (the shop's pacing used up the probe's time: probe fewer pages at once). One agent process gets at most 12 probe_selectors calls; a call that answers an error is not counted; later calls answer PROBE_LIMIT_REACHED without fetching. Refused with CONFLICT and reason HUMAN_REQUIRED on a review with human_required true; RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. Reads only.";
+
+const REFRESH_MATRIX: &str = "Evaluate a product-schema review's current candidate live: the console fetches every review page at the shop's crawl delay, evaluates on them what approving the candidate would make live, stores this matrix for the review and returns it. Per schema and page: applies (the schema extracts a plausible product from the page), the extracted values (state_availability is what the normalization resolves the extracted state to, the only thing that counts for availability at runtime and for the sold-page check, null when it resolves to nothing), how each field's selectors matched (every field is optional and may miss on some pages, but a rule that matches nothing on any page is wrong; a title rule whose selectors find no element fails the page, and a schema applies only where it extracts a state, a price or a description), the plausibility findings, notices that block no approval (a price in another currency than the fallback currency), and which pages the removed-page templates match. not_evaluated_pages lists review pages the matrix did not evaluate. An approval of product schemas rests on the stored matrix of the candidate version it approves, fetched recently, so refresh after the last change. The tool waits while the console fetches, minutes for a slow shop, and answers STILL_RUNNING after 15 minutes; call it again to keep waiting. Only this tool fetches the pages: get_review shows the stored matrix and fetches nothing. A refresh is one of the console's live jobs, its matrix refreshes, candidate evaluations and page projections of all reviews together, of which it runs only a few at once: RATE_LIMITED with reason LIVE_JOBS_BUSY means retry after retry_after_secs. On a review with human_required true it is refused with CONFLICT and reason HUMAN_REQUIRED, also when the review comes to wait for a human while the pages are fetched. NOT_FOUND with reason NO_MATRIX means the matrix was dropped after it was stored, because the candidate or the review pages changed: read the review and call refresh_matrix again. A URL-pattern review has no matrix (INVALID_REQUEST). When the shop answers a page with a bot challenge instead of the page, the call fails with CONSOLE_FAILED, status 502 and reason BOT_CHALLENGE, and its error names the page: the page was not served, so it says nothing about the candidate; retry later and leave the candidate as it is. Changes no candidate.";
 
 const CHECK_APPROVAL: &str = "Run the console's approval guard on a review's current candidate without approving it: failed_checks lists every check an agent approval would fail now, by its code (such as PATTERN_MATCHES_NO_SAMPLE_URL, PATTERN_MATCHES_EVERY_SAMPLE_URL, PATTERN_TAKES_PROBE_PATHS or NO_PATTERN_NEEDS_HUMAN on a URL-pattern review, PAGES_NOT_COVERED, CONTENT_RULE_MISSING or NO_SOLD_PAGE_TESTED on a product-schema review) with what it names, the same answer an approval would get; an empty list means the guard would pass. A product-schema review is judged on its stored matrix, so refresh_matrix first: LIVE_MATRIX_MISSING, LIVE_MATRIX_OUTDATED and LIVE_MATRIX_EXPIRED say that the matrix is absent, for another candidate or too old, and are the only checks then worth reading. The four-eyes rule and the hourly cap of agent approvals are not part of the answer. Reads only; fetches nothing from the shop.";
 
@@ -115,6 +143,42 @@ pub(super) struct InspectPageArguments {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(super) struct ProbeSelectorsArguments {
+    /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
+    #[schemars(with = "String")]
+    review_id: CrawlerReviewId,
+    /// The pages to probe, 1 to 4.
+    pages: Vec<ProbedPageArgument>,
+    /// The selectors to apply to each page, 1 to 8.
+    selectors: Vec<ProbedSelectorArgument>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProbedPageArgument {
+    /// A page of the review, as get_review names it. Give this or `url`.
+    #[serde(default)]
+    #[schemars(with = "Option<String>")]
+    review_page_id: Option<CrawlerReviewPageId>,
+    /// An http(s) URL on the crawl host of the review's ListingSource. Give this or
+    /// `review_page_id`.
+    #[serde(default)]
+    url: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProbedSelectorArgument {
+    /// A CSS selector, such as `span.price` or `input[name=product-id]`.
+    selector: String,
+    /// The attribute to read, such as `value` or `content`; the element's text where it has none.
+    /// Leave it out to read the text.
+    #[serde(default)]
+    attribute: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(super) struct NotesArguments {
     /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
     #[schemars(with = "String")]
@@ -133,6 +197,13 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
         )?,
         ToolDefinition::new("get_review", GET_REVIEW, Effect::Reads, get_review)?,
         ToolDefinition::new("inspect_page", INSPECT_PAGE, Effect::Reads, inspect_page)?,
+        ToolDefinition::new(
+            "probe_selectors",
+            PROBE_SELECTORS,
+            Effect::Reads,
+            probe_selectors,
+        )?
+        .only_for(Artifact::ProductSchema),
         ToolDefinition::new(
             "refresh_matrix",
             REFRESH_MATRIX,
@@ -226,6 +297,61 @@ async fn page_projection(
         .await?
         .decode()?;
     Ok(PageProjectionView::of(projection, arguments.offset))
+}
+
+async fn probe_selectors(
+    arguments: ProbeSelectorsArguments,
+    context: Arc<ToolContext>,
+) -> Result<SelectorProbeView, ToolError> {
+    // Taken before anything reaches the console, as an inspection's; one that answers no probe
+    // gives it back.
+    context.probes.take()?;
+    let probe = selector_probe(arguments, &context).await;
+    if probe.is_err() {
+        context.probes.refund();
+    }
+    probe
+}
+
+/// Checks the probed URLs against the review's ListingSource and asks the console for the probe.
+async fn selector_probe(
+    arguments: ProbeSelectorsArguments,
+    context: &ToolContext,
+) -> Result<SelectorProbeView, ToolError> {
+    let review_id = arguments.review_id;
+    let raw_urls: Vec<&str> = arguments
+        .pages
+        .iter()
+        .filter_map(|page| page.url.as_deref())
+        .collect();
+    let mut urls = review_source_urls(context, review_id, &raw_urls)
+        .await?
+        .into_iter();
+    let mut pages = Vec::with_capacity(arguments.pages.len());
+    for page in &arguments.pages {
+        pages.push(match (page.review_page_id, &page.url) {
+            (Some(page_id), None) => json!({ "page": page_id }),
+            (None, Some(_)) => json!({ "url": urls.next().map(|url| url.to_string()) }),
+            _ => {
+                return Err(ToolError::InvalidArguments(
+                    "give each page either review_page_id or url".to_owned(),
+                ));
+            }
+        });
+    }
+    let selectors: Vec<serde_json::Value> = arguments
+        .selectors
+        .iter()
+        .map(|probe| json!({ "selector": probe.selector, "attribute": probe.attribute }))
+        .collect();
+    Ok(context
+        .console
+        .post(
+            &review_path(review_id, "/selector-probe"),
+            &json!({ "pages": pages, "selectors": selectors }),
+        )
+        .await?
+        .decode()?)
 }
 
 /// The approval guard's dry run of a review's current candidate.
@@ -345,7 +471,7 @@ mod tests {
 
     #[test]
     fn should_take_a_refunded_inspection_again() {
-        let budget = InspectionBudget::default();
+        let budget = CallBudget::inspections();
         for _ in 0..MAX_INSPECTIONS_PER_PROCESS {
             assert!(budget.take().is_ok());
         }
@@ -361,7 +487,7 @@ mod tests {
 
     #[test]
     fn should_take_twelve_inspections_per_process_and_refuse_the_thirteenth() {
-        let budget = InspectionBudget::default();
+        let budget = CallBudget::inspections();
 
         for call in 0..MAX_INSPECTIONS_PER_PROCESS {
             assert!(budget.take().is_ok(), "call {call}");

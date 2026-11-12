@@ -154,17 +154,25 @@ impl ScraperServiceImpl {
 fn starter_schema() -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: None,
-        title: rule("h1", ExtractionKind::Text, ExtractionCardinality::First),
+        title: Some(rule(
+            "h1",
+            ExtractionKind::Text,
+            ExtractionCardinality::First,
+        )),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule(
+        state: Some(rule(
             "button[type=submit]",
             ExtractionKind::Text,
             ExtractionCardinality::First,
-        ),
-        images: rule("img", ExtractionKind::ImageUrl, ExtractionCardinality::All),
+        )),
+        images: Some(rule(
+            "img",
+            ExtractionKind::ImageUrl,
+            ExtractionCardinality::All,
+        )),
         raw_attributes: BTreeMap::new(),
     }
 }

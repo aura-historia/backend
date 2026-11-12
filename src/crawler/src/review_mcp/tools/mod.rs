@@ -34,7 +34,9 @@ pub struct ToolContext {
     pub(super) console: ConsoleClient,
     pub(super) polling: Polling,
     /// The `inspect_page` calls this process has left.
-    inspections: shared::InspectionBudget,
+    inspections: shared::CallBudget,
+    /// The `probe_selectors` calls this process has left.
+    probes: shared::CallBudget,
 }
 
 impl ToolContext {
@@ -42,7 +44,8 @@ impl ToolContext {
         Self {
             console,
             polling,
-            inspections: shared::InspectionBudget::default(),
+            inspections: shared::CallBudget::inspections(),
+            probes: shared::CallBudget::probes(),
         }
     }
 }
@@ -525,6 +528,7 @@ mod tests {
             "list_pending_reviews",
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -673,6 +677,7 @@ mod tests {
                 "list_pending_reviews",
                 "get_review",
                 "inspect_page",
+                "probe_selectors",
                 "refresh_matrix",
                 "check_approval",
                 "mark_needs_repair",

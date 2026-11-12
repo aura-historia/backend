@@ -1,8 +1,6 @@
 use crate::network::policy::NetworkErrorKind;
 
-use crate::authoring::CrawlerAuthoringMode;
 use crate::logging::warn_in_source;
-use crate::review::repository::ReviewPlacement;
 use crate::scraper::candidate_service::RedirectDestination;
 use crate::scraper::css_selector::product_schema::{
     ListingSourceProductSchema, ProductCssSelectorSchema,
@@ -11,7 +9,6 @@ use crate::scraper::css_selector::removed_page_schema::{
     RemovedPageMatch, RemovedPageSchema, RemovedPageVerdict, match_removed_page,
     removed_page_verdict,
 };
-use crate::scraper::plausibility::PlausibilityFindings;
 use crate::scraper::raw_input::{capture_source_listing_id, crawler_raw_input};
 use crate::scraper::scraper_service::domain::errors::{
     RemovalEvidence, RemovalEvidenceKind, ScraperError,
@@ -502,11 +499,7 @@ fn capture_selection(
     );
     let mut schemas = extracted.into_schemas().product_schemas;
     let schema_index = selection.cached_schema_index.unwrap_or(schemas.len());
-    // A carried-forward title stands in for the blank one the extraction found.
-    let fields_present = selection.raw.present_field_count()
-        + usize::from(
-            selection.carried_forward_title.is_some() && selection.raw.title.trim().is_empty(),
-        );
+    let fields_present = selection.raw.present_field_count();
     if selection.fresh_schema {
         schemas.push(selection.schema.clone());
     }
@@ -519,7 +512,6 @@ fn capture_selection(
         &selection.validated_image_urls,
         &page.effective_url,
         source_listing_id.as_ref(),
-        selection.carried_forward_title.as_deref(),
     )
     .map_err(ScraperError::RawNormalizationInput)?;
     let raw_input_sha256 = raw_input
@@ -539,9 +531,7 @@ fn capture_selection(
         raw_input,
         effective_url: page.effective_url,
         source_listing_id: source_listing_id.to_string(),
-        title: selection
-            .carried_forward_title
-            .unwrap_or(selection.raw.title),
+        title: selection.raw.title().map(str::to_owned),
         hash,
         schema_fingerprint,
         raw_input_sha256,
@@ -677,13 +667,7 @@ impl ScraperServiceImpl {
             return Ok(None);
         }
 
-        let (extracted, selection) = self
-            .select_schema_for_page(
-                extracted,
-                fetched_page,
-                request.last_captured_title.as_deref(),
-            )
-            .await?;
+        let (extracted, selection) = self.select_schema_for_page(extracted, fetched_page).await?;
         let scraped = capture_selection(request, page, extracted, selection)?;
 
         // `mark_as_scraped` is intentionally deferred until raw capture succeeds.
@@ -742,49 +726,25 @@ impl ScraperServiceImpl {
 
     /// Selects the best-ranked plausible cached schema for the page in `page` from what `extracted`
     /// extracted, or authors a fresh one when none applies. Returns the extracted schema set the
-    /// selection used with the selection. A
-    /// page that leaves a required value empty where a cached schema found its element fails
-    /// with [`ScraperError::MissingRequiredValue`] without waiting on or authoring a schema, and a
-    /// page a redirect took outside the product URL pattern that every cached schema fails on
-    /// is a removed listing.
+    /// selection used with the selection. A page a redirect took outside the product URL pattern
+    /// that every cached schema fails on is a removed listing.
     ///
     /// Scraping continues while a product-schema review is pending, so its approval can replace the
     /// live schemas after `schemas` was read. A page that failed the stale list is therefore
-    /// selected once more against the live list before it may author a schema, record a missing
-    /// required value or be removed; otherwise it would open a review whose candidate drops the
+    /// selected once more against the live list before it may author a schema or be removed; otherwise it would open a review whose candidate drops the
     /// schemas just approved, or wait a scrape interval for a fix the approval already made live.
     async fn select_schema_for_page(
         &self,
         mut extracted: ExtractedSchemaSet,
         page: FetchedPage<'_>,
-        last_captured_title: Option<&str>,
     ) -> Result<(ExtractedSchemaSet, SelectedSchemaCandidate), ScraperError> {
         let mut reread = false;
         loop {
             let selection = self
-                .select_cached_schema(
-                    page.listing_source_id,
-                    page.url,
-                    &extracted,
-                    last_captured_title,
-                )
+                .select_cached_schema(page.listing_source_id, page.url, &extracted)
                 .await;
             let reason = match selection {
                 ExistingSchemaSelection::Selected(selection) => return Ok((extracted, *selection)),
-                ExistingSchemaSelection::MissingRequiredValue { findings } => {
-                    if let Some(live) = self
-                        .live_schemas_changed_once(&mut reread, page, &extracted)
-                        .await?
-                    {
-                        extracted = live;
-                        continue;
-                    }
-                    self.report_missing_required_value(page, &findings).await;
-                    return Err(ScraperError::MissingRequiredValue {
-                        url: page.url.clone(),
-                        findings,
-                    });
-                }
                 ExistingSchemaSelection::GenerateNewSchema { reason } => reason,
             };
             if page.redirect == RedirectTarget::OutsideProductPattern
@@ -817,64 +777,6 @@ impl ScraperServiceImpl {
             );
             let selection = self.generate_fresh_schema_for_page(ctx).await?;
             return Ok((extracted, selection));
-        }
-    }
-
-    /// Logs that the page left a required value blank and, in `agent` mode, opens or joins the
-    /// ListingSource's `missing_required_value` review for it, so the review agents see the page
-    /// that no human adds, unless a rejection of such a review already judged the page under the
-    /// live schemas; that page needs nobody's attention. The review's opening is the repository's
-    /// `crawler.review.opened` event, so these outcomes log at DEBUG. Other modes open
-    /// none and log a WARN, as the scrape's failure did before, since a human adds the page from
-    /// the console. A failure to open the review is a WARN too: the URL still records the
-    /// outcome, and the next scrape tries again.
-    async fn report_missing_required_value(
-        &self,
-        page: FetchedPage<'_>,
-        findings: &PlausibilityFindings,
-    ) {
-        let review = match (self.authoring, &self.review_repository) {
-            (CrawlerAuthoringMode::Agent, Some(repository)) => Some(
-                repository
-                    .open_or_join_review_for_scraped_missing_value_page(
-                        page.listing_source_id,
-                        page.url,
-                        page.html,
-                    )
-                    .await,
-            ),
-            _ => None,
-        };
-        match review {
-            Some(Ok(Some(ReviewPlacement::Opened(review_id)))) => debug!(
-                url = %page.url,
-                review_id = %review_id,
-                findings = %findings,
-                "Page left a required value blank; opened the missing_required_value review"
-            ),
-            Some(Ok(Some(ReviewPlacement::Joined(review_id)))) => debug!(
-                url = %page.url,
-                review_id = %review_id,
-                findings = %findings,
-                "Page left a required value blank; joined the missing_required_value review"
-            ),
-            Some(Ok(None)) => debug!(
-                url = %page.url,
-                findings = %findings,
-                "Page left a required value blank; a rejected missing_required_value review already judged it under the live schemas"
-            ),
-            Some(Err(error)) => warn_in_source!(
-                url = %page.url,
-                findings = %findings,
-                error = %error,
-                cause = ?std::error::Error::source(&error),
-                "Page left a required value blank; could not open its missing_required_value review"
-            ),
-            None => warn_in_source!(
-                url = %page.url,
-                findings = %findings,
-                "Page left a required value blank"
-            ),
         }
     }
 

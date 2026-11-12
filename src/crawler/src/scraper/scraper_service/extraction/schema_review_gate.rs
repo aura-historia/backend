@@ -6,7 +6,7 @@ use crate::review::model::{STATUS_APPROVED, SchemaReviewPageInput};
 use crate::review::repository::SchemaReviewWithStatusInput;
 use crate::review::schema_evaluation::{
     evaluate_schema_matrix_for_inputs, implausible_pages, optional_rules_missing_on_every_page,
-    schema_matrix_deterministic_approval_ok, selector_field_is_soft,
+    schema_matrix_deterministic_approval_ok, selector_field_anchors_page, selector_field_is_soft,
     selector_field_matched_nothing, unused_schema_indices,
 };
 use crate::scraper::css_selector::product_schema::{
@@ -118,8 +118,8 @@ impl ScraperServiceImpl {
 
 pub(crate) const SCHEMA_GENERATED_EVENT: &str = "crawler.schema.generated";
 
-/// The fields of the generated schemas that failed on a sample page, as `schema_index:field`
-/// without repeats: the fields that decide why a schema did not pass the deterministic gate.
+/// The fields of the generated schemas that failed on a sample page (a rule that errs, or a title
+/// selector that finds no element), as `schema_index:field` without repeats: the fields that decide why a schema did not pass the deterministic gate.
 fn failing_schema_fields(matrix: &SchemaMatrix) -> Vec<String> {
     let mut failing = std::collections::BTreeSet::new();
     for candidate in &matrix.candidates {
@@ -129,7 +129,7 @@ fn failing_schema_fields(matrix: &SchemaMatrix) -> Vec<String> {
                     continue;
                 }
                 if field.error.is_some()
-                    || (selector_field_matched_nothing(field) && field.required)
+                    || (selector_field_matched_nothing(field) && selector_field_anchors_page(field))
                 {
                     failing.insert(format!("{}:{}", candidate.schema_index, field.field));
                 }
@@ -199,7 +199,8 @@ fn with_schema_matrix_summary(
                     "present_but_missing_rule": selector_missing,
                     "error": field.error,
                 });
-                if field.error.is_some() || (selector_missing && field.required) {
+                if field.error.is_some() || (selector_missing && selector_field_anchors_page(field))
+                {
                     failed_fields.push(entry);
                 } else if selector_missing && selector_field_is_soft(field) {
                     // An optional rule that matched nothing left the field empty; the
@@ -318,7 +319,6 @@ mod tests {
                         selector_match_count: Some(0),
                         additional_selector_match_counts: Vec::new(),
                         error: None,
-                        required: true,
                         skipped_element_count: None,
                         empty_element_count: 0,
                     }],
@@ -557,7 +557,6 @@ mod tests {
                         selector_match_count: Some(0),
                         additional_selector_match_counts: vec![2],
                         error: None,
-                        required: false,
                         skipped_element_count: None,
                         empty_element_count: 0,
                     }],
@@ -602,7 +601,6 @@ mod tests {
                         selector_match_count: Some(0),
                         additional_selector_match_counts: Vec::new(),
                         error: None,
-                        required: false,
                         skipped_element_count: Some(0),
                         empty_element_count: 0,
                     }],
@@ -664,7 +662,7 @@ mod tests {
             "images": {"selector": "img", "type": "image_url", "cardinality": "all"}
         }))
         .unwrap_or_else(|error| panic!("schema fixture should deserialize: {error}"));
-        schema.title.selector = "[".into();
+        schema.title.as_mut().unwrap().selector = "[".into();
 
         let result = service
             .handle_generated_schema_review(

@@ -31,13 +31,13 @@ async fn should_seed_schema_generation_with_additional_sample_pages_on_cache_mis
         };
         ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("non-existent-id")),
-            title: text_rule("non-existent-title"),
+            title: Some(text_rule("non-existent-title")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("non-existent-state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("non-existent-state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         }
     };

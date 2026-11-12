@@ -70,8 +70,11 @@ pub struct ProductCssSelectorSchema {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub source_listing_id: Option<ExtractionRule>,
 
-    #[schemars(description = "Title of the product")]
-    pub title: ExtractionRule,
+    #[schemars(
+        description = "Title of the product. Optional, like every field: leave it null only when the page shows no product name."
+    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<ExtractionRule>,
 
     #[schemars(
         description = "Main product description/body content. May be fragmented across multiple nodes. Prefer the central product-description area for this item. Avoid shipping info, legal disclaimers, navigation text, marketing banners, and recommendation or related-products sections."
@@ -98,14 +101,16 @@ pub struct ProductCssSelectorSchema {
     pub price_estimate_max: Option<ExtractionRule>,
 
     #[schemars(
-        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector. Select only the availability/cart action element; exclude price text and avoid containers that combine action text with price."
+        description = "Availability state of the product. E.g. 'in stock', 'out of stock', 'preorder', 'add to cart', etc. Prioritize state sources in this order: (1) clear explicit state text such as 'available', 'sold', or 'out of stock'; (2) visible text from a product-specific add-to-cart or buy button; (3) visible text from other product-specific buttons that clearly indicate availability such as preorder, reserve, or sold-out actions. Prefer dedicated availability labels or visible button text over generic class names or whole script blobs. IMPORTANT: Never use price elements, image galleries, or generic layout wrappers as the state selector. Select only the availability/cart action element; exclude price text and avoid containers that combine action text with price. Optional: leave it null only when the page shows no availability label or cart action."
     )]
-    pub state: ExtractionRule,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub state: Option<ExtractionRule>,
 
     #[schemars(
-        description = "ProductListing media URLs. May be fragmented across multiple gallery nodes. Prefer ImageUrl extraction for image/gallery nodes so the scraper can validate ordered full-size candidates. Candidate order is data-large_image, data-full, data-original, data-zoom-image, data-src, data-lazy-src, content, current href, parent href, largest picture/srcset candidate, then src. Avoid logos, icons, placeholders, sprites, unrelated thumbnails from navigation or recommendations, and thumbnail-only attributes such as 100x100 or 150x150 src values."
+        description = "ProductListing media URLs. May be fragmented across multiple gallery nodes. Prefer ImageUrl extraction for image/gallery nodes so the scraper can validate ordered full-size candidates. Candidate order is data-large_image, data-full, data-original, data-zoom-image, data-src, data-lazy-src, content, current href, parent href, largest picture/srcset candidate, then src. Avoid logos, icons, placeholders, sprites, unrelated thumbnails from navigation or recommendations, and thumbnail-only attributes such as 100x100 or 150x150 src values. Optional: leave it null only when the shop's product pages show no photos."
     )]
-    pub images: ExtractionRule,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub images: Option<ExtractionRule>,
 
     #[schemars(
         description = "Crawler-only raw product attributes keyed by stable camelCase names from the configured raw attribute registry, such as rawShipment, rawCondition, rawMaterial, rawYear, rawPeriod, rawCategory, rawTags, rawMeasurements, rawOrigin, or rawArtistName. Use only for visible product-specific values that do not yet have normalized product fields. Extract raw values only; do not normalize or derive values."
@@ -151,6 +156,13 @@ pub enum ApplySchemaError {
         #[source]
         source: ExtractionError,
     },
+
+    /// Every rule yielded nothing that says what the page offers: no state, price or
+    /// description. Each field is optional, so this, with the anchoring title rule, is what
+    /// tells a page the schema does not fit, such as another template of the shop or a removal
+    /// notice that keeps the item's name, from a product page that leaves a field out.
+    #[error("extracted no state, price or description")]
+    NoProductContent,
 }
 
 impl ApplySchemaError {
@@ -166,6 +178,7 @@ impl ApplySchemaError {
             Self::State(_) => "state",
             Self::Images(_) => "images",
             Self::RawAttribute { field, .. } => field,
+            Self::NoProductContent => "title",
         }
     }
 }
@@ -176,13 +189,13 @@ impl ProductCssSelectorSchema {
     pub(crate) fn validate_rules(&self) -> Result<(), ExtractionError> {
         [
             self.source_listing_id.as_ref(),
-            Some(&self.title),
+            self.title.as_ref(),
             self.description.as_ref(),
             self.price.as_ref(),
             self.price_estimate_min.as_ref(),
             self.price_estimate_max.as_ref(),
-            Some(&self.state),
-            Some(&self.images),
+            self.state.as_ref(),
+            self.images.as_ref(),
         ]
         .into_iter()
         .flatten()
@@ -214,17 +227,22 @@ impl ProductCssSelectorSchema {
     }
 
     /// Applies the `images` rule (see [`ExtractionRule::apply_image_url_candidate_groups`]).
-    /// An empty gallery yields no image instead of failing the page: the rule's matched
-    /// elements are all gallery placeholders, or its selector matched nothing and names an
-    /// image container that exists and holds no image.
+    /// A schema without the rule yields no image. An empty gallery yields no image either:
+    /// the rule's matched elements are all gallery placeholders, or its selector matched
+    /// nothing and names an image container that exists and holds no image. Any other
+    /// match failure is the rule's miss, which the caller tolerates like another optional
+    /// field's.
     pub(crate) fn apply_image_url_candidate_groups(
         &self,
         html: &Html,
     ) -> Result<RuleExtraction, ExtractionError> {
-        match self.images.apply_image_url_candidate_groups(html) {
+        let Some(rule) = &self.images else {
+            return Ok(RuleExtraction::default());
+        };
+        match rule.apply_image_url_candidate_groups(html) {
             Ok(images) => Ok(images),
             Err(ExtractionError::NoElementMatched { .. })
-                if image_rule_has_existing_empty_container(&self.images, html) =>
+                if image_rule_has_existing_empty_container(rule, html) =>
             {
                 Ok(RuleExtraction::default())
             }
@@ -235,26 +253,27 @@ impl ProductCssSelectorSchema {
     /// Apply all extraction rules in this schema to the given parsed HTML document,
     /// returning a [`RawExtractedProduct`] with the raw (non-normalised) values.
     ///
-    /// Rules for optional fields are skipped (returning `None`) when the field itself
-    /// is `None`. A present optional rule (`source_listing_id`, `description`, `price`,
-    /// the price estimates and raw attributes) that matches nothing, or only empty
-    /// elements, yields an empty value (`None` for the prices) and a per-field log
-    /// diagnostic (debug, trace for raw attributes) instead of a page error: one page
-    /// without a description must not invalidate the schema. A `first` attribute rule
-    /// that finds only blank values is no such miss: it yields its first blank value,
-    /// so a blank identity, price, description or raw attribute reaches the blank
-    /// plausibility check, which never rejects the candidate for these optional fields.
-    /// Only `title` and `state` fail closed on a miss; on empty elements they yield an empty
-    /// value that the blank plausibility check rejects. `images` skips gallery elements
-    /// without a value (no image URL candidate, or no attribute of an attribute rule) and
-    /// fails closed unless the gallery is empty (see
-    /// [`Self::apply_image_url_candidate_groups`]), so a page without photos yields no
-    /// image and the plausibility checks judge it like any other extraction. Any other
-    /// rule failure (invalid selector, missing attribute) still returns the
-    /// corresponding [`ApplySchemaError`] variant immediately.
+    /// Every field is optional. A field without a rule is skipped (`None`, or empty). A
+    /// rule that matches nothing, or only empty elements, yields an empty value and a
+    /// per-field log diagnostic (debug, trace for raw attributes) instead of a page error:
+    /// one page without a description, a state or a photo must not invalidate the schema.
+    /// The `title` rule is the schema's anchor: when its selectors find no element, the schema
+    /// does not fit the page; an element without text yields a blank title (see
+    /// [`Self::anchor_title`]).
+    /// A `first` attribute rule that finds only blank values is no such miss: it yields its
+    /// first blank value, so a blank field reaches the blank plausibility check, which never
+    /// rejects the candidate. `images` skips gallery elements without a value (no image URL
+    /// candidate, or no attribute of an attribute rule), and an empty gallery yields no
+    /// image (see [`Self::apply_image_url_candidate_groups`]). A schema fits a page only
+    /// when its title rule, if it has one, finds an element and it extracts a state, a price
+    /// or a description: one that yields none of
+    /// them returns [`ApplySchemaError::NoProductContent`], so a page of another template
+    /// is not captured empty. Any other rule failure (invalid selector, missing attribute)
+    /// still returns the corresponding [`ApplySchemaError`] variant immediately.
     ///
-    /// For single-valued fields (`source_listing_id`, `title`, `state`) the first
-    /// element of the extraction result is used. For multi-valued fields
+    /// For single-valued fields (`source_listing_id`, `title`, `state`, the prices) the
+    /// first non-blank value of the extraction result is used, or its first value when
+    /// every one is blank. For multi-valued fields
     /// (`description`, `images`, raw attributes) all results are kept as a
     /// `Vec<String>`; `description` and raw attributes keep equal text from separate
     /// elements once, in order, while `images` keeps its duplicates as raw evidence for
@@ -311,8 +330,8 @@ impl ProductCssSelectorSchema {
         }
     }
 
-    /// The misses of every optional rule on `html`, in rule order, whatever the required
-    /// rules extract.
+    /// The misses of every rule but the anchoring `title` on `html`, in rule order, whatever the
+    /// others extract.
     fn optional_rule_misses(&self, html: &Html) -> OptionalMisses {
         let mut misses = OptionalMisses::default();
         if let Some(rule) = &self.source_listing_id {
@@ -335,12 +354,18 @@ impl ProductCssSelectorSchema {
                 &self.price_estimate_max,
                 OptionalMissLog::Debug,
             ),
+            ("state", &self.state, OptionalMissLog::Debug),
         ];
         for (field, rule, level) in optional_rules {
             if let Some(rule) = rule {
                 let _ = misses.tolerate(field, rule.apply(html), level);
             }
         }
+        let _ = misses.tolerate(
+            "images",
+            self.apply_image_url_candidate_groups(html),
+            OptionalMissLog::Debug,
+        );
         for (field, rule) in &self.raw_attributes {
             let _ = misses.tolerate(field, rule.apply(html), OptionalMissLog::Trace);
         }
@@ -365,9 +390,7 @@ impl ProductCssSelectorSchema {
                 .next()
                 .unwrap_or_default(),
         };
-
-        let title = required_value(self.title.apply(html)).map_err(ApplySchemaError::Title)?;
-
+        let title = self.anchor_title(html)?;
         let description = match &self.description {
             None => vec![],
             Some(rule) => keep_first_occurrences(
@@ -376,48 +399,33 @@ impl ProductCssSelectorSchema {
                     .map_err(ApplySchemaError::Description)?,
             ),
         };
-
         // A miss yields `None`, exactly like a schema without the rule, so plausibility
-        // checks and the raw-values patch see "no price on this page".
-        let price = match &self.price {
-            None => None,
-            Some(rule) => misses
-                .tolerate("price", rule.apply(html), OptionalMissLog::Debug)
-                .map_err(ApplySchemaError::Price)?
-                .into_iter()
-                .next(),
-        };
+        // checks and the raw-values patch see "no value on this page". A label (`title`,
+        // `state`) takes its first non-blank value, a price its first value.
+        let mut single =
+            |field: &str,
+             rule: &Option<ExtractionRule>,
+             pick: fn(Vec<String>) -> Option<String>| match rule {
+                None => Ok(None),
+                Some(rule) => misses
+                    .tolerate(field, rule.apply(html), OptionalMissLog::Debug)
+                    .map(pick),
+            };
+        let first = |values: Vec<String>| values.into_iter().next();
+        let price = single("price", &self.price, first).map_err(ApplySchemaError::Price)?;
+        let price_estimate_min = single("price_estimate_min", &self.price_estimate_min, first)
+            .map_err(ApplySchemaError::PriceEstimateMin)?;
+        let price_estimate_max = single("price_estimate_max", &self.price_estimate_max, first)
+            .map_err(ApplySchemaError::PriceEstimateMax)?;
+        let state =
+            single("state", &self.state, first_non_blank).map_err(ApplySchemaError::State)?;
 
-        let price_estimate_min = match &self.price_estimate_min {
-            None => None,
-            Some(rule) => misses
-                .tolerate(
-                    "price_estimate_min",
-                    rule.apply(html),
-                    OptionalMissLog::Debug,
-                )
-                .map_err(ApplySchemaError::PriceEstimateMin)?
-                .into_iter()
-                .next(),
-        };
-
-        let price_estimate_max = match &self.price_estimate_max {
-            None => None,
-            Some(rule) => misses
-                .tolerate(
-                    "price_estimate_max",
-                    rule.apply(html),
-                    OptionalMissLog::Debug,
-                )
-                .map_err(ApplySchemaError::PriceEstimateMax)?
-                .into_iter()
-                .next(),
-        };
-
-        let state = required_value(self.state.apply(html)).map_err(ApplySchemaError::State)?;
-
-        let images = self
-            .apply_image_url_candidate_groups(html)
+        let images = misses
+            .tolerate(
+                "images",
+                self.apply_image_url_candidate_groups(html),
+                OptionalMissLog::Debug,
+            )
             .map_err(ApplySchemaError::Images)?;
 
         let mut raw_attributes = BTreeMap::new();
@@ -435,40 +443,54 @@ impl ProductCssSelectorSchema {
             }
         }
 
+        let raw = RawExtractedProduct {
+            source_listing_id,
+            title,
+            description,
+            price,
+            price_estimate_min,
+            price_estimate_max,
+            state,
+            images: images.values,
+            raw_attributes,
+        };
+        if !raw.shows_product_content() {
+            return Err(ApplySchemaError::NoProductContent);
+        }
         Ok(SchemaExtraction {
-            raw: RawExtractedProduct {
-                source_listing_id,
-                title,
-                description,
-                price,
-                price_estimate_min,
-                price_estimate_max,
-                state,
-                images: images.values,
-                raw_attributes,
-            },
+            raw,
             skipped_image_elements: images.skipped_elements,
         })
     }
 }
 
-/// The value of a required single-valued rule (`title`, `state`): its first non-blank
-/// value, as cardinality `first` takes it, so a blank value means that every value the
-/// rule found is blank. A rule that matches no element fails the page. One whose matched
-/// elements are all empty yields an empty value instead, which the rejecting blank
-/// plausibility check rejects with the rest of the extraction intact, so a page that
-/// leaves the value empty is told apart from a page the schema does not fit.
-fn required_value(
-    extraction: Result<Vec<String>, ExtractionError>,
-) -> Result<String, ExtractionError> {
-    match extraction {
-        Ok(values) => Ok(values
-            .into_iter()
-            .find(|value| !value.trim().is_empty())
-            .unwrap_or_default()),
-        Err(ExtractionError::EmptyValue { .. }) => Ok(String::new()),
-        Err(error) => Err(error),
+impl ProductCssSelectorSchema {
+    /// The title the page shows, or `None` when it shows none. The title rule anchors the schema
+    /// to its template: a rule whose selectors find no element means the schema does not fit the
+    /// page, such as another template of the shop or one the shop redesigned, so the page is not
+    /// captured with the rest of the rules' stray matches. An element without text is a page that
+    /// shows no title, as some shops do for every item, and is captured without one.
+    fn anchor_title(&self, html: &Html) -> Result<Option<String>, ApplySchemaError> {
+        let Some(rule) = &self.title else {
+            return Ok(None);
+        };
+        match rule.apply(html) {
+            Ok(values) => Ok(first_non_blank(values)),
+            Err(ExtractionError::EmptyValue { .. }) => Ok(Some(String::new())),
+            Err(error) => Err(ApplySchemaError::Title(error)),
+        }
     }
+}
+
+/// The value of a single-valued rule: its first non-blank value, as cardinality `first`
+/// takes it, or its first value when every one is blank, so a blank value means that every
+/// value the rule found is blank. `None` when the rule found none.
+fn first_non_blank(values: Vec<String>) -> Option<String> {
+    let first_blank = values.first().cloned();
+    values
+        .into_iter()
+        .find(|value| !value.trim().is_empty())
+        .or(first_blank)
 }
 
 /// Keeps the first occurrence of each value, in order. A text that separate elements
@@ -486,15 +508,15 @@ fn keep_first_occurrences(values: Vec<String>) -> Vec<String> {
 ///
 /// A miss is expected on many pages, such as the price of a sold item or a description a
 /// listing leaves out, so it is a debug diagnostic, and raw attributes (absent on most pages
-/// by design) stay at trace. A required-rule failure logs the misses before it with its
-/// apply error, so selector drift that also breaks a required rule shows them.
+/// by design) stay at trace. A failed application logs every rule's miss with its apply
+/// error, so selector drift that breaks the schema shows them.
 #[derive(Clone, Copy, Debug)]
 enum OptionalMissLog {
     Debug,
     Trace,
 }
 
-/// A miss of an optional field's rule that an extraction tolerated.
+/// A miss of a field's rule that an extraction tolerated.
 #[derive(Debug)]
 pub(crate) struct OptionalMiss {
     field: String,
@@ -550,12 +572,12 @@ impl OptionalMisses {
     ///
     /// The miss is kept as a per-field diagnostic so the scrape log explains why the field
     /// is empty, and which of the two misses it was; the page itself keeps extracting.
-    fn tolerate(
+    fn tolerate<T: Default>(
         &mut self,
         field: &str,
-        extraction: Result<Vec<String>, ExtractionError>,
+        extraction: Result<T, ExtractionError>,
         level: OptionalMissLog,
-    ) -> Result<Vec<String>, ExtractionError> {
+    ) -> Result<T, ExtractionError> {
         match extraction {
             Ok(values) => Ok(values),
             Err(
@@ -567,7 +589,7 @@ impl OptionalMisses {
                     miss,
                     level,
                 });
-                Ok(Vec::new())
+                Ok(T::default())
             }
             Err(err) => Err(err),
         }
@@ -629,12 +651,14 @@ fn image_container_selectors(selector: &str) -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RawExtractedProduct {
     pub source_listing_id: String,
-    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
     pub description: Vec<String>,
     pub price: Option<String>,
     pub price_estimate_min: Option<String>,
     pub price_estimate_max: Option<String>,
-    pub state: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub state: Option<String>,
     pub images: Vec<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub raw_attributes: BTreeMap<String, Vec<String>>,
@@ -648,12 +672,12 @@ impl RawExtractedProduct {
         let optional = |value: &Option<String>| value.as_deref().is_some_and(filled);
         [
             filled(&self.source_listing_id),
-            filled(&self.title),
+            optional(&self.title),
             self.description.iter().any(|part| filled(part)),
             optional(&self.price),
             optional(&self.price_estimate_min),
             optional(&self.price_estimate_max),
-            filled(&self.state),
+            optional(&self.state),
             !self.images.is_empty(),
         ]
         .into_iter()
@@ -665,6 +689,47 @@ impl RawExtractedProduct {
                 .filter(|values| values.iter().any(|value| filled(value)))
                 .count()
     }
+
+    /// The non-blank title, `None` when the page left it out or blank.
+    pub fn title(&self) -> Option<&str> {
+        non_blank(self.title.as_deref())
+    }
+
+    /// The non-blank state, `None` when the page left it out or blank.
+    pub fn state(&self) -> Option<&str> {
+        non_blank(self.state.as_deref())
+    }
+
+    /// Whether the extraction says what the page offers: a non-blank state, price or
+    /// description. A name alone does not, as a removal notice that keeps the item's name
+    /// shows; an extraction without any of them comes from a schema that does not fit the page
+    /// (see [`ApplySchemaError::NoProductContent`]).
+    pub fn shows_product_content(&self) -> bool {
+        self.state().is_some()
+            || non_blank(self.price.as_deref()).is_some()
+            || self.description.iter().any(|part| !part.trim().is_empty())
+    }
+}
+
+impl ProductCssSelectorSchema {
+    /// How many of this schema's `title`, `state` and `images` rules left their field empty in
+    /// `raw`, its extraction of a page. Those rules used to fail a page they missed on, so a
+    /// schema that fills them fits the page better than one that applies without them, and
+    /// ranks first (see `rank_checked_candidates`).
+    pub fn unfilled_core_rules(&self, raw: &RawExtractedProduct) -> usize {
+        [
+            self.title.is_some() && raw.title().is_none(),
+            self.state.is_some() && raw.state().is_none(),
+            self.images.is_some() && raw.images.is_empty(),
+        ]
+        .into_iter()
+        .filter(|unfilled| *unfilled)
+        .count()
+    }
+}
+
+fn non_blank(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| !value.trim().is_empty())
 }
 
 /// What [`ProductCssSelectorSchema::extract`] captured from a page.
@@ -707,13 +772,13 @@ mod tests {
     fn should_decode_a_stored_schema_list_and_the_single_object_an_older_version_wrote() {
         let schema = ProductCssSelectorSchema {
             source_listing_id: None,
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("span.state"),
-            images: text_rule_all("img"),
+            state: Some(text_rule("span.state")),
+            images: Some(text_rule_all("img")),
             raw_attributes: BTreeMap::new(),
         };
         let single = serde_json::to_value(&schema).unwrap_or_else(|error| panic!("{error}"));
@@ -788,13 +853,13 @@ mod tests {
         let parsed = Html::parse_document(html);
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         (parsed, schema)
@@ -823,13 +888,13 @@ mod tests {
     fn full_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: Some(text_rule_all("p.desc")),
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         }
     }
@@ -899,14 +964,14 @@ mod tests {
     fn should_extract_title_when_h1_present() {
         let html = Html::parse_document(product_html());
         let result = full_schema().apply(&html).unwrap();
-        assert_eq!(result.title, "Biedermeier Chair");
+        assert_eq!(result.title.as_deref(), Some("Biedermeier Chair"));
     }
 
     #[test]
     fn should_extract_state_when_element_present() {
         let html = Html::parse_document(product_html());
         let result = full_schema().apply(&html).unwrap();
-        assert_eq!(result.state, "In Stock");
+        assert_eq!(result.state.as_deref(), Some("In Stock"));
     }
 
     #[test]
@@ -923,7 +988,7 @@ mod tests {
     fn should_extract_all_images_even_when_images_rule_uses_default_first_cardinality() {
         let html = Html::parse_document(product_html());
         let mut schema = full_schema();
-        schema.images.cardinality = ExtractionCardinality::First;
+        schema.images.as_mut().unwrap().cardinality = ExtractionCardinality::First;
 
         let result = schema.apply(&html).unwrap();
 
@@ -947,13 +1012,15 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: image_rule_all("#wpgs-gallery img, .wcgs-woocommerce-product-gallery img"),
+            state: Some(text_rule("#state")),
+            images: Some(image_rule_all(
+                "#wpgs-gallery img, .wcgs-woocommerce-product-gallery img",
+            )),
             raw_attributes: Default::default(),
         };
 
@@ -975,7 +1042,9 @@ mod tests {
             </body></html>"##,
         );
         let schema = ProductCssSelectorSchema {
-            images: image_rule_all(r#"div.product-image-grid a[rel^="lightbox"]"#),
+            images: Some(image_rule_all(
+                r#"div.product-image-grid a[rel^="lightbox"]"#,
+            )),
             ..required_only_schema()
         };
 
@@ -983,7 +1052,7 @@ mod tests {
 
         assert!(extraction.raw.images.is_empty());
         assert_eq!(extraction.skipped_image_elements, 2);
-        assert_eq!(extraction.raw.title, "T");
+        assert_eq!(extraction.raw.title.as_deref(), Some("T"));
     }
 
     /// A URL without a host can never be fetched, so a gallery container that holds only
@@ -999,7 +1068,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            images: image_rule_all("#wpgs-gallery img.wp-post-image"),
+            images: Some(image_rule_all("#wpgs-gallery img.wp-post-image")),
             ..required_only_schema()
         };
 
@@ -1008,8 +1077,10 @@ mod tests {
         assert!(result.images.is_empty());
     }
 
+    /// Every field is optional: an `images` selector that finds nothing is the rule's miss, and
+    /// the page is captured without images.
     #[test]
-    fn should_return_err_images_when_missing_image_container_selector_matches_nothing() {
+    fn should_capture_no_images_when_missing_image_container_selector_matches_nothing() {
         let html = Html::parse_document(
             r#"<html><body>
                 <span id="product-id">23175</span>
@@ -1022,26 +1093,24 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: image_rule_all("#wrong-gallery img"),
+            state: Some(text_rule("#state")),
+            images: Some(image_rule_all("#wrong-gallery img")),
             raw_attributes: Default::default(),
         };
 
-        let err = schema.apply(&html).unwrap_err();
+        let result = schema.apply(&html).unwrap();
 
-        assert!(
-            matches!(err, ApplySchemaError::Images(_)),
-            "unexpected variant: {err}"
-        );
+        assert!(result.images.is_empty());
+        assert_eq!(result.state.as_deref(), Some("In Stock"));
     }
 
     #[test]
-    fn should_return_err_images_when_container_has_image_like_markup_but_selector_misses() {
+    fn should_capture_no_images_when_container_has_image_like_markup_but_selector_misses() {
         let html = Html::parse_document(
             r#"<html><body>
                 <span id="product-id">23175</span>
@@ -1056,22 +1125,20 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: image_rule_all("#wpgs-gallery img"),
+            state: Some(text_rule("#state")),
+            images: Some(image_rule_all("#wpgs-gallery img")),
             raw_attributes: Default::default(),
         };
 
-        let err = schema.apply(&html).unwrap_err();
+        let result = schema.apply(&html).unwrap();
 
-        assert!(
-            matches!(err, ApplySchemaError::Images(_)),
-            "unexpected variant: {err}"
-        );
+        assert!(result.images.is_empty());
+        assert_eq!(result.state.as_deref(), Some("In Stock"));
     }
 
     #[test]
@@ -1121,13 +1188,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: Some(text_rule("#est-min")),
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
@@ -1146,13 +1213,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: Some(text_rule("#est-max")),
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
@@ -1205,11 +1272,11 @@ mod tests {
         let (_, schema) = minimal_schema("<ignored>");
         // re-parse with the real HTML
         let schema = ProductCssSelectorSchema {
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             ..schema
         };
         let result = schema.apply(&html).unwrap();
-        assert_eq!(result.title, "First Title");
+        assert_eq!(result.title.as_deref(), Some("First Title"));
     }
 
     #[test]
@@ -1224,13 +1291,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
@@ -1254,13 +1321,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: Some(text_rule_all("p.desc")),
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
@@ -1327,7 +1394,7 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            images: attr_rule_all("img", "src"),
+            images: Some(attr_rule_all("img", "src")),
             ..minimal_schema("<ignored>").1
         };
 
@@ -1356,13 +1423,13 @@ mod tests {
         };
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: images_rule,
+            state: Some(text_rule("#state")),
+            images: Some(images_rule),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
@@ -1418,7 +1485,10 @@ mod tests {
 
             assert_eq!(result.source_listing_id, "Ref:11614A");
             assert_eq!(result.description, vec!["Ref:\n11614\nA"]);
-            assert_eq!(result.title, "Pair of Windsor Chairs\nEnglish, c.1830");
+            assert_eq!(
+                result.title.as_deref(),
+                Some("Pair of Windsor Chairs\nEnglish, c.1830")
+            );
         }
     }
 
@@ -1474,13 +1544,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1490,33 +1560,33 @@ mod tests {
         );
     }
 
+    /// A state the page does not show is left out, so the listing keeps its availability.
     #[test]
-    fn should_return_err_state_when_selector_matches_nothing() {
+    fn should_extract_no_state_when_selector_matches_nothing() {
         let html = Html::parse_document(
             r#"<html><body>
-                <span id="product-id">X</span><h1>T</h1><img src="x.jpg">
+                <span id="product-id">X</span><h1>T</h1><span class="price">£120</span>
+                <img src="x.jpg">
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
-            price: None,
+            price: Some(text_rule("span.price")),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::State(_)),
-            "unexpected variant: {err}"
-        );
+        let result = schema.apply(&html).unwrap();
+        assert_eq!(result.state, None);
+        assert_eq!(result.title.as_deref(), Some("T"));
     }
 
     #[test]
-    fn should_return_err_images_when_bare_image_selector_matches_nothing() {
+    fn should_extract_no_images_when_bare_image_selector_matches_nothing() {
         let html = Html::parse_document(
             r#"<html><body>
                 <span id="product-id">X</span><h1>T</h1><span id="state">ok</span>
@@ -1524,25 +1594,22 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
-        let err = schema.apply(&html).unwrap_err();
-        assert!(
-            matches!(err, ApplySchemaError::Images(_)),
-            "unexpected variant: {err}"
-        );
+        let result = schema.apply(&html).unwrap();
+        assert!(result.images.is_empty());
     }
 
-    /// A required rule whose matched elements are all empty yields an empty value, so the
-    /// blank plausibility check, not an apply error, rejects the page.
-    mod empty_required_element {
+    /// A title element without text is a page that shows no title: the page is captured with
+    /// the rest of its extraction. A state element without text leaves the state out.
+    mod empty_element {
         use super::*;
 
         fn untitled_page(state_html: &str) -> Html {
@@ -1558,7 +1625,7 @@ mod tests {
 
         fn schema() -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
-                title: text_rule("h1.item-title"),
+                title: Some(text_rule("h1.item-title")),
                 ..required_only_schema()
             }
         }
@@ -1571,8 +1638,8 @@ mod tests {
                 .apply(&html)
                 .unwrap_or_else(|err| panic!("an empty title element must not fail apply: {err}"));
 
-            assert_eq!(result.title, "");
-            assert_eq!(result.state, "Request for more info");
+            assert_eq!(result.title.as_deref(), Some(""));
+            assert_eq!(result.state.as_deref(), Some("Request for more info"));
             assert_eq!(result.source_listing_id, "1208922");
             assert_eq!(
                 result.images,
@@ -1585,15 +1652,19 @@ mod tests {
             let html = Html::parse_document(
                 r#"<html><body>
                     <span id="product-id">X</span><h1>T</h1><span id="state"> </span>
-                    <img src="x.jpg">
+                    <span class="price">£120</span><img src="x.jpg">
                 </body></html>"#,
             );
+            let schema = ProductCssSelectorSchema {
+                price: Some(text_rule("span.price")),
+                ..required_only_schema()
+            };
 
-            let result = required_only_schema()
+            let result = schema
                 .apply(&html)
                 .unwrap_or_else(|err| panic!("an empty state element must not fail apply: {err}"));
 
-            assert_eq!(result.state, "");
+            assert_eq!(result.state, None);
         }
 
         /// A title rule with cardinality `all` whose first element is empty still names the
@@ -1604,7 +1675,7 @@ mod tests {
                 r#"<span id="state">ok</span><h2 class="item-title">Pair of Chairs</h2>"#,
             );
             let schema = ProductCssSelectorSchema {
-                title: text_rule_all("h1.item-title, h2.item-title"),
+                title: Some(text_rule_all("h1.item-title, h2.item-title")),
                 ..schema()
             };
 
@@ -1612,14 +1683,14 @@ mod tests {
                 .apply(&html)
                 .unwrap_or_else(|err| panic!("a titled page must apply: {err}"));
 
-            assert_eq!(result.title, "Pair of Chairs");
+            assert_eq!(result.title.as_deref(), Some("Pair of Chairs"));
         }
 
         #[test]
         fn should_extract_a_blank_title_when_every_element_of_an_all_rule_is_empty() {
             let html = untitled_page(r#"<span id="state">ok</span><h2 class="item-title"> </h2>"#);
             let schema = ProductCssSelectorSchema {
-                title: text_rule_all("h1.item-title, h2.item-title"),
+                title: Some(text_rule_all("h1.item-title, h2.item-title")),
                 ..schema()
             };
 
@@ -1627,22 +1698,67 @@ mod tests {
                 .apply(&html)
                 .unwrap_or_else(|err| panic!("an untitled page must apply: {err}"));
 
-            assert_eq!(result.title, "");
+            assert_eq!(result.title.as_deref(), Some(""));
         }
 
+        /// A page on which the schema finds the title element empty and nothing else that says
+        /// what the page offers is no page the schema fits.
         #[test]
-        fn should_still_fail_on_another_required_rule_when_the_title_element_is_empty() {
+        fn should_not_fit_a_page_that_shows_no_title_state_price_or_description() {
             let html = untitled_page("");
 
             let err = schema().apply(&html).unwrap_err();
 
             assert!(
-                matches!(
-                    err,
-                    ApplySchemaError::State(ExtractionError::NoElementMatched { .. })
-                ),
+                matches!(err, ApplySchemaError::NoProductContent),
                 "unexpected variant: {err}"
             );
+        }
+
+        /// A removal notice that keeps the item's name shows a title but nothing a product page
+        /// offers, so the schema does not fit it and the removal-page check judges it instead.
+        #[test]
+        fn should_not_fit_a_page_that_shows_only_a_title() {
+            let html = Html::parse_document(
+                r#"<html><body><main><h1>Biedermeier Chair</h1>
+                    <p class="notice">This item is no longer available</p></main></body></html>"#,
+            );
+
+            let err = required_only_schema().apply(&html).unwrap_err();
+
+            assert!(
+                matches!(err, ApplySchemaError::NoProductContent),
+                "unexpected variant: {err}"
+            );
+        }
+
+        /// Some shops show no name for any item, such as AVK Militaria's empty `<h1>`: the
+        /// description, the price and the cart action make the product page.
+        #[test]
+        fn should_capture_a_page_whose_title_element_is_always_empty() {
+            let html = Html::parse_document(
+                r#"<html><body><h1></h1>
+                    <p class="desc">a picture of rotterdam after the bombing</p>
+                    <span class="price">10.00 EUR</span><button>Add to basket</button>
+                </body></html>"#,
+            );
+            let schema = ProductCssSelectorSchema {
+                source_listing_id: None,
+                title: Some(text_rule("h1")),
+                description: Some(text_rule_all("p.desc")),
+                price: Some(text_rule("span.price")),
+                state: Some(text_rule("button")),
+                images: None,
+                ..required_only_schema()
+            };
+
+            let result = schema
+                .apply(&html)
+                .unwrap_or_else(|err| panic!("a page without a name must apply: {err}"));
+
+            assert_eq!(result.title(), None);
+            assert_eq!(result.price.as_deref(), Some("10.00 EUR"));
+            assert_eq!(result.state(), Some("Add to basket"));
         }
 
         #[test]
@@ -1670,13 +1786,13 @@ mod tests {
     fn required_only_schema() -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         }
     }
@@ -1704,8 +1820,8 @@ mod tests {
             .apply(&html)
             .unwrap_or_else(|err| panic!("optional miss must not fail the page: {err}"));
 
-        assert_eq!(result.title, "T");
-        assert_eq!(result.state, "ok");
+        assert_eq!(result.title.as_deref(), Some("T"));
+        assert_eq!(result.state.as_deref(), Some("ok"));
         assert!(result.description.is_empty());
     }
 
@@ -1721,7 +1837,7 @@ mod tests {
             .apply(&html)
             .unwrap_or_else(|err| panic!("optional miss must not fail the page: {err}"));
 
-        assert_eq!(result.title, "T");
+        assert_eq!(result.title.as_deref(), Some("T"));
         assert_eq!(result.price, None);
     }
 
@@ -1742,19 +1858,21 @@ mod tests {
         assert_eq!(result.price_estimate_max, None);
     }
 
+    /// The title rule anchors the schema: a title selector that finds no element fails the
+    /// page, whatever the other rules miss.
     #[test]
-    fn should_still_fail_closed_when_required_rule_matches_nothing_beside_optional_miss() {
+    fn should_still_fail_closed_when_the_title_rule_matches_nothing_beside_optional_miss() {
         let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
             description: Some(text_rule_all("p.desc")),
-            state: text_rule("#missing-state"),
+            title: Some(text_rule("#missing-title")),
             ..required_only_schema()
         };
 
         let err = schema.apply(&html).unwrap_err();
 
         assert!(
-            matches!(err, ApplySchemaError::State(_)),
+            matches!(err, ApplySchemaError::Title(_)),
             "unexpected variant: {err}"
         );
     }
@@ -1793,12 +1911,12 @@ mod tests {
     fn should_count_only_the_extracted_fields_the_page_filled() {
         let product = RawExtractedProduct {
             source_listing_id: "SKU-1".to_owned(),
-            title: "Chair".to_owned(),
+            title: Some("Chair".to_owned()),
             description: vec![String::new(), "  ".to_owned()],
             price: Some("100 EUR".to_owned()),
             price_estimate_min: Some(String::new()),
             price_estimate_max: None,
-            state: "In Stock".to_owned(),
+            state: Some("In Stock".to_owned()),
             images: vec!["/chair.jpg".to_owned()],
             raw_attributes: BTreeMap::from([
                 ("material".to_owned(), vec!["oak".to_owned()]),
@@ -1815,7 +1933,7 @@ mod tests {
         let html = page_without_optional_elements();
         // `title` is the first required rule, ahead of every optional rule but the identity.
         let schema = ProductCssSelectorSchema {
-            title: text_rule("h1.missing"),
+            title: Some(text_rule("h1.missing")),
             description: Some(text_rule_all("p.desc")),
             price: Some(text_rule("span.price")),
             ..required_only_schema()
@@ -1856,46 +1974,46 @@ mod tests {
         let schema = match field {
             "source_listing_id" => ProductCssSelectorSchema {
                 source_listing_id: Some(bad),
-                title: good_h1,
+                title: Some(good_h1),
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: good_state,
-                images: good_img,
+                state: Some(good_state),
+                images: Some(good_img),
                 raw_attributes: Default::default(),
             },
             "title" => ProductCssSelectorSchema {
                 source_listing_id: Some(good_id),
-                title: bad,
+                title: Some(bad),
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: good_state,
-                images: good_img,
+                state: Some(good_state),
+                images: Some(good_img),
                 raw_attributes: Default::default(),
             },
             "state" => ProductCssSelectorSchema {
                 source_listing_id: Some(good_id),
-                title: good_h1,
+                title: Some(good_h1),
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: bad,
-                images: good_img,
+                state: Some(bad),
+                images: Some(good_img),
                 raw_attributes: Default::default(),
             },
             "images" => ProductCssSelectorSchema {
                 source_listing_id: Some(good_id),
-                title: good_h1,
+                title: Some(good_h1),
                 description: None,
                 price: None,
                 price_estimate_min: None,
                 price_estimate_max: None,
-                state: good_state,
-                images: bad,
+                state: Some(good_state),
+                images: Some(bad),
                 raw_attributes: Default::default(),
             },
             _ => unreachable!(),
@@ -1918,13 +2036,13 @@ mod tests {
         let html = Html::parse_document(product_html());
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("!!! invalid !!!")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         // We only care that the error exists and mentions the field name.
@@ -1937,13 +2055,13 @@ mod tests {
         let html = page_without_optional_elements();
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: Some(text_rule("!!! invalid !!!")),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
@@ -1966,13 +2084,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("div.gallery img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("div.gallery img", "src")),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
@@ -1992,13 +2110,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let err = schema.apply(&html).unwrap_err();
@@ -2026,13 +2144,13 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("div.gallery img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("div.gallery img", "src")),
             raw_attributes: Default::default(),
         };
 
@@ -2051,18 +2169,18 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: ExtractionRule {
+            state: Some(text_rule("#state")),
+            images: Some(ExtractionRule {
                 selector: CssSelector::from("img"),
                 additional_selectors: vec![],
                 extract: ExtractionKind::ImageUrl,
                 cardinality: ExtractionCardinality::All,
-            },
+            }),
             raw_attributes: Default::default(),
         };
 
@@ -2082,12 +2200,12 @@ mod tests {
             </body></html>"#,
         );
         let schema = ProductCssSelectorSchema {
-            images: ExtractionRule {
+            images: Some(ExtractionRule {
                 selector: CssSelector::from("img"),
                 additional_selectors: vec![],
                 extract: ExtractionKind::ImageUrl,
                 cardinality: ExtractionCardinality::All,
-            },
+            }),
             ..required_only_schema()
         };
 
@@ -2120,7 +2238,7 @@ mod tests {
         let result = full_schema().apply(&html).unwrap();
 
         assert_eq!(result.source_listing_id, "SKU-42");
-        assert_eq!(result.title, "Biedermeier Chair");
+        assert_eq!(result.title.as_deref(), Some("Biedermeier Chair"));
         assert_eq!(
             result.description,
             vec!["A beautiful antique chair", "Circa 1830, walnut wood"]
@@ -2128,7 +2246,7 @@ mod tests {
         assert_eq!(result.price, Some("€ 1.200".to_string()));
         assert_eq!(result.price_estimate_min, None);
         assert_eq!(result.price_estimate_max, None);
-        assert_eq!(result.state, "In Stock");
+        assert_eq!(result.state.as_deref(), Some("In Stock"));
         assert_eq!(
             result.images,
             vec!["/images/chair-front.jpg", "/images/chair-side.jpg"]
@@ -2147,24 +2265,24 @@ mod tests {
         );
         let schema = ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule("h1"),
+            title: Some(text_rule("h1")),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: attr_rule_all("img", "src"),
+            state: Some(text_rule("#state")),
+            images: Some(attr_rule_all("img", "src")),
             raw_attributes: Default::default(),
         };
         let result = schema.apply(&html).unwrap();
 
         assert_eq!(result.source_listing_id, "ITEM-1");
-        assert_eq!(result.title, "Vintage Vase");
+        assert_eq!(result.title.as_deref(), Some("Vintage Vase"));
         assert!(result.description.is_empty());
         assert_eq!(result.price, None);
         assert_eq!(result.price_estimate_min, None);
         assert_eq!(result.price_estimate_max, None);
-        assert_eq!(result.state, "sold");
+        assert_eq!(result.state.as_deref(), Some("sold"));
         assert_eq!(result.images, vec!["vase.jpg"]);
     }
 
@@ -2472,24 +2590,24 @@ mod tests {
     #[test]
     fn should_capture_the_state_text_raw() {
         let (_, mut schema) = minimal_schema("");
-        schema.state.extract = ExtractionKind::AttributeOrText {
+        schema.state.as_mut().unwrap().extract = ExtractionKind::AttributeOrText {
             name: "value".into(),
         };
         let extraction = schema
             .extract(&Html::parse_document(STATE_TEXT_PAGE))
             .unwrap();
-        assert_eq!(extraction.raw.state, "Secure this piece");
+        assert_eq!(extraction.raw.state.as_deref(), Some("Secure this piece"));
     }
 
     fn json_ld_schema() -> ProductCssSelectorSchema {
         use crate::scraper::css_selector::rule::JsonLdOfferProperty;
         let (_, mut schema) = minimal_schema("");
         let script = r#"script[type="application/ld+json"]"#;
-        schema.state.selector = script.into();
-        schema.state.extract = ExtractionKind::JsonLdOffer {
+        schema.state.as_mut().unwrap().selector = script.into();
+        schema.state.as_mut().unwrap().extract = ExtractionKind::JsonLdOffer {
             property: JsonLdOfferProperty::Availability,
         };
-        let mut price = schema.title.clone();
+        let mut price = schema.title.clone().unwrap();
         price.selector = script.into();
         price.extract = ExtractionKind::JsonLdOffer {
             property: JsonLdOfferProperty::Price,
@@ -2511,7 +2629,7 @@ mod tests {
             r#"{"price":"1850.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}"#,
         );
         let raw = json_ld_schema().extract(&page).unwrap().raw;
-        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.state.as_deref(), Some("https://schema.org/InStock"));
         assert_eq!(raw.price.as_deref(), Some("1850.00 USD"));
         assert!(PlausibilityFindings::of(&raw).as_slice().is_empty());
     }
@@ -2523,21 +2641,17 @@ mod tests {
             r#"{"price":"0.00","priceCurrency":"GBP","availability":"https://schema.org/InStock"}"#,
         );
         let raw = json_ld_schema().extract(&page).unwrap().raw;
-        assert_eq!(raw.state, "https://schema.org/InStock");
+        assert_eq!(raw.state.as_deref(), Some("https://schema.org/InStock"));
         assert_eq!(raw.price, None);
     }
 
+    /// A blank JSON-LD availability is no value, like a blank element's text: the state is left
+    /// out and the listing keeps its availability.
     #[test]
-    fn should_check_a_json_ld_value_like_any_other() {
+    fn should_leave_out_a_blank_json_ld_value_like_any_other() {
         let page = json_ld_page(r#"{"price":"1850.00","availability":" "}"#);
         let raw = json_ld_schema().extract(&page).unwrap().raw;
-        assert!(
-            PlausibilityFindings::of(&raw)
-                .as_slice()
-                .contains(&PlausibilityFinding {
-                    field: PlausibilityField::State,
-                    check: PlausibilityCheck::Blank,
-                })
-        );
+        assert_eq!(raw.state, None);
+        assert_eq!(raw.price.as_deref(), Some("1850.00"));
     }
 }

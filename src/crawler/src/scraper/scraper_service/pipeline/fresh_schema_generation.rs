@@ -140,7 +140,6 @@ impl ScraperServiceImpl {
                     fresh_schema: true,
                     cached_schema_index: None,
                     score: None,
-                    carried_forward_title: None,
                 })
             }
             GeneratedSchemaReviewOutcome::PendingReview(review_id) => {

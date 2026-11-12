@@ -51,18 +51,18 @@ fn rule(selector: &str) -> ExtractionRule {
 fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: Some(rule("span.id")),
-        title: rule(title_selector),
+        title: Some(rule(title_selector)),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule("span.state"),
-        images: ExtractionRule {
+        state: Some(rule("span.state")),
+        images: Some(ExtractionRule {
             selector: "img.product".into(),
             additional_selectors: vec![],
             extract: ExtractionKind::Attribute { name: "src".into() },
             cardinality: ExtractionCardinality::All,
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }
@@ -1131,7 +1131,7 @@ async fn should_refuse_restoring_over_a_newer_live_change_and_restore_no_list_to
         "{refused:?}"
     );
     let mut live_edit = schema("h1");
-    live_edit.title = rule("h1.live");
+    live_edit.title = Some(rule("h1.live"));
     assert_eq!(
         live_schemas(&pool, &edited_source).await,
         Some(vec![live_edit])

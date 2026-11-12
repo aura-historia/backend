@@ -198,6 +198,9 @@ impl PlausibilityFinding {
             // Live schemas that read a price element keep capturing; the matrix shows the finding
             // and `blocks_approval` keeps such a candidate out of approval.
             (State, PlausibilityCheck::PriceText) => PlausibilityImpact::ReportOnly,
+            // Every field is optional: a page that leaves its title or state empty is captured
+            // without it, as without the element.
+            (Title | State, PlausibilityCheck::Blank) => PlausibilityImpact::ReportOnly,
             (_, MarkupTokens) | (Title | State, _) | (SourceListingId, InvalidIdentifier) => {
                 PlausibilityImpact::RejectsCandidate
             }
@@ -220,23 +223,19 @@ impl PlausibilityFinding {
     /// Whether the finding keeps a schema out of approval, deterministic and a review agent's.
     /// A repeated image does not: capture keeps each image URL once, so a gallery that repeats
     /// its featured photo loses nothing, and no selector can tell that repeat from a gallery
-    /// image. It still lowers the candidate's rank and shows in the schema matrix.
+    /// image. It still lowers the candidate's rank and shows in the schema matrix. Neither does
+    /// a blank identity, title or state: a page may leave any field out, and a blank identity
+    /// is captured under the hash of the page's URL.
     pub fn blocks_approval(&self) -> bool {
         !matches!(
             (&self.field, self.check),
             (
                 PlausibilityField::Images,
                 PlausibilityCheck::DuplicateValues
-            )
-        )
-    }
-
-    /// A blank `title` or `state`: the page leaves a required value empty.
-    fn is_missing_required_value(&self) -> bool {
-        matches!(
-            (&self.field, self.check),
-            (
-                PlausibilityField::Title | PlausibilityField::State,
+            ) | (
+                PlausibilityField::SourceListingId
+                    | PlausibilityField::Title
+                    | PlausibilityField::State,
                 PlausibilityCheck::Blank
             )
         )
@@ -274,7 +273,10 @@ impl PlausibilityFindings {
             PlausibilityField::SourceListingId,
             identity_checks(&raw.source_listing_id),
         );
-        report(PlausibilityField::Title, title_checks(&raw.title));
+        report(
+            PlausibilityField::Title,
+            raw.title.as_deref().map(title_checks).unwrap_or_default(),
+        );
         report(
             PlausibilityField::Description,
             description_checks(&raw.description),
@@ -289,7 +291,10 @@ impl PlausibilityFindings {
                 price.as_deref().map(price_checks).unwrap_or_default(),
             );
         }
-        report(PlausibilityField::State, state_checks(&raw.state));
+        report(
+            PlausibilityField::State,
+            raw.state.as_deref().map(state_checks).unwrap_or_default(),
+        );
         report(PlausibilityField::Images, image_checks(&raw.images));
         for (key, values) in &raw.raw_attributes {
             report(
@@ -343,34 +348,6 @@ impl PlausibilityFindings {
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         (!reasons.is_empty()).then(|| format!("implausible extraction: {}", reasons.join("; ")))
-    }
-
-    /// The rejecting findings when each one is a blank `title` or `state`: the extraction
-    /// fails only because the page leaves a required value empty where the schema found
-    /// its element. `None` when nothing rejects the extraction or something else rejects
-    /// it too.
-    pub(crate) fn missing_required_values(&self) -> Option<Self> {
-        let rejecting = self
-            .with_impact(PlausibilityImpact::RejectsCandidate)
-            .cloned()
-            .collect::<Vec<_>>();
-        (!rejecting.is_empty()
-            && rejecting
-                .iter()
-                .all(|finding| finding.is_missing_required_value()))
-        .then_some(Self(rejecting))
-    }
-
-    /// Whether a blank `title` is the only finding that rejects the extraction: every other
-    /// required value, the state among them, is there.
-    pub(crate) fn rejects_only_for_blank_title(&self) -> bool {
-        self.missing_required_values().is_some_and(|missing| {
-            missing.as_slice()
-                == [PlausibilityFinding::new(
-                    PlausibilityField::Title,
-                    PlausibilityCheck::Blank,
-                )]
-        })
     }
 
     fn with_impact(
@@ -690,12 +667,12 @@ mod tests {
     fn plausible() -> RawExtractedProduct {
         RawExtractedProduct {
             source_listing_id: "SKU-42".to_owned(),
-            title: "Biedermeier Chair".to_owned(),
+            title: Some("Biedermeier Chair".to_owned()),
             description: vec!["Walnut veneer, circa 1830.".to_owned()],
             price: Some("£1,250".to_owned()),
             price_estimate_min: None,
             price_estimate_max: None,
-            state: "In stock".to_owned(),
+            state: Some("In stock".to_owned()),
             images: vec!["/a.jpg".to_owned(), "/b.jpg".to_owned()],
             raw_attributes: Default::default(),
         }
@@ -716,7 +693,7 @@ mod tests {
         #[test]
         fn should_accept_a_free_text_state_and_a_price_on_application_label() {
             let mut raw = plausible();
-            raw.state = "Viewing by appointment only.".to_owned();
+            raw.state = Some("Viewing by appointment only.".to_owned());
             raw.price = Some(
                 "POA – Please \n\n   contact us\n\nif you are interested in this product."
                     .to_owned(),
@@ -737,10 +714,13 @@ mod tests {
         #[test]
         fn should_accept_a_state_and_price_of_exactly_label_length() {
             let mut raw = plausible();
-            raw.state = format!("  {}  ", "s".repeat(MAX_LABEL_CHARS));
+            raw.state = Some(format!("  {}  ", "s".repeat(MAX_LABEL_CHARS)));
             raw.price = Some(format!("£1{}", " 0".repeat((MAX_LABEL_CHARS - 2) / 2)));
 
-            assert_eq!(collapsed_char_count(&raw.state), MAX_LABEL_CHARS);
+            assert_eq!(
+                raw.state.as_deref().map(collapsed_char_count),
+                Some(MAX_LABEL_CHARS)
+            );
             assert_eq!(
                 raw.price.as_deref().map(collapsed_char_count),
                 Some(MAX_LABEL_CHARS)
@@ -794,104 +774,13 @@ mod tests {
         }
     }
 
-    mod missing_required_values {
-        use super::*;
-
-        #[test]
-        fn should_name_the_blank_title_when_it_alone_rejects_the_extraction() {
-            let mut raw = plausible();
-            raw.title = String::new();
-            raw.images = vec!["/a.jpg".to_owned(), "/a.jpg".to_owned()];
-
-            let missing = PlausibilityFindings::of(&raw).missing_required_values();
-
-            assert_eq!(
-                missing.as_ref().map(PlausibilityFindings::as_slice),
-                Some([finding(Title, Blank)].as_slice())
-            );
-        }
-
-        #[test]
-        fn should_name_every_blank_required_value() {
-            let mut raw = plausible();
-            raw.title = " ".to_owned();
-            raw.state = String::new();
-
-            let missing = PlausibilityFindings::of(&raw).missing_required_values();
-
-            assert_eq!(
-                missing.map(|findings| findings.to_string()),
-                Some("`title` is blank; `state` is blank".to_owned())
-            );
-        }
-
-        #[test]
-        fn should_name_nothing_when_another_finding_also_rejects_the_extraction() {
-            let mut raw = plausible();
-            raw.title = String::new();
-            raw.state = "Sold .badge { color: red; }".to_owned();
-
-            assert_eq!(
-                PlausibilityFindings::of(&raw).missing_required_values(),
-                None
-            );
-        }
-
-        #[test]
-        fn should_tell_a_blank_title_alone_from_other_missing_values() {
-            let mut blank_title = plausible();
-            blank_title.title = String::new();
-            let mut blank_title_and_state = blank_title.clone();
-            blank_title_and_state.state = String::new();
-            let mut blank_state = plausible();
-            blank_state.state = String::new();
-
-            assert!(PlausibilityFindings::of(&blank_title).rejects_only_for_blank_title());
-            assert!(
-                !PlausibilityFindings::of(&blank_title_and_state).rejects_only_for_blank_title()
-            );
-            assert!(!PlausibilityFindings::of(&blank_state).rejects_only_for_blank_title());
-            assert!(!PlausibilityFindings::of(&plausible()).rejects_only_for_blank_title());
-        }
-
-        #[test]
-        fn should_name_nothing_when_nothing_rejects_the_extraction() {
-            let mut raw = plausible();
-            raw.source_listing_id = String::new();
-
-            assert_eq!(
-                PlausibilityFindings::of(&raw).missing_required_values(),
-                None
-            );
-        }
-    }
-
     mod rejecting_findings {
         use super::*;
 
         #[test]
-        fn should_reject_a_blank_title_or_state() {
-            let mut raw = plausible();
-            raw.title = " \n".to_owned();
-            raw.state = "\u{a0}".to_owned();
-
-            let findings = PlausibilityFindings::of(&raw);
-
-            assert_eq!(
-                findings.as_slice(),
-                [finding(Title, Blank), finding(State, Blank)]
-            );
-            assert!(findings.rejects_candidate());
-            assert_eq!(
-                findings.rejection_reason().as_deref(),
-                Some("implausible extraction: `title` is blank; `state` is blank")
-            );
-        }
-
-        #[test]
         fn should_reject_a_state_longer_than_a_label() {
             let mut raw = plausible();
-            raw.state = "word ".repeat(30);
+            raw.state = Some("word ".repeat(30));
 
             let findings = PlausibilityFindings::of(&raw);
 
@@ -912,7 +801,7 @@ mod tests {
                 "Prijs: 95",
             ] {
                 let mut raw = plausible();
-                raw.state = price.to_owned();
+                raw.state = Some(price.to_owned());
 
                 let findings = PlausibilityFindings::of(&raw);
 
@@ -935,7 +824,7 @@ mod tests {
                 "In winkelwagen € 95",
             ] {
                 let mut raw = plausible();
-                raw.state = state.to_owned();
+                raw.state = Some(state.to_owned());
 
                 assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
             }
@@ -944,7 +833,7 @@ mod tests {
         #[test]
         fn should_report_price_text_in_a_state_without_rejecting_the_candidate() {
             let mut raw = plausible();
-            raw.state = "Price: £795".to_owned();
+            raw.state = Some("Price: £795".to_owned());
 
             let findings = PlausibilityFindings::of(&raw);
 
@@ -972,7 +861,7 @@ mod tests {
                 "Enquire or Make an Offer",
             ] {
                 let mut raw = plausible();
-                raw.state = state.to_owned();
+                raw.state = Some(state.to_owned());
 
                 assert!(PlausibilityFindings::of(&raw).is_empty(), "{state}");
             }
@@ -981,7 +870,7 @@ mod tests {
         #[test]
         fn should_reject_a_state_one_character_longer_than_a_label() {
             let mut raw = plausible();
-            raw.state = "s".repeat(MAX_LABEL_CHARS + 1);
+            raw.state = Some("s".repeat(MAX_LABEL_CHARS + 1));
 
             assert_eq!(
                 PlausibilityFindings::of(&raw).as_slice(),
@@ -1034,7 +923,7 @@ mod tests {
         #[test]
         fn should_reject_inline_css_or_script_in_state_price_or_description() {
             let mut raw = plausible();
-            raw.state = "Sold .badge { color: red; }".to_owned();
+            raw.state = Some("Sold .badge { color: red; }".to_owned());
             raw.price = Some("POA .x{display:none}".to_owned());
             raw.description = vec!["Oak".to_owned(), "window.dataLayer.push({})".to_owned()];
 
@@ -1170,6 +1059,35 @@ mod tests {
     mod report_only_findings {
         use super::*;
 
+        /// Every field is optional: a page that leaves its title or state empty is captured without
+        /// it, and an approval may rest on such a page.
+        #[test]
+        fn should_report_a_blank_title_or_state_without_rejecting_or_blocking() {
+            let mut raw = plausible();
+            raw.title = Some(" \n".to_owned());
+            raw.state = Some("\u{a0}".to_owned());
+
+            let findings = PlausibilityFindings::of(&raw);
+
+            assert_eq!(
+                findings.as_slice(),
+                [finding(Title, Blank), finding(State, Blank)]
+            );
+            assert!(!findings.rejects_candidate());
+            assert!(!findings.blocks_approval());
+        }
+
+        /// A page without a title or state rule, or whose rule matched nothing, reports nothing.
+        #[test]
+        fn should_report_nothing_for_a_missing_title_or_state() {
+            let mut raw = plausible();
+            raw.title = None;
+            raw.state = None;
+
+            assert!(PlausibilityFindings::of(&raw).is_empty());
+        }
+
+        /// A blank identity is captured under the hash of the page's URL, so it blocks no approval.
         #[test]
         fn should_report_a_blank_identity_before_the_url_hash_fallback() {
             let mut raw = plausible();
@@ -1179,6 +1097,7 @@ mod tests {
 
             assert_eq!(findings.as_slice(), [finding(SourceListingId, Blank)]);
             assert!(!findings.rejects_candidate());
+            assert!(!findings.blocks_approval());
             assert_eq!(findings.rank_penalty(), 0);
             assert_eq!(findings.rejection_reason(), None);
         }

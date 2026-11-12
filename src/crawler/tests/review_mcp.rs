@@ -68,19 +68,19 @@ fn rule(selector: &str, extract: ExtractionKind) -> ExtractionRule {
 fn schema(title_selector: &str) -> ProductCssSelectorSchema {
     ProductCssSelectorSchema {
         source_listing_id: Some(rule("span.id", ExtractionKind::Text)),
-        title: rule(title_selector, ExtractionKind::Text),
+        title: Some(rule(title_selector, ExtractionKind::Text)),
         description: None,
         price: None,
         price_estimate_min: None,
         price_estimate_max: None,
-        state: rule("span.state", ExtractionKind::Text),
-        images: ExtractionRule {
+        state: Some(rule("span.state", ExtractionKind::Text)),
+        images: Some(ExtractionRule {
             cardinality: ExtractionCardinality::All,
             ..rule(
                 "img.product",
                 ExtractionKind::Attribute { name: "src".into() },
             )
-        },
+        }),
         raw_attributes: Default::default(),
     }
 }
@@ -334,6 +334,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "list_pending_reviews",
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -353,6 +354,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "list_pending_reviews",
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -384,6 +386,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         [
             "get_review",
             "inspect_page",
+            "probe_selectors",
             "refresh_matrix",
             "check_approval",
             "mark_needs_repair",
@@ -465,12 +468,35 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         .unwrap();
     assert_eq!(markdown["view"], "MARKDOWN");
     assert!(markdown["projection"].as_str().unwrap().contains("chair"));
+    // A probe answers only what each selector matches, on a review page and a URL of the shop.
+    let probed = reviewer
+        .call(
+            "probe_selectors",
+            json!({
+                "review_id": product_schema.to_string(),
+                "pages": [{ "review_page_id": page_id }, { "url": format!("{SHOP}/item/table") }],
+                "selectors": [{ "selector": "h1" }, { "selector": "h1[" }],
+            }),
+        )
+        .await
+        .unwrap();
+    let probed_pages = probed["pages"].as_array().unwrap();
+    assert_eq!(probed_pages.len(), 2);
+    assert_eq!(probed_pages[1]["url"], format!("{SHOP}/item/table"));
+    for page in probed_pages {
+        assert_eq!(page["results"][0]["matches"], 1, "{page}");
+        assert!(page["results"][1]["error"].is_string(), "{page}");
+    }
 
     // Every tool that takes a URL refuses one off the review's ListingSource before a request.
     for (tool, arguments) in [
         (
             "inspect_page",
             json!({ "review_id": product_schema.to_string(), "url": "https://elsewhere.example/item/chair" }),
+        ),
+        (
+            "probe_selectors",
+            json!({ "review_id": product_schema.to_string(), "pages": [{ "url": "https://elsewhere.example/item/chair" }], "selectors": [{ "selector": "h1" }] }),
         ),
         (
             "add_review_page",

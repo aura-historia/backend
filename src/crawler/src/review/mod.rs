@@ -16,5 +16,6 @@ pub mod product_markup;
 pub mod readers;
 pub mod repository;
 pub mod schema_evaluation;
+pub mod selector_probe;
 pub mod server;
 pub mod source_url;

@@ -225,8 +225,9 @@ fn matched_template(
         .iter()
         .filter(|evaluation| evaluation.apply_ok)
         .filter_map(|evaluation| evaluation.extracted.as_ref())
-        .map(|raw| raw.title.trim())
-        .find(|title| !title.is_empty() && matched.is_notice(title))
+        .filter_map(RawExtractedProduct::title)
+        .map(str::trim)
+        .find(|title| matched.is_notice(title))
         .map(str::to_owned);
     MatchedRemovedPageTemplate {
         template_index: matched.template_index,
@@ -413,11 +414,17 @@ pub(crate) fn optional_rules_missing_on_every_page(
     misses
 }
 
-/// A rule whose miss leaves the field empty instead of failing the page. `images`
-/// is excluded because its soft case (an empty gallery) is decided by the page-level
-/// apply result, not by match counts.
+/// A rule whose miss leaves the field empty instead of failing the page: every rule but the
+/// anchoring `title` (see [`selector_field_anchors_page`]) and `images`, whose empty gallery is
+/// decided by the page-level apply result, not by match counts.
 pub(crate) fn selector_field_is_soft(field: &SelectorFieldEvaluation) -> bool {
-    !field.required && field.error.is_none() && field.field != "images"
+    field.error.is_none() && !selector_field_anchors_page(field) && field.field != "images"
+}
+
+/// The `title` rule anchors a schema to its template: when its selectors find no element, the
+/// schema does not apply to the page (`ProductCssSelectorSchema::apply`).
+pub(crate) fn selector_field_anchors_page(field: &SelectorFieldEvaluation) -> bool {
+    field.field == "title"
 }
 
 /// Primary and every additional selector matched nothing; for a text rule, nothing with
@@ -542,28 +549,25 @@ fn evaluate_schema_fields(
     skipped_image_elements: Option<usize>,
 ) -> Vec<SelectorFieldEvaluation> {
     let mut fields = Vec::new();
-    // `required` mirrors `ProductCssSelectorSchema::apply`: only `title` and `state`
-    // fail the page on a miss.
-    if let Some(rule) = &schema.source_listing_id {
-        fields.push(evaluate_rule("source_listing_id", rule, html, false));
+    let single_rules = [
+        ("source_listing_id", &schema.source_listing_id),
+        ("title", &schema.title),
+        ("description", &schema.description),
+        ("price", &schema.price),
+        ("price_estimate_min", &schema.price_estimate_min),
+        ("price_estimate_max", &schema.price_estimate_max),
+        ("state", &schema.state),
+    ];
+    for (field, rule) in single_rules {
+        if let Some(rule) = rule {
+            fields.push(evaluate_rule(field, rule, html));
+        }
     }
-    fields.push(evaluate_rule("title", &schema.title, html, true));
-    if let Some(rule) = &schema.description {
-        fields.push(evaluate_rule("description", rule, html, false));
+    if let Some(rule) = &schema.images {
+        fields.push(evaluate_images_rule(rule, html, skipped_image_elements));
     }
-    if let Some(rule) = &schema.price {
-        fields.push(evaluate_rule("price", rule, html, false));
-    }
-    if let Some(rule) = &schema.price_estimate_min {
-        fields.push(evaluate_rule("price_estimate_min", rule, html, false));
-    }
-    if let Some(rule) = &schema.price_estimate_max {
-        fields.push(evaluate_rule("price_estimate_max", rule, html, false));
-    }
-    fields.push(evaluate_rule("state", &schema.state, html, true));
-    fields.push(evaluate_images_rule(schema, html, skipped_image_elements));
     for (field, rule) in &schema.raw_attributes {
-        fields.push(evaluate_rule(field, rule, html, false));
+        fields.push(evaluate_rule(field, rule, html));
     }
     fields
 }
@@ -572,22 +576,17 @@ fn evaluate_schema_fields(
 /// matched elements it skipped for having no value ([`skipped_image_elements`]). A
 /// failed images rule fails the page, whose error the page evaluation already carries.
 fn evaluate_images_rule(
-    schema: &ProductCssSelectorSchema,
+    rule: &ExtractionRule,
     html: &Html,
     skipped_element_count: Option<usize>,
 ) -> SelectorFieldEvaluation {
     SelectorFieldEvaluation {
         skipped_element_count,
-        ..evaluate_rule("images", &schema.images, html, false)
+        ..evaluate_rule("images", rule, html)
     }
 }
 
-fn evaluate_rule(
-    field: &str,
-    rule: &ExtractionRule,
-    html: &Html,
-    required: bool,
-) -> SelectorFieldEvaluation {
+fn evaluate_rule(field: &str, rule: &ExtractionRule, html: &Html) -> SelectorFieldEvaluation {
     let selector = rule.selector.to_string();
     let parsed = match Selector::parse(&selector) {
         Ok(parsed) => parsed,
@@ -599,7 +598,6 @@ fn evaluate_rule(
                 selector_match_count: None,
                 additional_selector_match_counts: Vec::new(),
                 error: Some(error),
-                required,
                 skipped_element_count: None,
                 empty_element_count: 0,
             };
@@ -630,7 +628,6 @@ fn evaluate_rule(
         selector_match_count,
         additional_selector_match_counts,
         error: None,
-        required,
         skipped_element_count: None,
         empty_element_count,
     }
@@ -668,13 +665,13 @@ mod tests {
     fn schema(title_selector: &str) -> ProductCssSelectorSchema {
         ProductCssSelectorSchema {
             source_listing_id: Some(text_rule("#product-id")),
-            title: text_rule(title_selector),
+            title: Some(text_rule(title_selector)),
             description: None,
             price: None,
             price_estimate_min: None,
             price_estimate_max: None,
-            state: text_rule("#state"),
-            images: image_rule("img"),
+            state: Some(text_rule("#state")),
+            images: Some(image_rule("img")),
             raw_attributes: Default::default(),
         }
     }
@@ -980,12 +977,13 @@ mod tests {
             );
         }
 
-        /// A notice page whose notice no candidate extracts as a plausible title reports none.
+        /// A notice page no candidate extracts, its product template's title missing, reports no
+        /// product title.
         #[test]
         fn should_report_no_product_title_on_a_notice_page_no_candidate_extracts() {
             let matches = removed_page_matches(
                 &[notice_template(".notice", "no longer available")],
-                &[schema(".notice")],
+                &[schema("h1")],
                 &[matrix_page(
                     "WAITING_PAGE",
                     "https://example.com/sold",
@@ -1343,7 +1341,7 @@ mod tests {
     #[test]
     fn should_cover_product_page_when_images_are_absent() {
         let schemas = vec![ProductCssSelectorSchema {
-            images: image_rule("#gallery img"),
+            images: Some(image_rule("#gallery img")),
             ..schema("h1")
         }];
         let pages = vec![SchemaReviewPageInput {
@@ -1367,7 +1365,7 @@ mod tests {
     fn should_reject_candidate_when_price_and_state_contain_css_rules() {
         let schemas = vec![ProductCssSelectorSchema {
             price: Some(text_rule("#notice")),
-            state: text_rule("#notice"),
+            state: Some(text_rule("#notice")),
             ..schema("h1")
         }];
         let pages = vec![SchemaReviewPageInput {
@@ -1416,8 +1414,9 @@ mod tests {
         );
     }
 
-    /// A title element the page leaves empty shows as a blank title next to the rest of
-    /// the extraction; a title selector that matches nothing shows as an apply error.
+    /// A title element the page leaves empty shows as a blank title next to the rest of the
+    /// extraction, which applies; a title selector that matches nothing shows as an apply
+    /// error, since the title rule anchors the schema to its template.
     #[test]
     fn should_tell_an_empty_title_element_from_an_unmatched_title_selector() {
         let pages = vec![
@@ -1441,17 +1440,17 @@ mod tests {
             )
         );
         assert!(unmatched.extracted.is_none());
-        assert!(!empty.apply_ok);
-        assert_eq!(
-            empty.error.as_deref(),
-            Some("implausible extraction: `title` is blank")
-        );
+        assert!(empty.apply_ok);
+        assert_eq!(empty.error, None);
         assert_eq!(
             empty.plausibility_findings.as_slice(),
             [finding(PlausibilityField::Title, PlausibilityCheck::Blank)]
         );
         assert_eq!(
-            empty.extracted.as_ref().map(|raw| raw.state.as_str()),
+            empty
+                .extracted
+                .as_ref()
+                .and_then(|raw| raw.state.as_deref()),
             Some("Available")
         );
         let title_empty_elements = |page: &SchemaPageEvaluation| {
@@ -1468,7 +1467,7 @@ mod tests {
     fn should_accept_candidate_when_inline_style_sits_next_to_visible_text() {
         let schemas = vec![ProductCssSelectorSchema {
             price: Some(text_rule("#notice")),
-            state: text_rule("#notice"),
+            state: Some(text_rule("#notice")),
             ..schema("h1")
         }];
         let pages = vec![SchemaReviewPageInput {
@@ -1482,7 +1481,7 @@ mod tests {
 
         assert!(schema_matrix_has_required_coverage(&matrix));
         assert_eq!(
-            page.extracted.as_ref().map(|raw| raw.state.as_str()),
+            page.extracted.as_ref().and_then(|raw| raw.state.as_deref()),
             Some("Price on application")
         );
     }
@@ -1572,7 +1571,7 @@ mod tests {
     #[test]
     fn should_fail_page_when_state_is_longer_than_a_label() {
         let schemas = vec![ProductCssSelectorSchema {
-            state: text_rule("#details"),
+            state: Some(text_rule("#details")),
             ..schema("h1")
         }];
         let pages = vec![SchemaReviewPageInput {
@@ -1708,24 +1707,22 @@ mod tests {
         #[test]
         fn should_compare_only_pages_the_candidate_extracted() {
             let schemas = vec![ProductCssSelectorSchema {
-                images: ExtractionRule {
+                images: Some(ExtractionRule {
                     selector: CssSelector::from("meta[property='og:image']"),
                     additional_selectors: Vec::new(),
                     extract: ExtractionKind::ImageUrl,
                     cardinality: ExtractionCardinality::All,
-                },
+                }),
                 ..schema("h1")
             }];
             let share_image =
                 "<meta property=\"og:image\" content=\"https://shop.example/share.jpg\">";
-            let mut without_state = product_page("lamp", share_image);
-            without_state.raw_html = without_state
-                .raw_html
-                .replace("<span id=\"state\">Available</span>", "");
+            let mut untitled_template = product_page("lamp", share_image);
+            untitled_template.raw_html = untitled_template.raw_html.replace("h1>", "h2>");
             let pages = vec![
                 product_page("ewer", share_image),
                 product_page("saint", share_image),
-                without_state,
+                untitled_template,
             ];
 
             let matrix = evaluate_schema_matrix_for_inputs(&schemas, &pages);
@@ -1764,9 +1761,10 @@ mod tests {
             assert!(!schema_matrix_deterministic_approval_ok(&matrix));
         }
 
-        /// The capture falls back to the URL hash, which changes when the product moves.
+        /// The capture falls back to the URL hash, as ingestion does for a listing without an
+        /// identity, so a schema without an identity rule may be approved.
         #[test]
-        fn should_block_deterministic_approval_when_the_schema_has_no_identity_rule() {
+        fn should_approve_a_schema_without_an_identity_rule() {
             let schemas = vec![ProductCssSelectorSchema {
                 source_listing_id: None,
                 ..schema("h1")
@@ -1783,7 +1781,7 @@ mod tests {
                         PlausibilityCheck::Blank,
                     )]
             }));
-            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
         }
 
         /// Vauclair's `<body class>` carries the post id and the product's tags, so it
@@ -1833,7 +1831,7 @@ mod tests {
         fn should_block_deterministic_approval_when_another_candidate_covers_a_rejected_page() {
             let schemas = vec![
                 ProductCssSelectorSchema {
-                    state: text_rule("#details"),
+                    state: Some(text_rule("#details")),
                     ..schema("h1")
                 },
                 schema("h1"),
@@ -1856,7 +1854,7 @@ mod tests {
 
         fn schema_with_images(selector: &str) -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
-                images: image_rule(selector),
+                images: Some(image_rule(selector)),
                 ..schema("h1")
             }
         }
@@ -1984,12 +1982,12 @@ mod tests {
 
             fn schema_with_image_urls(selector: &str) -> ProductCssSelectorSchema {
                 ProductCssSelectorSchema {
-                    images: ExtractionRule {
+                    images: Some(ExtractionRule {
                         selector: CssSelector::from(selector),
                         additional_selectors: Vec::new(),
                         extract: ExtractionKind::ImageUrl,
                         cardinality: ExtractionCardinality::All,
-                    },
+                    }),
                     ..schema("h1")
                 }
             }
@@ -2087,12 +2085,12 @@ mod tests {
     #[test]
     fn should_preserve_image_candidate_groups_in_review_extraction() {
         let schema = ProductCssSelectorSchema {
-            images: ExtractionRule {
+            images: Some(ExtractionRule {
                 selector: CssSelector::from("img"),
                 additional_selectors: Vec::new(),
                 extract: ExtractionKind::ImageUrl,
                 cardinality: ExtractionCardinality::All,
-            },
+            }),
             ..schema("h1")
         };
         let pages = vec![SchemaReviewPageInput {
@@ -2138,16 +2136,16 @@ mod tests {
         fn identity_schema(identity: ExtractionRule) -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
                 source_listing_id: Some(identity),
-                state: text_rule(".stock"),
+                state: Some(text_rule(".stock")),
                 ..schema("h1")
             }
         }
 
         /// The active-template schema: its identity and its state are the add-to-cart
-        /// button, so it does not apply to a sold page.
+        /// button, which a sold page lacks, so on a sold page it captures neither.
         fn button_schema() -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
-                state: text_rule("button.single_add_to_cart_button"),
+                state: Some(text_rule("button.single_add_to_cart_button")),
                 ..identity_schema(attribute_rule("button.single_add_to_cart_button", "value"))
             }
         }
@@ -2260,7 +2258,6 @@ mod tests {
                 &captured,
             );
 
-            assert!(!matrix.candidates[0].pages[0].apply_ok);
             assert_eq!(identity_findings_of(&matrix, 0), vec![vec![]]);
             assert_eq!(
                 identity_findings_of(&matrix, 1),
@@ -2306,9 +2303,10 @@ mod tests {
 
         /// Wick's inquiry form, Lennox Cato's SKU span and Hickmet's product-id input are
         /// absent on sold, archived and POA pages: the identity rule is applied to every
-        /// review page, and a page where it yields nothing fails the gate.
+        /// review page, and a page where it yields nothing is captured under the hash of its
+        /// URL, which blocks no approval.
         #[test]
-        fn should_block_deterministic_approval_when_the_identity_is_empty_on_a_sold_variant() {
+        fn should_report_an_identity_left_empty_on_a_sold_variant_without_blocking_approval() {
             let schemas = vec![identity_schema(attribute_rule(
                 "button.single_add_to_cart_button",
                 "value",
@@ -2330,8 +2328,8 @@ mod tests {
                     PlausibilityCheck::Blank
                 )]
             );
-            assert!(!schema_matrix_deterministic_approval_ok(&matrix));
-            assert_eq!(implausible_pages(&matrix).len(), 1);
+            assert!(schema_matrix_deterministic_approval_ok(&matrix));
+            assert!(implausible_pages(&matrix).is_empty());
         }
     }
 
@@ -2342,12 +2340,12 @@ mod tests {
 
         fn gallery_schema() -> ProductCssSelectorSchema {
             ProductCssSelectorSchema {
-                images: ExtractionRule {
+                images: Some(ExtractionRule {
                     selector: CssSelector::from("#gallery a"),
                     additional_selectors: Vec::new(),
                     extract: ExtractionKind::ImageUrl,
                     cardinality: ExtractionCardinality::All,
-                },
+                }),
                 ..schema("h1")
             }
         }
@@ -2399,12 +2397,12 @@ mod tests {
         #[test]
         fn should_count_gallery_images_without_the_attribute_of_an_attribute_rule() {
             let schema = ProductCssSelectorSchema {
-                images: ExtractionRule {
+                images: Some(ExtractionRule {
                     selector: CssSelector::from("#gallery img"),
                     additional_selectors: Vec::new(),
                     extract: ExtractionKind::Attribute { name: "src".into() },
                     cardinality: ExtractionCardinality::All,
-                },
+                }),
                 ..schema("h1")
             };
             let pages = vec![gallery_page(
@@ -2423,7 +2421,7 @@ mod tests {
         #[test]
         fn should_count_skipped_anchors_when_the_page_fails_before_its_images_rule() {
             let schema = ProductCssSelectorSchema {
-                title: text_rule("h2"),
+                title: Some(text_rule("h2")),
                 ..gallery_schema()
             };
             let pages = vec![gallery_page(
@@ -2454,7 +2452,7 @@ mod tests {
             let all_skipped = html_of("<a href=\"#\"></a>");
             let applies = gallery_schema();
             let fails_on_title = ProductCssSelectorSchema {
-                title: text_rule("h2"),
+                title: Some(text_rule("h2")),
                 ..gallery_schema()
             };
 

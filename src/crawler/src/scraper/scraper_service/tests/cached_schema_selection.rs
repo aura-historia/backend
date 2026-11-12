@@ -201,7 +201,7 @@ async fn assert_captures_second_cached_schema_after_rejecting(first: ProductCssS
 #[tokio::test]
 async fn should_try_next_cached_schema_when_title_contains_script_source() {
     assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
-        schema.title = text_rule("#tracking-title");
+        schema.title = Some(text_rule("#tracking-title"));
     }))
     .await;
 }
@@ -209,7 +209,7 @@ async fn should_try_next_cached_schema_when_title_contains_script_source() {
 #[tokio::test]
 async fn should_try_next_cached_schema_when_state_contains_inline_css() {
     assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
-        schema.state = text_rule("#inline-css");
+        schema.state = Some(text_rule("#inline-css"));
     }))
     .await;
 }
@@ -217,7 +217,7 @@ async fn should_try_next_cached_schema_when_state_contains_inline_css() {
 #[tokio::test]
 async fn should_try_next_cached_schema_when_state_is_longer_than_a_label() {
     assert_captures_second_cached_schema_after_rejecting(schema_with(|schema| {
-        schema.state = text_rule("#long-state");
+        schema.state = Some(text_rule("#long-state"));
     }))
     .await;
 }
@@ -293,8 +293,8 @@ async fn should_generate_fresh_schema_when_every_cached_extraction_is_implausibl
     let mut schema_svc = schema_service_with_cached(
         id,
         vec![
-            schema_with(|schema| schema.state = text_rule("#inline-css")),
-            schema_with(|schema| schema.title = text_rule("#tracking-title")),
+            schema_with(|schema| schema.state = Some(text_rule("#inline-css"))),
+            schema_with(|schema| schema.title = Some(text_rule("#tracking-title"))),
         ],
     );
     expect_saved_fresh_schema(&mut schema_svc, id, minimal_schema());
@@ -321,49 +321,11 @@ async fn should_generate_fresh_schema_when_every_cached_extraction_is_implausibl
 /// A cached schema finds the title element but the page leaves it empty: no schema can
 /// supply the title, so the page spends no LLM call, while a schema of another template
 /// that matches nothing does not count.
+/// Every field is optional: a page whose title element is empty is captured with the rest of
+/// its extraction, without schema work, and leaves the listing's title unchanged. The source
+/// payload keeps the blank extraction as evidence of what the page showed.
 #[tokio::test]
-async fn should_report_missing_title_without_generation_when_the_title_element_is_empty() {
-    let id = listing_source_id();
-    let url = product_url();
-    let other_template = schema_with(|schema| schema.title = text_rule("h1.product-name"));
-    let mut schema_svc = schema_service_with_cached(id, vec![other_template, item_title_schema()]);
-    schema_svc.expect_generate_single_schema_for_page().never();
-    schema_svc.expect_create_product_schemas().never();
-    schema_svc.expect_save_product_schemas().never();
-    let mut cand_svc = MockScraperCandidateService::new();
-    cand_svc
-        .expect_try_increment_listing_source_llm_calls_with_limit()
-        .never();
-    let service = service(fetcher_returning(untitled_html()), schema_svc, cand_svc);
-
-    let err = service.scrape(normal_request(&id, &url)).await.unwrap_err();
-
-    let ScraperError::MissingRequiredValue {
-        url: reported_url,
-        findings,
-    } = &err
-    else {
-        panic!("expected MissingRequiredValue, got {err:?}");
-    };
-    assert_eq!(reported_url, &url);
-    assert_eq!(
-        findings.as_slice(),
-        [PlausibilityFinding {
-            field: PlausibilityField::Title,
-            check: PlausibilityCheck::Blank,
-        }]
-    );
-    assert_eq!(
-        err.to_string(),
-        "Required value missing from 'https://example.com/products/123': `title` is blank"
-    );
-}
-
-/// A captured listing whose shop blanks the product name when the item sells: the sold state
-/// is captured under the title the listing was captured with, and the source payload keeps the
-/// blank extraction as evidence of what the page showed.
-#[tokio::test]
-async fn should_capture_the_sold_state_under_the_last_captured_title_when_the_title_goes_blank() {
+async fn should_capture_a_page_with_an_empty_title_element_and_leave_the_title_unchanged() {
     let id = listing_source_id();
     let url = product_url();
     let mut schema_svc = schema_service_with_cached(id, vec![item_title_schema()]);
@@ -375,80 +337,43 @@ async fn should_capture_the_sold_state_under_the_last_captured_title_when_the_ti
         schema_svc,
         MockScraperCandidateService::new(),
     );
-    let request = ScrapeRequest {
-        last_captured_title: Some("Brass Chandelier".to_owned()),
-        ..normal_request(&id, &url)
-    };
 
     let scraped = service
-        .scrape(request)
+        .scrape(normal_request(&id, &url))
         .await
         .unwrap()
         .unwrap_or_else(|| panic!("the sold state must be captured"));
 
-    assert_eq!(scraped.title, "Brass Chandelier");
+    assert_eq!(scraped.title, None);
     assert_eq!(
         captured_raw_value(&scraped, "title"),
-        &serde_json::json!({"action": "SET", "value": "Brass Chandelier"})
+        &serde_json::json!({"action": "UNCHANGED"})
     );
     assert_eq!(
         captured_raw_value(&scraped, "availability")["value"],
         "Sold"
     );
-    assert_eq!(scraped.raw_input.source_payload().value()["title"], "");
 }
 
-/// A page that also blanks its state carries no change worth capturing, so the carried title
-/// never stands in for it and the page stays a missing required value.
+/// A plausible extraction with a title ranks above one without.
 #[tokio::test]
-async fn should_report_missing_values_when_a_captured_page_blanks_its_title_and_state() {
+async fn should_prefer_a_titled_extraction_over_an_untitled_one() {
     let id = listing_source_id();
     let url = product_url();
-    let mut schema_svc = schema_service_with_cached(id, vec![item_title_schema()]);
-    schema_svc.expect_generate_single_schema_for_page().never();
-    let blank_state_page = untitled_html().replace("Request for more info", "");
-    let service = service(
-        fetcher_returning(blank_state_page),
-        schema_svc,
-        MockScraperCandidateService::new(),
-    );
-    let request = ScrapeRequest {
-        last_captured_title: Some("Brass Chandelier".to_owned()),
-        ..normal_request(&id, &url)
-    };
-
-    let err = service.scrape(request).await.unwrap_err();
-
-    let ScraperError::MissingRequiredValue { findings, .. } = &err else {
-        panic!("expected MissingRequiredValue, got {err:?}");
-    };
-    assert_eq!(findings.to_string(), "`title` is blank; `state` is blank");
-}
-
-/// A plausible extraction of another cached schema wins over carrying the title forward.
-#[tokio::test]
-async fn should_prefer_a_titled_extraction_over_carrying_the_title_forward() {
-    let id = listing_source_id();
-    let url = product_url();
-    let titled = schema_with(|schema| schema.title = text_rule("#product-id"));
+    let titled = schema_with(|schema| schema.title = Some(text_rule("#product-id")));
     let schema_svc = schema_service_with_cached(id, vec![item_title_schema(), titled]);
     let service = service(
         fetcher_returning(untitled_html()),
         schema_svc,
         MockScraperCandidateService::new(),
     );
-    let request = ScrapeRequest {
-        last_captured_title: Some("Brass Chandelier".to_owned()),
-        ..normal_request(&id, &url)
-    };
-
     let scraped = service
-        .scrape(request)
+        .scrape(normal_request(&id, &url))
         .await
         .unwrap()
         .unwrap_or_else(|| panic!("the titled extraction must be captured"));
 
-    assert_eq!(scraped.title, "1208922");
+    assert_eq!(scraped.title.as_deref(), Some("1208922"));
 }
 
 #[tokio::test]
@@ -506,12 +431,12 @@ async fn should_keep_valid_image_fallback_after_malformed_candidate() {
     </html>"#
         .to_string();
     let product_schema = schema_with(|schema| {
-        schema.images = ExtractionRule {
+        schema.images = Some(ExtractionRule {
             selector: CssSelector::from("img"),
             additional_selectors: vec![],
             extract: ExtractionKind::ImageUrl,
             cardinality: ExtractionCardinality::All,
-        };
+        });
     });
     let mut schema_svc = schema_service_with_cached(id, vec![product_schema]);
     schema_svc.expect_generate_single_schema_for_page().never();
@@ -541,8 +466,8 @@ async fn should_generate_single_schema_without_failed_schema_context() {
     let make_bad_schema = |title_selector: &str| {
         schema_with(|schema| {
             schema.source_listing_id = Some(text_rule("non-existent-id"));
-            schema.title = text_rule(title_selector);
-            schema.state = text_rule("non-existent-state");
+            schema.title = Some(text_rule(title_selector));
+            schema.state = Some(text_rule("non-existent-state"));
         })
     };
     let bad_generated = make_bad_schema("non-existent-title-2");
@@ -589,7 +514,7 @@ async fn should_generate_single_schema_without_failed_schema_context() {
 async fn should_fail_without_persisting_when_fresh_schema_extraction_is_implausible() {
     let id = listing_source_id();
     let url = product_url();
-    let css_state = schema_with(|schema| schema.state = text_rule("#inline-css"));
+    let css_state = schema_with(|schema| schema.state = Some(text_rule("#inline-css")));
     let mut schema_svc = schema_service_with_cached(id, vec![css_state.clone()]);
     schema_svc
         .expect_generate_single_schema_for_page()
