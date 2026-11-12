@@ -103,7 +103,7 @@ woocommerce-service = { workspace = true }
 [dev-dependencies]
 oauth-client-metadata-http = { workspace = true, features = ["loopback-test-origin"] }
 aura-historia-mcp = { workspace = true }
-jsonschema = { version = "0.60.1", default-features = false }
+jsonschema = { version = "0.61.0", default-features = false }
 schemars = { workspace = true }
 classifier-model = { workspace = true }
 shipping-core = { workspace = true, features = ["test-data"] }
