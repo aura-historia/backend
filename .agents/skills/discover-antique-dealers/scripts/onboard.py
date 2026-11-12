@@ -159,7 +159,7 @@ def ensure_location_default(api, ledger, row, ids):
 def ensure_shipping(api, ledger, row, ids):
     base = "/v1/listing-sources/" + ids["listingSourceId"]
     current = api.request("GET", base + "/shipping-default")
-    require(current["shippingProfileId"] in {None, ids.get("shippingProfileId")},
+    require(current.get("shippingProfileId") in {None, ids.get("shippingProfileId")},
             "Existing shipping default requires reconciliation")
     if not value(row, "shippingTerms"):
         require(not ids.get("shippingProfileId"), "Unexpected recorded delivery profile")
@@ -179,7 +179,7 @@ def ensure_shipping(api, ledger, row, ids):
         checkpoint(ledger, row, ids, pendingOperation=None)
     check_profile(api, row, ids)
     path = base + "/shipping-default"
-    if current["shippingProfileId"] is None:
+    if current.get("shippingProfileId") is None:
         checkpoint(ledger, row, ids, pendingOperation={"method": "PUT", "path": path})
         api.request("PUT", path, {"expectedRevision": current["revision"],
                                   "shippingProfileId": ids["shippingProfileId"]})

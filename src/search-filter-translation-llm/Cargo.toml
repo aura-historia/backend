@@ -1,0 +1,20 @@
+[package]
+name = "search-filter-translation-llm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+application = { workspace = true }
+domain-primitives = { workspace = true }
+large-language-model = { workspace = true }
+product-listing-core = { workspace = true }
+search-filter-core = { workspace = true }
+search-filter-service = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+localization = { workspace = true }
+money = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

@@ -4,6 +4,7 @@ use crate::logging::warn_in_source;
 use listing_source_core::ListingSourceId;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::network::policy::is_same_or_www_host;
@@ -21,8 +22,8 @@ use crate::spider::crawled_root::{CrawlOutcomeWrite, CrawledRoot};
 use crate::spider::discovery::frontier::{CrawlDiscovery, CrawlKind, CrawlRequest, CrawlSeeds};
 use crate::spider::discovery::page_status::RateLimitSignal;
 use crate::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace, CrawlStopReason, CrawledPage,
-    Spider, SpiderDiscoveryError,
+    CrawlBudgetScale, CrawlCompletion, CrawlDiagnostics, CrawlFailureKind, CrawlPace,
+    CrawlStopReason, CrawledPage, Spider, SpiderDiscoveryError,
 };
 use crate::spider::service::crawl_run_state::{CrawlRunState, UrlPatternReviewWait};
 use crate::spider::service::product_pattern::ProductListingPattern;
@@ -51,6 +52,15 @@ pub struct SpiderRunResult {
     /// Product pages the ListingSource stores that an incremental crawl found linked
     /// and did not fetch again; never counted in `product_urls_count`.
     pub known_product_urls_skipped: usize,
+    /// The URLs the crawl left unvisited for the next one, its frontier; `None` when the crawl
+    /// could not tell, in which case the previously stored frontier is kept.
+    pub frontier_left: Option<usize>,
+    /// Time the run spent awaiting the database for its seeds and its crawled URLs,
+    /// connection-pool waits included; URL-pattern work is not counted.
+    pub db_wait: Duration,
+    /// The crawl ran out of its wall-clock budget, not of pages it could visit
+    /// (`CrawlDiagnostics::ran_out_of_time`).
+    pub ran_out_of_time: bool,
 }
 
 /// A crawl that ended: the root it crawled and what the spider reported about it.
@@ -60,6 +70,8 @@ struct EndedCrawl {
     diagnostics: CrawlDiagnostics,
     /// `None` when the crawl could not tell what it left unvisited.
     discovery: Option<CrawlDiscovery>,
+    /// Time loading the crawl's seeds waited on the database.
+    seed_load_wait: Duration,
 }
 
 impl EndedCrawl {
@@ -269,6 +281,7 @@ pub trait SpiderService: Send + Sync {
         _crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        budget: CrawlBudgetScale,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError>;
 }
@@ -404,6 +417,7 @@ impl SpiderServiceImpl {
         pages: &[CrawledPage],
         pattern: &ProductListingPattern,
         shop_platform: Option<ShopPlatform>,
+        store_wait: &mut Duration,
     ) -> Result<Vec<SpiderUrlRecord>, SpiderServiceError> {
         if pages.is_empty() {
             return Ok(Vec::new());
@@ -414,10 +428,13 @@ impl SpiderServiceImpl {
             .map(|page| self.discovered_url(page, pattern, shop_platform))
             .collect::<Vec<_>>();
 
-        self.url_metadata_repository
+        let started = Instant::now();
+        let stored = self
+            .url_metadata_repository
             .upsert_links_batch(listing_source_id, &links)
-            .await
-            .map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
+            .await;
+        *store_wait += started.elapsed();
+        stored.map_err(|error| SpiderServiceError::UrlMetadata(Box::new(error)))
     }
 
     fn discovered_url(
@@ -463,6 +480,7 @@ impl SpiderServiceImpl {
                 &state.page_buffer,
                 &state.pattern,
                 state.shop_platform,
+                &mut state.url_store_wait,
             )
             .await?;
         record_stored_products(&stored, &mut state.stored_product_pages);
@@ -512,6 +530,7 @@ impl SpiderServiceImpl {
                     pages,
                     &state.pattern,
                     state.shop_platform,
+                    &mut state.url_store_wait,
                 )
                 .await?;
             record_stored_products(&stored, &mut state.stored_product_pages);
@@ -936,6 +955,7 @@ impl SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        budget: CrawlBudgetScale,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         let configured_root = Url::parse(crawl_root_url).map_err(|_| {
@@ -947,12 +967,15 @@ impl SpiderServiceImpl {
             })
         })?;
         let root = CrawledRoot::new(*listing_source_id, crawl_root_url);
+        let seed_load_started = Instant::now();
         let seeds = self.crawl_seeds(listing_source_id, kind).await?;
+        let seed_load_wait = seed_load_started.elapsed();
         let crawl = self
             .spider
             .crawl(CrawlRequest {
                 crawl_root_url: crawl_root_url.to_string(),
                 pace,
+                budget,
                 seeds,
             })
             .await?;
@@ -984,6 +1007,7 @@ impl SpiderServiceImpl {
             kind,
             discovery: crawl.discovery.await.ok(),
             diagnostics,
+            seed_load_wait,
         };
         let rate_limit = ended.diagnostics.completion.rate_limit();
         self.finish_crawl(consumed, &ended, listing_source_id, crawl_root_url)
@@ -1073,6 +1097,7 @@ impl SpiderServiceImpl {
             kind,
             discovery,
             diagnostics,
+            seed_load_wait,
         } = ended;
         let (kind, discovery) = (*kind, discovery.as_ref());
         let judged = self
@@ -1107,12 +1132,14 @@ impl SpiderServiceImpl {
             self.mark_as_crawled_best_effort(root).await;
         }
 
+        let db_wait = *seed_load_wait + state.url_store_wait;
         log_crawl_outcome(
             &state,
             diagnostics,
             product_pattern.as_deref(),
             kind,
             discovery,
+            db_wait,
         );
 
         Ok(SpiderRunResult {
@@ -1122,6 +1149,9 @@ impl SpiderServiceImpl {
             completion,
             pending_url_pattern_review: state.pending_url_pattern_review(),
             known_product_urls_skipped: ended.skipped_known_products(),
+            frontier_left: discovery.map(|discovery| discovery.frontier.len()),
+            db_wait,
+            ran_out_of_time: diagnostics.ran_out_of_time,
         })
     }
 }
@@ -1145,6 +1175,7 @@ impl SpiderService for SpiderServiceImpl {
         crawl_root_url: &str,
         classify_threshold: usize,
         pace: CrawlPace,
+        budget: CrawlBudgetScale,
         kind: CrawlKind,
     ) -> Result<SpiderRunResult, SpiderServiceError> {
         debug!("Starting crawl");
@@ -1154,6 +1185,7 @@ impl SpiderService for SpiderServiceImpl {
             crawl_root_url,
             classify_threshold,
             pace,
+            budget,
             kind,
         )
         .await
@@ -1243,6 +1275,7 @@ fn log_crawl_outcome(
     product_pattern: Option<&str>,
     kind: CrawlKind,
     discovery: Option<&CrawlDiscovery>,
+    db_wait: Duration,
 ) {
     let completion = diagnostics.completion;
     info!(
@@ -1260,6 +1293,7 @@ fn log_crawl_outcome(
         query_url_share = state.query_url_share(),
         status_counts = ?diagnostics.status_counts,
         frontier_left = discovery.map(|discovery| discovery.frontier.len()),
+        db_wait_ms = u64::try_from(db_wait.as_millis()).unwrap_or(u64::MAX),
         diagnostic_reason = diagnostics.diagnostic_reason,
         stopped_early = diagnostics.stopped_early.map(CrawlStopReason::as_str),
         pending_url_pattern_review = state.pending_url_pattern_review().map(|id| id.to_string()),
@@ -1285,6 +1319,7 @@ fn log_crawl_outcome(
         rejected_host = diagnostics.rejected_host,
         rejected_blacklist = diagnostics.rejected_blacklist,
         rejected_duplicate = diagnostics.rejected_duplicate,
+        rejected_page_error = diagnostics.rejected_page_error,
         robots_policy = ?diagnostics.robots_policy,
         robots_crawl_delay_ms = diagnostics.robots_crawl_delay_ms,
         request_delay_ms = diagnostics.request_delay_ms,
@@ -1699,6 +1734,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Incremental,
             )
             .await
@@ -1706,6 +1742,7 @@ mod service_tests {
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
         assert_eq!(result.product_urls_count, 1);
+        assert_eq!(result.frontier_left, Some(1));
     }
 
     /// Runs a full crawl of a ListingSource that stores `frontier` and `known`, and checks the
@@ -1744,6 +1781,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -1834,6 +1872,7 @@ mod service_tests {
                     "https://example.com",
                     20,
                     CrawlPace::default(),
+                    CrawlBudgetScale::STANDARD,
                     CrawlKind::Incremental,
                 )
                 .await
@@ -1876,6 +1915,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Incremental,
             )
             .await;
@@ -1924,12 +1964,87 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
             .unwrap();
 
         assert_eq!(result.completion, CrawlCompletion::Completed);
+        assert_eq!(result.frontier_left, Some(0));
+    }
+
+    /// Runs a full crawl that continues a stored frontier with `budget`, its URL storage taking
+    /// `store_delay` per batch.
+    async fn continue_frontier(budget: CrawlBudgetScale, store_delay: Duration) -> SpiderRunResult {
+        let listing_source_id = ListingSourceId::new();
+        let mut mock_spider = MockSpider::new();
+        let mut mock_url_repo = MockUrlMetadataRepository::new();
+        let mut pattern_service = pattern_service_with_stored_pattern();
+        setup_mock_mark_as_crawled(&mut pattern_service, "https://example.com");
+        mock_url_repo
+            .expect_upsert_links_batch()
+            .times(1)
+            .returning(move |listing_source_id, links| {
+                let stored = stored_as_given(listing_source_id, links);
+                Box::pin(async move {
+                    tokio::time::sleep(store_delay).await;
+                    Ok(stored)
+                })
+            });
+        setup_mock_seeded_crawl(
+            &mut mock_spider,
+            CrawlRequest {
+                budget,
+                seeds: CrawlSeeds {
+                    frontier: vec![example("/deep/1")],
+                    ..CrawlSeeds::default()
+                },
+                ..CrawlRequest::from_root("https://example.com", CrawlPace::default())
+            },
+            one_product_and_listing_pages(),
+            CrawlDiscovery::default(),
+        );
+        let service = SpiderServiceImpl::new(
+            SpiderServiceConfig::default(),
+            Box::new(mock_spider),
+            Box::new(pattern_service),
+            Arc::new(mock_url_repo),
+            frontier_repository(
+                vec![example("/deep/1")],
+                KnownUrls::default(),
+                Some(Vec::new()),
+            ),
+        );
+
+        service
+            .run(
+                &listing_source_id,
+                "https://example.com",
+                20,
+                CrawlPace::default(),
+                budget,
+                CrawlKind::Full,
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn should_ask_the_spider_for_the_budget_the_scheduler_gave_the_crawl() {
+        let result =
+            continue_frontier(CrawlBudgetScale::after_truncated_crawls(2), Duration::ZERO).await;
+
+        assert_eq!(result.completion, CrawlCompletion::Completed);
+    }
+
+    #[tokio::test]
+    async fn should_report_the_time_the_run_waited_on_storing_its_urls() {
+        let store_delay = Duration::from_millis(30);
+
+        let result = continue_frontier(CrawlBudgetScale::STANDARD, store_delay).await;
+
+        assert!(result.db_wait >= store_delay, "{:?}", result.db_wait);
     }
 
     #[tokio::test]
@@ -1965,6 +2080,7 @@ mod service_tests {
                 "https://example.com",
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2019,6 +2135,7 @@ mod service_tests {
                 "https://example.com",
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2220,6 +2337,7 @@ mod service_tests {
                 "https://example.com",
                 5,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2286,6 +2404,7 @@ mod service_tests {
                 "https://example.com",
                 4,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2458,6 +2577,7 @@ mod service_tests {
                 "https://example.com",
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2521,6 +2641,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2586,6 +2707,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2667,6 +2789,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2732,6 +2855,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2782,6 +2906,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -2867,6 +2992,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -2968,6 +3094,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3026,6 +3153,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3083,6 +3211,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3208,6 +3337,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3268,6 +3398,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3321,6 +3452,7 @@ mod service_tests {
                 crawl_root_url,
                 25,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3363,6 +3495,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3414,6 +3547,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3534,6 +3668,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3617,6 +3752,7 @@ mod service_tests {
                 crawl_root_url,
                 400,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -3702,6 +3838,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3751,6 +3888,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3803,6 +3941,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -3938,6 +4077,7 @@ mod service_tests {
             crawl_root_url,
             100,
             CrawlPace::default(),
+            CrawlBudgetScale::STANDARD,
             CrawlKind::Full,
         )
         .await
@@ -4113,6 +4253,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -4177,6 +4318,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4235,6 +4377,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4292,6 +4435,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4337,6 +4481,7 @@ mod service_tests {
                 crawl_root_url,
                 10,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await;
@@ -4410,6 +4555,7 @@ mod service_tests {
                 crawl_root_url,
                 classify_threshold,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -4580,6 +4726,7 @@ mod service_tests {
                 crawl_root_url,
                 20,
                 CrawlPace::default(),
+                CrawlBudgetScale::STANDARD,
                 CrawlKind::Full,
             )
             .await
@@ -4759,7 +4906,14 @@ mod crawl_event_tests {
             ..CrawlDiagnostics::default()
         };
 
-        log_crawl_outcome(&state, &diagnostics, Some("/p/"), CrawlKind::Full, None);
+        log_crawl_outcome(
+            &state,
+            &diagnostics,
+            Some("/p/"),
+            CrawlKind::Full,
+            None,
+            Duration::from_millis(1_250),
+        );
 
         let completed = events.named(CRAWL_COMPLETED_EVENT);
         assert_eq!(completed.len(), 1);
@@ -4771,6 +4925,7 @@ mod crawl_event_tests {
         assert_eq!(completed.field("query_url_share"), Some("0.25"));
         assert_eq!(completed.field("product_pattern"), Some("/p/"));
         assert!(completed.field("status_counts").is_some());
+        assert_eq!(completed.field("db_wait_ms"), Some("1250"));
     }
 
     #[test]

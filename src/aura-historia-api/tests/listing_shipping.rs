@@ -1361,6 +1361,7 @@ async fn periodic_shipping_change(fx_mode: bool) {
         SqlxUnitOfWork::new(pool.clone()),
         SqlxSearchFilterRepositoryFactory,
         NoEmbeddings,
+        aura_historia_runtime::UnavailableSearchIntentTranslator,
         SqlxSearchFilterQuotaReaderFactory,
         user_postgres::SqlxUserTierEntitlementsFactory::new(),
     )
@@ -1418,6 +1419,15 @@ async fn periodic_shipping_change(fx_mode: bool) {
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
             notification_postgres::SqlxSavedSearchDigestStoreFactory,
+            search_filter_service::use_cases::BackfillSearchIntentTranslationsHandler::new(
+                search_filter_postgres::SqlxSearchIntentTranslationStore::new(pool.clone()),
+                aura_historia_runtime::UnavailableSearchIntentTranslator,
+                search_filter_service::use_cases::SearchIntentTranslationBackfillPolicy {
+                    page_size: std::num::NonZeroUsize::new(100).unwrap(),
+                    max_translations: 100,
+                    concurrency: std::num::NonZeroUsize::MIN,
+                },
+            ),
             PeriodicSearchFilterMatchingPolicy {
                 filter_page_size: std::num::NonZeroUsize::new(100).unwrap(),
                 hybrid_scan_limit: std::num::NonZeroUsize::new(100).unwrap(),

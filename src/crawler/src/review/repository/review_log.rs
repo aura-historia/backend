@@ -23,6 +23,7 @@ pub(super) const REVIEW_URLS_RETIRED_NOT_PRODUCT_EVENT: &str =
     "crawler.review.urls_retired_not_product";
 pub(super) const MASS_REMOVAL_CONFIRMED_EVENT: &str = "crawler.source.mass_removal_confirmed";
 pub(super) const MASS_REMOVAL_REVOKED_EVENT: &str = "crawler.source.mass_removal_revoked";
+pub(super) const CRAWL_RESUMED_EVENT: &str = "crawler.source.crawl_resumed";
 
 /// What one review state change logs besides the source: which event, who acted, and the one
 /// detail that names the change.
@@ -31,10 +32,13 @@ pub(super) struct ReviewLogEntry {
     event: &'static str,
     message: &'static str,
     actor: Option<ReviewActor>,
-    /// Why a review opened.
+    /// Why a review opened, or why an agent handed it to a human
+    /// (`HandoverReason::log_name`).
     reason: Option<String>,
     /// How a review was decided: `approved`, `rejected`, `needs_repair` or `handed_to_human`.
     decision: Option<&'static str>,
+    /// What the author named as the obstacle of a hand-over (`HandoverCategory::log_name`).
+    handover_category: Option<&'static str>,
     /// What changed on a pending review's candidate.
     change: Option<&'static str>,
     /// The URLs the change retired, reclassified or recorded.
@@ -49,6 +53,9 @@ pub(super) struct ReviewLogEntry {
     rearmed_held_urls: Option<u64>,
     hours: Option<u32>,
     confirmed_until: Option<String>,
+    /// The failure kind and streak a resumed crawl waited for an operator with.
+    crawl_error_kind: Option<String>,
+    crawl_failure_count: Option<i32>,
 }
 
 impl ReviewLogEntry {
@@ -59,6 +66,7 @@ impl ReviewLogEntry {
             actor,
             reason: None,
             decision: None,
+            handover_category: None,
             change: None,
             affected_urls: None,
             incomplete_coverage: None,
@@ -67,6 +75,8 @@ impl ReviewLogEntry {
             rearmed_held_urls: None,
             hours: None,
             confirmed_until: None,
+            crawl_error_kind: None,
+            crawl_failure_count: None,
         }
     }
 
@@ -121,6 +131,22 @@ impl ReviewLogEntry {
         )
     }
 
+    pub(super) fn crawl_resumed(
+        actor: ReviewActor,
+        crawl_error_kind: Option<String>,
+        crawl_failure_count: i32,
+    ) -> Self {
+        Self {
+            crawl_error_kind,
+            crawl_failure_count: Some(crawl_failure_count),
+            ..Self::new(
+                CRAWL_RESUMED_EVENT,
+                "Crawl that waited for an operator resumed; the spider schedules it again",
+                Some(actor),
+            )
+        }
+    }
+
     pub(super) fn with_affected_urls(mut self, urls: usize) -> Self {
         self.affected_urls = Some(urls);
         self
@@ -167,10 +193,11 @@ impl ReviewLogEntry {
                 "needs_repair",
                 "Reviewer asked for a review to be repaired",
             )],
-            ReviewMutation::HandedToHuman { .. } => vec![decided(
-                "handed_to_human",
-                "Review agent handed a review to a human",
-            )],
+            ReviewMutation::HandedToHuman { cause, .. } => vec![Self {
+                reason: Some(cause.reason.log_name().to_owned()),
+                handover_category: Some(cause.category.log_name()),
+                ..decided("handed_to_human", "Review agent handed a review to a human")
+            }],
             ReviewMutation::CandidateEdited { .. } => {
                 vec![changed("candidate_edited", "Candidate of a review edited")]
             }
@@ -440,6 +467,7 @@ impl PreparedReviewLog {
                     actor = entry.actor.map(ReviewActor::as_str),
                     reason = entry.reason,
                     decision = entry.decision,
+                    handover_category = entry.handover_category,
                     change = entry.change,
                     affected_urls = entry.affected_urls,
                     product_labels = entry.product_labels,
@@ -447,6 +475,8 @@ impl PreparedReviewLog {
                     rearmed_held_urls = entry.rearmed_held_urls,
                     confirmed_until = entry.confirmed_until,
                     hours = entry.hours,
+                    crawl_error_kind = entry.crawl_error_kind,
+                    crawl_failure_count = entry.crawl_failure_count,
                     incomplete_coverage = entry.incomplete_coverage,
                     "{}",
                     entry.message
@@ -510,6 +540,42 @@ mod tests {
         }
         assert!(decided[0].field("listing_source_id").is_some());
         assert!(decided[0].field("review_id").is_some());
+    }
+
+    /// The cause is a short stable name Logs Insights groups by; the agent's reasoning, which may
+    /// quote the shop's pages, stays in the event trail.
+    #[test]
+    fn should_log_the_reason_and_not_the_note_when_an_agent_hands_a_review_to_a_human() {
+        let (events, _guard) = LoggedEvents::capture();
+        let mutation = ReviewMutation::HandedToHuman {
+            note: "the sample is behind a bot challenge",
+            cause: crate::review::model::HandoverCause {
+                reason: crate::review::model::HandoverReason::NeedsHuman,
+                category: crate::review::model::HandoverCategory::PagesUnreadable,
+            },
+        };
+
+        for entry in ReviewLogEntry::of_mutation(ReviewActor::AgentAuthor, &mutation) {
+            prepared(entry).emit();
+        }
+
+        let decided = events.named(REVIEW_DECIDED_EVENT);
+        assert_eq!(decided.len(), 1);
+        for (field, expected) in [
+            ("actor", "AGENT_AUTHOR"),
+            ("decision", "handed_to_human"),
+            ("reason", "needs_human"),
+            ("handover_category", "pages_unreadable"),
+        ] {
+            assert_eq!(decided[0].field(field), Some(expected), "{field}");
+        }
+        assert!(
+            events
+                .all()
+                .iter()
+                .all(|logged| !format!("{logged:?}").contains("bot challenge")),
+            "the note must not be logged"
+        );
     }
 
     #[test]
@@ -587,6 +653,29 @@ mod tests {
             ("actor", "HUMAN"),
         ] {
             assert_eq!(confirmed[0].field(field), Some(expected), "{field}");
+        }
+    }
+
+    #[test]
+    fn should_log_the_failure_kind_and_streak_a_resumed_crawl_waited_with() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        prepared(ReviewLogEntry::crawl_resumed(
+            ReviewActor::Human,
+            Some("ConnectError".to_owned()),
+            5,
+        ))
+        .emit();
+
+        let resumed = events.named(CRAWL_RESUMED_EVENT);
+        assert_eq!(resumed.len(), 1);
+        assert_eq!(resumed[0].level, Level::INFO);
+        for (field, expected) in [
+            ("crawl_error_kind", "ConnectError"),
+            ("crawl_failure_count", "5"),
+            ("actor", "HUMAN"),
+        ] {
+            assert_eq!(resumed[0].field(field), Some(expected), "{field}");
         }
     }
 

@@ -16,6 +16,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
+use tracing::{debug, info};
 use url::Url;
 
 use crate::network::bot_challenge::{
@@ -23,9 +24,10 @@ use crate::network::bot_challenge::{
 };
 use crate::network::policy::{
     NetworkAction, NetworkErrorKind, PublicTargetError, ReqwestErrorLike, RetryPolicy, action_for,
-    classify_reqwest_error, inline_retry_backoff_for, is_same_or_www_host, location_text,
-    network_error_kind_for_public_target_error, resolve_public_http_target,
+    classify_reqwest_error, inline_retry_backoff_for, is_page_error_status, is_same_or_www_host,
+    location_text, network_error_kind_for_public_target_error, resolve_public_http_target,
 };
+use crate::network::politeness::{PolitenessGroups, politeness_group};
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
@@ -332,6 +334,9 @@ pub struct CrawlDiagnostics {
     /// rule refuses.
     pub rejected_blacklist: usize,
     pub rejected_duplicate: usize,
+    /// Pages below the crawl root that answered a page error, such as HTTP 500, after Spider's
+    /// retries, and so are not stored (`docs/crawler/networking.md#stored-urls`).
+    pub rejected_page_error: usize,
     /// Redirects pages answered whose target the crawl followed, each requested as a page of
     /// its own (`docs/crawler/networking.md#destination-policy`).
     pub redirects_followed: usize,
@@ -344,7 +349,7 @@ pub struct CrawlDiagnostics {
     pub robots_crawl_delay_ms: Option<u64>,
     /// Delay between request starts the crawl ran with: the configured delay,
     /// slowed after rate-limited crawls (`CrawlPace`) and raised by
-    /// robots.txt `Crawl-delay`.
+    /// robots.txt `Crawl-delay` and its politeness group's spacing.
     pub request_delay_ms: u64,
     /// robots.txt Disallow rules whose written Allow exception Spider's deny
     /// list cannot carve out, so Spider skips URLs robots.txt permits.
@@ -368,6 +373,10 @@ pub struct CrawlDiagnostics {
     /// that a robots.txt `Crawl-delay` still leaves room for an inference
     /// sample (`crawl_budget`).
     pub crawl_budget_ms: u64,
+    /// The crawl ran out of its wall-clock budget, not of pages it could visit, and was not
+    /// stopped. A crawl that ended early and left only pages it could not fetch, such as bot
+    /// challenges, is cut short too (`completion_with_frontier`) but never ran out of time.
+    pub ran_out_of_time: bool,
     /// Seed URLs carried over from the previous crawl, which the crawl visits
     /// after link discovery from the root.
     pub seeds: usize,
@@ -396,6 +405,7 @@ impl CrawlDiagnostics {
             LocalRejection::Host => self.rejected_host += 1,
             LocalRejection::Blacklist => self.rejected_blacklist += 1,
             LocalRejection::Duplicate => self.rejected_duplicate += 1,
+            LocalRejection::PageError => self.rejected_page_error += 1,
         }
     }
 }
@@ -641,18 +651,65 @@ const MIN_PAGES_WITHIN_CRAWL_DELAY: u32 = 40;
 /// Longest wall-clock budget a `Crawl-delay` can raise a crawl to.
 const MAX_DELAY_LIMITED_CRAWL_DURATION: Duration = Duration::from_secs(60 * 60);
 
-/// The wall-clock budget of a crawl: the configured one, raised for a shop
-/// whose robots.txt `Crawl-delay` would leave it fewer than
+/// The most configured budgets one extended crawl runs for.
+const MAX_CRAWL_BUDGET_FACTOR: u32 = 3;
+
+/// How many configured wall-clock budgets one crawl runs for. A full crawl that
+/// continues the frontier of truncated crawls runs one more budget per truncation,
+/// up to [`MAX_CRAWL_BUDGET_FACTOR`], so a shop too large for one crawl is covered
+/// in fewer runs (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrawlBudgetScale {
+    factor: u32,
+}
+
+impl CrawlBudgetScale {
+    /// The configured budget.
+    pub const STANDARD: Self = Self { factor: 1 };
+
+    /// The budget of a full crawl that follows `truncated_crawls` truncated ones.
+    pub fn after_truncated_crawls(truncated_crawls: u32) -> Self {
+        Self {
+            factor: truncated_crawls
+                .saturating_add(1)
+                .min(MAX_CRAWL_BUDGET_FACTOR),
+        }
+    }
+
+    /// Whether the crawl runs longer than the configured budget.
+    pub const fn is_extended(self) -> bool {
+        self.factor > 1
+    }
+
+    /// How many configured budgets the crawl runs for; logged with the crawl.
+    pub const fn factor(self) -> u32 {
+        self.factor
+    }
+}
+
+impl Default for CrawlBudgetScale {
+    fn default() -> Self {
+        Self::STANDARD
+    }
+}
+
+/// The wall-clock budget of a crawl: the configured one times its `scale`,
+/// raised for a shop whose robots.txt `Crawl-delay` would leave it fewer than
 /// [`MIN_PAGES_WITHIN_CRAWL_DELAY`] pages, up to
 /// [`MAX_DELAY_LIMITED_CRAWL_DURATION`]. The delay between requests stays as
 /// the shop asked; only the crawl lasts longer. A pace slowed by rate limits
 /// does not raise it: that shop asked for fewer requests, not slower ones.
-fn crawl_budget(configured: Duration, crawl_delay: Option<Duration>) -> Duration {
+fn crawl_budget(
+    configured: Duration,
+    scale: CrawlBudgetScale,
+    crawl_delay: Option<Duration>,
+) -> Duration {
+    let scaled = configured.saturating_mul(scale.factor);
     let Some(crawl_delay) = crawl_delay else {
-        return configured;
+        return scaled;
     };
     let needed = crawl_delay.saturating_mul(MIN_PAGES_WITHIN_CRAWL_DELAY);
-    configured.max(needed.min(MAX_DELAY_LIMITED_CRAWL_DURATION))
+    scaled.max(needed.min(MAX_DELAY_LIMITED_CRAWL_DURATION))
 }
 
 /// A crawl with seeds gives link discovery from the root at most this share
@@ -715,6 +772,9 @@ pub struct SpiderImpl {
     config: CrawlerConfig,
     transport: Arc<dyn SpiderTransport>,
     shutdown: Option<watch::Receiver<bool>>,
+    /// The politeness groups crawls take their start in, set their pace by and report rate
+    /// limits to (`docs/crawler/networking.md#politeness-groups`).
+    politeness: Arc<PolitenessGroups>,
 }
 
 impl SpiderImpl {
@@ -727,6 +787,7 @@ impl SpiderImpl {
             config,
             transport,
             shutdown: None,
+            politeness: Arc::default(),
         }
     }
 
@@ -735,6 +796,35 @@ impl SpiderImpl {
     pub fn with_shutdown(mut self, shutdown: watch::Receiver<bool>) -> Self {
         self.shutdown = Some(shutdown);
         self
+    }
+
+    /// Shares `politeness` with the process's other components, such as the scraper's fetcher,
+    /// so a crawl and the scraper count against the same politeness groups.
+    pub fn with_politeness_groups(mut self, politeness: Arc<PolitenessGroups>) -> Self {
+        self.politeness = politeness;
+        self
+    }
+
+    /// Waits until the crawl root's politeness group admits a request start, so a crawl does
+    /// not start into a group paused by a rate limit. The crawler's shutdown ends the wait.
+    async fn wait_for_politeness_turn(&self, root: &Url) {
+        let Some(host) = root.host_str() else {
+            return;
+        };
+        let mut shutdown = self.shutdown.clone();
+        tokio::select! {
+            waited = self.politeness.wait_for_turn(host) => {
+                if !waited.is_zero() {
+                    debug!(
+                        host,
+                        politeness_group = %politeness_group(host).key,
+                        waited_ms = waited.as_millis(),
+                        "Spider crawl waited for its politeness group"
+                    );
+                }
+            }
+            () = shutdown_requested(&mut shutdown) => {}
+        }
     }
 }
 
@@ -1363,6 +1453,8 @@ enum LocalRejection {
     Host,
     Blacklist,
     Duplicate,
+    /// A page below the crawl root answered a [page error](is_page_error_status).
+    PageError,
 }
 
 /// Local admission of the pages Spider delivers: the configured host only,
@@ -1385,9 +1477,38 @@ struct LocalFilter {
     known_pages: Arc<KnownPageAnswers>,
     /// Queues the targets of the redirects the delivered pages answer.
     redirects: RedirectFollower,
+    /// The politeness groups the crawl reports its answers to.
+    politeness: Arc<PolitenessGroups>,
 }
 
 impl LocalFilter {
+    /// Reports a delivered page's answer to its politeness group: a rate-limit answer slows the
+    /// whole group, a success eases it back.
+    fn report_answer(&self, url: &str, status_code: u16, rate_limit: Option<RateLimitSignal>) {
+        let Some(host) = Url::parse(url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+        else {
+            return;
+        };
+        if let Some(signal) = rate_limit {
+            if let Some(backoff) = self.politeness.record_rate_limit(&host, signal.retry_after) {
+                info!(
+                    event = "crawler.spider.politeness_group_rate_limited",
+                    domain = %host,
+                    politeness_group = %politeness_group(&host).key,
+                    status_code,
+                    retry_after_seconds = signal.retry_after.map(|value| value.as_secs()),
+                    pause_ms = backoff.pause.as_millis(),
+                    spacing_ms = backoff.spacing.as_millis(),
+                    "Paused politeness group after a rate limit"
+                );
+            }
+        } else if (200..300).contains(&status_code) {
+            self.politeness.record_response(&host);
+        }
+    }
+
     fn admit(&mut self, raw_url: &str) -> Result<CrawledUrl, LocalRejection> {
         if is_refused_link(&self.refused_links, raw_url) {
             return Err(LocalRejection::Blacklist);
@@ -1438,8 +1559,23 @@ fn admission_key(url: &CrawledUrl) -> String {
 /// robots.txt `Crawl-delay` only ever raises the configured spider delay.
 fn crawl_delay_millis(configured_millis: u64, crawl_delay: Option<Duration>) -> u64 {
     crawl_delay.map_or(configured_millis, |delay| {
-        configured_millis.max(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX))
+        configured_millis.max(duration_millis(delay))
     })
+}
+
+/// The crawl's delay between request starts: the paced delay, raised by robots.txt
+/// `Crawl-delay` and by the current spacing of the root's politeness group, so a crawl never
+/// requests faster than its group admits.
+fn crawl_request_delay_millis(
+    paced_millis: u64,
+    crawl_delay: Option<Duration>,
+    group_spacing: Duration,
+) -> u64 {
+    crawl_delay_millis(paced_millis, crawl_delay).max(duration_millis(group_spacing))
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// Hands Spider each link it finds in the spelling the crawler stores
@@ -1520,6 +1656,7 @@ impl SpiderImpl {
         let CrawlRequest {
             crawl_root_url,
             pace,
+            budget,
             seeds,
         } = request;
         let (tx, rx) = mpsc::channel(self.config.channel_size);
@@ -1534,6 +1671,7 @@ impl SpiderImpl {
             )
         })?;
         let request_timeout = Duration::from_secs(self.config.request_timeout_secs);
+        self.wait_for_politeness_turn(&configured_root).await;
         let PreflightedRoot {
             url: root_url,
             status: root_preflight_status,
@@ -1557,9 +1695,12 @@ impl SpiderImpl {
         } = crawl_rules(self.transport.as_ref(), &root_url, &client, request_timeout)
             .await
             .map_err(|error| error.after_reroot(root_reroot.as_ref()))?;
-        let delay_millis = crawl_delay_millis(
+        let delay_millis = crawl_request_delay_millis(
             pace.delay_millis(self.config.delay_millis),
             robots.crawl_delay,
+            root_url
+                .host_str()
+                .map_or(Duration::ZERO, |host| self.politeness.spacing(host)),
         );
         let refused_links = RefusedLinks::default();
         let decoder_refused_links = Arc::clone(&refused_links);
@@ -1569,7 +1710,8 @@ impl SpiderImpl {
             .queue(REDIRECT_QUEUE_CAPACITY)
             .ok_or_else(|| SpiderDiscoveryError::Config("Spider has no crawl queue".to_string()))?;
 
-        let crawl_duration = crawl_budget(self.config.max_crawl_duration, robots.crawl_delay);
+        let crawl_duration =
+            crawl_budget(self.config.max_crawl_duration, budget, robots.crawl_delay);
         let follow_rules = Arc::new(FollowRules::new(
             root_url.clone(),
             host_whitelist_regex.clone(),
@@ -1665,6 +1807,7 @@ impl SpiderImpl {
             found_links: found_links.clone(),
             known_pages: Arc::clone(&known_pages),
             redirects: RedirectFollower::new(redirect_queue, robots.clone()),
+            politeness: Arc::clone(&self.politeness),
         };
         let mut diagnostics = CrawlDiagnostics {
             root_preflight_status: Some(root_preflight_status),
@@ -1706,6 +1849,8 @@ impl SpiderImpl {
                     };
                     diagnostics.known_skipped = found_links.skipped_known(known_pages.known());
                     diagnostics.known_fetches_saved = known_pages.answered_links();
+                    diagnostics.ran_out_of_time = !outcome.stopped
+                        && outcome.completion == CrawlCompletion::HardTimeoutTruncated;
                     apply_library_outcome(&mut diagnostics, outcome);
                     diagnostics.completion = stopped_or(&diagnostics);
                     diagnostics.completion = completion_with_frontier(
@@ -1874,7 +2019,8 @@ async fn relay_library_pages(
             diagnostics.bot_challenge_pages += 1;
         }
 
-        if !first_page_seen {
+        let is_root = !first_page_seen;
+        if is_root {
             // A block page refuses the crawl at its root only; below the root it
             // is the 403 it was answered with, like any other.
             let hard_block = challenge
@@ -1908,6 +2054,7 @@ async fn relay_library_pages(
         }
 
         let rate_limit_answer = RateLimitSignal::from_page(status_code, page.headers.as_ref());
+        filter.report_answer(page.get_url(), status_code, rate_limit_answer);
         if diagnostics.rate_limit.is_none()
             && let Some(signal) = rate_limit_answer
         {
@@ -1937,6 +2084,14 @@ async fn relay_library_pages(
             }
             RedirectAnswer::Rejected => diagnostics.redirects_rejected += 1,
             RedirectAnswer::NotARedirect => {}
+        }
+
+        // A page below the root that still answers a page error after Spider's retries, such as
+        // a link the shop builds wrongly, is not stored: the scraper would fetch it in vain. Its
+        // links are kept, and the next crawl that finds it again asks for it again.
+        if !is_root && is_page_error_status(status_code) {
+            diagnostics.count_rejection(LocalRejection::PageError);
+            continue;
         }
 
         match filter.admit(page.get_url()) {
@@ -3305,6 +3460,36 @@ mod tests {
             assert_eq!(diagnostics.bot_challenge_pages, 1);
         }
 
+        /// A crawl that ended well within its budget and left only a challenged page is cut short
+        /// by that frontier, but did not run out of time: the shop fits one crawl.
+        #[tokio::test]
+        async fn should_cut_short_without_running_out_of_time_a_crawl_that_left_a_challenged_page()
+        {
+            let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<a href="/chairs">Chairs</a><a href="/product/1">1</a>"#.to_string(),
+                ),
+                "/chairs" => SiteResponse::Html("200 OK", CHALLENGE.to_string()),
+                _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics, discovery) =
+                run_seeded_crawl(&spider, CrawlSeeds::default()).await;
+            site.finish().await;
+
+            assert_eq!(diagnostics.failure_kind, None, "{diagnostics:?}");
+            assert_eq!(discovery.frontier, [example("/chairs")]);
+            assert_eq!(
+                diagnostics.completion,
+                CrawlCompletion::HardTimeoutTruncated
+            );
+            assert!(!diagnostics.ran_out_of_time, "{diagnostics:?}");
+        }
+
         /// A challenge is not the page, so what its head declares never canonicalizes the URL.
         #[tokio::test]
         async fn should_deliver_a_challenged_page_without_the_identity_its_head_declares() {
@@ -3555,6 +3740,7 @@ mod tests {
             diagnostics.completion,
             CrawlCompletion::HardTimeoutTruncated
         );
+        assert!(diagnostics.ran_out_of_time, "{diagnostics:?}");
         assert!(!discovery.frontier.is_empty());
         for left in &discovery.frontier {
             assert!(
@@ -4131,21 +4317,64 @@ mod tests {
     }
 
     #[test]
+    fn crawl_budget_should_extend_a_continuation_by_one_budget_per_truncation_up_to_three() {
+        let configured = Duration::from_secs(600);
+        let budget = |truncations| {
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::after_truncated_crawls(truncations),
+                None,
+            )
+        };
+
+        assert_eq!(budget(0), configured);
+        assert_eq!(budget(1), configured * 2);
+        assert_eq!(budget(2), configured * 3);
+        assert_eq!(budget(u32::MAX), configured * 3);
+        assert!(!CrawlBudgetScale::after_truncated_crawls(0).is_extended());
+        assert!(CrawlBudgetScale::after_truncated_crawls(1).is_extended());
+        // A `Crawl-delay` raise still applies on top of an extension.
+        assert_eq!(
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::after_truncated_crawls(1),
+                Some(Duration::from_secs(60)),
+            ),
+            Duration::from_secs(60 * u64::from(MIN_PAGES_WITHIN_CRAWL_DELAY))
+        );
+    }
+
+    #[test]
     fn crawl_budget_should_leave_a_crawl_delay_limited_shop_room_for_the_inference_sample() {
         let configured = Duration::from_secs(600);
 
-        assert_eq!(crawl_budget(configured, None), configured);
         assert_eq!(
-            crawl_budget(configured, Some(Duration::from_secs(1))),
+            crawl_budget(configured, CrawlBudgetScale::STANDARD, None),
+            configured
+        );
+        assert_eq!(
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::STANDARD,
+                Some(Duration::from_secs(1))
+            ),
             configured
         );
         // antieksite.nl: `Crawl-delay: 30` left 20 pages in 600 s.
         assert_eq!(
-            crawl_budget(configured, Some(Duration::from_secs(30))),
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::STANDARD,
+                Some(Duration::from_secs(30))
+            ),
             Duration::from_secs(30 * u64::from(MIN_PAGES_WITHIN_CRAWL_DELAY))
         );
         assert_eq!(
-            crawl_budget(configured, Some(Duration::from_secs(600))),
+            crawl_budget(
+                configured,
+                CrawlBudgetScale::STANDARD,
+                Some(Duration::from_secs(600))
+            ),
             MAX_DELAY_LIMITED_CRAWL_DURATION
         );
     }
@@ -4586,6 +4815,46 @@ mod tests {
             self.builds.fetch_add(1, Ordering::Relaxed);
             self.inner.client_for(url, timeout).await
         }
+    }
+
+    /// A link the shop builds wrongly, such as `/collection//<slug>/new-arrivals` on a shop that
+    /// answers it with HTTP 500 while it serves `/collection//<slug>`, is not stored (#2890).
+    #[tokio::test]
+    async fn should_not_store_a_page_that_answers_a_page_error() {
+        let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
+            "/" => SiteResponse::Html(
+                "200 OK",
+                r#"<a href="/collection//miroir-7005945/new-arrivals">new</a>
+                   <a href="/collection//miroir-7005945">product</a>
+                   <a href="/collection/bad-request-1">bad</a>"#
+                    .to_string(),
+            ),
+            "/collection//miroir-7005945/new-arrivals" => {
+                SiteResponse::Html("500 Internal Server Error", String::new())
+            }
+            "/collection/bad-request-1" => SiteResponse::Html("400 Bad Request", String::new()),
+            _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+        }))
+        .await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let (discovered, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+        site.finish().await;
+
+        assert!(
+            discovered.contains("http://example.com/collection//miroir-7005945"),
+            "{discovered:?}"
+        );
+        assert!(
+            !discovered.contains("http://example.com/collection//miroir-7005945/new-arrivals"),
+            "{discovered:?}"
+        );
+        assert!(
+            !discovered.contains("http://example.com/collection/bad-request-1"),
+            "{discovered:?}"
+        );
+        assert_eq!(diagnostics.rejected_page_error, 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.failure_kind, None);
     }
 
     #[tokio::test]
@@ -5046,6 +5315,7 @@ mod tests {
                     policy: "unavailable_allow_all",
                 },
             ),
+            politeness: Arc::default(),
         }
     }
 
@@ -5094,6 +5364,85 @@ mod tests {
         assert_eq!(
             crawl_delay_millis(500, Some(Duration::from_millis(100))),
             500
+        );
+    }
+
+    #[test]
+    fn should_raise_the_spider_delay_to_the_politeness_group_spacing() {
+        assert_eq!(crawl_request_delay_millis(500, None, Duration::ZERO), 500);
+        assert_eq!(
+            crawl_request_delay_millis(500, None, Duration::from_secs(2)),
+            2_000
+        );
+        assert_eq!(
+            crawl_request_delay_millis(500, Some(Duration::from_secs(5)), Duration::from_secs(2)),
+            5_000
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_start_a_crawl_only_after_its_politeness_group_pause() {
+        let groups = Arc::new(PolitenessGroups::default());
+        groups.record_rate_limit("a.shopnetzwerk.com", Some(Duration::from_secs(8)));
+        let spider = SpiderImpl::default().with_politeness_groups(Arc::clone(&groups));
+        let started = tokio::time::Instant::now();
+
+        spider
+            .wait_for_politeness_turn(&Url::parse("https://b.shopnetzwerk.com/").unwrap())
+            .await;
+        let shop_wait = started.elapsed();
+        spider
+            .wait_for_politeness_turn(&Url::parse("https://example.com/").unwrap())
+            .await;
+
+        assert_eq!(shop_wait, Duration::from_secs(8));
+        assert_eq!(started.elapsed(), shop_wait);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_end_the_politeness_wait_when_the_crawler_shuts_down() {
+        let groups = Arc::new(PolitenessGroups::default());
+        groups.record_rate_limit("a.shopnetzwerk.com", Some(Duration::from_secs(8)));
+        let (_shutdown, shutdown_requested) = watch::channel(true);
+        let spider = SpiderImpl::default()
+            .with_shutdown(shutdown_requested)
+            .with_politeness_groups(groups);
+        let started = tokio::time::Instant::now();
+
+        spider
+            .wait_for_politeness_turn(&Url::parse("https://b.shopnetzwerk.com/").unwrap())
+            .await;
+
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_report_rate_limit_answers_and_successes_to_the_politeness_group() {
+        let filter = local_filter();
+        let signal = RateLimitSignal {
+            status: 429,
+            retry_after: Some(Duration::from_secs(8)),
+        };
+
+        filter.report_answer("https://a.shopnetzwerk.com/p/1", 429, Some(signal));
+        let raised = filter.politeness.spacing("b.shopnetzwerk.com");
+        for _ in 0..200 {
+            filter.report_answer("https://a.shopnetzwerk.com/p/2", 200, None);
+        }
+
+        assert!(raised >= Duration::from_secs(1));
+        assert_eq!(
+            filter.politeness.spacing("b.shopnetzwerk.com"),
+            politeness_group("b.shopnetzwerk.com").min_spacing
+        );
+        let now = tokio::time::Instant::now();
+        assert!(
+            filter
+                .politeness
+                .reserve_start("b.shopnetzwerk.com", now)
+                .start()
+                - now
+                >= Duration::from_secs(7)
         );
     }
 

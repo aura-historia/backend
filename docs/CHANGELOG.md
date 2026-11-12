@@ -2,6 +2,16 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-11 — Saved-search matching classifies an English translation of the intent (#2904)
+
+- Scheduled saved-search matching and `POST /v1/me/search-filters/preview` now classify candidates against an English translation of `productQuery` and `enhancedSearchDescription`, with the listing's English title (its original title when none exists yet) and its original description. The classifier enforces English intent more reliably, so intent written in other languages produces fewer unwanted matches. The source language is detected from the text, not from `language`.
+- Search filters, previews, MCP saved-search tools, match notifications and digests keep, return and edit the text exactly as written. Request and response shapes are unchanged.
+- Saving a filter never fails because translation fails: the filter is saved and matched with the text as written until a later scheduled run translates it. Existing filters are translated over the following scheduled runs.
+
+## 2026-11-11 — Provider link guidance for agents
+
+- `viewUrl` and its paired `url` now carry descriptions in the OpenAPI document and the MCP output schemas: `viewUrl` is the referral-tagged link meant to be shared, `url` the provider's untagged address. Every MCP tool whose result contains a `viewUrl` states this in its description, the MCP server returns `instructions` asking agents to share `viewUrl` unchanged, and the `catalogue-search` agent skill says the same. Values and fields are unchanged.
+
 ## 2026-11-11 — `expires_in` rounds up
 
 - `POST /v1/oauth/token` now rounds `expires_in` up to the next whole second. A metadata document client's one-hour access token reports `3600` instead of `3599`, so clients that require a lifetime of at least one hour, such as Muse, accept it. The token's actual lifetime is unchanged.

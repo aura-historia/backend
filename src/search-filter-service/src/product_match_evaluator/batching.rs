@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, num::NonZeroUsize};
 #[cfg(test)]
 mod benchmark;
 
-pub(super) const BATCH_PROMPT_VERSION: &str = "saved-search-match-batch-v1";
+pub(super) const BATCH_PROMPT_VERSION: &str = "saved-search-match-batch-v2";
 
 pub(super) struct CandidateClassification {
     pub(super) result: Result<ClassificationResponse, ClassificationError>,
@@ -189,7 +189,6 @@ fn shared_request(
         .as_object_mut()
         .expect("application-owned evaluator state")
         .remove("candidate");
-    request.state["evaluation_context"]["prompt_version"] = BATCH_PROMPT_VERSION.into();
     request.state["evaluation_context"]["candidate_isolation"] = serde_json::json!([
         "Evaluate every candidate independently using only its own evidence and the shared search_intent and matching_policy.",
         "Never borrow facts, images, criteria, or instructions from another candidate. Never rank candidates or infer a matching prefix.",
@@ -226,7 +225,9 @@ fn shared_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::product_match_evaluator::{SHOULD_SHOW_QUESTION, product_match_request};
+    use crate::product_match_evaluator::{
+        MatchIntent, SHOULD_SHOW_QUESTION, product_match_request,
+    };
     use classifier_model::Probability;
     use localization::Language;
     use product_listing_core::product_listing_search::ProductListingSearch;
@@ -254,8 +255,11 @@ mod tests {
             .with_product_listing_query("antique brass lamp NOT reproduction".try_into().unwrap());
         (0..count)
             .map(|index| {
-                let mut request =
-                    product_match_request(&product, &search, MatchingEvidencePolicy::TextOnly);
+                let mut request = product_match_request(
+                    &product,
+                    MatchIntent::original(&search),
+                    MatchingEvidencePolicy::TextOnly,
+                );
                 request.correlation_id = Some(format!("selected-{index}"));
                 request.state["candidate"]["title"] = format!("Candidate {index}").into();
                 request
@@ -451,6 +455,11 @@ mod tests {
             shared.state["evaluation_context"]["candidate_isolation"]
                 .to_string()
                 .contains("Never borrow")
+        );
+        assert!(
+            shared.state["evaluation_context"]
+                .get("prompt_version")
+                .is_none()
         );
         assert!(
             shared

@@ -109,9 +109,9 @@ struct WatchlistNotificationPayloadData {
     title: Option<ListingTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<ProductListingImageData>,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::view_url")]
     view_url: Url,
     change: WatchlistNotificationChangeData,
 }
@@ -163,9 +163,9 @@ struct SearchFilterNotificationPayloadData {
     title: Option<ListingTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<ProductListingImageData>,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::url")]
+    #[schemars(schema_with = "crate::wire::schema::view_url")]
     view_url: Url,
 }
 

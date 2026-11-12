@@ -28,8 +28,8 @@ pub const RATE_LIMITED_CRAWL_OUTCOME: &str = "RATE_LIMITED";
 /// clears this outcome.
 pub const AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME: &str = "AWAITING_URL_PATTERN_REVIEW";
 
-/// Persisted `last_crawl_outcome` of a ListingSource whose deterministic failures
-/// kept repeating. It is not selected again until an operator changes its
+/// Persisted `last_crawl_outcome` of a ListingSource whose crawl failures
+/// kept repeating. It is not selected again until an operator resumes its crawl or changes its
 /// presentation URL, which moves it to another crawl root and clears its crawl state.
 pub const NEEDS_OPERATOR_CRAWL_OUTCOME: &str = "NEEDS_OPERATOR";
 
@@ -96,6 +96,10 @@ impl SpiderCandidate {
 #[async_trait]
 #[mockall::automock]
 pub trait SpiderCandidateService: Send + Sync {
+    /// Due ListingSources, the least recently run first and, among those never run, the ones
+    /// never fully crawled first. Ordering by the last run of any kind keeps a large shop whose
+    /// truncated crawls continue every few hours from starving the daily incremental crawls of
+    /// the others (`docs/crawler/scheduling-and-retries.md#discovery-coverage`).
     async fn get_candidates(
         &self,
         limit: i64,
@@ -159,7 +163,7 @@ pub trait SpiderCandidateService: Send + Sync {
         root: &CrawledRoot,
         completion: CrawlCompletion,
     ) -> Result<CrawlOutcomeWrite, sqlx::Error>;
-    /// Records a repeated deterministic failure and takes the ListingSource out of
+    /// Records a failure that reached its escalation count and takes the ListingSource out of
     /// the schedule until an operator acts.
     async fn mark_crawl_needs_operator(
         &self,
@@ -227,7 +231,7 @@ impl SpiderCandidateService for SpiderCandidateServiceImpl {
               AND (crawl_rate_limited_until IS NULL OR crawl_rate_limited_until <= NOW())
               AND last_crawl_outcome IS DISTINCT FROM $4
               AND NOT (listing_source_id = ANY($2))
-            ORDER BY last_crawled NULLS FIRST, last_crawl_run_at NULLS FIRST
+            ORDER BY last_crawl_run_at NULLS FIRST, last_crawled NULLS FIRST
             LIMIT $1
             "#,
         )

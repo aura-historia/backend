@@ -177,6 +177,7 @@ describe.each(["dev", "prod"] as const)("%s periodic matcher", (stage) => {
       OPENSEARCH_USERNAME: `{{resolve:ssm:/opensearch/${stage}/reader/username}}`,
       OPENSEARCH_PASSWORD: credentialReference(secrets.openSearch, "readerPassword"),
       CLOUDFLARE_API_TOKEN: credentialReference(secrets.cloudflare, "workersAiApiToken"),
+      ANTHROPIC_API_KEY: credentialReference(secrets.anthropic, "apiKey"),
     });
     expect(Object.keys(template.toJSON().Parameters).filter((name: string) => name.startsWith("PeriodicMatcher"))).toEqual(["PeriodicMatcherImageDigest", "PeriodicMatcherEnabled"]);
     const roles = Object.entries(template.findResources("AWS::IAM::Role"));

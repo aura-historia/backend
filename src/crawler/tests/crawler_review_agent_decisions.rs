@@ -11,9 +11,10 @@ use crawler::authoring::CrawlerAuthoringMode;
 use crawler::review::agent_decisions::{AgentDecisionPolicy, AgentLimits};
 use crawler::review::approval_guard::{FailedApprovalCheck, GuardedPage};
 use crawler::review::model::{
-    PAGE_ROLE_PRIMARY, PageSize, PendingReviewSummary, PendingReviewTotals, ReviewActor,
-    ReviewEventAction, STATUS_APPROVED, STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel,
-    SchemaReviewPageInput, UrlPatternDecision,
+    HandoverCategory, HandoverCause, HandoverReason, PAGE_ROLE_PRIMARY, PageSize,
+    PendingReviewSummary, PendingReviewTotals, ReviewActor, ReviewEventAction, STATUS_APPROVED,
+    STATUS_PENDING_REVIEW, SampleLabelInput, SampleUrlLabel, SchemaReviewPageInput,
+    UrlPatternDecision,
 };
 use crawler::review::page_coverage::IncompleteCoverage;
 use crawler::review::readers::{ReviewQuery, ReviewQueueReader};
@@ -2393,10 +2394,26 @@ async fn should_hand_a_review_to_a_human_at_once_without_counting_a_round() {
         .unwrap();
 
     let by_human = repository
-        .hand_to_human(review_id, ReviewActor::Human, Some("why"))
+        .hand_to_human(
+            review_id,
+            ReviewActor::Human,
+            HandoverCause {
+                reason: HandoverReason::NeedsHuman,
+                category: HandoverCategory::PagesUnreadable,
+            },
+            Some("why"),
+        )
         .await;
     let without_note = repository
-        .hand_to_human(review_id, ReviewActor::AgentAuthor, Some("  "))
+        .hand_to_human(
+            review_id,
+            ReviewActor::AgentAuthor,
+            HandoverCause {
+                reason: HandoverReason::NeedsHuman,
+                category: HandoverCategory::PagesUnreadable,
+            },
+            Some("  "),
+        )
         .await;
     assert!(matches!(
         by_human,
@@ -2412,6 +2429,10 @@ async fn should_hand_a_review_to_a_human_at_once_without_counting_a_round() {
         .hand_to_human(
             review_id,
             ReviewActor::AgentAuthor,
+            HandoverCause {
+                reason: HandoverReason::NothingToStageAfterReview,
+                category: HandoverCategory::CandidateAlreadyHolds,
+            },
             Some("the button text is the only availability signal"),
         )
         .await
@@ -2428,8 +2449,18 @@ async fn should_hand_a_review_to_a_human_at_once_without_counting_a_round() {
             Some("the button text is the only availability signal")
         )
     );
+    assert_eq!(handed.details["reason"], "NOTHING_TO_STAGE_AFTER_REVIEW");
+    assert_eq!(handed.details["category"], "CANDIDATE_ALREADY_HOLDS");
     let again = repository
-        .hand_to_human(review_id, ReviewActor::AgentReviewer, Some("again"))
+        .hand_to_human(
+            review_id,
+            ReviewActor::AgentReviewer,
+            HandoverCause {
+                reason: HandoverReason::NeedsHuman,
+                category: HandoverCategory::PagesUnreadable,
+            },
+            Some("again"),
+        )
         .await;
     let verdict = repository
         .request_repair(review_id, ReviewActor::AgentReviewer, Some("again"))

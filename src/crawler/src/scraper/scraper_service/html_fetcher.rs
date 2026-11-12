@@ -7,6 +7,7 @@ use crate::network::policy::{
     is_same_or_www_host, network_error_kind_for_public_target_error, parse_retry_after,
     public_http_client, redirect_target,
 };
+use crate::network::politeness::{PolitenessGroups, politeness_group};
 use crate::network::robots::RobotsRefusal;
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
@@ -15,7 +16,7 @@ use robots::RobotsCache;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-use tracing::debug;
+use tracing::{debug, info};
 use trailing_slash::TrailingSlashHosts;
 use url::Url;
 
@@ -300,6 +301,12 @@ impl ReqwestHtmlFetcher {
         }
     }
 
+    /// The politeness groups this fetcher paces by, for the spider to share
+    /// (`docs/crawler/networking.md#politeness-groups`).
+    pub fn politeness_groups(&self) -> Arc<PolitenessGroups> {
+        Arc::clone(self.auto_throttle.politeness_groups())
+    }
+
     /// Returns the origin's robots `Crawl-delay` when robots.txt allows `url`.
     async fn check_robots(&self, url: &Url) -> Result<Option<Duration>, FetchAttemptError> {
         let robots = self.robots_policy(url).await?;
@@ -438,7 +445,11 @@ impl ReqwestHtmlFetcher {
         }
         if !status.is_success() {
             self.record_domain_failure_latency(domain, started.elapsed());
-            return Err(http_status_fetch_error(response).await.into());
+            let error = http_status_fetch_error(response).await;
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                self.record_domain_rate_limit(domain, error.error.retry_after());
+            }
+            return Err(error.into());
         }
         self.record_domain_success_latency(domain, started.elapsed());
         let final_url = response.url().clone();
@@ -526,6 +537,25 @@ impl ReqwestHtmlFetcher {
                 domain,
                 latency_ms = latency.as_millis(),
                 "Recorded scraper fetch failure latency"
+            );
+        }
+    }
+
+    /// Slows the domain's whole politeness group after its 429, so the other
+    /// shops of a shared platform wait instead of meeting the limit too.
+    fn record_domain_rate_limit(&self, domain: Option<&str>, retry_after: Option<Duration>) {
+        let Some(domain) = domain else {
+            return;
+        };
+        if let Some(backoff) = self.auto_throttle.record_rate_limit(domain, retry_after) {
+            info!(
+                event = "crawler.scraper.politeness_group_rate_limited",
+                domain,
+                politeness_group = %politeness_group(domain).key,
+                retry_after_seconds = retry_after.map(|value| value.as_secs()),
+                pause_ms = backoff.pause.as_millis(),
+                spacing_ms = backoff.spacing.as_millis(),
+                "Paused politeness group after a rate limit"
             );
         }
     }
@@ -1151,6 +1181,30 @@ mod tests {
                 ..
             } if delay == Duration::from_secs(300)
         ));
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_pauses_the_politeness_group_after_429() {
+        let url = spawn_shop_without_robots(vec![
+            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 30\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ])
+        .await;
+        let fetcher = ReqwestHtmlFetcher::for_local_http_test(
+            zero_delay_retry_policy(1),
+            throttle_config(Duration::ZERO),
+        );
+
+        let _ = tokio::time::timeout(LOAD_TOLERANT_BOUND, fetcher.fetch(&url))
+            .await
+            .expect("429 must answer without waiting for its Retry-After")
+            .expect_err("429 must fail the fetch");
+        let next_start = fetcher.auto_throttle.reserve_request_start(
+            url.host_str().unwrap(),
+            Duration::ZERO,
+            None,
+        );
+
+        assert!(next_start.wait() > Duration::from_secs(20));
     }
 
     #[tokio::test]

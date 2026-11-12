@@ -71,6 +71,7 @@ function loopsNewsletterEnvironment(context: LambdaEnvironmentContext): Record<s
 export function mcpEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
   return {
     ...listingProviderEnvironment(context),
+    ...searchIntentTranslatorEnvironment(context),
     AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH: "true",
     COMMIT_SHA: context.commitSha,
     OAUTH_ISSUER_URL: context.config.oauthIssuerUrl,
@@ -132,6 +133,7 @@ export function apiEnvironment(context: LambdaEnvironmentContext): Record<string
     ...environment,
     ...listingProviderEnvironment(context),
     ...searchFilterPreviewEnvironment(context),
+    ...searchIntentTranslatorEnvironment(context),
     STRIPE_API_KEY: context.credential(secrets.stripe, "apiKey"),
     ...loopsNewsletterEnvironment(context),
     LOOPS_WEBHOOK_SIGNING_SECRET: context.credential(secrets.loops, "webhookSigningSecret"),
@@ -147,6 +149,13 @@ function searchFilterPreviewEnvironment(context: LambdaEnvironmentContext): Reco
     SEARCH_FILTER_MATCH_SHOULD_SHOW_THRESHOLD_BPS: searchFilterClassifier.shouldShowThresholdBps,
     CLOUDFLARE_ACCOUNT_ID: ssmValue(`/cloudflare/${config.stage}/account-id`),
     CLOUDFLARE_API_TOKEN: context.credential(credentialSecrets(config.stage).cloudflare, "workersAiApiToken"),
+  };
+}
+
+/** Saved-search writes and previews translate the user's intent with the listing-title translator's provider. */
+function searchIntentTranslatorEnvironment(context: LambdaEnvironmentContext): Record<string, string> {
+  return {
+    ANTHROPIC_API_KEY: context.credential(credentialSecrets(context.config.stage).anthropic, "apiKey"),
   };
 }
 

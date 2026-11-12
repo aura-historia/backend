@@ -30,6 +30,7 @@ use time::OffsetDateTime;
 use tracing::debug;
 use url::Url;
 
+mod crawl_resumption;
 mod inspected_pages;
 mod live_matrix;
 mod mass_removal_confirmation;
@@ -51,6 +52,7 @@ mod schema_payload;
 mod url_pattern_sample;
 mod verdicts;
 
+pub use crawl_resumption::CrawlResumption;
 pub use live_matrix::{CandidateProposal, EvaluatedSchemaMatrix};
 pub use mass_removal_confirmation::MassRemovalConfirmation;
 pub use missing_value_pages::{
