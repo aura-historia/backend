@@ -922,7 +922,14 @@ async fn should_rearm_pages_of_retired_templates_when_approved() {
         (&retired_duplicate, vec![narrowed], [5; 32]),
     ] {
         candidates
-            .mark_removed(&fixture.listing_source_id, url, &hash, None, &templates)
+            .mark_removed(
+                &fixture.listing_source_id,
+                url,
+                &hash,
+                None,
+                &templates,
+                None,
+            )
             .await
             .unwrap();
     }
@@ -943,6 +950,7 @@ async fn should_rearm_pages_of_retired_templates_when_approved() {
             &[4; 32],
             None,
             &[notice_schema("no longer available")],
+            None,
         )
         .await
         .unwrap();
@@ -1058,7 +1066,7 @@ async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
         let narrowed = narrowed.clone();
         async move {
             ScraperCandidateServiceImpl::new(pool)
-                .mark_removed(&listing_source_id, &url, &[1; 32], None, &[narrowed])
+                .mark_removed(&listing_source_id, &url, &[1; 32], None, &[narrowed], None)
                 .await
         }
     });
@@ -1093,6 +1101,7 @@ async fn should_leave_a_removal_by_a_template_narrowed_meanwhile_due_at_once() {
                 &[2; 32],
                 None,
                 &[kept],
+                None,
             )
             .await
             .unwrap(),
@@ -1137,6 +1146,7 @@ async fn should_rearm_pages_of_the_templates_a_restore_retires() {
             &[1; 32],
             None,
             &[added],
+            None,
         )
         .await
         .unwrap();

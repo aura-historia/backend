@@ -11,7 +11,8 @@ use crate::network::politeness::politeness_group;
 use crate::scraper::candidate_service::{
     FetchFailureRequest, RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest,
     ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot, ScraperCandidate,
-    ScraperCandidateService, next_scrape_failure_streak,
+    ScraperCandidateService, UnsettledRedirect, UnsettledRedirectRequest,
+    next_scrape_failure_streak,
 };
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -25,6 +26,9 @@ use crate::scraper::scraper_service::domain::product::{
 use crate::scraper::scraper_service::{
     DomainFetchHealth, DomainFetchStats, FetchFailureContext, FetchFailureSource, ScrapeMode,
     ScrapeOutcome, ScrapeRequest, ScrapeTelemetry, ScrapedProduct, ScraperError, ScraperService,
+};
+use crate::scraper::shared_redirect::{
+    other_urls_needed, shared_redirect_removal, url_keeps_redirecting_to,
 };
 use crate::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
@@ -60,6 +64,14 @@ const SCHEMA_ERROR_RETRY_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 /// keeps a page whose review stays pending, for example awaiting repair, from going unchecked
 /// for much longer than a reviewer's working session.
 const SCHEMA_REVIEW_WAIT_MAX_RETRY_DELAY: Duration = Duration::from_secs(4 * 60 * 60);
+/// The scrape interval of a product URL, after which the first scrape that ends at an unsettled
+/// redirect is due again; it matches the candidate query's recency condition.
+const UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY: Duration = Duration::from_secs(24 * 60 * 60);
+/// Upper bound of the recheck delay of a URL that keeps redirecting to the same target nothing
+/// settles. A shop that sends removed products to an error page would otherwise have every such
+/// URL fetched once a day forever; the bound still notices a redirect that disappears, or a
+/// target a later schema judges, within a month.
+const UNSETTLED_REDIRECT_MAX_RECHECK_DELAY: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 /// `last_error_kind` of a URL whose schema derived another identity than the captured one.
 const SOURCE_LISTING_ID_CONFLICT_ERROR_KIND: &str = "SourceListingIdConflict";
 /// Every scrape completion records its URL `ACTIVE`, sold pages included.
@@ -109,6 +121,7 @@ enum RawCaptureSuccessAction {
         raw_input_sha256: Vec<u8>,
         expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
         removed_by_templates: Vec<RemovedPageSchema>,
+        removed_by_redirect_target: Option<url::Url>,
     },
 }
 
@@ -486,6 +499,7 @@ async fn flush_batch(
                     raw_input_sha256,
                     expected_last_captured_raw_input_sha256,
                     removed_by_templates,
+                    removed_by_redirect_target,
                 },
                 _,
             ) => match scraper_candidates
@@ -495,6 +509,7 @@ async fn flush_batch(
                     &raw_input_sha256,
                     expected_last_captured_raw_input_sha256.as_deref(),
                     &removed_by_templates,
+                    removed_by_redirect_target.as_ref(),
                 )
                 .await
             {
@@ -662,13 +677,7 @@ async fn handle_verified_removal(
         return errored_outcome("RemovalInput");
     };
     if candidate.last_captured_raw_input_sha256.as_deref() == Some(raw_input_sha256.as_slice()) {
-        let refreshed = refresh_repeated_removal(
-            candidate,
-            ctx,
-            &raw_input_sha256,
-            &removal.removed_by_templates,
-        )
-        .await;
+        let refreshed = refresh_repeated_removal(candidate, ctx, &raw_input_sha256, &removal).await;
         return ScrapeCandidateOutcome {
             removal: Some(CandidateRemoval::Rechecked),
             named_outcome: refreshed.named_outcome.clone(),
@@ -748,7 +757,7 @@ async fn capture_new_removal(
             input,
             provenance,
             raw_input_sha256,
-            removal.removed_by_templates,
+            removal,
         )),
         ..Default::default()
     }
@@ -777,7 +786,7 @@ async fn refresh_repeated_removal(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
     raw_input_sha256: &[u8],
-    removed_by_templates: &[RemovedPageSchema],
+    removal: &ListingRemoval,
 ) -> ScrapeCandidateOutcome {
     match ctx
         .scraper_candidates
@@ -786,7 +795,8 @@ async fn refresh_repeated_removal(
             &candidate.url,
             raw_input_sha256,
             Some(raw_input_sha256),
-            removed_by_templates,
+            &removal.removed_by_templates,
+            removal.removed_by_redirect_target(),
         )
         .await
     {
@@ -836,8 +846,9 @@ fn removal_capture_request(
     input: ProductListingNormalizationInput,
     provenance: RawProductListingProvenance,
     raw_input_sha256: Vec<u8>,
-    removed_by_templates: Vec<RemovedPageSchema>,
+    removal: ListingRemoval,
 ) -> RawCaptureRequest {
+    let removed_by_redirect_target = removal.removed_by_redirect_target().cloned();
     RawCaptureRequest {
         item: ProductListingRawCaptureItem::crawler(
             candidate.listing_source_id,
@@ -850,7 +861,8 @@ fn removal_capture_request(
             url: candidate.url.clone(),
             raw_input_sha256,
             expected_last_captured_raw_input_sha256: None,
-            removed_by_templates,
+            removed_by_templates: removal.removed_by_templates,
+            removed_by_redirect_target,
         },
         on_failure: RawCaptureFailureAction::MarkScraperFailure {
             listing_source_id: candidate.listing_source_id,
@@ -887,21 +899,27 @@ async fn scrape_candidate_in_batch(
         Err(ScraperError::RedirectToKnownProduct { destination, .. }) => {
             retire_duplicate_of_known_destination(&candidate, ctx, &destination).await
         }
-        Err(
-            error @ (ScraperError::RedirectDestinationUnsettled { .. }
-            | ScraperError::RedirectTargetUnverified { .. }),
-        ) => record_unsettled_redirect(&candidate, ctx, &error).await,
-        Err(error) => {
-            handle_scrape_error(
-                &candidate,
-                ctx,
-                error,
-                fetch_failure,
-                scrape_health.clone(),
-                evidence,
-            )
-            .await
-        }
+        Err(error) => match error.unsettled_redirect_destination().cloned() {
+            Some(destination) => {
+                let redirect =
+                    UnsettledRedirect::after(candidate.unsettled_redirect.as_ref(), destination);
+                match shared_redirect_target_removal(&candidate, ctx, &error, &redirect).await {
+                    Some(removal) => handle_verified_removal(&candidate, ctx, removal).await,
+                    None => record_unsettled_redirect(&candidate, ctx, &error, redirect).await,
+                }
+            }
+            None => {
+                handle_scrape_error(
+                    &candidate,
+                    ctx,
+                    error,
+                    fetch_failure,
+                    scrape_health.clone(),
+                    evidence,
+                )
+                .await
+            }
+        },
     };
     if matches!(outcome.scrape_health, DomainFetchHealth::NotObserved) {
         outcome.scrape_health = scrape_health;
@@ -1089,27 +1107,141 @@ async fn retire_as_duplicate(
 }
 
 /// Records a scrape that ended at a redirect nothing settles: the URL keeps its listing, neither
-/// retired nor removed, and returns at its normal scrape interval instead of being fetched on
-/// every pass (`docs/crawler/networking.md#duplicate-targets`).
+/// retired nor removed, and is checked again after a delay that doubles with each consecutive
+/// scrape ending at the same target, from its normal scrape interval up to
+/// [`UNSETTLED_REDIRECT_MAX_RECHECK_DELAY`]. Only the first scrape of such a streak warns; the
+/// pass summary counts the rest per ListingSource
+/// (`docs/crawler/networking.md#redirect-removal-evidence`).
 async fn record_unsettled_redirect(
     candidate: &ScraperCandidate,
     ctx: &ScrapeBatchContext,
     error: &ScraperError,
+    redirect: UnsettledRedirect,
 ) -> ScrapeCandidateOutcome {
-    warn!(
-        listing_source_id = %candidate.listing_source_id,
-        url = %candidate.url,
-        reason = %error,
-        "Leaving a redirected product URL until its next scrape"
-    );
-    persist_scraped_without_capture(
+    let recheck_delay = unsettled_redirect_recheck_delay(redirect.streak);
+    if redirect.is_first() {
+        warn!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            reason = %error,
+            "Leaving a redirected product URL until its next scrape"
+        );
+    } else {
+        debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            reason = %error,
+            unsettled_redirect_streak = redirect.streak,
+            recheck_delay_hours = recheck_delay.as_secs() / 3600,
+            "Leaving a product URL that keeps redirecting to the same unsettled target"
+        );
+    }
+    persist_unsettled_redirect(
         candidate,
         ctx,
         scraper_error_kind(error),
         &error.to_string(),
+        redirect,
+        recheck_delay,
     )
     .await;
     skipped_outcome(SkipReason::UnsettledRedirect)
+}
+
+/// Records the scrape of `candidate` as scraped without a capture with the outcome and the
+/// unsettled redirect it ended at, due again after `recheck_delay`.
+async fn persist_unsettled_redirect(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    outcome_kind: &str,
+    outcome_message: &str,
+    redirect: UnsettledRedirect,
+    recheck_delay: Duration,
+) {
+    let request = UnsettledRedirectRequest {
+        listing_source_id: candidate.listing_source_id,
+        url: candidate.url.clone(),
+        outcome_kind: outcome_kind.to_owned(),
+        outcome_message: outcome_message.to_owned(),
+        redirect,
+        next_retry_at: time::OffsetDateTime::now_utc()
+            + time::Duration::seconds(recheck_delay.as_secs() as i64),
+        expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+    };
+    match ctx
+        .scraper_candidates
+        .mark_unsettled_redirect(request)
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale crawler unsettled-redirect outcome"
+        ),
+        Err(error) => warn_in_source!(
+            error = %error,
+            url = %candidate.url,
+            "Failed to persist crawler unsettled-redirect outcome"
+        ),
+    }
+}
+
+/// The removal a redirect outside the product URL pattern that no cached schema judges shows when
+/// the URL keeps redirecting to a page many product URLs of its ListingSource share
+/// (`docs/crawler/networking.md#redirect-removal-evidence`). `None` for any other unsettled
+/// redirect, and whenever the other URLs cannot be counted: the rule fails closed.
+async fn shared_redirect_target_removal(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    error: &ScraperError,
+    redirect: &UnsettledRedirect,
+) -> Option<ListingRemoval> {
+    let removed_by_redirect_target = candidate.removed_by_redirect_target.as_ref();
+    if !matches!(error, ScraperError::RedirectTargetUnverified { .. })
+        || !url_keeps_redirecting_to(redirect, removed_by_redirect_target)
+    {
+        return None;
+    }
+    let other_urls = match ctx
+        .scraper_candidates
+        .count_urls_at_redirect_target(
+            &candidate.listing_source_id,
+            &redirect.destination,
+            &candidate.url,
+            other_urls_needed(),
+        )
+        .await
+    {
+        Ok(other_urls) => other_urls,
+        Err(error) => {
+            warn_in_source!(
+                error = %error,
+                url = %candidate.url,
+                "Failed to count the product URLs at a redirect target; leaving the URL unsettled"
+            );
+            return None;
+        }
+    };
+    shared_redirect_removal(
+        &candidate.url,
+        redirect,
+        removed_by_redirect_target,
+        other_urls,
+    )
+}
+
+/// The scrape interval doubled for each earlier consecutive scrape that ended at the same
+/// unsettled redirect, capped at [`UNSETTLED_REDIRECT_MAX_RECHECK_DELAY`].
+fn unsettled_redirect_recheck_delay(streak: u32) -> Duration {
+    let doublings = streak.saturating_sub(1);
+    2_u32
+        .checked_pow(doublings)
+        .and_then(|factor| UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY.checked_mul(factor))
+        .map_or(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY, |delay| {
+            delay.min(UNSETTLED_REDIRECT_MAX_RECHECK_DELAY)
+        })
 }
 
 async fn handle_successful_scrape(
@@ -2239,13 +2371,7 @@ async fn hold_mass_removal(
         mass_removal.scraped_urls()
     );
     for removal in removals {
-        persist_scraped_without_capture(
-            &removal.candidate,
-            ctx,
-            MASS_REMOVAL_HELD_ERROR_KIND,
-            &message,
-        )
-        .await;
+        persist_held_removal(&removal, ctx, &message).await;
         log_url_outcome(
             &ctx.source_log_context(),
             &removal.candidate,
@@ -2253,6 +2379,34 @@ async fn hold_mass_removal(
             &removal.telemetry,
         );
         outcome.record_skipped(SkipReason::MassRemovalHeld.as_str(), 1);
+    }
+}
+
+/// Records a removal the mass-removal guard held as scraped without a capture. A removal a shared
+/// redirect target showed keeps the redirect it ended at, so the URL's next scrape continues its
+/// streak and still counts for the other URLs at the target: an operator's confirmation then
+/// captures it on that scrape instead of starting the streak over
+/// (`docs/crawler/networking.md#redirect-removal-evidence`).
+async fn persist_held_removal(removal: &NewRemoval, ctx: &ScrapeBatchContext, message: &str) {
+    let candidate = &removal.candidate;
+    match removal.removal.removed_by_redirect_target() {
+        Some(target) => {
+            let redirect =
+                UnsettledRedirect::after(candidate.unsettled_redirect.as_ref(), target.clone());
+            persist_unsettled_redirect(
+                candidate,
+                ctx,
+                MASS_REMOVAL_HELD_ERROR_KIND,
+                message,
+                redirect,
+                Duration::ZERO,
+            )
+            .await;
+        }
+        None => {
+            persist_scraped_without_capture(candidate, ctx, MASS_REMOVAL_HELD_ERROR_KIND, message)
+                .await;
+        }
     }
 }
 
@@ -3883,14 +4037,19 @@ mod tests {
             .expect_mark_removed()
             .once()
             .withf(
-                move |source_id, candidate_url, raw_input_sha256, expected_raw_input_sha256, _| {
+                move |source_id,
+                      candidate_url,
+                      raw_input_sha256,
+                      expected_raw_input_sha256,
+                      _,
+                      _| {
                     *source_id == listing_source_id
                         && candidate_url.as_str() == "https://example.com/product/removed"
                         && raw_input_sha256.len() == 32
                         && expected_raw_input_sha256.is_none()
                 },
             )
-            .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            .returning(|_, _, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
 
         let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
         let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
@@ -4069,6 +4228,7 @@ mod tests {
     /// returns at its scrape interval instead of being fetched again on every pass.
     #[tokio::test]
     async fn should_record_a_scrape_without_capture_when_its_redirect_is_not_settled() {
+        let before = time::OffsetDateTime::now_utc();
         let original_url =
             url::Url::parse("https://example.com/collections/all/products/ladle").unwrap();
         let effective_url = url::Url::parse("https://example.com/products/ladle").unwrap();
@@ -4094,16 +4254,27 @@ mod tests {
             scraper_candidates
                 .expect_forget_capture_before_removal()
                 .never();
-            let expected_url = original_url.clone();
             scraper_candidates
                 .expect_mark_scraped_without_capture()
+                .never();
+            let (expected_url, expected_destination) =
+                (original_url.clone(), effective_url.clone());
+            scraper_candidates
+                .expect_mark_unsettled_redirect()
                 .once()
-                .withf(move |_, url, kind, _, expected| {
-                    *url == expected_url
-                        && kind == expected_kind
-                        && *expected == Some(&[4_u8; 32][..])
+                .withf(move |request| {
+                    request.url == expected_url
+                        && request.outcome_kind == expected_kind
+                        && request.redirect.destination == expected_destination
+                        && request.redirect.streak == 1
+                        && request.expected_last_captured_raw_input_sha256 == Some(vec![4_u8; 32])
+                        && retry_due_after(
+                            request.next_retry_at,
+                            before,
+                            UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY,
+                        )
                 })
-                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
             let ctx = scrape_candidate_context(scraper_candidates, redirect_ends_scrape(error));
 
             let outcome = scrape_candidate(candidate, &ctx).await;
@@ -4112,6 +4283,228 @@ mod tests {
             assert!(outcome.skipped, "{expected_kind}");
             assert!(!outcome.errored, "{expected_kind}");
         }
+    }
+
+    /// Whether `next_retry_at`, written by a call that started at `before`, lies `delay` after
+    /// the call, allowing for the time the call took.
+    fn retry_due_after(
+        next_retry_at: time::OffsetDateTime,
+        before: time::OffsetDateTime,
+        delay: Duration,
+    ) -> bool {
+        let earliest = before + time::Duration::seconds(delay.as_secs() as i64);
+        next_retry_at >= earliest && next_retry_at <= earliest + time::Duration::minutes(1)
+    }
+
+    /// The streak of a URL that keeps redirecting to the same unsettled target, or that starts
+    /// redirecting to another one, as the scrape records it.
+    async fn recorded_unsettled_redirect(
+        previous: Option<UnsettledRedirect>,
+        destination: &url::Url,
+    ) -> UnsettledRedirectRequest {
+        let mut candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://example.com/producto.aspx?id=589").unwrap(),
+        );
+        candidate.unsettled_redirect = previous;
+        let recorded = Arc::new(std::sync::Mutex::new(None));
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_count_urls_at_redirect_target()
+            .returning(|_, _, _, _| Box::pin(async { Ok(2) }));
+        let sink = Arc::clone(&recorded);
+        scraper_candidates
+            .expect_mark_unsettled_redirect()
+            .once()
+            .returning(move |request| {
+                *sink.lock().unwrap() = Some(request);
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        let ctx = scrape_candidate_context(
+            scraper_candidates,
+            redirect_ends_scrape(ScraperError::RedirectTargetUnverified {
+                destination: destination.clone(),
+            }),
+        );
+
+        let outcome = scrape_candidate(candidate, &ctx).await;
+
+        assert!(outcome.skipped);
+        assert!(outcome.capture.is_none());
+        recorded.lock().unwrap().take().unwrap()
+    }
+
+    fn error_page() -> url::Url {
+        url::Url::parse("https://example.com/error.aspx?aspxerrorpath=/producto.aspx").unwrap()
+    }
+
+    /// The outcome of a scrape whose redirect ended unsettled at the error page, for a URL whose
+    /// previous scrape ended there too, while `other_urls` other product URLs stand there.
+    async fn scrape_redirecting_to_the_error_page(
+        error: ScraperError,
+        other_urls: Result<u64, ()>,
+    ) -> (ScrapeCandidateOutcome, Arc<AtomicUsize>) {
+        let mut candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://example.com/producto.aspx?id=589").unwrap(),
+        );
+        candidate.unsettled_redirect = Some(UnsettledRedirect {
+            destination: error_page(),
+            streak: 1,
+        });
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        let expected_url = candidate.url.clone();
+        scraper_candidates
+            .expect_count_urls_at_redirect_target()
+            .withf(move |_, target, excluded, limit| {
+                *target == error_page() && *excluded == expected_url && *limit == 9
+            })
+            .returning(move |_, _, _, _| {
+                Box::pin(async move { other_urls.map_err(|()| sqlx::Error::PoolTimedOut) })
+            });
+        scraper_candidates
+            .expect_forget_capture_before_removal()
+            .returning(|_, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let unsettled_writes = Arc::new(AtomicUsize::new(0));
+        let writes = Arc::clone(&unsettled_writes);
+        scraper_candidates
+            .expect_mark_unsettled_redirect()
+            .returning(move |_| {
+                writes.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+            });
+        let ctx = scrape_candidate_context(scraper_candidates, redirect_ends_scrape(error));
+
+        (scrape_candidate(candidate, &ctx).await, unsettled_writes)
+    }
+
+    /// A shop that sends removed products to one catch-all page withdraws them once enough of its
+    /// product URLs keep landing there.
+    #[tokio::test]
+    async fn should_remove_a_url_that_keeps_redirecting_to_a_page_many_urls_share() {
+        let (outcome, unsettled_writes) = scrape_redirecting_to_the_error_page(
+            ScraperError::RedirectTargetUnverified {
+                destination: error_page(),
+            },
+            Ok(9),
+        )
+        .await;
+
+        let Some(RawCaptureRequest {
+            on_success:
+                RawCaptureSuccessAction::MarkRemoved {
+                    removed_by_redirect_target,
+                    removed_by_templates,
+                    ..
+                },
+            ..
+        }) = &outcome.capture
+        else {
+            panic!("a shared redirect target is removal evidence");
+        };
+        assert_eq!(removed_by_redirect_target.as_ref(), Some(&error_page()));
+        assert!(removed_by_templates.is_empty());
+        assert_eq!(unsettled_writes.load(Ordering::SeqCst), 0);
+    }
+
+    /// Few URLs at the target, a count that fails, or rows that disagree at the target withdraw
+    /// nothing: the URL is left unsettled.
+    #[tokio::test]
+    async fn should_leave_the_url_unsettled_when_the_shared_target_is_no_evidence() {
+        for (error, other_urls) in [
+            (
+                ScraperError::RedirectTargetUnverified {
+                    destination: error_page(),
+                },
+                Ok(8),
+            ),
+            (
+                ScraperError::RedirectTargetUnverified {
+                    destination: error_page(),
+                },
+                Err(()),
+            ),
+            (
+                ScraperError::RedirectDestinationUnsettled {
+                    destination: error_page(),
+                },
+                Ok(500),
+            ),
+        ] {
+            let label = format!("{error} with {other_urls:?}");
+            let (outcome, unsettled_writes) =
+                scrape_redirecting_to_the_error_page(error, other_urls).await;
+
+            assert!(outcome.removal.is_none(), "{label}");
+            assert!(outcome.skipped, "{label}");
+            assert_eq!(unsettled_writes.load(Ordering::SeqCst), 1, "{label}");
+        }
+    }
+
+    /// A shop that sends removed products to one error page has each such URL checked ever less
+    /// often instead of once a day forever.
+    #[tokio::test]
+    async fn should_double_the_recheck_delay_when_the_redirect_keeps_ending_at_the_same_target() {
+        let error_page =
+            url::Url::parse("https://example.com/error.aspx?aspxerrorpath=/producto.aspx").unwrap();
+        let before = time::OffsetDateTime::now_utc();
+
+        let request = recorded_unsettled_redirect(
+            Some(UnsettledRedirect {
+                destination: error_page.clone(),
+                streak: 2,
+            }),
+            &error_page,
+        )
+        .await;
+
+        assert_eq!(request.redirect.streak, 3);
+        assert_eq!(request.redirect.destination, error_page);
+        assert!(retry_due_after(
+            request.next_retry_at,
+            before,
+            UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY * 4,
+        ));
+    }
+
+    #[tokio::test]
+    async fn should_restart_the_recheck_delay_when_the_redirect_target_changes() {
+        let before = time::OffsetDateTime::now_utc();
+        let sold_page = url::Url::parse("https://example.com/vendidos").unwrap();
+
+        let request = recorded_unsettled_redirect(
+            Some(UnsettledRedirect {
+                destination: url::Url::parse("https://example.com/error.aspx").unwrap(),
+                streak: 5,
+            }),
+            &sold_page,
+        )
+        .await;
+
+        assert_eq!(request.redirect.streak, 1);
+        assert_eq!(request.redirect.destination, sold_page);
+        assert!(retry_due_after(
+            request.next_retry_at,
+            before,
+            UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY,
+        ));
+    }
+
+    #[test]
+    fn should_cap_the_unsettled_redirect_recheck_delay() {
+        const DAY: Duration = UNSETTLED_REDIRECT_FIRST_RECHECK_DELAY;
+        assert_eq!(unsettled_redirect_recheck_delay(0), DAY);
+        assert_eq!(unsettled_redirect_recheck_delay(1), DAY);
+        assert_eq!(unsettled_redirect_recheck_delay(2), DAY * 2);
+        assert_eq!(unsettled_redirect_recheck_delay(5), DAY * 16);
+        assert_eq!(
+            unsettled_redirect_recheck_delay(6),
+            UNSETTLED_REDIRECT_MAX_RECHECK_DELAY
+        );
+        assert_eq!(
+            unsettled_redirect_recheck_delay(u32::MAX),
+            UNSETTLED_REDIRECT_MAX_RECHECK_DELAY
+        );
     }
 
     #[tokio::test]
@@ -4289,13 +4682,15 @@ mod tests {
             scraper_candidates
                 .expect_mark_removed()
                 .once()
-                .withf(move |source_id, url, raw_input_sha256, expected, _| {
+                .withf(move |source_id, url, raw_input_sha256, expected, _, _| {
                     *source_id == listing_source_id
                         && url.as_str() == URL
                         && raw_input_sha256 == removal_sha256().as_slice()
                         && *expected == Some(removal_sha256().as_slice())
                 })
-                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+                .returning(|_, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
             let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
 
             let outcome = scrape_candidate(candidate, &ctx).await;
@@ -4328,7 +4723,7 @@ mod tests {
                 scraper_candidates
                     .expect_mark_removed()
                     .once()
-                    .return_once(move |_, _, _, _, _| Box::pin(async move { write }));
+                    .return_once(move |_, _, _, _, _, _| Box::pin(async move { write }));
                 let ctx = scrape_candidate_context(scraper_candidates, removed_scraper());
 
                 let outcome = scrape_candidate(candidate, &ctx).await;
@@ -4434,7 +4829,7 @@ mod tests {
             failing_candidates
                 .expect_mark_removed()
                 .once()
-                .returning(|_, _, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
+                .returning(|_, _, _, _, _, _| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
             let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
             let failing_candidates: Arc<dyn ScraperCandidateService> = Arc::new(failing_candidates);
             flush_batch(
@@ -5775,6 +6170,60 @@ mod tests {
             assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
         }
 
+        /// A held shared-redirect removal keeps the URL's streak at its target, so the scrape an
+        /// operator's confirmation makes due captures the removal instead of starting over.
+        #[tokio::test]
+        async fn should_keep_the_redirect_streak_of_a_held_shared_redirect_removal() {
+            let error_page = url::Url::parse(&format!("https://{HOST}/error.aspx")).unwrap();
+            let (mut candidates, listing_source_id) = source_batch(HOST, 12);
+            for candidate in &mut candidates {
+                candidate.unsettled_redirect = Some(UnsettledRedirect {
+                    destination: error_page.clone(),
+                    streak: 1,
+                });
+            }
+            let mut scraper_service = MockScraperService::new();
+            let destination = error_page.clone();
+            scraper_service.expect_scrape().returning(move |_| {
+                let destination = destination.clone();
+                Box::pin(async move {
+                    scrape_outcome(Err(ScraperError::RedirectTargetUnverified { destination }))
+                })
+            });
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            scraper_candidates
+                .expect_count_urls_at_redirect_target()
+                .returning(|_, _, _, _| Box::pin(async { Ok(9) }));
+            scraper_candidates
+                .expect_forget_capture_before_removal()
+                .never();
+            scraper_candidates
+                .expect_mark_scraped_without_capture()
+                .never();
+            let before = time::OffsetDateTime::now_utc();
+            let expected_destination = error_page.clone();
+            scraper_candidates
+                .expect_mark_unsettled_redirect()
+                .times(12)
+                .withf(move |request| {
+                    request.outcome_kind == MASS_REMOVAL_HELD_ERROR_KIND
+                        && request.redirect.destination == expected_destination
+                        && request.redirect.streak == 2
+                        && retry_due_after(request.next_retry_at, before, Duration::ZERO)
+                })
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            let (ctx, mut command_rx) = batch_context(
+                confirmed_until(scraper_candidates, None),
+                scraper_service,
+                listing_source_id,
+            );
+
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
+
+            assert_eq!(queued_removals(&mut command_rx), 0);
+            assert_eq!((outcome.succeeded, outcome.skipped), (0, 12));
+        }
+
         fn outcome_labels(
             events: &crate::test_support::logged_events::LoggedEvents,
         ) -> Vec<String> {
@@ -5885,7 +6334,9 @@ mod tests {
             scraper_candidates
                 .expect_mark_removed()
                 .times(20)
-                .returning(|_, _, _, _, _| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+                .returning(|_, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
             scraper_candidates
                 .expect_forget_capture_before_removal()
                 .never();

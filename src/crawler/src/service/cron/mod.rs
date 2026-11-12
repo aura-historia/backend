@@ -83,6 +83,8 @@ pub(super) mod test_support {
             },
             is_circuit_probe: false,
             schema_review_wait: None,
+            unsettled_redirect: None,
+            removed_by_redirect_target: None,
             page_error_streak: 0,
         }
     }
