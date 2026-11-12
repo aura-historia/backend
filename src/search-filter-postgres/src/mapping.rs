@@ -207,26 +207,29 @@ impl FilterRow {
         })
     }
     pub(crate) fn into_view(self) -> Result<SearchFilterView, SearchFilterReadError> {
-        matching_evidence_policy(&self.matching_evidence_policy)
-            .map_err(|_| SearchFilterReadError::InvalidPersistedState)?;
+        matching_evidence_policy(&self.matching_evidence_policy).map_err(invalid_view)?;
         let created = self.created;
         let updated = self.updated;
         Ok(SearchFilterView {
             search_filter_id: UserSearchFilterId::try_from(self.user_search_filter_id)
-                .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
-            user_id: UserId::try_from(self.user_id)
-                .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
-            name: name(self.name).map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
+                .map_err(invalid_view)?,
+            user_id: UserId::try_from(self.user_id).map_err(invalid_view)?,
+            name: name(self.name).map_err(invalid_view)?,
             notifications: self.notifications,
-            state: state(&self.state).map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
-            search: product_search_from_json(self.search)
-                .map_err(|_| SearchFilterReadError::InvalidPersistedState)?,
+            state: state(&self.state).map_err(invalid_view)?,
+            search: product_search_from_json(self.search).map_err(invalid_view)?,
             embedding: self.embedding,
             created,
             updated,
         })
     }
 }
+fn invalid_view(source: impl Error + Send + Sync + 'static) -> SearchFilterReadError {
+    SearchFilterReadError::InvalidPersistedState {
+        source: box_error(source),
+    }
+}
+
 #[derive(Debug, FromRow)]
 pub(crate) struct AggregateRow {
     #[sqlx(flatten)]
@@ -958,7 +961,7 @@ mod tests {
         ));
         assert!(matches!(
             filter_row(UserSearchFilterId::new().into_uuid(), uuid::Uuid::new_v4())?.into_view(),
-            Err(SearchFilterReadError::InvalidPersistedState)
+            Err(SearchFilterReadError::InvalidPersistedState { .. })
         ));
         Ok(())
     }

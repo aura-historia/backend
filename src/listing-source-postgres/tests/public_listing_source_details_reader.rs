@@ -1,5 +1,5 @@
 use application::transaction::{Transaction, UnitOfWork};
-use listing_source_core::ListingSourceSlugId;
+use listing_source_core::{ListingSourceId, ListingSourceSlugId};
 use listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory;
 use listing_source_service::{
     ports::{
@@ -135,6 +135,53 @@ async fn should_return_none_for_unknown_or_deleted_exact_slug() {
         .unwrap_or_else(|error| panic!("delete test source: {error}"));
 
     assert!(read(&pool, "deleted-source").await.is_none());
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_find_existing_ids_ordered_by_id_and_omit_unknown_ids() {
+    let pool = get_postgres_client().await;
+    let party_id = uuid::Uuid::now_v7();
+    insert_party(&pool, party_id, "batch-operator", "Batch Operator").await;
+    let first = uuid::Uuid::now_v7();
+    let second = uuid::Uuid::now_v7();
+    let unrequested = uuid::Uuid::now_v7();
+    for (id, slug) in [
+        (second, "batch-second"),
+        (first, "batch-first"),
+        (unrequested, "batch-unrequested"),
+    ] {
+        insert_source(&pool, id, slug, "Batch Source", party_id, None, None).await;
+    }
+    let requested = [second, ListingSourceId::new().into_uuid(), first]
+        .map(|id| ListingSourceId::try_from(id).unwrap_or_else(|error| panic!("{error}")));
+
+    let summaries = read_ids(&pool, &requested).await;
+
+    assert_eq!(
+        vec![first, second],
+        summaries
+            .iter()
+            .map(|summary| *summary.listing_source_id.as_uuid())
+            .collect::<Vec<_>>()
+    );
+}
+
+async fn read_ids(pool: &sqlx::PgPool, ids: &[ListingSourceId]) -> Vec<PublicListingSourceSummary> {
+    let unit_of_work = SqlxUnitOfWork::new(pool.clone());
+    let mut transaction = unit_of_work
+        .begin()
+        .await
+        .unwrap_or_else(|error| panic!("begin detail reader transaction: {error}"));
+    let result = SqlxPublicListingSourceDetailsReaderFactory::new()
+        .in_transaction(&mut transaction)
+        .find_by_ids(ids)
+        .await
+        .unwrap_or_else(|error| panic!("read public details by ID: {error}"));
+    transaction
+        .commit()
+        .await
+        .unwrap_or_else(|error| panic!("commit detail reader transaction: {error}"));
+    result
 }
 
 async fn read(pool: &sqlx::PgPool, slug: &str) -> Option<PublicListingSourceSummary> {

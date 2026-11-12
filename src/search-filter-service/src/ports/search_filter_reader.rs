@@ -1,4 +1,5 @@
 use crate::ports::PersistedSearchFilter;
+use application::error::BoxError;
 use product_listing_core::product_listing_search::ProductListingSearch;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
@@ -39,9 +40,15 @@ impl From<PersistedSearchFilter> for SearchFilterView {
 #[derive(Debug, thiserror::Error)]
 pub enum SearchFilterReadError {
     #[error("search filter read failed")]
-    ReadFailed,
+    ReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("persisted search filter state is invalid")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
 }
 
 #[async_trait::async_trait]

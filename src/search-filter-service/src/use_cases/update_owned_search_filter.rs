@@ -1,8 +1,11 @@
+use super::listing_source_references::{
+    ListingSourceLookupError, ReferencedListingSources, SearchFilterDetails,
+};
 use crate::intent_translation::{TranslationTrigger, translate_search_intent};
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterReadError, SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
-    SearchFilterRepositoryFactory, SearchFilterView, SearchIntentTranslator,
+    SearchFilterRepositoryFactory, SearchIntentTranslator,
 };
 use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{
@@ -21,6 +24,7 @@ use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use embedding::{EmbeddingError, EmbeddingGenerator};
 use listing_source_core::ListingSourceId;
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsUseCase;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_listing_core::product_listing_search::{
@@ -70,7 +74,7 @@ pub struct UpdateOwnedSearchFilterCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateOwnedSearchFilterResult {
-    pub filter: SearchFilterView,
+    pub filter: SearchFilterDetails,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -109,6 +113,16 @@ pub enum UpdateOwnedSearchFilterError {
     InvalidSearchFilterPatch,
     #[error("search filter embedding generation failed")]
     EmbeddingGenerationFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter listing source read failed")]
+    ListingSourceReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter listing source state is invalid")]
+    ListingSourceStateInvalid {
         #[source]
         source: BoxError,
     },
@@ -152,6 +166,7 @@ pub struct UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
     filter_reader: F,
     quotas: Q,
     tier_entitlements: A,
+    listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
@@ -161,6 +176,7 @@ impl<U, R, E, T, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
         self
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         filters: R,
@@ -169,6 +185,7 @@ impl<U, R, E, T, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
         filter_reader: F,
         quotas: Q,
         tier_entitlements: A,
+        listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     ) -> Self {
         Self {
             unit_of_work,
@@ -178,6 +195,7 @@ impl<U, R, E, T, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
             filter_reader,
             quotas,
             tier_entitlements,
+            listing_sources,
             shipping_destinations: None,
         }
     }
@@ -269,6 +287,14 @@ where
             },
         );
         let prepared_embedding = prepared_embedding.map_err(embedding_error)?;
+        // Resolved before the write so a failed lookup cannot fail a committed update.
+        let listing_sources = ReferencedListingSources::resolve(
+            self.listing_sources.as_ref(),
+            context,
+            [&prepared_search],
+        )
+        .await
+        .map_err(UpdateOwnedSearchFilterError::from)?;
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UpdateOwnedSearchFilterError::BeginTransactionFailed(Box::new(source))
@@ -333,6 +359,9 @@ where
                 .replace_search(filter.search().clone(), embedding)
                 .changed();
         }
+        if !listing_sources.covers(filter.search()) {
+            return Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict);
+        }
         // A translation of text the filter no longer has is dropped; the backfill retries.
         if let Some(translation) = prepared_translation
             && let Ok(outcome) = filter.record_intent_translation(translation)
@@ -359,7 +388,7 @@ where
         );
 
         Ok(UpdateOwnedSearchFilterResult {
-            filter: persisted.into(),
+            filter: listing_sources.details(persisted.into()),
         })
     }
 }
@@ -565,6 +594,19 @@ impl From<OperationAuthorizationError> for UpdateOwnedSearchFilterError {
             | OperationAuthorizationError::InsufficientCapability { .. } => {
                 Self::ActorMayNotManageSearchFilter
             }
+        }
+    }
+}
+
+impl From<ListingSourceLookupError> for UpdateOwnedSearchFilterError {
+    fn from(error: ListingSourceLookupError) -> Self {
+        match error {
+            ListingSourceLookupError::Unavailable(source) => Self::ListingSourceReadFailed {
+                source: box_error(source),
+            },
+            ListingSourceLookupError::Invalid(source) => Self::ListingSourceStateInvalid {
+                source: box_error(source),
+            },
         }
     }
 }

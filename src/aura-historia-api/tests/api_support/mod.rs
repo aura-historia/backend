@@ -1807,9 +1807,18 @@ async fn test_state(
     );
 
     let search_filter_reader = SqlxSearchFilterReader::new(pool.clone());
+    let search_filter_listing_sources: Arc<
+        dyn listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsUseCase,
+    > = Arc::new(
+        listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsHandler::new(
+            unit_of_work.clone(),
+            listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory::new(),
+        ),
+    );
     let search_filters_state = SearchFiltersState::new(
         Arc::new(ListOwnedSearchFiltersHandler::new(
             search_filter_reader.clone(),
+            Arc::clone(&search_filter_listing_sources),
         )),
         Arc::new(
             CreateSearchFilterHandler::new(
@@ -1819,11 +1828,13 @@ async fn test_state(
                 TestSearchIntentTranslator,
                 SqlxSearchFilterQuotaReaderFactory,
                 user_postgres::SqlxUserTierEntitlementsFactory::new(),
+                Arc::clone(&search_filter_listing_sources),
             )
             .with_shipping_destinations(address_book.clone()),
         ),
         Arc::new(GetOwnedSearchFilterHandler::new(
             search_filter_reader.clone(),
+            Arc::clone(&search_filter_listing_sources),
         )),
         Arc::new(
             UpdateOwnedSearchFilterHandler::new(
@@ -1834,6 +1845,7 @@ async fn test_state(
                 search_filter_reader.clone(),
                 SqlxSearchFilterQuotaReaderFactory,
                 user_postgres::SqlxUserTierEntitlementsFactory::new(),
+                search_filter_listing_sources,
             )
             .with_shipping_destinations(address_book.clone()),
         ),

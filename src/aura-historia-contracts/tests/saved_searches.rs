@@ -1,9 +1,13 @@
 use application::patch_field::PatchField;
 use aura_historia_contracts::{product_listings::search, saved_searches::*};
+use listing_source_service::use_cases::queries::public_listing_source::{
+    PublicListingSourceOperatorSummary, PublicListingSourceSummary,
+};
 use product_listing_core::product_listing_search::ProductListingSearch;
 use schemars::{JsonSchema, generate::SchemaSettings};
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
+use search_filter_service::use_cases::SearchFilterDetails;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
@@ -208,8 +212,32 @@ fn should_preserve_saved_search_response_and_match_snapshot_schemas() {
         created: OffsetDateTime::UNIX_EPOCH,
         updated: OffsetDateTime::UNIX_EPOCH,
     };
-    let value = serde_json::to_value(SearchFilterData::from(filter)).unwrap();
+    let listing_source = PublicListingSourceSummary {
+        listing_source_id: Default::default(),
+        listing_source_slug_id: listing_source_core::ListingSourceSlugId::raw("referenced")
+            .unwrap(),
+        name: listing_source_core::ListingSourceName::try_from("Referenced").unwrap(),
+        operator: PublicListingSourceOperatorSummary {
+            name: "Operator".try_into().unwrap(),
+        },
+        website: None,
+        image: None,
+    };
+    let value = serde_json::to_value(SearchFilterData::from(SearchFilterDetails {
+        view: filter,
+        listing_sources: vec![listing_source.clone()],
+    }))
+    .unwrap();
     assert!(validator::<SearchFilterData>(false).is_valid(&value));
+    assert_eq!(
+        json!([{
+            "listingSourceId": listing_source.listing_source_id,
+            "listingSourceSlugId": "referenced",
+            "name": "Referenced",
+            "operator": {"name": "Operator"}
+        }]),
+        value["listingSources"]
+    );
     assert_eq!(u64::MAX, value["search"]["price"]["max"]);
     assert_eq!("de", value["search"]["language"]);
     assert!(value.get("embedding").is_none());

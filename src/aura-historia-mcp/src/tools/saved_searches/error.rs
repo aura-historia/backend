@@ -10,8 +10,12 @@ pub(super) fn list(error: ListOwnedSearchFiltersError) -> OperationError {
     match error {
         ListOwnedSearchFiltersError::AuthenticatedActorRequired
         | ListOwnedSearchFiltersError::ActorMayNotManageSearchFilter => OperationError::Forbidden,
-        error @ ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. } => {
+        error @ (ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. }
+        | ListOwnedSearchFiltersError::ListingSourceReadFailed { .. }) => {
             OperationError::Unavailable(box_error(error))
+        }
+        error @ ListOwnedSearchFiltersError::ListingSourceStateInvalid { .. } => {
+            OperationError::Internal(box_error(error))
         }
     }
 }
@@ -22,17 +26,22 @@ pub(super) fn get(error: GetOwnedSearchFilterError) -> OperationError {
         GetOwnedSearchFilterError::SearchFilterNotFound => {
             OperationError::NotFound("Saved search not found: check the userSearchFilterId.")
         }
-        error @ GetOwnedSearchFilterError::SearchFilterReadFailed { .. } => {
+        error @ (GetOwnedSearchFilterError::SearchFilterReadFailed { .. }
+        | GetOwnedSearchFilterError::ListingSourceReadFailed { .. }) => {
             OperationError::Unavailable(box_error(error))
+        }
+        error @ GetOwnedSearchFilterError::ListingSourceStateInvalid { .. } => {
+            OperationError::Internal(box_error(error))
         }
     }
 }
 pub(super) fn create(error: CreateSearchFilterError) -> OperationError {
     use CreateSearchFilterError::{
         ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginTransactionFailed,
-        CommitTransactionFailed, EmbeddingGenerationFailed, PersistedSearchFilterStateInvalid,
-        SearchFilterAlreadyExists, SearchFilterFeatureRestricted, SearchFilterInsertFailed,
-        SearchFilterQuotaExceeded, SearchFilterQuotaReadFailed, ShippingDestination, UserNotFound,
+        CommitTransactionFailed, EmbeddingGenerationFailed, ListingSourceReadFailed,
+        ListingSourceStateInvalid, PersistedSearchFilterStateInvalid, SearchFilterAlreadyExists,
+        SearchFilterFeatureRestricted, SearchFilterInsertFailed, SearchFilterQuotaExceeded,
+        SearchFilterQuotaReadFailed, ShippingDestination, UserNotFound,
         UserTierEntitlementsLockFailed,
     };
     match error {
@@ -42,10 +51,11 @@ pub(super) fn create(error: CreateSearchFilterError) -> OperationError {
         SearchFilterAlreadyExists => OperationError::conflict("Saved search already exists."),
         SearchFilterQuotaExceeded { .. } => OperationError::SearchFilterQuotaExceeded,
         SearchFilterFeatureRestricted { .. } => OperationError::SearchFilterRestrictedFeature,
-        error @ PersistedSearchFilterStateInvalid { .. } => {
+        error @ (PersistedSearchFilterStateInvalid { .. } | ListingSourceStateInvalid { .. }) => {
             OperationError::Internal(box_error(error))
         }
         error @ (EmbeddingGenerationFailed { .. }
+        | ListingSourceReadFailed { .. }
         | UserTierEntitlementsLockFailed { .. }
         | SearchFilterQuotaReadFailed { .. }
         | SearchFilterInsertFailed { .. }
@@ -57,10 +67,11 @@ pub(super) fn update(error: UpdateOwnedSearchFilterError) -> OperationError {
     use UpdateOwnedSearchFilterError::{
         ActorMayNotManageSearchFilter, AuthenticatedActorRequired, BeginTransactionFailed,
         CommitTransactionFailed, EmbeddingGenerationFailed, InvalidSearchFilterPatch,
-        PersistedSearchFilterStateInvalid, SearchFilterConcurrencyConflict,
-        SearchFilterFeatureRestricted, SearchFilterLookupFailed, SearchFilterNotFound,
-        SearchFilterQuotaExceeded, SearchFilterQuotaReadFailed, SearchFilterUpdateFailed,
-        ShippingDestination, UserNotFound, UserTierEntitlementsLockFailed,
+        ListingSourceReadFailed, ListingSourceStateInvalid, PersistedSearchFilterStateInvalid,
+        SearchFilterConcurrencyConflict, SearchFilterFeatureRestricted, SearchFilterLookupFailed,
+        SearchFilterNotFound, SearchFilterQuotaExceeded, SearchFilterQuotaReadFailed,
+        SearchFilterUpdateFailed, ShippingDestination, UserNotFound,
+        UserTierEntitlementsLockFailed,
     };
     match error {
         ShippingDestination(error) => crate::shipping_error::destination(error),
@@ -75,10 +86,11 @@ pub(super) fn update(error: UpdateOwnedSearchFilterError) -> OperationError {
         SearchFilterConcurrencyConflict => {
             OperationError::conflict("Saved search changed concurrently: re-read it and retry.")
         }
-        error @ PersistedSearchFilterStateInvalid { .. } => {
+        error @ (PersistedSearchFilterStateInvalid { .. } | ListingSourceStateInvalid { .. }) => {
             OperationError::Internal(box_error(error))
         }
         error @ (EmbeddingGenerationFailed { .. }
+        | ListingSourceReadFailed { .. }
         | UserTierEntitlementsLockFailed { .. }
         | SearchFilterQuotaReadFailed { .. }
         | SearchFilterLookupFailed { .. }

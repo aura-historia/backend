@@ -1,6 +1,6 @@
 use super::public_listing_source::{PublicListingSourceRow, map_public_listing_source};
 use application::error::box_error;
-use listing_source_core::ListingSourceSlugId;
+use listing_source_core::{ListingSourceId, ListingSourceSlugId};
 use listing_source_service::{
     ports::{
         PublicListingSourceDetailsReadError, PublicListingSourceDetailsReader,
@@ -12,6 +12,7 @@ use platform_postgres::SqlxTransaction;
 
 const STATEMENT_TIMEOUT: &str = "150ms";
 pub(super) const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE s.listing_source_slug_id = $1";
+const DETAILS_BY_IDS_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE s.listing_source_id = ANY($1) ORDER BY s.listing_source_id";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPublicListingSourceDetailsReaderFactory;
@@ -54,6 +55,24 @@ impl PublicListingSourceDetailsReader for SqlxPublicListingSourceDetailsReader<'
             .map_err(temporary)?
             .map(map_public_listing_source)
             .transpose()
+            .map_err(invalid)
+    }
+
+    async fn find_by_ids(
+        &mut self,
+        ids: &[ListingSourceId],
+    ) -> Result<Vec<PublicListingSourceSummary>, PublicListingSourceDetailsReadError> {
+        set_statement_timeout(self.connection).await?;
+        let ids = ids.iter().map(|id| id.into_uuid()).collect::<Vec<_>>();
+
+        sqlx::query_as::<_, PublicListingSourceRow>(DETAILS_BY_IDS_SQL)
+            .bind(ids)
+            .fetch_all(&mut *self.connection)
+            .await
+            .map_err(temporary)?
+            .into_iter()
+            .map(map_public_listing_source)
+            .collect::<Result<_, _>>()
             .map_err(invalid)
     }
 }
