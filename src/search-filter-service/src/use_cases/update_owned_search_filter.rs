@@ -176,6 +176,7 @@ impl<U, R, E, T, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
         self
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         filters: R,
