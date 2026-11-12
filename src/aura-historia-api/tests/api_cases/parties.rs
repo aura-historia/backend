@@ -5,7 +5,7 @@ use api_support::{assert_problem, json_response, seed_access_token_for, seed_par
 use listing_source_core::ListingSourceId;
 use party_core::party_id::PartyId;
 use serde_json::json;
-use test_api::{IntegrationTestService, aura_integration_test};
+use test_api::{IntegrationTestService, aura_integration_test, get_postgres_client};
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
 async fn should_delete_unused_party_and_return_not_found_when_repeated() {
@@ -449,6 +449,33 @@ async fn should_return_party_detail_for_admin_with_no_store_cache_control() {
     );
     assert!(body["created"].as_str().is_some());
     assert!(body["updated"].as_str().is_some());
+    assert_eq!(json!(false), body["partner"]);
+    assert!(body.get("partnershipId").is_none());
+
+    let partnership_id = partnership_core::partnership_id::PartnershipId::new();
+    sqlx::query("INSERT INTO partnerships (partnership_id, party_id) VALUES ($1, $2)")
+        .bind(partnership_id.into_uuid())
+        .bind(party_id.into_uuid())
+        .execute(&get_postgres_client().await)
+        .await
+        .unwrap_or_else(|error| panic!("failed to seed party partnership: {error}"));
+    let (_, partner_body) = json_response(
+        reqwest::Client::new()
+            .get(format!(
+                "{}/v1/admin/parties/{party_id}",
+                AURA_API.base_url()
+            ))
+            .bearer_auth(String::from(parties_token(admin_id).await))
+            .send()
+            .await
+            .unwrap_or_else(|error| panic!("failed to get partner party detail: {error}")),
+    )
+    .await;
+    assert_eq!(json!(true), partner_body["partner"]);
+    assert_eq!(
+        json!(partnership_id.to_string()),
+        partner_body["partnershipId"]
+    );
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]

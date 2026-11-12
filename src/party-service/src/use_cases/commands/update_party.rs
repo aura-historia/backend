@@ -136,6 +136,12 @@ where
             .find_by_id(command.party_id)
             .await?
             .ok_or(UpdatePartyError::NotFound)?;
+        // An update cannot change the Party's Partnership, so it is loaded with the Party.
+        let partnership_id = self
+            .partnerships
+            .in_transaction(&mut tx)
+            .find_active_partnership_id(command.party_id)
+            .await?;
         let mut party = stored.party;
         let outcome = apply_update(&mut party, command);
 
@@ -152,11 +158,6 @@ where
                 updated: stored.updated,
             }
         };
-        let partnership_id = self
-            .partnerships
-            .in_transaction(&mut tx)
-            .find_active_partnership_id(updated.party.id())
-            .await?;
         let result = PartyDetailsView::new(updated, partnership_id);
 
         tx.commit()

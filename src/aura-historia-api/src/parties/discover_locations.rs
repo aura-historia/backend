@@ -134,6 +134,7 @@ mod tests {
                 "locationId",
                 "partyId",
                 "partyName",
+                "partyPartner",
                 "point",
                 "precision",
                 "subdivision"
