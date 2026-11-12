@@ -2,9 +2,9 @@
 //! that role's prompt on stdin, its report schema, and its `review-mcp` as the only MCP server and
 //! the only tools. It prints its messages as a stream of JSON lines, so the runner reads a usage
 //! limit's reset time from the CLI's `rate_limit_event`, not from its wording. The prompts and
-//! report schemas are versioned files next to this module; a
-//! changed prompt or schema gets a new version so the process ledger names what each report
-//! answered. The flags are the contract in `docs/crawler/operations.md` (review agent runner).
+//! report schemas are files next to this module; the process ledger names what each report
+//! answered by a hash of them (`prompt_sha256`). The flags are the contract in
+//! `docs/crawler/operations.md` (review agent runner).
 
 use super::queue::{QueuedReview, ReviewArtifact};
 use super::settings::{RunnerSettings, effort_flag};
@@ -131,7 +131,7 @@ pub(super) const fn role_contract(role: AgentRole) -> RoleContract {
             prompt: include_str!("prompts/author.md"),
             product_schema_rules: include_str!("prompts/author.product-schema.md"),
             url_pattern_rules: include_str!("prompts/author.url-pattern.md"),
-            report_schema: include_str!("schemas/author-report.v1.json"),
+            report_schema: include_str!("schemas/author-report.v2.json"),
         },
         AgentRole::Reviewer => RoleContract {
             prompt: include_str!("prompts/reviewer.md"),

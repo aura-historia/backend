@@ -252,6 +252,16 @@ mod tests {
         Some(REVIEWER_TOKEN),
         None
     )]
+    #[case::review_token_resumes_a_crawl(
+        "POST /api/listing-sources/ls_1/crawl-resumption",
+        Some(REVIEW_TOKEN),
+        Some(ReviewActor::Human)
+    )]
+    #[case::reviewer_token_resumes_no_crawl(
+        "POST /api/listing-sources/ls_1/crawl-resumption",
+        Some(REVIEWER_TOKEN),
+        None
+    )]
     #[case::author_token_fetches_no_live_preview(
         "GET /api/live-inspect?url=https%3A%2F%2Fshop.example%2Fitem&review=cr_1",
         Some(AUTHOR_TOKEN),

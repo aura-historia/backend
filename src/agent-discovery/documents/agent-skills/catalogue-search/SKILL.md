@@ -55,8 +55,9 @@ status `EMBEDDING_PENDING`, REST `202`), ask again later.
 
 ## Report results faithfully
 
-- Name the source and give the listing's link to the source page. Do not present Aura
-  Historia as the seller.
+- Name the source and link to its page with the result's `viewUrl`, exactly as returned. It
+  carries Aura Historia's referral tagging, so do not use `url` instead or remove, replace or
+  add query parameters. Do not present Aura Historia as the seller.
 - Availability and prices are copies of what the source published and can lag behind it.
   Tell the user to confirm both on the source page before acting.
 - A display price in another currency is a conversion for orientation; the seller's own

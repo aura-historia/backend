@@ -1104,7 +1104,7 @@ async fn spider_crawl_outcome_should_reject_unknown_values() {
 }
 
 // ---------------------------------------------------------------------------
-// get_candidates — ordering: NULL last_crawled comes before stale ListingSources
+// get_candidates — ordering: least recently run first, never fully crawled first among equals
 // ---------------------------------------------------------------------------
 
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
@@ -1151,6 +1151,56 @@ async fn spider_should_order_never_crawled_before_stale_crawled() {
         pos_never < pos_stale,
         "never-crawled (pos {pos_never}) should come before stale (pos {pos_stale})"
     );
+}
+
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn spider_should_order_a_due_incremental_crawl_before_a_recent_truncated_continuation() {
+    let pool = get_postgres_client().await;
+    let service = SpiderCandidateServiceImpl::new(pool.clone());
+    let continuation = ListingSourceId::new();
+    insert_listing_source(&pool, continuation, "spider-order-continuation.example.com").await;
+    let incremental = ListingSourceId::new();
+    insert_listing_source(&pool, incremental, "spider-order-incremental.example.com").await;
+    // Never fully crawled, truncated six hours ago and due again.
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET last_crawl_run_at = NOW() - INTERVAL '6 hours', crawl_truncation_count = 3, \
+             last_crawl_outcome = 'HARD_TIMEOUT_TRUNCATED', \
+             next_crawl_at = NOW() - INTERVAL '1 minute' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(continuation.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET last_crawled = NOW() - INTERVAL '3 days', \
+             last_crawl_run_at = NOW() - INTERVAL '25 hours' \
+         WHERE listing_source_id = $1",
+    )
+    .bind(incremental.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let first: Vec<(ListingSourceId, CrawlKind)> = service
+        .get_candidates(1, &[])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| (candidate.listing_source_id, candidate.kind))
+        .collect();
+
+    assert_eq!(first, vec![(incremental, CrawlKind::Incremental)]);
+    let next: Vec<ListingSourceId> = service
+        .get_candidates(1, &[incremental])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|candidate| candidate.listing_source_id)
+        .collect();
+    assert_eq!(next, vec![continuation]);
 }
 
 // ============================================================================
@@ -2490,6 +2540,98 @@ async fn scraper_should_keep_a_page_that_only_waited_on_a_schema_review_as_a_see
         .map(|seed| seed.url.to_string())
         .collect();
     assert_eq!(seeds, vec![waiting_url]);
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates — the page-error run counts only page errors in a row
+// ---------------------------------------------------------------------------
+
+/// Each page error adds one to the URL's page-error run, any other failure or a scraper outcome
+/// resets it, and failures of other kinds before the run never count into it (#2890).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_page_error_streak_should_count_only_consecutive_page_errors() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "page-errors.example.com").await;
+    let url = "https://page-errors.example.com/p/1";
+    let parsed_url = url::Url::parse(url).unwrap();
+    insert_product_url(&pool, listing_source_id, url).await;
+    let fail = |error_kind: &'static str, status_code: Option<i32>| {
+        let service = &service;
+        let parsed_url = &parsed_url;
+        async move {
+            service
+                .mark_fetch_failure(
+                    &listing_source_id,
+                    parsed_url,
+                    error_kind,
+                    "failed",
+                    status_code,
+                    time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+                    None,
+                )
+                .await
+                .unwrap()
+        }
+    };
+    let candidate_streak = || async {
+        let candidates = service.get_candidates(10, 10, &[]).await.unwrap();
+        let [candidate] = candidates.as_slice() else {
+            panic!("expected exactly one candidate");
+        };
+        candidate.page_error_streak
+    };
+    let stored_streak = || async {
+        sqlx::query_scalar::<_, i32>(
+            "SELECT page_error_streak FROM listing_source_urls WHERE url = $1",
+        )
+        .bind(url)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+
+    for _ in 0..9 {
+        assert_eq!(fail("Timeout", None).await, CrawlerUrlWriteOutcome::Applied);
+    }
+    assert_eq!(candidate_streak().await, 0);
+    fail("HTTP_500", Some(500)).await;
+    assert_eq!(
+        candidate_streak().await,
+        1,
+        "failures of other kinds before the run do not count into it"
+    );
+    fail("HTTP_502", Some(502)).await;
+    fail("HTTP_400", Some(400)).await;
+    assert_eq!(candidate_streak().await, 3);
+    assert_eq!(url_failure_count(&pool, url).await, 12);
+
+    fail("HTTP_503", Some(503)).await;
+    assert_eq!(candidate_streak().await, 0);
+    assert_eq!(
+        stored_streak().await,
+        0,
+        "another failure kind resets the run"
+    );
+
+    fail("HTTP_500", Some(500)).await;
+    assert_eq!(stored_streak().await, 1);
+    service
+        .mark_scraper_failure(
+            &listing_source_id,
+            &parsed_url,
+            "NormalizationError",
+            "normalization failed",
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        stored_streak().await,
+        0,
+        "a page that answered ends the run"
+    );
 }
 
 // ---------------------------------------------------------------------------

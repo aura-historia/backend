@@ -5,7 +5,7 @@
 //! the runner only picks which reviews this pass works.
 
 use crate::review::model::{
-    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, PendingReviewPage,
+    ARTIFACT_PRODUCT_SCHEMA, ARTIFACT_URL_PATTERN, CrawlerReview, HandoverCause, PendingReviewPage,
     PendingReviewSummary, RepairRequest, ReviewActor, ReviewEventAction,
 };
 use crate::review_mcp::{ConsoleClient, ConsoleError};
@@ -72,6 +72,8 @@ pub struct HumanRequiredReview {
     pub agent_rounds: u32,
     /// The latest needs-repair verdict, the one that reached the cap.
     pub repair_request: Option<RepairRequest>,
+    /// When the review opened.
+    pub created: OffsetDateTime,
 }
 
 /// Every pending product-schema and URL-pattern review of crawl-enabled ListingSources, oldest
@@ -169,6 +171,7 @@ impl ReviewQueue {
                         listing_source_name: Some(review.listing_source_name),
                         agent_rounds: review.agent_rounds,
                         repair_request: review.repair_request,
+                        created: review.created,
                     })
                 })
                 .collect(),
@@ -283,17 +286,22 @@ pub async fn approval_failures(
         .map(|checks| checks.into_iter().map(|check| check.check).collect()))
 }
 
-/// Hands `review_id` to a human at once with the author agent's token, `reasoning` as the note
-/// of the event that records it.
+/// Hands `review_id` to a human at once with the author agent's token, `cause` as its reason and
+/// category and `reasoning` as the note of the event that records it.
 pub async fn hand_to_human(
     console: &ConsoleClient,
     review_id: CrawlerReviewId,
+    cause: HandoverCause,
     reasoning: &str,
 ) -> Result<(), ConsoleError> {
     console
         .post(
             &format!("/api/reviews/{review_id}/hand-to-human"),
-            &serde_json::json!({ "notes": reasoning }),
+            &serde_json::json!({
+                "notes": reasoning,
+                "reason": cause.reason,
+                "category": cause.category,
+            }),
         )
         .await
         .map(|_| ())

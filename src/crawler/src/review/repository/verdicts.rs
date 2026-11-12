@@ -334,7 +334,8 @@ impl CrawlerReviewRepository {
 impl CrawlerReviewRepository {
     /// Hands a pending review to a human at once: a review agent that cannot take the review
     /// further, such as an author that has nothing to change on a candidate the reviewer already
-    /// judged, says why in `note`. The event trail keeps the note, and from then on the review
+    /// judged, names the cause as `cause` and says why in `note`. The event trail keeps both, and
+    /// `crawler.review.decided` logs the cause, never the note. From then on the review
     /// waits for a human exactly as one at the repair-round cap does, until a human changes or
     /// judges it. It counts no needs-repair round, replaces no repair request and changes no
     /// candidate.
@@ -342,6 +343,7 @@ impl CrawlerReviewRepository {
         &self,
         review_id: CrawlerReviewId,
         actor: ReviewActor,
+        cause: HandoverCause,
         note: Option<&str>,
     ) -> Result<(), ReviewRepositoryError> {
         if !actor.is_agent() {
@@ -361,7 +363,7 @@ impl CrawlerReviewRepository {
             transaction,
             review_id,
             actor,
-            ReviewMutation::HandedToHuman { note },
+            ReviewMutation::HandedToHuman { note, cause },
         )
         .await?;
         Ok(())

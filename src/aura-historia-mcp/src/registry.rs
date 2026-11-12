@@ -1,6 +1,6 @@
 use crate::{InvocationContext, OperationError, bounded_json};
 use application::operation_context::CredentialCapability;
-use aura_historia_contracts::wire::description::MINOR_UNIT_RULE;
+use aura_historia_contracts::wire::description::{LINK_RULE, MINOR_UNIT_RULE};
 use rmcp::model::{CallToolResult, JsonObject, MetaObject, Tool, ToolAnnotations};
 use schemars::{JsonSchema, generate::SchemaSettings};
 use serde::{Serialize, de::DeserializeOwned};
@@ -91,7 +91,7 @@ impl OperationDefinition {
         } else {
             schema::<ToolOutput<O>>(SchemaSettings::default().for_serialize())?
         };
-        let description = with_amount_rule(description, &input, &output);
+        let description = with_shared_rules(description, &input, &output);
         let mut tool = Tool::new(operation_id, description, input).with_title(title);
         tool.output_schema = Some(Arc::new(output));
         tool.annotations = Some(
@@ -250,18 +250,39 @@ fn has_only_object_variants(schema: &JsonObject) -> bool {
         })
 }
 
-/// A tool whose arguments or result contain a money amount states how amounts are encoded, from
-/// the one shared rule, so no price-handling tool can leave it out.
-fn with_amount_rule(
+/// A tool states the shared rules that apply to its schemas, so no tool can leave one out: how
+/// money amounts are encoded when its arguments or result contain one, and how to link to a
+/// provider when its result contains a `viewUrl`.
+fn with_shared_rules(
     description: &'static str,
     input: &JsonObject,
     output: &JsonObject,
 ) -> Cow<'static, str> {
-    if object_declares_money(input) || object_declares_money(output) {
-        Cow::Owned(format!("{description} {MINOR_UNIT_RULE}"))
-    } else {
-        Cow::Borrowed(description)
+    let amounts = object_declares_money(input) || object_declares_money(output);
+    let links = object_declares_view_url(output);
+    match (amounts, links) {
+        (false, false) => Cow::Borrowed(description),
+        (true, false) => Cow::Owned(format!("{description} {MINOR_UNIT_RULE}")),
+        (false, true) => Cow::Owned(format!("{description} {LINK_RULE}")),
+        (true, true) => Cow::Owned(format!("{description} {LINK_RULE} {MINOR_UNIT_RULE}")),
     }
+}
+
+/// A result links to a provider when any object in it has a `viewUrl` member.
+pub(crate) fn declares_view_url(schema: &Value) -> bool {
+    match schema {
+        Value::Object(object) => object_declares_view_url(object),
+        Value::Array(items) => items.iter().any(declares_view_url),
+        _ => false,
+    }
+}
+
+fn object_declares_view_url(object: &JsonObject) -> bool {
+    object
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|properties| properties.contains_key("viewUrl"))
+        || object.values().any(declares_view_url)
 }
 
 /// A money amount is an object with `amount` and `currency` members; a distance has `unit`

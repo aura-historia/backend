@@ -288,15 +288,27 @@ impl Digest {
         out
     }
 
+    /// When the oldest pending review that waits for a human opened, if any waits.
+    pub fn oldest_needs_a_human_opened(&self) -> Option<OffsetDateTime> {
+        self.needs_a_human.iter().map(|review| review.created).min()
+    }
+
     fn write_needs_a_human(&self, out: &mut String) {
         let _ = writeln!(out, "## Needs a human\n");
-        if self.needs_a_human.is_empty() {
+        let Some(oldest) = self.oldest_needs_a_human_opened() else {
             let _ = writeln!(out, "None.\n");
             return;
-        }
+        };
         let _ = writeln!(
             out,
             "These pending reviews wait for a human: the agents' needs-repair rounds on them reached the cap, or an agent handed them over with its reasoning. No agent works them. Change or judge each in the review console to hand it back to the agents, or approve or reject it.\n"
+        );
+        let _ = writeln!(
+            out,
+            "{} review(s) wait for a human; the oldest opened at {} ({} hours ago).\n",
+            self.needs_a_human.len(),
+            timestamp(oldest),
+            (self.to - oldest).whole_hours()
         );
         for review in &self.needs_a_human {
             let _ = writeln!(
@@ -880,6 +892,7 @@ mod tests {
             review_id: review_id.to_string(),
             action: AuthorAction::Staged,
             candidate_version: 4,
+            handover_category: crate::review::model::HandoverCategory::None,
             summary: "Staged the pattern /item/.".to_owned(),
             risks: vec!["two labels only".to_owned()],
         }));
@@ -1025,6 +1038,7 @@ mod tests {
             listing_source_name: Some("Antiques".to_owned()),
             agent_rounds: 1,
             repair_request: None,
+            created: TO - Duration::hours(50),
         };
 
         let digest = Digest::of(
@@ -1046,6 +1060,12 @@ mod tests {
         assert_eq!(digest.handed_to_human.agents, 1);
         assert!(
             markdown.contains("| Handed to a human | 1 | 0 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains(
+                "1 review(s) wait for a human; the oldest opened at 2026-10-26T04:00:00Z (50 hours ago).\n"
+            ),
             "{markdown}"
         );
         assert!(
@@ -1109,6 +1129,7 @@ mod tests {
                 note: "price | still empty on\n/item/2".to_owned(),
                 requested: TO - Duration::hours(1),
             }),
+            created: TO - Duration::hours(2),
         };
         let none = Digest::of(
             FROM,

@@ -324,6 +324,12 @@ async fn write_digest(
                 restored = digest.restored,
                 revoked_rejections = digest.revoked_rejections,
                 needs_a_human = digest.needs_a_human.len(),
+                needs_a_human_oldest_opened = digest
+                    .oldest_needs_a_human_opened()
+                    .map(digest::timestamp),
+                needs_a_human_oldest_age_hours = digest
+                    .oldest_needs_a_human_opened()
+                    .map(|opened| (digest.to - opened).whole_hours()),
                 agent_no_patterns = digest.agent_no_patterns.len(),
                 workable_schema_reviews = digest.schema_wait.workable,
                 refusals_by_failed_check = ?digest.refusals_by_check,
@@ -608,18 +614,17 @@ mod tests {
     }
 
     /// `POST /api/reviews/{id}/hand-to-human` of the review `review_id`: logs `<review id>
-    /// <notes>` to `handovers.log` and, as the console does, leaves the review waiting for a human.
-    /// A review marked `handover_refused/<review id>` answers `409`.
+    /// <reason> <category> <notes>` to `handovers.log` and, as the console does, leaves the review
+    /// waiting for a human. A review marked `handover_refused/<review id>` answers `409`.
     fn hand_over(review_id: &str, body: &str, claude_dir: &Path) -> (u16, String) {
         if claude_dir.join("handover_refused").join(review_id).exists() {
             return (409, "{\"error\":\"refused\"}".to_owned());
         }
-        let notes = serde_json::from_str::<Value>(body)
-            .ok()
-            .and_then(|body| body["notes"].as_str().map(str::to_owned))
-            .unwrap_or_default();
+        let body = serde_json::from_str::<Value>(body).unwrap_or_default();
+        let field = |name: &str| body[name].as_str().unwrap_or_default().to_owned();
+        let (reason, category, notes) = (field("reason"), field("category"), field("notes"));
         let mut log = std::fs::read_to_string(claude_dir.join("handovers.log")).unwrap_or_default();
-        log.push_str(&format!("{review_id} {notes}\n"));
+        log.push_str(&format!("{review_id} {reason} {category} {notes}\n"));
         let _ = std::fs::write(claude_dir.join("handovers.log"), log);
         let _ = std::fs::write(claude_dir.join("human").join(review_id), "");
         (200, "{\"ok\":true}".to_owned())
@@ -1420,7 +1425,7 @@ echo "end $role $review" >> "$dir/order.log"
         let handovers = fixture.claude.handovers();
         assert_eq!(handovers.len(), 1, "{handovers:?}");
         assert!(
-            handovers[0].starts_with(&judged_id.to_string())
+            handovers[0].starts_with(&format!("{judged_id} NOTHING_TO_STAGE_AFTER_REVIEW NONE "))
                 && handovers[0].contains("Author's reasoning: Staged and tested on /item/1."),
             "{handovers:?}"
         );
@@ -1435,9 +1440,9 @@ echo "end $role $review" >> "$dir/order.log"
     async fn should_hand_a_review_to_a_human_when_the_author_reports_needs_human() {
         let unjudged = review("PENDING_REVIEW", true);
         let fixture = Fixture::new(vec![unjudged.clone()]).await;
-        fixture
-            .claude
-            .answer("author", author_envelope("NEEDS_HUMAN", 0.5));
+        let mut needs_human = author_envelope("NEEDS_HUMAN", 0.5);
+        needs_human["structured_output"]["handover_category"] = json!("PAGES_UNREADABLE");
+        fixture.claude.answer("author", needs_human);
 
         let run = summary(&run_with(&fixture.settings(&[], &[])).await);
 
@@ -1451,7 +1456,12 @@ echo "end $role $review" >> "$dir/order.log"
         );
         let handovers = fixture.claude.handovers();
         assert!(
-            handovers.len() == 1 && handovers[0].contains("reported NEEDS_HUMAN"),
+            handovers.len() == 1
+                && handovers[0].starts_with(&format!(
+                    "{} NEEDS_HUMAN PAGES_UNREADABLE ",
+                    unjudged.review_id
+                ))
+                && handovers[0].contains("reported NEEDS_HUMAN"),
             "{handovers:?}"
         );
         let state = load_state(fixture.state.path()).unwrap_or_else(|e| panic!("{e}"));
