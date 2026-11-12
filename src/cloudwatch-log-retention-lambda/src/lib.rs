@@ -24,13 +24,21 @@ pub async fn handler(
 ) -> Result<(), lambda_runtime::Error> {
     let log_group_name = extract_log_group_name(&event.payload)?;
     let consent_evidence_log_groups = configured_consent_evidence_log_groups()?;
+    let existing_retention_days =
+        if is_consent_evidence_log_group(&log_group_name, &consent_evidence_log_groups) {
+            None
+        } else {
+            existing_retention_days(client, &log_group_name).await?
+        };
 
-    let Some(retention_days) =
-        automatic_retention_days(&log_group_name, &consent_evidence_log_groups)
-    else {
+    let Some(retention_days) = automatic_retention_days(
+        &log_group_name,
+        &consent_evidence_log_groups,
+        existing_retention_days,
+    ) else {
         info!(
             logGroupName = %log_group_name,
-            "Skipped automatic retention for consent evidence log group."
+            "Skipped automatic retention for a consent evidence log group or one that already has a retention policy."
         );
         return Ok(());
     };
@@ -49,6 +57,25 @@ pub async fn handler(
     );
 
     Ok(())
+}
+
+/// The retention a log group has when the `CreateLogGroup` event arrives, which is already the one
+/// its creator declared when CloudFormation created it with a retention.
+async fn existing_retention_days(
+    client: &Client,
+    log_group_name: &str,
+) -> Result<Option<i32>, lambda_runtime::Error> {
+    let output = client
+        .describe_log_groups()
+        .log_group_name_prefix(log_group_name)
+        .send()
+        .await?;
+    // Groups sort by name, so a group sorts before every longer name that starts with it.
+    Ok(output
+        .log_groups()
+        .iter()
+        .find(|group| group.log_group_name() == Some(log_group_name))
+        .and_then(|group| group.retention_in_days()))
 }
 
 fn configured_consent_evidence_log_groups() -> Result<Vec<String>, lambda_runtime::Error> {
@@ -80,8 +107,17 @@ fn is_consent_evidence_log_group(log_group_name: &str, exemptions: &[String]) ->
     exemptions.iter().any(|name| name == log_group_name)
 }
 
-fn automatic_retention_days(log_group_name: &str, exemptions: &[String]) -> Option<i32> {
-    (!is_consent_evidence_log_group(log_group_name, exemptions)).then_some(LOG_RETENTION_DAYS)
+/// The default retention for a new log group, unless it holds consent evidence, which never
+/// expires automatically, or its creator already chose a retention, which the default must not
+/// replace.
+fn automatic_retention_days(
+    log_group_name: &str,
+    exemptions: &[String],
+    existing_retention_days: Option<i32>,
+) -> Option<i32> {
+    (!is_consent_evidence_log_group(log_group_name, exemptions)
+        && existing_retention_days.is_none())
+    .then_some(LOG_RETENTION_DAYS)
 }
 
 fn extract_log_group_name(event: &serde_json::Value) -> Result<String, lambda_runtime::Error> {
@@ -194,11 +230,15 @@ mod tests {
             &exemptions
         ));
         assert_eq!(
-            automatic_retention_days("/aws/lambda/aura-historia-api-prod", &exemptions),
+            automatic_retention_days("/aws/lambda/aura-historia-api-prod", &exemptions, None),
             None
         );
         assert_eq!(
-            automatic_retention_days("/aws/lambda/cognito-post-confirmation-prod", &exemptions),
+            automatic_retention_days(
+                "/aws/lambda/cognito-post-confirmation-prod",
+                &exemptions,
+                None
+            ),
             None
         );
         assert!(!is_consent_evidence_log_group(
@@ -210,11 +250,28 @@ mod tests {
             &exemptions
         ));
         assert_eq!(
-            automatic_retention_days("/aws/lambda/aura-historia-api-dev", &exemptions),
+            automatic_retention_days("/aws/lambda/aura-historia-api-dev", &exemptions, None),
             Some(LOG_RETENTION_DAYS)
         );
         assert_eq!(
-            automatic_retention_days("/aws/lambda/other-prod", &exemptions),
+            automatic_retention_days("/aws/lambda/other-prod", &exemptions, None),
+            Some(LOG_RETENTION_DAYS)
+        );
+    }
+
+    #[test]
+    fn should_keep_the_retention_a_log_group_was_created_with() {
+        let exemptions = vec![
+            "/aws/lambda/aura-historia-api-prod".to_owned(),
+            "/aws/lambda/cognito-post-confirmation-prod".to_owned(),
+        ];
+
+        assert_eq!(
+            automatic_retention_days("/aws/lambda/other-prod", &exemptions, Some(7)),
+            None
+        );
+        assert_eq!(
+            automatic_retention_days("/aws/lambda/other-prod", &exemptions, None),
             Some(LOG_RETENTION_DAYS)
         );
     }
