@@ -15,8 +15,28 @@ use std::sync::LazyLock;
 /// The product token a directive is scoped to; the same token robots.txt groups address.
 const CRAWLER_PRODUCT_TOKEN: &str = "aurahistoriabot";
 
-/// Directives that forbid capturing a page. `none` is `noindex, nofollow`.
-const FORBIDDING_DIRECTIVES: [&str; 3] = ["noindex", "none", "noai"];
+/// What a page's directives can forbid the crawler to do. `none` is `noindex, nofollow`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Restriction {
+    Capture,
+    Following,
+}
+
+impl Restriction {
+    const fn directives(self) -> &'static [&'static str] {
+        match self {
+            Self::Capture => &["noindex", "none", "noai"],
+            Self::Following => &["nofollow", "none"],
+        }
+    }
+
+    fn forbidden_by(self, token: &str) -> Option<&'static str> {
+        self.directives()
+            .iter()
+            .copied()
+            .find(|directive| *directive == token)
+    }
+}
 
 /// Directives that only describe how a page may be shown or followed, so that a `name: value`
 /// token starting with one of them is a directive and no bot name.
@@ -66,7 +86,7 @@ impl DirectiveRefusal {
 /// The directive of the response's `X-Robots-Tag` headers that forbids capturing the page for
 /// the crawler. Judged before the body is read, so a refused page is not downloaded.
 pub fn refusal_for_headers(headers: &HeaderMap) -> Option<DirectiveRefusal> {
-    forbidding_header_directive(headers).map(|directive| DirectiveRefusal {
+    forbidding_header_directive(headers, Restriction::Capture).map(|directive| DirectiveRefusal {
         directive,
         source: DirectiveSource::Header,
     })
@@ -74,23 +94,25 @@ pub fn refusal_for_headers(headers: &HeaderMap) -> Option<DirectiveRefusal> {
 
 /// The directive of the page's meta robots tags that forbids capturing it for the crawler.
 pub fn refusal_for_meta(html: &str) -> Option<DirectiveRefusal> {
-    forbidding_meta_directive(html).map(|directive| DirectiveRefusal {
+    forbidding_meta_directive(html, Restriction::Capture).map(|directive| DirectiveRefusal {
         directive,
         source: DirectiveSource::Meta,
     })
 }
 
-fn forbidding_header_directive(headers: &HeaderMap) -> Option<&'static str> {
-    headers
-        .get_all("x-robots-tag")
-        .iter()
-        .find_map(|value| forbidding_in_header_value(&String::from_utf8_lossy(value.as_bytes())))
+fn forbidding_header_directive(
+    headers: &HeaderMap,
+    restriction: Restriction,
+) -> Option<&'static str> {
+    headers.get_all("x-robots-tag").iter().find_map(|value| {
+        forbidding_in_header_value(&String::from_utf8_lossy(value.as_bytes()), restriction)
+    })
 }
 
 /// A header value is a comma-separated list of directives, each optionally opening a scope with
 /// `<bot>: <directive>`; the scope lasts until the next one. A date after `unavailable_after:`
 /// contains no directive and is skipped.
-fn forbidding_in_header_value(value: &str) -> Option<&'static str> {
+fn forbidding_in_header_value(value: &str, restriction: Restriction) -> Option<&'static str> {
     let mut applies = true;
     for token in value.split(',') {
         let mut token = token.trim().to_ascii_lowercase();
@@ -101,14 +123,14 @@ fn forbidding_in_header_value(value: &str) -> Option<&'static str> {
                 token = rest.trim().to_owned();
             }
         }
-        if applies && let Some(directive) = forbidding(&token) {
+        if applies && let Some(directive) = restriction.forbidden_by(&token) {
             return Some(directive);
         }
     }
     None
 }
 
-fn forbidding_meta_directive(html: &str) -> Option<&'static str> {
+fn forbidding_meta_directive(html: &str, restriction: Restriction) -> Option<&'static str> {
     let head = Html::parse_document(head_of(html));
     head.select(&META_ROBOTS)
         .filter(|meta| {
@@ -119,13 +141,7 @@ fn forbidding_meta_directive(html: &str) -> Option<&'static str> {
         })
         .filter_map(|meta| meta.value().attr("content"))
         .flat_map(|content| content.split(','))
-        .find_map(|token| forbidding(&token.trim().to_ascii_lowercase()))
-}
-
-fn forbidding(token: &str) -> Option<&'static str> {
-    FORBIDDING_DIRECTIVES
-        .into_iter()
-        .find(|directive| *directive == token)
+        .find_map(|token| restriction.forbidden_by(&token.trim().to_ascii_lowercase()))
 }
 
 /// The page up to the end of its `<head>`, which is all a meta robots tag may sit in; the whole
