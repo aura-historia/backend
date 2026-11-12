@@ -591,7 +591,8 @@ mod tests {
         assert!(author.contains("sold or unavailable product page"));
         assert!(author.contains("the summary says why"));
         assert!(reviewer.contains("Do not give NEEDS_REPAIR because a state is a call to action"));
-        assert!(reviewer.contains("The notes are all the author reads of your findings"));
+        assert!(reviewer.contains("the notes are all the author reads of your findings"));
+        assert!(reviewer.contains("On a URL_PATTERN review the notes must be concrete and short"));
         assert!(author.contains("inspect_page view FIELDS of every review page"));
         assert!(author.contains("When stage_and_check passes, report: no probe"));
         assert!(author.contains("On a repair request, start from it, not from scratch"));
