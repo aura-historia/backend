@@ -1,10 +1,11 @@
 use super::listing_source_references::{
     ListingSourceLookupError, ReferencedListingSources, SearchFilterDetails,
 };
+use crate::intent_translation::{TranslationTrigger, translate_search_intent};
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterReadError, SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
-    SearchFilterRepositoryFactory,
+    SearchFilterRepositoryFactory, SearchIntentTranslator,
 };
 use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{
@@ -29,6 +30,7 @@ use money::{Currency, MonetaryAmount};
 use product_listing_core::product_listing_search::{
     EnhancedSearchDescription, ListingAvailabilityQuery, ProductListingSearch,
 };
+use search_filter_core::SearchIntentFingerprint;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
@@ -156,10 +158,11 @@ pub trait UpdateOwnedSearchFilterUseCase: Send + Sync {
     ) -> Result<UpdateOwnedSearchFilterResult, UpdateOwnedSearchFilterError>;
 }
 
-pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
+pub struct UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
+    translator: T,
     filter_reader: F,
     quotas: Q,
     tier_entitlements: A,
@@ -167,7 +170,7 @@ pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
     shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
-impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
+impl<U, R, E, T, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A> {
     pub fn with_shipping_destinations(mut self, queries: Arc<dyn AddressBookQueries>) -> Self {
         self.shipping_destinations = Some(queries);
         self
@@ -177,6 +180,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
         unit_of_work: U,
         filters: R,
         embeddings: E,
+        translator: T,
         filter_reader: F,
         quotas: Q,
         tier_entitlements: A,
@@ -186,6 +190,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
             unit_of_work,
             filters,
             embeddings,
+            translator,
             filter_reader,
             quotas,
             tier_entitlements,
@@ -196,12 +201,13 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterUseCase
-    for UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A>
+impl<U, R, E, T, F, Q, A> UpdateOwnedSearchFilterUseCase
+    for UpdateOwnedSearchFilterHandler<U, R, E, T, F, Q, A>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
     E: EmbeddingGenerator,
+    T: SearchIntentTranslator,
     F: SearchFilterReader,
     Q: SearchFilterQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
@@ -228,6 +234,7 @@ where
             .await
             .map_err(preparation_read_error)?
             .ok_or(UpdateOwnedSearchFilterError::SearchFilterNotFound)?;
+        let persisted_intent = SearchIntentFingerprint::of(&prepared_view.search);
         let mut prepared_search = prepared_view.search;
         let prepared_search_changed =
             apply_product_search_patch(&mut prepared_search, &command.search)?;
@@ -243,22 +250,42 @@ where
                 && crate::use_cases::embedding_query(&prepared_search)
                     .map_err(embedding_error)?
                     .is_some());
-        let prepared_embedding = if prepare_embedding {
-            Some(
-                match embedding_query(&prepared_search).map_err(embedding_error)? {
-                    Some(query) => Some(
-                        self.embeddings
-                            .embed_search_query(&query)
-                            .await
-                            .map_err(embedding_error)?
-                            .into_values(),
-                    ),
-                    None => None,
-                },
-            )
+        let embedding_query = if prepare_embedding {
+            embedding_query(&prepared_search).map_err(embedding_error)?
         } else {
             None
         };
+        // Unchanged semantic text keeps its translation; a missing one is the backfill's job.
+        let semantic_text_changed =
+            persisted_intent != SearchIntentFingerprint::of(&prepared_search);
+        let (prepared_embedding, prepared_translation) = tokio::join!(
+            async {
+                if !prepare_embedding {
+                    return Ok(None);
+                }
+                match &embedding_query {
+                    Some(query) => self
+                        .embeddings
+                        .embed_search_query(query)
+                        .await
+                        .map(|embedding| Some(Some(embedding.into_values()))),
+                    None => Ok(Some(None)),
+                }
+            },
+            async {
+                if semantic_text_changed {
+                    translate_search_intent(
+                        &self.translator,
+                        &prepared_search,
+                        TranslationTrigger::Update,
+                    )
+                    .await
+                } else {
+                    None
+                }
+            },
+        );
+        let prepared_embedding = prepared_embedding.map_err(embedding_error)?;
         // Resolved before the write so a failed lookup cannot fail a committed update.
         let listing_sources = ReferencedListingSources::resolve(
             self.listing_sources.as_ref(),
@@ -333,6 +360,12 @@ where
         }
         if !listing_sources.covers(filter.search()) {
             return Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict);
+        }
+        // A translation of text the filter no longer has is dropped; the backfill retries.
+        if let Some(translation) = prepared_translation
+            && let Ok(outcome) = filter.record_intent_translation(translation)
+        {
+            changed.aggregate_changed |= outcome.changed();
         }
         if changed.aggregate_changed {
             persisted = self

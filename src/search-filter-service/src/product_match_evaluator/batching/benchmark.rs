@@ -1,6 +1,6 @@
 //! Manual, opt-in provider benchmark. Ordinary library validation never calls a live model.
 use super::{BATCH_PROMPT_VERSION, classify_matching_requests, plan_requests};
-use crate::product_match_evaluator::{match_scores, product_match_request};
+use crate::product_match_evaluator::{MatchIntent, match_scores, product_match_request};
 use classifier_model::{
     ClassificationError, ClassificationRequest, ClassificationRequestLimits,
     ClassificationResponse, ClassifierModel, CloudflareClassifierConfig, CloudflareClassifierModel,
@@ -93,6 +93,45 @@ fn nullable_text<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
     }
 }
 
+/// An optional English pivot of the group's intent, validated as a production translation is.
+fn intent_translation(
+    group: &Value,
+    search: &ProductListingSearch,
+) -> Option<search_filter_core::SearchIntentTranslation> {
+    let translation = group.get("intent_translation")?;
+    let queries = translation["base_queries"]
+        .as_array()
+        .expect("translated base queries")
+        .iter()
+        .map(|query| {
+            let authored = query.as_str().expect("translated query string");
+            let query: domain_primitives::query::text_query::TextQuery<1> =
+                authored.try_into().expect("valid translated query");
+            assert!(
+                authored == query.as_ref(),
+                "translated query would be truncated"
+            );
+            query
+        })
+        .collect();
+    let description = nullable_text(translation, "enhanced_description").map(|authored| {
+        let description: product_listing_core::product_listing_search::EnhancedSearchDescription =
+            authored.try_into().expect("valid translated description");
+        assert!(
+            authored == description.as_ref(),
+            "translated description would be normalized or truncated"
+        );
+        description
+    });
+    Some(
+        search_filter_core::SearchIntentTranslation::english(
+            search,
+            search_filter_core::EnglishSearchIntent::new(queries, description),
+        )
+        .expect("translation mirrors the authored queries and description"),
+    )
+}
+
 fn fixture_product(
     case: &Value,
     language: Language,
@@ -104,6 +143,7 @@ fn fixture_product(
             authored == title.as_ref(),
             "fixture title would be normalized or truncated"
         );
+        product.product_title = Some(localization::Localized::new(language, title.clone()));
         product.titles.insert(language, title);
     }
     if let Some(authored) = nullable_text(case, "description") {
@@ -112,7 +152,7 @@ fn fixture_product(
             authored == description.as_ref(),
             "fixture description would be normalized or truncated"
         );
-        product.descriptions.insert(language, description);
+        product.product_description = Some(localization::Localized::new(language, description));
     }
     if let Some(images) = case.get("image_urls") {
         let images = images.as_array().expect("fixture image URLs");
@@ -183,6 +223,9 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
         let policy = MatchingEvidencePolicy::from_code(required_text(group, "evidence_policy"))
             .expect("resolved evidence policy");
         assert!(search.enhanced_search_description.is_none() || policy.permits_enhanced_intent());
+        let translation = intent_translation(group, &search);
+        let intent = MatchIntent::resolve(&search, translation.as_ref())
+            .expect("fixture translation mirrors the authored intent");
         let cases = group["cases"].as_array().expect("labelled cases");
         assert!(
             ((if batching { 2 } else { 1 })..=50).contains(&cases.len()),
@@ -220,7 +263,7 @@ fn fixtures(manifest: &Value) -> Vec<Vec<Fixture>> {
                 product.images.len() <= policy.image_limit(),
                 "reviewed images must fit the evidence policy"
             );
-            let mut request = product_match_request(&product, &search, policy);
+            let mut request = product_match_request(&product, intent, policy);
             request.correlation_id = Some(format!("benchmark:{id}"));
             group_fixtures.push(Fixture {
                 id: id.into(),
@@ -627,11 +670,15 @@ fn fixture_evidence_preserves_reviewed_text_and_missing_fields() {
     assert_eq!(case["title"], product.titles[&Language::De].as_ref());
     assert_eq!(
         case["description"],
-        product.descriptions[&Language::De].as_ref()
+        product
+            .product_description
+            .as_ref()
+            .map(|description| description.payload.as_ref())
+            .unwrap()
     );
     let missing = fixture_product(&json!({"title": null, "description": null}), Language::En);
-    assert!(missing.titles.is_empty());
-    assert!(missing.descriptions.is_empty());
+    assert!(missing.titles.is_empty() && missing.product_title.is_none());
+    assert!(missing.product_description.is_none());
     assert!(missing.image.is_none() && missing.images.is_empty());
 }
 
@@ -815,6 +862,30 @@ fn fixture_manifest_preserves_identity_intent_policy_and_missing_evidence() {
 }
 
 #[test]
+fn fixture_groups_may_classify_an_english_pivot_of_their_intent() {
+    let mut manifest = offline_manifest();
+    manifest["groups"][1]["base_queries"] = json!(["antike Lampe", "Bronzeskulptur"]);
+    manifest["groups"][1]["enhanced_description"] = json!("Originale, gern aus Messing");
+    manifest["groups"][1]["intent_translation"] = json!({
+        "base_queries": ["antique lamp", "bronze sculpture"],
+        "enhanced_description": "Originals, ideally brass"
+    });
+
+    let groups = fixtures(&manifest);
+
+    let intent = &groups[1][0].request.state["search_intent"];
+    assert_eq!(
+        json!(["antique lamp", "bronze sculpture"]),
+        intent["base_product_queries"]
+    );
+    assert_eq!("Originals, ideally brass", intent["enhanced_description"]);
+    assert_eq!(
+        "English",
+        groups[1][0].request.state["evaluation_context"]["search_language"]
+    );
+}
+
+#[test]
 fn fixture_manifest_rejects_untrustworthy_labels_identity_policy_and_coverage() {
     for invalid in [
         "provenance",
@@ -957,6 +1028,47 @@ fn synthetic_live_fixture_preserves_distinct_cases_and_provisional_labels() {
         "INELIGIBLE_AGENT_AUTHORED_LABELS",
         rollout_gate(&manifest, 50)
     );
+}
+
+#[test]
+fn multilingual_pivot_fixture_classifies_english_intent_and_reverts_to_the_original() {
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../benchmarks/clef-should-show/multilingual-pivot-fixtures.json"
+    ))
+    .unwrap();
+    let pivot = fixtures(&manifest);
+    let mut original = manifest.clone();
+    for group in original["groups"].as_array_mut().unwrap() {
+        group.as_object_mut().unwrap().remove("intent_translation");
+    }
+    let original = fixtures(&original);
+
+    let languages = manifest["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|group| group["language"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert!(
+        ["de", "fr", "zh", "ja", "ru", "ar", "hi"]
+            .iter()
+            .all(|code| languages.contains(code))
+    );
+    for (pivot, original) in pivot.iter().flatten().zip(original.iter().flatten()) {
+        assert_eq!(pivot.id, original.id);
+        assert_eq!(
+            "English",
+            pivot.request.state["evaluation_context"]["search_language"]
+        );
+        assert_ne!(
+            pivot.request.state["search_intent"],
+            original.request.state["search_intent"]
+        );
+        assert_eq!(
+            pivot.request.state["candidate"],
+            original.request.state["candidate"]
+        );
+    }
 }
 
 #[derive(Clone, Copy)]

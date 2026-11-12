@@ -16,7 +16,7 @@ use crawler::spider::crawl_frontier_repository::{
 };
 use crawler::spider::discovery::frontier::CrawlKind;
 use crawler::spider::discovery::website_spider::{
-    CrawlPace, CrawlerConfig, SpiderImpl, SpiderTransport, SpiderTransportError,
+    CrawlBudgetScale, CrawlPace, CrawlerConfig, SpiderImpl, SpiderTransport, SpiderTransportError,
 };
 use crawler::spider::service::{SpiderService, SpiderServiceConfig, SpiderServiceImpl};
 use listing_source_core::ListingSourceId;
@@ -231,6 +231,7 @@ async fn cut_short_runs_on_a_deep_shop_should_reach_further_each_time() {
             CRAWL_ROOT_URL,
             400,
             CrawlPace::default(),
+            CrawlBudgetScale::STANDARD,
             CrawlKind::Full,
         )
     };

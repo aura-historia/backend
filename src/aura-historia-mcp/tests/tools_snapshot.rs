@@ -74,6 +74,9 @@ fn production_router(policy: AuraResourcePolicy) -> Router {
             source_cache: config.source_cache(),
             read_execution_policy: config.read_execution_policy(),
         },
+        search_intent_translator: Arc::new(
+            aura_historia_runtime::UnavailableSearchIntentTranslator,
+        ),
     };
     mcp_router(
         TransportConfig {

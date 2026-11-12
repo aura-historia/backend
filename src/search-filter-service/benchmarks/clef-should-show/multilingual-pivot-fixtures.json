@@ -1,0 +1,614 @@
+{
+  "label_provenance": "agent-authored",
+  "authored_by": "Claude",
+  "dataset_revision": "synthetic-multilingual-pivot-v1-2026-11-11",
+  "dataset_scope": "Synthetic text-only listings for enhanced intent in Latin and non-Latin scripts, with English titles and original descriptions; provisional labels, no human review or image evidence. Each group carries the English pivot as intent_translation; remove it for the original-intent baseline.",
+  "should_show_threshold": 0.5,
+  "batch_candidates": 1,
+  "classifier_model": "clef-flash",
+  "input_usd_per_million_tokens": 0.038,
+  "pricing_source": "https://developers.cloudflare.com/workers-ai/models/clef-flash/",
+  "pricing_verified_at": "2026-10-15",
+  "groups": [
+    {
+      "id": "pivot-de",
+      "language": "de",
+      "base_queries": [
+        "Manschettenknöpfe Gold"
+      ],
+      "enhanced_description": "Goldene Manschettenknöpfe mit rotem Stein",
+      "intent_translation": {
+        "base_queries": [
+          "gold cufflinks"
+        ],
+        "enhanced_description": "Gold cufflinks with a red stone"
+      },
+      "cases": [
+        {
+          "id": "pv-de-001",
+          "title": "Pair of 18ct gold cufflinks with rubies",
+          "description": "Paar Manschettenknöpfe, 750er Gelbgold, je ein Rubin im Kastenfassung.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Gold cufflinks with a red stone."
+        },
+        {
+          "id": "pv-de-002",
+          "title": "Gold cufflinks with garnet cabochons",
+          "description": "Victorian, 9ct gold, oval garnet cabochons, hallmarked Birmingham 1891.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "hard_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Garnet is a red stone."
+        },
+        {
+          "id": "pv-de-003",
+          "title": "Plain gold cufflinks",
+          "description": "Glatte Manschettenknöpfe aus 585er Gold, ohne Steinbesatz, monogrammiert.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "hard_negative",
+            "must_have_conflict",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Explicitly without a stone."
+        },
+        {
+          "id": "pv-de-004",
+          "title": "Gold brooch with red stone",
+          "description": "Brosche, Gelbgold mit rotem Turmalin, um 1900.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "lexical_near_miss",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "A brooch, not cufflinks."
+        },
+        {
+          "id": "pv-de-005",
+          "title": "Gold cufflinks",
+          "description": null,
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "sparse_description",
+            "missing_description",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Stone unknown; missing evidence is no conflict."
+        },
+        {
+          "id": "pv-de-006",
+          "title": "Silver cufflinks with red enamel",
+          "description": "Sterling silver, red guilloché enamel, Art Deco.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "hard_negative",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Silver contradicts gold; enamel is not a stone."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    },
+    {
+      "id": "pivot-fr",
+      "language": "fr",
+      "base_queries": [
+        "vase Meissen"
+      ],
+      "enhanced_description": "Vase en porcelaine de Meissen, décor floral souhaité, uniquement XIXe siècle",
+      "intent_translation": {
+        "base_queries": [
+          "Meissen vase"
+        ],
+        "enhanced_description": "Meissen porcelain vase, floral decoration wished for, 19th century only"
+      },
+      "cases": [
+        {
+          "id": "pv-fr-001",
+          "title": "Meissen porcelain vase with painted flowers",
+          "description": "Vase couvert, porcelaine de Meissen, décor de bouquets, marque aux épées croisées, vers 1870.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Meets every requirement and the wish."
+        },
+        {
+          "id": "pv-fr-002",
+          "title": "Meissen vase with blue onion pattern",
+          "description": "Meissen vase, Zwiebelmuster, crossed swords mark, circa 1880.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "preference_mismatch",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Floral decoration is only a wish."
+        },
+        {
+          "id": "pv-fr-003",
+          "title": "Meissen floral vase, 1950s",
+          "description": "Vase Meissen, décor floral, production des années 1950.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "must_have_conflict",
+            "hard_negative",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Only 19th century was required."
+        },
+        {
+          "id": "pv-fr-004",
+          "title": "Meissen porcelain figurine of a shepherdess",
+          "description": "Figurine, porcelaine de Meissen, vers 1860.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "lexical_near_miss",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "A figurine, not a vase."
+        },
+        {
+          "id": "pv-fr-005",
+          "title": "Meissen vase",
+          "description": null,
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "sparse_description",
+            "missing_description",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Date unknown; missing evidence is no conflict."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    },
+    {
+      "id": "pivot-zh",
+      "language": "zh",
+      "base_queries": [
+        "青白瓷 碗"
+      ],
+      "enhanced_description": "宋代青白瓷碗，口沿无修复，最好带底款",
+      "intent_translation": {
+        "base_queries": [
+          "qingbai porcelain bowl"
+        ],
+        "enhanced_description": "Song dynasty qingbai porcelain bowl, rim without restoration, ideally with a base mark"
+      },
+      "cases": [
+        {
+          "id": "pv-zh-001",
+          "title": "Song dynasty qingbai bowl",
+          "description": "Southern Song qingbai bowl with incised lotus, intact rim, inscribed base.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Meets every requirement and the wish."
+        },
+        {
+          "id": "pv-zh-002",
+          "title": "Song qingbai bowl with restored rim",
+          "description": "Qingbai bowl, Song dynasty, rim chip professionally restored.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "must_have_conflict",
+            "hard_negative",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Restoration was excluded."
+        },
+        {
+          "id": "pv-zh-003",
+          "title": "Qing dynasty blue and white bowl",
+          "description": "Kangxi period blue and white porcelain bowl, six-character mark.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "lexical_near_miss",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Not qingbai, not Song."
+        },
+        {
+          "id": "pv-zh-004",
+          "title": "Song qingbai bowl, unmarked",
+          "description": "Northern Song qingbai bowl, no base mark, rim intact.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "preference_mismatch",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "The base mark is only a wish."
+        },
+        {
+          "id": "pv-zh-005",
+          "title": "Qingbai bowl",
+          "description": null,
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "sparse_description",
+            "missing_description",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Plausible match; uncertain evidence and preference mismatches remain eligible."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    },
+    {
+      "id": "pivot-ja",
+      "language": "ja",
+      "base_queries": [
+        "伊万里 皿"
+      ],
+      "enhanced_description": "江戸時代の伊万里焼の皿のみ。直径30cm以上。",
+      "intent_translation": {
+        "base_queries": [
+          "Imari plate"
+        ],
+        "enhanced_description": "Only Edo period Imari ware plates. Diameter 30 cm or more."
+      },
+      "cases": [
+        {
+          "id": "pv-ja-001",
+          "title": "Edo period Imari charger",
+          "description": "Large Imari charger, Genroku era, diameter 46 cm.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Edo, plate, larger than 30 cm."
+        },
+        {
+          "id": "pv-ja-002",
+          "title": "Edo period Imari plate, 20 cm",
+          "description": "Imari plate, 18th century, diameter 20 cm.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "must_have_conflict",
+            "hard_negative",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Below the required diameter."
+        },
+        {
+          "id": "pv-ja-003",
+          "title": "Meiji period Imari charger",
+          "description": "Imari charger, Meiji era, diameter 35 cm.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "must_have_conflict",
+            "hard_negative",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Not Edo period."
+        },
+        {
+          "id": "pv-ja-004",
+          "title": "Antique Imari plate, Edo",
+          "description": "Imari plate with kraak-style panels, Edo period.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Size unknown; missing evidence is no conflict."
+        },
+        {
+          "id": "pv-ja-005",
+          "title": "Edo period Imari vase",
+          "description": "Imari baluster vase, Edo period, height 40 cm.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "lexical_near_miss",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "A vase, not a plate."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    },
+    {
+      "id": "pivot-ru",
+      "language": "ru",
+      "base_queries": [
+        "самовар латунь"
+      ],
+      "enhanced_description": "Латунный самовар XIX века, только с клеймом мастера; патина приветствуется",
+      "intent_translation": {
+        "base_queries": [
+          "brass samovar"
+        ],
+        "enhanced_description": "19th century brass samovar, only with a maker's mark; patina welcome"
+      },
+      "cases": [
+        {
+          "id": "pv-ru-001",
+          "title": "19th century Tula brass samovar",
+          "description": "Brass samovar, Tula, circa 1880, maker's medals stamped on the body.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Meets every requirement."
+        },
+        {
+          "id": "pv-ru-002",
+          "title": "Russian brass samovar, 1880s",
+          "description": "Brass samovar with chimney and tray, 1880s.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Mark unknown; missing evidence is no conflict."
+        },
+        {
+          "id": "pv-ru-003",
+          "title": "Unmarked brass samovar, 19th century",
+          "description": "Brass samovar, 19th century, no maker's mark.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "must_have_conflict",
+            "hard_negative",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "A maker's mark was required."
+        },
+        {
+          "id": "pv-ru-004",
+          "title": "Electric samovar",
+          "description": "Chrome-plated electric samovar, 1970s.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "easy_negative"
+          ],
+          "image_urls": [],
+          "label_reason": "Not a 19th century brass samovar."
+        },
+        {
+          "id": "pv-ru-005",
+          "title": "Polished brass samovar with maker's mark",
+          "description": "Brass samovar, Batashev factory mark, 1890, polished, no patina.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "preference_mismatch",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Patina is only welcome."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    },
+    {
+      "id": "pivot-ar",
+      "language": "ar",
+      "base_queries": [
+        "سجادة حرير"
+      ],
+      "enhanced_description": "سجادة حرير فارسية من قم، يفضل اللون الأزرق",
+      "intent_translation": {
+        "base_queries": [
+          "silk rug"
+        ],
+        "enhanced_description": "Persian silk rug from Qom, blue preferred"
+      },
+      "cases": [
+        {
+          "id": "pv-ar-001",
+          "title": "Blue Qom silk rug",
+          "description": "Hand-knotted silk rug, Qom, Iran, blue field, 150 x 100 cm.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Meets every requirement and the preference."
+        },
+        {
+          "id": "pv-ar-002",
+          "title": "Red Qom silk rug",
+          "description": "Hand-knotted silk rug, Qom, red field with medallion.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "preference_mismatch",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Blue is only preferred."
+        },
+        {
+          "id": "pv-ar-003",
+          "title": "Tabriz wool rug",
+          "description": "Hand-knotted wool rug, Tabriz, blue field.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "hard_negative",
+            "lexical_near_miss",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Wool, not silk; not Qom."
+        },
+        {
+          "id": "pv-ar-004",
+          "title": "Silk-look polyester rug",
+          "description": "Machine-made polyester rug with a silk-look finish.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "hard_negative",
+            "injection"
+          ],
+          "image_urls": [],
+          "label_reason": "Not a silk rug."
+        },
+        {
+          "id": "pv-ar-005",
+          "title": "Qom silk rug",
+          "description": null,
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "sparse_description",
+            "missing_description",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Plausible match; uncertain evidence and preference mismatches remain eligible."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    },
+    {
+      "id": "pivot-hi",
+      "language": "hi",
+      "base_queries": [
+        "पीतल दीपक"
+      ],
+      "enhanced_description": "केवल पीतल का पुराना पूजा दीपक, 1950 से पहले",
+      "intent_translation": {
+        "base_queries": [
+          "brass lamp"
+        ],
+        "enhanced_description": "Only an old brass puja lamp, before 1950"
+      },
+      "cases": [
+        {
+          "id": "pv-hi-001",
+          "title": "Antique brass puja diya",
+          "description": "Brass oil lamp for puja, South India, circa 1920.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "easy_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Meets every requirement."
+        },
+        {
+          "id": "pv-hi-002",
+          "title": "Brass puja diya, 1990s",
+          "description": "Brass puja lamp, made in the 1990s.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "must_have_conflict",
+            "hard_negative"
+          ],
+          "image_urls": [],
+          "label_reason": "After 1950."
+        },
+        {
+          "id": "pv-hi-003",
+          "title": "Clay diya set",
+          "description": "Set of painted clay diyas.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "easy_negative"
+          ],
+          "image_urls": [],
+          "label_reason": "Clay, not brass."
+        },
+        {
+          "id": "pv-hi-004",
+          "title": "Old brass oil lamp",
+          "description": "Antique brass oil lamp, India, date unknown.",
+          "expected_match": true,
+          "tags": [
+            "multilingual",
+            "ambiguous_positive",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Plausible match; uncertain evidence and preference mismatches remain eligible."
+        },
+        {
+          "id": "pv-hi-005",
+          "title": "Antique brass inkwell",
+          "description": "Brass inkwell, India, circa 1900.",
+          "expected_match": false,
+          "tags": [
+            "multilingual",
+            "lexical_near_miss",
+            "antiques"
+          ],
+          "image_urls": [],
+          "label_reason": "Not a lamp."
+        }
+      ],
+      "evidence_policy": "ENHANCED_TEXT_AND_FOUR_IMAGES"
+    }
+  ]
+}

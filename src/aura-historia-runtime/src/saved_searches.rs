@@ -12,6 +12,7 @@ use search_filter_postgres::{
     SqlxSearchFilterMatchRepositoryFactory, SqlxSearchFilterQuotaReaderFactory,
     SqlxSearchFilterReader, SqlxSearchFilterRepositoryFactory,
 };
+use search_filter_service::ports::SearchIntentTranslator;
 use search_filter_service::use_cases::{
     CreateSearchFilterHandler, CreateSearchFilterUseCase, DeleteOwnedSearchFilterHandler,
     DeleteOwnedSearchFilterUseCase, GetOwnedSearchFilterHandler, GetOwnedSearchFilterUseCase,
@@ -37,6 +38,7 @@ impl SavedSearches {
         pool: &PgPool,
         shipping: ShippingEnrichment,
         embeddings: Arc<dyn EmbeddingGenerator>,
+        translator: Arc<dyn SearchIntentTranslator>,
     ) -> Self {
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let reader = SqlxSearchFilterReader::new(pool.clone());
@@ -60,6 +62,7 @@ impl SavedSearches {
                     unit_of_work.clone(),
                     SqlxSearchFilterRepositoryFactory,
                     Arc::clone(&embeddings),
+                    Arc::clone(&translator),
                     SqlxSearchFilterQuotaReaderFactory,
                     user_postgres::SqlxUserTierEntitlementsFactory::new(),
                     Arc::clone(&listing_sources),
@@ -75,6 +78,7 @@ impl SavedSearches {
                     unit_of_work.clone(),
                     SqlxSearchFilterRepositoryFactory,
                     embeddings,
+                    translator,
                     reader.clone(),
                     SqlxSearchFilterQuotaReaderFactory,
                     user_postgres::SqlxUserTierEntitlementsFactory::new(),

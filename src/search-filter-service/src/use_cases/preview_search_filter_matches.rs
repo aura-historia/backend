@@ -4,12 +4,14 @@
 //! Each candidate is classified on its own: the singleton decision is scheduled matching's
 //! default and the reference its optional shared requests are measured against.
 
+use crate::intent_translation::{TranslationTrigger, translate_search_intent};
 use crate::match_candidates::{
     CandidateEligibility, candidate_eligibility, has_semantic_intent, retrieve_candidates,
     retrieves_with_embedding,
 };
+use crate::ports::SearchIntentTranslator;
 use crate::product_match_evaluator::{
-    ProductListingMatchEvaluationOutcome, ProductListingMatchEvaluationRequest,
+    MatchIntent, ProductListingMatchEvaluationOutcome, ProductListingMatchEvaluationRequest,
     evaluate_product_matches,
 };
 use crate::tier_policy::{matching_evidence_policy, validate_search_features};
@@ -178,10 +180,11 @@ pub trait PreviewSearchFilterMatchesUseCase: Send + Sync {
     ) -> Result<SearchFilterMatchPreview, PreviewSearchFilterMatchesError>;
 }
 
-pub struct PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R> {
+pub struct PreviewSearchFilterMatchesHandler<U, T, E, I, F, P, S, C, R> {
     unit_of_work: U,
     tier_entitlements: T,
     embeddings: E,
+    translator: I,
     fx_rates: F,
     product_listings: P,
     sources: S,
@@ -190,12 +193,13 @@ pub struct PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R> {
     policy: SearchFilterMatchPreviewPolicy,
 }
 
-impl<U, T, E, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R> {
+impl<U, T, E, I, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, I, F, P, S, C, R> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         unit_of_work: U,
         tier_entitlements: T,
         embeddings: E,
+        translator: I,
         fx_rates: F,
         product_listings: P,
         sources: S,
@@ -207,6 +211,7 @@ impl<U, T, E, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, F, P, S,
             unit_of_work,
             tier_entitlements,
             embeddings,
+            translator,
             fx_rates,
             product_listings,
             sources,
@@ -230,12 +235,13 @@ struct EligibleCandidates<'a> {
 }
 
 #[async_trait::async_trait]
-impl<U, T, E, F, P, S, C, R> PreviewSearchFilterMatchesUseCase
-    for PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R>
+impl<U, T, E, I, F, P, S, C, R> PreviewSearchFilterMatchesUseCase
+    for PreviewSearchFilterMatchesHandler<U, T, E, I, F, P, S, C, R>
 where
     U: UnitOfWork,
     T: UserTierEntitlementsFactory<U::Tx>,
     E: EmbeddingGenerator,
+    I: SearchIntentTranslator,
     F: FxRateSnapshotReader,
     P: ProductListingSearchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
@@ -271,11 +277,12 @@ where
     }
 }
 
-impl<U, T, E, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R>
+impl<U, T, E, I, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, I, F, P, S, C, R>
 where
     U: UnitOfWork,
     T: UserTierEntitlementsFactory<U::Tx>,
     E: EmbeddingGenerator,
+    I: SearchIntentTranslator,
     F: FxRateSnapshotReader,
     P: ProductListingSearchReader,
     S: ProductListingSearchFilterMatchSourceReaderFactory<U::Tx>,
@@ -293,8 +300,20 @@ where
             PreviewSearchFilterMatchesError::SearchFilterFeatureRestricted { feature }
         })?;
         let evidence_policy = matching_evidence_policy(tier);
-        let embedding = self.retrieval_embedding(&command.search).await?;
-        let snapshot = self.current_snapshot().await?;
+        // The search is unsaved, so its intent is translated now, as a filter write would.
+        let (embedding, snapshot, translation) = tokio::join!(
+            self.retrieval_embedding(&command.search),
+            self.current_snapshot(),
+            translate_search_intent(
+                &self.translator,
+                &command.search,
+                TranslationTrigger::Preview
+            ),
+        );
+        let (embedding, snapshot) = (embedding?, snapshot?);
+        // A fresh translation is current and mirrors the search, so resolving cannot fail.
+        let intent = MatchIntent::resolve(&command.search, translation.as_ref())
+            .unwrap_or_else(|_| MatchIntent::original(&command.search));
         let compiled_search = compile_search(command.search.clone(), snapshot.clone())?;
         let retrieved = retrieve_candidates(
             &self.product_listings,
@@ -318,12 +337,7 @@ where
         let evaluated = eligible.candidates.len();
         let more_available = eligible.more_available;
         let matches = self
-            .accept_in_rank_order(
-                context,
-                &command.search,
-                evidence_policy,
-                eligible.candidates,
-            )
+            .accept_in_rank_order(context, intent, evidence_policy, eligible.candidates)
             .await?;
         let candidate_limit_reached =
             matches.len() < SEARCH_FILTER_MATCH_PREVIEW_LIMIT && more_available;
@@ -348,7 +362,7 @@ where
     }
 }
 
-impl<U, T, E, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, F, P, S, C, R>
+impl<U, T, E, I, F, P, S, C, R> PreviewSearchFilterMatchesHandler<U, T, E, I, F, P, S, C, R>
 where
     U: UnitOfWork,
     T: UserTierEntitlementsFactory<U::Tx>,
@@ -436,11 +450,11 @@ where
     async fn accept_in_rank_order(
         &self,
         context: &OperationContext,
-        search: &ProductListingSearch,
+        intent: MatchIntent<'_>,
         evidence_policy: MatchingEvidencePolicy,
         candidates: Vec<EligibleCandidate<'_>>,
     ) -> Result<Vec<ProductListingSearchItem>, PreviewSearchFilterMatchesError> {
-        if !has_semantic_intent(search) {
+        if !has_semantic_intent(intent.search()) {
             return Ok(candidates
                 .into_iter()
                 .take(SEARCH_FILTER_MATCH_PREVIEW_LIMIT)
@@ -449,7 +463,7 @@ where
         }
         let accepted = tokio::time::timeout(
             self.policy.classification_deadline,
-            self.classify_until_full(context, search, evidence_policy, &candidates),
+            self.classify_until_full(context, intent, evidence_policy, &candidates),
         )
         .await
         .map_err(|_| PreviewSearchFilterMatchesError::ClassifierUnavailable {
@@ -469,7 +483,7 @@ where
     async fn classify_until_full(
         &self,
         context: &OperationContext,
-        search: &ProductListingSearch,
+        intent: MatchIntent<'_>,
         evidence_policy: MatchingEvidencePolicy,
         candidates: &[EligibleCandidate<'_>],
     ) -> Result<Vec<usize>, PreviewSearchFilterMatchesError> {
@@ -477,7 +491,7 @@ where
             .iter()
             .enumerate()
             .map(|(index, candidate)| {
-                let decision = self.decide(context, search, evidence_policy, candidate);
+                let decision = self.decide(context, intent, evidence_policy, candidate);
                 async move { decision.await.map(|accepted| accepted.then_some(index)) }
             })
             .collect::<Vec<_>>();
@@ -500,7 +514,7 @@ where
     async fn decide(
         &self,
         context: &OperationContext,
-        search: &ProductListingSearch,
+        intent: MatchIntent<'_>,
         evidence_policy: MatchingEvidencePolicy,
         candidate: &EligibleCandidate<'_>,
     ) -> Result<bool, PreviewSearchFilterMatchesError> {
@@ -509,7 +523,7 @@ where
             let request = ProductListingMatchEvaluationRequest {
                 key: (),
                 product: candidate.source,
-                search,
+                intent,
                 evidence_policy,
                 correlation_id: Some(format!(
                     "preview:{}:{}:{}",
@@ -708,6 +722,7 @@ fn product_source_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intent_translation::tests::StubTranslator;
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
     use classifier_model::{
@@ -760,6 +775,7 @@ mod tests {
         searches: Vec<RecordedSearch>,
         embedded: Vec<String>,
         presented: Option<Vec<ProductListingId>>,
+        translator: Arc<StubTranslator>,
     }
 
     type Shared = Arc<Mutex<World>>;
@@ -776,6 +792,10 @@ mod tests {
             searches: Vec::new(),
             embedded: Vec::new(),
             presented: None,
+            translator: Arc::new(StubTranslator {
+                already_english: true,
+                ..StubTranslator::default()
+            }),
         }))
     }
 
@@ -896,6 +916,7 @@ mod tests {
         FakeUnitOfWork,
         FakeTiers,
         FakeEmbeddings,
+        Arc<StubTranslator>,
         FakeFxRates,
         FakeSearch,
         FakeSources,
@@ -908,6 +929,7 @@ mod tests {
             FakeUnitOfWork,
             FakeTiers(Arc::clone(world)),
             FakeEmbeddings(Arc::clone(world)),
+            Arc::clone(&world.lock().unwrap().translator),
             FakeFxRates,
             FakeSearch(Arc::clone(world)),
             FakeSources(Arc::clone(world)),
@@ -1219,6 +1241,53 @@ mod tests {
                 request.state["search_intent"]["enhanced_description"].is_string()
             );
         }
+    }
+
+    #[tokio::test]
+    async fn should_classify_the_english_translation_of_the_unsaved_intent() {
+        let world = world(UserTier::Ultimate);
+        world.lock().unwrap().translator = Arc::new(StubTranslator::default());
+        seed(&world, 1);
+        decide(&world, 0, Decision::Accept);
+
+        preview(&world, enhanced_search()).await.unwrap();
+
+        let world = world.lock().unwrap();
+        let intent = &world.classified[0].state["search_intent"];
+        assert_eq!(
+            serde_json::json!(["english brass lamp"]),
+            intent["base_product_queries"]
+        );
+        assert_eq!("english only before 1930", intent["enhanced_description"]);
+        assert_eq!(1, world.translator.calls());
+        // Retrieval keeps the original text.
+        assert_eq!(
+            vec![
+                embedding_query(&enhanced_search())
+                    .unwrap()
+                    .unwrap()
+                    .as_str()
+                    .to_owned()
+            ],
+            world.embedded
+        );
+    }
+
+    #[tokio::test]
+    async fn should_classify_the_original_intent_when_translation_fails() {
+        let world = world(UserTier::Pro);
+        world.lock().unwrap().translator = Arc::new(StubTranslator::failing());
+        seed(&world, 1);
+        decide(&world, 0, Decision::Accept);
+
+        preview(&world, text_search()).await.unwrap();
+
+        assert_eq!(Some(1), presented(&world).map(|ids| ids.len()));
+        let world = world.lock().unwrap();
+        assert_eq!(
+            serde_json::json!(["brass lamp"]),
+            world.classified[0].state["search_intent"]["base_product_queries"]
+        );
     }
 
     #[tokio::test]

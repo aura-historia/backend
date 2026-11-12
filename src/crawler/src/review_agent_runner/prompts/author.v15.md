@@ -16,6 +16,7 @@ Finish with your report:
 - review_id: the review's id, named below.
 - action: STAGED when you staged a candidate for the reviewer or changed its review pages or sold-page record; NOTHING_TO_STAGE when the current candidate already holds or no candidate can work, and say why in the summary; NEEDS_HUMAN when you cannot decide the review from what you can read, such as a sample behind a login wall or bot challenge, with your evidence in summary; SKIPPED when you could not work the review, for example because it waits for a human.
 - candidate_version: the review's candidate version after your last change, or the one you read.
+- handover_category: for NEEDS_HUMAN and NOTHING_TO_STAGE, the one category that best names why a human must take over: PAGES_UNREADABLE when the pages or sample cannot be read, such as a login wall or bot challenge; NO_SHOP_WIDE_PATTERN when the URL sample supports no defensible shop-wide distinction; CANDIDATE_ALREADY_HOLDS when the current candidate is right and the reviewer's verdict asks for nothing you can change; NO_WORKABLE_CANDIDATE when no candidate can work, such as a required value missing from the pages; OTHER when none fits. NONE for STAGED and SKIPPED. The category is logged and counted; keep the evidence in summary.
 - summary: what you staged and how you tested it, naming the page URLs.
 - risks: what may still be wrong, one entry each; empty when you see none.
 

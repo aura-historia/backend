@@ -20,6 +20,7 @@ use product_listing_service::use_cases::ProductListingSearchPresentation;
 use search_filter_service::match_classification::{
     MatchClassificationSettingsError, should_show_threshold,
 };
+use search_filter_service::ports::SearchIntentTranslator;
 use search_filter_service::use_cases::{
     PreviewSearchFilterMatchesHandler, PreviewSearchFilterMatchesUseCase,
     SEARCH_FILTER_MATCH_PREVIEW_CLASSIFICATION_DEADLINE,
@@ -116,11 +117,14 @@ impl SavedSearchPreviewConfig {
 pub struct SavedSearchPreviewDependencies {
     pub classifier: Arc<dyn ClassifierModel>,
     pub should_show_threshold: Probability,
+    /// Translates the unsaved intent, as a filter write would.
+    pub translator: Arc<dyn SearchIntentTranslator>,
 }
 
 impl SavedSearchPreviewDependencies {
     pub fn from_config(
         config: &SavedSearchPreviewConfig,
+        translator: Arc<dyn SearchIntentTranslator>,
     ) -> Result<Self, SavedSearchPreviewConfigError> {
         let classifier = CloudflareClassifierModel::new(config.classifier.clone())
             .map_err(|_| SavedSearchPreviewConfigError::InvalidClassifierCredentials)?
@@ -128,6 +132,7 @@ impl SavedSearchPreviewDependencies {
         Ok(Self {
             classifier: Arc::new(classifier),
             should_show_threshold: config.should_show_threshold,
+            translator,
         })
     }
 }
@@ -156,6 +161,7 @@ impl SavedSearchPreviews {
                 SqlxUnitOfWork::new(pool.clone()),
                 user_postgres::SqlxUserTierEntitlementsFactory::new(),
                 Arc::clone(&listing.embeddings),
+                dependencies.translator,
                 SqlxFxRateSnapshotReader::new(pool.clone()),
                 OpenSearchProductListingSearchReader::new(listing.opensearch.clone()),
                 SqlxProductListingSearchFilterMatchSourceReaderFactory::new(),

@@ -606,12 +606,15 @@ dependencies = [
  "party-postgres",
  "party-service",
  "platform-postgres",
+ "product-listing-core",
  "product-listing-ingestion-sqs",
  "product-listing-opensearch",
  "product-listing-postgres",
  "product-listing-service",
+ "search-filter-core",
  "search-filter-postgres",
  "search-filter-service",
+ "search-filter-translation-llm",
  "serial_test",
  "shipping-postgres",
  "shipping-service",
@@ -2191,6 +2194,7 @@ dependencies = [
  "product-listing-normalization",
  "product-listing-postgres",
  "product-listing-service",
+ "psl",
  "public-network-policy",
  "regex",
  "reqwest 0.12.28",
@@ -7133,6 +7137,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "psl"
+version = "2.1.251"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e71c0cbc3e678885f48ceb36b859e3bf371b9db80e04ce29a0eea13697ef1c30"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cb294fe86a74cbcf50d4445b37da762029549ebeea341421c7c70370f86cac"
+
+[[package]]
 name = "public-network-policy"
 version = "0.1.0"
 
@@ -7929,8 +7948,10 @@ dependencies = [
  "money",
  "product-listing-core",
  "serde",
+ "sha2 0.11.1",
  "strum 0.28.0",
  "strum_macros 0.28.0",
+ "thiserror 2.0.21",
  "time",
  "user-core",
  "uuid",
@@ -7978,6 +7999,7 @@ dependencies = [
  "async-trait",
  "classifier-model",
  "fxrate-postgres",
+ "large-language-model",
  "notification-postgres",
  "opensearch",
  "platform-observability",
@@ -7986,6 +8008,7 @@ dependencies = [
  "product-listing-postgres",
  "search-filter-postgres",
  "search-filter-service",
+ "search-filter-translation-llm",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -8021,6 +8044,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "tracing",
  "user-core",
  "uuid",
 ]
@@ -8058,6 +8082,24 @@ dependencies = [
  "url",
  "user-core",
  "user-service",
+]
+
+[[package]]
+name = "search-filter-translation-llm"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "domain-primitives",
+ "large-language-model",
+ "localization",
+ "money",
+ "product-listing-core",
+ "search-filter-core",
+ "search-filter-service",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

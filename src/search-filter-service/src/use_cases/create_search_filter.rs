@@ -1,9 +1,11 @@
 use super::listing_source_references::{
     ListingSourceLookupError, ReferencedListingSources, SearchFilterDetails,
 };
+use crate::intent_translation::{TranslationTrigger, translate_search_intent};
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
+    SearchIntentTranslator,
 };
 use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{active_filter_quota, matching_evidence_policy, validate_search_features};
@@ -114,17 +116,18 @@ pub trait CreateSearchFilterUseCase: Send + Sync {
     ) -> Result<CreateSearchFilterResult, CreateSearchFilterError>;
 }
 
-pub struct CreateSearchFilterHandler<U, R, E, Q, A> {
+pub struct CreateSearchFilterHandler<U, R, E, T, Q, A> {
     unit_of_work: U,
     filters: R,
     embeddings: E,
+    translator: T,
     quotas: Q,
     tier_entitlements: A,
     listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
-impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
+impl<U, R, E, T, Q, A> CreateSearchFilterHandler<U, R, E, T, Q, A> {
     pub fn with_shipping_destinations(mut self, queries: Arc<dyn AddressBookQueries>) -> Self {
         self.shipping_destinations = Some(queries);
         self
@@ -134,6 +137,7 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
         unit_of_work: U,
         filters: R,
         embeddings: E,
+        translator: T,
         quotas: Q,
         tier_entitlements: A,
         listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
@@ -142,6 +146,7 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
             unit_of_work,
             filters,
             embeddings,
+            translator,
             quotas,
             tier_entitlements,
             listing_sources,
@@ -151,11 +156,12 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
 }
 
 #[async_trait::async_trait]
-impl<U, R, E, Q, A> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, Q, A>
+impl<U, R, E, T, Q, A> CreateSearchFilterUseCase for CreateSearchFilterHandler<U, R, E, T, Q, A>
 where
     U: UnitOfWork,
     R: SearchFilterRepositoryFactory<U::Tx>,
     E: EmbeddingGenerator,
+    T: SearchIntentTranslator,
     Q: SearchFilterQuotaReaderFactory<U::Tx>,
     A: UserTierEntitlementsFactory<U::Tx>,
 {
@@ -182,16 +188,25 @@ where
             command.search.shipping.as_ref(),
         )
         .await?;
-        let embedding = match embedding_query(&command.search).map_err(embedding_error)? {
-            Some(query) => Some(
-                self.embeddings
-                    .embed_search_query(&query)
-                    .await
-                    .map_err(embedding_error)?
-                    .into_values(),
+        let embedding_query = embedding_query(&command.search).map_err(embedding_error)?;
+        let (embedding, intent_translation) = tokio::join!(
+            async {
+                match &embedding_query {
+                    Some(query) => self
+                        .embeddings
+                        .embed_search_query(query)
+                        .await
+                        .map(|embedding| Some(embedding.into_values())),
+                    None => Ok(None),
+                }
+            },
+            translate_search_intent(
+                &self.translator,
+                &command.search,
+                TranslationTrigger::Create
             ),
-            None => None,
-        };
+        );
+        let embedding = embedding.map_err(embedding_error)?;
         let mut filter = SearchFilter::create(NewSearchFilter {
             user_search_filter_id: UserSearchFilterId::new(),
             user_id: command.user_id,
@@ -201,6 +216,7 @@ where
             search: command.search,
             embedding,
             matching_evidence_policy: search_filter_core::MatchingEvidencePolicy::TextOnly,
+            intent_translation,
         });
         // Resolved before the write so a failed lookup cannot fail a committed create.
         let listing_sources = ReferencedListingSources::resolve(

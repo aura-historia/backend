@@ -13,7 +13,7 @@ use url::Url;
 
 use super::known_pages::{KnownPage, KnownPages};
 use super::robots::CrawlRobots;
-use super::website_spider::CrawlPace;
+use super::website_spider::{CrawlBudgetScale, CrawlPace};
 use crate::spider::utils::url::CrawledUrl;
 
 /// Most URLs one crawl hands Spider as seeds, and most it leaves for the next crawl. Spider keeps
@@ -69,6 +69,7 @@ pub struct CrawlSeeds {
 pub struct CrawlRequest {
     pub crawl_root_url: String,
     pub pace: CrawlPace,
+    pub budget: CrawlBudgetScale,
     pub seeds: CrawlSeeds,
 }
 
@@ -78,6 +79,7 @@ impl CrawlRequest {
         Self {
             crawl_root_url: crawl_root_url.into(),
             pace,
+            budget: CrawlBudgetScale::STANDARD,
             seeds: CrawlSeeds::default(),
         }
     }

@@ -10,9 +10,17 @@
 //!   previous start rather than slept in full, so a domain's first request is
 //!   not held back. A reservation dropped before its request starts (a
 //!   caller timing out while it waits) hands its start back.
+//!
+//! Above the domain sits its politeness group ([`crate::network::politeness`]),
+//! which every reservation also books a start in.
 
+use crate::network::policy::canonical_crawl_host;
+use crate::network::politeness::{
+    GroupStart, PolitenessGroups, RateLimitBackoff, StartSlot, evict_oldest,
+};
 use dashmap::DashMap;
 use dashmap::mapref::one::RefMut;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
@@ -20,7 +28,6 @@ use tokio::time::Instant;
 const DEFAULT_TARGET_CONCURRENCY: f64 = 2.0;
 const DEFAULT_ALPHA: f64 = 0.15;
 const DEFAULT_MAX_DELAY: Duration = Duration::from_secs(10);
-const MAX_ENTRIES: usize = 10_000;
 
 /// A domain's smoothed response latency and the number of responses behind it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,13 +133,9 @@ pub struct RequestStart<'a> {
     throttle: &'a ScraperAutoThrottle,
     wait: Duration,
     /// Set while this reservation holds the domain's latest start.
-    booking: Option<Booking>,
-}
-
-struct Booking {
-    domain: String,
-    start: Instant,
-    previous: Option<Instant>,
+    domain: Option<StartSlot>,
+    /// The start this reservation holds in the domain's politeness group.
+    group: Option<GroupStart<'a>>,
 }
 
 impl<'a> RequestStart<'a> {
@@ -140,7 +143,8 @@ impl<'a> RequestStart<'a> {
         Self {
             throttle,
             wait,
-            booking: None,
+            domain: None,
+            group: None,
         }
     }
 
@@ -151,20 +155,26 @@ impl<'a> RequestStart<'a> {
 
     /// Marks the start as used: the request is being sent.
     pub fn claim(mut self) {
-        self.booking = None;
+        self.domain = None;
+        if let Some(group) = self.group.take() {
+            group.claim();
+        }
     }
 }
 
 impl Drop for RequestStart<'_> {
     fn drop(&mut self) {
-        if let Some(booking) = self.booking.take() {
-            self.throttle.release(&booking);
+        if let Some(slot) = self.domain.take()
+            && let Some(mut entry) = self.throttle.domains.get_mut(slot.key())
+        {
+            slot.release(&mut entry.last_request_start);
         }
     }
 }
 
 pub struct ScraperAutoThrottle {
     domains: DashMap<String, DomainLatency>,
+    groups: Arc<PolitenessGroups>,
     config: ScraperAutoThrottleConfig,
     access_counter: AtomicU64,
 }
@@ -173,17 +183,37 @@ impl ScraperAutoThrottle {
     pub fn new(config: ScraperAutoThrottleConfig) -> Self {
         Self {
             domains: DashMap::with_capacity(64),
+            groups: Arc::default(),
             config,
             access_counter: AtomicU64::new(0),
         }
+    }
+
+    /// The politeness groups this throttle books its starts in, for the other
+    /// components of the process to share.
+    pub fn politeness_groups(&self) -> &Arc<PolitenessGroups> {
+        &self.groups
     }
 
     pub fn record_latency(&self, domain: &str, latency: Duration) {
         self.record_success_latency(domain, latency);
     }
 
+    /// Records a successful response: its latency, and one step of the
+    /// group's recovery from a rate limit.
     pub fn record_success_latency(&self, domain: &str, latency: Duration) {
         self.record_with(domain, latency, false);
+        self.groups.record_response(domain);
+    }
+
+    /// Records a 429 from `domain`: its whole politeness group pauses for the
+    /// answer's `Retry-After` (bounded) and spaces its requests further apart.
+    pub fn record_rate_limit(
+        &self,
+        domain: &str,
+        retry_after: Option<Duration>,
+    ) -> Option<RateLimitBackoff> {
+        self.groups.record_rate_limit(domain, retry_after)
     }
 
     pub fn record_failure_latency(&self, domain: &str, latency: Duration) {
@@ -204,13 +234,13 @@ impl ScraperAutoThrottle {
 
     /// The domain's entry, created on first use and marked as accessed.
     fn entry(&self, raw_domain: &str) -> Option<RefMut<'_, String, DomainLatency>> {
-        let domain = crate::network::policy::canonical_crawl_host(raw_domain);
+        let domain = canonical_crawl_host(raw_domain);
         if domain.is_empty() {
             return None;
         }
         let access_counter = self.access_counter.fetch_add(1, Ordering::Relaxed);
         if !self.domains.contains_key(&domain) {
-            self.maybe_evict();
+            evict_oldest(&self.domains, |entry| &entry.last_access);
         }
         let entry = self
             .domains
@@ -221,9 +251,10 @@ impl ScraperAutoThrottle {
     }
 
     /// Reserves the domain's next request start: at least `min_wait` from
-    /// now, and at least `crawl_delay` after the previously reserved start.
-    /// Applies even when the latency throttle is disabled: robots.txt is not
-    /// optional.
+    /// now, at least `crawl_delay` after the domain's previously reserved
+    /// start, and no earlier than its politeness group admits. Applies even
+    /// when the latency throttle is disabled: robots.txt and a shop's rate
+    /// limit are not optional.
     pub fn reserve_request_start(
         &self,
         domain: &str,
@@ -234,33 +265,20 @@ impl ScraperAutoThrottle {
         let Some(mut entry) = self.entry(domain) else {
             return RequestStart::unbooked(self, min_wait);
         };
-        let previous = entry.last_request_start;
-        let mut start = now + min_wait;
-        if let (Some(delay), Some(previous)) = (crawl_delay, previous) {
-            start = start.max(previous + delay);
+        let mut not_before = now + min_wait;
+        if let (Some(delay), Some(previous)) = (crawl_delay, entry.last_request_start) {
+            not_before = not_before.max(previous + delay);
         }
-        let booked = previous.is_none_or(|previous| start > previous);
-        if booked {
-            entry.last_request_start = Some(start);
-        }
+        // Booked while the domain's entry is held, so the domain's starts and
+        // its group's stay in the same order.
+        let group = self.groups.reserve_start(domain, not_before);
+        let start = group.start();
+        let domain_key = entry.key().clone();
         RequestStart {
             throttle: self,
             wait: start - now,
-            booking: booked.then(|| Booking {
-                domain: entry.key().clone(),
-                start,
-                previous,
-            }),
-        }
-    }
-
-    /// Hands back an unclaimed start, unless a later reservation already
-    /// queued behind it.
-    fn release(&self, booking: &Booking) {
-        if let Some(mut entry) = self.domains.get_mut(&booking.domain)
-            && entry.last_request_start == Some(booking.start)
-        {
-            entry.last_request_start = booking.previous;
+            domain: StartSlot::book(&domain_key, &mut entry.last_request_start, start),
+            group: Some(group),
         }
     }
 
@@ -269,7 +287,7 @@ impl ScraperAutoThrottle {
             return Duration::ZERO;
         }
 
-        let domain = crate::network::policy::canonical_crawl_host(domain);
+        let domain = canonical_crawl_host(domain);
         let Some(entry) = self.domains.get(&domain) else {
             return self.config.min_delay;
         };
@@ -292,7 +310,7 @@ impl ScraperAutoThrottle {
 
     /// The domain's smoothed response latency, `None` before its first response.
     pub fn latency(&self, domain: &str) -> Option<DomainLatencyStats> {
-        let domain = crate::network::policy::canonical_crawl_host(domain);
+        let domain = canonical_crawl_host(domain);
         self.domains.get(&domain).and_then(|entry| {
             let samples = entry.samples.load(Ordering::Relaxed);
             (samples > 0).then(|| DomainLatencyStats {
@@ -300,26 +318,6 @@ impl ScraperAutoThrottle {
                 samples,
             })
         })
-    }
-
-    fn maybe_evict(&self) {
-        if self.domains.len() < MAX_ENTRIES {
-            return;
-        }
-
-        let mut oldest_key: Option<String> = None;
-        let mut oldest_access = u64::MAX;
-        for entry in self.domains.iter() {
-            let access = entry.value().last_access.load(Ordering::Relaxed);
-            if access < oldest_access {
-                oldest_access = access;
-                oldest_key = Some(entry.key().clone());
-            }
-        }
-
-        if let Some(key) = oldest_key {
-            self.domains.remove(&key);
-        }
     }
 }
 
@@ -481,5 +479,37 @@ mod tests {
             throttle.latency_ms("example.com"),
             throttle.latency_ms("www.example.com")
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_hold_a_domain_start_behind_its_group_pause() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            enabled: false,
+            ..Default::default()
+        });
+
+        throttle.record_rate_limit("a.shopnetzwerk.com", Some(Duration::from_secs(8)));
+        let other_shop = throttle.reserve_request_start("b.shopnetzwerk.com", Duration::ZERO, None);
+        let unrelated = throttle.reserve_request_start("example.com", Duration::ZERO, None);
+
+        assert_eq!(other_shop.wait(), Duration::from_secs(8));
+        assert_eq!(unrelated.wait(), Duration::ZERO);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn should_share_group_starts_with_other_components_of_the_process() {
+        let throttle = ScraperAutoThrottle::new(ScraperAutoThrottleConfig {
+            enabled: false,
+            ..Default::default()
+        });
+        let shared = Arc::clone(throttle.politeness_groups());
+
+        shared
+            .reserve_start("a.shopnetzwerk.com", Instant::now())
+            .claim();
+        let scraper_start =
+            throttle.reserve_request_start("b.shopnetzwerk.com", Duration::ZERO, None);
+
+        assert!(scraper_start.wait() > Duration::ZERO);
     }
 }

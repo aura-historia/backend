@@ -17,13 +17,15 @@ use product_listing_postgres::{
 use search_filter_postgres::{
     SqlxExistingSearchFilterMatchReader, SqlxPeriodicSearchFilterCandidateReader,
     SqlxPeriodicSearchFilterMatchingRunLock, SqlxPeriodicSearchFilterProgressFactory,
-    SqlxSearchFilterMatchWriterFactory,
+    SqlxSearchFilterMatchWriterFactory, SqlxSearchIntentTranslationStore,
 };
 use search_filter_service::match_classification::MatchClassificationSettings;
 use search_filter_service::use_cases::{
-    PeriodicSearchFilterMatchingPolicy, RunPeriodicSearchFilterMatchingHandler,
-    RunPeriodicSearchFilterMatchingUseCase,
+    BackfillSearchIntentTranslationsHandler, PeriodicSearchFilterMatchingPolicy,
+    RunPeriodicSearchFilterMatchingHandler, RunPeriodicSearchFilterMatchingUseCase,
+    SearchIntentTranslationBackfillPolicy,
 };
+use search_filter_translation_llm::LargeLanguageModelSearchIntentTranslator;
 use std::{
     num::{NonZeroU32, NonZeroU64, NonZeroUsize},
     path::PathBuf,
@@ -36,6 +38,14 @@ const MAX_HYBRID_SCAN_LIMIT: usize = 100;
 const DEFAULT_CLASSIFIER_PROVIDER: &str = "cloudflare";
 const DEFAULT_CLASSIFIER_MODEL: &str = "clef-flash";
 const DEFAULT_SHOULD_SHOW_THRESHOLD_BPS: u16 = 5_000;
+/// Translations of filters saved while the translator failed, or before translations existed.
+/// The cap bounds how long a translator outage can delay matching; later runs continue.
+const INTENT_TRANSLATION_BACKFILL: SearchIntentTranslationBackfillPolicy =
+    SearchIntentTranslationBackfillPolicy {
+        page_size: NonZeroUsize::new(100).unwrap(),
+        max_translations: 500,
+        concurrency: NonZeroUsize::new(4).unwrap(),
+    };
 
 pub async fn build_from_env()
 -> Result<(Arc<dyn RunPeriodicSearchFilterMatchingUseCase>, Duration), WiringError> {
@@ -56,6 +66,12 @@ pub async fn build_from_env()
         .map_err(|_| WiringError::ClassifierConfig)?,
     )
     .map_err(|_| WiringError::ClassifierConfig)?;
+    let intent_translations = BackfillSearchIntentTranslationsHandler::new(
+        SqlxSearchIntentTranslationStore::new(pool.clone()),
+        LargeLanguageModelSearchIntentTranslator::anthropic(&config.anthropic_api_key)
+            .map_err(WiringError::TranslatorConfig)?,
+        INTENT_TRANSLATION_BACKFILL,
+    );
     let handler: Arc<dyn RunPeriodicSearchFilterMatchingUseCase> = Arc::new(
         RunPeriodicSearchFilterMatchingHandler::new(
             SqlxUnitOfWork::new(pool.clone()),
@@ -70,6 +86,7 @@ pub async fn build_from_env()
             SqlxSearchFilterMatchWriterFactory,
             SqlxPeriodicSearchFilterProgressFactory,
             SqlxSavedSearchDigestStoreFactory,
+            intent_translations,
             config.policy,
         )
         .map_err(WiringError::Handler)?,
@@ -84,6 +101,7 @@ struct PeriodicMatchConfig {
     cloudflare_account_id: String,
     cloudflare_api_token: String,
     classifier_model: CloudflareModel,
+    anthropic_api_key: String,
 
     max_run_duration: Duration,
     policy: PeriodicSearchFilterMatchingPolicy,
@@ -149,6 +167,7 @@ impl PeriodicMatchConfig {
             cloudflare_account_id: required("CLOUDFLARE_ACCOUNT_ID")?,
             cloudflare_api_token: required("CLOUDFLARE_API_TOKEN")?,
             classifier_model,
+            anthropic_api_key: required("ANTHROPIC_API_KEY")?,
 
             max_run_duration: positive_duration("PERIODIC_MATCH_MAX_RUN_SECONDS", 7200)?,
             policy: PeriodicSearchFilterMatchingPolicy {
@@ -279,6 +298,8 @@ pub enum WiringError {
     OpenSearch { detail: String },
     #[error("classifier provider configuration is invalid")]
     ClassifierConfig,
+    #[error("search intent translator configuration is invalid")]
+    TranslatorConfig(#[source] large_language_model::LargeLanguageModelError),
     #[error("failed to build periodic matching handler")]
     Handler(#[source] search_filter_service::use_cases::RunPeriodicSearchFilterMatchingError),
 }
@@ -383,6 +404,7 @@ mod tests {
             ("CLASSIFIER_MODEL_PROVIDER", "cloudflare"),
             ("CLOUDFLARE_ACCOUNT_ID", "account"),
             ("CLOUDFLARE_API_TOKEN", "test-token"),
+            ("ANTHROPIC_API_KEY", "test-key"),
         ];
         let cases: &[(&[(&str, &str)], &str)] = &[
             (&[], "valid-local"),
@@ -401,6 +423,7 @@ mod tests {
             ),
             (&[("STAGE", "prod")], "missing"),
             (&[("CLOUDFLARE_API_TOKEN", "  ")], "missing"),
+            (&[("ANTHROPIC_API_KEY", "")], "missing"),
             (&[("OPENSEARCH_ENDPOINT_URL", "not-a-url")], "url"),
             (&[("POSTGRES_PORT", "65536")], "number"),
             (&[("POSTGRES_MAX_CONNECTIONS", "0")], "policy"),
