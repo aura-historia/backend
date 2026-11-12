@@ -214,7 +214,6 @@ use user_service::use_cases::{
 
 pub const API_BIND_ADDR_ENV: &str = "AURA_HISTORIA_API_BIND_ADDR";
 pub const COGNITO_ISSUER_ENV: &str = "AURA_HISTORIA_COGNITO_ISSUER";
-pub const COGNITO_JWKS_URL_ENV: &str = "AURA_HISTORIA_COGNITO_JWKS_URL";
 pub const COGNITO_APP_CLIENT_IDS_ENV: &str = "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS";
 pub const COGNITO_USER_POOL_ID_ENV: &str = "AURA_HISTORIA_COGNITO_USER_POOL_ID";
 pub const STRIPE_API_KEY_ENV: &str = "STRIPE_API_KEY";
@@ -310,7 +309,6 @@ impl ApiConfig {
         let oauth_metadata_document_client_token_lifetimes =
             oauth_metadata_document_client_token_lifetimes(&mut get)?;
         let issuer = required_config(&mut get, COGNITO_ISSUER_ENV)?;
-        let jwks_url = required_config(&mut get, COGNITO_JWKS_URL_ENV)?;
         let app_client_ids = required_config(&mut get, COGNITO_APP_CLIENT_IDS_ENV)?
             .split(',')
             .map(str::trim)
@@ -380,7 +378,7 @@ impl ApiConfig {
 
         Ok(Self {
             bind_addr,
-            cognito_jwt: CognitoJwtConfig::new(issuer, jwks_url, app_client_ids),
+            cognito_jwt: CognitoJwtConfig::new(issuer, app_client_ids),
             oauth_resource_policy,
             oauth_metadata_document_client_policy,
             oauth_metadata_document_client_token_lifetimes,
@@ -2199,10 +2197,6 @@ mod tests {
     fn valid_api_config_values() -> HashMap<&'static str, String> {
         HashMap::from([
             (COGNITO_ISSUER_ENV, "https://issuer.test".to_owned()),
-            (
-                COGNITO_JWKS_URL_ENV,
-                "https://issuer.test/jwks.json".to_owned(),
-            ),
             (COGNITO_APP_CLIENT_IDS_ENV, "api-client".to_owned()),
             (COGNITO_USER_POOL_ID_ENV, "test-pool".to_owned()),
             (

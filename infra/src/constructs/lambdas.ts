@@ -613,7 +613,6 @@ export function addUserPoolEnvironment(
   const issuer = `https://cognito-idp.${functionRegion}.amazonaws.com/${userPoolId}`;
 
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_ISSUER", issuer);
-  functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_JWKS_URL", `${issuer}/.well-known/jwks.json`);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_APP_CLIENT_IDS", publicClientId);
   functions.auraHistoriaApi.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
   functions.userIdentityDeletion.addEnvironment("AURA_HISTORIA_COGNITO_USER_POOL_ID", userPoolId);
