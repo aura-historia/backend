@@ -68,9 +68,19 @@ async fn async_main() -> Result<(), &'static str> {
         Err(ExecutionError::Panicked) => "panicked",
         Err(ExecutionError::TaskFailed) => "task_failed",
     };
-    tracing::info!(job = "search-filter-periodic-match", stage, revision, outcome,
-        finished_at = %time::OffsetDateTime::now_utc(), duration_ms = started.elapsed().as_millis(),
-        "cron.matching.terminal");
+    macro_rules! log_terminal {
+        ($log:ident) => {
+            tracing::$log!(job = "search-filter-periodic-match", stage, revision, outcome,
+                finished_at = %time::OffsetDateTime::now_utc(), duration_ms = started.elapsed().as_millis(),
+                "cron.matching.terminal")
+        };
+    }
+    // The terminal outcome of a run that did not succeed is a failure to report, whatever level
+    // the job logs at; only a successful run is routine.
+    match &result {
+        Ok(()) => log_terminal!(info),
+        Err(_) => log_terminal!(warn),
+    }
     result.map_err(|_| "periodic matching did not complete successfully")
 }
 
