@@ -1,7 +1,8 @@
+use super::listing_source_references::{ReferencedListingSources, SearchFilterDetails};
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterReadError, SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
-    SearchFilterRepositoryFactory, SearchFilterView,
+    SearchFilterRepositoryFactory,
 };
 use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{
@@ -20,6 +21,7 @@ use domain_primitives::query::range_query::RangeQuery;
 use domain_primitives::query::text_query::TextQuery;
 use embedding::{EmbeddingError, EmbeddingGenerator};
 use listing_source_core::ListingSourceId;
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsUseCase;
 use localization::Language;
 use money::{Currency, MonetaryAmount};
 use product_listing_core::product_listing_search::{
@@ -68,7 +70,7 @@ pub struct UpdateOwnedSearchFilterCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateOwnedSearchFilterResult {
-    pub filter: SearchFilterView,
+    pub filter: SearchFilterDetails,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -107,6 +109,11 @@ pub enum UpdateOwnedSearchFilterError {
     InvalidSearchFilterPatch,
     #[error("search filter embedding generation failed")]
     EmbeddingGenerationFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter listing source read failed")]
+    ListingSourceReadFailed {
         #[source]
         source: BoxError,
     },
@@ -149,6 +156,7 @@ pub struct UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
     filter_reader: F,
     quotas: Q,
     tier_entitlements: A,
+    listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
@@ -165,6 +173,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
         filter_reader: F,
         quotas: Q,
         tier_entitlements: A,
+        listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     ) -> Self {
         Self {
             unit_of_work,
@@ -173,6 +182,7 @@ impl<U, R, E, F, Q, A> UpdateOwnedSearchFilterHandler<U, R, E, F, Q, A> {
             filter_reader,
             quotas,
             tier_entitlements,
+            listing_sources,
             shipping_destinations: None,
         }
     }
@@ -242,6 +252,18 @@ where
         } else {
             None
         };
+        // Resolved before the write so a failed lookup cannot fail a committed update.
+        let listing_sources = ReferencedListingSources::resolve(
+            self.listing_sources.as_ref(),
+            context,
+            [&prepared_search],
+        )
+        .await
+        .map_err(
+            |error| UpdateOwnedSearchFilterError::ListingSourceReadFailed {
+                source: box_error(error),
+            },
+        )?;
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UpdateOwnedSearchFilterError::BeginTransactionFailed(Box::new(source))
@@ -306,6 +328,9 @@ where
                 .replace_search(filter.search().clone(), embedding)
                 .changed();
         }
+        if !listing_sources.covers(filter.search()) {
+            return Err(UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict);
+        }
         if changed.aggregate_changed {
             persisted = self
                 .filters
@@ -326,7 +351,7 @@ where
         );
 
         Ok(UpdateOwnedSearchFilterResult {
-            filter: persisted.into(),
+            filter: listing_sources.details(persisted.into()),
         })
     }
 }

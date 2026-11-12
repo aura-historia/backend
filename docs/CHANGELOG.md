@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-11 — Provider names on search filters (#2902)
+
+- `UserSearchFilterData` has a new required, read-only `listingSources`: the `PublicListingSourceData` cards of every ListingSource that `search.listingSourceId` or `search.excludeListingSourceId` references, one per ID, ordered by `listingSourceId`, so clients can show provider names without further requests. An ID whose source no longer exists stays in `search` but has no card; the list is empty when the filter references no sources. It is returned by `GET /v1/me/search-filters`, `GET /v1/me/search-filters/{userSearchFilterId}`, `POST /v1/me/search-filters` and `PATCH /v1/me/search-filters/{userSearchFilterId}`, and by the MCP tools `getUserSearchFilters`, `getUserSearchFilter`, `createUserSearchFilter` and `updateUserSearchFilter`, whose descriptions now carry the `viewUrl` guidance. Request bodies are unchanged; the field cannot be set.
+- If the provider lookup is unavailable these operations fail with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE` instead of returning incomplete cards; a create or update that fails this way has not been saved.
+
 ## 2026-11-11 — Provider link guidance for agents
 
 - `viewUrl` and its paired `url` now carry descriptions in the OpenAPI document and the MCP output schemas: `viewUrl` is the referral-tagged link meant to be shared, `url` the provider's untagged address. Every MCP tool whose result contains a `viewUrl` states this in its description, the MCP server returns `instructions` asking agents to share `viewUrl` unchanged, and the `catalogue-search` agent skill says the same. Values and fields are unchanged.

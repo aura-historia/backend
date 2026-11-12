@@ -104,7 +104,7 @@ product-listing-opensearch = ["application", "auction-core", "domain-primitives"
 product-listing-postgres = ["shipping-postgres", "shipping-service", "application", "auction-core", "domain-primitives", "fxrate-core", "listing-source-core", "localization", "money", "notification-core", "platform-postgres", "product-listing-core", "product-listing-normalization", "product-listing-service", "product-service", "search-filter-core", "user-core", "user-service", "geo", "geo-service", "party-core", "shipping-json", "shipping-core", "listing-source-service", "listing-source-postgres"]
 product-listing-translation-llm = ["application", "large-language-model", "localization", "product-listing-core", "product-listing-service"]
 
-search-filter-service = ["application", "auction-core", "classifier-model", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "listing-source-core", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "search-filter-core", "user-core", "user-service"]
+search-filter-service = ["application", "auction-core", "classifier-model", "domain-primitives", "embedding", "fxrate-core", "fxrate-service", "geo", "listing-source-core", "listing-source-service", "localization", "money", "notification-core", "notification-service", "product-listing-core", "product-listing-service", "search-filter-core", "user-core", "user-service"]
 
 watchlist-postgres = ["application", "domain-primitives", "platform-postgres", "product-listing-core", "product-listing-service", "user-core", "watchlist-core", "watchlist-service"]
 

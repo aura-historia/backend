@@ -23078,6 +23078,7 @@ components:
         - search
         - created
         - updated
+        - listingSources
       properties:
         userId:
           type: string
@@ -23118,6 +23119,16 @@ components:
           format: date-time
           description: When the search filter was last updated (RFC3339 format)
           example: "2024-01-01T12:00:00Z"
+        listingSources:
+          type: array
+          readOnly: true
+          description: >-
+            Public cards of the ListingSources that `search.listingSourceId` and `search.excludeListingSourceId` reference, one
+            per ID, ordered by `listingSourceId`. A source referenced by both lists appears once. An ID whose source no longer
+            exists stays in `search` but has no card. Empty when the filter references no sources. Response only: create and
+            patch bodies do not set it.
+          items:
+            $ref: "#/components/schemas/PublicListingSourceData"
     ResourceStateData:
       type: string
       description:

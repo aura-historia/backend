@@ -1,7 +1,7 @@
+use super::listing_source_references::{ReferencedListingSources, SearchFilterDetails};
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterRepository, SearchFilterRepositoryError, SearchFilterRepositoryFactory,
-    SearchFilterView,
 };
 use crate::shipping_destination::AcceptShippingDestination;
 use crate::tier_policy::{active_filter_quota, matching_evidence_policy, validate_search_features};
@@ -11,6 +11,7 @@ use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
 use application::transaction::{Transaction, UnitOfWork};
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::GetPublicListingSourcesByIdsUseCase;
 use search_filter_core::search_filter_state::SearchFilterState;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use std::sync::Arc;
@@ -36,7 +37,7 @@ pub struct CreateSearchFilterCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateSearchFilterResult {
-    pub filter: SearchFilterView,
+    pub filter: SearchFilterDetails,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -76,6 +77,11 @@ pub enum CreateSearchFilterError {
         #[source]
         source: BoxError,
     },
+    #[error("search filter listing source read failed")]
+    ListingSourceReadFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("search filter insert failed")]
     SearchFilterInsertFailed {
         #[source]
@@ -107,6 +113,7 @@ pub struct CreateSearchFilterHandler<U, R, E, Q, A> {
     embeddings: E,
     quotas: Q,
     tier_entitlements: A,
+    listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     shipping_destinations: Option<Arc<dyn AddressBookQueries>>,
 }
 
@@ -122,6 +129,7 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
         embeddings: E,
         quotas: Q,
         tier_entitlements: A,
+        listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase>,
     ) -> Self {
         Self {
             unit_of_work,
@@ -129,6 +137,7 @@ impl<U, R, E, Q, A> CreateSearchFilterHandler<U, R, E, Q, A> {
             embeddings,
             quotas,
             tier_entitlements,
+            listing_sources,
             shipping_destinations: None,
         }
     }
@@ -186,6 +195,16 @@ where
             embedding,
             matching_evidence_policy: search_filter_core::MatchingEvidencePolicy::TextOnly,
         });
+        // Resolved before the write so a failed lookup cannot fail a committed create.
+        let listing_sources = ReferencedListingSources::resolve(
+            self.listing_sources.as_ref(),
+            context,
+            [filter.search()],
+        )
+        .await
+        .map_err(|error| CreateSearchFilterError::ListingSourceReadFailed {
+            source: box_error(error),
+        })?;
 
         let mut tx =
             self.unit_of_work.begin().await.map_err(|source| {
@@ -233,7 +252,7 @@ where
         );
 
         Ok(CreateSearchFilterResult {
-            filter: persisted.into(),
+            filter: listing_sources.details(persisted.into()),
         })
     }
 }

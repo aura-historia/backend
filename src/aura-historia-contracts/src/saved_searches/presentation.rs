@@ -1,4 +1,5 @@
 use super::{ProductListingSearchData, code_sets};
+use crate::listing_sources::PublicListingSourceData;
 use crate::product_listings::product_data::{
     PersonalizedProductListingSummaryData, personalized_product_summary_data,
 };
@@ -12,8 +13,8 @@ use search_filter_core::{
     search_filter_state::SearchFilterState, user_search_filter_id::UserSearchFilterId,
     user_search_filter_name::UserSearchFilterName,
 };
-use search_filter_service::ports::{SearchFilterMatchView, SearchFilterView};
-use search_filter_service::use_cases::SearchFilterMatchPreview;
+use search_filter_service::ports::SearchFilterMatchView;
+use search_filter_service::use_cases::{SearchFilterDetails, SearchFilterMatchPreview};
 use serde::Serialize;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
@@ -43,10 +44,14 @@ pub struct SearchFilterData {
     )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     updated: Option<OffsetDateTime>,
+    /// Public cards of the ListingSources `search` includes or excludes, one per ID that still
+    /// resolves; IDs of removed sources stay in `search` but have no card. Read-only.
+    listing_sources: Vec<PublicListingSourceData>,
 }
 
-impl From<SearchFilterView> for SearchFilterData {
-    fn from(view: SearchFilterView) -> Self {
+impl From<SearchFilterDetails> for SearchFilterData {
+    fn from(details: SearchFilterDetails) -> Self {
+        let view = details.view;
         Self {
             user_id: view.user_id,
             user_search_filter_id: view.search_filter_id,
@@ -56,6 +61,11 @@ impl From<SearchFilterView> for SearchFilterData {
             search: view.search.into(),
             created: Some(view.created),
             updated: Some(view.updated),
+            listing_sources: details
+                .listing_sources
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -138,8 +148,8 @@ pub struct PaginatedData<T> {
     pub total: Option<u64>,
 }
 
-impl From<Vec<SearchFilterView>> for PaginatedData<SearchFilterData> {
-    fn from(items: Vec<SearchFilterView>) -> Self {
+impl From<Vec<SearchFilterDetails>> for PaginatedData<SearchFilterData> {
+    fn from(items: Vec<SearchFilterDetails>) -> Self {
         let size = items.len() as u64;
         Self {
             items: items.into_iter().map(Into::into).collect(),

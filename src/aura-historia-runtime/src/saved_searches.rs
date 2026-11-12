@@ -1,6 +1,10 @@
 //! Typed saved-search inbound handles shared by REST and MCP.
 use embedding::EmbeddingGenerator;
 use fxrate_postgres::SqlxFxRateSnapshotRepositoryFactory;
+use listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory;
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::{
+    GetPublicListingSourcesByIdsHandler, GetPublicListingSourcesByIdsUseCase,
+};
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_postgres::SqlxProductListingDetailsBatchReader;
 use product_listing_service::shipping::ShippingEnrichment;
@@ -41,8 +45,16 @@ impl SavedSearches {
             user_postgres::SqlxAddressBookFactory,
             geo_postgres::SqlxResolutionRepositoryFactory,
         ));
+        let listing_sources: Arc<dyn GetPublicListingSourcesByIdsUseCase> =
+            Arc::new(GetPublicListingSourcesByIdsHandler::new(
+                unit_of_work.clone(),
+                SqlxPublicListingSourceDetailsReaderFactory::new(),
+            ));
         Self {
-            list: Arc::new(ListOwnedSearchFiltersHandler::new(reader.clone())),
+            list: Arc::new(ListOwnedSearchFiltersHandler::new(
+                reader.clone(),
+                Arc::clone(&listing_sources),
+            )),
             create: Arc::new(
                 CreateSearchFilterHandler::new(
                     unit_of_work.clone(),
@@ -50,10 +62,14 @@ impl SavedSearches {
                     Arc::clone(&embeddings),
                     SqlxSearchFilterQuotaReaderFactory,
                     user_postgres::SqlxUserTierEntitlementsFactory::new(),
+                    Arc::clone(&listing_sources),
                 )
                 .with_shipping_destinations(addresses.clone()),
             ),
-            get: Arc::new(GetOwnedSearchFilterHandler::new(reader.clone())),
+            get: Arc::new(GetOwnedSearchFilterHandler::new(
+                reader.clone(),
+                Arc::clone(&listing_sources),
+            )),
             update: Arc::new(
                 UpdateOwnedSearchFilterHandler::new(
                     unit_of_work.clone(),
@@ -62,6 +78,7 @@ impl SavedSearches {
                     reader.clone(),
                     SqlxSearchFilterQuotaReaderFactory,
                     user_postgres::SqlxUserTierEntitlementsFactory::new(),
+                    listing_sources,
                 )
                 .with_shipping_destinations(addresses),
             ),

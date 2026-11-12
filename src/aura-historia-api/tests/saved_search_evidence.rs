@@ -4,6 +4,9 @@ use application::transaction::{Transaction, UnitOfWork};
 use embedding::{
     EmbeddingError, EmbeddingGenerator, EmbeddingImageUrl, EmbeddingText, EmbeddingVector,
 };
+use listing_source_service::use_cases::queries::get_public_listing_sources_by_ids::{
+    GetPublicListingSourcesByIdsHandler, GetPublicListingSourcesByIdsUseCase,
+};
 use localization::Language;
 use money::Currency;
 use platform_postgres::SqlxUnitOfWork;
@@ -28,6 +31,13 @@ use user_postgres::SqlxUserTierEntitlementsFactory;
 use user_service::ports::{UserTierEntitlements, UserTierEntitlementsFactory};
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
+
+fn listing_sources(pool: &sqlx::PgPool) -> std::sync::Arc<dyn GetPublicListingSourcesByIdsUseCase> {
+    std::sync::Arc::new(GetPublicListingSourcesByIdsHandler::new(
+        SqlxUnitOfWork::new(pool.clone()),
+        listing_source_postgres::SqlxPublicListingSourceDetailsReaderFactory::new(),
+    ))
+}
 
 struct TestEmbeddings;
 #[async_trait::async_trait]
@@ -87,6 +97,7 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     for (tier, expected) in [
         ("FREE", MatchingEvidencePolicy::TextOnly),
@@ -119,10 +130,15 @@ async fn all_write_principals_resolve_policy_and_ordinary_embeddings_from_locked
                 .unwrap();
             assert_eq!(
                 expected.as_str(),
-                policy_row(&pool, result.filter.search_filter_id).await.0
+                policy_row(&pool, result.filter.view.search_filter_id)
+                    .await
+                    .0
             );
-            assert_eq!(Some(768), result.filter.embedding.as_ref().map(Vec::len));
-            assert_eq!(SearchFilterState::Active, result.filter.state);
+            assert_eq!(
+                Some(768),
+                result.filter.view.embedding.as_ref().map(Vec::len)
+            );
+            assert_eq!(SearchFilterState::Active, result.filter.view.state);
         }
     }
 }
@@ -136,6 +152,7 @@ async fn unauthorized_enhanced_intent_cannot_become_executable_via_system_writes
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     for tier in ["FREE", "PRO"] {
         let user_id = seed_user(&pool, tier).await;
@@ -176,6 +193,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let update = UpdateOwnedSearchFilterHandler::new(
         unit.clone(),
@@ -184,6 +202,7 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         SqlxSearchFilterReader::new(pool.clone()),
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let created = create
         .execute(
@@ -200,7 +219,8 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         )
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     let mut tx = unit.begin().await.unwrap();
     SqlxUserTierEntitlementsFactory
         .in_transaction(&mut tx)
@@ -259,7 +279,8 @@ async fn downgrade_preserves_intent_and_reactivation_resolves_current_policy() {
         .execute(&context(Principal::System), command)
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     assert_eq!(SearchFilterState::Active, restored.state);
     assert!(restored.search.enhanced_search_description.is_none());
     assert_eq!(
@@ -280,6 +301,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let filter = create
         .execute(
@@ -295,7 +317,8 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         )
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     let mut tier_tx = unit.begin().await.unwrap();
     SqlxUserTierEntitlementsFactory
         .in_transaction(&mut tier_tx)
@@ -344,6 +367,7 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         SqlxSearchFilterReader::new(pool.clone()),
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     );
     let repaired = update
         .execute(
@@ -360,7 +384,8 @@ async fn active_policy_upgrade_fences_inflight_snapshot_and_unchanged_writes_rep
         )
         .await
         .unwrap()
-        .filter;
+        .filter
+        .view;
     assert_eq!(Some(768), repaired.embedding.as_ref().map(Vec::len));
     assert_eq!(3, policy_row(&pool, filter.search_filter_id).await.1);
 }
@@ -437,6 +462,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         TestEmbeddings,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     )
     .with_shipping_destinations(book.clone());
     let command = CreateSearchFilterCommand {
@@ -466,7 +492,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
             AddressBookError::Forbidden
         ))
     ));
-    let filter = create.execute(&ctx, command).await.unwrap().filter;
+    let filter = create.execute(&ctx, command).await.unwrap().filter.view;
     // Address ownership and a saved predicate do not select any browsing destination.
     assert_eq!(
         BrowsingDestination::None,
@@ -530,6 +556,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         reader,
         SqlxSearchFilterQuotaReaderFactory,
         SqlxUserTierEntitlementsFactory,
+        listing_sources(&pool),
     )
     .with_shipping_destinations(book.clone());
     let patch = UpdateOwnedSearchFilterCommand {
@@ -559,7 +586,7 @@ async fn saved_shipping_accepts_authorized_country_values_and_survives_bookmark_
         )
         .unwrap(),
     );
-    let changed = update.execute(&ctx, accepted).await.unwrap().filter;
+    let changed = update.execute(&ctx, accepted).await.unwrap().filter.view;
     assert_eq!(
         Some(CountryCode::FRA),
         changed.search.shipping.unwrap().country()

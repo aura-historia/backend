@@ -6,7 +6,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use product_listing_core::product_listing_id::ProductListingId;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
-use search_filter_service::ports::SearchFilterView;
+use search_filter_service::use_cases::SearchFilterDetails;
 use serde::{Deserialize, de::DeserializeOwned};
 use time::OffsetDateTime;
 
@@ -18,9 +18,9 @@ pub(super) fn no_store(mut response: Response) -> Response {
 }
 
 /// One search filter representation with its `Content-Language` and `Last-Modified` headers.
-pub(super) fn search_filter_response(status: StatusCode, filter: SearchFilterView) -> Response {
-    let language = filter.search.language.as_str();
-    let updated = filter.updated;
+pub(super) fn search_filter_response(status: StatusCode, filter: SearchFilterDetails) -> Response {
+    let language = filter.view.search.language.as_str();
+    let updated = filter.view.updated;
     let mut response = (status, Json(SearchFilterData::from(filter))).into_response();
     response
         .headers_mut()

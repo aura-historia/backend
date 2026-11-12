@@ -1,5 +1,5 @@
 use application::error::BoxError;
-use listing_source_core::ListingSourceSlugId;
+use listing_source_core::{ListingSourceId, ListingSourceSlugId};
 
 use crate::use_cases::queries::public_listing_source::PublicListingSourceSummary;
 
@@ -28,6 +28,13 @@ pub trait PublicListingSourceDetailsReader: Send {
         &mut self,
         slug_id: &ListingSourceSlugId,
     ) -> Result<Option<PublicListingSourceSummary>, PublicListingSourceDetailsReadError>;
+
+    /// Public cards of the given sources in one read, ordered by ID; IDs without a source are
+    /// left out.
+    async fn find_by_ids(
+        &mut self,
+        ids: &[ListingSourceId],
+    ) -> Result<Vec<PublicListingSourceSummary>, PublicListingSourceDetailsReadError>;
 }
 
 pub trait PublicListingSourceDetailsReaderFactory<Tx>: Send + Sync {

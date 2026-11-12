@@ -761,7 +761,8 @@ impl From<ListOwnedSearchFiltersError> for ApiError {
             ListOwnedSearchFiltersError::ActorMayNotManageSearchFilter => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. } => {
+            ListOwnedSearchFiltersError::SearchFilterListReadFailed { .. }
+            | ListOwnedSearchFiltersError::ListingSourceReadFailed { .. } => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filters are temporarily unavailable.")
             }
@@ -784,7 +785,8 @@ impl From<GetOwnedSearchFilterError> for ApiError {
                 ApiError::not_found(SEARCH_FILTER_NOT_FOUND)
                     .with_detail("Search filter was not found.")
             }
-            GetOwnedSearchFilterError::SearchFilterReadFailed { .. } => {
+            GetOwnedSearchFilterError::SearchFilterReadFailed { .. }
+            | GetOwnedSearchFilterError::ListingSourceReadFailed { .. } => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter is temporarily unavailable.")
             }
@@ -830,6 +832,7 @@ impl From<CreateSearchFilterError> for ApiError {
                     .with_detail("Search filter state is invalid.")
             }
             CreateSearchFilterError::EmbeddingGenerationFailed { .. }
+            | CreateSearchFilterError::ListingSourceReadFailed { .. }
             | CreateSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | CreateSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | CreateSearchFilterError::SearchFilterInsertFailed { .. }
@@ -944,6 +947,7 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
                     .with_detail("Search filter state is invalid.")
             }
             UpdateOwnedSearchFilterError::EmbeddingGenerationFailed { .. }
+            | UpdateOwnedSearchFilterError::ListingSourceReadFailed { .. }
             | UpdateOwnedSearchFilterError::UserTierEntitlementsLockFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterQuotaReadFailed { .. }
             | UpdateOwnedSearchFilterError::SearchFilterLookupFailed { .. }

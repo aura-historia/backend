@@ -261,6 +261,13 @@ mod tests {
                 }
             }
         }
+
+        async fn find_by_ids(
+            &mut self,
+            _ids: &[ListingSourceId],
+        ) -> Result<Vec<PublicListingSourceSummary>, PublicListingSourceDetailsReadError> {
+            unreachable!("slug lookups never read by ID")
+        }
     }
 
     fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
