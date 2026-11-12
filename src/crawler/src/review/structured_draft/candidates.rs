@@ -72,6 +72,18 @@ pub(super) fn json_ld_availability() -> ExtractionRule {
 /// pages, and on live ones only with stock management, so its cart button follows as a fallback.
 pub(super) fn visible_state() -> Vec<ExtractionRule> {
     vec![
+        // The schema.org availability where a page marks it up, the visible stock line or
+        // delivery note where it does not, such as Shopware's sold notice beside live pages'
+        // `InStock` link.
+        attribute_or_text(
+            &[
+                "link[itemprop='availability']",
+                ".product-detail__out-of-stock",
+                ".product-detail-buy .delivery-information",
+                ".summary p.stock",
+            ],
+            "href",
+        ),
         text(
             &[".summary p.stock", ".summary .single_add_to_cart_button"],
             ExtractionCardinality::First,

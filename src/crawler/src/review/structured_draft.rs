@@ -247,11 +247,36 @@ fn draft_state(pages: &[DraftPage]) -> Option<ExtractionRule> {
     if json_ld_fits {
         return Some(json_ld);
     }
-    first_fitting(pages, visible, |_, values| {
-        values
-            .and_then(<[String]>::first)
-            .is_some_and(|value| !is_bare_price(value))
-    })
+    best_visible_state(pages, visible)
+}
+
+/// Of the visible `rules` that read a label or action on every page, none of them a bare price,
+/// the one whose values resolve to an availability on the most pages, the earliest on a tie: a
+/// rule the normalization reads gives the listing an availability, a delivery note does not.
+fn best_visible_state(pages: &[DraftPage], rules: Vec<ExtractionRule>) -> Option<ExtractionRule> {
+    let mut best: Option<(usize, ExtractionRule)> = None;
+    for rule in rules {
+        let readings: Option<Vec<StateReading>> = pages
+            .iter()
+            .map(|page| {
+                page.values(&rule)
+                    .and_then(|values| values.into_iter().next())
+                    .filter(|value| !is_bare_price(value))
+                    .map(|value| StateReading::of(&value))
+            })
+            .collect();
+        let Some(readings) = readings else {
+            continue;
+        };
+        let resolved = readings
+            .iter()
+            .filter(|reading| reading.resolved.is_some() || reading.mentioned.is_some())
+            .count();
+        if best.as_ref().is_none_or(|(most, _)| resolved > *most) {
+            best = Some((resolved, rule));
+        }
+    }
+    best.map(|(_, rule)| rule)
 }
 
 /// Whether a JSON-LD availability agrees with what the page visibly shows: neither says sold or
@@ -488,9 +513,13 @@ mod tests {
         ])
         .expect("draft");
 
-        assert_eq!(
-            selector(draft.schema.state.as_ref()).as_deref(),
-            Some(".summary p.stock")
+        let state = draft.schema.state.expect("state rule");
+        assert!(!matches!(state.extract, ExtractionKind::JsonLdOffer { .. }));
+        assert!(
+            state
+                .selectors()
+                .any(|selector| &**selector == ".summary p.stock"),
+            "{state:?}"
         );
     }
 
@@ -580,6 +609,37 @@ mod tests {
         let draft = draft(&pages).expect("draft");
 
         assert!(draft.schema.images.is_some(), "{:?}", draft.undrafted);
+    }
+
+    #[test]
+    fn should_prefer_the_visible_state_that_resolves_on_the_most_pages() {
+        let shopware = |title: &'static str, id: &'static str, availability: &str| {
+            let mut page = woo_page(title, id, "InStock", "");
+            page.json_ld = page
+                .json_ld
+                .replace(r#""availability":"https://schema.org/InStock""#, "");
+            page.body = page.body.replace(r#"<p class="stock"></p>"#, "");
+            page.body.push_str(availability);
+            page
+        };
+        let draft = draft(&[
+            shopware(
+                "Chest of drawers",
+                "101",
+                r#"<div class="product-detail-buy"><link itemprop="availability" href="https://schema.org/InStock"><p class="delivery-information">Sofort verfügbar, Lieferzeit: 1-3 Tage</p></div>"#,
+            ),
+            shopware(
+                "Mahogany chest",
+                "102",
+                r#"<div class="product-detail-buy"><p class="delivery-information product-detail__out-of-stock">Ausverkauft</p></div>"#,
+            ),
+        ])
+        .expect("draft");
+
+        assert_eq!(
+            selector(draft.schema.state.as_ref()).as_deref(),
+            Some("link[itemprop='availability']")
+        );
     }
 
     #[test]
