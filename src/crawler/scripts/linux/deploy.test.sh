@@ -131,7 +131,16 @@ api "$sha_d" "$sha_c"
 if autodeploy; then fail "a release with migrations was deployed unattended"; fi
 bin_is "$sha_a" || fail "switched to a release with migrations"
 [[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_d" ]] || fail "a release with migrations would be retried"
+# Retention: at most five dumps in total, the oldest deleted once a new one succeeded.
+for day in 1 2 3 4 5 6; do
+  echo old > "$CRAWLER_BACKUP_DIR/crawler-2020010${day}T000000Z-before-x.dump"
+  touch -d "2020-01-0${day}" "$CRAWLER_BACKUP_DIR/crawler-2020010${day}T000000Z-before-x.dump"
+done
+FAKE_PG_FAIL=1 deploy "$sha_d" >/dev/null 2>&1 && fail "a failed backup was ignored"
+[[ "$(ls "$CRAWLER_BACKUP_DIR"/*.dump | wc -l)" -ge 6 ]] || fail "a failed backup deleted dumps"
 deploy "$sha_d" >/dev/null 2>&1
+[[ "$(ls "$CRAWLER_BACKUP_DIR"/*.dump | wc -l)" -eq 5 ]] || fail "more than five dumps kept"
+ls "$CRAWLER_BACKUP_DIR"/*"before-${sha_d}.dump" >/dev/null || fail "the newest dump was pruned"
 bin_is "$sha_d" || fail "an operator could not deploy the release with migrations"
 
 echo "deploy.test.sh: all checks passed"

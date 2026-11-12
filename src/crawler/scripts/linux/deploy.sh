@@ -19,7 +19,8 @@ HEALTH_INTERVAL="${CRAWLER_HEALTH_INTERVAL:-2}"
 KEEP="${CRAWLER_KEEP_RELEASES:-5}"
 ENV_FILE="${CRAWLER_ENV_FILE:-/etc/crawler/crawler.env}"
 BACKUP_DIR="${CRAWLER_BACKUP_DIR:-/var/backups/crawler}"
-KEEP_BACKUPS="${CRAWLER_KEEP_BACKUPS:-10}"
+# Retention: at most this many dumps in total; the oldest go once a new dump succeeded.
+readonly KEEP_BACKUPS=5
 UNIT_DIR="${CRAWLER_UNIT_DIR:-/etc/systemd/system}"
 readonly SERVER_UNIT=crawler-server
 readonly RUNNER_UNIT=review-agent-runner
