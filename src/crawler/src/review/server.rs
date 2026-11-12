@@ -59,6 +59,7 @@ mod pending_reviews;
 mod query_params;
 mod review_list;
 mod schema_matrix;
+mod source_label;
 mod source_pages;
 
 use schema_matrix::NoMatrixAnswer;
@@ -274,6 +275,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_source_label(&request, actor).await {
             return response;
         }
         // Preview responses, including their errors, are framed by the console.
@@ -5707,6 +5711,82 @@ Origin: http://127.0.0.1:7878/x
             );
             let (status, missing) = send(&server, &format!("POST {unknown}"), "").await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod source_label {
+        use super::mass_removal_confirmation::{console, overview_of};
+        use super::needs_repair::{AUTHOR_TOKEN, send, send_as};
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// A human labels a source, which switches its crawling off and lists it as labelled,
+        /// not disabled, and clears the label; a request the label contract refuses answers 400,
+        /// an agent token 401 and an unknown source 404.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_label_and_clear_a_source_for_a_human_only() {
+            let (server, listing_source_id) = console().await;
+            let route = format!("/api/listing-sources/{listing_source_id}/label");
+            let body = json!({ "label": "OTHER", "note": " catalogue only " }).to_string();
+
+            let (status, _) = send_as(&server, AUTHOR_TOKEN, &format!("PUT {route}"), &body).await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+
+            let (status, applied) = send(&server, &format!("PUT {route}"), &body).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {applied}");
+            assert_eq!(
+                (&applied["label"], &applied["note"], &applied["labelled_by"]),
+                (&json!("OTHER"), &json!("catalogue only"), &json!("HUMAN"))
+            );
+            let source = overview_of(&server, listing_source_id).await;
+            assert_eq!(source["source_label"], applied, "{source}");
+            assert_eq!(source["crawl_enabled"], false, "{source}");
+            for (status_filter, total) in [("labelled", 1), ("disabled", 0)] {
+                let (_, listed) = send(
+                    &server,
+                    &format!("GET /api/listing_sources?status={status_filter}"),
+                    "",
+                )
+                .await;
+                assert_eq!(listed["total"], total, "{status_filter}: {listed}");
+            }
+            let (_, overview) = send(&server, "GET /api/overview", "").await;
+            assert_eq!(overview["sources"]["labelled"], 1, "{overview}");
+
+            for refused in [
+                json!({ "label": "OTHER" }),
+                json!({ "label": "not_an_eshop" }),
+                json!({ "label": "NOT_AN_ESHOP", "extra": true }),
+                json!({ "label": "NOT_AN_ESHOP", "note": "  " }),
+            ] {
+                let (status, error) =
+                    send(&server, &format!("PUT {route}"), &refused.to_string()).await;
+                assert!(
+                    status.starts_with("HTTP/1.1 400"),
+                    "{refused} {status} {error}"
+                );
+            }
+
+            let (status, cleared) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {cleared}");
+            assert_eq!(cleared, json!({ "ok": true }));
+            let source = overview_of(&server, listing_source_id).await;
+            assert!(source["source_label"].is_null(), "{source}");
+            assert_eq!(
+                source["crawl_enabled"], false,
+                "clearing leaves enabling to the scope sync"
+            );
+            let (status, _) = send(&server, &format!("DELETE {route}"), "").await;
+            assert!(
+                status.starts_with("HTTP/1.1 200"),
+                "clearing twice succeeds"
+            );
+
+            let unknown = format!("/api/listing-sources/{}/label", ListingSourceId::new());
+            for request in [format!("PUT {unknown}"), format!("DELETE {unknown}")] {
+                let (status, missing) = send(&server, &request, &body).await;
+                assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+            }
         }
     }
     mod console_lists {

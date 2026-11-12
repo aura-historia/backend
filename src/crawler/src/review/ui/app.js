@@ -263,7 +263,7 @@ const TONES = {
     human_required: 'bad', waiting_for_repair: 'warn', live: 'ok', rejection_revoked: 'neutral', source_disabled: 'neutral',
     rejected_by_model: 'bad',
     crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
-    healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral',
+    healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
     crawling: 'info', scraping: 'info',
     HUMAN: 'info', AGENT_AUTHOR: 'neutral', AGENT_REVIEWER: 'neutral', SYSTEM: 'neutral',
     applied: 'ok', failed_check: 'bad', did_not_apply: 'bad', not_evaluated: 'warn', changed: 'info'
@@ -648,7 +648,7 @@ const lists = {
     reviews: {items: undefined, total: 0, failure: '', sequence: 0, loading: false, unfilteredTotal: null}
 };
 
-const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled']];
+const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -1031,6 +1031,9 @@ function sourceConditions(source) {
 // The one status a table shows for a ListingSource: its most severe condition, else whether it
 // scrapes yet.
 function primaryStatus(source) {
+    if (source.source_label) {
+        return {key: 'labelled', text: sourceLabelName(source.source_label.label), more: source.source_label.note || '', title: 'Labelled by a human; not crawled until the label is cleared'};
+    }
     if (!source.crawl_enabled) return {key: 'crawling_disabled', text: 'Crawling disabled', more: ''};
     const [condition] = sourceConditions(source);
     if (condition) {
@@ -1154,14 +1157,14 @@ function sourceColumns() {
 // condition the rows share, with how many sources have it.
 const SOURCE_GROUP_LABELS = {
     crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
-    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled'
+    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled'
 };
 
 function sourceGroupCount(key) {
     const sources = overviewCounts?.sources;
     const counts = {
         crawl_needs_operator: sources?.crawl_needs_operator, crawl_failing: sources?.crawl_failing, failing_to_scrape: sources?.failing_to_scrape,
-        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals
+        blocked_by_review: sources?.blocked_by_review, removals_held: sources?.held_removals, labelled: sources?.labelled
     };
     return counts[key];
 }
@@ -1245,6 +1248,8 @@ function renderReviewRow(review, index) {
 let sourcePage = null;
 const expandedMissingValueSources = new Map();
 const openMassRemovalConfirmations = new Set();
+// The sources whose label form is open on their page.
+const openSourceLabelForms = new Set();
 const MASS_REMOVAL_CONFIRMATION_HOURS = [[6, '6 hours'], [24, '24 hours'], [72, '3 days'], [168, '7 days']];
 
 function sourcePageId() {
@@ -1410,7 +1415,9 @@ function renderSourceHealth(source) {
         lines.push(`<div class="status-line"><span class="badge badge-neutral">Missing a value</span><div class="status-line-text">${pluralize(missing, 'page', 'pages')} missing a required value · <button class="btn-link" aria-expanded="${open}" onclick="toggleMissingValuePages('${id}')" type="button">${open ? 'hide' : 'show'}</button></div></div>`);
         if (open) lines.push(renderMissingValuePages(source.listing_source_id, expandedMissingValueSources.get(source.listing_source_id)));
     }
-    if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
+    if (source.source_label) lines.push(renderSourceLabelLine(source));
+    else if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
+    if (!source.source_label && openSourceLabelForms.has(source.listing_source_id)) lines.push(renderSourceLabelForm(source.listing_source_id));
     const crawl = source.last_crawl_outcome
         ? `${escapeHtml(reasonWord(source.last_crawl_outcome))}${source.last_successful_crawl ? ` ${timeBadge(source.last_successful_crawl, 'Last successful crawl')}` : ''}${Number(source.crawl_failure_count) > 0 && source.last_crawl_outcome !== 'NEEDS_OPERATOR' ? ` · ${pluralize(Number(source.crawl_failure_count), 'failed crawl', 'failed crawls')}` : ''}`
         : 'not crawled yet';
@@ -1420,7 +1427,7 @@ function renderSourceHealth(source) {
         : (Number(source.scrape_failure_streak) || 0) > 0 ? 'never scraped' : 'no failure streak';
     const errors = (source.url_error_kinds || []).filter(entry => !STATUS_ERROR_KINDS.has(entry.kind));
     return `<div class="card">
-      <div class="card-head"><h2>Health</h2></div>
+      <div class="card-head"><h2>Health</h2>${source.source_label ? '' : `<button class="btn btn-sm" aria-expanded="${openSourceLabelForms.has(source.listing_source_id)}" onclick="toggleSourceLabelForm('${id}')" title="Stop crawling a site that is not an online shop or that the crawler cannot scrape" type="button">Label source…</button>`}</div>
       <div class="card-body stack">
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
@@ -1629,6 +1636,69 @@ async function confirmMassRemoval(listingSourceId) {
 async function revokeMassRemovalConfirmation(listingSourceId) {
     try {
         await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/mass-removal-confirmation`, {method: 'DELETE'});
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+// ───────────────────────────── ListingSource labels ─────────────────────────────
+// What a human labels a source with when the crawler should not crawl it, in the order the form
+// offers them. The keys are the labels the crawler persists.
+const SOURCE_LABELS = {
+    NOT_AN_ESHOP: 'Not an e-shop',
+    APPROACH_NOT_APPLICABLE: 'Approach not applicable',
+    BOT_PROTECTION: 'Bot protection',
+    JAVASCRIPT_RENDERED: 'JavaScript-rendered',
+    LOGIN_REQUIRED: 'Login required',
+    OTHER: 'Other',
+};
+
+function sourceLabelName(label) {
+    return SOURCE_LABELS[label] || displayName(label);
+}
+
+function renderSourceLabelLine(source) {
+    const applied = source.source_label;
+    const id = escapeHtmlAttr(source.listing_source_id);
+    const note = applied.note ? `${escapeHtml(applied.note)} · ` : '';
+    return `<div class="status-line"><span class="badge badge-${TONES.labelled}">${escapeHtml(sourceLabelName(applied.label))}</span><div class="status-line-text">${note}not crawled · by ${escapeHtml(actorWord(applied.labelled_by))} ${timeBadge(applied.labelled_at, 'Labelled')} · <button class="btn-link" onclick="clearSourceLabel('${id}')" title="Crawl the source again once the next scope refresh enables it" type="button">Clear label</button></div></div>`;
+}
+
+// The handler names the source by id and reads the form's own fields, never the page's HTML.
+function renderSourceLabelForm(listingSourceId) {
+    const id = escapeHtmlAttr(listingSourceId);
+    return `<div class="list-row">
+      <select class="sm" aria-label="Label" id="sourceLabel-${id}">${Object.entries(SOURCE_LABELS).map(([label, name]) =>
+          `<option value="${label}">${escapeHtml(name)}</option>`).join('')}</select>
+      <input class="sm" aria-label="Note" id="sourceLabelNote-${id}" maxlength="500" placeholder="Note (required for Other)">
+      <button class="btn btn-primary btn-sm" onclick="labelSource('${id}')" title="Switches crawling off until the label is cleared" type="button">Label and stop crawling</button>
+      <button class="btn btn-quiet btn-sm" onclick="toggleSourceLabelForm('${id}')" type="button">Cancel</button>
+    </div>`;
+}
+
+function toggleSourceLabelForm(listingSourceId) {
+    if (!openSourceLabelForms.delete(listingSourceId)) openSourceLabelForms.add(listingSourceId);
+    updateSourcePage();
+}
+
+async function labelSource(listingSourceId) {
+    const label = document.getElementById(`sourceLabel-${listingSourceId}`)?.value;
+    const note = document.getElementById(`sourceLabelNote-${listingSourceId}`)?.value.trim() || null;
+    if (!label) return;
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/label`,
+            {method: 'PUT', body: JSON.stringify({label, note})});
+        openSourceLabelForms.delete(listingSourceId);
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+async function clearSourceLabel(listingSourceId) {
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/label`, {method: 'DELETE'});
         await loadSourcePage();
     } catch (error) {
         alert(apiErrorMessage(error));

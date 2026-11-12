@@ -27,6 +27,7 @@ pub mod search_term;
 pub mod selector_field_evaluation;
 pub mod sort_direction;
 pub mod source_event;
+pub mod source_label;
 pub mod source_product_url;
 pub mod status;
 pub mod url_pattern_candidate;
@@ -70,6 +71,10 @@ pub use search_term::{MAX_SEARCH_TERM_CHARS, SearchTerm};
 pub use selector_field_evaluation::SelectorFieldEvaluation;
 pub use sort_direction::SortDirection;
 pub use source_event::{SourceEvent, SourceEventKind};
+pub use source_label::{
+    AppliedSourceLabel, MAX_SOURCE_LABEL_NOTE_CHARS, SourceLabel, SourceLabelError,
+    SourceLabelNote, SourceLabelRequest,
+};
 pub use source_product_url::SourceProductUrl;
 pub use status::*;
 pub use url_pattern_candidate::{UrlPatternDecision, UrlPatternReviewCandidate};

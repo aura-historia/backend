@@ -6,7 +6,7 @@
 
 use super::review_events::ReviewMutation;
 use crate::CrawlerReviewId;
-use crate::review::model::ReviewActor;
+use crate::review::model::{ReviewActor, SourceLabel};
 use listing_source_core::ListingSourceId;
 use sqlx::Row;
 use time::OffsetDateTime;
@@ -24,6 +24,8 @@ pub(super) const REVIEW_URLS_RETIRED_NOT_PRODUCT_EVENT: &str =
 pub(super) const MASS_REMOVAL_CONFIRMED_EVENT: &str = "crawler.source.mass_removal_confirmed";
 pub(super) const MASS_REMOVAL_REVOKED_EVENT: &str = "crawler.source.mass_removal_revoked";
 pub(super) const CRAWL_RESUMED_EVENT: &str = "crawler.source.crawl_resumed";
+pub(super) const SOURCE_LABELLED_EVENT: &str = "crawler.source.labelled";
+pub(super) const SOURCE_LABEL_CLEARED_EVENT: &str = "crawler.source.label_cleared";
 
 /// What one review state change logs besides the source: which event, who acted, and the one
 /// detail that names the change.
@@ -56,6 +58,10 @@ pub(super) struct ReviewLogEntry {
     /// The failure kind and streak a resumed crawl waited for an operator with.
     crawl_error_kind: Option<String>,
     crawl_failure_count: Option<i32>,
+    /// The label a human gave a ListingSource, and whether a note came with it; the note's text
+    /// is never logged.
+    source_label: Option<&'static str>,
+    has_note: Option<bool>,
 }
 
 impl ReviewLogEntry {
@@ -77,6 +83,8 @@ impl ReviewLogEntry {
             confirmed_until: None,
             crawl_error_kind: None,
             crawl_failure_count: None,
+            source_label: None,
+            has_note: None,
         }
     }
 
@@ -145,6 +153,27 @@ impl ReviewLogEntry {
                 Some(actor),
             )
         }
+    }
+
+    /// A human labelled the source with `label`, which switched its crawling off.
+    pub(super) fn source_labelled(actor: ReviewActor, label: SourceLabel, has_note: bool) -> Self {
+        Self {
+            source_label: Some(label.as_str()),
+            has_note: Some(has_note),
+            ..Self::new(
+                SOURCE_LABELLED_EVENT,
+                "ListingSource labelled; crawling is switched off until the label is cleared",
+                Some(actor),
+            )
+        }
+    }
+
+    pub(super) fn source_label_cleared(actor: ReviewActor) -> Self {
+        Self::new(
+            SOURCE_LABEL_CLEARED_EVENT,
+            "ListingSource label cleared; the next scope refresh enables crawling again",
+            Some(actor),
+        )
     }
 
     pub(super) fn with_affected_urls(mut self, urls: usize) -> Self {
@@ -477,6 +506,8 @@ impl PreparedReviewLog {
                     hours = entry.hours,
                     crawl_error_kind = entry.crawl_error_kind,
                     crawl_failure_count = entry.crawl_failure_count,
+                    source_label = entry.source_label,
+                    has_note = entry.has_note,
                     incomplete_coverage = entry.incomplete_coverage,
                     "{}",
                     entry.message
@@ -676,6 +707,29 @@ mod tests {
             ("actor", "HUMAN"),
         ] {
             assert_eq!(resumed[0].field(field), Some(expected), "{field}");
+        }
+    }
+
+    #[test]
+    fn should_log_the_label_and_whether_a_note_came_with_it_but_never_the_note() {
+        let (events, _guard) = LoggedEvents::capture();
+
+        prepared(ReviewLogEntry::source_labelled(
+            ReviewActor::Human,
+            SourceLabel::NotAnEshop,
+            true,
+        ))
+        .emit();
+
+        let labelled = events.named(SOURCE_LABELLED_EVENT);
+        assert_eq!(labelled.len(), 1);
+        assert_eq!(labelled[0].level, Level::INFO);
+        for (field, expected) in [
+            ("source_label", "NOT_AN_ESHOP"),
+            ("has_note", "true"),
+            ("actor", "HUMAN"),
+        ] {
+            assert_eq!(labelled[0].field(field), Some(expected), "{field}");
         }
     }
 

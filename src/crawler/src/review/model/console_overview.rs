@@ -27,6 +27,8 @@ pub struct SourceCounts {
     pub blocked_by_review: i64,
     pub failing_to_scrape: i64,
     pub held_removals: i64,
+    /// Sources a human labelled, whose crawling is off; not a condition that needs attention.
+    pub labelled: i64,
 }
 
 /// The pending reviews of all ListingSources.
@@ -66,6 +68,7 @@ mod tests {
                 blocked_by_review: 9,
                 failing_to_scrape: 7,
                 held_removals: 1,
+                labelled: 3,
             },
             reviews: ReviewCounts {
                 pending_total: 312,
@@ -85,7 +88,7 @@ mod tests {
                 "sources": {
                     "crawling_now": 4, "scraping_now": 11, "needs_attention": 23,
                     "crawl_failing": 2, "crawl_needs_operator": 6, "blocked_by_review": 9,
-                    "failing_to_scrape": 7, "held_removals": 1
+                    "failing_to_scrape": 7, "held_removals": 1, "labelled": 3
                 },
                 "reviews": {
                     "pending_total": 312,
