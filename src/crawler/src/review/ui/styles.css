@@ -41,6 +41,9 @@
     --bad: #b3261e;       --bad-soft: #fcebea;     --bad-line: #f2b3ae;
     --info: #2456c8;      --info-soft: #e8eefc;    --info-line: #b7c8f3;
     --neutral: #475063;   --neutral-soft: #eceef2; --neutral-line: #c9cfda;
+    /* label palette: the ListingSource labels that are no status */
+    --violet: #6b3fc0;    --violet-soft: #f0e9fc;
+    --teal: #0f766e;      --teal-soft: #ddf3f0;
     /* elevation */
     --shadow-1: 0 1px 2px rgba(20, 26, 40, 0.06);
     --shadow-2: 0 4px 16px rgba(20, 26, 40, 0.10);
@@ -76,6 +79,8 @@
         --bad: #ff948c;     --bad-soft: #351c1b;     --bad-line: #66302d;
         --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
         --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
+        --violet: #c4a7ff;  --violet-soft: #2a1f45;
+        --teal: #5fd3c4;    --teal-soft: #12302c;
         --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
         color-scheme: dark;
     }
@@ -90,6 +95,8 @@
     --bad: #ff948c;     --bad-soft: #351c1b;     --bad-line: #66302d;
     --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
     --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
+    --violet: #c4a7ff;  --violet-soft: #2a1f45;
+    --teal: #5fd3c4;    --teal-soft: #12302c;
     --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
 }
@@ -152,6 +159,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .badge-bad { background: var(--bad-soft); color: var(--bad); }
 .badge-info { background: var(--info-soft); color: var(--info); }
 .badge-neutral { background: var(--neutral-soft); color: var(--neutral); }
+.badge-violet { background: var(--violet-soft); color: var(--violet); }
+.badge-teal { background: var(--teal-soft); color: var(--teal); }
 .badge-kind { background: transparent; border-color: var(--line-strong); color: var(--ink-2); font-weight: 500; }
 .badge-count { min-width: 20px; justify-content: center; padding: 0 6px; font-variant-numeric: tabular-nums; }
 .badge .dot { width: 6px; height: 6px; }
@@ -316,6 +325,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .data-table .row-link:hover { color: var(--accent); text-decoration: none; }
 .data-table td .badge + .badge { margin-left: 4px; }
 .data-table .more { color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+/* A label's free-text note stays on one line, cut short, so it never widens the table. */
+.data-table .more-note { display: inline-block; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .data-table td.state-cell { padding: 0; }
 .data-table td.state-cell .state { padding: var(--s-5) var(--s-4); }
 .data-table .url { font-family: var(--mono); font-size: var(--fs-xs); overflow-wrap: anywhere; }
@@ -435,7 +446,7 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .preview .frame-placeholder { display: grid; place-items: center; background: repeating-linear-gradient(45deg, var(--surface-2) 0 12px, var(--surface-3) 12px 24px); color: var(--muted); font-size: var(--fs-sm); }
 
 .inspector { display: grid; container-type: inline-size; min-width: 0; }
-.tabs { display: flex; gap: 2px; padding: 0 var(--s-2); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 var(--s-2); border-bottom: 1px solid var(--line); }
 .tab { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; margin-bottom: -1px; padding: 0 var(--s-3); border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .tab:hover { color: var(--ink); }
 .tab.active, .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--ink); font-weight: 600; }

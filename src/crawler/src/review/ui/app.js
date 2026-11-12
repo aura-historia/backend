@@ -1032,7 +1032,12 @@ function sourceConditions(source) {
 // scrapes yet.
 function primaryStatus(source) {
     if (source.source_label) {
-        return {key: 'labelled', text: sourceLabelName(source.source_label.label), more: source.source_label.note || '', title: 'Labelled by a human; not crawled until the label is cleared'};
+        const applied = source.source_label;
+        return {
+            key: 'labelled', tone: sourceLabelTone(applied.label), text: sourceLabelName(applied.label),
+            more: applied.note || '', note: true,
+            title: `Labelled by ${actorWord(applied.labelled_by)}; not crawled until a human clears the label`
+        };
     }
     if (!source.crawl_enabled) return {key: 'crawling_disabled', text: 'Crawling disabled', more: ''};
     const [condition] = sourceConditions(source);
@@ -1046,7 +1051,7 @@ function primaryStatus(source) {
 }
 
 function statusKeyBadge(status) {
-    return `<span class="badge badge-${TONES[status.key] || 'neutral'}"${status.title ? ` title="${escapeHtmlAttr(status.title)}"` : ''}>${escapeHtml(status.text)}</span>`;
+    return `<span class="badge badge-${status.tone || TONES[status.key] || 'neutral'}"${status.title ? ` title="${escapeHtmlAttr(status.title)}"` : ''}>${escapeHtml(status.text)}</span>`;
 }
 
 function activityBadges(source) {
@@ -1213,7 +1218,7 @@ function renderSourceRow(source) {
         ? ` · <a href="${reviewHash(blocking)}">its review →</a>` : '';
     return `<tr${rowClasses(source.crawl_enabled ? '' : 'dim', listReturnId() === source.listing_source_id ? 'selected' : '', lists.sources.changes?.added.has(source.listing_source_id) ? 'changed' : '')}>
       <td><a class="row-link" href="${sourceHash(source.listing_source_id)}"><span class="cell-main">${escapeHtml(listingSourceName(source))}</span><span class="cell-sub">${escapeHtml(sourceHost(source))}</span></a></td>
-      <td>${statusKeyBadge(status)}${status.more ? ` <span class="more">${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}</td>
+      <td>${statusKeyBadge(status)}${status.more ? ` <span class="more${status.note ? ' more-note' : ''}"${status.note ? ` title="${escapeHtmlAttr(status.more)}"` : ''}>${escapeHtml(status.more)}${blockingLink}</span>` : ''}${activityBadges(source) ? ` ${activityBadges(source)}` : ''}</td>
       <td class="num">${pending ? `<a href="${escapeHtmlAttr(pendingHref)}">${formatCount(pending)}</a>` : '<span class="muted">0</span>'}</td>
       <td class="col-md">${source.last_successful_scrape ? timeBadge(source.last_successful_scrape, 'Last successful scrape') : '<span class="muted">Never</span>'}</td>
       <td class="col-md">${nextCrawlText(source)}</td>
@@ -1655,6 +1660,16 @@ const SOURCE_LABELS = {
     OTHER: 'OTHER',
 };
 
+// One colour per label, so a list of labelled sources reads at a glance.
+const SOURCE_LABEL_TONES = {
+    NOT_AN_ESHOP: 'violet', APPROACH_NOT_APPLICABLE: 'teal', BOT_PROTECTION: 'bad',
+    JAVASCRIPT_RENDERED: 'warn', LOGIN_REQUIRED: 'info', OTHER: 'neutral'
+};
+
+function sourceLabelTone(label) {
+    return SOURCE_LABEL_TONES[label] || 'neutral';
+}
+
 function sourceLabelName(label) {
     return SOURCE_LABELS[label] || displayName(label);
 }
@@ -1663,7 +1678,7 @@ function renderSourceLabelLine(source) {
     const applied = source.source_label;
     const id = escapeHtmlAttr(source.listing_source_id);
     const note = applied.note ? `${escapeHtml(applied.note)} · ` : '';
-    return `<div class="status-line"><span class="badge badge-${TONES.labelled}">${escapeHtml(sourceLabelName(applied.label))}</span><div class="status-line-text">${note}not crawled · by ${escapeHtml(actorWord(applied.labelled_by))} ${timeBadge(applied.labelled_at, 'Labelled')} · <button class="btn-link" onclick="clearSourceLabel('${id}')" title="Crawl the source again once the next scope refresh enables it" type="button">Clear label</button></div></div>`;
+    return `<div class="status-line"><span class="badge badge-${sourceLabelTone(applied.label)}">${escapeHtml(sourceLabelName(applied.label))}</span><div class="status-line-text">${note}not crawled · by ${escapeHtml(actorWord(applied.labelled_by))} ${timeBadge(applied.labelled_at, 'Labelled')} · <button class="btn-link" onclick="clearSourceLabel('${id}')" title="Crawl the source again once the next scope refresh enables it" type="button">Clear label</button></div></div>`;
 }
 
 // The handler names the source by id and reads the form's own fields, never the page's HTML.
@@ -2241,15 +2256,12 @@ async function refreshKeepingEdits() {
     const draft = cloneJson(review.candidate_payload);
     const base = cloneJson(candidateBaseline);
     const labelDraft = sampleLabelDraft;
-    const jsonText = document.getElementById('candidatePayload')?.value;
-    const jsonEdited = jsonText !== undefined && !sameJson(JSON.parse(jsonText || 'null'), draft);
     const loaded = await submitEdit(async () => {
         await loadSelectedReview(false);
         await refreshChrome();
     });
     if (!loaded) return;
     const {merged, notes} = mergeDraftCandidate(review.artifact_type, base, draft, selectedDetail.review.candidate_payload);
-    if (jsonEdited) notes.push('Unsaved changes in the JSON tab were not kept.');
     candidateBaseline = cloneJson(selectedDetail.review.candidate_payload);
     selectedDetail.review.candidate_payload = merged;
     sampleLabelDraft = labelDraft;
@@ -3346,7 +3358,6 @@ function renderSchemaWorkbench(detail, matrix) {
           ${workbenchTab('data', `Data${dataIssues ? ` <span class="badge badge-bad badge-count">${dataIssues}</span>` : ''}`)}
           ${workbenchTab('diff', 'Diff')}
           ${workbenchTab('removed', `Removed pages${templates ? ` <span class="count">${templates}</span>` : ''}`)}
-          ${workbenchTab('json', 'JSON')}
           ${workbenchTab('history', `History${(detail.events || []).length ? ` <span class="count">${detail.events.length}</span>` : ''}`)}
         </div>
         ${renderWorkbenchPanel(detail, matrix, schemas)}
@@ -3403,7 +3414,6 @@ function renderWorkbenchPanel(detail, matrix, schemas) {
     if (activeWorkbenchPanel === 'data') return renderDataPanel(matrix);
     if (activeWorkbenchPanel === 'diff') return renderDiffPanel(schemas);
     if (activeWorkbenchPanel === 'removed') return renderRemovedPagePanel(detail, matrix);
-    if (activeWorkbenchPanel === 'json') return renderJsonPanel(detail);
     if (activeWorkbenchPanel === 'history') return renderHistoryPanel(detail);
     return renderSelectorPanel(schemas, matrix);
 }
@@ -3890,23 +3900,6 @@ function apiErrorMessage(error) {
         return text ? `${status}: ${text}` : status;
     }
     return text;
-}
-
-function renderJsonPanel(detail) {
-    return `<div class="tab-panel">
-      <div class="section">
-        <div class="section-head"><h3>Candidate JSON</h3></div>
-        <textarea id="candidatePayload" aria-label="Candidate JSON" oninput="markDirty()">${escapeHtml(JSON.stringify(detail.review.candidate_payload, null, 2))}</textarea>
-        <div class="actions">
-          <button class="btn" ${candidateEditable(detail) ? '' : 'disabled'} onclick="saveCandidate()" type="button">Save JSON</button>
-          ${dirty ? '<button class="btn btn-quiet" onclick="discardEdits()" type="button">Discard edits</button>' : ''}
-        </div>
-      </div>
-      <div class="section">
-        <div class="section-head"><h3>Validation summary</h3></div>
-        <pre>${escapeHtml(JSON.stringify(detail.review.validation_summary, null, 2))}</pre>
-      </div>
-    </div>`;
 }
 
 // The review pages the candidate resolves, out of the review's product pages (those not marked as
@@ -4554,8 +4547,6 @@ async function refreshSelectedReview() {
 }
 
 function schemasPayload() {
-    const textarea = document.getElementById('candidatePayload');
-    if (textarea) return JSON.parse(textarea.value);
     return selectedDetail.review.candidate_payload;
 }
 
@@ -4607,8 +4598,6 @@ function currentSelector() {
 function setCurrentSelector(selector) {
     const rule = ensureCurrentRule();
     rule.selector = selector;
-    const textarea = document.getElementById('candidatePayload');
-    if (textarea) textarea.value = JSON.stringify(selectedDetail.review.candidate_payload, null, 2);
     markDirty();
 }
 
@@ -5062,13 +5051,6 @@ async function confirmActionPanel() {
             updateActionPanel();
         }
     }
-}
-
-async function saveCandidate() {
-    await submitEdit(async () => {
-        const payload = JSON.parse(document.getElementById('candidatePayload').value);
-        await saveCandidatePayload(payload);
-    });
 }
 
 // The edited payload stays the local candidate, so a refused save keeps it on screen as an
