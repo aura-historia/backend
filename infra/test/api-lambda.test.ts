@@ -47,7 +47,6 @@ function expectedApiEnvironmentKeys(): string[] {
   const keys = [
     "AURA_HISTORIA_COGNITO_APP_CLIENT_IDS",
     "AURA_HISTORIA_COGNITO_ISSUER",
-    "AURA_HISTORIA_COGNITO_JWKS_URL",
     "AURA_HISTORIA_COGNITO_USER_POOL_ID",
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
@@ -141,7 +140,6 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
     );
     expect(environment.Variables.AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH).toBe("true");
     expect(environment.Variables.AURA_HISTORIA_COGNITO_ISSUER).toBeDefined();
-    expect(environment.Variables.AURA_HISTORIA_COGNITO_JWKS_URL).toBeDefined();
     expect(environment.Variables.AURA_HISTORIA_COGNITO_APP_CLIENT_IDS).toBeDefined();
     expect(environment.Variables.AURA_HISTORIA_COGNITO_USER_POOL_ID).toBeDefined();
     expect(environment.Variables.OPENSEARCH_ENDPOINT_URL).toBeDefined();
