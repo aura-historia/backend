@@ -219,11 +219,13 @@ async fn inspect_pages(
     }
 }
 
-/// The author agent's record that it inspected three pages of the shop and found no sold page.
+/// The author agent's record that it inspected eight pages of the shop and found no sold page.
 async fn record_no_sold_page(repository: &CrawlerReviewRepository, review_id: CrawlerReviewId) {
-    let urls = ["chair", "lamp", "vase"]
-        .map(|slug| format!("https://example.com/products/{slug}"))
-        .to_vec();
+    let urls = [
+        "chair", "lamp", "vase", "table", "mirror", "clock", "desk", "bench",
+    ]
+    .map(|slug| format!("https://example.com/products/{slug}"))
+    .to_vec();
     inspect_pages(repository, review_id, &urls).await;
     repository
         .record_no_sold_page(
@@ -651,6 +653,13 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
     .await;
     store_live_matrix(&repository, review_id, OffsetDateTime::now_utc()).await;
     let shop = |slug: &str| format!("https://example.com/products/{slug}");
+    // The eight distinct pages a record needs at least, `a` to `h`.
+    let shops = |count: usize| {
+        ["a", "b", "c", "d", "e", "f", "g", "h"][..count]
+            .iter()
+            .map(|slug| shop(slug))
+            .collect::<Vec<_>>()
+    };
     let record = |actor: ReviewActor, urls: Vec<String>| {
         repository.record_no_sold_page(review_id, actor, urls, "searched the listing")
     };
@@ -658,21 +667,11 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
     let refused_approval = repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
         .await;
-    let reviewer = record(
-        ReviewActor::AgentReviewer,
-        vec![shop("a"), shop("b"), shop("c")],
-    )
-    .await;
-    let too_few = record(ReviewActor::AgentAuthor, vec![shop("a"), shop("b")]).await;
-    let off_host = record(
-        ReviewActor::AgentAuthor,
-        vec![
-            shop("a"),
-            shop("b"),
-            "https://elsewhere.example/c".to_owned(),
-        ],
-    )
-    .await;
+    let reviewer = record(ReviewActor::AgentReviewer, shops(8)).await;
+    let too_few = record(ReviewActor::AgentAuthor, shops(7)).await;
+    let mut off_host_urls = shops(7);
+    off_host_urls.push("https://elsewhere.example/c".to_owned());
+    let off_host = record(ReviewActor::AgentAuthor, off_host_urls).await;
 
     assert_eq!(
         failed_checks(refused_approval),
@@ -698,36 +697,22 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
         ),
         "{off_host:?}"
     );
-    let not_inspected = record(
-        ReviewActor::AgentAuthor,
-        vec![shop("a"), shop("b"), shop("c")],
-    )
-    .await;
+    let not_inspected = record(ReviewActor::AgentAuthor, shops(8)).await;
     assert!(
         matches!(
             &not_inspected,
-            Err(ReviewRepositoryError::NoSoldPageUrlsNotInspected(urls)) if urls.len() == 3
+            Err(ReviewRepositoryError::NoSoldPageUrlsNotInspected(urls)) if urls.len() == 8
         ),
         "{not_inspected:?}"
     );
     assert!(trail(&repository, review_id).await.is_empty());
 
-    inspect_pages(
-        &repository,
-        review_id,
-        &[
-            shop("a"),
-            "http://www.example.com/products/b/".to_owned(),
-            shop("c"),
-        ],
-    )
-    .await;
-    let recorded = record(
-        ReviewActor::AgentAuthor,
-        vec![shop("a"), shop("b"), shop("c")],
-    )
-    .await;
-    assert_eq!(recorded.ok(), Some(3));
+    let mut inspected = shops(8);
+    // Inspected in another spelling of the same page.
+    inspected[1] = "http://www.example.com/products/b/".to_owned();
+    inspect_pages(&repository, review_id, &inspected).await;
+    let recorded = record(ReviewActor::AgentAuthor, shops(8)).await;
+    assert_eq!(recorded.ok(), Some(8));
     assert_eq!(version(&repository, review_id).await, 1);
     repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))
@@ -743,10 +728,7 @@ async fn should_take_the_approval_of_a_candidate_tested_on_no_sold_page_only_wit
             ReviewEventAction::NoSoldPageRecorded
         )
     );
-    assert_eq!(
-        recorded_event.details["checked_urls"],
-        json!([shop("a"), shop("b"), shop("c")])
-    );
+    assert_eq!(recorded_event.details["checked_urls"], json!(shops(8)));
     assert_eq!(
         recorded_event.notes.as_deref(),
         Some("searched the listing")
@@ -780,9 +762,11 @@ async fn should_count_a_no_sold_page_record_only_until_a_human_acts_on_the_revie
         )
         .await
         .unwrap();
-    let urls = ["chair", "lamp", "vase"]
-        .map(|slug| format!("https://example.com/products/{slug}"))
-        .to_vec();
+    let urls = [
+        "chair", "lamp", "vase", "table", "mirror", "clock", "desk", "bench",
+    ]
+    .map(|slug| format!("https://example.com/products/{slug}"))
+    .to_vec();
 
     let handed_back = repository
         .approve_review(review_id, ReviewActor::AgentReviewer, approval(1))

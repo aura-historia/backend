@@ -617,9 +617,10 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (json!("CONFLICT"), json!(2))
     );
 
-    // The shop shows no sold page: the author records the pages it inspected, which the approval
-    // guard needs next to the matrix. A page it did not inspect is refused.
-    let checked = ["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"));
+    // The shop shows no sold page: the author records the pages it inspected or probed, which the
+    // approval guard needs next to the matrix. A page it did neither on is refused.
+    let checked =
+        ["a", "b", "c", "d", "e", "f", "g", "h"].map(|slug| format!("{SHOP}/item/{slug}"));
     let uninspected = author
         .call(
             "record_no_sold_page",
@@ -635,11 +636,12 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
         (uninspected["kind"].clone(), uninspected["reason"].clone()),
         (json!("CONFLICT"), json!("PAGES_NOT_INSPECTED"))
     );
-    for url in &checked {
+    for pages in checked.chunks(4) {
+        let pages: Vec<_> = pages.iter().map(|url| json!({ "url": url })).collect();
         author
             .call(
-                "inspect_page",
-                json!({ "review_id": product_schema.to_string(), "url": url }),
+                "probe_selectors",
+                json!({ "review_id": product_schema.to_string(), "pages": pages, "selectors": [{ "selector": "span.state" }] }),
             )
             .await
             .unwrap();
@@ -649,13 +651,13 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "record_no_sold_page",
             json!({
                 "review_id": product_schema.to_string(),
-                "urls": (["a", "b", "c"].map(|slug| format!("{SHOP}/item/{slug}"))),
+                "urls": checked,
                 "notes": "searched the listing and its sold section",
             }),
         )
         .await
         .unwrap();
-    assert_eq!(recorded["recorded_urls"], 3);
+    assert_eq!(recorded["recorded_urls"], 8);
 
     // The reviewer's approval is the console's to take: refused without a live matrix of the
     // staged version, taken once the matrix is refreshed.

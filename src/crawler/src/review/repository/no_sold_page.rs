@@ -19,9 +19,9 @@ use crate::spider::utils::url::CrawledUrl;
 use std::collections::HashSet;
 use url::Url;
 
-/// The fewest distinct pages a record names: one page shows too little of a shop to say it has no
-/// sold page.
-pub const MIN_CHECKED_URLS: usize = 3;
+/// The fewest distinct pages a record names: a few pages show too little of a shop to say it has no
+/// sold page, and a selector probe checks four pages per call, so the search costs little.
+pub const MIN_CHECKED_URLS: usize = 8;
 /// The most pages a record names.
 pub const MAX_CHECKED_URLS: usize = 50;
 /// The longest account a record keeps, in characters.
@@ -165,12 +165,16 @@ mod tests {
                 "http://antiques.example/item/table#gallery".to_owned(),
                 "https://antiques.example/item/lamp".to_owned(),
                 "https://antiques.example/item/vase".to_owned(),
+                "https://antiques.example/item/desk".to_owned(),
+                "https://antiques.example/item/clock".to_owned(),
+                "https://antiques.example/item/mirror".to_owned(),
+                "https://antiques.example/item/bench".to_owned(),
             ],
             CRAWL_HOST,
         )
         .unwrap_or_else(|error| panic!("{error}"));
 
-        assert_eq!(checked.len(), 4, "{checked:?}");
+        assert_eq!(checked.len(), MIN_CHECKED_URLS, "{checked:?}");
         assert_eq!(checked[0], "https://antiques.example/item/chair");
     }
 
@@ -206,7 +210,7 @@ mod tests {
             ),
             ("/item/1", "/item/1"),
         ] {
-            let mut checked = urls(3);
+            let mut checked = urls(MIN_CHECKED_URLS);
             checked.push(raw.to_owned());
 
             assert!(
@@ -217,7 +221,7 @@ mod tests {
                 "{raw}"
             );
         }
-        assert!(validated_checked_urls(urls(3), None).is_err());
+        assert!(validated_checked_urls(urls(MIN_CHECKED_URLS), None).is_err());
     }
 
     #[test]
