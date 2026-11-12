@@ -3,7 +3,6 @@ import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import type * as lambda from "aws-cdk-lib/aws-lambda";
-import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 import { validatedMuseChallenge, type McpConfig, type StageConfig } from "../config";
 import { createMcpWebAcl } from "./mcp-web-acl";
@@ -72,24 +71,13 @@ function createGateway(scope: Construct, props: McpHttpApiProps) {
       maxAge: cdk.Duration.seconds(0),
     },
   });
-  const logGroup = new logs.LogGroup(scope, "AccessLogs", {
-    logGroupName: `/aws/apigateway/mcp-${config.stage}`,
-    retention: logs.RetentionDays.ONE_WEEK,
-    removalPolicy: config.removalPolicy,
-  });
+  // No access log: nothing consumes it, and CloudWatch bills its ingestion.
   const stage = new apigwv2.HttpStage(scope, "Stage", {
     httpApi: api,
     stageName: config.stage,
     autoDeploy: true,
     throttle: config.isProd ? { burstLimit: 10, rateLimit: 20 } : { burstLimit: 4, rateLimit: 5 },
   });
-  (stage.node.defaultChild as apigwv2.CfnStage).accessLogSettings = {
-    destinationArn: logGroup.logGroupArn,
-    format: JSON.stringify({
-      requestId: "$context.requestId", routeKey: "$context.routeKey", status: "$context.status",
-      integrationLatency: "$context.integrationLatency",
-    }),
-  };
   const integration = new integrations.HttpLambdaIntegration("McpIntegration", props.function, {
     scopePermissionToRoute: false,
     timeout: cdk.Duration.seconds(29),

@@ -52,6 +52,7 @@ function expectedApiEnvironmentKeys(): string[] {
     "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
     "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH",
     "COMMIT_SHA",
+    "LOG_LEVEL",
     "MAIL_TEMPLATE_PREFIX",
     "NEWSLETTER_CONFIRMATION_EMAIL_CONFIGURATION_SET",
     "NEWSLETTER_CONFIRMATION_EMAIL_FROM",
@@ -188,7 +189,9 @@ describe.each(STAGES)("%s API Lambda", (stage) => {
       expect(group?.UpdateReplacePolicy).toBe("Retain");
 
       const emitter = lambdaFunction(template, functionName);
-      expect(emitter.Properties.LoggingConfig).toEqual({ LogGroup: { Ref: logicalId } });
+      expect(emitter.Properties.LoggingConfig).toEqual({
+        LogGroup: { Ref: logicalId }, LogFormat: "JSON", SystemLogLevel: "WARN", ApplicationLogLevel: "TRACE",
+      });
     }
 
     const retentionLambda = lambdaFunction(template, `cloudwatch-log-retention-lambda-${stage}`);

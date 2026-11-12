@@ -97,7 +97,7 @@ describe.each(REAL_STAGES)("%s DMS CDC router", (stage) => {
     });
     expect(environment.STAGE).toBe(stage);
     expect(Object.keys(environment).sort()).toEqual(
-      ["STAGE", ...Object.keys(ROUTER_QUEUES).map((scope) => `AURA_HISTORIA_ROUTER_QUEUE_URL_${scope}`)].sort(),
+      ["LOG_LEVEL", "STAGE", ...Object.keys(ROUTER_QUEUES).map((scope) => `AURA_HISTORIA_ROUTER_QUEUE_URL_${scope}`)].sort(),
     );
     for (const [scope, workerScope] of Object.entries(ROUTER_QUEUES)) {
       expect(JSON.stringify(environment[`AURA_HISTORIA_ROUTER_QUEUE_URL_${scope}`]))

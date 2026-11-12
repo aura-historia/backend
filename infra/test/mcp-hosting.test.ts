@@ -222,7 +222,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
       ...(config.mcp.openAiAppsChallenge === undefined ? [] : ["MCP_OPENAI_APPS_CHALLENGE"]),
       ...(config.mcp.museChallenge === undefined ? [] : ["MCP_MUSE_CHALLENGE"]),
-      "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
+      "LOG_LEVEL", "OAUTH_ISSUER_URL", "STAGE", "OPENSEARCH_ENDPOINT_URL", "OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD",
       "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
       "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT",
@@ -306,12 +306,12 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(mcp.findResources("AWS::WAFv2::LoggingConfiguration")).toEqual({});
   });
 
-  test("records bounded operational fields without payload, Authorization, Origin or query logging", () => {
+  test("writes no gateway access log, so no payload, Authorization, Origin or query is logged", () => {
     const [gatewayStage] = Object.values(mcp.findResources("AWS::ApiGatewayV2::Stage"));
-    expect(JSON.parse(gatewayStage.Properties.AccessLogSettings.Format)).toEqual({
-      requestId: "$context.requestId", routeKey: "$context.routeKey", status: "$context.status",
-      integrationLatency: "$context.integrationLatency",
-    });
+    expect(gatewayStage.Properties.AccessLogSettings).toBeUndefined();
+    const gatewayGroups = Object.values(fullApi.findResources("AWS::Logs::LogGroup"))
+      .filter((log) => String(log.Properties.LogGroupName).startsWith("/aws/apigateway/"));
+    expect(gatewayGroups).toEqual([]);
     const logs = Object.values(compute.findResources("AWS::Logs::LogGroup"));
     expect(logs.find((log) => log.Properties.LogGroupName === `/aws/lambda/aura-historia-mcp-${stage}`)?.Properties.RetentionInDays).toBe(30);
     expect(gatewayStage.Properties.DefaultRouteSettings).toMatchObject({
