@@ -1647,12 +1647,12 @@ async function revokeMassRemovalConfirmation(listingSourceId) {
 // What a human labels a source with when the crawler should not crawl it, in the order the form
 // offers them. The keys are the labels the crawler persists.
 const SOURCE_LABELS = {
-    NOT_AN_ESHOP: 'Not an e-shop',
-    APPROACH_NOT_APPLICABLE: 'Approach not applicable',
-    BOT_PROTECTION: 'Bot protection',
-    JAVASCRIPT_RENDERED: 'JavaScript-rendered',
-    LOGIN_REQUIRED: 'Login required',
-    OTHER: 'Other',
+    NOT_AN_ESHOP: 'NOT AN E-SHOP',
+    APPROACH_NOT_APPLICABLE: 'APPROACH NOT APPLICABLE',
+    BOT_PROTECTION: 'BOT PROTECTION',
+    JAVASCRIPT_RENDERED: 'JAVASCRIPT RENDERED',
+    LOGIN_REQUIRED: 'LOGIN REQUIRED',
+    OTHER: 'OTHER',
 };
 
 function sourceLabelName(label) {
@@ -1672,7 +1672,7 @@ function renderSourceLabelForm(listingSourceId) {
     return `<div class="list-row">
       <select class="sm" aria-label="Label" id="sourceLabel-${id}">${Object.entries(SOURCE_LABELS).map(([label, name]) =>
           `<option value="${label}">${escapeHtml(name)}</option>`).join('')}</select>
-      <input class="sm" aria-label="Note" id="sourceLabelNote-${id}" maxlength="500" placeholder="Note (required for Other)">
+      <input class="sm" aria-label="Note" id="sourceLabelNote-${id}" maxlength="500" placeholder="Note (required for OTHER)">
       <button class="btn btn-primary btn-sm" onclick="labelSource('${id}')" title="Switches crawling off until the label is cleared" type="button">Label and stop crawling</button>
       <button class="btn btn-quiet btn-sm" onclick="toggleSourceLabelForm('${id}')" type="button">Cancel</button>
     </div>`;
