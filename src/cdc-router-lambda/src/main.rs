@@ -13,7 +13,7 @@ use cdc_router_lambda::{
 use futures_util::future::try_join_all;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_observability::{LoggingConfig, init};
-use tracing::info;
+use tracing::{debug, info};
 
 const COMPOSITION_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Error> {
         async move {
             let (payload, context) = event.into_parts();
             let event = LambdaEvent::new(payload.into_event(), context);
-            info!(
+            debug!(
                 event = "lambda.invocation.started",
                 component = "cdc-router-lambda",
                 request_id = %event.context.request_id,

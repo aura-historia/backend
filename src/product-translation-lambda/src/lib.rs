@@ -20,7 +20,7 @@ use product_listing_service::use_cases::{
 };
 use product_listing_translation_llm::LargeLanguageModelProductListingTitleTranslator;
 use std::{sync::Arc, time::Duration};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 // The translator has a bounded 30-second provider request. The remaining envelope covers source
 // reads, guarded persistence, composition, and returning the partial SQS failure response.
@@ -141,7 +141,7 @@ async fn handler_with_budget(
         }
         complete
     });
-    info!(
+    debug!(
         translation_sqs_message_count = record_count,
         translation_failed_sqs_message_count = response.batch_item_failures.len(),
         translation_guard_rejection_count = guard_rejection_count,

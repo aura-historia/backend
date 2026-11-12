@@ -4,12 +4,12 @@ use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
 };
-use platform_observability::{LoggingConfig, init};
+use platform_observability::{LoggingConfig, init_with_directives};
 use platform_postgres::SqlxUnitOfWork;
 use std::{sync::Arc, time::Instant};
 use user_postgres::SqlxMarketingConsentIntentRepository;
 use user_postgres::{SqlxUserCognitoIdentityRegistryFactory, SqlxUserRepositoryFactory};
-use user_service::use_cases::RegisterCognitoUserHandler;
+use user_service::use_cases::{CONSENT_EVIDENCE_LOG_DIRECTIVE, RegisterCognitoUserHandler};
 
 const COMPONENT: &str = "cognito-post-confirmation";
 
@@ -17,7 +17,7 @@ const COMPONENT: &str = "cognito-post-confirmation";
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
 
-    init(LoggingConfig::from_env());
+    init_with_directives(LoggingConfig::from_env(), &[CONSENT_EVIDENCE_LOG_DIRECTIVE]);
 
     let postgres = RuntimePostgresConfig::from_env()?;
     let services = Arc::new(LazyComposition::new());

@@ -233,7 +233,7 @@ fn available_budget(
 }
 
 pub fn log_invocation_start(component: &'static str, context: &Context) {
-    tracing::info!(
+    tracing::debug!(
         event = "lambda.invocation.started",
         component,
         request_id = %context.request_id,

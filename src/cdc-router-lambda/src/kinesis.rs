@@ -11,7 +11,7 @@ use aws_lambda_events::{
 };
 use lambda_runtime::{Context, Error, LambdaEvent};
 use serde::Deserialize;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 use crate::cdc::{CdcFanout, PUBLICATION_TIMEOUT};
 use crate::kinesis_invocation::KinesisInvocation;
@@ -144,7 +144,7 @@ async fn handler_with_remaining_budget(
         remaining_budget = remaining_budget.saturating_sub(started_at.elapsed());
     }
 
-    info!(
+    debug!(
         kinesis_record_count = record_count,
         failed_kinesis_record_count = 0,
         "Finished DMS Kinesis CDC router batch"
@@ -153,7 +153,7 @@ async fn handler_with_remaining_budget(
 }
 
 fn failed_from(sequence_number: &str, outcome: &'static str) -> KinesisEventResponse {
-    info!(
+    warn!(
         kinesis_sequence_number = sequence_number,
         outcome, "DMS Kinesis router returned earliest failed checkpoint"
     );

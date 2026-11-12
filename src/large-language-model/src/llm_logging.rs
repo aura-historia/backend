@@ -224,25 +224,34 @@ fn log_llm_invocation_event(
     let latency_millis = u64::try_from(latency.as_millis()).unwrap_or(u64::MAX);
     let failure_kind = outcome.failure_kind();
     let message = outcome.message();
-    tracing::info!(
-        eventType = "LLM_INVOCATION",
-        llmOperation = %operation,
-        llmProvider = %provider,
-        llmModel = %model,
-        llmOutcome = outcome.as_str(),
-        llmFailureKind = failure_kind,
-        llmServiceTier = metrics.service_tier.map(|tier| tier.as_str()),
-        latencyMs = latency_millis,
-        batchSize = metrics.batch_size,
-        promptTokens = metrics.prompt_tokens,
-        completionTokens = metrics.completion_tokens,
-        totalTokens = metrics.total_tokens,
-        cachedPromptTokens = metrics.cached_prompt_tokens,
-        reasoningTokens = metrics.reasoning_tokens,
-        outputDimensions = metrics.output_dimensions,
-        cacheHit = metrics.cache_hit,
-        "{}", message
-    );
+    macro_rules! log_invocation {
+        ($level:ident) => {
+            tracing::$level!(
+                eventType = "LLM_INVOCATION",
+                llmOperation = %operation,
+                llmProvider = %provider,
+                llmModel = %model,
+                llmOutcome = outcome.as_str(),
+                llmFailureKind = failure_kind,
+                llmServiceTier = metrics.service_tier.map(|tier| tier.as_str()),
+                latencyMs = latency_millis,
+                batchSize = metrics.batch_size,
+                promptTokens = metrics.prompt_tokens,
+                completionTokens = metrics.completion_tokens,
+                totalTokens = metrics.total_tokens,
+                cachedPromptTokens = metrics.cached_prompt_tokens,
+                reasoningTokens = metrics.reasoning_tokens,
+                outputDimensions = metrics.output_dimensions,
+                cacheHit = metrics.cache_hit,
+                "{}", message
+            )
+        };
+    }
+    // A completed call is routine, per record; a structured response failure is not.
+    match outcome {
+        LlmInvocationOutcome::Completed => log_invocation!(debug),
+        LlmInvocationOutcome::StructuredResponseFailure { .. } => log_invocation!(warn),
+    }
 }
 
 #[cfg(test)]

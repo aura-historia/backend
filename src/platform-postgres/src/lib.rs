@@ -9,7 +9,7 @@ use sqlx::{Connection, PgConnection, PgPool, Postgres};
 use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const DEFAULT_ACQUIRE_TIMEOUT_SECONDS: u64 = 5;
 const LAMBDA_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -495,7 +495,7 @@ impl UnitOfWork for SqlxUnitOfWork {
         let started_at = Instant::now();
         match self.pool.begin().await {
             Ok(transaction) => {
-                info!(
+                debug!(
                     metric = "postgres_pool_acquire",
                     outcome = "success",
                     duration_ms = started_at.elapsed().as_millis() as u64,

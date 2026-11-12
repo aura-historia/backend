@@ -5,8 +5,8 @@ use tracing_subscriber::EnvFilter;
 pub enum LogLevel {
     Trace,
     Debug,
-    #[default]
     Info,
+    #[default]
     Warn,
     Error,
 }
@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn should_default_to_info() {
-        assert_eq!(LogLevel::Info, LoggingConfig::default().level());
+    fn should_default_to_warn_so_production_logs_only_what_needs_attention() {
+        assert_eq!(LogLevel::Warn, LoggingConfig::default().level());
     }
 }

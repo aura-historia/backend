@@ -16,7 +16,7 @@ use product_listing_service::use_cases::{
     ProjectProductListingOutcome, ProjectProductListingUseCase,
 };
 use std::{sync::Arc, time::Duration};
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
 const RESPONSE_HEADROOM: Duration = Duration::from_secs(5);
@@ -118,7 +118,7 @@ async fn handler_with_budget(
         }
         complete
     });
-    info!(
+    debug!(
         sqs_message_count = record_count,
         failed_sqs_message_count = response.batch_item_failures.len(),
         "Finished ProductListing OpenSearch projection batch"
