@@ -161,6 +161,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .badge-neutral { background: var(--neutral-soft); color: var(--neutral); }
 .badge-violet { background: var(--violet-soft); color: var(--violet); }
 .badge-teal { background: var(--teal-soft); color: var(--teal); }
+.rail-source { display: inline-flex; align-items: center; gap: 6px; color: inherit; }
+.rail-source:hover { color: var(--accent); }
+.rail-source svg { flex: none; color: var(--muted); }
 .badge-kind { background: transparent; border-color: var(--line-strong); color: var(--ink-2); font-weight: 500; }
 .badge-count { min-width: 20px; justify-content: center; padding: 0 6px; font-variant-numeric: tabular-nums; }
 .badge .dot { width: 6px; height: 6px; }

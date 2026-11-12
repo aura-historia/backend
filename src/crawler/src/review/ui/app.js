@@ -543,7 +543,7 @@ function overviewTilesHtml() {
         ['crawl_failing', `${sources.crawl_failing} crawl failing`], ['crawl_needs_operator', `${sources.crawl_needs_operator} crawl stuck`], ['blocked', `${sources.blocked_by_review} blocked`],
         ['failing', `${sources.failing_to_scrape} failing`], ['held', `${sources.held_removals} held`]
     ].map(([status, text]) => `<a href="#sources&status=${status}">${escapeHtml(text)}</a>`).join(' · ') : '';
-    const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need you')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
+    const needing = `<div class="tile tile-bad"><a class="tile-link" href="#sources&status=needs_attention">${value(sources?.needs_attention, 'needs_attention')}${label('bad', 'Sources need attention')}</a>${breakdown ? `<span class="tile-sub">${breakdown}</span>` : ''}</div>`;
     const byType = reviews?.pending_by_artifact;
     const pending = pendingReviewCount();
     const disabled = reviews?.pending_disabled_sources || 0;
@@ -1825,12 +1825,22 @@ function renderRailItem(review, meta, badgeHtml) {
 
 const CHEVRON_ICON = direction => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${direction === 'left' ? 'M10 4l-4 4 4 4' : 'M6 4l4 4-4 4'}"/></svg>`;
 
+// The source's name opens the shop's site, its crawl root, in a new tab; a source without a crawl
+// root links to its page in the console instead.
+function railSourceName(name) {
+    const site = rail.source?.crawl_root_url;
+    if (!isHttpUrl(site || '')) {
+        return `<a class="rail-source" href="${sourceHash(rail.listingSourceId || '')}">${escapeHtml(name)}</a>`;
+    }
+    return `<a class="rail-source" href="${escapeHtmlAttr(site)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(site)} in a new tab">${escapeHtml(name)} ${externalIcon()}</a>`;
+}
+
 function renderRailContent() {
     if (railHidden()) {
         return `<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(false)" aria-label="Show this source's reviews" title="Show this source's reviews" aria-expanded="false" type="button">${CHEVRON_ICON('right')}</button>`;
     }
     const name = selectedDetail?.review.listing_source_name || 'This source';
-    const head = `<div class="card-head"><h3><a href="${sourceHash(rail.listingSourceId || '')}" style="color:inherit">${escapeHtml(name)}</a></h3>
+    const head = `<div class="card-head"><h3>${railSourceName(name)}</h3>
       ${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" aria-expanded="true" type="button">${CHEVRON_ICON('left')}</button></div>`;
     if (rail.items === undefined) {
         return `${head}<div class="rail-body">${rail.failure ? stateBlock('error', 'Reviews unavailable', rail.failure) : stateBlock('loading', 'Loading')}</div>`;
