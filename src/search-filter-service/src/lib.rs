@@ -1,3 +1,4 @@
+mod intent_translation;
 mod match_candidates;
 pub mod match_classification;
 pub mod ports;

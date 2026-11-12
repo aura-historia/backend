@@ -4,8 +4,9 @@ use crate::mapping::{
 use application::error::box_error;
 use search_filter_core::user_search_filter_id::UserSearchFilterId;
 use search_filter_service::ports::{
-    PeriodicSearchFilterCandidate, PeriodicSearchFilterCandidatePageRequest,
-    PeriodicSearchFilterCandidateReadError, PeriodicSearchFilterCandidateReader,
+    InvalidPersistedIntentTranslation, PeriodicSearchFilterCandidate,
+    PeriodicSearchFilterCandidatePageRequest, PeriodicSearchFilterCandidateReadError,
+    PeriodicSearchFilterCandidateReader,
 };
 use sqlx::{FromRow, PgPool};
 use time::OffsetDateTime;
@@ -31,6 +32,7 @@ struct PeriodicCandidateRow {
     state: String,
     search: serde_json::Value,
     embedding: Option<Vec<f32>>,
+    intent_translation: Option<serde_json::Value>,
     matching_evidence_policy: String,
     created: OffsetDateTime,
     matched_through: OffsetDateTime,
@@ -65,7 +67,7 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
                 WHERE r.window_end = $1 AND NOT r.terminal
                     AND EXISTS (SELECT 1 FROM search_filter_matching_runs run WHERE run.window_end = $1 AND run.status = 'RUNNING')
             )
-            SELECT member_filter_id, member_user_id, user_search_filter_id, user_id, name, state, search, embedding, matching_evidence_policy, created, matched_through, version
+            SELECT member_filter_id, member_user_id, user_search_filter_id, user_id, name, state, search, embedding, intent_translation, matching_evidence_policy, created, matched_through, version
             FROM candidates
             WHERE ($2::uuid IS NULL OR member_filter_id > $2)
             ORDER BY member_filter_id ASC
@@ -139,6 +141,13 @@ impl PeriodicSearchFilterCandidateReader for SqlxPeriodicSearchFilterCandidateRe
                 })?,
                 search,
                 embedding: row.embedding,
+                intent_translation: row
+                    .intent_translation
+                    .map(crate::intent_translation::intent_translation_from_json)
+                    .transpose()
+                    .map_err(|error| InvalidPersistedIntentTranslation {
+                        reason: error.category(),
+                    }),
                 matching_evidence_policy: policy,
                 created: row.created,
                 matched_through: row.matched_through,
