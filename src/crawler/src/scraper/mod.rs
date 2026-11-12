@@ -5,3 +5,4 @@ pub(crate) mod raw_input;
 pub mod removal_guard;
 pub mod scrape_circuit;
 pub mod scraper_service;
+pub mod shared_redirect;
