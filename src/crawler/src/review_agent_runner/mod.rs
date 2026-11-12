@@ -13,6 +13,7 @@
 //! running agent processes and records their cost before it exits. The contract is in
 //! `docs/crawler/operations.md` (review agent runner).
 
+mod cache_warm_up;
 mod child;
 mod context_use;
 mod decision_cap;
@@ -1114,6 +1115,10 @@ echo "end $role $review" >> "$dir/order.log"
                 (
                     "CRAWLER_REVIEW_AGENT_RUNNER_MAX_PROCESSES".to_owned(),
                     "1".to_owned(),
+                ),
+                (
+                    "CRAWLER_REVIEW_AGENT_RUNNER_CACHE_WARM_UP_SECONDS".to_owned(),
+                    "0".to_owned(),
                 ),
                 ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default()),
                 ("HOME".to_owned(), self.state.path().display().to_string()),

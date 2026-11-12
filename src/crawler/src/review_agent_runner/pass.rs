@@ -18,6 +18,7 @@
 //! Once the runner stops, the pass starts no process and stops the running ones, which it records
 //! with their cost; their reviews do not cool down.
 
+use super::cache_warm_up::CacheWarmUp;
 use super::context_use::ContextUse;
 use super::decision_cap::{
     CLOCK_MARGIN, DECISION_WINDOW, decision_cap_resumes_at, log_reviewer_pause_ended,
@@ -99,6 +100,7 @@ struct Pass<'a> {
 
 struct Shared {
     state: RunnerState,
+    cache_warm_up: CacheWarmUp,
     ledger: ProcessLedger,
     summary: PassSummary,
     ledger_error: Option<super::ledger::LedgerError>,
@@ -151,6 +153,7 @@ pub async fn work_pending_reviews(
         runner_stop,
         shared: Mutex::new(Shared {
             state,
+            cache_warm_up: CacheWarmUp::new(settings.cache_warm_up),
             ledger,
             summary: PassSummary::default(),
             ledger_error: None,
@@ -162,6 +165,7 @@ pub async fn work_pending_reviews(
         ledger,
         summary,
         ledger_error,
+        ..
     } = pass
         .shared
         .into_inner()
@@ -644,6 +648,7 @@ impl Pass<'_> {
     /// ended without being stopped, it reads the event trail for the verdict the console took and
     /// records that with the process, next to the report's own claim.
     async fn run_process(&self, role: AgentRole, review: &QueuedReview) -> Processed {
+        self.wait_for_cache_warm_up(role, review).await;
         if let Some(stop) = self.stop(OffsetDateTime::now_utc()) {
             self.with(|shared| shared.summary.stopped = Some(stop));
             return Processed::of(Step::NotStarted);
@@ -691,6 +696,31 @@ impl Pass<'_> {
         Processed {
             step,
             trail_verdict,
+        }
+    }
+
+    /// Waits, before a process of `role` on `review` starts, until the first process of the same
+    /// prompt prefix in this pass had time to write that prefix to the prompt cache
+    /// ([`CacheWarmUp`]); a runner stop ends the wait.
+    async fn wait_for_cache_warm_up(&self, role: AgentRole, review: &QueuedReview) {
+        let wait = self.with(|shared| {
+            shared.cache_warm_up.wait_before_start(
+                role,
+                review.artifact_type,
+                tokio::time::Instant::now(),
+            )
+        });
+        if let Some(wait) = wait {
+            debug!(
+                review_id = %review.review_id,
+                role = role.as_str(),
+                wait_secs = wait.as_secs(),
+                "Waiting for the first process of this prompt to write it to the prompt cache"
+            );
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                () = self.runner_stop.requested() => {}
+            }
         }
     }
 

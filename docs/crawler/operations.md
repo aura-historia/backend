@@ -259,6 +259,7 @@ The process prints its messages as JSON lines. The runner keeps the end of that 
 | `CRAWLER_REVIEW_AGENT_AUTHOR_EFFORT`, `CRAWLER_REVIEW_AGENT_REVIEWER_EFFORT` | `low`, `medium`, `high`, `xhigh` or `max` | `medium` |
 | `CRAWLER_REVIEW_AGENT_AUTHOR_MAX_TURNS`, `CRAWLER_REVIEW_AGENT_REVIEWER_MAX_TURNS` | Turn cap per process | `80`, `50` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS` | Rest between the end of one run and the start of the next; `--once` ignores it | `60` |
+| `CRAWLER_REVIEW_AGENT_RUNNER_CACHE_WARM_UP_SECONDS` | How long the processes of one role on one artifact type that a pass starts wait for the pass's first such process, 0 to 120 seconds; `0` starts them together. Every such process opens with the same prompt prefix of system prompt, tool definitions and role prompt, which the model's prompt cache serves for a fraction of the price of writing it, but only once the first process wrote it: processes started together each write it themselves | `20` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_FIVE_HOUR_SHARE_PERCENT` | The share of the login's five-hour usage window the agents may take, 1 to 100 ([limits](#limits)) | `100` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_WEEKLY_SHARE_PERCENT` | The share of the login's weekly usage window the agents may take by its end, paced over the week, 1 to 100 | `100` |
 | `CRAWLER_REVIEW_AGENT_RUNNER_MAX_REVIEWS_PER_RUN` | Reviews one run works | `60` |
