@@ -3,11 +3,11 @@ use embedding::{VertexAiEmbeddingConfig, VertexAiEmbeddingGenerator};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, google_application_default_credentials, log_cold_start,
-    log_invocation_start, logging_config_from_env,
-    materialize_google_application_credentials_from_env, required_config_from_env,
+    log_invocation_start, materialize_google_application_credentials_from_env,
+    required_config_from_env,
 };
 use platform_lambda_sqs::handle_sqs_invocation;
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use product_embedding_lambda::{
     compose_product_embedding_use_case, handler_with_invocation_budget, invocation_budget,
 };
@@ -20,7 +20,7 @@ const VERTEX_AI_PROJECT_ID_ENV: &str = "VERTEX_AI_PROJECT_ID";
 fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
     materialize_google_application_credentials_from_env()?;
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

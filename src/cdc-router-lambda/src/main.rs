@@ -12,21 +12,15 @@ use cdc_router_lambda::{
 };
 use futures_util::future::try_join_all;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use platform_observability::{LogLevel, LoggingConfig, init};
-use tracing::info;
+use platform_observability::{LoggingConfig, init};
+use tracing::{debug, info};
 
 const COMPOSITION_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    init(LoggingConfig::new(
-        std::env::var("LOG_LEVEL")
-            .ok()
-            .as_deref()
-            .and_then(LogLevel::parse)
-            .unwrap_or_default(),
-    ));
+    init(LoggingConfig::from_env());
 
     let config = CdcRouterQueueConfig::from_env()
         .map_err(|_| Error::from("invalid CDC router queue configuration"))?;
@@ -42,7 +36,7 @@ async fn main() -> Result<(), Error> {
         async move {
             let (payload, context) = event.into_parts();
             let event = LambdaEvent::new(payload.into_event(), context);
-            info!(
+            debug!(
                 event = "lambda.invocation.started",
                 component = "cdc-router-lambda",
                 request_id = %event.context.request_id,

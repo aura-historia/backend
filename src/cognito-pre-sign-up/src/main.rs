@@ -4,9 +4,9 @@ use cognito_pre_sign_up::{handler, is_external_provider_signup, parse_provider_s
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    logging_config_from_env, required_config_from_env,
+    required_config_from_env,
 };
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -23,7 +23,7 @@ const INVOCATION_DEADLINE: Duration = Duration::from_millis(4_200);
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let initialization_started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
 
     let policy_json = required_config_from_env("COGNITO_PROVIDER_SIGNUP_POLICY")
         .map_err(|_| Error::from("Cognito provider sign-up policy unavailable"))?;

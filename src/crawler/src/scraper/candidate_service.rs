@@ -255,14 +255,6 @@ pub fn next_scrape_failure_streak(
     }
 }
 
-/// A ListingSource whose scraping only a pending review holds back, so it has no scraper batch
-/// to record its scrapes until the review is decided.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceAwaitingReview {
-    pub listing_source_id: ListingSourceId,
-    pub crawl_host: String,
-}
-
 /// Per-ListingSource LLM usage snapshot for operational logging.
 pub struct ListingSourceLlmUsage {
     pub listing_source_id: ListingSourceId,
@@ -286,12 +278,6 @@ pub trait ScraperCandidateService: Send + Sync {
     /// Counts the URLs due for scraping, by the same eligibility rule as
     /// [`ScraperCandidateService::get_candidates`].
     async fn count_due_urls(&self) -> Result<u64, sqlx::Error>;
-    /// Lists the ListingSources whose scraping only a pending review holds back: sources that pass
-    /// the conditions of [`ScraperCandidateService::get_candidates`] while they have a product URL
-    /// pattern, no product schema and a pending product-schema review, or while they have no
-    /// product URL pattern and their URL-pattern review is pending, so the spider classified none
-    /// of their URLs as products.
-    async fn sources_awaiting_review(&self) -> Result<Vec<SourceAwaitingReview>, sqlx::Error>;
     /// The end of the operator's confirmation of the ListingSource's mass removal while it is still
     /// in the future, else `None`: the mass-removal guard captures the source's removals until then
     /// (`docs/crawler/scheduling-and-retries.md#mass-removal-guard`). Read when a batch's removals
@@ -938,37 +924,6 @@ const DUE_SCRAPER_URL_COUNT_QUERY: &str = concat!(
     "\n    SELECT COUNT(*) FROM eligible_urls"
 );
 
-/// Binds `$1`, the per-ListingSource LLM call cap, as the [`eligible_scraper_urls_cte`] does.
-/// A ListingSource without a `MATCHED` pattern has no active product URL: the spider stores none
-/// of its URLs as a product, and every URL-pattern decision classifies the source's stored active
-/// URLs with the live pattern. So the first product schema holds back only a source with a
-/// `MATCHED` pattern, and a source without one waits only on its own URL-pattern review; any other
-/// source without product URLs is stuck on its crawl, not on a review. Reading the pattern state
-/// keeps the query off the source's URLs, which a crawl waiting on its review may have stored by
-/// the hundred thousand.
-const SOURCES_AWAITING_REVIEW_QUERY: &str = concat!(
-    r#"
-    SELECT s.listing_source_id, s.crawl_host
-    FROM listing_sources s
-    WHERE "#,
-    scrapable_source_conditions!(),
-    r#"
-      AND ((s.url_pattern_state = 'MATCHED'
-            AND "#,
-    awaits_first_product_schema!(),
-    r#")
-           OR (s.url_pattern_state <> 'MATCHED'
-               AND EXISTS (
-                   SELECT 1
-                   FROM crawler_reviews cr
-                   WHERE cr.listing_source_id = s.listing_source_id
-                     AND cr.artifact_type = 'URL_PATTERN'
-                     AND cr.status = 'PENDING_REVIEW'
-               )))
-    ORDER BY s.crawl_host
-    "#
-);
-
 #[async_trait]
 impl ScraperCandidateService for ScraperCandidateServiceImpl {
     async fn get_candidates(
@@ -1052,22 +1007,6 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
             .fetch_one(&self.pool)
             .await?;
         u64::try_from(count).map_err(|error| sqlx::Error::Decode(Box::new(error)))
-    }
-
-    async fn sources_awaiting_review(&self) -> Result<Vec<SourceAwaitingReview>, sqlx::Error> {
-        let rows: Vec<(uuid::Uuid, String)> = sqlx::query_as(SOURCES_AWAITING_REVIEW_QUERY)
-            .bind(self.max_llm_calls_per_listing_source)
-            .fetch_all(&self.pool)
-            .await?;
-        rows.into_iter()
-            .map(|(listing_source_id, crawl_host)| {
-                Ok(SourceAwaitingReview {
-                    listing_source_id: ListingSourceId::try_from(listing_source_id)
-                        .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
-                    crawl_host,
-                })
-            })
-            .collect()
     }
 
     async fn get_random_product_urls_for_schema_seed(

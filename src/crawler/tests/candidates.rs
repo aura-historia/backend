@@ -3,7 +3,7 @@ use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
     FetchFailureRequest, RedirectDestination, RedirectUrlMove, SchemaReviewWait,
     SchemaReviewWaitRequest, ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot,
-    ScraperCandidateService, ScraperCandidateServiceImpl, SourceAwaitingReview, UnsettledRedirect,
+    ScraperCandidateService, ScraperCandidateServiceImpl, UnsettledRedirect,
     UnsettledRedirectRequest,
 };
 use crawler::spider::candidate_service::{
@@ -1457,92 +1457,6 @@ async fn scraper_should_count_due_urls_by_the_candidate_eligibility_rule() {
 
     assert_eq!(due, 2);
     assert_eq!(due, candidates.len() as u64);
-}
-
-// ---------------------------------------------------------------------------
-// sources_awaiting_review — the ListingSources only a pending review keeps from scraping
-// ---------------------------------------------------------------------------
-
-async fn match_url_pattern(pool: &sqlx::PgPool, listing_source_id: ListingSourceId) {
-    sqlx::query(
-        "UPDATE listing_sources SET url_pattern = '/p/', url_pattern_state = 'MATCHED', url_pattern_matching = 'FULL_URL_SEARCH' \
-         WHERE listing_source_id = $1",
-    )
-    .bind(listing_source_id.as_uuid())
-    .execute(pool)
-    .await
-    .unwrap();
-}
-
-#[aura_integration_test(services = [POSTGRES], isolated = true)]
-async fn scraper_should_list_only_sources_whose_scraping_a_pending_review_holds_back() {
-    let pool = get_postgres_client().await;
-    let service = ScraperCandidateServiceImpl::new(pool.clone());
-    // The ListingSource waits on its first product schema.
-    let first_schema = ListingSourceId::new();
-    insert_listing_source(&pool, first_schema, "first-schema.example.com").await;
-    match_url_pattern(&pool, first_schema).await;
-    insert_pending_product_schema_review(&pool, first_schema).await;
-    // The cached schema still extracts pages, so the scraper scrapes them.
-    let cached_schema = ListingSourceId::new();
-    insert_listing_source(&pool, cached_schema, "cached-schema.example.com").await;
-    insert_cached_product_schemas(
-        &pool,
-        cached_schema,
-        serde_json::json!([{ "title": { "type": "text", "selector": "h1", "cardinality": "first" } }]),
-    )
-    .await;
-    insert_pending_product_schema_review(&pool, cached_schema).await;
-    // Without a pattern the ListingSource has no product URL until its review is decided.
-    let pattern_review = ListingSourceId::new();
-    insert_listing_source(&pool, pattern_review, "pattern-review.example.com").await;
-    insert_pending_url_pattern_review(&pool, pattern_review).await;
-    // A restored pattern is live while a newer URL-pattern review is pending.
-    let matched = ListingSourceId::new();
-    insert_listing_source(&pool, matched, "matched-pattern.example.com").await;
-    match_url_pattern(&pool, matched).await;
-    insert_pending_url_pattern_review(&pool, matched).await;
-    // A disabled ListingSource is not scraped whatever its reviews.
-    let disabled = ListingSourceId::new();
-    insert_listing_source(&pool, disabled, "disabled.example.com").await;
-    insert_pending_url_pattern_review(&pool, disabled).await;
-    sqlx::query("UPDATE listing_sources SET crawl_enabled = FALSE WHERE listing_source_id = $1")
-        .bind(disabled.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
-    // An open scrape circuit keeps the ListingSource from scraping as well.
-    let cooling = ListingSourceId::new();
-    insert_listing_source(&pool, cooling, "cooling-circuit.example.com").await;
-    insert_pending_url_pattern_review(&pool, cooling).await;
-    sqlx::query(
-        "UPDATE listing_sources \
-         SET scrape_failure_streak = 3, last_scrape_error_kind = 'HTTP_503', \
-             next_scrape_at = NOW() + INTERVAL '1 hour' \
-         WHERE listing_source_id = $1",
-    )
-    .bind(cooling.as_uuid())
-    .execute(&pool)
-    .await
-    .unwrap();
-    // No review is pending.
-    insert_listing_source(&pool, ListingSourceId::new(), "no-review.example.com").await;
-
-    let sources = service.sources_awaiting_review().await.unwrap();
-
-    assert_eq!(
-        sources,
-        vec![
-            SourceAwaitingReview {
-                listing_source_id: first_schema,
-                crawl_host: "first-schema.example.com".to_owned(),
-            },
-            SourceAwaitingReview {
-                listing_source_id: pattern_review,
-                crawl_host: "pattern-review.example.com".to_owned(),
-            },
-        ]
-    );
 }
 
 // ---------------------------------------------------------------------------

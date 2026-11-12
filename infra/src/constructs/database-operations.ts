@@ -10,6 +10,7 @@ import { credentialResolver, credentialSecrets } from "../credentials";
 import { releaseLambdaCode, lambdaArtifactParameters } from "../release-artifacts";
 import type { Network } from "./network";
 import type { PostgresConnectionSettings, PostgresMigrationConnectionSettings } from "./storage";
+import { LAMBDA_LOGGING, lambdaLogGroup, lambdaLogLevel } from "./lambda-logging";
 import { withPostgresEnvironment } from "./lambdas";
 
 export interface DatabaseOperationsProps {
@@ -54,6 +55,8 @@ export class InitializationLambdas extends Construct {
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       securityGroups: [props.network.applicationSecurityGroup],
       functionName: `fxrate-lambda-${props.config.stage}`,
+      logGroup: lambdaLogGroup(this, "FxRateSyncLogGroup", `fxrate-lambda-${props.config.stage}`, props.config),
+      ...LAMBDA_LOGGING,
       runtime: lambda.Runtime.PROVIDED_AL2023,
       architecture: lambda.Architecture.X86_64,
       handler: "lib.handler",
@@ -61,6 +64,7 @@ export class InitializationLambdas extends Construct {
       memorySize: 128,
       timeout: cdk.Duration.seconds(10),
       environment: withPostgresEnvironment({ config: props.config, postgres: props.postgres, credential }, {
+        LOG_LEVEL: lambdaLogLevel(props.config),
         FXRATES_API_TOKEN: credential(credentialSecrets(props.config.stage).fxRatesApi, "apiToken"),
       }),
       layers: [layer],
@@ -83,11 +87,14 @@ function databaseFunction(scope: Construct, id: string, props: DatabaseOperation
     },
   };
   const names = { MIGRATE: "migration", INSPECT: "inspection", BOOTSTRAP: "bootstrap" };
+  const functionName = `database-${names[operation]}-lambda-${props.config.stage}`;
   const fn = new lambda.Function(scope, id, {
     vpc: props.network.vpc,
     vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
     securityGroups: [props.network.migrationSecurityGroup],
-    functionName: `database-${names[operation]}-lambda-${props.config.stage}`,
+    functionName,
+    logGroup: lambdaLogGroup(scope, `${id}LogGroup`, functionName, props.config),
+    ...LAMBDA_LOGGING,
     runtime: lambda.Runtime.PROVIDED_AL2023,
     architecture: lambda.Architecture.X86_64,
     handler: "lib.handler", code,
@@ -95,6 +102,7 @@ function databaseFunction(scope: Construct, id: string, props: DatabaseOperation
     memorySize: 512,
     timeout: cdk.Duration.seconds(operation === "INSPECT" ? 60 : 840),
     environment: {
+      LOG_LEVEL: lambdaLogLevel(props.config),
       DATABASE_OPERATION: operation, DATABASE_TARGET: props.config.stage,
       POSTGRES_DATABASE: postgres.database, POSTGRES_HOST: postgres.host,
       POSTGRES_MAX_CONNECTIONS: postgres.maxConnections, POSTGRES_PORT: postgres.port,

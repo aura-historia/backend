@@ -10,6 +10,8 @@ use crate::queue_config::validate_attributes;
 pub use crate::queue_config::{CdcRouterQueueConfig, QueueError, SqsQueueConfig};
 
 const API_TIMEOUT: Duration = Duration::from_secs(5);
+/// The only publication outcome that is not a failure to report.
+const PUBLISHED_OUTCOME: &str = "published";
 
 #[derive(Clone)]
 pub struct SqsQueue {
@@ -112,17 +114,26 @@ impl SqsQueue {
         }
         impl Drop for Observation<'_> {
             fn drop(&mut self) {
-                tracing::info!(
-                    scope = self.scope,
-                    encoded_bytes = self.bytes,
-                    publication_duration_ms = self.started.elapsed().as_secs_f64() * 1000.0,
-                    outcome = self.outcome,
-                    error_category = self
-                        .failure
-                        .map(|failure| failure.kind().diagnostic_category()),
-                    http_status = self.failure.and_then(|failure| failure.http_status()),
-                    "worker SQS publication finished"
-                );
+                macro_rules! log_publication {
+                    ($level:ident) => {
+                        tracing::$level!(
+                            scope = self.scope,
+                            encoded_bytes = self.bytes,
+                            publication_duration_ms = self.started.elapsed().as_secs_f64() * 1000.0,
+                            outcome = self.outcome,
+                            error_category = self
+                                .failure
+                                .map(|failure| failure.kind().diagnostic_category()),
+                            http_status = self.failure.and_then(|failure| failure.http_status()),
+                            "worker SQS publication finished"
+                        )
+                    };
+                }
+                if self.outcome == PUBLISHED_OUTCOME {
+                    log_publication!(debug);
+                } else {
+                    log_publication!(warn);
+                }
             }
         }
         let mut observation = Observation {
@@ -160,7 +171,7 @@ impl SqsQueue {
             observation.outcome = "invalid_response_acceptance_unknown";
             return Err(QueueError::InvalidResponse);
         }
-        observation.outcome = "published";
+        observation.outcome = PUBLISHED_OUTCOME;
         Ok(())
     }
 }

@@ -23,7 +23,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 const COMPONENT: &str = "product-listing-ingestion-lambda";
 const LAMBDA_INVOCATION_CAP: Duration = Duration::from_secs(45);
@@ -183,7 +183,7 @@ async fn handler_with_budget(
     for message_id in &outcome.unprocessed_message_ids {
         log_unprocessed(message_id);
     }
-    info!(
+    debug!(
         sqs_message_count = record_count,
         failed_sqs_message_count = outcome.response.batch_item_failures.len(),
         "Finished ProductListing ingestion batch"

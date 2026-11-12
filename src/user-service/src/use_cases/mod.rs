@@ -55,6 +55,7 @@ pub use commands::delete_access_tokens::{
 pub use commands::delete_user::{
     DeleteUserCommand, DeleteUserError, DeleteUserHandler, DeleteUserResult, DeleteUserUseCase,
 };
+pub use commands::marketing_consent_evidence::CONSENT_EVIDENCE_LOG_DIRECTIVE;
 pub use commands::register_cognito_user::{
     CognitoSignupConsent, RegisterCognitoUserCommand, RegisterCognitoUserError,
     RegisterCognitoUserHandler, RegisterCognitoUserResult, RegisterCognitoUserUseCase,

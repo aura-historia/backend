@@ -7,7 +7,7 @@ use crate::review::assets::{
 };
 use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
-use crate::review::human_queue_metrics;
+use crate::review::human_queue_report;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
@@ -148,7 +148,7 @@ impl ReviewServer {
 
         tokio::select! {
             served = self.accept_connections(listener) => served,
-            never = human_queue_metrics::report_while_agents_work(self.repository.clone()) => {
+            never = human_queue_report::report_while_agents_work(self.repository.clone()) => {
                 match never {}
             }
         }

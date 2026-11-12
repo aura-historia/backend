@@ -5,10 +5,9 @@
 //! pool on the same database, so console reads cannot take the connections crawling waits for,
 //! and saturated crawling cannot time out the console.
 
-use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use sqlx::PgPool;
 use std::time::Duration;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 /// Connections the review console's pool opens at most.
 pub const REVIEW_DB_MAX_CONNECTIONS: u32 = 8;
@@ -123,40 +122,37 @@ impl PoolUsageWindow {
     }
 }
 
-/// Publishes `window` as metrics, and warns with the pool's numbers when every connection was in
-/// use at a sample, so a slow-acquire or `PoolTimedOut` log line can be read against them.
+/// Logs `window` with the pool's numbers, so a slow-acquire or `PoolTimedOut` log line can be read
+/// against them: WARN when every connection was in use at a sample, INFO while the pool was in use,
+/// DEBUG while it was idle. It is a log event and no metric, because every metric, and every
+/// value of its dimension, is billed.
 fn report_window(kind: DbPoolKind, max_connections: u32, window: PoolUsageWindow) {
-    MetricRecord::global()
-        .with_dimension(MetricDimension::DbPool, kind.as_str())
-        .with_value(
-            CrawlerMetric::DbPoolMaxConnections,
-            u64::from(max_connections),
-        )
-        .with_value(
-            CrawlerMetric::DbPoolInUsePeak,
-            u64::from(window.in_use_peak),
-        )
-        .with_value(
-            CrawlerMetric::DbPoolSaturatedSamples,
-            window.saturated_samples,
-        )
-        .emit();
+    macro_rules! log_usage {
+        ($log:ident, $message:literal) => {
+            $log!(
+                db_pool = kind.as_str(),
+                max_connections,
+                in_use_peak = window.in_use_peak,
+                saturated_samples = window.saturated_samples,
+                samples = window.samples,
+                $message
+            )
+        };
+    }
     if window.saturated_samples > 0 {
-        warn!(
-            db_pool = kind.as_str(),
-            max_connections,
-            in_use_peak = window.in_use_peak,
-            saturated_samples = window.saturated_samples,
-            samples = window.samples,
-            "Crawler Postgres pool had every connection in use"
-        );
+        log_usage!(warn, "Crawler Postgres pool had every connection in use");
+    } else if window.in_use_peak > 0 {
+        log_usage!(info, "Crawler Postgres pool usage");
+    } else {
+        log_usage!(debug, "Crawler Postgres pool was idle");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::test_support::capture_metrics;
+    use crate::test_support::logged_events::LoggedEvents;
+    use tracing::Level;
 
     #[tokio::test]
     async fn should_open_the_review_pool_on_the_crawl_pools_database_and_settings() {
@@ -205,20 +201,68 @@ mod tests {
         );
     }
 
+    fn reported(
+        kind: DbPoolKind,
+        max_connections: u32,
+        window: PoolUsageWindow,
+    ) -> Vec<(Level, String)> {
+        let (events, _guard) = LoggedEvents::capture();
+        report_window(kind, max_connections, window);
+        events
+            .all()
+            .into_iter()
+            .map(|event| {
+                assert!(
+                    event.field("emf").is_none(),
+                    "a pool report is no metric record"
+                );
+                (
+                    event.level,
+                    format!(
+                        "{} {}/{} {}",
+                        event.field("db_pool").unwrap_or_default(),
+                        event.field("in_use_peak").unwrap_or_default(),
+                        event.field("max_connections").unwrap_or_default(),
+                        event.field("saturated_samples").unwrap_or_default(),
+                    ),
+                )
+            })
+            .collect()
+    }
+
     #[test]
-    fn should_publish_pool_usage_under_the_pool_dimension_when_reporting_a_window() {
-        let (metrics, _guard) = capture_metrics();
+    fn should_warn_with_the_pool_numbers_and_publish_no_metric_when_every_connection_was_in_use() {
         let window = PoolUsageWindow {
             samples: 60,
             in_use_peak: 8,
             saturated_samples: 3,
         };
 
-        report_window(DbPoolKind::Review, 8, window);
+        assert_eq!(
+            reported(DbPoolKind::Review, 8, window),
+            [(Level::WARN, "review 8/8 3".to_owned())]
+        );
+    }
 
-        let review = |metric| metrics.values_with(metric, MetricDimension::DbPool, "review");
-        assert_eq!(review(CrawlerMetric::DbPoolMaxConnections), [8]);
-        assert_eq!(review(CrawlerMetric::DbPoolInUsePeak), [8]);
-        assert_eq!(review(CrawlerMetric::DbPoolSaturatedSamples), [3]);
+    #[test]
+    fn should_log_usage_at_info_while_the_pool_is_used_and_at_debug_while_it_is_idle() {
+        let busy = PoolUsageWindow {
+            samples: 60,
+            in_use_peak: 4,
+            saturated_samples: 0,
+        };
+        let idle = PoolUsageWindow {
+            samples: 60,
+            ..PoolUsageWindow::default()
+        };
+
+        assert_eq!(
+            reported(DbPoolKind::Crawl, 150, busy),
+            [(Level::INFO, "crawl 4/150 0".to_owned())]
+        );
+        assert_eq!(
+            reported(DbPoolKind::Crawl, 150, idle),
+            [(Level::DEBUG, "crawl 0/150 0".to_owned())]
+        );
     }
 }

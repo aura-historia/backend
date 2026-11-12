@@ -66,13 +66,16 @@ fn average_seconds(total_ms: u64, total: u64) -> f64 {
     total_ms as f64 / total as f64 / 1000.0
 }
 
-/// Records how long a scheduler pass took as `metric` and returns the duration in
-/// milliseconds for the pass summary.
-pub(super) fn emit_pass_duration(metric: CrawlerMetric, pass_start: tokio::time::Instant) -> u64 {
+/// Publishes the totals of a scheduler pass and how long it took, as `duration_metric`, in one
+/// record, and returns the duration in milliseconds for the pass summary. Every pass publishes
+/// exactly one record, also a pass that finds no work.
+pub(super) fn emit_pass_record(
+    totals: MetricRecord,
+    duration_metric: CrawlerMetric,
+    pass_start: tokio::time::Instant,
+) -> u64 {
     let duration_ms = u64::try_from(pass_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-    MetricRecord::global()
-        .with_value(metric, duration_ms)
-        .emit();
+    totals.with_value(duration_metric, duration_ms).emit();
     duration_ms
 }
 
@@ -111,18 +114,22 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn should_emit_the_pass_duration_as_a_crawler_wide_metric() {
+    async fn should_publish_the_pass_totals_and_duration_in_one_record() {
         let (metrics, _guard) = crate::metrics::test_support::capture_metrics();
         let pass_start = tokio::time::Instant::now();
         tokio::time::advance(std::time::Duration::from_millis(1_500)).await;
 
-        let duration_ms = emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
+        let duration_ms = emit_pass_record(
+            MetricRecord::default().with_value(CrawlerMetric::CrawlRunsFailed, 2),
+            CrawlerMetric::SpiderPassDuration,
+            pass_start,
+        );
 
         assert_eq!(duration_ms, 1_500);
-        assert_eq!(
-            metrics.values(CrawlerMetric::SpiderPassDuration),
-            vec![(vec![], 1_500)]
-        );
+        let records = metrics.records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["CrawlRunsFailed"], 2);
+        assert_eq!(records[0]["SpiderPassDuration"], 1_500);
     }
 
     #[test]

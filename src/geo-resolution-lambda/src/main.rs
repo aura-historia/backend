@@ -9,9 +9,9 @@ use geo_service::{
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LambdaInvocationBudget, LazyComposition, RuntimePostgresConfig, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    log_invocation_start,
 };
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use platform_postgres::SqlxUnitOfWork;
 use std::{
     sync::Arc,
@@ -23,7 +23,7 @@ const COMPONENT: &str = "geo-resolution-lambda";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let started = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
     let postgres = RuntimePostgresConfig::from_env()?;
     let config = aws_config::defaults(BehaviorVersion::v2026_11_10())
         .region(aws_config::Region::new(REGION))

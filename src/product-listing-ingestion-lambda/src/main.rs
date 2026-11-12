@@ -2,10 +2,9 @@ use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LazyComposition, RuntimePostgresConfig, log_cold_start, log_invocation_start,
-    logging_config_from_env,
 };
 use platform_lambda_sqs::SqsDeadLetterCustody;
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use product_listing_ingestion_lambda::{compose_ingestion_use_case, handle_invocation};
 use product_listing_service::use_cases::ProcessProductListingIngestionUseCase;
 use std::{sync::Arc, time::Instant};
@@ -20,7 +19,7 @@ async fn main() -> Result<(), Error> {
         eprintln!("product listing ingestion runtime panicked")
     }));
     let initialization_started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
 
     let postgres = RuntimePostgresConfig::from_env()?;
     let custody = SqsDeadLetterCustody::from_env().await?;

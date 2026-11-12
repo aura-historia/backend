@@ -1,17 +1,21 @@
 //! Crawler metrics as CloudWatch Embedded Metric Format (EMF) records.
 //!
 //! A record is one JSON object whose top-level `_aws` block tells CloudWatch Logs which
-//! keys of the object are metrics and which are dimensions, so the crawler publishes
-//! metrics through the log export it already has, with no metrics client or extra
-//! permission. Records travel as `tracing` events of [`EMF_TARGET`]; the log formats wrap
-//! their JSON format in [`EmfPassthroughFormat`], which writes such an event as the bare
-//! record instead of nesting it in the event's `fields`.
+//! keys of the object are metrics, so the crawler publishes metrics through the log export it
+//! already has, with no metrics client or extra permission. Records travel as `tracing`
+//! events of [`EMF_TARGET`]; the log formats wrap their JSON format in
+//! [`EmfPassthroughFormat`], which writes such an event as the bare record instead of nesting
+//! it in the event's `fields`.
+//!
+//! Every metric is crawler-wide and has no dimension: CloudWatch bills each distinct
+//! dimension value as its own custom metric, so a per-source, per-domain or per-URL dimension
+//! multiplies the bill by the number of sources, domains or URLs. A pass aggregates in process
+//! and publishes one record when it ends. Per-source detail belongs in the outcome events of
+//! the log, never in a metric. [`CrawlerMetric`] is the closed list of what is published.
 //!
 //! [`docs/crawler/operations.md`](../../../docs/crawler/operations.md#metrics-and-alarms)
-//! owns the namespace, metric names, dimensions and alarms. Dimension values are bounded
-//! identifiers and kinds, never URLs.
+//! owns the namespace, metric names and alarms.
 
-use listing_source_core::ListingSourceId;
 use serde_json::{Map, Value, json};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
@@ -31,7 +35,6 @@ const EMF_FIELD: &str = "emf";
 pub(crate) enum MetricUnit {
     Count,
     Milliseconds,
-    Seconds,
 }
 
 impl MetricUnit {
@@ -39,148 +42,69 @@ impl MetricUnit {
         match self {
             Self::Count => "Count",
             Self::Milliseconds => "Milliseconds",
-            Self::Seconds => "Seconds",
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CrawlerMetric {
-    /// Scraper URLs whose scrape completed, changed or not, per scraper batch.
-    ScrapesSucceeded,
-    /// Scraper URLs whose scrape failed, per scraper batch.
-    ScrapesFailed,
-    /// Scraper URLs whose page waits on a pending product-schema review, per scraper batch: no
-    /// failure, so neither in `ScrapesFailed` nor in `UrlFailures`.
-    ScrapesAwaitingSchemaReview,
-    /// 1 when a scraper batch completed a scrape or a page of it waited on a product-schema review,
-    /// else 0; and 1 per scraper pass for each ListingSource whose scraping only a pending review
-    /// holds back, which has no batch. The no-successful-scrape alarm reads it alone, so a
-    /// ListingSource that only waits on a reviewer does not alarm.
-    ScrapedOrAwaitingReview,
-    /// Raw observations the ingestion queue accepted, per capture batch.
-    ProductsCaptured,
-    /// Raw observations discarded because they exceed the ingestion message limit or cannot be
-    /// encoded, per capture batch; only recorded when non-zero.
-    ProductsDiscardedUnsendable,
-    /// Scraper URL failures of one `failure_kind`, per scraper batch.
-    UrlFailures,
-    /// Scrape circuits opened.
-    ScrapeCircuitOpened,
-    /// Product URLs a spider crawl classified with the ListingSource's URL pattern.
-    CrawlProductUrls,
-    /// 1 when a spider crawl was cut short before its bounds, else 0.
-    CrawlTruncated,
-    /// One spider crawl, recorded with its persisted `crawl_outcome`.
-    CrawlOutcome,
-    /// 1 per spider crawl whose failure stopped its ListingSource for an operator
-    /// (`NEEDS_OPERATOR`), crawler-wide, so one alarm covers every ListingSource.
-    CrawlsStoppedForOperator,
-    ScraperPassDuration,
-    SpiderPassDuration,
+/// Defines [`CrawlerMetric`] from one list, so its names, units and the test-only list of every
+/// metric cannot drift apart.
+macro_rules! crawler_metrics {
+    ($($(#[$doc:meta])* $variant:ident => $unit:ident),+ $(,)?) => {
+        /// The metrics the crawler publishes. Adding one is a cost decision, because CloudWatch
+        /// bills each as a custom metric and the account's free tier covers ten, shared with the
+        /// ingestion Lambda's metric filters: keep the list short and never give one a dimension.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub(crate) enum CrawlerMetric {
+            $($(#[$doc])* $variant),+
+        }
+
+        impl CrawlerMetric {
+            #[cfg(test)]
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant),+];
+
+            pub(crate) const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => stringify!($variant)),+
+                }
+            }
+
+            const fn unit(self) -> MetricUnit {
+                match self {
+                    $(Self::$variant => MetricUnit::$unit),+
+                }
+            }
+        }
+    };
+}
+
+crawler_metrics! {
+    /// Raw observations the ingestion queue accepted, per scraper pass.
+    ProductsCaptured => Count,
+    /// Scraper URLs whose scrape produced a capture, per scraper pass. A page that matches its
+    /// last capture is skipped, not scraped, and counts here no more than a failure.
+    ScrapesSucceeded => Count,
+    /// Scraper URLs whose scrape failed, per scraper pass.
+    ScrapesFailed => Count,
+    /// Scraper URL failures that recorded a failure kind, per scraper pass. A page that waits
+    /// on a pending product-schema review is no failure and counts in neither this nor
+    /// `ScrapesFailed`.
+    UrlFailures => Count,
+    /// Spider runs that ended in a failure, including one that stopped its ListingSource for an
+    /// operator, per spider pass.
+    CrawlRunsFailed => Count,
+    ScraperPassDuration => Milliseconds,
+    SpiderPassDuration => Milliseconds,
     /// URLs due for scraping when a scraper pass starts.
-    ScraperDueUrls,
-    /// The most connections of one Postgres pool in use at once during a usage window.
-    DbPoolInUsePeak,
-    /// The connection limit of one Postgres pool.
-    DbPoolMaxConnections,
-    /// The samples of a usage window that found every connection of one Postgres pool in use.
-    DbPoolSaturatedSamples,
-    /// Pending reviews that wait for a human in `agent` mode, per report of the review console.
-    ReviewsWaitingForHuman,
-    /// How long ago the oldest pending review that waits for a human opened, 0 when none waits.
-    OldestReviewWaitingForHumanAge,
+    ScraperDueUrls => Count,
 }
 
-impl CrawlerMetric {
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::ScrapesSucceeded => "ScrapesSucceeded",
-            Self::ScrapesFailed => "ScrapesFailed",
-            Self::ScrapesAwaitingSchemaReview => "ScrapesAwaitingSchemaReview",
-            Self::ScrapedOrAwaitingReview => "ScrapedOrAwaitingReview",
-            Self::ProductsCaptured => "ProductsCaptured",
-            Self::ProductsDiscardedUnsendable => "ProductsDiscardedUnsendable",
-            Self::UrlFailures => "UrlFailures",
-            Self::ScrapeCircuitOpened => "ScrapeCircuitOpened",
-            Self::CrawlProductUrls => "CrawlProductUrls",
-            Self::CrawlTruncated => "CrawlTruncated",
-            Self::CrawlOutcome => "CrawlOutcome",
-            Self::CrawlsStoppedForOperator => "CrawlsStoppedForOperator",
-            Self::ScraperPassDuration => "ScraperPassDuration",
-            Self::SpiderPassDuration => "SpiderPassDuration",
-            Self::ScraperDueUrls => "ScraperDueUrls",
-            Self::DbPoolInUsePeak => "DbPoolInUsePeak",
-            Self::DbPoolMaxConnections => "DbPoolMaxConnections",
-            Self::DbPoolSaturatedSamples => "DbPoolSaturatedSamples",
-            Self::ReviewsWaitingForHuman => "ReviewsWaitingForHuman",
-            Self::OldestReviewWaitingForHumanAge => "OldestReviewWaitingForHumanAge",
-        }
-    }
-
-    const fn unit(self) -> MetricUnit {
-        match self {
-            Self::ScraperPassDuration | Self::SpiderPassDuration => MetricUnit::Milliseconds,
-            Self::OldestReviewWaitingForHumanAge => MetricUnit::Seconds,
-            _ => MetricUnit::Count,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MetricDimension {
-    ListingSourceId,
-    /// A persisted URL error kind such as `HTTP_503` or `Timeout`.
-    FailureKind,
-    /// A persisted `last_crawl_outcome` value.
-    CrawlOutcome,
-    /// The crawler's Postgres pool a value describes: `crawl` or `review`.
-    DbPool,
-}
-
-impl MetricDimension {
-    pub(crate) const fn key(self) -> &'static str {
-        match self {
-            Self::ListingSourceId => "listing_source_id",
-            Self::FailureKind => "failure_kind",
-            Self::CrawlOutcome => "crawl_outcome",
-            Self::DbPool => "db_pool",
-        }
-    }
-}
-
-/// One EMF record: metric values that share one dimension set.
-#[derive(Debug, Clone, PartialEq)]
+/// One EMF record: the metric values of one pass, under the empty dimension set.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MetricRecord {
-    dimensions: Vec<(MetricDimension, String)>,
     values: Vec<(CrawlerMetric, u64)>,
 }
 
 impl MetricRecord {
-    /// A record without dimensions, for crawler-wide metrics.
-    pub(crate) fn global() -> Self {
-        Self {
-            dimensions: Vec::new(),
-            values: Vec::new(),
-        }
-    }
-
-    pub(crate) fn for_listing_source(listing_source_id: &ListingSourceId) -> Self {
-        Self::global().with_dimension(
-            MetricDimension::ListingSourceId,
-            listing_source_id.to_string(),
-        )
-    }
-
-    pub(crate) fn with_dimension(
-        mut self,
-        dimension: MetricDimension,
-        value: impl Into<String>,
-    ) -> Self {
-        self.dimensions.push((dimension, value.into()));
-        self
-    }
-
     pub(crate) fn with_value(mut self, metric: CrawlerMetric, value: u64) -> Self {
         self.values.push((metric, value));
         self
@@ -192,11 +116,6 @@ impl MetricRecord {
     }
 
     fn to_emf(&self, timestamp: time::OffsetDateTime) -> Value {
-        let dimension_keys: Vec<&str> = self
-            .dimensions
-            .iter()
-            .map(|(dimension, _)| dimension.key())
-            .collect();
         let metric_definitions: Vec<Value> = self
             .values
             .iter()
@@ -212,14 +131,11 @@ impl MetricRecord {
                 "Timestamp": timestamp_ms,
                 "CloudWatchMetrics": [{
                     "Namespace": METRICS_NAMESPACE,
-                    "Dimensions": [dimension_keys],
+                    "Dimensions": [[]],
                     "Metrics": metric_definitions,
                 }],
             }),
         );
-        for (dimension, value) in &self.dimensions {
-            record.insert(dimension.key().to_owned(), Value::from(value.as_str()));
-        }
         for (metric, value) in &self.values {
             record.insert(metric.name().to_owned(), Value::from(*value));
         }
@@ -282,7 +198,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::{CrawlerMetric, MetricDimension, MetricRecord, emf_record_of};
+    use super::{MetricRecord, emf_record_of};
     use serde_json::Value;
     use std::sync::{Arc, Mutex};
     use tracing::Subscriber;
@@ -307,51 +223,10 @@ pub(crate) mod test_support {
             std::mem::take(&mut *self.0.lock().expect("metric capture lock"))
         }
 
-        /// Values of `metric` in emission order, each with the record's dimensions.
-        pub(crate) fn values(&self, metric: CrawlerMetric) -> Vec<(Vec<(String, String)>, u64)> {
-            self.0
-                .lock()
-                .expect("metric capture lock")
-                .iter()
-                .filter_map(|record| {
-                    let value = record.get(metric.name())?.as_u64()?;
-                    Some((dimensions_of(record), value))
-                })
-                .collect()
+        /// Every record captured so far, as the log line carries it.
+        pub(crate) fn records(&self) -> Vec<Value> {
+            self.0.lock().expect("metric capture lock").clone()
         }
-
-        /// Values of `metric` whose record has `dimension` set to `expected`.
-        pub(crate) fn values_with(
-            &self,
-            metric: CrawlerMetric,
-            dimension: MetricDimension,
-            expected: &str,
-        ) -> Vec<u64> {
-            self.values(metric)
-                .into_iter()
-                .filter(|(dimensions, _)| {
-                    dimensions
-                        .iter()
-                        .any(|(key, value)| key == dimension.key() && value == expected)
-                })
-                .map(|(_, value)| value)
-                .collect()
-        }
-    }
-
-    fn dimensions_of(record: &Value) -> Vec<(String, String)> {
-        record["_aws"]["CloudWatchMetrics"][0]["Dimensions"][0]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(|key| {
-                (
-                    key.to_owned(),
-                    record[key].as_str().unwrap_or_default().to_owned(),
-                )
-            })
-            .collect()
     }
 
     pub(crate) fn capture_metrics() -> (CapturedMetrics, tracing::subscriber::DefaultGuard) {
@@ -370,7 +245,7 @@ pub(crate) mod test_support {
     /// and report, and rebuilds the cache when another thread won that race.
     pub(crate) fn prime_metric_callsite(mut probe_observed: impl FnMut() -> bool) {
         for _ in 0..2 {
-            MetricRecord::global().emit();
+            MetricRecord::default().emit();
             if probe_observed() {
                 return;
             }
@@ -387,44 +262,22 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::layer::SubscriberExt;
 
-    fn source_record() -> MetricRecord {
-        MetricRecord::for_listing_source(&ListingSourceId::new())
+    fn scrape_record() -> MetricRecord {
+        MetricRecord::default()
             .with_value(CrawlerMetric::ScrapesSucceeded, 3)
             .with_value(CrawlerMetric::ScrapesFailed, 1)
     }
 
     #[test]
-    fn should_describe_the_human_queue_without_dimensions_and_its_age_in_seconds() {
+    fn should_describe_metrics_in_a_top_level_aws_block_without_dimensions() {
         let timestamp =
             time::OffsetDateTime::from_unix_timestamp(1_793_016_000).expect("valid test timestamp");
-        let record = MetricRecord::global()
-            .with_value(CrawlerMetric::ReviewsWaitingForHuman, 182)
-            .with_value(CrawlerMetric::OldestReviewWaitingForHumanAge, 3_600)
-            .to_emf(timestamp);
-
-        let directive = &record["_aws"]["CloudWatchMetrics"][0];
-        assert_eq!(directive["Dimensions"], json!([[]]));
-        assert_eq!(
-            directive["Metrics"],
-            json!([
-                { "Name": "ReviewsWaitingForHuman", "Unit": "Count" },
-                { "Name": "OldestReviewWaitingForHumanAge", "Unit": "Seconds" },
-            ])
-        );
-        assert_eq!(record["ReviewsWaitingForHuman"], 182);
-        assert_eq!(record["OldestReviewWaitingForHumanAge"], 3_600);
-    }
-
-    #[test]
-    fn should_describe_metrics_and_dimensions_in_a_top_level_aws_block() {
-        let timestamp =
-            time::OffsetDateTime::from_unix_timestamp(1_793_016_000).expect("valid test timestamp");
-        let record = source_record().to_emf(timestamp);
+        let record = scrape_record().to_emf(timestamp);
 
         let directive = &record["_aws"]["CloudWatchMetrics"][0];
         assert_eq!(record["_aws"]["Timestamp"], 1_793_016_000_000_i64);
         assert_eq!(directive["Namespace"], "AuraHistoria/Crawler");
-        assert_eq!(directive["Dimensions"], json!([["listing_source_id"]]));
+        assert_eq!(directive["Dimensions"], json!([[]]));
         assert_eq!(
             directive["Metrics"],
             json!([
@@ -432,38 +285,62 @@ mod tests {
                 { "Name": "ScrapesFailed", "Unit": "Count" },
             ])
         );
-        assert!(record["listing_source_id"].is_string());
         assert_eq!(record["ScrapesSucceeded"], 3);
         assert_eq!(record["ScrapesFailed"], 1);
     }
 
     #[test]
-    fn should_publish_global_metrics_under_an_empty_dimension_set() {
-        let record = MetricRecord::global()
+    fn should_publish_durations_in_milliseconds() {
+        let record = MetricRecord::default()
             .with_value(CrawlerMetric::ScraperPassDuration, 1_500)
             .to_emf(time::OffsetDateTime::now_utc());
 
-        let directive = &record["_aws"]["CloudWatchMetrics"][0];
-        assert_eq!(directive["Dimensions"], json!([[]]));
         assert_eq!(
-            directive["Metrics"],
+            record["_aws"]["CloudWatchMetrics"][0]["Metrics"],
             json!([{ "Name": "ScraperPassDuration", "Unit": "Milliseconds" }])
         );
         assert_eq!(record["ScraperPassDuration"], 1_500);
     }
 
-    /// Operators define the no-successful-scrape alarm on this name, so it is a contract.
+    /// Each distinct metric and dimension value is billed as a custom metric: the crawler may use
+    /// eight of the account's ten free ones, and no dimension.
     #[test]
-    fn should_publish_the_scrape_alarm_metric_under_its_documented_name() {
-        let record = MetricRecord::for_listing_source(&ListingSourceId::new())
-            .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
+    fn should_publish_at_most_eight_metrics_and_no_dimension() {
+        assert!(CrawlerMetric::ALL.len() <= 8, "{:?}", CrawlerMetric::ALL);
+        let record = CrawlerMetric::ALL
+            .iter()
+            .fold(MetricRecord::default(), |record, metric| {
+                record.with_value(*metric, 1)
+            })
             .to_emf(time::OffsetDateTime::now_utc());
 
+        let directive = &record["_aws"]["CloudWatchMetrics"][0];
+        let names: std::collections::BTreeSet<&str> = directive["Metrics"]
+            .as_array()
+            .expect("metric definitions")
+            .iter()
+            .map(|metric| metric["Name"].as_str().expect("metric name"))
+            .collect();
+        assert_eq!(directive["Dimensions"], json!([[]]));
         assert_eq!(
-            record["_aws"]["CloudWatchMetrics"][0]["Metrics"],
-            json!([{ "Name": "ScrapedOrAwaitingReview", "Unit": "Count" }])
+            names,
+            std::collections::BTreeSet::from([
+                "CrawlRunsFailed",
+                "ProductsCaptured",
+                "ScraperDueUrls",
+                "ScraperPassDuration",
+                "ScrapesFailed",
+                "ScrapesSucceeded",
+                "SpiderPassDuration",
+                "UrlFailures",
+            ])
         );
-        assert_eq!(record["ScrapedOrAwaitingReview"], 1);
+        let top_level_keys: Vec<&String> = record.as_object().expect("record").keys().collect();
+        assert_eq!(
+            top_level_keys.len(),
+            1 + names.len(),
+            "the record holds the _aws block and the metric values only, so no dimension value"
+        );
     }
 
     #[derive(Clone, Default)]
@@ -516,7 +393,7 @@ mod tests {
         let lines = json_log_lines(|| {
             let _span =
                 tracing::info_span!("scrape_batch", listing_source_id = "ls_test").entered();
-            source_record().emit();
+            scrape_record().emit();
         });
 
         assert_eq!(lines.len(), 1);

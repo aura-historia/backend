@@ -6,9 +6,10 @@ use aura_historia_runtime::Runtime;
 use platform_lambda_bootstrap::{
     LazyComposition, log_cold_start, materialize_google_application_credentials_from_env,
 };
-use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_observability::{LoggingConfig, init_with_directives};
 use std::sync::Arc;
 use std::time::Instant;
+use user_service::use_cases::CONSENT_EVIDENCE_LOG_DIRECTIVE;
 
 const LAMBDA_COMPONENT: &str = "aura-historia-api";
 
@@ -20,7 +21,7 @@ fn main() -> Result<(), MainError> {
         materialize_google_application_credentials_from_env()
             .map_err(|source| MainError::GoogleAdcCredentials(Box::new(source)))?;
     }
-    init(logging_config_from_env());
+    init_with_directives(LoggingConfig::from_env(), &[CONSENT_EVIDENCE_LOG_DIRECTIVE]);
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -55,15 +56,6 @@ fn main() -> Result<(), MainError> {
 
             Ok(())
         })
-}
-
-fn logging_config_from_env() -> LoggingConfig {
-    let level = std::env::var("LOG_LEVEL")
-        .ok()
-        .as_deref()
-        .and_then(LogLevel::parse)
-        .unwrap_or_default();
-    LoggingConfig::new(level)
 }
 
 async fn shutdown_signal() {

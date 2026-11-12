@@ -6,7 +6,7 @@ pub mod assets;
 mod candidate_evaluations;
 mod field_candidates;
 pub mod http;
-mod human_queue_metrics;
+mod human_queue_report;
 pub mod live_jobs;
 mod matrix_refresh;
 pub mod model;

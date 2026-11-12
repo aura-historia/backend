@@ -22,6 +22,10 @@ struct DomainSummary {
     skip_reasons: BTreeMap<&'static str, usize>,
     /// Deferred URLs by reason; empty when nothing was deferred.
     deferred_reasons: BTreeMap<&'static str, usize>,
+    /// Failed URLs by failure kind; summed into the pass's `failure_kinds` and not listed per
+    /// domain, which the per-URL outcome events cover.
+    #[serde(skip)]
+    failure_kinds: BTreeMap<String, usize>,
 }
 
 /// The most domains one pass summary lists, so a pass over every ListingSource stays one record
@@ -58,7 +62,13 @@ impl PassSummary {
             deferred: outcome.deferred_urls,
             skip_reasons: outcome.skip_reasons.clone(),
             deferred_reasons: outcome.deferred_reasons.clone(),
+            failure_kinds: outcome.failure_kinds.clone(),
         });
+    }
+
+    /// The failed URLs of every domain, by failure kind.
+    pub(super) fn failure_kinds(&self) -> BTreeMap<String, usize> {
+        Self::sum_by_reason(self.domains.iter().map(|domain| &domain.failure_kinds))
     }
 
     /// The skipped URLs of every domain, by reason.
@@ -71,13 +81,13 @@ impl PassSummary {
         Self::sum_by_reason(self.domains.iter().map(|domain| &domain.deferred_reasons))
     }
 
-    fn sum_by_reason<'a>(
-        per_domain: impl Iterator<Item = &'a BTreeMap<&'static str, usize>>,
-    ) -> BTreeMap<&'static str, usize> {
+    fn sum_by_reason<'a, K: Ord + Clone + 'a>(
+        per_domain: impl Iterator<Item = &'a BTreeMap<K, usize>>,
+    ) -> BTreeMap<K, usize> {
         let mut total = BTreeMap::new();
         for reasons in per_domain {
             for (reason, count) in reasons {
-                *total.entry(*reason).or_default() += count;
+                *total.entry(reason.clone()).or_default() += count;
             }
         }
         total
@@ -103,7 +113,7 @@ impl PassSummary {
     }
 
     /// `reasons` as the JSON object the event carries it in.
-    pub(super) fn reasons_json(reasons: &BTreeMap<&'static str, usize>) -> String {
+    pub(super) fn reasons_json<K: Serialize>(reasons: &BTreeMap<K, usize>) -> String {
         serde_json::to_string(reasons).unwrap_or_else(|_| "{}".to_owned())
     }
 }
@@ -135,6 +145,30 @@ mod tests {
 
         assert_eq!(reasons.get("stale_write"), Some(&3));
         assert_eq!(reasons.get("scrape_circuit_open"), Some(&4));
+    }
+
+    #[test]
+    fn should_sum_the_failure_kinds_of_every_domain_without_listing_them_per_domain() {
+        let failing = |kinds: &[(&str, usize)]| {
+            let mut outcome = ScrapeBatchOutcome::default();
+            for (kind, count) in kinds {
+                outcome.failure_kinds.insert((*kind).to_owned(), *count);
+            }
+            outcome
+        };
+        let mut summary = PassSummary::default();
+        summary.observe_batch("a.example", "A", &failing(&[("HTTP_503", 1)]));
+        summary.observe_batch(
+            "b.example",
+            "B",
+            &failing(&[("HTTP_503", 2), ("Timeout", 4)]),
+        );
+
+        assert_eq!(
+            PassSummary::reasons_json(&summary.failure_kinds()),
+            r#"{"HTTP_503":3,"Timeout":4}"#
+        );
+        assert!(!summary.by_domain_json().contains("HTTP_503"));
     }
 
     #[test]

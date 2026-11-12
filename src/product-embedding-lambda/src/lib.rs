@@ -17,7 +17,7 @@ use product_listing_service::use_cases::{
     EmbedProductListingEventOutcome, EmbedProductListingEventUseCase,
 };
 use std::{sync::Arc, time::Duration};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 // These limits reserve a five-second response margin around a 60-second provider invocation
 // envelope: image fetch, one Vertex request, and the short guarded write.
@@ -138,7 +138,7 @@ async fn handler_with_budget(
         }
         complete
     });
-    info!(
+    debug!(
         embedding_sqs_message_count = record_count,
         embedding_failed_sqs_message_count = response.batch_item_failures.len(),
         embedding_guard_rejection_count = guard_rejection_count,

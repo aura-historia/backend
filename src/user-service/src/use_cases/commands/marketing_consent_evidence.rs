@@ -7,6 +7,13 @@ use user_core::user_id::UserId;
 
 const PURPOSE: &str = "EMAIL_MARKETING";
 const EVENT_NAME: &str = "marketing_consent.evidence.v1";
+/// The `tracing` target of evidence records, so a binary can keep them flowing at INFO while
+/// its base level is quieter ([`CONSENT_EVIDENCE_LOG_DIRECTIVE`]).
+const EVIDENCE_LOG_TARGET: &str = "marketing_consent_evidence";
+/// The log directive that keeps consent evidence at INFO whatever base level an operator
+/// configures, so a quiet production level cannot drop it. A binary that can emit evidence adds
+/// it to its filter.
+pub const CONSENT_EVIDENCE_LOG_DIRECTIVE: &str = "marketing_consent_evidence=info";
 // Frozen English purpose wording is retained in docs/marketing-consent.md. This is not
 // a claim about which frontend release or translation the user actually saw.
 const WORDING_REFERENCE: &str = "backend:email-marketing-purpose:v1";
@@ -176,6 +183,7 @@ impl MarketingConsentEvidence {
             self.consent_revision,
         ) {
             tracing::info!(
+                target: EVIDENCE_LOG_TARGET,
                 event = EVENT_NAME,
                 consent_purpose = PURPOSE,
                 consent_source = self.source.as_str(),
@@ -197,6 +205,7 @@ impl MarketingConsentEvidence {
             );
         } else {
             tracing::info!(
+                target: EVIDENCE_LOG_TARGET,
                 event = EVENT_NAME,
                 consent_purpose = PURPOSE,
                 consent_source = self.source.as_str(),
@@ -274,6 +283,63 @@ mod tests {
         assert_eq!(ConsentEvidenceAction::Revoke.as_str(), "REVOKE");
         assert_eq!(ConsentEvidenceAction::Remove.as_str(), "REMOVE");
         assert_eq!(ConsentEvidenceAction::Resubscribe.as_str(), "RESUBSCRIBE");
+    }
+
+    #[test]
+    fn should_keep_the_evidence_directive_in_step_with_the_evidence_target() {
+        assert_eq!(
+            CONSENT_EVIDENCE_LOG_DIRECTIVE,
+            format!("{EVIDENCE_LOG_TARGET}=info")
+        );
+    }
+
+    #[derive(Clone, Default)]
+    struct SharedBuffer(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for SharedBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Production filters the evidence with `LOG_LEVEL=warn` plus the directive.
+    #[test]
+    fn should_emit_evidence_when_the_base_level_is_warn() {
+        let buffer = SharedBuffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(format!(
+                "warn,{CONSENT_EVIDENCE_LOG_DIRECTIVE}"
+            )))
+            .with_writer(move || writer.clone())
+            .finish();
+        let evidence = MarketingConsentEvidence::email_only(
+            ConsentEvidenceSource::AuraDoubleOptIn,
+            ConsentEvidenceAction::Grant,
+            &Email::try_from("person@example.test").unwrap(),
+            "decision".to_owned(),
+            OffsetDateTime::UNIX_EPOCH,
+            "und",
+        );
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("Routine line the quiet level drops");
+            evidence.emit_after_commit(None);
+        });
+
+        let output = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+        let lines: Vec<serde_json::Value> = output
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.len(), 1, "only the evidence passes a warn filter");
+        assert_eq!(lines[0]["fields"]["event"], "marketing_consent.evidence.v1");
     }
 
     #[test]

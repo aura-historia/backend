@@ -13,7 +13,7 @@ fn main() -> Result<(), MainError> {
         materialize_google_application_credentials_from_env()?;
     }
     // SDK trace events include protocol messages and must never enter operational logs.
-    init_with_directives(LoggingConfig::default(), &["rmcp=off"]);
+    init_with_directives(LoggingConfig::from_env(), &["rmcp=off"]);
     let transport = TransportConfig::from_env()?;
     let listing_config = ProductListingConfig::from_env()?;
     tokio::runtime::Builder::new_multi_thread()

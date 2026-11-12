@@ -1,7 +1,6 @@
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
-import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 import type { StageConfig } from "../config";
 
@@ -246,14 +245,6 @@ export class BackendHttpApi extends Construct {
       cfnApi.addPropertyOverride("DisableExecuteApiEndpoint", true);
     }
 
-    const logGroup = props.config.enableProductionObservability
-      ? new logs.LogGroup(this, "ApiLogGroup", {
-          logGroupName: `/aws/apigateway/api-${props.stageName}`,
-          retention: logs.RetentionDays.ONE_WEEK,
-          removalPolicy: props.config.removalPolicy,
-        })
-      : undefined;
-
     this.stage = new apigwv2.HttpStage(this, "ApiStage", {
       httpApi: this.api,
       stageName: props.stageName,
@@ -263,29 +254,12 @@ export class BackendHttpApi extends Construct {
         : { burstLimit: 50, rateLimit: 20 },
     });
 
-    if (logGroup) {
+    // No access log: nothing consumes it, and CloudWatch bills its ingestion. The Lambda logs carry
+    // the application failures and the gateway metrics carry the rates.
+    if (props.config.enableProductionObservability) {
       const cfnStage = this.stage.node.defaultChild as apigwv2.CfnStage;
-      cfnStage.addPropertyOverride("AccessLogSettings", {
-        DestinationArn: logGroup.logGroupArn,
-        Format: JSON.stringify({
-          requestId: "$context.requestId",
-          ip: "$context.identity.sourceIp",
-          requestTime: "$context.requestTime",
-          httpMethod: "$context.httpMethod",
-          routeKey: "$context.routeKey",
-          status: "$context.status",
-          protocol: "$context.protocol",
-          responseLength: "$context.responseLength",
-          integrationLatency: "$context.integrationLatency",
-          responseLatency: "$context.responseLatency",
-          integrationStatus: "$context.integrationStatus",
-          errorMessage: "$context.error.message",
-          errorMessageString: "$context.error.messageString",
-        }),
-      });
       cfnStage.addPropertyOverride("DefaultRouteSettings.DetailedMetricsEnabled", true);
     }
-
 
     const integrationsByLambda = new Map<LambdaKey, integrations.HttpLambdaIntegration>();
     for (const definition of API_ROUTE_CATALOG) {

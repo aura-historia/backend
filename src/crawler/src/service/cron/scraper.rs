@@ -1,9 +1,9 @@
 use super::job::CrawlerCronJob;
-use super::metrics::emit_pass_duration;
+use super::metrics::emit_pass_record;
 use super::stop::CronStop;
 use crate::CrawlerReviewId;
 use crate::logging::{SourceLogContext, error_in_source, warn_in_source};
-use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
+use crate::metrics::{CrawlerMetric, MetricRecord};
 use crate::network::policy::{
     DomainFailureKind, NetworkErrorKind, UrlRetry, domain_cooldown, url_retry_after_fetch_failure,
 };
@@ -281,62 +281,17 @@ struct ScrapeBatchOutcome {
     deferred_reasons: BTreeMap<&'static str, usize>,
     /// The whole scraper batch was deferred by scraper ListingSource lock contention.
     deferred: bool,
-}
-
-/// The metric dimensions and per-batch observations of one scraper batch. Every
-/// candidate of a batch belongs to the batch's ListingSource.
-struct BatchMetrics {
-    listing_source_id: ListingSourceId,
-    failure_kinds: BTreeMap<String, u64>,
-    circuit_opened: bool,
-}
-
-impl BatchMetrics {
-    fn of(candidate: &ScraperCandidate) -> Self {
-        Self {
-            listing_source_id: candidate.listing_source_id,
-            failure_kinds: BTreeMap::new(),
-            circuit_opened: false,
-        }
-    }
-
-    fn observe(&mut self, candidate_outcome: &ScrapeCandidateOutcome) {
-        if let Some(kind) = &candidate_outcome.failure_kind {
-            *self.failure_kinds.entry(kind.clone()).or_default() += 1;
-        }
-        // Only an applied write opened the circuit; a stale fence left it as it was.
-        self.circuit_opened |=
-            candidate_outcome.circuit_opened && candidate_outcome.persisted_scrape_health.is_some();
-    }
-
-    fn emit(self, outcome: &ScrapeBatchOutcome) {
-        let record = || MetricRecord::for_listing_source(&self.listing_source_id);
-        record()
-            .with_value(CrawlerMetric::ScrapesSucceeded, outcome.succeeded as u64)
-            .with_value(CrawlerMetric::ScrapesFailed, outcome.failed as u64)
-            .with_value(
-                CrawlerMetric::ScrapesAwaitingSchemaReview,
-                outcome.awaiting_schema_review as u64,
-            )
-            .with_value(
-                CrawlerMetric::ScrapedOrAwaitingReview,
-                u64::from(outcome.succeeded > 0 || outcome.awaiting_schema_review > 0),
-            )
-            .with_value(
-                CrawlerMetric::ScrapeCircuitOpened,
-                u64::from(self.circuit_opened),
-            )
-            .emit();
-        for (kind, count) in &self.failure_kinds {
-            record()
-                .with_dimension(MetricDimension::FailureKind, kind.as_str())
-                .with_value(CrawlerMetric::UrlFailures, *count)
-                .emit();
-        }
-    }
+    /// URLs whose failure recorded a failure kind, by kind such as `HTTP_503`: the pass publishes
+    /// their sum as `UrlFailures` and logs the kinds in its summary, so no kind is a metric
+    /// dimension.
+    failure_kinds: BTreeMap<String, usize>,
 }
 
 impl ScrapeBatchOutcome {
+    fn url_failures(&self) -> u64 {
+        self.failure_kinds.values().sum::<usize>() as u64
+    }
+
     fn record_deferred(&mut self, reason: DeferralReason, urls: usize) {
         self.deferred_urls += urls;
         if urls > 0 {
@@ -352,6 +307,32 @@ impl ScrapeBatchOutcome {
     }
 }
 
+/// What one scraper pass publishes, aggregated in process while it ran: no per-source,
+/// per-domain or per-URL figure leaves the pass as a metric.
+#[derive(Default)]
+struct ScraperPassMetrics {
+    /// Absent when the due-URL count failed, which the pass warned about.
+    due_urls: Option<u64>,
+    succeeded: u64,
+    failed: u64,
+    url_failures: u64,
+    products_captured: u64,
+}
+
+impl ScraperPassMetrics {
+    fn record(&self) -> MetricRecord {
+        let mut record = MetricRecord::default()
+            .with_value(CrawlerMetric::ScrapesSucceeded, self.succeeded)
+            .with_value(CrawlerMetric::ScrapesFailed, self.failed)
+            .with_value(CrawlerMetric::UrlFailures, self.url_failures)
+            .with_value(CrawlerMetric::ProductsCaptured, self.products_captured);
+        if let Some(due_urls) = self.due_urls {
+            record = record.with_value(CrawlerMetric::ScraperDueUrls, due_urls);
+        }
+        record
+    }
+}
+
 struct ScheduledScrapeBatchOutcome {
     listing_source_id: ListingSourceId,
     listing_source_name: String,
@@ -360,7 +341,8 @@ struct ScheduledScrapeBatchOutcome {
 }
 
 /// Captures a batch of raw observations, then updates crawler-local metadata only for durable
-/// capture outcomes. Worker normalization owns canonical ProductListing mutation.
+/// capture outcomes, and returns how many observations the ingestion queue accepted. Worker
+/// normalization owns canonical ProductListing mutation.
 #[tracing::instrument(
     name = "crawler_flush_raw_capture_batch",
     skip(raw_capture, scraper_candidates, batch),
@@ -371,7 +353,7 @@ async fn flush_batch(
     scraper_candidates: &Arc<dyn ScraperCandidateService>,
     batch: Vec<QueuedRawCapture>,
     queue_depth: usize,
-) {
+) -> u64 {
     let batch_size = batch.len();
     let oldest_item_age_ms = batch
         .iter()
@@ -401,7 +383,6 @@ async fn flush_batch(
     if outcomes.len() < expected {
         outcomes.resize(expected, ProductListingRawCaptureOutcome::RetryableFailure);
     }
-    emit_products_captured(&batch, &outcomes);
 
     let persisted_count = outcomes
         .iter()
@@ -613,31 +594,7 @@ async fn flush_batch(
     } else {
         log_batch!(tracing::Level::INFO);
     }
-}
-
-/// Records, per ListingSource of the batch, how many of its observations raw capture submitted
-/// successfully and how many were discarded as unsendable; a ListingSource whose captures all
-/// failed records zero.
-fn emit_products_captured(
-    batch: &[QueuedRawCapture],
-    outcomes: &[ProductListingRawCaptureOutcome],
-) {
-    let mut captured: HashMap<ListingSourceId, (u64, u64)> = HashMap::new();
-    for (queued, outcome) in batch.iter().zip(outcomes) {
-        let (persisted, discarded) = captured
-            .entry(queued.request.item.command.listing_source_id)
-            .or_default();
-        *persisted += u64::from(*outcome == ProductListingRawCaptureOutcome::Persisted);
-        *discarded += u64::from(*outcome == ProductListingRawCaptureOutcome::DiscardedUnsendable);
-    }
-    for (listing_source_id, (persisted, discarded)) in captured {
-        let mut record = MetricRecord::for_listing_source(&listing_source_id)
-            .with_value(CrawlerMetric::ProductsCaptured, persisted);
-        if discarded > 0 {
-            record = record.with_value(CrawlerMetric::ProductsDiscardedUnsendable, discarded);
-        }
-        record.emit();
-    }
+    persisted_count as u64
 }
 
 #[allow(clippy::result_large_err)]
@@ -2105,9 +2062,9 @@ async fn scrape_batch_candidates(
         return outcome;
     };
 
-    let Some(mut metrics) = candidates.first().map(BatchMetrics::of) else {
+    if candidates.is_empty() {
         return outcome;
-    };
+    }
     let mut evidence = BatchEvidence::default();
     // Every candidate was selected with the same scrape-health snapshot; the batch
     // carries the snapshot forward from one fenced scrape-circuit write to the next.
@@ -2146,7 +2103,9 @@ async fn scrape_batch_candidates(
         let candidate_url = candidate.url.clone();
         candidate.scrape_health = scrape_health.clone();
         let candidate_outcome = scrape_candidate_in_batch(candidate, &ctx, &evidence).await;
-        metrics.observe(&candidate_outcome);
+        if let Some(kind) = &candidate_outcome.failure_kind {
+            *outcome.failure_kinds.entry(kind.clone()).or_default() += 1;
+        }
         if candidate_outcome.scraped
             && !matches!(candidate_outcome.removal, Some(CandidateRemoval::Rechecked))
         {
@@ -2261,7 +2220,6 @@ async fn scrape_batch_candidates(
     }
 
     settle_new_removals(new_removals, scraped_urls, &ctx, &mut outcome).await;
-    metrics.emit(&outcome);
     outcome
 }
 
@@ -2442,8 +2400,9 @@ async fn run_raw_capture_collector(
     scraper_candidates: Arc<dyn ScraperCandidateService>,
     capture_batch_size: usize,
     capture_max_batch_age: Duration,
-) {
+) -> u64 {
     let capture_batch_size = capture_batch_size.max(1);
+    let mut products_captured = 0u64;
     let capture_max_batch_age = capture_max_batch_age.max(Duration::from_millis(1));
     let mut pending = Vec::<QueuedRawCapture>::with_capacity(capture_batch_size);
 
@@ -2467,7 +2426,7 @@ async fn run_raw_capture_collector(
                         Some(item) => pending.push(item),
                         None => {
                             let batch = std::mem::take(&mut pending);
-                            flush_batch(
+                            products_captured += flush_batch(
                                 &raw_capture,
                                 &scraper_candidates,
                                 batch,
@@ -2480,7 +2439,7 @@ async fn run_raw_capture_collector(
                 }
                 _ = tokio::time::sleep_until(flush_deadline) => {
                     let batch = std::mem::take(&mut pending);
-                    flush_batch(
+                    products_captured += flush_batch(
                         &raw_capture,
                         &scraper_candidates,
                         batch,
@@ -2493,13 +2452,16 @@ async fn run_raw_capture_collector(
 
         if pending.len() >= capture_batch_size {
             let batch = std::mem::take(&mut pending);
-            flush_batch(&raw_capture, &scraper_candidates, batch, command_rx.len()).await;
+            products_captured +=
+                flush_batch(&raw_capture, &scraper_candidates, batch, command_rx.len()).await;
         }
     }
 
     if !pending.is_empty() {
-        flush_batch(&raw_capture, &scraper_candidates, pending, command_rx.len()).await;
+        products_captured +=
+            flush_batch(&raw_capture, &scraper_candidates, pending, command_rx.len()).await;
     }
+    products_captured
 }
 
 impl CrawlerCronJob {
@@ -2518,8 +2480,7 @@ impl CrawlerCronJob {
         }
 
         let pass_start = tokio::time::Instant::now();
-        self.emit_due_scraper_urls().await;
-        self.emit_sources_awaiting_review().await;
+        let due_urls = self.count_due_scraper_urls().await;
         debug!(
             concurrency = scraper_concurrency,
             push_batch_size = self.config.effective_push_batch_size(),
@@ -2545,6 +2506,7 @@ impl CrawlerCronJob {
         let mut awaiting_schema_review = 0usize;
         let mut skipped = 0usize;
         let mut unchanged = 0usize;
+        let mut url_failures = 0u64;
         let mut pass_summary = PassSummary::default();
         let mut started = false;
         let mut no_more_candidates = false;
@@ -2655,7 +2617,15 @@ impl CrawlerCronJob {
                         if let Err(e) = raw_capture_collector.await {
                             error!(error = %e, "Scraper push collector task failed to join");
                         }
-                        emit_pass_duration(CrawlerMetric::ScraperPassDuration, pass_start);
+                        emit_pass_record(
+                            ScraperPassMetrics {
+                                due_urls,
+                                ..ScraperPassMetrics::default()
+                            }
+                            .record(),
+                            CrawlerMetric::ScraperPassDuration,
+                            pass_start,
+                        );
                         return;
                     }
                     no_more_candidates = true;
@@ -2705,6 +2675,7 @@ impl CrawlerCronJob {
                     awaiting_schema_review += scheduled.outcome.awaiting_schema_review;
                     skipped += scheduled.outcome.skipped;
                     unchanged += scheduled.outcome.unchanged;
+                    url_failures += scheduled.outcome.url_failures();
                     deferred_urls += scheduled.outcome.deferred_urls;
                     if scheduled.outcome.deferred {
                         deferred_batches += 1;
@@ -2720,12 +2691,27 @@ impl CrawlerCronJob {
 
         drop(command_tx);
 
-        if let Err(e) = raw_capture_collector.await {
-            error!(error = %e, "Scraper push collector task failed to join");
-            failed += 1;
-        }
+        let products_captured = match raw_capture_collector.await {
+            Ok(products_captured) => products_captured,
+            Err(e) => {
+                error!(error = %e, "Scraper push collector task failed to join");
+                failed += 1;
+                0
+            }
+        };
 
-        let duration_ms = emit_pass_duration(CrawlerMetric::ScraperPassDuration, pass_start);
+        let duration_ms = emit_pass_record(
+            ScraperPassMetrics {
+                due_urls,
+                succeeded: succeeded as u64,
+                failed: failed as u64,
+                url_failures,
+                products_captured,
+            }
+            .record(),
+            CrawlerMetric::ScraperPassDuration,
+            pass_start,
+        );
         // `total`, `succeeded`, `failed`, `awaiting_schema_review`, `skipped`, `unchanged` and `deferred_urls`
         // are all counted in candidate URLs; a page that waits on a pending product-schema review
         // is no failure, so it is counted apart from `failed`. `deferred_batches` counts whole
@@ -2745,6 +2731,7 @@ impl CrawlerCronJob {
                     deferred_urls,
                     deferred_batches,
                     duration_ms,
+                    failure_kinds = %PassSummary::reasons_json(&pass_summary.failure_kinds()),
                     skip_reasons = %PassSummary::reasons_json(&pass_summary.skip_reasons()),
                     deferred_reasons = %PassSummary::reasons_json(&pass_summary.deferred_reasons()),
                     by_domain = %pass_summary.by_domain_json(),
@@ -2787,30 +2774,15 @@ impl CrawlerCronJob {
         self.scraper_perf.record(succeeded as u64, duration_ms);
     }
 
-    async fn emit_due_scraper_urls(&self) {
+    /// How many URLs are due when the pass starts; a failed count is warned about and left out of
+    /// the pass's metrics.
+    async fn count_due_scraper_urls(&self) -> Option<u64> {
         match self.scraper_candidates.count_due_urls().await {
-            Ok(due_urls) => MetricRecord::global()
-                .with_value(CrawlerMetric::ScraperDueUrls, due_urls)
-                .emit(),
-            Err(error) => warn!(error = %error, "Failed to count due scraper URLs"),
-        }
-    }
-
-    /// A ListingSource whose scraping only a pending review holds back has no batch to record
-    /// that it waits, so the pass records it in the metric the no-successful-scrape alarm reads.
-    async fn emit_sources_awaiting_review(&self) {
-        match self.scraper_candidates.sources_awaiting_review().await {
-            Ok(sources) => {
-                for source in sources {
-                    MetricRecord::for_listing_source(&source.listing_source_id)
-                        .with_value(CrawlerMetric::ScrapedOrAwaitingReview, 1)
-                        .emit();
-                }
+            Ok(due_urls) => Some(due_urls),
+            Err(error) => {
+                warn!(error = %error, "Failed to count due scraper URLs");
+                None
             }
-            Err(error) => warn!(
-                error = %error,
-                "Failed to list the ListingSources awaiting a review"
-            ),
         }
     }
 }
@@ -2821,7 +2793,6 @@ mod tests {
     use crate::network::policy::{PARKED_PAGE_RETRY_DELAY, durable_retry_cooldown_for};
     use crate::scraper::candidate_service::{
         MockScraperCandidateService, ScrapeCircuitOpenOutcome, ScrapeHealthSnapshot,
-        SourceAwaitingReview,
     };
     use crate::scraper::scraper_service::domain::errors::RemovalEvidence;
     use crate::scraper::scraper_service::domain::product::record_transport_failure;
@@ -3436,25 +3407,12 @@ mod tests {
             .returning(move || Box::pin(async move { Ok(due_urls) }));
     }
 
-    fn expect_sources_awaiting_review(
-        scraper_candidates: &mut MockScraperCandidateService,
-        sources: Vec<SourceAwaitingReview>,
-    ) {
-        scraper_candidates
-            .expect_sources_awaiting_review()
-            .returning(move || {
-                let sources = sources.clone();
-                Box::pin(async move { Ok(sources) })
-            });
-    }
-
     fn scraper_job(
         config: CrawlerCronConfig,
         mut scraper_candidates: MockScraperCandidateService,
         scraper_service: MockScraperService,
     ) -> CrawlerCronJob {
         expect_due_url_count(&mut scraper_candidates, 0);
-        expect_sources_awaiting_review(&mut scraper_candidates, Vec::new());
         let (spider_candidates, spider_service) = empty_spider_dependencies();
 
         CrawlerCronJob::new(
@@ -5310,7 +5268,6 @@ mod tests {
             });
         let (spider_candidates, spider_service) = empty_spider_dependencies();
         expect_due_url_count(&mut scraper_candidates, 0);
-        expect_sources_awaiting_review(&mut scraper_candidates, Vec::new());
         let job = CrawlerCronJob::new(
             CrawlerCronConfig {
                 scraper_domain_delay: Duration::ZERO,
@@ -6779,7 +6736,6 @@ mod tests {
         let (spider_candidates, spider_service) = empty_spider_dependencies();
 
         expect_due_url_count(&mut scraper_candidates, 0);
-        expect_sources_awaiting_review(&mut scraper_candidates, Vec::new());
         let job = CrawlerCronJob::new(
             CrawlerCronConfig::default(),
             Arc::clone(&lock_manager),
@@ -7370,6 +7326,7 @@ mod tests {
     mod scraper_metrics {
         use super::*;
         use crate::metrics::test_support::capture_metrics;
+        use serde_json::json;
 
         fn scraped_product(url: url::Url) -> ScrapedProduct {
             ScrapedProduct {
@@ -7385,11 +7342,21 @@ mod tests {
             }
         }
 
+        fn http_500(url: url::Url) -> ScraperError {
+            ScraperError::HttpError {
+                url,
+                kind: NetworkErrorKind::HttpStatus(500),
+                details: "internal server error".to_owned(),
+            }
+        }
+
+        /// A batch only counts; it is the pass that publishes, once, so no per-source record
+        /// can leave a batch.
         #[tokio::test]
-        async fn should_emit_scrape_counts_and_failure_kinds_when_a_scraper_batch_finishes() {
+        async fn should_count_failures_with_a_kind_and_publish_nothing_when_a_scraper_batch_finishes()
+         {
             let (metrics, _guard) = capture_metrics();
             let (candidates, listing_source_id) = source_batch("metrics.example.com", 2);
-            let source_label = candidates[0].listing_source_id.to_string();
             let failing_url = candidates[0].url.clone();
             let mut scraper_candidates = scraper_candidates_without_identity_carrier();
             scraper_candidates
@@ -7401,11 +7368,7 @@ mod tests {
             scraper_service.expect_scrape().returning(move |request| {
                 let url = request.url;
                 let result = if url == failing_url {
-                    Err(ScraperError::HttpError {
-                        url,
-                        kind: NetworkErrorKind::HttpStatus(500),
-                        details: "internal server error".to_owned(),
-                    })
+                    Err(http_500(url))
                 } else {
                     Ok(Some(scraped_product(url)))
                 };
@@ -7422,32 +7385,22 @@ mod tests {
                 )
             };
 
-            scrape_batch_candidates(candidates, ctx).await;
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
 
-            let source = |metric| {
-                metrics.values_with(metric, MetricDimension::ListingSourceId, &source_label)
-            };
-            assert_eq!(source(CrawlerMetric::ScrapesSucceeded), vec![1]);
-            assert_eq!(source(CrawlerMetric::ScrapesFailed), vec![1]);
-            assert_eq!(source(CrawlerMetric::ScrapedOrAwaitingReview), vec![1]);
-            assert_eq!(source(CrawlerMetric::ScrapeCircuitOpened), vec![0]);
+            assert_eq!((outcome.succeeded, outcome.failed), (1, 1));
             assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::UrlFailures,
-                    MetricDimension::FailureKind,
-                    "HTTP_500"
-                ),
-                vec![1]
+                outcome.failure_kinds,
+                BTreeMap::from([("HTTP_500".to_owned(), 1)])
             );
+            assert_eq!(outcome.url_failures(), 1);
+            assert!(metrics.records().is_empty());
         }
 
         /// A page that waits on a pending product-schema review is no failed scrape: the batch
-        /// and its metrics count it apart from the page whose fetch failed.
+        /// counts it apart from the page whose fetch failed.
         #[tokio::test]
         async fn should_count_a_page_waiting_on_a_schema_review_apart_from_failed_pages() {
-            let (metrics, _guard) = capture_metrics();
             let (candidates, listing_source_id) = source_batch("waiting.example.com", 2);
-            let source_label = candidates[0].listing_source_id.to_string();
             // The review wait ends the batch, so the failing page comes first.
             let waiting_url = candidates[1].url.clone();
             let mut scraper_candidates = MockScraperCandidateService::new();
@@ -7473,11 +7426,7 @@ mod tests {
                             review_id: CrawlerReviewId::new(),
                         })
                     } else {
-                        Err(ScraperError::HttpError {
-                            url,
-                            kind: NetworkErrorKind::HttpStatus(500),
-                            details: "internal server error".to_owned(),
-                        })
+                        Err(http_500(url))
                     };
                     Box::pin(async move { scrape_outcome(result) })
                 });
@@ -7493,121 +7442,18 @@ mod tests {
             )
             .await;
 
-            assert_eq!((outcome.failed, outcome.awaiting_schema_review), (1, 1));
-            let source = |metric| {
-                metrics.values_with(metric, MetricDimension::ListingSourceId, &source_label)
-            };
-            assert_eq!(source(CrawlerMetric::ScrapesFailed), vec![1]);
-            assert_eq!(source(CrawlerMetric::ScrapesAwaitingSchemaReview), vec![1]);
-            assert_eq!(source(CrawlerMetric::ScrapedOrAwaitingReview), vec![1]);
-            let url_failures = |kind| {
-                metrics.values_with(
-                    CrawlerMetric::UrlFailures,
-                    MetricDimension::FailureKind,
-                    kind,
-                )
-            };
-            assert_eq!(url_failures("HTTP_500"), vec![1]);
-            assert!(url_failures("PendingSchemaReview").is_empty());
-        }
-
-        /// A batch whose pages only fail neither scraped nor waited on a review, so the
-        /// no-successful-scrape alarm reads 0 for its ListingSource.
-        #[tokio::test]
-        async fn should_record_neither_a_scrape_nor_a_review_wait_when_every_page_fails() {
-            let (metrics, _guard) = capture_metrics();
-            let (candidates, listing_source_id) = source_batch("failing.example.com", 1);
-            let mut scraper_candidates = MockScraperCandidateService::new();
-            scraper_candidates
-                .expect_mark_fetch_failure()
-                .once()
-                .returning(|_, _, _, _, _, _, _| {
-                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
-                });
-            let mut scraper_service = MockScraperService::new();
-            scraper_service.expect_scrape().once().returning(|request| {
-                let url = request.url;
-                Box::pin(async move {
-                    scrape_outcome(Err(ScraperError::HttpError {
-                        url,
-                        kind: NetworkErrorKind::HttpStatus(500),
-                        details: "internal server error".to_owned(),
-                    }))
-                })
-            });
-
-            scrape_batch_candidates(
-                candidates,
-                batch_context_of(
-                    scraper_candidates,
-                    scraper_service,
-                    listing_source_id,
-                    CrawlerCronConfig::default().scraper_batch_time_budget,
-                ),
-            )
-            .await;
-
             assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::ScrapedOrAwaitingReview,
-                    MetricDimension::ListingSourceId,
-                    &listing_source_id.to_string()
+                (
+                    outcome.failed,
+                    outcome.awaiting_schema_review,
+                    outcome.url_failures()
                 ),
-                vec![0]
+                (1, 1, 1)
             );
         }
 
         #[tokio::test]
-        async fn should_emit_a_circuit_open_when_the_scrape_circuit_write_applies() {
-            let (metrics, _guard) = capture_metrics();
-            let (candidates, listing_source_id) = source_batch("circuit.example.com", 2);
-            let mut scraper_candidates = MockScraperCandidateService::new();
-            scraper_candidates
-                .expect_mark_fetch_failure_and_open_scrape_circuit()
-                .once()
-                .returning(|_| Box::pin(async { Ok(applied_scrape_circuit_open_outcome()) }));
-            let mut scraper_service = MockScraperService::new();
-            scraper_service.expect_scrape().once().returning(|request| {
-                let url = request.url;
-                Box::pin(async move {
-                    scrape_outcome(Err(ScraperError::HttpError {
-                        url,
-                        kind: NetworkErrorKind::HttpStatus(429),
-                        details: "too many requests".to_owned(),
-                    }))
-                })
-            });
-
-            scrape_batch_candidates(
-                candidates,
-                batch_context_of(
-                    scraper_candidates,
-                    scraper_service,
-                    listing_source_id,
-                    CrawlerCronConfig::default().scraper_batch_time_budget,
-                ),
-            )
-            .await;
-
-            let opened: Vec<u64> = metrics
-                .values(CrawlerMetric::ScrapeCircuitOpened)
-                .into_iter()
-                .map(|(_, value)| value)
-                .collect();
-            assert_eq!(opened, vec![1]);
-            assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::UrlFailures,
-                    MetricDimension::FailureKind,
-                    "HTTP_429"
-                ),
-                vec![1]
-            );
-        }
-
-        #[tokio::test]
-        async fn should_not_emit_batch_metrics_when_the_scraper_batch_is_deferred() {
-            let (metrics, _guard) = capture_metrics();
+        async fn should_count_no_failure_when_the_scraper_batch_is_deferred() {
             let (candidates, listing_source_id) = source_batch("deferred.example.com", 1);
             let lock_manager = Arc::new(LocalLockManager::new());
             let _held =
@@ -7623,22 +7469,23 @@ mod tests {
                 )
             };
 
-            scrape_batch_candidates(candidates, ctx).await;
+            let outcome = scrape_batch_candidates(candidates, ctx).await;
 
-            assert!(metrics.values(CrawlerMetric::ScrapesSucceeded).is_empty());
+            assert!(outcome.deferred);
+            assert_eq!(outcome.url_failures(), 0);
         }
 
         #[tokio::test]
-        async fn should_emit_products_captured_per_source_when_a_capture_batch_flushes() {
-            let (metrics, _guard) = capture_metrics();
-            let persisted_source = ListingSourceId::new();
-            let failed_source = ListingSourceId::new();
+        async fn should_report_the_observations_the_ingestion_queue_accepted_when_a_capture_batch_flushes()
+         {
+            let source = ListingSourceId::new();
             let mut raw_capture = MockProductListingRawCaptureService::new();
             raw_capture.expect_capture().once().returning(|_| {
                 Box::pin(async {
                     vec![
                         ProductListingRawCaptureOutcome::Persisted,
                         ProductListingRawCaptureOutcome::RetryableFailure,
+                        ProductListingRawCaptureOutcome::DiscardedUnsendable,
                     ]
                 })
             });
@@ -7649,37 +7496,33 @@ mod tests {
             let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
             let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
 
-            flush_batch(
+            let captured = flush_batch(
                 &raw_capture,
                 &scraper_candidates,
                 vec![
                     queued(
-                        item(persisted_source, "persisted"),
-                        meta(persisted_source, "https://example.test/p/1", "one"),
+                        item(source, "persisted"),
+                        meta(source, "https://example.test/p/1", "one"),
                     ),
                     queued(
-                        item(failed_source, "failed"),
-                        meta(failed_source, "https://example.test/p/2", "two"),
+                        item(source, "failed"),
+                        meta(source, "https://example.test/p/2", "two"),
+                    ),
+                    queued(
+                        item(source, "huge"),
+                        meta(source, "https://example.test/p/3", "three"),
                     ),
                 ],
                 0,
             )
             .await;
 
-            let captured = |source: ListingSourceId| {
-                metrics.values_with(
-                    CrawlerMetric::ProductsCaptured,
-                    MetricDimension::ListingSourceId,
-                    &source.to_string(),
-                )
-            };
-            assert_eq!(captured(persisted_source), vec![1]);
-            assert_eq!(captured(failed_source), vec![0]);
+            assert_eq!(captured, 1);
         }
 
         #[tokio::test]
-        async fn should_count_unsendable_observations_and_complete_their_scrape() {
-            let (metrics, _guard) = capture_metrics();
+        async fn should_complete_the_scrape_of_an_unsendable_observation_without_counting_it_captured()
+         {
             let source = ListingSourceId::new();
             let mut raw_capture = MockProductListingRawCaptureService::new();
             raw_capture.expect_capture().once().returning(|_| {
@@ -7693,7 +7536,7 @@ mod tests {
             let raw_capture: Arc<dyn ProductListingRawCaptureService> = Arc::new(raw_capture);
             let scraper_candidates: Arc<dyn ScraperCandidateService> = Arc::new(scraper_candidates);
 
-            flush_batch(
+            let captured = flush_batch(
                 &raw_capture,
                 &scraper_candidates,
                 vec![queued(
@@ -7704,29 +7547,106 @@ mod tests {
             )
             .await;
 
-            let for_source = |metric| {
-                metrics.values_with(
-                    metric,
-                    MetricDimension::ListingSourceId,
-                    &source.to_string(),
-                )
-            };
-            assert_eq!(
-                for_source(CrawlerMetric::ProductsDiscardedUnsendable),
-                vec![1]
+            assert_eq!(captured, 0);
+        }
+
+        /// One record per pass, under the empty dimension set, holding the totals of every
+        /// source the pass scraped: nothing in it names a source, a domain or a URL.
+        #[tokio::test]
+        async fn should_publish_one_dimensionless_record_with_the_totals_when_a_scraper_pass_ends()
+        {
+            let (metrics, _guard) = capture_metrics();
+            let first_url = url::Url::parse("https://same-source.com/product/1").unwrap();
+            let second_url = url::Url::parse("https://same-source.com/product/2").unwrap();
+            let candidate_urls = [first_url.clone(), second_url];
+            let mut scraper_candidates = scraper_candidates_without_identity_carrier();
+            scraper_candidates
+                .expect_get_candidates()
+                .returning(get_candidates_once_by_source(move || {
+                    candidate_urls
+                        .iter()
+                        .cloned()
+                        .map(|url| scraper_candidate("ListingSource", url))
+                        .collect()
+                }));
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .once()
+                .returning(|_, _, _, _, _, _, _| {
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            scraper_candidates
+                .expect_mark_as_scraped()
+                .once()
+                .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+            expect_due_url_count(&mut scraper_candidates, 7);
+            let mut scraper_service = MockScraperService::new();
+            scraper_service
+                .expect_scrape()
+                .times(2)
+                .returning(move |request| {
+                    let url = request.url;
+                    let result = if url == first_url {
+                        Err(http_500(url))
+                    } else {
+                        Ok(Some(scraped_product(url)))
+                    };
+                    Box::pin(async move { scrape_outcome(result) })
+                });
+            let mut raw_capture = MockProductListingRawCaptureService::new();
+            raw_capture
+                .expect_capture()
+                .once()
+                .returning(|observations| {
+                    Box::pin(async move {
+                        vec![ProductListingRawCaptureOutcome::Persisted; observations.len()]
+                    })
+                });
+            let (spider_candidates, spider_service) = empty_spider_dependencies();
+            let job = CrawlerCronJob::new(
+                CrawlerCronConfig {
+                    scraper_domain_delay: Duration::ZERO,
+                    ..CrawlerCronConfig::default()
+                },
+                Arc::new(LocalLockManager::new()),
+                Box::new(spider_candidates),
+                Box::new(spider_service),
+                Box::new(scraper_candidates),
+                Box::new(scraper_service),
+                noop_listing_source_registration(),
+                Box::new(raw_capture),
             );
-            assert_eq!(for_source(CrawlerMetric::ProductsCaptured), vec![0]);
+
+            job.run_scraper_once().await;
+
+            let records = metrics.records();
+            assert_eq!(records.len(), 1, "one record per pass");
+            let record = &records[0];
+            assert_eq!(
+                record["_aws"]["CloudWatchMetrics"][0]["Dimensions"],
+                json!([[]])
+            );
+            for (metric, expected) in [
+                (CrawlerMetric::ScrapesSucceeded, 1),
+                (CrawlerMetric::ScrapesFailed, 1),
+                (CrawlerMetric::UrlFailures, 1),
+                (CrawlerMetric::ProductsCaptured, 1),
+                (CrawlerMetric::ScraperDueUrls, 7),
+            ] {
+                assert_eq!(record[metric.name()], expected, "{}", metric.name());
+            }
+            assert!(record[CrawlerMetric::ScraperPassDuration.name()].is_u64());
+            assert!(record.get("listing_source_id").is_none());
         }
 
         #[tokio::test]
-        async fn should_emit_due_urls_and_pass_duration_when_a_pass_finds_no_candidates() {
+        async fn should_publish_the_due_urls_and_duration_when_a_pass_finds_no_candidates() {
             let (metrics, _guard) = capture_metrics();
             let mut scraper_candidates = MockScraperCandidateService::new();
             scraper_candidates
                 .expect_get_candidates()
                 .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
             expect_due_url_count(&mut scraper_candidates, 7);
-            expect_sources_awaiting_review(&mut scraper_candidates, Vec::new());
             let (spider_candidates, spider_service) = empty_spider_dependencies();
             let job = CrawlerCronJob::new(
                 CrawlerCronConfig::default(),
@@ -7741,38 +7661,23 @@ mod tests {
 
             job.run_scraper_once().await;
 
-            assert_eq!(
-                metrics.values(CrawlerMetric::ScraperDueUrls),
-                vec![(vec![], 7)]
-            );
-            assert_eq!(metrics.values(CrawlerMetric::ScraperPassDuration).len(), 1);
+            let records = metrics.records();
+            assert_eq!(records.len(), 1, "an idle pass publishes one record too");
+            assert_eq!(records[0][CrawlerMetric::ScraperDueUrls.name()], 7);
+            assert_eq!(records[0][CrawlerMetric::ScrapesSucceeded.name()], 0);
+            assert!(records[0][CrawlerMetric::ScraperPassDuration.name()].is_u64());
         }
 
-        /// A ListingSource whose scraping only a pending review holds back has no batch, so each
-        /// pass records its wait in the metric the no-successful-scrape alarm reads.
         #[tokio::test]
-        async fn should_record_a_review_wait_for_each_source_a_pending_review_holds_back() {
+        async fn should_leave_the_due_urls_out_when_counting_them_fails() {
             let (metrics, _guard) = capture_metrics();
-            let pattern_review = ListingSourceId::new();
-            let schema_review = ListingSourceId::new();
             let mut scraper_candidates = MockScraperCandidateService::new();
             scraper_candidates
                 .expect_get_candidates()
                 .returning(|_, _, _| Box::pin(async { Ok(vec![]) }));
-            expect_due_url_count(&mut scraper_candidates, 0);
-            expect_sources_awaiting_review(
-                &mut scraper_candidates,
-                vec![
-                    SourceAwaitingReview {
-                        listing_source_id: pattern_review,
-                        crawl_host: "pattern-review.example.com".to_owned(),
-                    },
-                    SourceAwaitingReview {
-                        listing_source_id: schema_review,
-                        crawl_host: "schema-review.example.com".to_owned(),
-                    },
-                ],
-            );
+            scraper_candidates
+                .expect_count_due_urls()
+                .returning(|| Box::pin(async { Err(sqlx::Error::PoolTimedOut) }));
             let (spider_candidates, spider_service) = empty_spider_dependencies();
             let job = CrawlerCronJob::new(
                 CrawlerCronConfig::default(),
@@ -7787,18 +7692,12 @@ mod tests {
 
             job.run_scraper_once().await;
 
-            let source = |listing_source_id: ListingSourceId| {
-                (
-                    vec![(
-                        "listing_source_id".to_owned(),
-                        listing_source_id.to_string(),
-                    )],
-                    1,
-                )
-            };
-            assert_eq!(
-                metrics.values(CrawlerMetric::ScrapedOrAwaitingReview),
-                vec![source(pattern_review), source(schema_review)]
+            let records = metrics.records();
+            assert_eq!(records.len(), 1);
+            assert!(
+                records[0]
+                    .get(CrawlerMetric::ScraperDueUrls.name())
+                    .is_none()
             );
         }
     }

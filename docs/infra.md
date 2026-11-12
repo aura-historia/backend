@@ -588,7 +588,8 @@ approved administration with private secret injection, never passwords in CLI lo
 
 Before a release adopts existing API/PostConfirmation evidence log groups, inspect
 selected templates and exact names/ownership from the Lambda construct. Do not
-let a normal release create colliding groups. Under separate approval, remove expiry
+let a normal release create colliding evidence groups; the other Lambda log groups are
+covered under [CloudWatch log cost controls](#cloudwatch-log-cost-controls). Under separate approval, remove expiry
 without deleting events and execute an **import-only** change set for the two
 verified `AWS::Logs::LogGroup` resources, with no unrelated changes. Require only
 `Import` actions before execution. `GetTemplate` can lose non-ASCII characters;
@@ -597,6 +598,44 @@ than assuming a lossless round trip. Then review the normal release separately:
 no replacement/deletion, retention unset, retained
 resources and exact retention-handler exemptions. Consent access/retention duties
 belong in [marketing consent](marketing-consent.md), not this ownership migration.
+
+### CloudWatch log cost controls
+
+CloudWatch bills log ingestion and custom metrics, so production logs only what needs attention
+and publishes no per-source metric.
+
+- Every Lambda reads `LOG_LEVEL` (`warn` in production, `info` in dev) and logs only at that
+  level and above; spans stay at INFO so a WARN or ERROR line keeps its request and correlation
+  IDs. Consent evidence stays at INFO whatever the level, and the ingestion outcome lines the
+  metric filters read are not level-filtered. Raise the level for one function by changing its
+  `LOG_LEVEL` in CDK and releasing. Consumers invoke published versions, which snapshot the
+  configuration, so editing `$LATEST` in the console changes nothing for them. The API, MCP and
+  Cognito triggers get a new version from the change; the queue workers and the CDC router
+  run explicit versions identified by artifact and credentials only, so a change of `LOG_LEVEL`
+  alone reaches them with their next artifact release.
+- Lambda's JSON log format and system log level `WARN` drop the START, END and REPORT lines, so
+  REPORT's memory and init figures are gone; set the system level to `INFO` on one function to see
+  them again. The application log level is deliberately not set to `WARN`: Lambda filters a custom
+  runtime's logs by each line's `level` and treats a line without an RFC 3339 `timestamp`, which
+  the shared formatter omits, and plain-text panic output as INFO, so it would drop the errors. The
+  application filters itself.
+- Every Lambda declares its log group with seven days of retention, except the ingestion and MCP
+  groups (30 days) and the two consent evidence groups, which never expire. The retention handler
+  gives 30 days to any other new group, unless it was created with a retention.
+- Neither API Gateway writes an access log. After the release that removes them, the production
+  groups `/aws/apigateway/api-prod` and `/aws/apigateway/mcp-prod` stay, because they are
+  retained, hold their last week of access logs and then nothing; delete them when convenient.
+- The crawler's log group lives outside CloudFormation: set its retention once with
+  `aws logs put-retention-policy --log-group-name <CRAWLER_CLOUDWATCH_LOG_GROUP> --retention-in-days 7`.
+
+Lambda auto-creates a function's log group on its first invocation, so a deployed account already
+has a group under the name this release declares for each function that did not declare one
+before, and CloudFormation fails creating it with `AlreadyExists`. `cdk diff` lists those groups
+as `AWS::Logs::LogGroup` additions of `/aws/lambda/` names. Their logs hold no data worth keeping,
+so, under separate approval, delete each listed group immediately before the release; a busy
+function that logs between the delete and the release recreates its group and rolls the update
+back, so repeat the delete for that group or use the import-only procedure above instead. Never
+delete the two consent evidence groups, which are already stack resources.
 
 For a federated registration conflict, preserve the existing PostgreSQL account.
 Verify the losing Cognito profile's exact immutable subject and issuer against

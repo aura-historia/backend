@@ -164,7 +164,7 @@ refused the request itself and `unknown` when the service did not say which syst
 fields to choose a repair before a redrive: `invalid_persisted_state` and `document_invalid`
 point to data to repair, not an outage. They never carry error messages, provider bodies or
 payloads. Expected claim, lease or version contention carries no failure diagnostic; identity
-deletion, geo resolution and ingestion record it at INFO.
+deletion, geo resolution and ingestion record it at INFO, which production's `warn` level does not write until `LOG_LEVEL` is raised.
 
 A worker Lambda whose PostgreSQL pool cannot be created records one `lambda.setup.failed`
 event with `component` and the same fields (for example `pool_connect`/`postgres`) before

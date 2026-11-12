@@ -3,10 +3,8 @@ mod operations;
 
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use operations::OperationConfig;
-use platform_lambda_bootstrap::{
-    log_cold_start, log_invocation_start, logging_config_from_env, required_config_from_env,
-};
-use platform_observability::init;
+use platform_lambda_bootstrap::{log_cold_start, log_invocation_start, required_config_from_env};
+use platform_observability::{LoggingConfig, init};
 use serde_json::{Value, json};
 use std::time::Instant;
 
@@ -20,7 +18,7 @@ enum DatabaseOperation {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let started_at = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
     // The deployment identity fixes the operation and secret access. Payloads cannot select bootstrap.
     let operation = match required_config_from_env("DATABASE_OPERATION")?.as_str() {
         "BOOTSTRAP" => DatabaseOperation::Bootstrap(bootstrap::MigrationConfig::from_env()?),

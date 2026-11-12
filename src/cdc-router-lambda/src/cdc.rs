@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::info;
+use tracing::debug;
 
 pub const MAX_CDC_BODY_BYTES: usize = 1024 * 1024;
 pub const MAX_CDC_JOBS: usize = 500;
@@ -140,7 +140,7 @@ impl CdcFanout {
         })
         .await
         .map_err(|_| CdcFanoutError::PublicationDeadline)??;
-        info!(
+        debug!(
             changes = 1,
             enqueued = count,
             "CDC source record fanout publication confirmed"

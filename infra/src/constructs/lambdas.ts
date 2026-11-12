@@ -11,6 +11,7 @@ import type { StageConfig, StageName } from "../config";
 import { ssmValue } from "../config";
 import { credentialSecrets, recordingCredentialResolver, releaseVersionDescription } from "../credentials";
 import { releaseLambdaCode, lambdaArtifactParameters } from "../release-artifacts";
+import { LAMBDA_LOGGING, lambdaLogGroup, lambdaLogLevel } from "./lambda-logging";
 import type { ApplicationParameters } from "../parameters";
 import {
   apiEnvironment,
@@ -408,7 +409,9 @@ export class Lambdas extends Construct {
         memorySize: definition.memorySize,
         timeout: cdk.Duration.seconds(definition.timeoutSeconds),
         reservedConcurrentExecutions: lambdaReservedConcurrency(key, props.config),
-        logGroup: logGroups[key],
+        logGroup: logGroups[key]
+          ?? lambdaLogGroup(this, `${definition.id}LogGroup`, `${definition.binaryName}-${props.config.stage}`, props.config),
+        ...LAMBDA_LOGGING,
         ephemeralStorageSize: cdk.Size.mebibytes(512),
         environment,
         layers: definition.postgres && postgresTlsRootCertificateLayer
@@ -509,7 +512,7 @@ export class Lambdas extends Construct {
 }
 
 function lambdaEnvironment(definition: LambdaDefinition, context: LambdaEnvironmentContext): Record<string, string> {
-  const env = definition.environment?.(context) ?? {};
+  const env = { LOG_LEVEL: lambdaLogLevel(context.config), ...definition.environment?.(context) };
   if (!definition.postgres) {
     return env;
   }

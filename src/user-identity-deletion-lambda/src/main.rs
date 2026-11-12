@@ -2,9 +2,9 @@ use aws_lambda_events::sqs::SqsEvent;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use platform_lambda_bootstrap::{
     LambdaInvocationBudget, LazyComposition, RuntimePostgresConfig, log_cold_start,
-    log_invocation_start, logging_config_from_env,
+    log_invocation_start,
 };
-use platform_observability::init;
+use platform_observability::{LoggingConfig, init};
 use platform_postgres::SqlxUnitOfWork;
 use std::{
     sync::Arc,
@@ -21,7 +21,7 @@ const COMPONENT: &str = "user-identity-deletion-lambda";
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let started = Instant::now();
-    init(logging_config_from_env());
+    init(LoggingConfig::from_env());
     let postgres = RuntimePostgresConfig::from_env()?;
     let user_pool_id = std::env::var("AURA_HISTORIA_COGNITO_USER_POOL_ID")
         .ok()

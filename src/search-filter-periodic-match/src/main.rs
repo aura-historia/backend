@@ -2,7 +2,7 @@ mod execution;
 mod wiring;
 
 use execution::{ExecutionError, STARTUP_LIMIT};
-use platform_observability::{LogLevel, LoggingConfig, init};
+use platform_observability::{LoggingConfig, init};
 use std::time::Instant;
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -28,13 +28,7 @@ fn main() -> Result<(), &'static str> {
 }
 
 async fn async_main() -> Result<(), &'static str> {
-    init(LoggingConfig::new(
-        std::env::var("LOG_LEVEL")
-            .ok()
-            .as_deref()
-            .and_then(LogLevel::parse)
-            .unwrap_or_default(),
-    ));
+    init(LoggingConfig::from_env());
     // Register both signal handlers before async provider startup. A setup failure is fatal.
     let mut term = signal(SignalKind::terminate()).map_err(|_| "failed to register SIGTERM")?;
     let mut interrupt = signal(SignalKind::interrupt()).map_err(|_| "failed to register SIGINT")?;
@@ -74,9 +68,19 @@ async fn async_main() -> Result<(), &'static str> {
         Err(ExecutionError::Panicked) => "panicked",
         Err(ExecutionError::TaskFailed) => "task_failed",
     };
-    tracing::info!(job = "search-filter-periodic-match", stage, revision, outcome,
-        finished_at = %time::OffsetDateTime::now_utc(), duration_ms = started.elapsed().as_millis(),
-        "cron.matching.terminal");
+    macro_rules! log_terminal {
+        ($log:ident) => {
+            tracing::$log!(job = "search-filter-periodic-match", stage, revision, outcome,
+                finished_at = %time::OffsetDateTime::now_utc(), duration_ms = started.elapsed().as_millis(),
+                "cron.matching.terminal")
+        };
+    }
+    // The terminal outcome of a run that did not succeed is a failure to report, whatever level
+    // the job logs at; only a successful run is routine.
+    match &result {
+        Ok(()) => log_terminal!(info),
+        Err(_) => log_terminal!(warn),
+    }
     result.map_err(|_| "periodic matching did not complete successfully")
 }
 
