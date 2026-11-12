@@ -41,9 +41,6 @@
     --bad: #b3261e;       --bad-soft: #fcebea;     --bad-line: #f2b3ae;
     --info: #2456c8;      --info-soft: #e8eefc;    --info-line: #b7c8f3;
     --neutral: #475063;   --neutral-soft: #eceef2; --neutral-line: #c9cfda;
-    /* label palette: the ListingSource labels that are no status */
-    --violet: #6b3fc0;    --violet-soft: #f0e9fc;
-    --teal: #0f766e;      --teal-soft: #ddf3f0;
     /* elevation */
     --shadow-1: 0 1px 2px rgba(20, 26, 40, 0.06);
     --shadow-2: 0 4px 16px rgba(20, 26, 40, 0.10);
@@ -79,8 +76,6 @@
         --bad: #ff948c;     --bad-soft: #351c1b;     --bad-line: #66302d;
         --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
         --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
-        --violet: #c4a7ff;  --violet-soft: #2a1f45;
-        --teal: #5fd3c4;    --teal-soft: #12302c;
         --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
         color-scheme: dark;
     }
@@ -95,8 +90,6 @@
     --bad: #ff948c;     --bad-soft: #351c1b;     --bad-line: #66302d;
     --info: #8fb0ff;    --info-soft: #1c2a4d;    --info-line: #2f4480;
     --neutral: #b8bfcc; --neutral-soft: #272c37; --neutral-line: #3b4252;
-    --violet: #c4a7ff;  --violet-soft: #2a1f45;
-    --teal: #5fd3c4;    --teal-soft: #12302c;
     --shadow-1: none; --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
 }
@@ -153,17 +146,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 /* ───────────────────────────── 4. Badges and dots ───────────────────────────── */
 /* A badge is words in a tone. `.badge-kind` is the artifact type: outlined, never a status. */
 .badge { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; height: 20px; padding: 0 7px; border: 1px solid transparent; border-radius: var(--r-sm);
-    background: var(--neutral-soft); color: var(--neutral); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; white-space: nowrap; vertical-align: middle; }
+    background: var(--neutral-soft); color: var(--neutral); font-size: var(--fs-xs); font-weight: 600; line-height: 18px; letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap; vertical-align: middle; }
 .badge-ok { background: var(--ok-soft); color: var(--ok); }
 .badge-warn { background: var(--warn-soft); color: var(--warn); }
 .badge-bad { background: var(--bad-soft); color: var(--bad); }
 .badge-info { background: var(--info-soft); color: var(--info); }
 .badge-neutral { background: var(--neutral-soft); color: var(--neutral); }
-.badge-violet { background: var(--violet-soft); color: var(--violet); }
-.badge-teal { background: var(--teal-soft); color: var(--teal); }
-.rail-source { display: inline-flex; align-items: center; gap: 6px; color: inherit; }
-.rail-source:hover { color: var(--accent); }
-.rail-source svg { flex: none; color: var(--muted); }
 .badge-kind { background: transparent; border-color: var(--line-strong); color: var(--ink-2); font-weight: 500; }
 .badge-count { min-width: 20px; justify-content: center; padding: 0 6px; font-variant-numeric: tabular-nums; }
 .badge .dot { width: 6px; height: 6px; }
@@ -579,9 +567,11 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .queue-bar .spacer { flex: 1; }
 .kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); font: 600 11px/16px var(--mono); text-align: center; vertical-align: middle; }
 .kbd-hint { color: var(--muted); font-size: var(--fs-xs); }
-/* Rail header: the source's health next to its name. */
-.rail .card-head .badge { margin-left: auto; }
-.rail .card-head .btn { margin-left: var(--s-1); }
+/* Rail header: the source's name with its health right after it, the hide button at the end. */
+.rail .card-head { flex-wrap: nowrap; }
+.rail .card-head h3 { flex-wrap: wrap; min-width: 0; }
+.rail .card-head .rail-source { color: var(--ink); }
+.rail .card-head .btn { flex: none; margin-left: auto; }
 @media (max-width: 1319px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 719px) { .refresh-state { display: none; } .queue-bar .kbd-hint { display: none; } }
 
@@ -599,7 +589,6 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 .pager-note { color: var(--warn); font-weight: 500; }
 .banner .spinner { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--info); animation: pulse 1s ease-in-out infinite; }
 .dimmed { opacity: 0.5; pointer-events: none; }
-@media (max-width: 479px) { .rail .card-head { flex-wrap: wrap; } .rail .card-head .badge { margin-left: 0; order: 3; } }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .tile-link { display: grid; gap: 2px; color: inherit; }
 .tile-link:hover { text-decoration: none; }
