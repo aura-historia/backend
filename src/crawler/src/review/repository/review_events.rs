@@ -5,8 +5,8 @@
 use super::review_log::{ReviewLogEntry, emit_all, prepare_review_logs};
 use super::{ReviewRepositoryError, crawler_review_id_from_uuid};
 use crate::review::model::{
-    CrawlerReviewEvent, LiveMatrixEvaluation, ReviewActor, ReviewEventAction, ReviewEventSummary,
-    SampleLabelCounts, SampleLabels, SortDirection,
+    CrawlerReviewEvent, HandoverCause, LiveMatrixEvaluation, ReviewActor, ReviewEventAction,
+    ReviewEventSummary, SampleLabelCounts, SampleLabels, SortDirection,
 };
 use crate::review::page_coverage::ReviewPageCoverage;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -76,10 +76,13 @@ pub(super) enum ReviewMutation<'a> {
         #[serde(skip)]
         note: &'a str,
     },
-    /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note.
+    /// `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning is the event's note, its
+    /// cause the details' `reason` and `category`.
     HandedToHuman {
         #[serde(skip)]
         note: &'a str,
+        #[serde(flatten)]
+        cause: HandoverCause,
     },
     ProductSchemasApproved {
         #[serde(skip)]
@@ -243,7 +246,7 @@ impl ReviewMutation<'_> {
 
     fn notes(&self) -> Option<&str> {
         match self {
-            Self::RepairRequested { note } | Self::HandedToHuman { note } => Some(note),
+            Self::RepairRequested { note } | Self::HandedToHuman { note, .. } => Some(note),
             Self::NoSoldPageRecorded { notes, .. } => Some(notes),
             Self::ProductSchemasApproved { notes, .. }
             | Self::UrlPatternApproved { notes, .. }
@@ -613,10 +616,17 @@ mod tests {
             (
                 ReviewMutation::HandedToHuman {
                     note: "nothing to change",
+                    cause: HandoverCause {
+                        reason: crate::review::model::HandoverReason::NothingToStageAfterReview,
+                        category: crate::review::model::HandoverCategory::CandidateAlreadyHolds,
+                    },
                 },
                 ReviewEventAction::HandedToHuman,
                 Some("nothing to change"),
-                json!({}),
+                json!({
+                    "reason": "NOTHING_TO_STAGE_AFTER_REVIEW",
+                    "category": "CANDIDATE_ALREADY_HOLDS",
+                }),
             ),
             (
                 ReviewMutation::ProductSchemasApproved {

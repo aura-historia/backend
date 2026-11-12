@@ -20,7 +20,8 @@ use crawler::spider::crawl_frontier_repository::CrawlFrontierRepositoryImpl;
 use crawler::spider::crawled_root::CrawledRoot;
 use crawler::spider::discovery::frontier::{CrawlDiscovery, CrawlKind};
 use crawler::spider::discovery::website_spider::{
-    CrawlCompletion, CrawlDiagnostics, CrawlPace, CrawledPage, MockSpider, SpiderCrawl,
+    CrawlBudgetScale, CrawlCompletion, CrawlDiagnostics, CrawlPace, CrawledPage, MockSpider,
+    SpiderCrawl,
 };
 use crawler::spider::service::{
     REVIEW_SAMPLE_URLS, SpiderRunResult, SpiderService, SpiderServiceConfig, SpiderServiceError,
@@ -169,6 +170,7 @@ impl ManualCrawlFixture {
                     CRAWL_ROOT_URL,
                     THRESHOLD,
                     CrawlPace::default(),
+                    CrawlBudgetScale::STANDARD,
                     CrawlKind::Full,
                 )
                 .await

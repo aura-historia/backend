@@ -70,7 +70,10 @@ use crawler::local_db::{
     DEMO_DB_NAME, DevDatabase,
     connect_retry::{self, PostgresConnectError},
 };
-use crawler::logging::{HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE};
+use crawler::logging::{
+    HTML5EVER_TREE_BUILDER_LOG_DIRECTIVE, SPIDER_LIBRARY_LOG_DIRECTIVE,
+    tls_verifier_handshake_error_filter,
+};
 use crawler::metrics::{EMF_LOG_DIRECTIVE, EmfPassthroughFormat};
 use crawler::review::server::ReviewServerConfig;
 use crawler::review_agent_runner::{RunnerChild, runner_env, runner_executable_next_to};
@@ -82,6 +85,8 @@ use crawler::service::listing_source_registration::{
     ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 use tracing::{Instrument, error, info, warn};
 
@@ -308,6 +313,8 @@ fn init_logging() {
                 .with_current_span(true)
                 .with_span_list(false),
         ))
+        .finish()
+        .with(tls_verifier_handshake_error_filter())
         .init();
 }
 

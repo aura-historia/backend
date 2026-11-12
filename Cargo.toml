@@ -76,6 +76,7 @@ members = [
     "src/product-listing-service",
     "src/woocommerce-service",
     "src/product-listing-translation-llm",
+    "src/search-filter-translation-llm",
     "src/product-listing-postgres",
     "src/platform-observability",
     "src/platform-google-adc",
@@ -232,6 +233,7 @@ product-service = { path = "src/product-service" }
 product-listing-service = { path = "src/product-listing-service" }
 woocommerce-service = { path = "src/woocommerce-service" }
 product-listing-translation-llm = { path = "src/product-listing-translation-llm" }
+search-filter-translation-llm = { path = "src/search-filter-translation-llm" }
 product-listing-postgres = { path = "src/product-listing-postgres" }
 fxrate-core = { path = "src/fxrate-core" }
 fxrate-service = { path = "src/fxrate-service" }

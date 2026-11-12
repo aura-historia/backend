@@ -24,6 +24,7 @@ mod public_product_listing_history;
 mod public_product_listings;
 mod saved_search_previews;
 mod saved_searches;
+mod search_intent_translation;
 mod shipping_management;
 mod source_location_defaults;
 mod user_profile;
@@ -57,6 +58,10 @@ pub use saved_search_previews::{
     SavedSearchPreviews,
 };
 pub use saved_searches::SavedSearches;
+pub use search_intent_translation::{
+    SearchIntentTranslatorConfigError, UnavailableSearchIntentTranslator, search_intent_translator,
+    search_intent_translator_from_env,
+};
 pub use shipping_management::ShippingManagement;
 pub use source_location_defaults::SourceLocationDefaults;
 pub use user_profile::UserProfile;
@@ -191,9 +196,15 @@ impl Runtime {
     pub fn saved_searches(
         &self,
         embeddings: Arc<dyn embedding::EmbeddingGenerator>,
+        translator: Arc<dyn search_filter_service::ports::SearchIntentTranslator>,
     ) -> &SavedSearches {
         self.saved_searches.get_or_init(|| {
-            SavedSearches::compose(&self.postgres, self.listing_shipping().clone(), embeddings)
+            SavedSearches::compose(
+                &self.postgres,
+                self.listing_shipping().clone(),
+                embeddings,
+                translator,
+            )
         })
     }
 

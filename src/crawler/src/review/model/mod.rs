@@ -51,7 +51,10 @@ pub use removed_page_template_match::{
 };
 pub use review::{CrawlerReview, RepairRequest};
 pub use review_detail::ReviewDetail;
-pub use review_event::{CrawlerReviewEvent, ReviewActor, ReviewEventAction, ReviewEventSummary};
+pub use review_event::{
+    CrawlerReviewEvent, HandoverCategory, HandoverCause, HandoverReason, ReviewActor,
+    ReviewEventAction, ReviewEventSummary,
+};
 pub use review_filter::{ReviewSort, ReviewWaiting};
 pub use review_page::CrawlerReviewPage;
 pub use review_queue_entry::{AutoSchemaEvaluationOutcome, ReviewQueueEntry, SourceReviewEntry};

@@ -7,11 +7,12 @@ use crate::review::assets::{
 };
 use crate::review::candidate_evaluations::CandidateEvaluations;
 use crate::review::http::{HttpResponse, ParsedRequest, parse_request};
+use crate::review::human_queue_metrics;
 use crate::review::live_jobs::{LiveJobLimit, LiveJobsBusy};
 use crate::review::matrix_refresh::MatrixRefreshes;
 use crate::review::model::{
-    CrawlerReviewPage, RawAttributeKey, ReviewActor, ReviewDetail, SampleLabelInput,
-    SourceProductUrl,
+    CrawlerReviewPage, HandoverCategory, HandoverCause, HandoverReason, RawAttributeKey,
+    ReviewActor, ReviewDetail, SampleLabelInput, SourceProductUrl,
 };
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
@@ -50,6 +51,7 @@ const MATRIX_REFRESH_RESPONSE_WAIT: Duration = Duration::from_secs(20);
 const RESPONSE_WRITE_DEADLINE: Duration = Duration::from_secs(10);
 
 mod activity;
+mod crawl_resumption;
 mod listing_source_list;
 mod mass_removal_confirmation;
 mod missing_value_pages;
@@ -142,6 +144,17 @@ impl ReviewServer {
             "Crawler review console listening"
         );
 
+        tokio::select! {
+            served = self.accept_connections(listener) => served,
+            never = human_queue_metrics::report_while_agents_work(self.repository.clone()) => {
+                match never {}
+            }
+        }
+    }
+
+    /// Answers each connection `listener` accepts on a task of its own, within the console's
+    /// connection limit.
+    async fn accept_connections(&self, listener: TcpListener) -> std::io::Result<()> {
         let connection_limiter = connection_limiter();
         loop {
             let permit = connection_limiter
@@ -255,6 +268,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_missing_value_pages(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_crawl_resumption(&request, actor).await {
             return response;
         }
         if let Some(response) = self.route_mass_removal_confirmation(&request, actor).await {
@@ -554,13 +570,22 @@ impl ReviewServer {
             && request.path.ends_with("/hand-to-human")
         {
             let (review_id, payload) =
-                match verdict_request::<ActionPayload>(&request, "/hand-to-human") {
+                match verdict_request::<HandoverPayload>(&request, "/hand-to-human") {
                     Ok(verdict) => verdict,
                     Err(response) => return response,
                 };
+            if payload.names_no_full_cause() {
+                warn!(
+                    review_id = %review_id,
+                    actor = actor.as_str(),
+                    reason_sent = payload.reason.is_some(),
+                    category_sent = payload.category.is_some(),
+                    "A hand-over names no reason or category, as a runner older than them sends; it is taken with the defaults NEEDS_HUMAN and NONE"
+                );
+            }
             return verdict_answer(
                 self.repository
-                    .hand_to_human(review_id, actor, payload.notes.as_deref())
+                    .hand_to_human(review_id, actor, payload.cause(), payload.notes.as_deref())
                     .await,
             );
         }
@@ -955,6 +980,33 @@ where
 #[derive(Deserialize)]
 struct ActionPayload {
     notes: Option<String>,
+}
+
+/// A hand-over of `POST /api/reviews/{id}/hand-to-human`: the agent's reasoning as `notes` and
+/// its cause as `reason` and `category`. A runner older than the cause names neither, so a
+/// missing `reason` is taken as `NEEDS_HUMAN` and a missing `category` as `NONE` rather than
+/// refusing its hand-over, which it would only turn into a cooldown; a value it does name must
+/// be a known one.
+#[derive(Deserialize)]
+struct HandoverPayload {
+    notes: Option<String>,
+    reason: Option<HandoverReason>,
+    category: Option<HandoverCategory>,
+}
+
+impl HandoverPayload {
+    /// The cause the payload names, with the defaults for what it leaves out.
+    fn cause(&self) -> HandoverCause {
+        HandoverCause {
+            reason: self.reason.unwrap_or(HandoverReason::NeedsHuman),
+            category: self.category.unwrap_or_default(),
+        }
+    }
+
+    /// Whether the payload leaves out its reason or category, as a runner older than them does.
+    fn names_no_full_cause(&self) -> bool {
+        self.reason.is_none() || self.category.is_none()
+    }
 }
 
 /// An approval of `POST /api/reviews/{id}/approve`. `expected_candidate_version` is the
@@ -2239,6 +2291,68 @@ Origin: http://127.0.0.1:7878/x
         assert!(
             parse_verdict_payload::<ActionPayload>("").is_ok_and(|payload| payload.notes.is_none())
         );
+    }
+
+    /// A hand-over must name a known reason and category when it names one at all.
+    #[test]
+    fn should_refuse_a_hand_over_that_names_an_unknown_reason_or_category() {
+        for body in [
+            r#"{"notes": "behind a login wall", "reason": "LOGIN_WALL", "category": "OTHER"}"#,
+            r#"{"notes": "behind a login wall", "reason": "NEEDS_HUMAN", "category": "WALL"}"#,
+            r#"{"notes": "behind a login wall", "reason": "needs_human"}"#,
+        ] {
+            assert!(
+                parse_verdict_payload::<HandoverPayload>(body).is_err(),
+                "{body:?} must be refused"
+            );
+        }
+        let payload = parse_verdict_payload::<HandoverPayload>(
+            r#"{"notes": "behind a login wall", "reason": "NOTHING_TO_STAGE_AFTER_REVIEW", "category": "PAGES_UNREADABLE"}"#,
+        )
+        .unwrap_or_else(|error| panic!("hand-over with a cause: {error}"));
+        assert_eq!(
+            payload.cause(),
+            HandoverCause {
+                reason: HandoverReason::NothingToStageAfterReview,
+                category: HandoverCategory::PagesUnreadable,
+            }
+        );
+        assert!(!payload.names_no_full_cause());
+        assert_eq!(payload.notes.as_deref(), Some("behind a login wall"));
+    }
+
+    /// A runner deployed before the cause sends only its notes; its hand-over is taken with the
+    /// default cause instead of being refused.
+    #[test]
+    fn should_take_a_hand_over_without_a_cause_as_needs_human_with_no_category() {
+        for (body, expected) in [
+            (
+                r#"{"notes": "behind a login wall"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NeedsHuman,
+                    category: HandoverCategory::None,
+                },
+            ),
+            (
+                r#"{"notes": "behind a login wall", "category": "OTHER"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NeedsHuman,
+                    category: HandoverCategory::Other,
+                },
+            ),
+            (
+                r#"{"notes": "behind a login wall", "reason": "NOTHING_TO_STAGE_AFTER_REVIEW"}"#,
+                HandoverCause {
+                    reason: HandoverReason::NothingToStageAfterReview,
+                    category: HandoverCategory::None,
+                },
+            ),
+        ] {
+            let payload = parse_verdict_payload::<HandoverPayload>(body)
+                .unwrap_or_else(|error| panic!("{body}: {error}"));
+            assert_eq!(payload.cause(), expected, "{body}");
+            assert!(payload.names_no_full_cause(), "{body}");
+        }
     }
 
     mod matrix_refresh {
@@ -5436,7 +5550,7 @@ Origin: http://127.0.0.1:7878/x
         use std::sync::Arc;
         use test_api::IntegrationTestService as _;
 
-        async fn console() -> (ReviewServer, ListingSourceId) {
+        pub(super) async fn console() -> (ReviewServer, ListingSourceId) {
             let pool = test_api::get_postgres_client().await;
             let listing_source_id = ListingSourceId::new();
             sqlx::query(
@@ -5464,7 +5578,10 @@ Origin: http://127.0.0.1:7878/x
             (server, listing_source_id)
         }
 
-        async fn overview_of(server: &ReviewServer, listing_source_id: ListingSourceId) -> Value {
+        pub(super) async fn overview_of(
+            server: &ReviewServer,
+            listing_source_id: ListingSourceId,
+        ) -> Value {
             let (_, sources) = send(server, "GET /api/listing_sources", "").await;
             sources["items"]
                 .as_array()
@@ -5535,6 +5652,59 @@ Origin: http://127.0.0.1:7878/x
                 &json!({ "hours": 24 }).to_string(),
             )
             .await;
+            assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
+        }
+    }
+    mod crawl_resumption {
+        use super::mass_removal_confirmation::{console, overview_of};
+        use super::needs_repair::{AUTHOR_TOKEN, send, send_as};
+        use crate::spider::candidate_service::NEEDS_OPERATOR_CRAWL_OUTCOME;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// A human returns a source that waits for an operator to the schedule with a new streak;
+        /// a source that does not wait is left alone, and an agent token is refused.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_resume_a_crawl_that_waits_for_an_operator_for_a_human_only() {
+            let (server, listing_source_id) = console().await;
+            let pool = test_api::get_postgres_client().await;
+            sqlx::query(
+                "UPDATE listing_sources \
+                 SET last_crawl_outcome = $2, last_crawl_error_kind = 'ConnectError', \
+                     crawl_failure_count = 5, last_crawl_run_at = NOW() \
+                 WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(NEEDS_OPERATOR_CRAWL_OUTCOME)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("mark needs operator: {error}"));
+            let route = format!("/api/listing-sources/{listing_source_id}/crawl-resumption");
+
+            let (status, _) = send_as(&server, AUTHOR_TOKEN, &format!("POST {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+            let source = overview_of(&server, listing_source_id).await;
+            assert_eq!(source["last_crawl_outcome"], NEEDS_OPERATOR_CRAWL_OUTCOME);
+
+            let (status, resumed) = send(&server, &format!("POST {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {resumed}");
+            assert_eq!(resumed, json!({ "resumed": true }));
+            let source = overview_of(&server, listing_source_id).await;
+            assert!(source["last_crawl_outcome"].is_null(), "{source}");
+            assert!(source["last_crawl_error_kind"].is_null(), "{source}");
+            assert_eq!(source["crawl_failure_count"], 0, "{source}");
+            assert!(source["next_crawl_at"].is_null(), "{source}");
+
+            let (status, again) = send(&server, &format!("POST {route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {again}");
+            assert_eq!(again, json!({ "resumed": false }));
+
+            let unknown = format!(
+                "/api/listing-sources/{}/crawl-resumption",
+                ListingSourceId::new()
+            );
+            let (status, missing) = send(&server, &format!("POST {unknown}"), "").await;
             assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
         }
     }

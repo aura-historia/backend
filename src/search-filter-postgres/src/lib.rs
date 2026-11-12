@@ -1,4 +1,5 @@
 mod existing_search_filter_match_reader;
+mod intent_translation;
 mod mapping;
 mod match_notification_source_reader;
 mod match_repository;
@@ -11,6 +12,7 @@ mod search_filter_match_writer;
 mod search_filter_monthly_match_quota_reader;
 
 pub use existing_search_filter_match_reader::SqlxExistingSearchFilterMatchReader;
+pub use intent_translation::SqlxSearchIntentTranslationStore;
 pub use match_notification_source_reader::SqlxSearchFilterMatchNotificationSourceReaderFactory;
 pub use match_repository::SqlxSearchFilterMatchRepositoryFactory;
 pub use periodic_search_filter_candidate_reader::SqlxPeriodicSearchFilterCandidateReader;

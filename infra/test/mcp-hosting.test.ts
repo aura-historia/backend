@@ -217,6 +217,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       POSTGRES_PASSWORD: credentialReference(credentialSecrets(stage).postgresRuntime, "password"),
       POSTGRES_DATABASE: "aura_historia", POSTGRES_MAX_CONNECTIONS: "1",
       POSTGRES_TLS_ROOT_CERT: "/opt/aura-historia/rds-ca/global-bundle.pem",
+      ANTHROPIC_API_KEY: credentialReference(credentialSecrets(stage).anthropic, "apiKey"),
     });
     expect(Object.keys(environment).sort()).toEqual([
       "AWS_LAMBDA_HTTP_IGNORE_STAGE_IN_PATH", "COMMIT_SHA", "MCP_ALLOWED_HOSTS", "MCP_ALLOWED_ORIGINS",
@@ -226,7 +227,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
       "PRODUCT_LISTING_SEARCH_PARALLEL_ENRICHMENT_ENABLED",
       "VERTEX_AI_LOCATION", "VERTEX_AI_PROJECT_ID", "AURA_HISTORIA_GOOGLE_ADC_CREDENTIALS_JSON",
       "POSTGRES_DATABASE", "POSTGRES_HOST", "POSTGRES_MAX_CONNECTIONS", "POSTGRES_PORT", "POSTGRES_TLS_ROOT_CERT",
-      "POSTGRES_USERNAME", "POSTGRES_PASSWORD",
+      "POSTGRES_USERNAME", "POSTGRES_PASSWORD", "ANTHROPIC_API_KEY",
     ].sort());
     expect(environment.OAUTH_ISSUER_URL).toBe(`https://${stage === "prod" ? "api.aura-historia.com" : "api.stage.aura-historia.com"}`);
     expect(environment.MCP_OPENAI_APPS_CHALLENGE).toEqual(config.mcp.openAiAppsChallenge);
@@ -265,7 +266,7 @@ describe.each(STAGES)("%s MCP hosting", (stage) => {
     expect(version.Properties.FunctionName).toEqual({ Ref: functionId });
     const secrets = credentialSecrets(stage);
     expect(version.Properties.Description).toEqual(releaseVersionDescription("AuraHistoriaMcpArtifactSha256",
-      [secrets.google, secrets.openSearch, secrets.postgresRuntime]));
+      [secrets.anthropic, secrets.google, secrets.openSearch, secrets.postgresRuntime]));
     expect(fn.Properties.Code.S3Key).toEqual({ Ref: "AuraHistoriaMcpArtifactKey" });
     expect(compute.findResources("AWS::Lambda::Url")).toEqual({});
   });

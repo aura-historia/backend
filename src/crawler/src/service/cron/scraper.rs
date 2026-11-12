@@ -5,7 +5,7 @@ use crate::CrawlerReviewId;
 use crate::logging::{SourceLogContext, error_in_source, warn_in_source};
 use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
 use crate::network::policy::{
-    DomainFailureKind, NetworkErrorKind, domain_cooldown, durable_retry_cooldown_for,
+    DomainFailureKind, NetworkErrorKind, UrlRetry, domain_cooldown, url_retry_after_fetch_failure,
 };
 use crate::network::politeness::politeness_group;
 use crate::scraper::candidate_service::{
@@ -1501,13 +1501,26 @@ async fn persist_http_failure(
     failure: HttpFailure,
     evidence: &BatchEvidence,
 ) -> ScrapeFailureRecord {
-    let cooldown = durable_retry_cooldown_for(failure.kind);
-    let next_retry_at =
-        time::OffsetDateTime::now_utc() + time::Duration::seconds(cooldown.as_secs() as i64);
     let status_code = failure.status_code.or(match failure.kind {
         NetworkErrorKind::HttpStatus(code) => Some(code),
         _ => None,
     });
+    let retry = url_retry(candidate, &failure);
+    if let UrlRetry::Parked { page_errors } = retry {
+        warn!(
+            event = "crawler.scraper.product_url_parked_after_page_errors",
+            listing_source_id = %candidate.listing_source_id,
+            listing_source_name = %candidate.listing_source_name,
+            domain = %candidate.crawl_host,
+            url = %failure.url,
+            status_code = ?status_code,
+            page_error_streak = page_errors,
+            retry_after_days = retry.delay().as_secs() / (24 * 60 * 60),
+            "Parking a product URL that answered page errors on every fetch in a row"
+        );
+    }
+    let next_retry_at =
+        time::OffsetDateTime::now_utc() + time::Duration::seconds(retry.delay().as_secs() as i64);
     let error_kind = crawler_url_error_kind(failure.kind, status_code);
     let url_failure = FetchFailureRequest {
         listing_source_id: candidate.listing_source_id,
@@ -1572,6 +1585,18 @@ async fn persist_http_failure(
         circuit_opened,
         persisted_scrape_health,
     }
+}
+
+/// When the URL that `failure` names is fetched again. The page-error run the candidate was
+/// selected with is its own: a schema seed is drawn only without a fetch failure since its last
+/// scrape, so its run starts with this failure.
+fn url_retry(candidate: &ScraperCandidate, failure: &HttpFailure) -> UrlRetry {
+    let prior_page_errors = if failure.url == candidate.url {
+        candidate.page_error_streak
+    } else {
+        0
+    };
+    url_retry_after_fetch_failure(failure.kind, prior_page_errors)
 }
 
 /// Persists the URL failure and the ListingSource's scrape failure as evidence, without a
@@ -2808,6 +2833,7 @@ impl CrawlerCronJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::policy::{PARKED_PAGE_RETRY_DELAY, durable_retry_cooldown_for};
     use crate::scraper::candidate_service::{
         MockScraperCandidateService, ScrapeCircuitOpenOutcome, ScrapeHealthSnapshot,
         SourceAwaitingReview,
@@ -4897,6 +4923,104 @@ mod tests {
         let outcome = scrape_candidate(candidate, &ctx).await;
 
         assert!(outcome.errored);
+    }
+
+    /// A product URL the shop answers with HTTP 500 on every fetch is retried with a growing
+    /// delay and then parked (#2890); a single 500 keeps the transient cooldown.
+    mod page_error_runs {
+        use super::*;
+        use crate::network::policy::PAGE_ERROR_PARK_THRESHOLD;
+
+        /// Scrapes `candidate` once, failing with HTTP 500, and returns the `next_retry_at` its
+        /// URL failure recorded, together with the time before and after the scrape.
+        async fn next_retry_after_500(
+            candidate: ScraperCandidate,
+        ) -> (
+            time::OffsetDateTime,
+            time::OffsetDateTime,
+            time::OffsetDateTime,
+        ) {
+            let recorded = Arc::new(std::sync::Mutex::new(None));
+            let mut scraper_candidates = MockScraperCandidateService::new();
+            let recorded_by_mock = Arc::clone(&recorded);
+            scraper_candidates
+                .expect_mark_fetch_failure()
+                .once()
+                .withf(|_, _, error_kind, _, status_code, _, _| {
+                    error_kind == "HTTP_500" && *status_code == Some(500)
+                })
+                .returning(move |_, _, _, _, _, next_retry_at, _| {
+                    *recorded_by_mock.lock().unwrap() = Some(next_retry_at);
+                    Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) })
+                });
+            let mut scraper_service = MockScraperService::new();
+            scraper_service.expect_scrape().once().returning(|request| {
+                let url = request.url;
+                Box::pin(async move {
+                    scrape_outcome(Err(ScraperError::HttpError {
+                        url,
+                        kind: NetworkErrorKind::HttpStatus(500),
+                        details: "internal server error".to_string(),
+                    }))
+                })
+            });
+            let ctx = scrape_candidate_context(scraper_candidates, scraper_service);
+
+            let before = time::OffsetDateTime::now_utc();
+            let outcome = scrape_candidate(candidate, &ctx).await;
+            let after = time::OffsetDateTime::now_utc();
+
+            assert!(outcome.errored);
+            let next_retry_at = recorded.lock().unwrap().expect("URL failure recorded");
+            (before, next_retry_at, after)
+        }
+
+        fn candidate_with_run(page_error_streak: u32) -> ScraperCandidate {
+            let mut candidate = scraper_candidate(
+                "ListingSource",
+                url::Url::parse(
+                    "https://www.example.com/collection//miroir-l-xiv-7005945/new-arrivals",
+                )
+                .unwrap(),
+            );
+            candidate.page_error_streak = page_error_streak;
+            candidate
+        }
+
+        fn delay(seconds: u64) -> time::Duration {
+            time::Duration::seconds(seconds as i64)
+        }
+
+        #[tokio::test]
+        async fn should_retry_a_single_500_after_the_transient_cooldown() {
+            let cooldown = durable_retry_cooldown_for(NetworkErrorKind::HttpStatus(500)).as_secs();
+
+            let (before, next_retry_at, after) = next_retry_after_500(candidate_with_run(0)).await;
+
+            assert!(next_retry_at >= before + delay(cooldown));
+            assert!(next_retry_at <= after + delay(cooldown));
+        }
+
+        #[tokio::test]
+        async fn should_grow_the_retry_delay_with_the_page_error_run() {
+            let cooldown = durable_retry_cooldown_for(NetworkErrorKind::HttpStatus(500)).as_secs();
+
+            let (before, next_retry_at, after) = next_retry_after_500(candidate_with_run(3)).await;
+
+            assert!(next_retry_at >= before + delay(cooldown * 8));
+            assert!(next_retry_at <= after + delay(cooldown * 8));
+        }
+
+        #[tokio::test]
+        async fn should_park_the_url_when_the_run_reaches_the_threshold() {
+            let parked = PARKED_PAGE_RETRY_DELAY.as_secs();
+
+            let (before, next_retry_at, after) =
+                next_retry_after_500(candidate_with_run(PAGE_ERROR_PARK_THRESHOLD - 1)).await;
+
+            assert!(next_retry_at >= before + delay(parked));
+            assert!(next_retry_at <= after + delay(parked));
+        }
     }
 
     #[tokio::test]

@@ -323,6 +323,7 @@ async fn seed_filter(unit: &SqlxUnitOfWork, pool: &sqlx::PgPool, email: &str) ->
         embedding: None,
         matching_evidence_policy:
             search_filter_core::MatchingEvidencePolicy::EnhancedTextAndFourImages,
+        intent_translation: None,
     });
     let repository = SqlxSearchFilterRepositoryFactory;
     let mut tx = begin(unit).await;
