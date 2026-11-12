@@ -570,7 +570,8 @@ details:not([open]) > summary .chev svg, [aria-expanded="false"] > .chev svg { t
 /* Rail header: the source's name with its health right after it, the hide button at the end. */
 .rail .card-head { flex-wrap: nowrap; }
 .rail .card-head h3 { flex-wrap: wrap; min-width: 0; }
-.rail .card-head .rail-source { color: var(--ink); }
+.rail .card-head .rail-source { color: var(--ink); text-decoration: none; }
+.rail .card-head a.rail-source:hover { text-decoration: underline; }
 .rail .card-head .btn { flex: none; margin-left: auto; }
 @media (max-width: 1319px) { .overview-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 719px) { .refresh-state { display: none; } .queue-bar .kbd-hint { display: none; } }

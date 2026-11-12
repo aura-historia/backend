@@ -1827,12 +1827,20 @@ function renderRailItem(review, meta, badgeHtml) {
 
 const CHEVRON_ICON = direction => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${direction === 'left' ? 'M10 4l-4 4 4 4' : 'M6 4l4 4-4 4'}"/></svg>`;
 
+// The source's name opens the shop's site, its crawl root, in a new tab; without a crawl root it is
+// plain text.
+function railSourceName(name) {
+    const site = rail.source?.crawl_root_url;
+    if (!isHttpUrl(site || '')) return `<span class="rail-source">${escapeHtml(name)}</span>`;
+    return `<a class="rail-source" href="${escapeHtmlAttr(site)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtmlAttr(site)} in a new tab">${escapeHtml(name)}</a>`;
+}
+
 function renderRailContent() {
     if (railHidden()) {
         return `<button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(false)" aria-label="Show this source's reviews" title="Show this source's reviews" aria-expanded="false" type="button">${CHEVRON_ICON('right')}</button>`;
     }
     const name = selectedDetail?.review.listing_source_name || 'This source';
-    const head = `<div class="card-head"><h3><span class="rail-source">${escapeHtml(name)}</span>${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}</h3>
+    const head = `<div class="card-head"><h3>${railSourceName(name)}${rail.source ? statusKeyBadge(primaryStatus(rail.source)) : ''}</h3>
       <button class="btn btn-quiet btn-icon btn-sm" onclick="setRailCollapsed(true)" aria-label="Hide this source's reviews" title="Hide" aria-expanded="true" type="button">${CHEVRON_ICON('left')}</button></div>`;
     if (rail.items === undefined) {
         return `${head}<div class="rail-body">${rail.failure ? stateBlock('error', 'Reviews unavailable', rail.failure) : stateBlock('loading', 'Loading')}</div>`;
