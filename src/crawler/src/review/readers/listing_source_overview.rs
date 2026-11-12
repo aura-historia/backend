@@ -463,7 +463,10 @@ fn overview_of_row(
         held_removal_urls: row.try_get("held_removal_urls")?,
         held_since: row.try_get("held_since")?,
         mass_removal_confirmed_until: row.try_get("mass_removal_confirmed_until")?,
-        mass_removal_confirmed_by: confirming_actor(row.try_get("mass_removal_confirmed_by")?)?,
+        mass_removal_confirmed_by: persisted_actor(
+            "mass_removal_confirmed_by",
+            row.try_get("mass_removal_confirmed_by")?,
+        )?,
         url_error_kinds: Vec::new(),
         missing_value_urls: row.try_get("missing_value_urls")?,
         crawling_since: running_since(running, WorkLockScope::Spider, listing_source_id, now),
@@ -496,14 +499,12 @@ fn running_since(
         .map(|work| now - work.since.elapsed())
 }
 
-/// The actor a persisted confirmation names; an unknown name fails, so the console never shows a
-/// confirmation it cannot attribute.
-fn confirming_actor(name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
+/// The actor the persisted `column` names; an unknown name fails, so the console never shows a
+/// decision it cannot attribute.
+fn persisted_actor(column: &str, name: Option<String>) -> Result<Option<ReviewActor>, sqlx::Error> {
     name.map(|name| {
         ReviewActor::from_persisted(&name).ok_or_else(|| {
-            sqlx::Error::Decode(
-                format!("invalid persisted mass_removal_confirmed_by `{name}`").into(),
-            )
+            sqlx::Error::Decode(format!("invalid persisted {column} `{name}`").into())
         })
     })
     .transpose()
