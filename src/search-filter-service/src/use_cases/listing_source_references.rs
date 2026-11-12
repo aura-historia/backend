@@ -20,6 +20,30 @@ pub struct SearchFilterDetails {
     pub listing_sources: Vec<PublicListingSourceSummary>,
 }
 
+/// Why referenced ListingSources could not be resolved: a temporary failure, or a source whose
+/// public read model is invalid and keeps failing until it is repaired.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ListingSourceLookupError {
+    #[error("listing source lookup is temporarily unavailable")]
+    Unavailable(#[source] GetPublicListingSourcesByIdsError),
+    #[error("listing source read model is invalid")]
+    Invalid(#[source] GetPublicListingSourcesByIdsError),
+}
+
+impl From<GetPublicListingSourcesByIdsError> for ListingSourceLookupError {
+    fn from(error: GetPublicListingSourcesByIdsError) -> Self {
+        match error {
+            GetPublicListingSourcesByIdsError::InvalidReadModel { .. }
+            | GetPublicListingSourcesByIdsError::Internal { .. } => Self::Invalid(error),
+            GetPublicListingSourcesByIdsError::TemporarilyUnavailable { .. }
+            | GetPublicListingSourcesByIdsError::BeginTransaction { .. }
+            | GetPublicListingSourcesByIdsError::CommitTransaction { .. } => {
+                Self::Unavailable(error)
+            }
+        }
+    }
+}
+
 /// The ListingSources of several searches, resolved in one lookup.
 pub(crate) struct ReferencedListingSources {
     requested: BTreeSet<ListingSourceId>,
@@ -31,7 +55,7 @@ impl ReferencedListingSources {
         lookup: &dyn GetPublicListingSourcesByIdsUseCase,
         context: &OperationContext,
         searches: impl IntoIterator<Item = &'a ProductListingSearch>,
-    ) -> Result<Self, GetPublicListingSourcesByIdsError> {
+    ) -> Result<Self, ListingSourceLookupError> {
         let requested = searches
             .into_iter()
             .flat_map(referenced_ids)
@@ -233,7 +257,28 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(GetPublicListingSourcesByIdsError::TemporarilyUnavailable { .. })
+            Err(ListingSourceLookupError::Unavailable(
+                GetPublicListingSourcesByIdsError::TemporarilyUnavailable { .. }
+            ))
+        ));
+    }
+
+    #[test]
+    fn should_separate_invalid_listing_sources_from_temporary_lookup_failures() {
+        let invalid =
+            ListingSourceLookupError::from(GetPublicListingSourcesByIdsError::InvalidReadModel {
+                source: static_error("invalid referral configuration"),
+            });
+        let unavailable = ListingSourceLookupError::from(
+            GetPublicListingSourcesByIdsError::TemporarilyUnavailable {
+                source: static_error("timeout"),
+            },
+        );
+
+        assert!(matches!(invalid, ListingSourceLookupError::Invalid(_)));
+        assert!(matches!(
+            unavailable,
+            ListingSourceLookupError::Unavailable(_)
         ));
     }
 }

@@ -5215,6 +5215,19 @@ paths:
                     title: Unprocessable Content
                     error: SEARCH_FILTER_QUOTA_EXCEEDED
                     detail: Exceeded the maximum amount of search filters. There are already 1/1 search filters occupied.
+        "409":
+          description: >-
+            Conflict - the search filter changed concurrently while this patch was applied, including a concurrent
+            change of its referenced ListingSources. Re-read the filter and retry.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 409
+                title: Conflict
+                error: CONFLICT
+                detail: Search filter was changed concurrently.
         "500":
           description: Internal server error
           content:
@@ -25931,7 +25944,7 @@ components:
           description: Original display name of the ListingSource operator Party. The operator is not a seller resource.
     PublicListingSourceData:
       type: object
-      description: Allowlisted public ListingSource card used by both public collection search and exact slug lookup. It omits Party identifiers/contact, ingestion/provider/referral configuration, timestamps, versions, and search metadata. The only trace of the referral configuration is `viewUrl`.
+      description: Allowlisted public ListingSource card used by public collection search, exact slug lookup and the `listingSources` of a saved search filter. It omits Party identifiers/contact, ingestion/provider/referral configuration, timestamps, versions, and search metadata. The only trace of the referral configuration is `viewUrl`.
       required:
         - listingSourceId
         - listingSourceSlugId

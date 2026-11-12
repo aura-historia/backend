@@ -1659,7 +1659,7 @@
           ]
         },
         "listingSources": {
-          "description": "Public cards of the ListingSources `search` includes or excludes, one per ID that still\nresolves; IDs of removed sources stay in `search` but have no card. Read-only.",
+          "description": "Public cards of the ListingSources that `search.listingSourceId` and `search.excludeListingSourceId` reference, one per ID, ordered by `listingSourceId`. A source referenced by both lists appears once. An ID whose source no longer exists stays in `search` but has no card. Read-only.",
           "items": {
             "$ref": "#/$defs/PublicListingSourceData"
           },
@@ -12292,7 +12292,7 @@
           ]
         },
         "listingSources": {
-          "description": "Public cards of the ListingSources `search` includes or excludes, one per ID that still\nresolves; IDs of removed sources stay in `search` but have no card. Read-only.",
+          "description": "Public cards of the ListingSources that `search.listingSourceId` and `search.excludeListingSourceId` reference, one per ID, ordered by `listingSourceId`. A source referenced by both lists appears once. An ID whose source no longer exists stays in `search` but has no card. Read-only.",
           "items": {
             "$ref": "#/$defs/PublicListingSourceData"
           },
@@ -12925,7 +12925,7 @@
               ]
             },
             "listingSources": {
-              "description": "Public cards of the ListingSources `search` includes or excludes, one per ID that still\nresolves; IDs of removed sources stay in `search` but have no card. Read-only.",
+              "description": "Public cards of the ListingSources that `search.listingSourceId` and `search.excludeListingSourceId` reference, one per ID, ordered by `listingSourceId`. A source referenced by both lists appears once. An ID whose source no longer exists stays in `search` but has no card. Read-only.",
               "items": {
                 "$ref": "#/$defs/PublicListingSourceData"
               },
@@ -24842,7 +24842,7 @@
           ]
         },
         "listingSources": {
-          "description": "Public cards of the ListingSources `search` includes or excludes, one per ID that still\nresolves; IDs of removed sources stay in `search` but have no card. Read-only.",
+          "description": "Public cards of the ListingSources that `search.listingSourceId` and `search.excludeListingSourceId` reference, one per ID, ordered by `listingSourceId`. A source referenced by both lists appears once. An ID whose source no longer exists stays in `search` but has no card. Read-only.",
           "items": {
             "$ref": "#/$defs/PublicListingSourceData"
           },

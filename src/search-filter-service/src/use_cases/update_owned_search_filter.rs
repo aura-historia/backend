@@ -1,4 +1,6 @@
-use super::listing_source_references::{ReferencedListingSources, SearchFilterDetails};
+use super::listing_source_references::{
+    ListingSourceLookupError, ReferencedListingSources, SearchFilterDetails,
+};
 use crate::ports::{
     SearchFilterQuotaReadError, SearchFilterQuotaReader, SearchFilterQuotaReaderFactory,
     SearchFilterReadError, SearchFilterReader, SearchFilterRepository, SearchFilterRepositoryError,
@@ -114,6 +116,11 @@ pub enum UpdateOwnedSearchFilterError {
     },
     #[error("search filter listing source read failed")]
     ListingSourceReadFailed {
+        #[source]
+        source: BoxError,
+    },
+    #[error("search filter listing source state is invalid")]
+    ListingSourceStateInvalid {
         #[source]
         source: BoxError,
     },
@@ -259,11 +266,7 @@ where
             [&prepared_search],
         )
         .await
-        .map_err(
-            |error| UpdateOwnedSearchFilterError::ListingSourceReadFailed {
-                source: box_error(error),
-            },
-        )?;
+        .map_err(UpdateOwnedSearchFilterError::from)?;
 
         let mut tx = self.unit_of_work.begin().await.map_err(|source| {
             UpdateOwnedSearchFilterError::BeginTransactionFailed(Box::new(source))
@@ -557,6 +560,19 @@ impl From<OperationAuthorizationError> for UpdateOwnedSearchFilterError {
             | OperationAuthorizationError::InsufficientCapability { .. } => {
                 Self::ActorMayNotManageSearchFilter
             }
+        }
+    }
+}
+
+impl From<ListingSourceLookupError> for UpdateOwnedSearchFilterError {
+    fn from(error: ListingSourceLookupError) -> Self {
+        match error {
+            ListingSourceLookupError::Unavailable(source) => Self::ListingSourceReadFailed {
+                source: box_error(source),
+            },
+            ListingSourceLookupError::Invalid(source) => Self::ListingSourceStateInvalid {
+                source: box_error(source),
+            },
         }
     }
 }

@@ -44,8 +44,7 @@ pub struct SearchFilterData {
     )]
     #[schemars(schema_with = "crate::wire::schema::optional_datetime")]
     updated: Option<OffsetDateTime>,
-    /// Public cards of the ListingSources `search` includes or excludes, one per ID that still
-    /// resolves; IDs of removed sources stay in `search` but have no card. Read-only.
+    /// Public cards of the ListingSources that `search.listingSourceId` and `search.excludeListingSourceId` reference, one per ID, ordered by `listingSourceId`. A source referenced by both lists appears once. An ID whose source no longer exists stays in `search` but has no card. Read-only.
     listing_sources: Vec<PublicListingSourceData>,
 }
 

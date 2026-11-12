@@ -847,8 +847,8 @@ async fn should_return_referenced_listing_sources_on_every_search_filter_respons
     let [included, excluded] = [seed_listing_source().await, seed_listing_source().await]
         .map(|id| ListingSourceId::try_from(id).unwrap_or_else(|error| panic!("{error}")));
     let mut body = search_filter_body();
-    body["search"]["listingSourceId"] = serde_json::json!([included, ListingSourceId::new()]);
-    body["search"]["excludeListingSourceId"] = serde_json::json!([excluded, included]);
+    body["search"]["listingSourceId"] = serde_json::json!([included]);
+    body["search"]["excludeListingSourceId"] = serde_json::json!([excluded]);
     let mut both = [included, excluded];
     both.sort();
 

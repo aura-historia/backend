@@ -766,6 +766,11 @@ impl From<ListOwnedSearchFiltersError> for ApiError {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filters are temporarily unavailable.")
             }
+            error @ ListOwnedSearchFiltersError::ListingSourceStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filters failed internally.")
+                    .with_cause(Box::new(error))
+            }
         }
     }
 }
@@ -789,6 +794,11 @@ impl From<GetOwnedSearchFilterError> for ApiError {
             | GetOwnedSearchFilterError::ListingSourceReadFailed { .. } => {
                 ApiError::service_unavailable(SEARCH_FILTER_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Search filter is temporarily unavailable.")
+            }
+            error @ GetOwnedSearchFilterError::ListingSourceStateInvalid { .. } => {
+                ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
+                    .with_detail("Search filter failed internally.")
+                    .with_cause(Box::new(error))
             }
         }
     }
@@ -827,7 +837,8 @@ impl From<CreateSearchFilterError> for ApiError {
                     ),
                 )
             }
-            CreateSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+            CreateSearchFilterError::PersistedSearchFilterStateInvalid { .. }
+            | CreateSearchFilterError::ListingSourceStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter state is invalid.")
             }
@@ -942,7 +953,8 @@ impl From<UpdateOwnedSearchFilterError> for ApiError {
             UpdateOwnedSearchFilterError::SearchFilterConcurrencyConflict => {
                 ApiError::conflict(CONFLICT).with_detail("Search filter was changed concurrently.")
             }
-            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { .. } => {
+            UpdateOwnedSearchFilterError::PersistedSearchFilterStateInvalid { .. }
+            | UpdateOwnedSearchFilterError::ListingSourceStateInvalid { .. } => {
                 ApiError::internal_server_error(SEARCH_FILTER_INTERNAL_ERROR)
                     .with_detail("Search filter state is invalid.")
             }
