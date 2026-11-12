@@ -52,23 +52,30 @@ deploy "$sha_a" >/dev/null
 [[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "symlink not switched"
 [[ -x "$CRAWLER_ROOT/bin/server" ]] || fail "binary missing behind symlink"
 ls "$CRAWLER_ROOT"/releases/legacy-* >/dev/null || fail "legacy binaries not kept"
-[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "first deploy took no backup"
+[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "a host without releases must be backed up"
 
 deploy "$sha_b" >/dev/null
-[[ "$(ls "$tmp/backups" | wc -l)" -eq 2 ]] || fail "each run must take a new backup"
+[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "a release without new migrations must take no backup"
 grep -q "stop review-agent-runner crawler-server" "$FAKE_LOG" || fail "services not stopped together"
 
-# A migration the running build applied and the target lacks blocks the rollback.
+# A migration the running build applied and the target lacks blocks the rollback; the rollback
+# itself adds no migration and takes no backup.
 echo 99990101000000_new.sql >> "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS"
 if deploy "$sha_a" >/dev/null 2>&1; then fail "rollback over a migration was allowed"; fi
 deploy --db-restored "$sha_a" >/dev/null
+[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "a rollback must take no backup"
 
-# A failed backup aborts before the switch and leaves the running build up.
+# A failed backup aborts a release that adds a migration before the switch and leaves the running
+# build up.
 : > "$FAKE_LOG"
 if FAKE_PG_FAIL=1 deploy "$sha_b" >/dev/null 2>&1; then fail "deploy went on without a backup"; fi
 [[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "switched despite the failed backup"
 grep -q "start crawler-server" "$FAKE_LOG" || fail "running build not restarted after failed backup"
 ls "$tmp/backups"/*.partial >/dev/null 2>&1 && fail "partial dump left behind"
+
+# A release that adds a migration is backed up before it is switched in.
+deploy "$sha_b" >/dev/null
+[[ "$(ls "$tmp/backups" | wc -l)" -eq 2 ]] || fail "a release adding a migration must be backed up"
 
 # A tampered archive is refused.
 echo tampered >> "$tmp/releases-out/crawler-$sha_b.tar.gz"; rm -rf "$CRAWLER_ROOT/releases/$sha_b"

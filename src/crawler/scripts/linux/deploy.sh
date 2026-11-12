@@ -2,7 +2,8 @@
 # Deploys a released crawler build on this host, or rolls back to an earlier one: run it with the
 # commit SHA of a published crawler-<sha> GitHub Release. Pull-based: the host downloads the
 # release, so CI holds no host credentials, and needs neither Git, Cargo nor a source tree.
-# Every run dumps the crawler-local database before the switch; a failed dump aborts the deploy.
+# A release that adds crawler-local migrations is preceded by a dump of that database; a failed
+# dump aborts the deploy.
 # Usage: deploy.sh [--install-units] [--db-restored] <full lowercase sha>
 # Contract: docs/crawler/operations.md#deploy-and-roll-back
 set -euo pipefail
@@ -75,6 +76,14 @@ check_rollback() {
     echo "restore the crawler database from a backup taken before them, then rerun with --db-restored" >&2
     exit 1
   fi
+}
+
+# Migrations are applied at startup and never reverted, so only a build that adds some needs a
+# backup. A running build whose migrations are unknown (a host before releases) counts as adding.
+release_adds_migrations() {
+  local current="$1"
+  [[ -n "$current" && -f "${current}/MIGRATIONS" ]] || return 0
+  [[ -n "$(comm -13 "${current}/MIGRATIONS" "${target}/MIGRATIONS")" ]]
 }
 
 # Dumps the crawler-local database (`LOCAL_DB_URL` of the crawler's environment file) with the
@@ -166,7 +175,7 @@ unit_active "$RUNNER_UNIT" && runner_was_active=true
 
 # Stop both together so the runner never talks to a console of another build.
 systemctl stop "$RUNNER_UNIT" "$SERVER_UNIT"
-if ! backup_database; then
+if release_adds_migrations "$previous" && ! backup_database; then
   # Nothing was switched: bring the running build back up and stop.
   systemctl start "$SERVER_UNIT"
   ! $runner_was_active || systemctl start "$RUNNER_UNIT"
