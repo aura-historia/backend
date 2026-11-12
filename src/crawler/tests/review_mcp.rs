@@ -345,6 +345,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "mark_page_not_product",
             "declare_removed_page",
             "record_no_sold_page",
+            "label_source",
         ]
     );
     assert_eq!(
@@ -771,6 +772,60 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             (json!("AGENT_REVIEWER"), json!("APPROVED")),
         ]
     );
+
+    // The author labels the shop of a pending review it works, never through a decided one; the
+    // label switches the source's crawling off.
+    let decided = author
+        .call(
+            "label_source",
+            json!({ "review_id": url_pattern.to_string(), "label": "NOT_AN_ESHOP", "note": "enquiry only" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        decided["reason"], "AGENT_CHANGES_ONLY_PENDING_REVIEWS",
+        "{decided}"
+    );
+    let listing_source_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT listing_source_id FROM crawler_reviews WHERE review_id = $1")
+            .bind(url_pattern.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let pending = CrawlerReviewRepository::new(pool.clone())
+        .create_url_pattern_review(
+            &ListingSourceId::try_from(listing_source_id).unwrap(),
+            "manual_url_pattern_required",
+            UrlPatternDecision::Undecided,
+            &[format!("{SHOP}/item/chair"), format!("{SHOP}/about")],
+            None,
+        )
+        .await
+        .unwrap();
+    let labelled = author
+        .call(
+            "label_source",
+            json!({
+                "review_id": pending.to_string(),
+                "label": "NOT_AN_ESHOP",
+                "note": "/item/chair shows a price on request and an enquiry form, no cart",
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (&labelled["review_id"], &labelled["label"]),
+        (&json!(pending.to_string()), &json!("NOT_AN_ESHOP")),
+        "{labelled}"
+    );
+    let crawl_enabled: bool = sqlx::query_scalar(
+        "SELECT crawl_enabled FROM listing_sources WHERE listing_source_id = $1",
+    )
+    .bind(listing_source_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!crawl_enabled);
 
     author.close().await;
     reviewer.close().await;

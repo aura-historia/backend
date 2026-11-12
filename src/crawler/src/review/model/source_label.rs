@@ -3,14 +3,17 @@
 //! scope sync keeps it off until a human clears the label (`docs/crawler/README.md#listingsource-scope`).
 
 use super::ReviewActor;
-use serde::{Deserialize, Serialize, Serializer};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 /// The longest label note, in characters.
 pub const MAX_SOURCE_LABEL_NOTE_CHARS: usize = 500;
 
-/// Why a ListingSource is not crawled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Why a ListingSource is not crawled. Serialized, persisted and offered to the agents by its
+/// `SCREAMING_SNAKE_CASE` name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SourceLabel {
     /// The site shows items but sells nothing online, such as a gallery's catalogue.
     NotAnEshop,
@@ -51,21 +54,6 @@ impl SourceLabel {
     /// The label a persisted or requested name stands for, or `None` for a name no label has.
     pub fn from_persisted(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|label| label.as_str() == value)
-    }
-}
-
-impl Serialize for SourceLabel {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for SourceLabel {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = String::deserialize(deserializer)?;
-        Self::from_persisted(&value).ok_or_else(|| {
-            serde::de::Error::custom(format!("`{value}` is not a ListingSource label"))
-        })
     }
 }
 
@@ -169,6 +157,11 @@ mod tests {
     fn should_round_trip_every_label_and_refuse_other_spellings() {
         for label in SourceLabel::ALL {
             assert_eq!(Some(label), SourceLabel::from_persisted(label.as_str()));
+            assert_eq!(
+                serde_json::json!(label.as_str()),
+                serde_json::to_value(label).unwrap_or_else(|error| panic!("{error}")),
+                "the serialized name is the persisted one"
+            );
         }
         for name in ["", "not_an_eshop", "Other", " OTHER", "UNSCRAPABLE"] {
             assert_eq!(None, SourceLabel::from_persisted(name), "{name:?}");

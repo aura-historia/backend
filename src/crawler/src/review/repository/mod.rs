@@ -133,6 +133,10 @@ pub enum ReviewRepositoryError {
     #[error("only a review agent hands a review to a human; a human changes or judges it instead")]
     OnlyAgentsHandOver,
     #[error(
+        "a review agent labels a ListingSource only with a note naming the evidence: what it read and why the crawler should not crawl the shop"
+    )]
+    AgentSourceLabelNeedsNote,
+    #[error(
         "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
     )]
     NoSoldPageUrlCount,

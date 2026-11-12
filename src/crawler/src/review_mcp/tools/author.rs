@@ -5,11 +5,11 @@ use super::{
     Artifact, Effect, ToolContext, ToolDefinition, ToolSchemaError, candidate_of, review_detail,
     review_path, review_source_crawl_host, review_source_url, review_source_urls, settled,
 };
-use crate::review::model::CrawlerReviewPage;
+use crate::review::model::{CrawlerReviewPage, SourceLabel};
 use crate::review_mcp::errors::ToolError;
 use crate::review_mcp::views::{
     CandidateChanged, MatrixAnswer, MatrixView, NoSoldPageRecorded, PageAdded,
-    PageMarkedNotProduct, PageRemoved,
+    PageMarkedNotProduct, PageRemoved, SourceLabelled,
 };
 use crate::review_mcp::wire;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
@@ -37,6 +37,8 @@ const MARK_PAGE_NOT_PRODUCT: &str = "Mark a review page of a pending product-sch
 const DECLARE_REMOVED_PAGE: &str = "Declare a kind of review page removed instead of authoring a schema for it: for a sold or withdrawn item the shop still serves with HTTP 200, a removal notice and no product. Adds one removed-page template to the pending product-schema candidate: selector selects the element holding the notice, and exactly one of text (the notice's text) or regex (a regex the notice's text matches; one that matches any text is refused). Declare a page removed only where the page itself shows a removal notice. The matrix then lists the pages the template matches and whether a schema still extracts a product from them (PRODUCT_STILL_EXTRACTS, a template too broad for that page). expected_candidate_version is the candidate_version you read; a stale one is refused with CONFLICT. Answers the new candidate_version; refresh_matrix afterwards.";
 
 const RECORD_NO_SOLD_PAGE: &str = "Record that you looked for a sold or unavailable product page of the review's ListingSource and found none, so the console accepts a candidate tested on none. An approval needs a review page whose extracted state is sold, out of stock or unavailable (or that a removed-page template captures), or this record. Use it only after you searched: open the shop's listing pages, its sold or archive section and filters, and product pages with inspect_page; when you find a sold or unavailable page, add it with add_review_page instead. urls are 3 to 50 distinct pages of the review's ListingSource you opened with inspect_page on this review since a human last changed or judged it (a URL off its crawl host is refused with URL_OUTSIDE_REVIEW_SOURCE; fewer or more with INVALID_REQUEST; a page not inspected so with CONFLICT and reason PAGES_NOT_INSPECTED, whose error names those pages: inspect them, or leave them out), notes say how you searched and what you saw, in a few sentences. The record changes no candidate and does not move candidate_version. A review agent's approval is judged on it as the trail shows it until a human changes or judges the review; after that, search and record again.";
+
+const LABEL_SOURCE: &str = "Label the review's ListingSource when the crawler should not crawl the shop at all, instead of authoring a candidate for it. NOT_AN_ESHOP: the site shows items but sells nothing online, with no price, cart or buy button and only enquiries, such as a gallery or a dealer's catalogue. APPROACH_NOT_APPLICABLE: the shop sells online but the crawler's approach does not fit it, such as items without a page of their own. BOT_PROTECTION: the shop answers bot challenges instead of its pages, again and again. JAVASCRIPT_RENDERED: the product pages carry no product content without running JavaScript. LOGIN_REQUIRED: the products are behind a login. OTHER: none of these; the note names the reason. Label only on evidence you read for this review, never on a single failed fetch, and never because a candidate is hard to write. note is required, 1 to 500 characters: what you read and why the shop cannot be crawled, naming the URLs. The label switches crawling of the whole ListingSource off at once and takes its reviews out of the agents' queue; the review stays pending, and only a human clears the label. Refused with CONFLICT and reason HUMAN_REQUIRED on a review with human_required true. After it, change nothing more and report SOURCE_LABELLED.";
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -186,6 +188,17 @@ pub(super) struct RecordNoSoldPageArguments {
     notes: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LabelSourceArguments {
+    /// The review's id, such as `cr_01...`, as list_pending_reviews names it.
+    #[schemars(with = "String")]
+    review_id: CrawlerReviewId,
+    label: SourceLabel,
+    /// Your evidence: what you read and why the shop cannot be crawled, naming the URLs.
+    note: String,
+}
+
 pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
     Ok(vec![
         // update_candidate documents the schema rules; the tools taking the same rules carry
@@ -247,6 +260,7 @@ pub(super) fn tools() -> Result<Vec<ToolDefinition>, ToolSchemaError> {
             record_no_sold_page,
         )?
         .only_for(Artifact::ProductSchema),
+        ToolDefinition::new("label_source", LABEL_SOURCE, Effect::Changes, label_source)?,
     ])
 }
 
@@ -530,6 +544,26 @@ async fn record_no_sold_page(
     Ok(NoSoldPageRecorded {
         review_id: review_id.to_string(),
         recorded_urls: recorded.recorded_urls,
+    })
+}
+
+async fn label_source(
+    arguments: LabelSourceArguments,
+    context: Arc<ToolContext>,
+) -> Result<SourceLabelled, ToolError> {
+    let review_id = arguments.review_id;
+    let labelled: wire::SourceLabelled = context
+        .console
+        .post(
+            &review_path(review_id, "/source-label"),
+            &json!({ "label": arguments.label, "note": arguments.note }),
+        )
+        .await?
+        .decode()?;
+    Ok(SourceLabelled {
+        review_id: review_id.to_string(),
+        label: labelled.label,
+        labelled_at: labelled.labelled_at,
     })
 }
 
