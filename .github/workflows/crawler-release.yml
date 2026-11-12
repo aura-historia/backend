@@ -1,0 +1,113 @@
+name: Crawler release
+run-name: Crawler release ${{ inputs.source_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full lowercase SHA merged into protected develop
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  DELIVERY_PROTECTIONS_VERIFIED: ${{ vars.DELIVERY_PROTECTIONS_VERIFIED }}
+  WORKFLOW_REVISION: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+  INVOCATION_REVISION: ${{ github.workflow_sha }}
+  GH_TOKEN: ${{ github.token }}
+concurrency:
+  group: crawler-release-${{ inputs.source_sha }}
+  cancel-in-progress: false
+jobs:
+  resolve:
+    name: Pin request and check protections
+    if: github.ref == 'refs/heads/develop' && github.repository == 'aura-historia/backend'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - name: Require the protected develop workflow and a source merged into develop
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          node -e "
+            const w = require('./ci/delivery/workflow.cjs');
+            w.trustedInvocation();
+            w.assertControlRevision();
+            w.releaseSource(process.env.SOURCE_SHA);
+          "
+      - name: Refuse an existing release
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          if gh release view "crawler-${SOURCE_SHA}" >/dev/null 2>&1; then
+            echo "Release crawler-${SOURCE_SHA} already exists; releases are immutable" >&2
+            exit 1
+          fi
+  tests:
+    needs: resolve
+    uses: ./.github/workflows/release-tests.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+      control_revision: ${{ vars.DELIVERY_WORKFLOW_REVISION }}
+    permissions:
+      contents: read
+      packages: read
+  build:
+    name: Build crawler / ${{ inputs.source_sha }}
+    needs: [resolve, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+      - name: Verify the exact source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+          rustc -Vv
+      - name: Build the release binaries
+        run: cargo build --release --locked -p crawler --bin server --bin review-mcp --bin review-agent-runner
+      - name: Package the release
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: bash src/crawler/scripts/linux/package-release.sh "$SOURCE_SHA" target/release release-out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: crawler-release-${{ inputs.source_sha }}
+          path: release-out/
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    name: Publish crawler-${{ inputs.source_sha }}
+    needs: build
+    environment: crawler-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: crawler-release-${{ inputs.source_sha }}
+          path: release-out
+      - name: Publish the release without overwriting an existing one
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          # No --clobber: a release or tag that exists makes this step fail.
+          gh release create "crawler-${SOURCE_SHA}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "Crawler ${SOURCE_SHA}" \
+            --notes "Crawler build of ${SOURCE_SHA}. Deploy on the host with deploy.sh ${SOURCE_SHA}; see docs/crawler/operations.md#deploy-and-roll-back." \
+            "release-out/crawler-${SOURCE_SHA}.tar.gz" \
+            "release-out/crawler-${SOURCE_SHA}.tar.gz.sha256"

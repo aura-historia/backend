@@ -209,7 +209,7 @@ The status must show `"loggedIn": true`, `"authMethod": "claude.ai"` and Aura's 
 
 #### Production and development
 
-In production the crawler runs `server` with `CRAWLER_AUTHORING_MODE=agent` from the start, and the runner runs on the same host. Build `review-agent-runner` and `review-mcp` with `server` (`cargo build --release --locked -p crawler --bin server --bin review-mcp --bin review-agent-runner`), copy both to `/opt/crawler/bin/`, and install the example unit [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service) and the environment file [`review-agent-runner.env.example`](../../src/crawler/review-agent-runner.env.example) as `/etc/crawler/review-agent-runner.env`, then `systemctl daemon-reload && systemctl enable --now review-agent-runner`. The service runs as the `crawler` user, the only one who can read the token file, with its own state directory `/var/lib/crawler-review-agents` and the CLI login there; its environment file holds runner settings only, never the crawler's, so no agent process inherits the console's human token. The runner starts a run, rests `CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS` after it ends, and starts the next until it is stopped. A run that fails, such as on an unreachable console or an expired login, is logged and the next follows after the interval; systemd restarts a runner that crashed, but not one that refused its settings (exit code 2). A run with no review to work makes no agent call: it lists the queue and probes the login.
+In production the crawler runs `server` with `CRAWLER_AUTHORING_MODE=agent` from the start, and the runner runs on the same host. `review-agent-runner` and `review-mcp` ship in the same [release](#build-and-release) as `server` and reach `/opt/crawler/bin/` with it ([deploy and roll back](#deploy-and-roll-back)). Install the example unit [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service) and the environment file [`review-agent-runner.env.example`](../../src/crawler/review-agent-runner.env.example) as `/etc/crawler/review-agent-runner.env`, then `systemctl daemon-reload && systemctl enable --now review-agent-runner`. The service runs as the `crawler` user, the only one who can read the token file, with its own state directory `/var/lib/crawler-review-agents` and the CLI login there; its environment file holds runner settings only, never the crawler's, so no agent process inherits the console's human token. The runner starts a run, rests `CRAWLER_REVIEW_AGENT_RUNNER_INTERVAL_SECONDS` after it ends, and starts the next until it is stopped. A run that fails, such as on an unreachable console or an expired login, is logged and the next follows after the interval; systemd restarts a runner that crashed, but not one that refused its settings (exit code 2). A run with no review to work makes no agent call: it lists the queue and probes the login.
 
 For development, build the runner and `review-mcp` with `dev` and run `dev` with `CRAWLER_AUTHORING_MODE=agent` and the developer's own logged-in CLI:
 
@@ -270,7 +270,7 @@ The process prints its messages as JSON lines. The runner keeps the end of that 
 
 An empty or whitespace-only setting counts as unset; any other value that is not accepted, or any argument but `--once`, fails startup with exit code 2.
 
-The limits of the agents' decisions are the console's, never the runner's: after the login probe each run reads them from `GET /api/review-agent-limits` with the author token, and times a reviewer pause at the decision cap by the console's `max_decisions_per_hour`. A run that cannot read them fails and starts no agent process, as every run does against the console of an older build, which does not answer them: deploy the runner and `review-mcp` from the build of `server` ([upgrade](#upgrade)). The runner reads no limit from its own environment: a `CRAWLER_REVIEW_AGENT_*` limit in its environment file has no effect.
+The limits of the agents' decisions are the console's, never the runner's: after the login probe each run reads them from `GET /api/review-agent-limits` with the author token, and times a reviewer pause at the decision cap by the console's `max_decisions_per_hour`. A run that cannot read them fails and starts no agent process, as every run does against the console of an older build, which does not answer them: deploy the runner and `review-mcp` from the build of `server` ([deploy and roll back](#deploy-and-roll-back)). The runner reads no limit from its own environment: a `CRAWLER_REVIEW_AGENT_*` limit in its environment file has no effect.
 
 #### Limits
 
@@ -305,9 +305,11 @@ Once a day a run of the service writes a digest of the agents' work since the pr
 
 Production runs one `server` process on one Linux host under systemd. Start from the example unit [`crawler-server.service`](../../src/crawler/scripts/linux/crawler-server.service) and environment file [`.env.example`](../../src/crawler/.env.example); real values live only on the host.
 
-### Build and host setup
+### Build and release
 
-Build with `cargo build --release --locked -p crawler --bin server` and copy `target/release/server` to the host, for example `/opt/crawler/bin/server`. Crawler-local migrations are embedded in the binary.
+Production runs only CI-built releases: the host has no Git checkout, Rust toolchain or source tree. The manual [Crawler release](../../.github/workflows/crawler-release.yml) workflow takes a full lowercase `source_sha` and runs only from `develop` of `aura-historia/backend`. It requires that the commit is merged into protected `develop`, the same pinned control files as the AWS [Release](../ci.md#exact-source-release-eligibility) workflow, and the complete exact-source release tests, so only a commit whose checks passed is released. It builds `server`, `review-mcp` and `review-agent-runner` with `cargo build --release --locked -p crawler` on `ubuntu-24.04` (glibc 2.39, the host's), then [`package-release.sh`](../../src/crawler/scripts/linux/package-release.sh) packs them with the two example units into a reproducible `crawler-<sha>.tar.gz` and its SHA-256 file. After the `crawler-release` environment's approval the workflow creates the GitHub Release `crawler-<sha>` with both files. It never overwrites a release: an existing release or tag fails the run, so a published build never changes. The archive holds the three binaries, `systemd/` with the example units, `SOURCE_SHA` and `MIGRATIONS`, the crawler-local migrations the build applies at startup. Crawler-local migrations are embedded in the binary.
+
+### Host setup
 
 `server` connects to the database in `LOCAL_DB_URL` and applies pending crawler-local migrations; it never starts Docker or creates the database. Provide PostgreSQL 16, as in local development, with its contrib modules, on the host or reachable from it. Create a dedicated role that owns the database, so migrations can create their tables and the trusted `pgcrypto` extension without superuser rights:
 
@@ -326,8 +328,13 @@ Prepare the host once:
 useradd --system --home-dir /var/lib/crawler --shell /usr/sbin/nologin crawler
 install -d -m 0750 -o root -g crawler /etc/crawler
 install -m 0640 -o root -g crawler src/crawler/.env.example /etc/crawler/crawler.env  # then fill in
-install -m 0644 src/crawler/scripts/linux/crawler-server.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now crawler-server
+```
+
+Install the units from a release's `systemd/` directory and deploy the release ([deploy and roll back](#deploy-and-roll-back)):
+
+```sh
+install -m 0644 systemd/crawler-server.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable crawler-server
 ```
 
 ### Authoring mode
@@ -389,9 +396,26 @@ The example unit runs `server` as the unprivileged `crawler` user with `Environm
 
 Run exactly one instance: no second host and no manual `server` next to the unit. The scheduler coordinates only through process-local locks ([scheduling and retries](scheduling-and-retries.md)), so a second process would crawl and capture the same work concurrently.
 
-### Upgrade
+### Deploy and roll back
 
-Run `systemctl stop crawler-server`, replace the binary and run `systemctl start crawler-server`. Replace `review-mcp` and `review-agent-runner` from the same build and restart `review-agent-runner` with it: the runner reads the agents' limits from the console ([review agent runner](#settings)) and fails every run against a console that does not answer them. When the build changes the example [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service), install it and run `systemctl daemon-reload` before that restart: until the reload, systemd stops and starts the runner with the old unit's settings, such as its `KillMode` and `TimeoutStopSec`. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so rolling back to an older binary after a migration requires restoring the database. The same refusal applies when a release squashes crawler-local migrations into the baseline `20260101000000_initial_schema.sql`, which its release notes state: no database that applied the earlier chain can be upgraded. The journal shows `Failed to run database migrations` and `Restart=on-failure` keeps restarting the unit. For such a release, stop the unit, drop and recreate the crawler-local database as its owner (`db-reset` locally, see [Local database](#local-database)), then start the new binary. This discards all crawler-local state: URL state, approved URL patterns and schemas, and reviews with their event trail. A binary that raises the [extractor version](extraction-and-review.md#extraction-contract), or changes what the page hash or the scraper-context fingerprint covers, extracts every page once more at its next scheduled scrape and validates its images again, and one that changes raw extraction does so for every page whose extraction it changes, so expect longer scraper passes until each such page has been scraped once.
+[`deploy.sh`](../../src/crawler/scripts/linux/deploy.sh) installs a released build on the host and is the only way to change the running build. Put it on the host once and run it as root with the commit SHA of a published `crawler-<sha>` release:
+
+```sh
+deploy.sh <sha>
+```
+
+The host pulls the release from GitHub, so CI holds no host credentials and the public repository needs no token. The script downloads the archive and its checksum, verifies the checksum, unpacks it to `/opt/crawler/releases/<sha>/` and then:
+
+1. stops `review-agent-runner` and `crawler-server` together;
+2. **dumps the crawler-local database** (`LOCAL_DB_URL` of `/etc/crawler/crawler.env`) with `pg_dump` into `/var/backups/crawler/`, a new file at every run. A failed dump aborts the deploy and restarts the running build. The newest 10 dumps are kept (`CRAWLER_KEEP_BACKUPS`). The host needs the PostgreSQL client tools. The backup covers the crawler-local database only: the business database is not reachable from the host;
+3. repoints the `/opt/crawler/bin` symlink to the release directory atomically, so the units' paths stay unchanged. The first run keeps a previous directory of copied binaries as `releases/legacy-<timestamp>`;
+4. starts `crawler-server`, and `review-agent-runner` if it was running, from the same build;
+5. polls `http://127.0.0.1:7878/health` for `{"ok":true}`, then prunes all but the newest five releases and the running one.
+
+The script always switches `server`, `review-mcp` and `review-agent-runner` together: the runner fails every run against a console of another build ([review agent runner](#settings)). The example units are never overwritten silently: the script reports a unit that differs from the host's, and `--install-units` installs the release's units and runs `systemctl daemon-reload` before the restart. Use it when a release changes the example [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service): until the reload, systemd stops and starts the runner with the old unit's settings, such as its `KillMode` and `TimeoutStopSec`.
+
+Roll back by running the script with an earlier release's SHA; it prints that command when the new build is unhealthy. Pending crawler-local migrations apply at startup; never repair the schema by hand. Startup refuses a database with an applied migration the binary does not contain or whose checksum changed, so a release that applied a migration cannot be rolled back without restoring the database. The script compares the releases' `MIGRATIONS` files and refuses such a rollback until you restore the dump taken before the migration (`pg_restore --clean --if-exists --no-owner --dbname "$LOCAL_DB_URL" <dump>`, with the crawler stopped) and rerun it with `--db-restored`. The same refusal applies when a release squashes crawler-local migrations into the baseline `20260101000000_initial_schema.sql`, which its release notes state: no database that applied the earlier chain can be upgraded. The journal shows `Failed to run database migrations` and `Restart=on-failure` keeps restarting the unit. For such a release, stop the unit, drop and recreate the crawler-local database as its owner (`db-reset` locally, see [Local database](#local-database)), then start the new binary. This discards all crawler-local state: URL state, approved URL patterns and schemas, and reviews with their event trail. A binary that raises the [extractor version](extraction-and-review.md#extraction-contract), or changes what the page hash or the scraper-context fingerprint covers, extracts every page once more at its next scheduled scrape and validates its images again, and one that changes raw extraction does so for every page whose extraction it changes, so expect longer scraper passes until each such page has been scraped once.
+
 
 ### After start
 
