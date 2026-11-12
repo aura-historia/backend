@@ -340,6 +340,7 @@ async fn should_work_reviews_through_each_role_s_own_tools_within_the_console_s_
             "mark_needs_repair",
             "evaluate_candidate",
             "update_candidate",
+            "stage_and_check",
             "update_schema_field",
             "add_review_page",
             "remove_review_page",
