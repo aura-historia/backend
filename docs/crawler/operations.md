@@ -367,6 +367,7 @@ Each crawler outcome an operator needs is one record with a stable `event` field
 | `crawler.review.restored`, `crawler.review.rejection_revoked`, `crawler.review.urls_retired_not_product` | A restored approval, a revoked rejection and the product URLs an approval retired as no product pages, with `affected_urls` where counted. |
 | `crawler.source.mass_removal_confirmed`, `crawler.source.mass_removal_revoked` | A human's confirmation of a source's mass removal, with `hours`, `confirmed_until` and `rearmed_held_urls`, and its revocation. |
 | `crawler.source.crawl_resumed` | A human resumed a crawl that waited for an operator, with the `crawl_error_kind` and `crawl_failure_count` it waited with. |
+| `crawler.review.human_queue` | The reviews that wait for a human in `agent` mode, every 5 minutes from the console's start: `waiting`, the pending reviews of crawl-enabled ListingSources that [wait for a human](#review-agents), and `oldest_waiting_seconds`, how long ago the oldest opened, 0 when none waits. INFO while a review waits, DEBUG when none does. |
 | `crawler.review_agent.pass_completed` | A review agent runner pass that started processes, with its counts and cost sums; a pass that started none logs DEBUG, and `crawler.review_agent.pass_started` is always DEBUG. |
 | `crawler.review_agent.process_finished` | One agent process: outcome, `decision` (the author's action `staged`, `nothing_to_stage`, `skipped` or `needs_human`, or the reviewer's `approved`, `rejected`, `needs_repair` or `skipped`, as in `crawler.review.decided`), usage and cost. The runner's queue serves no crawl host, so it has no `domain`. |
 | `crawler.review_agent.handed_to_human`, `crawler.review_agent.waiting_for_human`, `crawler.review_agent.reviewers_paused`, `crawler.review_agent.decision_cap_ended` | The runner's decisions to leave a review to a human, `handed_to_human` with the hand-over's `reason` and `handover_category` as on `crawler.review.decided`, and the pause of the reviewers at the agents' decision cap. |
@@ -394,34 +395,35 @@ Run `systemctl stop crawler-server`, replace the binary and run `systemctl start
 
 The crawler publishes metrics as CloudWatch [Embedded Metric Format](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html) records in its JSON log: each record is one log line whose top-level `_aws` block names the metrics, so the [CloudWatch log export](#runtime-prerequisites) turns them into metrics without a metrics client or extra permission. Without log export the records stay on stdout. Metric records ignore `LOG_LEVEL`, so a quiet log level cannot read as a metric gap.
 
-All metrics use the namespace `AuraHistoria/Crawler`. Dimension values are ListingSource IDs and bounded kinds, never URLs or hosts.
+All metrics use the namespace `AuraHistoria/Crawler` and are crawler-wide: **none has a dimension**. CloudWatch bills every metric, and every distinct dimension value of a metric, as one custom metric, so a ListingSource, domain, URL or failure-kind dimension multiplies the bill by the number of its values. Each scheduler pass aggregates in process and publishes one record when it ends, also a pass that finds no work. Adding a metric or a dimension is a cost decision: the free tier covers ten custom metrics for the account and the ingestion Lambda's metric filters use some of them, so the crawler keeps to the metrics below. Per-source detail is in the log's [outcome events](#outcome-events), never in a metric.
 
-| Metric | Unit | Dimensions | Recorded |
-|---|---|---|---|
-| `ScrapesSucceeded`, `ScrapesFailed`, `ScrapesAwaitingSchemaReview` | Count | `listing_source_id` | Per scraper batch: URLs whose scrape completed (changed or not), URLs whose scrape failed, and URLs whose page [waits on a product-schema review](scheduling-and-retries.md#fetch-retries), which is no failure and counts in neither `ScrapesFailed` nor `UrlFailures`. |
-| `ScrapedOrAwaitingReview` | Count | `listing_source_id` | Per scraper batch: 1 when the batch completed a scrape or a page of it waited on a product-schema review, else 0. Per scraper pass, also 1 for each ListingSource that only a pending review keeps from scraping and so has no batch: it has a product URL pattern but no product schema and a pending product-schema review, or it has no pattern while its URL-pattern review is pending ([manual authoring](#manual-authoring)), and it is crawl-enabled with a crawl root and LLM budget left and its [scrape circuit](scheduling-and-retries.md#scraper-circuits) is not open. |
-| `ScrapeCircuitOpened` | Count | `listing_source_id` | Per scraper batch: 1 when the batch opened the [scrape circuit](scheduling-and-retries.md#scraper-circuits), else 0. |
-| `UrlFailures` | Count | `listing_source_id`, `failure_kind` | Per scraper batch and failure kind: the URL failures that recorded that `last_error_kind`, such as `HTTP_503` or `Timeout`. |
-| `ProductsCaptured` | Count | `listing_source_id` | Per raw-capture batch: observations the ingestion queue accepted; 0 when every submission of the ListingSource failed. |
-| `ProductsDiscardedUnsendable` | Count | `listing_source_id` | Per raw-capture batch, only when non-zero: observations discarded because they exceed the ingestion message limit or cannot be encoded. |
-| `CrawlOutcome` | Count | `listing_source_id`, `crawl_outcome` | 1 per spider crawl that [recorded](scheduling-and-retries.md#spider-crawl-completion) a `last_crawl_outcome`, with that outcome. A URL-pattern decision that clears a ListingSource's `AWAITING_URL_PATTERN_REVIEW` is no crawl and emits none. |
-| `CrawlsStoppedForOperator` | Count | none | 1 per spider crawl whose failure [stopped its ListingSource for an operator](scheduling-and-retries.md#spider-failure-escalation) (`NEEDS_OPERATOR`); recorded only then. |
-| `CrawlProductUrls`, `CrawlTruncated` | Count | `listing_source_id` | Per spider crawl that classified its URLs with a product pattern, including a pattern that matched nothing on pages that were not mostly [bot challenges](networking.md#bot-challenges): the product URLs the crawl stored, each page once whether the shop links it with or without its trailing slash, and without the pages the pattern matches that are stored `other` because an operator [rejected](#manual-authoring) them, plus, for an [incremental crawl](scheduling-and-retries.md#discovery-coverage), the stored product pages it found linked and did not fetch again; and 1 when the crawl was cut short, else 0. |
-| `ScraperDueUrls` | Count | none | URLs due for scraping when a scraper pass starts. |
-| `ScraperPassDuration`, `SpiderPassDuration` | Milliseconds | none | Per scheduler pass, including a pass that finds no work. |
-| `ReviewsWaitingForHuman`, `OldestReviewWaitingForHumanAge` | Count, Seconds | none | In `agent` mode only, every 5 minutes from the console's start: the pending reviews of crawl-enabled ListingSources that [wait for a human](#review-agents), as the [agents' queue](#review-service) counts them, and how long ago the oldest of them opened, 0 when none waits. A read that fails is warned about and skipped. |
+| Metric | Unit | Recorded |
+|---|---|---|
+| `ScrapesSucceeded`, `ScrapesFailed` | Count | Per scraper pass: URLs whose scrape completed (changed or not) and URLs whose scrape failed. A URL whose page [waits on a product-schema review](scheduling-and-retries.md#fetch-retries) is no failure and counts in neither, nor in `UrlFailures`. |
+| `UrlFailures` | Count | Per scraper pass: the URL failures that recorded a failure kind such as `HTTP_503` or `Timeout`, summed over every kind. The kinds are in the `crawler.scraper.url_outcome` events. |
+| `ProductsCaptured` | Count | Per scraper pass: raw observations the ingestion queue accepted; 0 when every submission failed. |
+| `ScraperDueUrls` | Count | URLs due for scraping when a scraper pass starts; absent from a pass whose count failed. |
+| `CrawlRunsFailed` | Count | Per spider pass: runs that ended in a failure, including one that [stopped its ListingSource for an operator](scheduling-and-retries.md#spider-failure-escalation). A rate-limited, truncated or review-waiting run is no failure. |
+| `ScraperPassDuration`, `SpiderPassDuration` | Milliseconds | Per scheduler pass, including a pass that finds no work. |
 
 Create these alarms from the metrics; each is an operator requirement, not a deployed resource:
 
 | Alarm | Metric and statistic | Period and threshold | Missing data |
 |---|---|---|---|
-| A ListingSource made no successful scrape in 24 hours and waits on no review | `ScrapedOrAwaitingReview` Maximum per `listing_source_id` | 1 day, `<= 0` | Breaching: a ListingSource that is never scraped and waits on no review records nothing. |
-| A product pattern matched no URL, or only pages an operator rejected | `CrawlProductUrls` Maximum per `listing_source_id` | 1 hour, `<= 0` | Ignore: the alarm holds until the next crawl records a count. |
 | A scraper pass took more than 15 minutes, or none finished | `ScraperPassDuration` Maximum | 15 minutes, `> 900000` | Breaching: every pass records a duration, so silence means a stall. |
-| A ListingSource's crawl now waits for an operator | `CrawlsStoppedForOperator` Sum | 1 day, `>= 1` | Not breaching: the metric is recorded only on an escalation. The console's `crawl_needs_operator` filter, and `crawler.spider.crawl_failed` with `needs_operator=true`, name the sources, their failure kind and streak. |
+| No URL was scraped successfully in 24 hours | `ScrapesSucceeded` Sum | 1 day, `<= 0` | Breaching: every pass records a value, so silence means a stall. |
+| Spider runs fail | `CrawlRunsFailed` Sum | 1 hour; set the threshold above the failure count the metric's history shows as normal | Not breaching. |
 | The LLM governor made a call wait more than 60 seconds | Not recorded yet | 1 minute, `> 60000` | Not breaching |
 
-The scrape alarm stays quiet for as long as the ListingSource's review stays pending, also when the review [waits for a human](#review-agents) or nobody decides it in `manual` mode: the console's review queue, and in `agent` mode the agents' [digest](#digest) and `ReviewsWaitingForHuman` with `OldestReviewWaitingForHumanAge`, report that review instead. The crawler does not record the LLM governor wait yet; with `CRAWLER_AUTHORING_MODE` `manual` or `agent` it makes no LLM call. The scrape alarm needs one alarm per crawl-enabled ListingSource: a CloudWatch Metrics Insights alarm evaluates only the latest three hours of data ([limits](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/alarm-limits.html#metrics-insights-alarm-limits)), less than its one-day period. The product-pattern alarm needs one alarm per crawl-enabled ListingSource, or one Metrics Insights alarm grouped by `listing_source_id`.
+The metrics say that something is wrong, not which ListingSource. The log names it, so a query over the outcome events replaces what a per-source alarm used to tell:
+
+- A crawl waits for an operator: `crawler.spider.crawl_failed` with `needs_operator=true`, with the failure kind and streak, and the console's `crawl_needs_operator` filter.
+- A product pattern matched no URL, or a crawl was cut short: `crawler.spider.crawl_completed` (product URL count, truncation) and the WARN of `crawler.spider.pattern_classified`.
+- A ListingSource is not scraped: its `crawler.scraper.pass_completed` row in `by_domain`, the console's review queue for a review that holds it back (`crawler.review.opened`), and the `crawler.scraper.scrape_circuit_opened` WARN for an opened [scrape circuit](scheduling-and-retries.md#scraper-circuits).
+- Observations were discarded as unsendable, or lost: `crawler.raw_capture.batch` with `discarded_unsendable_count` and `persistence_failure_count`.
+- Reviews wait for a human: `crawler.review.human_queue`, which `agent` mode logs every 5 minutes.
+
+The LLM governor wait is not recorded yet; with `CRAWLER_AUTHORING_MODE` `manual` or `agent` the crawler makes no LLM call.
 
 ## Validation
 

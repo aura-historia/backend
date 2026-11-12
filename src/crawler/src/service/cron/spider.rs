@@ -1,7 +1,7 @@
 use super::job::CrawlerCronJob;
-use super::metrics::emit_pass_duration;
+use super::metrics::emit_pass_record;
 use crate::CrawlerReviewId;
-use crate::metrics::{CrawlerMetric, MetricDimension, MetricRecord};
+use crate::metrics::{CrawlerMetric, MetricRecord};
 use crate::network::CRAWLER_USER_AGENT;
 use crate::network::policy::{
     MAX_EXPONENTIAL_COOLDOWN, NetworkErrorKind, durable_retry_cooldown_for, exponential_cooldown,
@@ -1026,74 +1026,6 @@ async fn record_run_outcome(
     }
 }
 
-/// The `last_crawl_outcome` a run left on its ListingSource.
-fn persisted_crawl_outcome(
-    run: &Result<SpiderRunResult, SpiderServiceError>,
-    status: SpiderSlotStatus,
-) -> Option<&'static str> {
-    match (status, run) {
-        (SpiderSlotStatus::Succeeded, Ok(result)) => Some(result.completion.as_str()),
-        (SpiderSlotStatus::Truncated, _) => Some(CrawlCompletion::HardTimeoutTruncated.as_str()),
-        (SpiderSlotStatus::Stopped, _) => Some(CrawlCompletion::Stopped.as_str()),
-        (SpiderSlotStatus::RateLimited, _) => Some(RATE_LIMITED_CRAWL_OUTCOME),
-        (SpiderSlotStatus::AwaitingReview, _) => Some(AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME),
-        (SpiderSlotStatus::Failed, _) => Some(FAILED_CRAWL_OUTCOME),
-        (SpiderSlotStatus::StoppedForOperator, _) => Some(NEEDS_OPERATOR_CRAWL_OUTCOME),
-        (SpiderSlotStatus::Succeeded, Err(_))
-        | (SpiderSlotStatus::ReviewDecided, _)
-        | (SpiderSlotStatus::RootMoved, _)
-        | (SpiderSlotStatus::Deferred, _) => None,
-    }
-}
-
-/// The product URL count and completion of a run that classified its URLs with the
-/// ListingSource's product pattern, including a pattern that matched nothing. An incremental crawl
-/// counts the stored product pages it found linked and did not fetch again too, so a day
-/// without new products does not read as a pattern that matched nothing.
-fn classified_crawl(
-    run: &Result<SpiderRunResult, SpiderServiceError>,
-) -> Option<(usize, CrawlCompletion)> {
-    match run {
-        Ok(result) if result.pending_url_pattern_review.is_none() => Some((
-            result.product_urls_count + result.known_product_urls_skipped,
-            result.completion,
-        )),
-        Err(error) => match error.cause() {
-            SpiderServiceError::NoProductUrls { completion, .. } => Some((0, *completion)),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn emit_crawl_metrics(
-    candidate: &SpiderCandidate,
-    run: &Result<SpiderRunResult, SpiderServiceError>,
-    status: SpiderSlotStatus,
-) {
-    let record = || MetricRecord::for_listing_source(&candidate.listing_source_id);
-    if let Some(outcome) = persisted_crawl_outcome(run, status) {
-        record()
-            .with_dimension(MetricDimension::CrawlOutcome, outcome)
-            .with_value(CrawlerMetric::CrawlOutcome, 1)
-            .emit();
-    }
-    if matches!(status, SpiderSlotStatus::StoppedForOperator) {
-        MetricRecord::global()
-            .with_value(CrawlerMetric::CrawlsStoppedForOperator, 1)
-            .emit();
-    }
-    if let Some((product_urls, completion)) = classified_crawl(run) {
-        record()
-            .with_value(CrawlerMetric::CrawlProductUrls, product_urls as u64)
-            .with_value(
-                CrawlerMetric::CrawlTruncated,
-                u64::from(!completion.is_full() && completion != CrawlCompletion::Stopped),
-            )
-            .emit();
-    }
-}
-
 fn spawn_spider_candidate(
     join_set: &mut JoinSet<SpiderSlotOutcome>,
     candidate: SpiderCandidate,
@@ -1146,7 +1078,6 @@ fn spawn_spider_candidate(
                         .await;
                     let status =
                         record_run_outcome(spider_candidates.as_ref(), &candidate, &run).await;
-                    emit_crawl_metrics(&candidate, &run, status);
                     SpiderSlotOutcome {
                         listing_source_id,
                         status,
@@ -1158,6 +1089,12 @@ fn spawn_spider_candidate(
     );
     task.id()
 }
+/// What one spider pass publishes: its failed runs, aggregated in process. No per-source figure
+/// leaves the pass as a metric; the run's own outcome events name the source.
+fn spider_pass_metrics(crawl_runs_failed: u64) -> MetricRecord {
+    MetricRecord::default().with_value(CrawlerMetric::CrawlRunsFailed, crawl_runs_failed)
+}
+
 impl CrawlerCronJob {
     #[tracing::instrument(name = "crawler_run_spider_once", skip(self))]
     pub(super) async fn run_spider_once(&self) {
@@ -1221,7 +1158,11 @@ impl CrawlerCronJob {
                     no_more_candidates = true;
                     if !started && join_set.is_empty() {
                         debug!("No spider candidates, skipping scheduler pass");
-                        emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
+                        emit_pass_record(
+                            spider_pass_metrics(0),
+                            CrawlerMetric::SpiderPassDuration,
+                            pass_start,
+                        );
                         return;
                     }
                     break;
@@ -1296,7 +1237,12 @@ impl CrawlerCronJob {
             }
         }
 
-        let duration_ms = emit_pass_duration(CrawlerMetric::SpiderPassDuration, pass_start);
+        // A run that stopped its ListingSource for an operator is a failed run too.
+        let duration_ms = emit_pass_record(
+            spider_pass_metrics((failed + stopped_for_operator) as u64),
+            CrawlerMetric::SpiderPassDuration,
+            pass_start,
+        );
         info!(
             event = "crawler.spider.pass_completed",
             total,
@@ -2038,7 +1984,6 @@ mod tests {
             );
             assert!(!needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT - 1));
             assert!(needs_operator(&error, NEEDS_OPERATOR_FAILURE_COUNT));
-            assert_eq!(classified_crawl(&Err(error)), None);
         }
     }
 
@@ -2168,12 +2113,9 @@ mod tests {
             kind: CrawlKind::Incremental,
             ..spider_candidate(listing_source_id)
         };
-        for (completion, status) in [
-            (CrawlCompletion::Completed, "COMPLETED"),
-            (
-                CrawlCompletion::HardTimeoutTruncated,
-                "HARD_TIMEOUT_TRUNCATED",
-            ),
+        for (completion, truncated) in [
+            (CrawlCompletion::Completed, false),
+            (CrawlCompletion::HardTimeoutTruncated, true),
         ] {
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
@@ -2189,7 +2131,11 @@ mod tests {
 
             let slot = record_run_outcome(&spider_candidates, &candidate, &run).await;
 
-            assert_eq!(persisted_crawl_outcome(&run, slot), Some(status));
+            assert_eq!(
+                matches!(slot, SpiderSlotStatus::Truncated),
+                truncated,
+                "an incremental run ends as truncated only when its completion is not full"
+            );
         }
     }
 
@@ -3168,12 +3114,8 @@ mod tests {
     #[test]
     fn should_persist_a_rate_limited_crawl_as_rate_limited_not_as_a_hard_timeout() {
         let completion = rate_limited(None);
-        let run = Ok(run_result(completion));
 
-        assert_eq!(
-            persisted_crawl_outcome(&run, SpiderSlotStatus::RateLimited),
-            Some("RATE_LIMITED")
-        );
+        assert_eq!(completion.as_str(), "RATE_LIMITED");
         assert_eq!(completion.as_str(), RATE_LIMITED_CRAWL_OUTCOME);
     }
 
@@ -3412,13 +3354,6 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&CrawlCompletion::Stopped).unwrap(),
             "\"STOPPED\""
-        );
-        assert_eq!(
-            persisted_crawl_outcome(
-                &Ok(run_result(CrawlCompletion::Stopped)),
-                SpiderSlotStatus::Stopped
-            ),
-            Some("STOPPED")
         );
     }
 
@@ -4024,8 +3959,29 @@ mod tests {
         use super::*;
         use crate::metrics::test_support::capture_metrics;
 
+        /// The one record a spider pass publishes: the failed runs and the pass duration, under
+        /// the empty dimension set, with no figure that names a source.
+        fn assert_one_dimensionless_record(
+            metrics: &crate::metrics::test_support::CapturedMetrics,
+            crawl_runs_failed: u64,
+        ) {
+            let records = metrics.records();
+            assert_eq!(records.len(), 1, "one record per pass");
+            let record = &records[0];
+            assert_eq!(
+                record["_aws"]["CloudWatchMetrics"][0]["Dimensions"],
+                serde_json::json!([[]])
+            );
+            assert_eq!(
+                record[CrawlerMetric::CrawlRunsFailed.name()],
+                crawl_runs_failed
+            );
+            assert!(record[CrawlerMetric::SpiderPassDuration.name()].is_u64());
+            assert!(record.get("listing_source_id").is_none());
+        }
+
         #[tokio::test]
-        async fn should_emit_outcome_product_count_and_truncation_when_a_crawl_is_truncated() {
+        async fn should_count_no_failed_run_when_a_crawl_is_truncated() {
             let (metrics, _guard) = capture_metrics();
             let listing_source_id = ListingSourceId::new();
             let mut spider_candidates = MockSpiderCandidateService::new();
@@ -4053,37 +4009,14 @@ mod tests {
                 .run_spider_once()
                 .await;
 
-            assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::CrawlOutcome,
-                    MetricDimension::CrawlOutcome,
-                    "HARD_TIMEOUT_TRUNCATED"
-                ),
-                vec![1]
-            );
-            assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::CrawlProductUrls,
-                    MetricDimension::ListingSourceId,
-                    &listing_source_id.to_string()
-                ),
-                vec![1_200]
-            );
-            assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::CrawlTruncated,
-                    MetricDimension::ListingSourceId,
-                    &listing_source_id.to_string()
-                ),
-                vec![1]
-            );
-            assert_eq!(metrics.values(CrawlerMetric::SpiderPassDuration).len(), 1);
+            assert_one_dimensionless_record(&metrics, 0);
         }
 
-        /// A crawl that stops its source for an operator counts once in the crawler-wide metric
-        /// the escalation alarm reads, and records its `NEEDS_OPERATOR` outcome per source.
+        /// A crawl that stops its source for an operator is a failed run: the pass counts it in
+        /// the metric the escalation alarm reads, and the run's `crawler.spider.crawl_failed`
+        /// event names the source.
         #[tokio::test]
-        async fn should_count_a_source_stopped_for_an_operator_crawler_wide() {
+        async fn should_count_a_source_stopped_for_an_operator_as_a_failed_run() {
             let (metrics, _guard) = capture_metrics();
             let listing_source_id = ListingSourceId::new();
             let mut spider_candidates = failing_candidate_service(
@@ -4103,22 +4036,11 @@ mod tests {
             .run_spider_once()
             .await;
 
-            assert_eq!(
-                metrics.values(CrawlerMetric::CrawlsStoppedForOperator),
-                vec![(vec![], 1)]
-            );
-            assert_eq!(
-                metrics.values_with(
-                    CrawlerMetric::CrawlOutcome,
-                    MetricDimension::CrawlOutcome,
-                    NEEDS_OPERATOR_CRAWL_OUTCOME
-                ),
-                vec![1]
-            );
+            assert_one_dimensionless_record(&metrics, 1);
         }
 
         #[tokio::test]
-        async fn should_count_no_stop_for_an_operator_when_a_failed_crawl_is_retried() {
+        async fn should_count_a_failed_crawl_that_is_retried_as_a_failed_run() {
             let (metrics, _guard) = capture_metrics();
             let mut spider_candidates =
                 failing_candidate_service(ListingSourceId::new(), 0, "NoUrlPattern");
@@ -4134,15 +4056,11 @@ mod tests {
             .run_spider_once()
             .await;
 
-            assert!(
-                metrics
-                    .values(CrawlerMetric::CrawlsStoppedForOperator)
-                    .is_empty()
-            );
+            assert_one_dimensionless_record(&metrics, 1);
         }
 
         #[tokio::test]
-        async fn should_emit_the_pass_duration_when_no_source_is_due() {
+        async fn should_publish_the_record_when_no_source_is_due() {
             let (metrics, _guard) = capture_metrics();
             let mut spider_candidates = MockSpiderCandidateService::new();
             spider_candidates
@@ -4153,16 +4071,15 @@ mod tests {
                 .run_spider_once()
                 .await;
 
-            let durations = metrics.values(CrawlerMetric::SpiderPassDuration);
-            assert_eq!(durations.len(), 1);
-            assert!(durations[0].0.is_empty(), "pass duration is crawler-wide");
+            assert_one_dimensionless_record(&metrics, 0);
         }
 
         /// A review decided before the run records its wait, such as one rejected while the crawl
         /// ran, leaves the ListingSource's crawl state as the decision left it: the run writes
-        /// nothing else and reports no crawl outcome.
+        /// nothing else and is no failed run.
         #[tokio::test]
-        async fn should_record_no_outcome_when_the_url_pattern_review_is_decided_before_the_wait() {
+        async fn should_count_no_failed_run_when_the_url_pattern_review_is_decided_before_the_wait()
+        {
             let (metrics, _guard) = capture_metrics();
             let review_id = CrawlerReviewId::new();
             let spider_candidates = candidate_service_recording_review_wait(
@@ -4175,63 +4092,7 @@ mod tests {
                 .run_spider_once()
                 .await;
 
-            assert!(
-                metrics.values(CrawlerMetric::CrawlOutcome).is_empty(),
-                "the run persisted no crawl outcome"
-            );
-        }
-
-        #[test]
-        fn should_record_a_pattern_that_matched_nothing_as_a_failed_crawl_with_zero_products() {
-            let run = Err(no_product_urls());
-
-            assert_eq!(
-                persisted_crawl_outcome(&run, SpiderSlotStatus::Failed),
-                Some("FAILED")
-            );
-            assert_eq!(
-                classified_crawl(&run),
-                Some((0, CrawlCompletion::Completed))
-            );
-        }
-
-        #[test]
-        fn should_count_the_stored_product_pages_an_incremental_crawl_skipped() {
-            let run = Ok(SpiderRunResult {
-                product_urls_count: 0,
-                known_product_urls_skipped: 12,
-                ..run_result(CrawlCompletion::Completed)
-            });
-
-            assert_eq!(
-                classified_crawl(&run),
-                Some((12, CrawlCompletion::Completed))
-            );
-        }
-
-        #[test]
-        fn should_record_no_product_count_when_the_crawl_waits_for_a_url_pattern_review() {
-            let run = Ok(SpiderRunResult {
-                pending_url_pattern_review: Some(CrawlerReviewId::new()),
-                ..run_result(CrawlCompletion::Completed)
-            });
-
-            assert_eq!(
-                persisted_crawl_outcome(&run, SpiderSlotStatus::AwaitingReview),
-                Some("AWAITING_URL_PATTERN_REVIEW")
-            );
-            assert_eq!(classified_crawl(&run), None);
-        }
-
-        #[test]
-        fn should_record_no_product_count_when_the_crawl_failed_before_classifying() {
-            let run = Err(insufficient_sample());
-
-            assert_eq!(
-                persisted_crawl_outcome(&run, SpiderSlotStatus::StoppedForOperator),
-                Some("NEEDS_OPERATOR")
-            );
-            assert_eq!(classified_crawl(&run), None);
+            assert_one_dimensionless_record(&metrics, 0);
         }
     }
 
@@ -4358,7 +4219,6 @@ mod tests {
                 let slot = record_run_outcome(&spider_candidates, &candidate, &run).await;
 
                 assert!(matches!(slot, SpiderSlotStatus::RootMoved), "{ended}");
-                assert_eq!(persisted_crawl_outcome(&run, slot), None, "{ended}");
             }
         }
 

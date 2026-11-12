@@ -1,18 +1,19 @@
-//! The human queue as CloudWatch metrics: how many pending reviews wait for a human and how long
-//! ago the oldest of them opened, so the backlog the review agents leave to humans shows without
-//! the console. Only `agent` mode has such a queue, so only its console reports it. The metric
-//! names are in `docs/crawler/operations.md` (metrics and alarms).
+//! The human queue in the log: how many pending reviews wait for a human and how long ago the
+//! oldest of them opened, so the backlog the review agents leave to humans shows without the
+//! console. Only `agent` mode has such a queue, so only its console reports it. It is a log
+//! event and no metric, because every metric is billed. The event is in
+//! `docs/crawler/operations.md` (outcome events).
 
-use crate::metrics::{CrawlerMetric, MetricRecord};
 use crate::review::model::{PageSize, PendingReviewPage};
 use crate::review::repository::{CrawlerReviewRepository, PendingReviewQuery};
 use std::convert::Infallible;
 use std::time::Duration;
 use time::OffsetDateTime;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 /// How often the console reports the human queue.
 const REPORT_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const HUMAN_QUEUE_EVENT: &str = "crawler.review.human_queue";
 
 /// Reports the human queue of `repository` every [`REPORT_INTERVAL`] while its review agents
 /// work, from the first tick on; outside `agent` mode it waits forever and reports nothing. A
@@ -29,7 +30,7 @@ pub(super) async fn report_while_agents_work(repository: CrawlerReviewRepository
             .list_pending_reviews(oldest_waiting_query())
             .await
         {
-            Ok(page) => human_queue_record(&page, OffsetDateTime::now_utc()).emit(),
+            Ok(page) => human_queue_of(&page, OffsetDateTime::now_utc()).log(),
             Err(error) => warn!(
                 error = %error,
                 cause = ?std::error::Error::source(&error),
@@ -49,21 +50,44 @@ fn oldest_waiting_query() -> PendingReviewQuery {
     }
 }
 
-/// The metrics of `page`, the first page of [`oldest_waiting_query`], at `now`. The age is 0 when
-/// no review waits, so the metric has a value at every report.
-fn human_queue_record(page: &PendingReviewPage, now: OffsetDateTime) -> MetricRecord {
-    let waiting = u64::try_from(page.totals.waiting_for_human).unwrap_or(0);
-    let oldest_age_seconds = page
-        .reviews
-        .first()
-        .map(|oldest| u64::try_from((now - oldest.created).whole_seconds()).unwrap_or(0))
-        .unwrap_or(0);
-    MetricRecord::global()
-        .with_value(CrawlerMetric::ReviewsWaitingForHuman, waiting)
-        .with_value(
-            CrawlerMetric::OldestReviewWaitingForHumanAge,
-            oldest_age_seconds,
-        )
+#[derive(Debug, PartialEq, Eq)]
+struct HumanQueue {
+    waiting: u64,
+    /// 0 when no review waits.
+    oldest_waiting_seconds: u64,
+}
+
+impl HumanQueue {
+    /// An empty queue is a heartbeat: INFO carries only a queue with a review in it.
+    fn log(&self) {
+        macro_rules! log_queue {
+            ($log:ident) => {
+                $log!(
+                    event = HUMAN_QUEUE_EVENT,
+                    waiting = self.waiting,
+                    oldest_waiting_seconds = self.oldest_waiting_seconds,
+                    "Reviews wait for a human"
+                )
+            };
+        }
+        if self.waiting == 0 {
+            log_queue!(debug);
+        } else {
+            log_queue!(info);
+        }
+    }
+}
+
+/// The human queue in `page`, the first page of [`oldest_waiting_query`], at `now`.
+fn human_queue_of(page: &PendingReviewPage, now: OffsetDateTime) -> HumanQueue {
+    HumanQueue {
+        waiting: u64::try_from(page.totals.waiting_for_human).unwrap_or(0),
+        oldest_waiting_seconds: page
+            .reviews
+            .first()
+            .map(|oldest| u64::try_from((now - oldest.created).whole_seconds()).unwrap_or(0))
+            .unwrap_or(0),
+    }
 }
 
 #[cfg(test)]
@@ -105,23 +129,25 @@ mod tests {
 
     #[test]
     fn should_report_how_many_reviews_wait_for_a_human_and_the_age_of_the_oldest() {
-        let record = human_queue_record(&page(182, Some(NOW - time::Duration::hours(26))), NOW);
+        let queue = human_queue_of(&page(182, Some(NOW - time::Duration::hours(26))), NOW);
 
         assert_eq!(
-            record,
-            MetricRecord::global()
-                .with_value(CrawlerMetric::ReviewsWaitingForHuman, 182)
-                .with_value(CrawlerMetric::OldestReviewWaitingForHumanAge, 26 * 3600)
+            queue,
+            HumanQueue {
+                waiting: 182,
+                oldest_waiting_seconds: 26 * 3600,
+            }
         );
     }
 
     #[test]
     fn should_report_zero_when_no_review_waits_for_a_human() {
         assert_eq!(
-            human_queue_record(&page(0, None), NOW),
-            MetricRecord::global()
-                .with_value(CrawlerMetric::ReviewsWaitingForHuman, 0)
-                .with_value(CrawlerMetric::OldestReviewWaitingForHumanAge, 0)
+            human_queue_of(&page(0, None), NOW),
+            HumanQueue {
+                waiting: 0,
+                oldest_waiting_seconds: 0,
+            }
         );
     }
 

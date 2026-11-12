@@ -247,9 +247,6 @@ mod tests {
         scraper_candidates
             .expect_count_due_urls()
             .returning(|| Box::pin(async { Ok(0) }));
-        scraper_candidates
-            .expect_sources_awaiting_review()
-            .returning(|| Box::pin(async { Ok(Vec::new()) }));
         let scraper_counter = Arc::clone(&scraper_passes);
         scraper_candidates
             .expect_get_candidates()
