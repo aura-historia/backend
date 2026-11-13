@@ -150,8 +150,9 @@ there are no per-directory variants. Check new or changed tools against the
   as continuation, background matching, conflicts or non-idempotent creation, stated as facts
   about the tool. They give the model no behavioural instructions, promote nothing and name no
   other tool to call.
-- **Provider links.** Results pair a provider's own `url` with `viewLink`: the referral-tagged
-  `url` meant to be shared and whether it is an `affiliate` link. These fields carry shared
+- **Provider links.** Results pair a provider's own `url` with `viewLink`: `viewLink.url` is the
+  referral-tagged link meant to be shared and `viewLink.affiliate` says whether it is an affiliate
+  link. These fields carry shared
   descriptions (`wire::description`), and the registry appends the shared link statement to each
   tool whose result has a `viewLink`. Like every
   description, the appended text states a fact about the result. The server's `instructions` say

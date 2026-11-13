@@ -21507,7 +21507,9 @@ components:
           type: string
           format: uri
         viewLink:
-          $ref: "#/components/schemas/ViewLinkData"
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
         image:
           allOf:
             - $ref: "#/components/schemas/ProductListingImageData"
@@ -21615,7 +21617,9 @@ components:
           type: string
           format: uri
         viewLink:
-          $ref: "#/components/schemas/ViewLinkData"
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
         images:
           type: array
           items:
@@ -21699,7 +21703,9 @@ components:
           type: string
           format: uri
         viewLink:
-          $ref: "#/components/schemas/ViewLinkData"
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
         image:
           allOf:
             - $ref: "#/components/schemas/ProductListingImageData"
@@ -24963,7 +24969,9 @@ components:
           type: string
           format: uri
         viewLink:
-          $ref: "#/components/schemas/ViewLinkData"
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
         change:
           $ref: "#/components/schemas/WatchlistNotificationChangeData"
     WatchlistNotificationChangeData:
@@ -25043,7 +25051,9 @@ components:
           type: string
           format: uri
         viewLink:
-          $ref: "#/components/schemas/ViewLinkData"
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
     PartnershipApplicationNotificationPayloadData:
       type: object
       required:
@@ -26026,7 +26036,7 @@ components:
           example: ada-antiques
     ViewLinkData:
       type: object
-      description: The link to a provider's page that is meant to be shared with people, and whether it is an affiliate link.
+      description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
       required:
         - url
         - affiliate
@@ -26034,10 +26044,10 @@ components:
         url:
           type: string
           format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed. The provider's affiliate link when its ListingSource has a referral configuration, otherwise the provider's `url` with Aura Historia's `utm_source` and `utm_medium` parameters, unless it already carries a `utm_source`. Listings redacted as hidden link to Aura Historia's pricing page instead.
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
         affiliate:
           type: boolean
-          description: "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it; show an affiliate disclosure next to it and mark it `rel=\"sponsored\"`. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself."
+          description: "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself."
     PublicListingSourceOperatorData:
       type: object
       description: The Party that operates a ListingSource, wherever a ListingSource is presented.
@@ -26772,7 +26782,9 @@ components:
           type: string
           format: uri
         viewLink:
-          $ref: "#/components/schemas/ViewLinkData"
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link.
         format:
           allOf:
             - $ref: "#/components/schemas/AuctionFormatData"

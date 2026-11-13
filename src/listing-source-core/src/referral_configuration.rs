@@ -145,6 +145,26 @@ impl ViewLink {
     pub fn is_affiliate(&self) -> bool {
         self.affiliate
     }
+
+    /// Rebuilds a link that was stored as a bare URL. It is an affiliate link exactly when
+    /// [`view_link`] builds that kind of URL from a referral configuration, so any stored
+    /// affiliate link is disclosed regardless of when it was stored.
+    pub fn from_stored_url(url: Url) -> Self {
+        if is_partnerize_click(&url) {
+            Self::affiliate(url)
+        } else {
+            Self::non_affiliate(url)
+        }
+    }
+}
+
+const PARTNERIZE_HOST: &str = "prf.hn";
+const PARTNERIZE_CLICK_PATH: &str = "/click/";
+
+fn is_partnerize_click(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some(PARTNERIZE_HOST)
+        && url.path().starts_with(PARTNERIZE_CLICK_PATH)
 }
 
 /// The link to send people to for `destination`: the source's affiliate link when it has a
@@ -155,7 +175,7 @@ pub fn view_link(
 ) -> Result<ViewLink, ReferralUrlError> {
     match referral_configuration {
         Some(ReferralConfiguration::Partnerize { camref }) => Url::parse(&format!(
-            "https://prf.hn/click/camref:{}/pubref:aurahistoria/destination:{}",
+            "https://{PARTNERIZE_HOST}{PARTNERIZE_CLICK_PATH}camref:{}/pubref:aurahistoria/destination:{}",
             utf8_percent_encode(camref.as_ref(), NON_ALPHANUMERIC),
             utf8_percent_encode(destination.as_str(), PARTNERIZE_DESTINATION)
         ))
@@ -240,6 +260,36 @@ mod tests {
             ),
             result
         );
+    }
+
+    #[test]
+    fn should_recover_the_affiliate_flag_of_every_built_view_link_from_its_stored_url() {
+        let destination = Url::parse("https://source.example/item?colour=red")
+            .unwrap_or_else(|error| panic!("test URL: {error}"));
+        let camref = PartnerizeCamref::try_from("1101l3AbC")
+            .unwrap_or_else(|error| panic!("test camref: {error}"));
+
+        for referral_configuration in [None, Some(ReferralConfiguration::Partnerize { camref })] {
+            let built = view_link(referral_configuration.as_ref(), &destination)
+                .unwrap_or_else(|error| panic!("could not build referral URL: {error}"));
+
+            assert_eq!(built, ViewLink::from_stored_url(built.url().clone()));
+        }
+    }
+
+    #[test]
+    fn should_treat_stored_urls_outside_partnerize_clicks_as_non_affiliate() {
+        for url in [
+            "https://aura-historia.com/#pricing",
+            "https://source.example/item?utm_source=aura_historia&utm_medium=referral",
+            "https://prf.hn/other/camref:abc",
+            "http://prf.hn/click/camref:abc",
+            "https://prf.hn.example/click/camref:abc",
+        ] {
+            let url = Url::parse(url).unwrap_or_else(|error| panic!("test URL: {error}"));
+
+            assert!(!ViewLink::from_stored_url(url).is_affiliate());
+        }
     }
 
     #[test]
