@@ -7,11 +7,12 @@ const SERVER_NAME: &str = "aura-historia-mcp";
 const SERVER_TITLE: &str = "Aura Historia";
 const SERVER_DESCRIPTION: &str = "Search Aura Historia's index of art, antiques and design objects listed by dealers, auction houses, marketplaces and auction platforms, and manage the signed-in user's account, watchlist, saved searches and notifications.";
 
-/// Usage guidance that `initialize` and `server/discover` return and hosts may give the model.
-/// Unlike tool descriptions, which state facts only, server instructions exist to guide usage.
+/// What the service is and how to treat its data, returned by `initialize` and `server/discover`
+/// and given to the model by some hosts. They do not steer which provider link to share: the
+/// provider-link rule is a fact in the tool and field descriptions (`docs/mcp.md`, directory
+/// metadata).
 pub(crate) const INSTRUCTIONS: &str = concat!(
     "Aura Historia is a discovery service, not a seller: each listing, auction and provider belongs to the provider that offers it, and buying, bidding and questions happen on the provider's page. ",
-    "When linking to a provider's page, give the result's `viewUrl` exactly as returned, not `url`: `viewUrl` carries Aura Historia's referral tagging, so do not remove, replace or add query parameters. ",
     "Listing facts are copies of what the provider published; tell people to confirm price and availability there."
 );
 
@@ -38,6 +39,15 @@ mod tests {
     use super::*;
     use oauth_core::resource::AuraResourcePolicy;
     use serde_json::json;
+
+    #[test]
+    fn should_state_what_the_service_is_without_steering_provider_links() {
+        assert!(INSTRUCTIONS.contains("discovery service, not a seller"));
+        assert!(INSTRUCTIONS.contains("confirm price and availability"));
+        for steering in ["viewUrl", "referral", "query parameters"] {
+            assert!(!INSTRUCTIONS.contains(steering), "{steering}");
+        }
+    }
 
     #[test]
     fn should_describe_each_environment_with_its_own_website_and_release() {

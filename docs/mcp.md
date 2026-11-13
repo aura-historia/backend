@@ -151,12 +151,14 @@ there are no per-directory variants. Check new or changed tools against the
   about the tool. They give the model no behavioural instructions, promote nothing and name no
   other tool to call.
 - **Provider links.** Results pair a provider's own `url` with `viewUrl`, the referral-tagged
-  link meant to be shared. Both fields carry shared descriptions (`wire::description`), the
-  registry appends the shared link statement to each tool whose result has a `viewUrl`, and the
-  server's `instructions` ask agents to share `viewUrl` unchanged. Like every description, the
-  appended text states a fact about the result; only the instructions direct usage. The
+  link meant to be shared. Both fields carry shared descriptions (`wire::description`), and the
+  registry appends the shared link statement to each tool whose result has a `viewUrl`. Like every
+  description, the appended text states a fact about the result. The server's `instructions` say
+  only that Aura Historia is a discovery service and that people should confirm price and
+  availability with the provider; they do not direct which link to share, and
+  [a unit test](../src/aura-historia-mcp/src/server_info.rs) fails if they start to. The
   [production registry test](../src/aura-historia-mcp/src/runtime.rs) fails on a tool or field
-  that leaves them out.
+  that leaves the link statement out.
 - **Argument types.** The Claude review flags an argument that is a bare `$ref` (or an `allOf`)
   without a `type`, which is how schemars describes an argument whose type is a shared
   definition. When it builds a tool's input schema, the registry repeats the type that definition
