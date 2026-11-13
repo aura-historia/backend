@@ -1,19 +1,19 @@
 use application::error::{BoxError, box_error};
 use listing_source_core::ListingSourceId;
-use notification_core::presentation::PartnerListingSources;
 use notification_service::ports::{
     notification_delivery_repository::NotificationDeliveryError,
     notification_list_reader::NotificationListReadError,
 };
+use std::collections::HashSet;
 
 /// The given ListingSources whose operator Party holds an ACTIVE Partnership now.
 ///
 /// Notification snapshots never store partner status, so readers resolve it here
 /// in one query per page or delivery. Sources that no longer exist are not partners.
-pub(crate) async fn partner_listing_sources<'e, E>(
+pub(crate) async fn partner_listing_source_ids<'e, E>(
     executor: E,
     listing_source_ids: impl IntoIterator<Item = ListingSourceId>,
-) -> Result<PartnerListingSources, ListingSourcePartnersError>
+) -> Result<HashSet<ListingSourceId>, ListingSourcePartnersError>
 where
     E: sqlx::PgExecutor<'e>,
 {
@@ -24,7 +24,7 @@ where
     listing_source_ids.sort_unstable();
     listing_source_ids.dedup();
     if listing_source_ids.is_empty() {
-        return Ok(PartnerListingSources::default());
+        return Ok(HashSet::new());
     }
     sqlx::query_scalar::<_, uuid::Uuid>(
         "SELECT s.listing_source_id FROM listing_sources s JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE s.listing_source_id = ANY($1)",
@@ -145,10 +145,11 @@ pub(crate) mod tests {
         let none = seed_listing_source(&pool, None).await;
         let missing = ListingSourceId::new();
 
-        let partners = partner_listing_sources(&pool, [active, dissolved, none, missing, active])
-            .await
-            .unwrap_or_else(|error| panic!("read partner status: {error}"));
+        let partners =
+            partner_listing_source_ids(&pool, [active, dissolved, none, missing, active])
+                .await
+                .unwrap_or_else(|error| panic!("read partner status: {error}"));
 
-        assert_eq!(PartnerListingSources::from_iter([active]), partners);
+        assert_eq!(HashSet::from([active]), partners);
     }
 }

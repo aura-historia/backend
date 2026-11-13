@@ -7,6 +7,7 @@ edition = "2024"
 fake = { workspace = true, optional = true }
 async-trait = { workspace = true }
 application = { workspace = true }
+listing-source-core = { workspace = true }
 localization = { workspace = true }
 notification-core = { workspace = true }
 user-core = { workspace = true }
@@ -20,7 +21,6 @@ mockall = { workspace = true, optional = true }
 
 [dev-dependencies]
 notification-service = { workspace = true, features = ["test-data", "mock"] }
-listing-source-core = { workspace = true }
 partnership-core = { workspace = true }
 party-core = { workspace = true }
 rstest = { workspace = true }

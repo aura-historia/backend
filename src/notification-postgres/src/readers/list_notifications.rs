@@ -1,4 +1,4 @@
-use crate::listing_source_partners::partner_listing_sources;
+use crate::listing_source_partners::partner_listing_source_ids;
 use crate::mapping::{NotificationRow, mapping_error};
 use application::error::box_error;
 use notification_core::notification::Notification;
@@ -139,7 +139,7 @@ impl NotificationListReader for SqlxNotificationListReader {
             })?;
             notifications.push((notification, seen, created, updated));
         }
-        let partner_listing_sources = partner_listing_sources(
+        let partner_listing_source_ids = partner_listing_source_ids(
             &self.pool,
             notifications
                 .iter()
@@ -151,8 +151,10 @@ impl NotificationListReader for SqlxNotificationListReader {
             .map(
                 |(notification, seen, created, updated)| NotificationListItem {
                     notification_id: notification.notification_id(),
-                    listing_source_partner: partner_listing_sources
-                        .names_partner(notification.content()),
+                    listing_source_partner: notification
+                        .content()
+                        .listing_source_id()
+                        .is_some_and(|id| partner_listing_source_ids.contains(&id)),
                     content: notification.content().clone(),
                     seen,
                     created,

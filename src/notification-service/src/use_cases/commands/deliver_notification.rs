@@ -840,7 +840,7 @@ mod tests {
                 language: Language::En,
                 show_unassessed_or_sensitive_content: false,
             },
-            partner_listing_sources: Default::default(),
+            partner_listing_source_ids: Default::default(),
         }
     }
 

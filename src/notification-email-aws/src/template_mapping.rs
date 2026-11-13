@@ -293,7 +293,11 @@ pub(crate) fn template_data(
         .content
         .clone()
         .localized(&[email_language.as_language()]);
-    let is_partner = |listing_source_id| source.partner_listing_sources.contains(listing_source_id);
+    let is_partner = |listing_source_id| {
+        source
+            .partner_listing_source_ids
+            .contains(&listing_source_id)
+    };
     let present_image_url = |image, content_policy| {
         present_image(
             image,
@@ -438,8 +442,8 @@ fn digest_template_data(
                         links,
                         snapshot.listing_source_name.to_string(),
                         source
-                            .partner_listing_sources
-                            .contains(snapshot.listing_source_id),
+                            .partner_listing_source_ids
+                            .contains(&snapshot.listing_source_id),
                         &snapshot.product_listing_title_slug_id,
                         snapshot.title.map(|title| title.payload.to_string()),
                         image,
@@ -600,7 +604,6 @@ mod tests {
     use localization::Language;
     use money::{Currency, MonetaryAmount, Price};
     use notification_core::notification_id::NotificationId;
-    use notification_core::presentation::PartnerListingSources;
     use notification_core::{
         notification::{
             NotificationContent, NotificationWatchlistChange, ProductListingNotificationSnapshot,
@@ -620,7 +623,10 @@ mod tests {
         source_listing_id::SourceListingId,
     };
     use rstest::rstest;
-    use std::{collections::HashMap, fs};
+    use std::{
+        collections::{HashMap, HashSet},
+        fs,
+    };
     use url::Url;
     use user_core::user_id::UserId;
 
@@ -1121,7 +1127,7 @@ mod tests {
             .listing_source_id()
             .ok_or("fixture names a listing source")?;
         if partner {
-            source.partner_listing_sources = PartnerListingSources::from_iter([listing_source_id]);
+            source.partner_listing_source_ids = HashSet::from([listing_source_id]);
         }
 
         let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
@@ -1150,7 +1156,7 @@ mod tests {
         };
         let partner = ListingSourceId::new();
         let other = ListingSourceId::new();
-        source.partner_listing_sources = PartnerListingSources::from_iter([partner]);
+        source.partner_listing_source_ids = HashSet::from([partner]);
         source.saved_search_digest = Some(
             notification_service::saved_search_digest::SavedSearchEmailDigest {
                 digest_id: notification_core::saved_search_digest_id::SavedSearchDigestId::new(),
@@ -1293,7 +1299,7 @@ mod tests {
                 language: Language::En,
                 show_unassessed_or_sensitive_content,
             },
-            partner_listing_sources: PartnerListingSources::default(),
+            partner_listing_source_ids: HashSet::new(),
         })
     }
 }

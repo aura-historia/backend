@@ -251,7 +251,7 @@ pub(crate) async fn load_delivery_source(
         tracing::info!(digest_id = %digest_id, run_end = %target.window_end, "saved_search.digest.suppressed_current_eligibility");
         return Ok(None);
     };
-    let partner_listing_sources = crate::listing_source_partners::partner_listing_sources(
+    let partner_listing_source_ids = crate::listing_source_partners::partner_listing_source_ids(
         &mut *connection,
         members
             .iter()
@@ -283,7 +283,7 @@ pub(crate) async fn load_delivery_source(
             language,
             show_unassessed_or_sensitive_content: target.show_unassessed_or_sensitive_content,
         },
-        partner_listing_sources,
+        partner_listing_source_ids,
     }))
 }
 fn delivery_error(

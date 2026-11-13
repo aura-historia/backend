@@ -1,6 +1,6 @@
 use crate::{
     delivery_mapping::channel_from_persisted,
-    listing_source_partners::partner_listing_sources,
+    listing_source_partners::partner_listing_source_ids,
     mapping::{NotificationRow, mapping_error},
 };
 use application::error::box_error;
@@ -301,8 +301,8 @@ async fn source_from_row(
     .map_err(|error| NotificationDeliveryError::InvalidPersistedState {
         source: mapping_error(error),
     })?;
-    let partner_listing_sources =
-        partner_listing_sources(connection, notification.content().listing_source_id()).await?;
+    let partner_listing_source_ids =
+        partner_listing_source_ids(connection, notification.content().listing_source_id()).await?;
 
     Ok(NotificationDeliverySource {
         notification_delivery_id: NotificationDeliveryId::try_from(row.notification_delivery_id)
@@ -332,7 +332,7 @@ async fn source_from_row(
                 .unwrap_or(Language::En),
             show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
         },
-        partner_listing_sources,
+        partner_listing_source_ids,
     })
 }
 
@@ -541,8 +541,8 @@ mod tests {
         };
         let source = source.unwrap_or_else(|| panic!("claimed delivery has a source"));
         assert_eq!(
-            notification_core::presentation::PartnerListingSources::from_iter([partner]),
-            source.partner_listing_sources
+            std::collections::HashSet::from([partner]),
+            source.partner_listing_source_ids
         );
     }
 
