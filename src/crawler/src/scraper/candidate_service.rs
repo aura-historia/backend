@@ -624,12 +624,22 @@ impl ScraperCandidateServiceImpl {
         let streak = schema_review_wait.map_or(Ok(0), |wait| i32::try_from(wait.streak));
         let streak = streak.map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
 
+        // The review-wait columns stay within the first kilobyte of the statement, which is all
+        // `pg_stat_activity` shows of it: the review-repository tests find a wait write blocked
+        // on the review row by that text. Later columns go after them.
         let result = sqlx::query(
             "UPDATE listing_source_urls
              SET failure_count = CASE WHEN $8::uuid IS NULL
                                       THEN failure_count + 1
                                       ELSE failure_count END,
                  page_error_streak = CASE WHEN $10 THEN page_error_streak + 1 ELSE 0 END,
+                 last_error_kind = $3,
+                 last_error_message = $4,
+                 last_status_code = $5,
+                 next_retry_at = $6,
+                 schema_review_waited_on = $8,
+                 schema_review_wait_streak = $9,
+                 updated = NOW(),
                  page_directive_refusal_streak =
                      CASE WHEN $3 <> 'PageDirectiveDisallowed' THEN 0
                           WHEN last_error_kind = 'PageDirectiveDisallowed'
@@ -639,14 +649,7 @@ impl ScraperCandidateServiceImpl {
                      CASE WHEN $3 <> 'PageDirectiveDisallowed' THEN NULL
                           WHEN last_error_kind = 'PageDirectiveDisallowed'
                           THEN COALESCE(page_directive_refused_since, NOW())
-                          ELSE NOW() END,
-                 last_error_kind = $3,
-                 last_error_message = $4,
-                 last_status_code = $5,
-                 next_retry_at = $6,
-                 schema_review_waited_on = $8,
-                 schema_review_wait_streak = $9,
-                 updated = NOW()
+                          ELSE NOW() END
              WHERE listing_source_id = $1
                AND url = $2
                AND url_class = 'product'
