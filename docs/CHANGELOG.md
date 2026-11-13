@@ -6,8 +6,8 @@ Only document REST API contract and user-visible behavior changes here. No inter
 
 - **Breaking change:** no response returns a ProductListing's description any more. `description` is removed from `ProductListingDetailsData` (`GET /v1/product-listings/{productListingId}`, `GET /v1/product-listings/by-slug/{productListingTitleSlugId}`, `PATCH /v1/me/watchlist/{productListingId}`), `ProductListingCollectionDetailsData` (`GET /v1/me/watchlist`, `GET /v1/me/search-filters/{userSearchFilterId}/matches`, `GET /v1/auctions/{auctionId}/product-listings`) and `AdminProductListingDetails` (the admin and partner management detail reads), and from the MCP tools that return them: `getProductListing`, `getProductListingByTitleSlug`, `patchWatchlistProduct`, `getWatchlistProductListings`, `listSearchFilterMatches` and `getAuctionCatalogue`.
 - Product-listing history (`GET /v1/product-listings/{productListingId}/history`, MCP `getProductListingHistory`): `PRODUCT_LISTING_DISCOVERED` payloads no longer carry `description`, and `DESCRIPTION_CHANGED` changes no longer carry `previous` or `current`. The entry still marks that the description changed, at the same position in `changes`.
-- The `language` query parameter of the single-listing reads now selects only the title translation.
-- Requests are unchanged: partner and admin writes still accept `description`, and it still informs search-filter matching and content assessment.
+- The `language` query parameter of listing detail and collection reads now selects only the title translation.
+- Requests are unchanged: partner and admin writes still accept `description`, and it still informs search-filter matching, content assessment and embeddings.
 
 ## 2026-11-13 — MCP server instructions no longer direct which link to share
 

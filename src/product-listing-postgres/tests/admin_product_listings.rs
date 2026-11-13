@@ -167,6 +167,7 @@ fn lifecycle(
         expected_version: version,
     }
 }
+
 /// Admin details no longer return the description, so writes are checked against storage.
 async fn stored_description(
     pool: &sqlx::PgPool,
@@ -179,12 +180,14 @@ async fn stored_description(
     .fetch_one(pool)
     .await
     .unwrap();
-    text.zip(language).map(|(text, language)| {
-        Localized::new(
+    match (text, language) {
+        (Some(text), Some(language)) => Some(Localized::new(
             Language::from_code(&language).unwrap(),
             Description::from(text),
-        )
-    })
+        )),
+        (None, None) => None,
+        partial => panic!("partial stored description: {partial:?}"),
+    }
 }
 async fn events(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1")
@@ -1020,6 +1023,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
 
     // Whitespace-equivalent updates must leave the revision, version and freshness untouched.
     let stored = detail(&pool, id).await;
+    let stored_text = stored_description(&pool, id).await;
     let noop = UpdateAdminProductListingUseCase::execute(
         &handler(&pool),
         &context(),
@@ -1039,6 +1043,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
     .unwrap();
     assert_eq!(noop.outcome, ChangeOutcome::Unchanged);
     assert_eq!(detail(&pool, id).await, stored);
+    assert_eq!(stored_description(&pool, id).await, stored_text);
 
     // Completion for the current description revision is accepted, then a source-language edit invalidates it.
     let mut tx = SqlxUnitOfWork::new(pool.clone()).begin().await.unwrap();
