@@ -13,7 +13,6 @@ use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use money::{Currency, Price};
 use product_listing_core::{
-    description::Description,
     listing_availability::ListingAvailability,
     product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
     product_listing_event::ProductListingEventType,
@@ -72,7 +71,6 @@ pub struct ProductListingDiscoveryHistory {
     pub listing_source_id: ListingSourceId,
     pub source_listing_id: SourceListingId,
     pub title: Option<Localized<Language, Title>>,
-    pub description: Option<Localized<Language, Description>>,
     pub pricing: ProductListingHistoryPricing,
     pub availability: Option<ListingAvailability>,
     pub url: Url,
@@ -155,10 +153,8 @@ pub enum ProductListingHistoryChange {
         previous: Option<Localized<Language, Title>>,
         current: Option<Localized<Language, Title>>,
     },
-    DescriptionChanged {
-        previous: Option<Localized<Language, Description>>,
-        current: Option<Localized<Language, Description>>,
-    },
+    /// Text-free notice; the description is not part of any public response.
+    DescriptionChanged,
     /// Address-free notice; protected delivery assertions are never public history.
     DeliveryChanged,
     MainPriceChanged {
@@ -592,7 +588,6 @@ mod tests {
                     listing_source_id: ListingSourceId::new(),
                     source_listing_id: SourceListingId::try_from("source-1").unwrap(),
                     title: None,
-                    description: None,
                     pricing: ProductListingPricing {
                         price: Some(ProductListingPrice::Monetary(price(1, Currency::Eur))),
                         price_estimate_min: Some(price(3, Currency::Eur)),

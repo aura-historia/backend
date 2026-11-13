@@ -3144,16 +3144,6 @@
               "format": "date-time",
               "type": "string"
             },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ListingTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "eventId": {
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
@@ -5384,16 +5374,6 @@
             "created": {
               "format": "date-time",
               "type": "string"
-            },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ListingTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
             },
             "eventId": {
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
@@ -7742,16 +7722,6 @@
               "format": "date-time",
               "type": "string"
             },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ListingTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "eventId": {
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
@@ -8933,16 +8903,6 @@
                 }
               ]
             },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/LocalizedTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "imageCount": {
               "format": "uint64",
               "maximum": 18446744073709551615,
@@ -9019,26 +8979,6 @@
             },
             {
               "properties": {
-                "current": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/LocalizedTextData"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "previous": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/LocalizedTextData"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
                 "type": {
                   "const": "DESCRIPTION_CHANGED",
                   "type": "string"
@@ -14131,16 +14071,6 @@
               "format": "date-time",
               "type": "string"
             },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ListingTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "eventId": {
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
@@ -16991,16 +16921,6 @@
               "format": "date-time",
               "type": "string"
             },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ListingTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "eventId": {
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
@@ -19433,16 +19353,6 @@
             "created": {
               "format": "date-time",
               "type": "string"
-            },
-            "description": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ListingTextData"
-                },
-                {
-                  "type": "null"
-                }
-              ]
             },
             "eventId": {
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",

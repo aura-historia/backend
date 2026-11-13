@@ -32,7 +32,6 @@ use user_core::user_id::UserId;
 use crate::user_state::{
     ProductListingUserState, ProductListingUserStateDisclosure, ProductListingUserStateView,
 };
-use product_listing_core::description::Description;
 use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_price::ProductListingPrice;
@@ -169,7 +168,6 @@ pub struct ProductListingDetailsView {
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
     pub title: Option<ListingText<Title>>,
-    pub description: Option<ListingText<Description>>,
     pub pricing: ProductListingPricingPresentation,
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
@@ -403,7 +401,6 @@ pub fn present_product_details(
             source: item.source,
             source_listing_id: item.source_listing_id,
             title: item.title,
-            description: item.description,
             pricing,
             availability: item.availability,
             lifecycle: item.lifecycle,
@@ -499,7 +496,6 @@ pub fn redact_hidden_product(
         language,
         hidden_title(language),
     )));
-    details.description = None;
     details.pricing = ProductListingPricingPresentation {
         source: ProductListingPricing::default(),
         display: DisplayProductListingPricing {
@@ -883,13 +879,6 @@ mod tests {
                 title: ListingText::select(
                     Some(Localized::new(Language::En, Title::from("Cabinet"))),
                     Some(Localized::new(Language::En, Title::from("Cabinet"))),
-                ),
-                description: ListingText::select(
-                    Some(Localized::new(Language::En, Description::from("Native"))),
-                    Some(Localized::new(
-                        Language::En,
-                        Description::from("Description"),
-                    )),
                 ),
                 pricing: ProductListingPricing {
                     price: Some(ProductListingPrice::from(Price::new(

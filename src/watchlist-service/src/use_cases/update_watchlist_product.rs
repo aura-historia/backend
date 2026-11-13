@@ -442,7 +442,6 @@ mod tests {
     use money::Price;
     use product_listing_core::{
         content_policy::{ContentPolicyDecision, SensitiveContentCategory},
-        description::Description,
         listing_lifecycle::ListingLifecycle,
         product_listing::{ListingSaleObservation, ProductListingPricing},
         product_listing_image::ProductListingImage,
@@ -1136,10 +1135,6 @@ mod tests {
                     Some(Localized::new(language, Title::from("Product"))),
                     Some(Localized::new(language, Title::from("Listing"))),
                 ),
-                description: ListingText::select(
-                    Some(Localized::new(language, Description::from("Description"))),
-                    None,
-                ),
                 pricing: ProductListingPricing {
                     price: Some(Price::new(100_u64.into(), Currency::Eur).into()),
                     price_estimate_min: Some(Price::new(80_u64.into(), Currency::Eur)),
@@ -1744,7 +1739,6 @@ mod tests {
         let product = result.product;
         assert_eq!(Some(expected_user_state), product.user_state);
         assert_eq!(expected_item.title, product.item.title);
-        assert_eq!(expected_item.description, product.item.description);
         assert_eq!(expected_item.source, product.item.source);
         assert_eq!(expected_item.event_id, product.item.event_id);
         assert_eq!(expected_item.pricing, product.item.pricing.source);
@@ -1900,7 +1894,6 @@ mod tests {
             assert!(title.original.is_none());
             assert_eq!(Language::De, title.localized.localization);
             assert_ne!(Title::from("Listing"), title.localized.payload);
-            assert!(product.item.description.is_none());
             assert_eq!(
                 ProductListingPricing::default(),
                 product.item.pricing.source

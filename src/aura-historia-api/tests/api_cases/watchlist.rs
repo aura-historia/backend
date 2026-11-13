@@ -529,20 +529,12 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
     seed_product_presentation(product_listing_id).await;
     let client = reqwest::Client::new();
 
-    for (query, language, title, description, currency, amount) in [
-        (
-            "",
-            "en",
-            "Watchlist cabinet",
-            "English cabinet description",
-            "EUR",
-            10000,
-        ),
+    for (query, language, title, currency, amount) in [
+        ("", "en", "Watchlist cabinet", "EUR", 10000),
         (
             "?language=de&currency=USD",
             "de",
             "Watchlist-Schrank",
-            "Deutsche Schrankbeschreibung",
             "USD",
             12500,
         ),
@@ -568,10 +560,7 @@ async fn should_present_watchlist_patch_product_in_requested_language_and_curren
             }),
             body["item"]["title"]
         );
-        assert_eq!(
-            serde_json::json!({"text": description, "language": language}),
-            body["item"]["description"]["localized"]
-        );
+        assert!(body["item"].get("description").is_none(), "{body}");
         assert_eq!(
             serde_json::json!({"type": "MONETARY", "currency": "EUR", "amount": 10000}),
             body["item"]["pricing"]["source"]["price"]

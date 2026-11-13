@@ -16,9 +16,9 @@ use domain_primitives::sort::SortOrder;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use localization::{Language, Localized};
 use product_listing_core::{
-    description::Description, listing_lifecycle::ListingLifecycle,
-    product_listing::ProductListingPricing, product_listing_id::ProductListingId,
-    product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    listing_lifecycle::ListingLifecycle, product_listing::ProductListingPricing,
+    product_listing_id::ProductListingId, product_listing_slug_id::ProductListingSlugId,
+    source_listing_id::SourceListingId,
 };
 use product_listing_service::ports::{
     ListingSourceSummary, ProductListingStorageVersion, admin_product_listing_reader::*,
@@ -72,8 +72,6 @@ struct SummaryRow {
 struct DetailsRow {
     #[sqlx(flatten)]
     summary: SummaryRow,
-    description_text: Option<String>,
-    description_language: Option<String>,
     url: String,
     product_images: serde_json::Value,
     lot_number: Option<String>,
@@ -110,7 +108,7 @@ impl SqlxAdminProductListingReader {
         source: Option<ListingSourceId>,
     ) -> Result<Option<AdminProductListingDetails>, AdminProductListingReadError> {
         let query = format!(
-            "SELECT {SUMMARY_COLUMNS}, p.description_text, p.description_language, p.url, p.product_images, p.lot_number, p.catalogue_position, p.lot_bidding_opens_at, p.lot_scheduled_closes_at, p.lot_reported_closed_at, p.sale_observed_at, p.sale_observation_fx_rate_id{FROM} WHERE p.product_listing_id = "
+            "SELECT {SUMMARY_COLUMNS}, p.url, p.product_images, p.lot_number, p.catalogue_position, p.lot_bidding_opens_at, p.lot_scheduled_closes_at, p.lot_reported_closed_at, p.sale_observed_at, p.sale_observation_fx_rate_id{FROM} WHERE p.product_listing_id = "
         );
         let mut builder = QueryBuilder::<Postgres>::new(query);
         builder.push_bind(id.as_uuid());
@@ -304,18 +302,8 @@ fn map_details(row: DetailsRow) -> Result<AdminProductListingDetails, BoxError> 
         lot_reported_closed_at: row.lot_reported_closed_at,
     })
     .map_err(box_error)?;
-    let description = match (row.description_text, row.description_language) {
-        (None, None) => None,
-        (Some(text), Some(language)) => Some(Localized::new(
-            Language::from_code(&language)
-                .ok_or_else(|| static_error("invalid description language"))?,
-            Description::from(text),
-        )),
-        _ => return Err(static_error("incomplete description")),
-    };
     Ok(AdminProductListingDetails {
         summary: map_summary(row.summary)?,
-        description,
         url: Url::parse(&row.url).map_err(box_error)?,
         images: images_from_json(row.product_images).map_err(box_error)?,
         auction,

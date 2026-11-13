@@ -98,7 +98,7 @@ read model; it never copies authoritative source addresses into the aggregate. P
 
 ## Application, API, and search contracts
 
-Title, description, availability, main price and estimates use tri-state update/upsert patches: omitted preserves, `null` clears, a value sets. Text values include their source language. Both text fields remain optional; omission or null on creation records absence. Responses omit absent availability.
+Title, description, availability, main price and estimates use tri-state update/upsert patches: omitted preserves, `null` clears, a value sets. Text values include their source language. Both text fields remain optional; omission or null on creation records absence. The description is stored and feeds content assessment, embeddings and saved-search classification, but no API or MCP response returns it. Responses omit absent availability.
 
 Title normalization is idempotent and runs wherever a title is constructed, including
 translated titles. Typography comes first: styled letters and digits (mathematical,
@@ -175,7 +175,7 @@ The complementary `/v1/listing-sources/{listingSourceId}/product-listings` manag
 
 Collection POST/PATCH/PUT/DELETE and their async variants remain the source-keyed integration API. They require the same Partnership source grant for every entry, checked synchronously or when the async command is applied; administrator role alone is insufficient. Their batch semantics remain independent of versioned management; PUT can still upsert or restore without a management version.
 
-Detail exposes original localized title/description, source-currency prices, immutable identity/slug, original URL and ordered canonical image URLs, Auction/lot facts, read-only sale observation, timestamps and `expectedVersion`. These image URLs are privileged inspection data: previews must respect sensitivity/unassessed status and must not automatically render every source image. Public image redaction and discovery visibility are unchanged. Assessment and enrichment remain read-only.
+Detail exposes the original localized title, source-currency prices, immutable identity/slug, original URL and ordered canonical image URLs, Auction/lot facts, read-only sale observation, timestamps and `expectedVersion`. These image URLs are privileged inspection data: previews must respect sensitivity/unassessed status and must not automatically render every source image. Public image redaction and discovery visibility are unchanged. Assessment and enrichment remain read-only.
 
 PATCH accepts only localized title/description, price, monetary estimates, availability, URL, images and nested Auction/lot patches. Omission preserves; null clears optional scalar facts. URL, images and the whole Auction object cannot be null. An empty image array empties the ordered collection. `auctionId: null` detaches membership while omitted lot/timing facts remain; an omitted or null timing container preserves timings. All-empty lot facts normalize to absence. References must identify an existing Auction for the immutable ListingSource, validated in the mutation transaction.
 
@@ -280,7 +280,7 @@ Every advance of listing `created`/`updated` is written at millisecond precision
 
 History exposes only committed `PRODUCT_LISTING_DISCOVERED` and `PRODUCT_LISTING_CHANGED` domain entries, ordered by occurrence time then event ID. One changed entry represents one committed revision with a deterministically ordered `changes` list.
 
-History excludes raw evidence, operational receipts, enrichment, storage/core payload wrappers and source image URLs. Public object identities use TypeIDs even where persisted event JSON uses UUID text.
+History excludes raw evidence, operational receipts, enrichment, storage/core payload wrappers, source image URLs and description text: discovery entries omit the description and `DESCRIPTION_CHANGED` only marks that it changed. Public object identities use TypeIDs even where persisted event JSON uses UUID text.
 
 `GET /v1/product-listings/{productListingId}/history` accepts optional `currency`.
 Omitting it preserves the source-only response. With it, monetary discovery prices
