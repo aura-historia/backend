@@ -9,6 +9,7 @@ use crate::network::policy::{
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
 use crate::network::robots::RobotsRefusal;
+use crate::network::robots_directives::{DirectiveRefusal, PageDirectives};
 use crate::scraper::scraper_service::auto_throttle::{
     ScraperAutoThrottle, ScraperAutoThrottleConfig,
 };
@@ -137,6 +138,10 @@ pub enum FetchError {
     /// target was not requested.
     #[error("redirect target is disallowed by robots.txt: final_url={final_url}")]
     RedirectDisallowed { final_url: Url },
+    /// The shop answered `final_url`, the page the fetch ended on after any redirects, and that
+    /// page's own robots directives forbid capturing it.
+    #[error("page directives refuse capture: final_url={final_url}, details={details}")]
+    PageDirectiveRefused { final_url: Url, details: String },
 }
 
 impl FetchError {
@@ -145,19 +150,24 @@ impl FetchError {
             FetchError::Network { kind, .. } => *kind,
             FetchError::NetworkWithMetadata { kind, .. } => *kind,
             FetchError::RedirectDisallowed { .. } => NetworkErrorKind::RobotsDisallowed,
+            FetchError::PageDirectiveRefused { .. } => NetworkErrorKind::PageDirectiveDisallowed,
         }
     }
 
     pub(crate) fn status(&self) -> Option<u16> {
         match self {
-            FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => None,
+            FetchError::Network { .. }
+            | FetchError::RedirectDisallowed { .. }
+            | FetchError::PageDirectiveRefused { .. } => None,
             FetchError::NetworkWithMetadata { status, .. } => *status,
         }
     }
 
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
-            FetchError::Network { .. } | FetchError::RedirectDisallowed { .. } => None,
+            FetchError::Network { .. }
+            | FetchError::RedirectDisallowed { .. }
+            | FetchError::PageDirectiveRefused { .. } => None,
             FetchError::NetworkWithMetadata { retry_after, .. } => *retry_after,
         }
     }
@@ -454,9 +464,25 @@ impl ReqwestHtmlFetcher {
         self.record_domain_success_latency(domain, started.elapsed());
         let final_url = response.url().clone();
         let headers = response.headers().clone();
-        let html = read_bounded_html(response).await?;
+        // The body is read even when the header refuses capture, since a challenge page sends
+        // such a header too; a body that cannot be read leaves the header's refusal standing.
+        let html = match read_bounded_html(response).await {
+            Ok(html) => html,
+            Err(error) => {
+                return Err(match PageDirectives::of_headers(&headers).refusal() {
+                    Some(refusal) => directive_refusal_error(&final_url, refusal),
+                    None => error,
+                }
+                .into());
+            }
+        };
+        // A challenge page carries robots directives of its own, so the challenge is told apart
+        // first: it says nothing about the page behind it.
         if let Some(challenge) = detect_bot_challenge(status.as_u16(), &headers, html.as_bytes()) {
             return Err(bot_challenge_fetch_error(status.as_u16(), None, challenge).into());
+        }
+        if let Some(refusal) = PageDirectives::of_page(&headers, html.as_bytes()).refusal() {
+            return Err(directive_refusal_error(&final_url, refusal).into());
         }
         Ok(Hop::Page(FetchedHtml::new(html, final_url, status)))
     }
@@ -603,6 +629,17 @@ fn robots_refusal_error(url: &Url, refusal: RobotsRefusal) -> FetchAttemptError 
         error: FetchError::Network {
             kind,
             details: format!("{details} {url}"),
+        },
+    }
+}
+
+/// A page whose own robots directives forbid capture is not captured. The shop answered it, so
+/// the refusal is its own kind, apart from a robots.txt refusal that sent nothing.
+fn directive_refusal_error(url: &Url, refusal: &DirectiveRefusal) -> FetchAttemptError {
+    FetchAttemptError {
+        error: FetchError::PageDirectiveRefused {
+            final_url: url.clone(),
+            details: refusal.describe(),
         },
     }
 }
@@ -802,6 +839,8 @@ impl ReqwestHtmlFetcher {
 /// Whether a failure of the trailing-slash form says nothing about the stored
 /// form: the slashed page does not exist, or robots.txt refuses that form. The
 /// stored form is then fetched and judged as it would be without the guess.
+/// A page whose own directives refused it was answered, so it is not fetched
+/// again under the other spelling.
 fn needs_stored_form(error: &FetchError) -> bool {
     matches!(error.status(), Some(404 | 410))
         || matches!(
@@ -1528,6 +1567,96 @@ mod tests {
         assert!(shop.page_requests().is_empty());
     }
 
+    const NOINDEX_HEADER_PAGE: &str = "HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>";
+    const NOINDEX_META_PAGE: &str = "HTTP/1.1 200 OK\r\nContent-Length: 79\r\nConnection: close\r\n\r\n<html><head><meta name=\"robots\" content=\"noindex\"></head><body>ok</body></html>";
+    const OTHER_BOT_NOINDEX_PAGE: &str = "HTTP/1.1 200 OK\r\nX-Robots-Tag: googlebot: noindex\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>ok</html>";
+
+    #[tokio::test]
+    async fn should_refuse_a_page_whose_x_robots_tag_says_noindex() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![NOINDEX_HEADER_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::PageDirectiveDisallowed);
+        assert_eq!(shop.page_requests().len(), 1, "a refusal is not retried");
+    }
+
+    #[tokio::test]
+    async fn should_refuse_a_page_whose_meta_robots_tag_says_noindex() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![NOINDEX_META_PAGE, OK_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::PageDirectiveDisallowed);
+        assert_eq!(shop.page_requests().len(), 1, "a refusal is not retried");
+    }
+
+    /// A page whose header refuses capture is refused even when its body cannot be read, so the
+    /// refusal is recorded as the refusal it is.
+    #[tokio::test]
+    async fn should_refuse_a_page_whose_header_refuses_capture_and_whose_body_is_too_large() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![
+                "HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex\r\nContent-Length: 999999999\r\nConnection: close\r\n\r\n",
+            ],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::PageDirectiveDisallowed);
+    }
+
+    /// Cloudflare's challenge page says `noindex, nofollow` in its head and its header; it is the
+    /// challenge that stands in front of the page, not the page refusing capture.
+    #[tokio::test]
+    async fn should_fail_a_challenge_page_that_carries_noindex_as_a_bot_challenge() {
+        let body = r#"<!DOCTYPE html><html lang="en-US"><head><title>Just a moment...</title><meta name="robots" content="noindex, nofollow"></head><body><noscript>Enable JavaScript and cookies to continue</noscript><script>window._cf_chl_opt={cvId: '3'};</script></body></html>"#;
+        let response: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 200 OK\r\nX-Robots-Tag: noindex, nofollow\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .into_boxed_str(),
+        );
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![response],
+            Duration::ZERO,
+        )
+        .await;
+
+        let error = unthrottled_fetcher().fetch(&shop.url).await.unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::BotChallenge);
+    }
+
+    #[tokio::test]
+    async fn should_fetch_a_page_whose_x_robots_tag_is_scoped_to_another_bot() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![OTHER_BOT_NOINDEX_PAGE],
+            Duration::ZERO,
+        )
+        .await;
+
+        let fetched = unthrottled_fetcher().fetch(&shop.url).await.unwrap();
+
+        assert_eq!(fetched.html, "<html>ok</html>");
+    }
+
     #[tokio::test]
     async fn should_fetch_a_url_robots_txt_allows() {
         let shop = spawn_shop(
@@ -1818,6 +1947,33 @@ mod tests {
             shop.page_paths(),
             ["/product", "/product/", "/other/", "/other"]
         );
+    }
+
+    /// The shop answered the slashed form and its directives refused it: the stored form is the
+    /// same page, so it is not requested and downloaded again.
+    #[tokio::test]
+    async fn should_not_fetch_the_stored_form_when_the_trailing_slash_form_refuses_capture() {
+        let shop = spawn_shop(
+            robots_status("404 Not Found"),
+            vec![
+                redirect_to("/product/"),
+                OK_PAGE,
+                NOINDEX_META_PAGE,
+                OK_PAGE,
+            ],
+            Duration::ZERO,
+        )
+        .await;
+        let fetcher = unthrottled_fetcher();
+
+        fetcher.fetch(&shop.url).await.unwrap();
+        let error = fetcher
+            .fetch(&shop.url_with_path("/other"))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.kind(), NetworkErrorKind::PageDirectiveDisallowed);
+        assert_eq!(shop.page_paths(), ["/product", "/product/", "/other/"]);
     }
 
     #[tokio::test]

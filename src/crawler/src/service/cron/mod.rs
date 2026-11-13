@@ -86,6 +86,7 @@ pub(super) mod test_support {
             unsettled_redirect: None,
             removed_by_redirect_target: None,
             page_error_streak: 0,
+            page_directive_refusals: None,
         }
     }
 }

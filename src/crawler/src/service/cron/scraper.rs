@@ -14,12 +14,13 @@ use crate::scraper::candidate_service::{
     ScraperCandidateService, UnsettledRedirect, UnsettledRedirectRequest,
     next_scrape_failure_streak,
 };
+use crate::scraper::candidate_service::{HeldPageDirectiveWithdrawal, PageDirectiveRefusalRun};
 use crate::scraper::css_selector::product_schema_service::ProductListingSchemaServiceError;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
 use crate::scraper::raw_input::{crawler_provenance, crawler_verified_removal_input};
 use crate::scraper::removal_guard::{MASS_REMOVAL_HELD_ERROR_KIND, MassRemoval};
 use crate::scraper::scrape_circuit::{BatchEvidence, FailedAnswer, ScrapeCircuitDecision};
-use crate::scraper::scraper_service::domain::errors::ListingRemoval;
+use crate::scraper::scraper_service::domain::errors::{ListingRemoval, RemovalEvidenceKind};
 use crate::scraper::scraper_service::domain::product::{
     current_fetch_failure, scrape_health_for_scraper_error, with_scrape_observation,
 };
@@ -47,9 +48,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{Instrument, debug, error, info, warn};
 
+mod page_directive_withdrawal;
 mod pass_summary;
 mod url_outcome;
 
+use page_directive_withdrawal::page_directive_withdrawal;
 use pass_summary::{PASS_COMPLETED_EVENT, PassSummary};
 
 use url_outcome::{SkipReason, UrlOutcome, log_url_outcome};
@@ -866,15 +869,21 @@ async fn scrape_candidate_in_batch(
                 }
             }
             None => {
-                handle_scrape_error(
-                    &candidate,
-                    ctx,
-                    error,
-                    fetch_failure,
-                    scrape_health.clone(),
-                    evidence,
-                )
-                .await
+                match page_directive_withdrawal(&candidate, &error, time::OffsetDateTime::now_utc())
+                {
+                    Some(removal) => handle_verified_removal(&candidate, ctx, removal).await,
+                    None => {
+                        handle_scrape_error(
+                            &candidate,
+                            ctx,
+                            error,
+                            fetch_failure,
+                            scrape_health.clone(),
+                            evidence,
+                        )
+                        .await
+                    }
+                }
             }
         },
     };
@@ -1965,7 +1974,7 @@ async fn record_batch_error_state(ctx: &ScrapeBatchContext, error: &ScraperError
             | ScraperError::NotProductPage { .. }
             | ScraperError::RedirectToKnownProduct { .. }
             | ScraperError::PendingSchemaReview { .. }
-    ) || is_robots_refusal(error)
+    ) || is_robots_rules_refusal(error)
     {
         debug!(error = %error, "Scraper run failed");
     } else {
@@ -2023,12 +2032,12 @@ fn is_robots_unreachable(error: &ScraperError) -> bool {
     error.network_error_kind() == Some(NetworkErrorKind::RobotsUnreachable)
 }
 
-/// robots.txt refusals are the crawler honouring a shop's policy, not a
-/// failure to report as a warning.
-fn is_robots_refusal(error: &ScraperError) -> bool {
+/// Refusals by robots.txt or by a page's own robots directives are the crawler honouring a
+/// shop's policy, not a failure to report as a warning.
+fn is_robots_rules_refusal(error: &ScraperError) -> bool {
     error
         .network_error_kind()
-        .is_some_and(NetworkErrorKind::is_robots_refusal)
+        .is_some_and(NetworkErrorKind::is_robots_rules_refusal)
 }
 
 /// The error kind a fetch failure records on its URL: its HTTP status, or its kind when the
@@ -2344,9 +2353,15 @@ async fn hold_mass_removal(
 /// redirect target showed keeps the redirect it ended at, so the URL's next scrape continues its
 /// streak and still counts for the other URLs at the target: an operator's confirmation then
 /// captures it on that scrape instead of starting the streak over
-/// (`docs/crawler/networking.md#redirect-removal-evidence`).
+/// (`docs/crawler/networking.md#redirect-removal-evidence`). A held withdrawal after page-directive
+/// refusals keeps its refusal run the same way, so the next refusal, or an operator's
+/// confirmation, withdraws the listing (`docs/crawler/networking.md#page-robots-directives`).
 async fn persist_held_removal(removal: &NewRemoval, ctx: &ScrapeBatchContext, message: &str) {
     let candidate = &removal.candidate;
+    if removal.removal.evidence.kind == RemovalEvidenceKind::PersistentPageDirectiveRefusal {
+        persist_held_page_directive_withdrawal(candidate, ctx, message).await;
+        return;
+    }
     match removal.removal.removed_by_redirect_target() {
         Some(target) => {
             let redirect =
@@ -2364,6 +2379,41 @@ async fn persist_held_removal(removal: &NewRemoval, ctx: &ScrapeBatchContext, me
         None => {
             persist_scraped_without_capture(candidate, ctx, MASS_REMOVAL_HELD_ERROR_KIND, message)
                 .await;
+        }
+    }
+}
+
+/// Records a held page-directive withdrawal as held, with the refusal run that withdrew it.
+async fn persist_held_page_directive_withdrawal(
+    candidate: &ScraperCandidate,
+    ctx: &ScrapeBatchContext,
+    message: &str,
+) {
+    let request = HeldPageDirectiveWithdrawal {
+        listing_source_id: candidate.listing_source_id,
+        url: candidate.url.clone(),
+        outcome_kind: MASS_REMOVAL_HELD_ERROR_KIND.to_owned(),
+        outcome_message: message.to_owned(),
+        refusals: PageDirectiveRefusalRun::after(
+            candidate.page_directive_refusals,
+            time::OffsetDateTime::now_utc(),
+        ),
+        expected_last_captured_raw_input_sha256: candidate.last_captured_raw_input_sha256.clone(),
+    };
+    match ctx
+        .scraper_candidates
+        .mark_page_directive_withdrawal_held(request)
+        .await
+    {
+        Ok(CrawlerUrlWriteOutcome::Applied) => {}
+        Ok(CrawlerUrlWriteOutcome::NoopStale) => debug!(
+            listing_source_id = %candidate.listing_source_id,
+            url = %candidate.url,
+            crawler_url_write_outcome = "stale_noop",
+            "Skipped stale held page-directive withdrawal"
+        ),
+        Err(error) => {
+            warn_in_source!(error = %error, "Failed to persist held page-directive withdrawal")
         }
     }
 }
@@ -4963,6 +5013,65 @@ mod tests {
             assert!(next_retry_at >= before + delay(parked));
             assert!(next_retry_at <= after + delay(parked));
         }
+    }
+
+    /// A stored listing whose page refused capture through the grace period is withdrawn by a
+    /// removal its batch's mass-removal guard judges; a held withdrawal is recorded as held, where
+    /// an operator's confirmation finds it, and keeps the run that withdrew it.
+    #[tokio::test]
+    async fn should_withdraw_a_stored_listing_whose_page_kept_refusing_capture() {
+        let captured: Vec<u8> = vec![7; 32];
+        let mut candidate = scraper_candidate(
+            "ListingSource",
+            url::Url::parse("https://noindex.example.com/product/1").unwrap(),
+        );
+        candidate.last_captured_raw_input_sha256 = Some(captured.clone());
+        candidate.page_directive_refusals =
+            Some(crate::scraper::candidate_service::PageDirectiveRefusalRun {
+                refusals: 3,
+                since: time::OffsetDateTime::now_utc() - time::Duration::hours(73),
+            });
+        let mut scraper_service = MockScraperService::new();
+        scraper_service.expect_scrape().once().returning(|request| {
+            let url = request.url;
+            Box::pin(async move {
+                scrape_outcome(Err(ScraperError::HttpError {
+                    url,
+                    kind: NetworkErrorKind::PageDirectiveDisallowed,
+                    details: "meta robots tag forbids capture (noindex)".to_owned(),
+                }))
+            })
+        });
+        // The mock expects no write: a recorded failure would panic.
+        let ctx = scrape_candidate_context(MockScraperCandidateService::new(), scraper_service);
+
+        let outcome = scrape_candidate_in_batch(candidate, &ctx, &BatchEvidence::default()).await;
+
+        assert!(!outcome.errored);
+        let Some(CandidateRemoval::New(withdrawal)) = outcome.removal else {
+            panic!("the refusal should withdraw the listing");
+        };
+        assert_eq!(
+            withdrawal.removal.evidence.kind,
+            RemovalEvidenceKind::PersistentPageDirectiveRefusal
+        );
+
+        let since = time::OffsetDateTime::now_utc() - time::Duration::hours(73);
+        let mut scraper_candidates = MockScraperCandidateService::new();
+        scraper_candidates
+            .expect_mark_page_directive_withdrawal_held()
+            .once()
+            .withf(move |held| {
+                held.outcome_kind == MASS_REMOVAL_HELD_ERROR_KIND
+                    && held.refusals.refusals == 4
+                    && held.refusals.since <= since + time::Duration::minutes(1)
+                    && held.expected_last_captured_raw_input_sha256.as_deref()
+                        == Some(captured.as_slice())
+            })
+            .returning(|_| Box::pin(async { Ok(CrawlerUrlWriteOutcome::Applied) }));
+        let held_ctx = scrape_candidate_context(scraper_candidates, MockScraperService::new());
+
+        persist_held_removal(&withdrawal, &held_ctx, "removal held").await;
     }
 
     #[tokio::test]

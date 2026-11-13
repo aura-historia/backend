@@ -54,6 +54,49 @@ pub struct ScraperCandidate {
     /// The consecutive [page errors](crate::network::policy::is_page_error_status) the URL's
     /// fetches answered up to now, which grow its retry delay and finally park it.
     pub page_error_streak: u32,
+    /// The page-directive refusals the URL's fetches answered in a row up to now, if its last
+    /// outcome was one.
+    pub page_directive_refusals: Option<PageDirectiveRefusalRun>,
+}
+
+/// Refusals in a row, at least, after which a stored listing whose page refuses capture by its
+/// robots directives is withdrawn (`docs/crawler/networking.md#page-robots-directives`).
+pub const PAGE_DIRECTIVE_WITHDRAWAL_REFUSALS: u32 = 3;
+
+/// How long, at least, a stored listing's page refuses capture before the listing is withdrawn:
+/// a page a shop noindexed for a few days, such as a reserved item, keeps its listing.
+pub const PAGE_DIRECTIVE_WITHDRAWAL_GRACE: time::Duration = time::Duration::hours(72);
+
+/// The page-directive refusals a URL answered in a row, and when the first of them was recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageDirectiveRefusalRun {
+    pub refusals: u32,
+    pub since: OffsetDateTime,
+}
+
+impl PageDirectiveRefusalRun {
+    /// The run a refusal at `now` makes: it continues the URL's previous run, if its last outcome
+    /// was a refusal, and starts one otherwise. The stored run follows the same rule.
+    pub fn after(previous: Option<Self>, now: OffsetDateTime) -> Self {
+        match previous {
+            Some(previous) => Self {
+                refusals: previous.refusals.saturating_add(1),
+                since: previous.since,
+            },
+            None => Self {
+                refusals: 1,
+                since: now,
+            },
+        }
+    }
+
+    /// Whether the run is long enough to withdraw the listing: at least
+    /// [`PAGE_DIRECTIVE_WITHDRAWAL_REFUSALS`] refusals over at least
+    /// [`PAGE_DIRECTIVE_WITHDRAWAL_GRACE`].
+    pub fn withdraws_listing(&self, now: OffsetDateTime) -> bool {
+        self.refusals >= PAGE_DIRECTIVE_WITHDRAWAL_REFUSALS
+            && now - self.since >= PAGE_DIRECTIVE_WITHDRAWAL_GRACE
+    }
 }
 
 /// The pending product-schema review a URL waits on and how many consecutive scrapes have
@@ -118,6 +161,19 @@ pub struct UnsettledRedirectRequest {
     pub outcome_message: String,
     pub redirect: UnsettledRedirect,
     pub next_retry_at: OffsetDateTime,
+    pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
+}
+
+/// A page-directive withdrawal the mass-removal guard held: the URL is recorded as scraped without
+/// a capture under `outcome_kind`, and keeps the refusal run the withdrawal ended so its next
+/// refusal continues it (`docs/crawler/networking.md#page-robots-directives`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldPageDirectiveWithdrawal {
+    pub listing_source_id: ListingSourceId,
+    pub url: Url,
+    pub outcome_kind: String,
+    pub outcome_message: String,
+    pub refusals: PageDirectiveRefusalRun,
     pub expected_last_captured_raw_input_sha256: Option<Vec<u8>>,
 }
 
@@ -491,6 +547,14 @@ pub trait ScraperCandidateService: Send + Sync {
         request: UnsettledRedirectRequest,
     ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
 
+    /// Records a held page-directive withdrawal, as
+    /// [`mark_scraped_without_capture`](Self::mark_scraped_without_capture) does, together with
+    /// the refusal run it keeps.
+    async fn mark_page_directive_withdrawal_held(
+        &self,
+        request: HeldPageDirectiveWithdrawal,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error>;
+
     /// Increment per-ListingSource LLM call counter used by schema generation flows.
     async fn increment_listing_source_llm_calls(
         &self,
@@ -563,6 +627,10 @@ impl ScraperCandidateServiceImpl {
     /// other failure, a wait included, resets it, as every completed scrape does
     /// (`docs/crawler/scheduling-and-retries.md#fetch-retries`).
     ///
+    /// A page-directive refusal continues the URL's [refusal run](PageDirectiveRefusalRun) and
+    /// any other failure ends it. Every other outcome write ends the run as well, except a held
+    /// page-directive withdrawal, which keeps it; so the stored run is always the current one.
+    ///
     /// The pending check share-locks the review row before the URL row is written. Approval and
     /// rejection lock the review row first and release the waiting pages last, so a wait written
     /// while either verdict commits waits for it and then finds the review closed, instead of
@@ -578,7 +646,8 @@ impl ScraperCandidateServiceImpl {
         let streak = streak.map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
 
         let result = sqlx::query(
-            "UPDATE listing_source_urls
+            "/* crawler_url_failure_write */
+             UPDATE listing_source_urls
              SET failure_count = CASE WHEN $8::uuid IS NULL
                                       THEN failure_count + 1
                                       ELSE failure_count END,
@@ -589,7 +658,17 @@ impl ScraperCandidateServiceImpl {
                  next_retry_at = $6,
                  schema_review_waited_on = $8,
                  schema_review_wait_streak = $9,
-                 updated = NOW()
+                 updated = NOW(),
+                 page_directive_refusal_streak =
+                     CASE WHEN $3 <> 'PageDirectiveDisallowed' THEN 0
+                          WHEN last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
+                          THEN page_directive_refusal_streak + 1
+                          ELSE 1 END,
+                 page_directive_refused_since =
+                     CASE WHEN $3 <> 'PageDirectiveDisallowed' THEN NULL
+                          WHEN last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
+                          THEN COALESCE(page_directive_refused_since, NOW())
+                          ELSE NOW() END
              WHERE listing_source_id = $1
                AND url = $2
                AND url_class = 'product'
@@ -650,6 +729,23 @@ fn page_error_streak_from_row(
     } else {
         0
     })
+}
+
+/// Decodes a stored page-directive refusal run, failing closed when its count and start
+/// disagree.
+fn page_directive_refusal_run_from_row(
+    refusals: i32,
+    since: Option<OffsetDateTime>,
+) -> Result<Option<PageDirectiveRefusalRun>, sqlx::Error> {
+    match (u32::try_from(refusals), since) {
+        (Ok(0), None) => Ok(None),
+        (Ok(refusals), Some(since)) if refusals > 0 => {
+            Ok(Some(PageDirectiveRefusalRun { refusals, since }))
+        }
+        _ => Err(sqlx::Error::Decode(
+            "persisted crawler page-directive refusal run is invalid".into(),
+        )),
+    }
 }
 
 /// The URL failure columns one fenced failure write sets.
@@ -746,6 +842,8 @@ struct ScraperCandidateRow {
     removed_by_redirect_target: Option<String>,
     page_error_streak: i32,
     last_error_kind: Option<String>,
+    page_directive_refusal_streak: i32,
+    page_directive_refused_since: Option<OffsetDateTime>,
 }
 
 /// The ListingSource conditions of scraper eligibility over `listing_sources s`: crawling is
@@ -854,6 +952,11 @@ macro_rules! eligible_scraper_urls_cte {
             , su.removed_by_redirect_target
             , su.page_error_streak
             , su.last_error_kind
+            , CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
+                   THEN su.page_directive_refusal_streak ELSE 0 END
+                   AS page_directive_refusal_streak
+            , CASE WHEN su.last_error_kind IN ('PageDirectiveDisallowed', 'MassRemovalHeld')
+                   THEN su.page_directive_refused_since END AS page_directive_refused_since
         FROM listing_source_urls su
         JOIN listing_sources s ON s.listing_source_id = su.listing_source_id
         WHERE "#,
@@ -911,7 +1014,8 @@ const SCRAPER_CANDIDATE_QUERY: &str = concat!(
         last_source_listing_id, schema_review_waited_on,
         schema_review_wait_streak, unsettled_redirect_target, unsettled_redirect_streak,
         removed_by_redirect_target,
-        page_error_streak, last_error_kind
+        page_error_streak, last_error_kind,
+        page_directive_refusal_streak, page_directive_refused_since
     FROM ranked_urls
     WHERE (is_circuit_probe AND source_url_rank = 1)
        OR (NOT is_circuit_probe AND source_url_rank <= $4)
@@ -961,6 +1065,10 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 removed_by_redirect_target_from_row(row.removed_by_redirect_target)?;
             let page_error_streak =
                 page_error_streak_from_row(row.page_error_streak, row.last_error_kind.as_deref())?;
+            let page_directive_refusals = page_directive_refusal_run_from_row(
+                row.page_directive_refusal_streak,
+                row.page_directive_refused_since,
+            )?;
             candidates.push(ScraperCandidate {
                 listing_source_id: ListingSourceId::try_from(row.listing_source_id)
                     .map_err(|error| sqlx::Error::Decode(Box::new(error)))?,
@@ -994,6 +1102,7 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                 unsettled_redirect,
                 removed_by_redirect_target,
                 page_error_streak,
+                page_directive_refusals,
             });
         }
 
@@ -1087,6 +1196,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  crawler_disposition = $7,
                  failure_count = 0,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1254,6 +1365,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  crawler_disposition = $8,
                  failure_count = 0,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1357,6 +1470,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  crawler_disposition = 'ACTIVE',
                  failure_count = 0,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1404,6 +1519,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
                  last_scraped_schema_fingerprint = $4,
                  failure_count = 0,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  last_error_kind = NULL,
                  last_error_message = NULL,
                  last_status_code = NULL,
@@ -1671,6 +1788,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET last_error_kind = $3,
                  last_error_message = $4,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  updated = NOW()
              WHERE listing_source_id = $1
                AND url = $2
@@ -1706,6 +1825,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET last_scraped = NOW(),
                  failure_count = 0,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = NULL,
@@ -1776,6 +1897,8 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
              SET last_scraped = NOW(),
                  failure_count = 0,
                  page_error_streak = 0,
+                 page_directive_refusal_streak = 0,
+                 page_directive_refused_since = NULL,
                  last_error_kind = $3,
                  last_error_message = $4,
                  last_status_code = NULL,
@@ -1796,6 +1919,49 @@ impl ScraperCandidateService for ScraperCandidateServiceImpl {
         .bind(request.next_retry_at)
         .bind(request.redirect.destination.as_str())
         .bind(streak)
+        .bind(request.expected_last_captured_raw_input_sha256.as_deref())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(if result.rows_affected() == 1 {
+            CrawlerUrlWriteOutcome::Applied
+        } else {
+            CrawlerUrlWriteOutcome::NoopStale
+        })
+    }
+
+    async fn mark_page_directive_withdrawal_held(
+        &self,
+        request: HeldPageDirectiveWithdrawal,
+    ) -> Result<CrawlerUrlWriteOutcome, sqlx::Error> {
+        let refusals = i32::try_from(request.refusals.refusals)
+            .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+        let result = sqlx::query(
+            "UPDATE listing_source_urls
+             SET last_scraped = NOW(),
+                 failure_count = 0,
+                 page_error_streak = 0,
+                 page_directive_refusal_streak = $5,
+                 page_directive_refused_since = $6,
+                 last_error_kind = $3,
+                 last_error_message = $4,
+                 last_status_code = NULL,
+                 next_retry_at = NULL,
+                 unsettled_redirect_target = NULL,
+                 unsettled_redirect_streak = 0,
+                 updated = NOW()
+             WHERE listing_source_id = $1
+               AND url = $2
+               AND url_class = 'product'
+               AND crawler_disposition IN ('ACTIVE', 'DORMANT_SOLD')
+               AND last_captured_raw_input_sha256 IS NOT DISTINCT FROM $7::bytea",
+        )
+        .bind(uuid::Uuid::from(request.listing_source_id))
+        .bind(request.url.as_str())
+        .bind(&request.outcome_kind)
+        .bind(&request.outcome_message)
+        .bind(refusals)
+        .bind(request.refusals.since)
         .bind(request.expected_last_captured_raw_input_sha256.as_deref())
         .execute(&self.pool)
         .await?;
@@ -2157,5 +2323,68 @@ mod tests {
             Some(url("https://shop.example/error.aspx"))
         );
         assert!(removed_by_redirect_target_from_row(Some("not a url".to_owned())).is_err());
+    }
+
+    mod page_directive_refusal_run {
+        use super::*;
+
+        fn hours(hours: i64) -> time::Duration {
+            time::Duration::hours(hours)
+        }
+
+        /// The runs a URL refused daily, at its 24-hour cooldown, records from `start` on.
+        fn daily_refusals(start: OffsetDateTime, refusals: u32) -> PageDirectiveRefusalRun {
+            (1..refusals).fold(PageDirectiveRefusalRun::after(None, start), |run, _| {
+                PageDirectiveRefusalRun::after(Some(run), start)
+            })
+        }
+
+        #[test]
+        fn should_keep_the_listing_below_the_threshold() {
+            let start = OffsetDateTime::now_utc();
+
+            assert!(!daily_refusals(start, 3).withdraws_listing(start + hours(48)));
+            assert!(!daily_refusals(start, 2).withdraws_listing(start + hours(96)));
+            assert!(!daily_refusals(start, 4).withdraws_listing(start + hours(71)));
+        }
+
+        #[test]
+        fn should_withdraw_the_listing_at_the_threshold() {
+            let start = OffsetDateTime::now_utc();
+
+            let run = daily_refusals(start, 4);
+
+            assert_eq!(run.since, start);
+            assert!(run.withdraws_listing(start + hours(72)));
+            assert!(daily_refusals(start, 3).withdraws_listing(start + hours(72)));
+        }
+
+        /// A successful scrape ends the run: the next refusal starts a new one, which the stored
+        /// run reads as none while the URL's last outcome is no refusal.
+        #[test]
+        fn should_start_over_after_a_successful_scrape() {
+            let start = OffsetDateTime::now_utc();
+            let after_success = start + hours(72);
+
+            let run = PageDirectiveRefusalRun::after(None, after_success);
+
+            assert_eq!(run.refusals, 1);
+            assert_eq!(run.since, after_success);
+            assert!(!run.withdraws_listing(after_success + hours(72)));
+        }
+
+        #[test]
+        fn should_decode_a_stored_run_and_fail_closed_on_a_broken_one() {
+            let since = OffsetDateTime::now_utc();
+
+            assert_eq!(page_directive_refusal_run_from_row(0, None).unwrap(), None);
+            assert_eq!(
+                page_directive_refusal_run_from_row(2, Some(since)).unwrap(),
+                Some(PageDirectiveRefusalRun { refusals: 2, since })
+            );
+            assert!(page_directive_refusal_run_from_row(0, Some(since)).is_err());
+            assert!(page_directive_refusal_run_from_row(2, None).is_err());
+            assert!(page_directive_refusal_run_from_row(-1, Some(since)).is_err());
+        }
     }
 }

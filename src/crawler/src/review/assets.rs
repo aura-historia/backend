@@ -112,7 +112,7 @@ fn escape_html_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{APP_JS, INSPECTOR_JS, instrument_live_html};
-    use crate::network::policy::DomainFailureKind;
+    use crate::network::policy::{DomainFailureKind, NetworkErrorKind};
     use crate::review::model::SourceLabel;
     use crate::scraper::plausibility::{CrossPageCheck, IdentityAgreementCheck, PlausibilityCheck};
     use crate::spider::discovery::website_spider::{CrawlCooldownProfile, CrawlFailureKind};
@@ -316,6 +316,25 @@ mod tests {
         for kind in DomainFailureKind::ALL {
             let entry = failure_entry(kind.as_str());
             assert!(entry.contains("profile: 'circuit'"), "{entry}");
+        }
+    }
+
+    /// A robots refusal names its source: robots.txt, or the page's own directives.
+    #[test]
+    fn should_explain_each_robots_refusal_by_its_source() {
+        for (kind, label) in [
+            (
+                NetworkErrorKind::RobotsDisallowed,
+                "Disallowed by robots.txt",
+            ),
+            (
+                NetworkErrorKind::PageDirectiveDisallowed,
+                "Refused by page directives",
+            ),
+        ] {
+            let entry = failure_entry(&format!("{kind:?}"));
+            assert!(entry.contains(&format!("label: '{label}'")), "{entry}");
+            assert!(entry.contains("profile: 'page'"), "{entry}");
         }
     }
 

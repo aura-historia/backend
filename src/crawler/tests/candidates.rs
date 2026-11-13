@@ -1,10 +1,10 @@
 use crawler::CrawlerReviewId;
 use crawler::network::policy::DomainFailureKind;
 use crawler::scraper::candidate_service::{
-    FetchFailureRequest, RedirectDestination, RedirectUrlMove, SchemaReviewWait,
-    SchemaReviewWaitRequest, ScrapeCircuitOpenRequest, ScrapeCompletion, ScrapeHealthSnapshot,
-    ScraperCandidateService, ScraperCandidateServiceImpl, UnsettledRedirect,
-    UnsettledRedirectRequest,
+    FetchFailureRequest, HeldPageDirectiveWithdrawal, PageDirectiveRefusalRun, RedirectDestination,
+    RedirectUrlMove, SchemaReviewWait, SchemaReviewWaitRequest, ScrapeCircuitOpenRequest,
+    ScrapeCompletion, ScrapeHealthSnapshot, ScraperCandidateService, ScraperCandidateServiceImpl,
+    UnsettledRedirect, UnsettledRedirectRequest,
 };
 use crawler::spider::candidate_service::{
     AWAITING_URL_PATTERN_REVIEW_CRAWL_OUTCOME, CrawlRateLimitWrite, NEEDS_OPERATOR_CRAWL_OUTCOME,
@@ -2851,6 +2851,196 @@ async fn scraper_page_error_streak_should_count_only_consecutive_page_errors() {
         stored_streak().await,
         0,
         "a page that answered ends the run"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// get_candidates — the page-directive refusal run counts refusals in a row
+// ---------------------------------------------------------------------------
+
+/// Each page-directive refusal continues the URL's refusal run from its first refusal, and a
+/// successful scrape or another failure ends it, so the next refusal starts a new run (#2914).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_page_directive_refusal_run_should_last_until_another_outcome() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "noindex.example.com").await;
+    let url = "https://noindex.example.com/p/1";
+    let parsed_url = url::Url::parse(url).unwrap();
+    insert_product_url(&pool, listing_source_id, url).await;
+    let fail = |error_kind: &'static str, expected_capture: Option<Vec<u8>>| {
+        let service = &service;
+        let parsed_url = &parsed_url;
+        async move {
+            let outcome = service
+                .mark_fetch_failure(
+                    &listing_source_id,
+                    parsed_url,
+                    error_kind,
+                    "meta robots tag forbids capture (noindex)",
+                    None,
+                    time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+                    expected_capture.as_deref(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome, CrawlerUrlWriteOutcome::Applied);
+        }
+    };
+    let candidate_run = || async {
+        let candidates = service.get_candidates(10, 10, &[]).await.unwrap();
+        let [candidate] = candidates.as_slice() else {
+            panic!("expected exactly one candidate");
+        };
+        candidate.page_directive_refusals
+    };
+
+    fail("PageDirectiveDisallowed", None).await;
+    let first = candidate_run().await.expect("a refusal starts a run");
+    assert_eq!(first.refusals, 1);
+    fail("PageDirectiveDisallowed", None).await;
+    fail("PageDirectiveDisallowed", None).await;
+    let run = candidate_run()
+        .await
+        .expect("refusals in a row continue the run");
+    assert_eq!(run.refusals, 3);
+    assert_eq!(run.since, first.since);
+
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            parsed_url.clone(),
+            (
+                "h".repeat(64),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-1",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        ))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(url)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        candidate_run().await,
+        None,
+        "a successful scrape ends the run"
+    );
+    let stored: (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT page_directive_refusal_streak, page_directive_refused_since
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        (0, None),
+        "a successful scrape clears the stored run"
+    );
+    fail("PageDirectiveDisallowed", Some(raw_input_hash())).await;
+    let restarted = candidate_run()
+        .await
+        .expect("a refusal after a success starts a new run");
+    assert_eq!(restarted.refusals, 1);
+    assert!(restarted.since > first.since);
+
+    fail("Timeout", Some(raw_input_hash())).await;
+    assert_eq!(candidate_run().await, None, "another failure ends the run");
+    let stored: (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT page_directive_refusal_streak, page_directive_refused_since
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, (0, None));
+}
+
+/// A withdrawal the mass-removal guard held is recorded as held, where an operator's confirmation
+/// finds it, and keeps the refusal run that withdrew it: the next refusal continues that run.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_held_page_directive_withdrawal_should_keep_its_refusal_run() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "held.example.com").await;
+    let url = "https://held.example.com/p/1";
+    let parsed_url = url::Url::parse(url).unwrap();
+    insert_product_url(&pool, listing_source_id, url).await;
+    let since = time::OffsetDateTime::now_utc() - time::Duration::hours(80);
+    let since = since.replace_nanosecond(0).unwrap();
+
+    let held = service
+        .mark_page_directive_withdrawal_held(HeldPageDirectiveWithdrawal {
+            listing_source_id,
+            url: parsed_url.clone(),
+            outcome_kind: "MassRemovalHeld".to_owned(),
+            outcome_message: "removal held".to_owned(),
+            refusals: PageDirectiveRefusalRun { refusals: 4, since },
+            expected_last_captured_raw_input_sha256: None,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(held, CrawlerUrlWriteOutcome::Applied);
+    let stored: (Option<String>, i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT last_error_kind, page_directive_refusal_streak, page_directive_refused_since
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, (Some("MassRemovalHeld".to_owned()), 4, Some(since)));
+    sqlx::query("UPDATE listing_source_urls SET last_scraped = NULL WHERE url = $1")
+        .bind(url)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let candidates = service.get_candidates(10, 10, &[]).await.unwrap();
+    let [candidate] = candidates.as_slice() else {
+        panic!("expected exactly one candidate");
+    };
+    assert_eq!(
+        candidate.page_directive_refusals,
+        Some(PageDirectiveRefusalRun { refusals: 4, since })
+    );
+
+    service
+        .mark_fetch_failure(
+            &listing_source_id,
+            &parsed_url,
+            "PageDirectiveDisallowed",
+            "meta robots tag forbids capture (noindex)",
+            None,
+            time::OffsetDateTime::now_utc() + time::Duration::hours(24),
+            None,
+        )
+        .await
+        .unwrap();
+    let stored: (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT page_directive_refusal_streak, page_directive_refused_since
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        (5, Some(since)),
+        "the refusal after the hold continues the run"
     );
 }
 

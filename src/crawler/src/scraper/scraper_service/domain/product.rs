@@ -282,7 +282,8 @@ pub(crate) fn record_transport_failure(
 /// Converts one fetch result into an independent transport observation.
 ///
 /// HTTP responses outside the circuit-opening policy are responsive even when
-/// they are non-2xx, and so is a bot challenge the shop answered with.
+/// they are non-2xx, and so are a bot challenge the shop answered with and a
+/// page whose robots directives refused its capture.
 /// Connection, DNS, timeout, unsafe-target, and unknown failures do not prove
 /// that the remote domain responded.
 pub(crate) fn scrape_health_for_fetch_error(
@@ -302,7 +303,9 @@ pub(crate) fn scrape_health_for_fetch_error(
         },
         None if matches!(
             network_kind,
-            NetworkErrorKind::HttpStatus(_) | NetworkErrorKind::BotChallenge
+            NetworkErrorKind::HttpStatus(_)
+                | NetworkErrorKind::BotChallenge
+                | NetworkErrorKind::PageDirectiveDisallowed
         ) =>
         {
             DomainFetchHealth::Responsive
@@ -406,6 +409,26 @@ mod tests {
                 "a challenge answered with {status} should be responsive"
             );
         }
+    }
+
+    /// The shop answered the page; only its directives refused the capture. A noindexed probe
+    /// page therefore closes a probed circuit, as a redirect robots.txt disallows does.
+    #[test]
+    fn a_page_directive_refusal_proves_domain_health() {
+        let refusal = ScraperError::HttpError {
+            url: Url::parse("https://shop.example/product/1").unwrap(),
+            kind: NetworkErrorKind::PageDirectiveDisallowed,
+            details: "meta robots tag forbids capture (noindex)".to_owned(),
+        };
+
+        assert_eq!(
+            scrape_health_for_fetch_error(NetworkErrorKind::PageDirectiveDisallowed, None, None),
+            DomainFetchHealth::Responsive
+        );
+        assert_eq!(
+            scrape_health_for_scraper_error(&refusal),
+            DomainFetchHealth::Responsive
+        );
     }
 
     #[test]

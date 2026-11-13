@@ -281,6 +281,10 @@ pub enum NetworkErrorKind {
     RobotsDisallowed,
     /// robots.txt could not be reached, so RFC 9309 disallows the whole origin.
     RobotsUnreachable,
+    /// The shop answered the page, and the page's own robots directives (its `X-Robots-Tag`
+    /// header or meta robots tag) forbid capturing it
+    /// ([`robots_directives`](crate::network::robots_directives)).
+    PageDirectiveDisallowed,
     /// The shop answered with a bot challenge or interstitial instead of the page
     /// ([`bot_challenge`](crate::network::bot_challenge)). It is not retried inline, since an
     /// immediate repeat meets the same challenge, and is retried after the transient cooldown.
@@ -459,6 +463,7 @@ pub fn action_for(kind: NetworkErrorKind) -> NetworkAction {
         | NetworkErrorKind::HttpStatus(_)
         | NetworkErrorKind::RobotsDisallowed
         | NetworkErrorKind::RobotsUnreachable
+        | NetworkErrorKind::PageDirectiveDisallowed
         | NetworkErrorKind::BotChallenge
         | NetworkErrorKind::Unknown => NetworkAction::Terminal,
     }
@@ -477,6 +482,7 @@ impl NetworkErrorKind {
             Self::HttpStatus(_) => "HTTP_STATUS",
             Self::RobotsDisallowed => "ROBOTS_DISALLOWED",
             Self::RobotsUnreachable => "ROBOTS_UNREACHABLE",
+            Self::PageDirectiveDisallowed => "PAGE_DIRECTIVE_DISALLOWED",
             Self::BotChallenge => "BOT_CHALLENGE",
             Self::Unknown => "UNKNOWN",
         }
@@ -485,6 +491,12 @@ impl NetworkErrorKind {
     /// robots.txt refused the request, so nothing reached the shop.
     pub fn is_robots_refusal(self) -> bool {
         matches!(self, Self::RobotsDisallowed | Self::RobotsUnreachable)
+    }
+
+    /// The shop's robots rules refused the page: robots.txt before the request, or the page's
+    /// own directives after the shop answered it. Honouring one is no failure to warn about.
+    pub fn is_robots_rules_refusal(self) -> bool {
+        self.is_robots_refusal() || self == Self::PageDirectiveDisallowed
     }
 }
 
@@ -519,6 +531,10 @@ pub fn inline_retry_backoff_for(policy: RetryPolicy, attempt: u32) -> Duration {
     Duration::from_millis(capped_ms as u64)
 }
 
+/// When a page whose robots directives refused its capture is fetched again: a shop changes a
+/// page's directives rarely, so once a day, like a robots.txt refusal.
+pub const PAGE_DIRECTIVE_RETRY_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+
 /// Durable cooldown persisted after all inline fetch attempts fail.
 ///
 /// Do not use this inside a scraper batch worker between fetch attempts; use
@@ -529,6 +545,7 @@ pub fn durable_retry_cooldown_for(kind: NetworkErrorKind) -> Duration {
         NetworkErrorKind::UnsafeTarget | NetworkErrorKind::RobotsDisallowed => {
             Duration::from_secs(24 * 60 * 60)
         }
+        NetworkErrorKind::PageDirectiveDisallowed => PAGE_DIRECTIVE_RETRY_COOLDOWN,
         NetworkErrorKind::RobotsUnreachable => Duration::from_secs(15 * 60),
         NetworkErrorKind::HttpStatus(429) => Duration::from_secs(10 * 60),
         NetworkErrorKind::HttpStatus(503) | NetworkErrorKind::HttpStatus(504) => {
@@ -789,6 +806,20 @@ mod tests {
             durable_retry_cooldown_for(NetworkErrorKind::BotChallenge),
             durable_retry_cooldown_for(NetworkErrorKind::Timeout)
         );
+    }
+
+    #[test]
+    fn should_retry_a_page_directive_refusal_after_a_day_and_not_inline() {
+        assert_eq!(
+            action_for(NetworkErrorKind::PageDirectiveDisallowed),
+            NetworkAction::Terminal
+        );
+        assert_eq!(
+            durable_retry_cooldown_for(NetworkErrorKind::PageDirectiveDisallowed),
+            Duration::from_secs(24 * 60 * 60)
+        );
+        assert!(!NetworkErrorKind::PageDirectiveDisallowed.is_robots_refusal());
+        assert!(NetworkErrorKind::PageDirectiveDisallowed.is_robots_rules_refusal());
     }
 
     #[test]

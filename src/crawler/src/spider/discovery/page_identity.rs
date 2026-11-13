@@ -6,16 +6,11 @@ use scraper::{Html, Selector};
 use std::sync::LazyLock;
 use url::Url;
 
+use crate::network::page_head::head_of;
 use crate::spider::utils::url::CrawledUrl;
 use crate::spider::utils::url::canonical::{
     PageIdentityEvidence, ShopPlatform, platform_product_url,
 };
-
-/// How far into a page the `<head>` is looked for. Shopify heads run to about 60 KiB; a page
-/// whose head ends later is read up to this bound only.
-const MAX_HEAD_BYTES: usize = 512 * 1024;
-
-const HEAD_END: &[u8] = b"</head>";
 
 /// The marker Shopify puts into the head of every storefront page. `cdn.shopify.com` alone is no
 /// proof: other sites embed Shopify's Buy Button or host assets there.
@@ -101,15 +96,6 @@ pub fn page_identity_evidence(
         platform,
         platform_product_urls,
     }
-}
-
-/// The page up to the end of its `<head>`, at most [`MAX_HEAD_BYTES`].
-fn head_of(html: &[u8]) -> &[u8] {
-    let bounded = &html[..html.len().min(MAX_HEAD_BYTES)];
-    bounded
-        .windows(HEAD_END.len())
-        .position(|window| window.eq_ignore_ascii_case(HEAD_END))
-        .map_or(bounded, |end| &bounded[..end])
 }
 
 #[cfg(test)]
