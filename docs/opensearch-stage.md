@@ -51,20 +51,7 @@ Require cgroup v2 and Docker's systemd cgroup driver. Verify CPU topology before
 using these host-specific masks on another machine, and keep the slice, Compose
 `OPENSEARCH_CPUSET` and host exclusions consistent. Install and enable the slice
 before first bootstrap, then apply host exclusions after bootstrap reports a
-healthy node. For an existing initialized host, from the stable checkout:
-
-```sh
-sudo install -m 0644 opensearch/prod/auraopensearch.slice /etc/systemd/system/auraopensearch.slice
-sudo install -D -m 0644 opensearch/prod/host-cpus.scope.conf /etc/systemd/system/init.scope.d/60-aura-opensearch-cpus.conf
-sudo systemctl daemon-reload
-sudo systemctl enable --now auraopensearch.slice
-docker compose -f opensearch/prod/compose.yaml up -d --no-deps --wait opensearch
-# Apply host exclusions only after OpenSearch is healthy in its own slice:
-sudo systemctl set-property system.slice AllowedCPUs=0-2,6-8
-sudo systemctl set-property user.slice AllowedCPUs=0-2,6-8
-sudo systemctl set-property machine.slice AllowedCPUs=0-2,6-8
-sudo systemctl set-property init.scope AllowedCPUs=0-2,6-8
-```
+healthy node.
 
 The enabled slice, persistent slice properties and `init.scope` drop-in survive
 reboot; `set-property` alone is transient for `init.scope`. Every
@@ -233,12 +220,9 @@ checks explicitly; repair DNS/SG/NAT/TLS/auth and retest before dependent cutove
 
 Host/security/assets/upgrades remain manual operations; the delivery pipeline and
 scoped database operations do not administer OpenSearch. Follow the
-[first-time release](infra.md#first-time-stage) and
-[consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff), without
+[first-time release](infra.md#first-time-environment-and-maintenance) and
+[consumer activation](durable-worker-runbook.md#activation-and-cdc-source-retirement), without
 using compute creation as a readiness probe. Runtime roles must never gain admin rights.
-On existing hosts, reconcile gateway routes, runtime users and role mappings against the
-approved assets. Retire unused identities and indices only after ownership, in-flight work
-and recovery posture are settled; removing source assets does not decommission live state.
 
 Compare release assets with actual state. Approve compatible readers/additive mappings
 before writers; incompatible changes require a

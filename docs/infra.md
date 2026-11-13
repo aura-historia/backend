@@ -179,16 +179,13 @@ The [initial business schema](../migrations/20260725090000_initial_business_sche
 is the complete baseline for a fresh database. Bootstrap provisions roles and applies the
 baseline through the normal reviewed deployment path.
 
-The pre-production consolidation replaces migration history and resets application-owned
-wire and evaluator versions to 1. Existing pre-consolidation SQLx ledgers are incompatible;
-the migrator must reject them. Never edit ledger checksums or mark the baseline applied
-to bypass that check. An environment with existing business state needs a separately
+Never edit ledger checksums or mark the baseline applied to bypass the migrator's
+ledger validation. An environment with existing business state needs a separately
 reviewed preservation or reset plan before adopting this baseline. Subsequent schema
 changes use new forward migrations without rewriting applied history.
 
 Address ID tombstones, identity guards and private-resolution erasure/fences are required
-by the baseline. Retained CDC, queue and archive custody follows the
-[activation and handoff procedure](durable-worker-runbook.md#activation-and-legacy-handoff).
+by the baseline.
 
 ### Local Cognito session revocation
 
@@ -348,35 +345,25 @@ until the release completes, new connections from deployed versions fail with SQ
 If that release fails and rolls back, restore the previous secret version to `AWSCURRENT` and run
 bootstrap again before retrying.
 
-### Operator setup and cutover
+### Operator setup
 
-Delivery infrastructure and stack-boundary migration are separately approved
-platform work; implementing this branch does not authorize application deployment.
-Before enabling normal requests:
+Delivery infrastructure is separately approved platform work. Before enabling normal
+requests on a new environment:
 
-1. Inventory existing physical resources, logical IDs, stack references, artifacts,
-   active native operations and any legacy DMS pause. Preserve existing data,
-   Cognito identities, queues/backlogs, slot/checkpoint identity and recovery evidence.
-   Import/move retained resources through reviewed CloudFormation operations; do
-   not deploy the new stack layout blindly over a live deployment.
-2. Protect `develop`. Configure required CI checks as described in [CI](ci.md).
+1. Protect `develop`. Configure required CI checks as described in [CI](ci.md).
    Configure `aws-release-build`, `aws-dev` (if enabled), `aws-prod`, and each enabled
    `aws-<target>-maintenance` with required
    reviewers, protected-branch deployment policy, and administrator bypass disabled.
    The owner chooses whether self-approval is allowed. Verify these in GitHub's UI
    and API, then set `DELIVERY_PROTECTIONS_VERIFIED=true`; helpers also reject missing
    reviewer/branch protections. YAML does not create environment protections.
-3. **Revoke or narrow the old broad `CI_DEPLOY_ROLE_ARN` OIDC trust before cutover.**
-   Account for historical rerunnable workflows and queued runs. Deleting YAML or
-   rotating a repository variable does not revoke an old run's ability to assume
-   a still-trusted role. Confirm old writers are fenced before enabling the new path.
-4. Review the immutable trusted control ZIP, publish it under `control/<digest>.zip`
+2. Review the immutable trusted control ZIP, publish it under `control/<digest>.zip`
    with a version ID, and configure the standalone delivery stack with its key/version,
    exact protected workflow revision, approved build-config digest and CodeConnections
    connection. Source polling, source webhooks, restart-on-update and automatic builds
    are disabled. Admission rejects bootstrap/default executions without authorization.
    Application bundles cannot update the control plane or its permissions boundaries.
-5. Use the outputs from [delivery-stack.ts](../infra/src/delivery-stack.ts) for the
+3. Use the outputs from [delivery-stack.ts](../infra/src/delivery-stack.ts) for the
    repository variables below. Pin `DELIVERY_WORKFLOW_REVISION` to the approved control commit for helper
    checkouts and test evidence; actual invocation HEAD is recorded separately.
    Trusted helpers compare control-sensitive paths to that pin and reject changed
@@ -394,12 +381,10 @@ Before enabling normal requests:
    the bounded output budget. Thinking blocks
    are discarded; malformed, truncated, refused or tool-bearing responses hold
    deployment. Token usage and effort are retained with the review evidence.
-6. Establish a verified environment baseline and current schema observation under
+4. Establish a verified environment baseline and current schema observation under
    the protected maintenance procedure. A baseline assertion must reflect the
    deployed versions and artifacts, not merely the requested source. Confirm SNS
-   subscriptions and budget/failure notification delivery. Record real approval,
-   cold/warm build timing, action duration, artifact size, model usage and postcheck
-   evidence before declaring an end-to-end cutover verified.
+   subscriptions and budget/failure notification delivery.
 
 | Repository variable | Delivery stack output / ownership |
 | --- | --- |
@@ -431,39 +416,13 @@ retained Amazon Cognito prefix domain can also be registered as a redirect URI;
 frontend app callbacks are separate from these provider-to-Cognito redirects.
 
 For federated login, verify the provider's enabled/live use case and required scopes.
-Review the pinned provider version in configuration and test hosted sign-in. Before rollout,
-measure cold/warm private pre-sign-up paths and failure cases with margin under
-Cognito's fixed trigger deadline. Hold if timing or fail-closed behavior is
-unverified. User-pool/schema/client replacement needs an explicit identity and
+Review the pinned provider version in configuration and test hosted sign-in. User-pool/schema/client replacement needs an explicit identity and
 callback migration; never silently replace a production pool.
-
-### Existing-stack ownership transition
-
-The final split is not a direct safe update of deployed stacks. A separately approved
-maintenance plan must freeze both writers, inspect native settlement and retain the
-source templates, physical identities, exports/consumers and resource histories.
-Prepare ownership-only refactor/import templates that preserve all existing resource
-properties and identities. Keep existing exports until consumers switch. Validate
-CloudFormation support and import/refactor change sets before execution; a normal
-update that deletes the moved source resources is not the transition procedure.
-
-| Existing owner | New owner | Preserve |
-| --- | --- | --- |
-| compute Cognito/SES | identity | Pool/client/domain/providers and email configuration identities |
-| compute scheduler DLQs/router archive | data | Existing queue/bucket physical names, backlog and archived failure custody |
-| initialize routine migration Lambda | migrate | Existing `database-migration-lambda-<stage>` function identity |
-
-After ownership is verified, review the inspector secret/private endpoint permissions,
-new release-bucket endpoint access, separate bootstrap/inspection functions, artifact
-parameters and permissions boundaries. IAM path changes replace roles: retain old roles
-**and their inline policies** while any retained Lambda version still uses them. Cut over
-stable aliases and drain old versions before retiring policies. DMS/Kinesis/RDS,
-replication slots and worker queue identities/settings must remain unchanged.
 
 A fresh environment creates protected identity with `AttachIdentityTriggers=false`,
 then compute creates stable pre/post trigger aliases, then separately approved identity
 sets `AttachIdentityTriggers=true`. Do not detach or replace an existing pool to perform
-this sequence. No existing-stack ownership transition is implied by a successful synth.
+this sequence.
 
 ### Immutable artifacts and build evidence
 
@@ -485,9 +444,7 @@ Native pipeline input copies the verified immutable template bytes without JSON
 serialization, including for a verified unchanged stack's `CREATE_UPDATE` action.
 
 One on-demand shared build group uses a Linux XLarge worker (36 vCPUs, 72 GiB).
-This sizing is provisional, not an optimal performance/capacity claim. Before enabling paid release builds,
-an explicitly approved benchmark must record cold/warm duration, peak memory,
-cache behavior and final native billed compute minutes; adjust compute if needed. Real CodeBuild executions export observed duration/compute minutes, per-container
+Real CodeBuild executions export observed duration/compute minutes, per-container
 cgroup memory peaks when available, pipeline/build IDs and artifact sizes under `builds/<build-id>/metrics.json`; inspect CloudWatch/CodeBuild for compute
 minutes, effective timeout/compute type and cache behavior; project settings alone do not prove the actual build's limits. Benchmark cold/warm builds through the protected build
 approval before changing group count or compute size. There is no reserved build
@@ -526,7 +483,7 @@ read-only function. The operation is fixed in each function configuration, never
 selected by untrusted invocation input. No startup or CloudFormation SQL runner exists.
 
 Before application activation, complete OpenSearch connectivity/TLS, initial FX,
-provider/SES, certificate/DNS and [native-consumer handoff](durable-worker-runbook.md#activation-and-legacy-handoff).
+provider/SES, certificate/DNS and [consumer activation](durable-worker-runbook.md#activation-and-cdc-source-retirement).
 Initial FX is a separately approved private invocation; retries retain
 `deployment:fxrate:initial:{stage}:v1`. Persisted capture is deduplicated, provider
 calls are not exactly once. Function success alone does not prove workload readiness.
@@ -586,18 +543,11 @@ approved administration with private secret injection, never passwords in CLI lo
 
 ## Manual platform operations
 
-Before a release adopts existing API/PostConfirmation evidence log groups, inspect
-selected templates and exact names/ownership from the Lambda construct. Do not
-let a normal release create colliding evidence groups; the other Lambda log groups are
-covered under [CloudWatch log cost controls](#cloudwatch-log-cost-controls). Under separate approval, remove expiry
-without deleting events and execute an **import-only** change set for the two
-verified `AWS::Logs::LogGroup` resources, with no unrelated changes. Require only
-`Import` actions before execution. `GetTemplate` can lose non-ASCII characters;
-verify the import template against deployed source and live configuration rather
-than assuming a lossless round trip. Then review the normal release separately:
-no replacement/deletion, retention unset, retained
-resources and exact retention-handler exemptions. Consent access/retention duties
-belong in [marketing consent](marketing-consent.md), not this ownership migration.
+For a federated registration conflict, preserve the existing PostgreSQL account.
+Verify the losing Cognito profile's exact immutable subject and issuer against
+persisted bindings; only a proven unbound profile may be removed under separately
+authorized Cognito administration. Never choose a deletion target by email, link
+a Facebook collision or delete when binding/identity cannot be established.
 
 ### CloudWatch log cost controls
 
@@ -622,26 +572,8 @@ and publishes no per-source metric.
 - Every Lambda declares its log group with seven days of retention, except the ingestion and MCP
   groups (30 days) and the two consent evidence groups, which never expire. The retention handler
   gives 30 days to any other new group, unless it was created with a retention.
-- Neither API Gateway writes an access log. After the release that removes them, the production
-  groups `/aws/apigateway/api-prod` and `/aws/apigateway/mcp-prod` stay, because they are
-  retained, hold their last week of access logs and then nothing; delete them when convenient.
-- The crawler's log group lives outside CloudFormation: set its retention once with
-  `aws logs put-retention-policy --log-group-name <CRAWLER_CLOUDWATCH_LOG_GROUP> --retention-in-days 7`.
-
-Lambda auto-creates a function's log group on its first invocation, so a deployed account already
-has a group under the name this release declares for each function that did not declare one
-before, and CloudFormation fails creating it with `AlreadyExists`. `cdk diff` lists those groups
-as `AWS::Logs::LogGroup` additions of `/aws/lambda/` names. Their logs hold no data worth keeping,
-so, under separate approval, delete each listed group immediately before the release; a busy
-function that logs between the delete and the release recreates its group and rolls the update
-back, so repeat the delete for that group or use the import-only procedure above instead. Never
-delete the two consent evidence groups, which are already stack resources.
-
-For a federated registration conflict, preserve the existing PostgreSQL account.
-Verify the losing Cognito profile's exact immutable subject and issuer against
-persisted bindings; only a proven unbound profile may be removed under separately
-authorized Cognito administration. Never choose a deletion target by email, link
-a Facebook collision or delete when binding/identity cannot be established.
+- Neither API Gateway writes an access log.
+- The crawler's log group lives outside CloudFormation and keeps seven days of retention.
 
 ## CDC and scheduled work
 
@@ -654,12 +586,9 @@ state/update constraints; deploying configuration does not start/restart the tas
 Before task configuration updates, require a stable `stopped` task, or `ready` for a
 new task. Treat `failed` as a release blocker even when direct modification succeeds:
 CloudFormation can fail both update and rollback while waiting for stabilization.
-Complete the [source/destination-retirement gate](durable-worker-runbook.md#activation-and-legacy-handoff)
+Complete the [source/destination-retirement gate](durable-worker-runbook.md#activation-and-cdc-source-retirement)
 **before data deployment removes worker queues or access policies**; foundation updates precede
-compute updates and do not pause the old router. Exclude `search_filters` from effective capture,
-drain its captured records through the old router, pause old publication and settle retiring
-job/archive custody before resource removal. Apply the default-replica-identity migration only
-after capture exclusion, and resume routing with the compatible destination catalog.
+compute updates and do not pause the old router.
 Saved-filter matching reads PostgreSQL on its periodic schedule; only persisted
 `search_filter_matches` continue to drive matching notifications through CDC.
 
@@ -689,7 +618,7 @@ Confirm SNS subscriptions separately; an alarm action does not prove operator de
 
 `CdcRouterEnabled` and `PeriodicMatcherEnabled` independently default off at first
 compute creation; Release preserves prior values. Scope is not an activation override.
-Follow [activation and legacy handoff](durable-worker-runbook.md#activation-and-legacy-handoff)
+Follow [activation and source retirement](durable-worker-runbook.md#activation-and-cdc-source-retirement)
 and [failure custody/redrive](durable-worker-runbook.md#failure-custody-and-controlled-redrive)
 for routing, archives, native ownership and recovery. Runtime roles do not receive
 operator purge/redrive powers.
@@ -702,7 +631,7 @@ through the approved CloudFormation path, preserving other parameters; do not
 partially rewrite its Scheduler target or add a restart loop. Pausing does not stop
 accepted tasks. Scheduler delivery DLQ and ECS/application failure evidence are
 different channels; neither proves an expected run completed. Inspect actual task
-revision, exit/report and next scheduled outcome before retiring an old trigger.
+revision, exit/report and next scheduled outcome.
 
 The [public catalogue overview](swagger.yaml) is a rebuildable single-row PostgreSQL
 calculation. The hourly backend cleanup run recalculates it as its last step once the stored

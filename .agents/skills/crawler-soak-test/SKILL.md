@@ -14,7 +14,7 @@ change against known state use the `crawler-dev-verify` skill instead.
 
 Shop scope: **small/medium non-JS single-dealer antique shops, no auction houses, no marketplaces.**
 Large catalogues count only where they expose a general bug. Prefer shops not used in earlier rounds
-(earlier findings notes under `docs/crawler/` list them) unless re-testing a known finding.
+(their findings issues list them) unless re-testing a known finding.
 
 The skill ships no helper scripts on purpose: write the preflight checks, status queries and
 log filters for the platform you are on (curl, `psql` through `docker exec`, Python for the JSON

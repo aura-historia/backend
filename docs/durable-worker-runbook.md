@@ -37,17 +37,13 @@ to satisfy a release. Verify capture progress or measured healthy idleness, reta
 free storage and downstream routing after work; only then record observed state and
 explicitly reconcile the hold under the protected maintenance identity.
 
-## Activation and legacy handoff
+## Activation and CDC source retirement
 
-1. Follow the [release sequence](infra.md#first-time-stage). Verify schema/job
+1. Follow the [first-time sequence](infra.md#first-time-environment-and-maintenance). Verify schema/job
    compatibility, FX, OpenSearch, provider/SES prerequisites and connection capacity
    **before** an approved platform activation creates active mappings and integrations. Deployment is not
    a readiness probe; if required checks are unavailable, hold activation.
-2. Inventory old subscriptions/processes, queue/DLQ backlog and in-flight or process-local
-   work. Stop old delivery/consumers under approval before replacements take ownership.
-   Source removal does not drain jobs, decommission external Sequin subscriptions or
-   revoke identities. Never run competing old/new consumers or rename/purge queues for handoff.
-3. Coordinate selected-source changes with DMS task state. Separately approve its actual
+2. Coordinate selected-source changes with DMS task state. Separately approve its actual
    slot/start position and router activation; do not invent an LSN or restart from a new
    first-start point. Verify real CDC operation/control shapes, checkpoints and failure
    archive delivery. Router and periodic-matcher enablement are independent release gates.
@@ -59,16 +55,6 @@ explicitly reconcile the hold under the protected maintenance identity.
    before resource removal. A new router rejects retired-source records and stops later records
    in that batch; selection exclusion alone is not a safe cutover. Preserve unrelated records
    and never purge a shared stream. Resume routing only with the compatible destination catalog.
-4. Verify private workload connectivity and scoped access, completed outcomes, lag and
-   retained failure custody. Retire old subscriptions, slots and credentials only after
-   ownership, drained/preserved work and rollback posture are proven. Rollback needs a
-   compatible artifact and a coordinated mapping/backlog plan, not removed legacy source.
-
-The [fresh database baseline](infra.md#fresh-database-baseline) accepts only the final
-version-1 contracts. Pre-consolidation version-2 worker jobs and delivery ingestion/events
-cannot be relabeled or replayed into it. Resolve retained Kinesis, queue/DLQ, archive and
-in-flight custody with compatible artifacts before cutover; database recreation alone
-does not settle that work.
 
 ## First CDC start on a new stage
 
@@ -224,30 +210,24 @@ partnership/source grants and raw/provider/command receipts. FIFO does not order
 writes, normalization or manually reintroduced work. Pause producers/consumption only with
 an explicit backlog and retention plan; do not discard messages to stop traffic.
 
-Deploy the receipt schema, retained queue pair and compatible consumer before enabling
-producers. Deploy the consumer that reads the provider delete-barrier column immediately
-after its migration: an older consumer cannot record a timestamp-free delete once the
-migration ran, so such deletes stay retained until the new consumer runs and reach the DLQ
-if that takes longer than the retry budget. Verify actual IAM/private SQS and database access, published
+Verify actual IAM/private SQS and database access, published
 mapping, partial failure behavior, retry/DLQ transfer and bounded concurrency. Keep
 acceptance fixtures isolated and record admissions, committed receipts and normalization
 separately.
 
-## Shopify forwarding handoff
+## Shopify forwarding recovery
 
 Keep the EventBridge → Shopify Standard queue → Shopify Lambda boundary. The Lambda
 acknowledges a mapped observation only after confirmed command-FIFO admission. A lost send
 reply may already have queued it; retry with the same identity. The FIFO acknowledges
 application independently, and normalization/projection complete later.
 
-Before cutover, verify both retained queue pairs, source grants, receipt schema and active
-compatible consumer. Fence immediate capture for the same observations. Inspect **both**
+Inspect **both**
 upstream and ingestion queue ages/DLQs on failure. Rollback fences the Shopify producer;
 pausing shared consumption requires a separate retention plan.
 
-## WooCommerce webhook queue handoff
+## WooCommerce webhook queue recovery
 
-Verify the API's stage-local FIFO URL/send grant and compatible consumer before forwarding.
 Use isolated exact-byte signed probes with valid partner/source authorization. Authorized
 ignored inputs produce no command/receipt; a mapped `204` means confirmed admission only.
 Deterministic source-order rejections are logged and alarmed instead of retried; receipt
@@ -281,9 +261,7 @@ also requires checking partial activation and release prerequisites.
 ## Projection fences and rebuild
 
 ProductListing withdrawals use content-free, externally versioned
-`projectionDeleted: true` tombstones. Deploy mappings and **all** excluding
-readers before writers; fence old physical-DELETE writers, including in-flight requests.
-Never TTL or physically delete tombstones: remote physical-delete version memory expires.
+`projectionDeleted: true` tombstones. Never TTL or physically delete tombstones: remote physical-delete version memory expires.
 
 Rebuild into an isolated index generation: fence old writers, reconstruct authoritative
 facts, catch up commits, verify IDs/source versions/deletion visibility, then switch the
@@ -302,11 +280,6 @@ active claims, malformed input and dependency failures retain SQS retry/DLQ cust
 Shipping processing relies on CDC/SQS delivery, retries and controlled DLQ redrive. There
 is no scheduled shipping expiry or pending-work recovery scan.
 
-Verify the baseline schema, compatible shipping/event codecs, CDC table selection, dedicated
-queue/consumer, ingestion delivery envelope v2 and strict nested shipping mapping under the
-[schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
-Fence/drain incompatible old complete-projector binaries before activating shipping work;
-old document builders omit shipping even when they read a newer listing fence.
 Original shipping journals, policies, observations, dependency rows and checkpoints stay
 outside DMS. The router publishes the address-free wake-up pair only; its existing private
 archive retains router failures. Worker source/DLQ retention and scoped runtime/operator
@@ -337,16 +310,7 @@ export terms, addresses, producer ownership keys, buyer data or provider payload
 [infrastructure](infra.md#cdc-and-scheduled-work) owns schedule activation. Before enabling
 runs, verify private PostgreSQL access, ProductListing search with reader credentials,
 complete persisted FX and classifier configuration. Filter candidates and progress come
-from PostgreSQL. Apply the matching-evidence migration before expanded runs; it resolves
-existing policies and plan/quota states and fences old snapshots. Older saved-filter writers
-cannot populate the required policy or reconcile it on tier changes. Quiesce saved-filter
-and subscription writes and pause/drain matcher runs for migration and deployment of the
-compatible API, billing and matcher runtimes; resume only when every writer maintains the
-new invariant. Query-only filters need no embedding for lexical retrieval. Enhanced filters
-eligible for activation require the existing write-time embedding; migration admission
-aborts if one is missing. Repair missing embeddings with the deployed
-saved-filter write path before migration admission (an effective intent change generates
-the embedding; restore the intended query afterward). The update use case repairs missing
+from PostgreSQL. Query-only filters need no embedding for lexical retrieval. The update use case repairs missing
 semantic embeddings outside its transaction and rechecks current intent and tier under
 lock. Preserve authored intent and do not generate embeddings during matching.
 
@@ -376,7 +340,7 @@ Saved-filter writes, previews and each run's translation backfill translate sema
 with the listing-title translator's Anthropic key (`ANTHROPIC_API_KEY`). An outage never fails a
 write or a run: affected filters match their text as written (`intentSource=ORIGINAL`) and the
 next run translates them. Each run attempts at most 500 translations, never-attempted filters
-first and failed ones after them, so a large first backfill completes over several runs; follow
+first and failed ones after them; follow
 the `search_filter.intent_translation_backfill.completed` counts and `SEARCH_INTENT_TRANSLATION`
 outcomes. A run that resumes an unfinished window keeps its frozen filters, so translations made
 before it apply from the next window. Logs carry only outcomes and categories, never intent text.
@@ -389,7 +353,7 @@ limit also fails previews with `503 SEARCH_FILTER_TEMPORARILY_UNAVAILABLE`, logg
 `search_filter.preview.failed`; preview traffic counts against the same provider limits as runs.
 
 Match INSERTs normally wake generation through healthy CDC/router/notification workers;
-[digest recovery](#saved-search-digest-recovery-and-cutover) owns unfinished selection
+[digest recovery](#saved-search-digest-recovery) owns unfinished selection
 and finalization. Verify the delivery-outbox CDC path independently. Rerunning matching
 is not a substitute for recovering retained notification jobs and must not blindly resend
 historical mail.
@@ -503,17 +467,7 @@ Inspect safe delivery IDs, database completion and restricted provider evidence 
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
 historic customer mail.
 
-## Saved-search digest recovery and cutover
-
-Pause and drain matcher invocations and match-notification generation while applying
-the digest migration and deploying the compatible matcher, generator, delivery and
-cleanup workers and versioned email templates. Resume only after these binaries are
-compatible. Historical matches have no digest-run membership: existing per-match
-delivery intents continue through their original delivery path, and historical CDC
-replays cannot enroll them in a digest. The database rejects individual delivery
-insertion for new run matches, fencing incompatible generators during cutover.
-Do not backfill historical matches or convert pending legacy delivery intents; an
-ambiguous old send must be reconciled using its original delivery identity.
+## Saved-search digest recovery
 
 Normal filter completion and notification selection finalize ready digests
 immediately; delivery then follows the existing asynchronous outbox path. The hourly
@@ -555,15 +509,11 @@ Only the automatic circuit breaker pauses calls, for five minutes after three co
 provider-health failures. Stopping paid calls or withdrawing retention rights requires a
 reviewed release that removes the calls and purges retained evidence.
 
-Apply the consolidated geography migration with compatible API, router, workers and cleanup
-binaries through the [schema-dependent release procedure](infra.md#routine-and-schema-dependent-releases).
-Coordinate DMS capture of compact resolution and listing-geography wake-ups with the existing
-checkpoint. Keep private inputs, bindings, work checkpoints and evidence outside CDC. The
+Keep private inputs, bindings, work checkpoints and evidence outside CDC. The
 administrator resolution `request` operation establishes work for preexisting eligible
 PartyLocations; CDC-only capture does not backfill them. Review `AMBIGUOUS` locations and retry
 `BLOCKED` or `FAILED` ones through the administrator review queue (see `docs/swagger.yaml`),
-never through direct SQL. Deploy compatible ProductListing geographic mappings and verify refreshed
-product search visibility before enabling new geographic filters.
+never through direct SQL.
 
 The hourly backend cleanup purges orphaned evidence and requeues bounded runnable work
 whose provider circuit is closed. Fresh wake-ups require healthy CDC/SQS. Recovery preserves
@@ -612,12 +562,7 @@ transport payload. Runbook checks do not establish deployed readiness.
 The worker consumes compact work ID/generation wake-ups and commits bounded pages plus
 checkpoints. Continuations retain durable custody; newer invalidation fences claims and
 restarts traversal. The hourly cleanup also drains a page to recover missed wake-ups. Neither
-path calls a geocoder or writes OpenSearch directly. Initial migration enqueues source-level
-rebuild work without rewriting every listing synchronously.
-
-Apply the cleanup of obsolete acknowledgment storage only after geography and product projector
-binaries and rollback sources no longer reference it, under the
-[schema-dependent release rules](infra.md#routine-and-schema-dependent-releases).
+path calls a geocoder or writes OpenSearch directly.
 
 For rebuilding, fence old projection writers and follow the existing isolated OpenSearch
 generation procedure. Enqueue source UUIDs in bounded keyset pages with
@@ -647,15 +592,3 @@ match. Missing initial target evidence requires operator reconciliation under
 [account lifecycle](account-lifecycle.md#operations-and-recovery). Verify provider removal
 and retained completion before closing recovery; API authentication rejection alone is
 not evidence that the Cognito profile was removed.
-
-## Shopify channel deployment
-
-Deploy the backend before the app's Shopify configuration release.
-
-[Event flow](events/flow.md#shopify-channel-observations) owns the synchronization contract
-and its accepted bulk/webhook ordering limitation. Recheck the current publication when
-resolving a reported mismatch. Verify content/title, image/price and inventory edits,
-zero stock, and publication-only remove/restore on a controlled installation. Record
-observed webhook identities, source times, canonical lifecycle and eventual projection
-results. Local integration tests cover the webhook paths with real PostgreSQL; production
-Shopify delivery requires coordinated app verification.

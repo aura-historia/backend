@@ -46,13 +46,8 @@ existing workloads or remove their idle costs.
 
 Bootstrap requires approved control-source key/version, workflow revision, build
 configuration digest, GitHub OIDC/environment protections, reviewer model permissions
-and target resource identities. Existing repositories and moved resources require an
-explicit ownership transition. The final split templates are not an in-place migration
-procedure. Follow the [infrastructure runbook](../docs/infra.md) before any AWS write.
-
-The former container-artifact app describes the legacy repository ownership; do not
-deploy it alongside the delivery foundation as a competing owner. Preserve existing
-repository identities and image digests during the separately approved transition.
+and target resource identities. Follow the [infrastructure runbook](../docs/infra.md)
+before any AWS write.
 
 ## Editing infrastructure assets
 

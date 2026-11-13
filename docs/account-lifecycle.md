@@ -41,8 +41,7 @@ bind their subjects to another account.
 
 ## Operations and recovery
 
-Apply the migration and deploy compatible CDC selection, router and worker before
-accepting deletion requests. The worker needs only `ListUsers`, `AdminGetUser` and
+The worker needs only `ListUsers`, `AdminGetUser` and
 `AdminDeleteUser` on its stage's pool. The API needs no provider deletion permission.
 
 Queue age and DLQ alarms cover this scope through the existing worker infrastructure.
@@ -52,9 +51,6 @@ identity, saved targets and fences during recovery or rollback. A provider profi
 before its username was checkpointed may require exact provider evidence to reconcile;
 an empty listing or email match alone does not establish completion.
 
-For accounts deleted before this contract, cascading removal may have destroyed the
-binding. Recover the exact user ID, issuer and subject from approved deletion evidence,
-verify that no current business binding exists, and insert the retained deletion state
-and compact request together through an authorized operational change. Never bulk-delete
+Never bulk-delete
 apparently unbound Cognito users: confirmation and registration can race. Deployment
 procedures belong in [infrastructure](infra.md).

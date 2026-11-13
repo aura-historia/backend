@@ -1,7 +1,7 @@
 # Onboarding API notes
 
 Recheck `docs/swagger.yaml`, `docs/geography.md` and `docs/shipping.md` if contracts change.
-Production: `https://api.aura-historia.com`; staging is a separate dataset. Credentials
+Production: `https://api.aura-historia.com` (the only deployed stage). Credentials
 need `parties:read/write` and `listing-sources:read/write`. Never send them to dealers.
 
 `scripts/api.py snapshot` follows all admin Party/source pages. Build a run-local domain
