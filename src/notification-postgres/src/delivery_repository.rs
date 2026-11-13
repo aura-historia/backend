@@ -1,5 +1,6 @@
 use crate::{
     delivery_mapping::channel_from_persisted,
+    listing_source_partners::partner_listing_source_ids,
     mapping::{NotificationRow, mapping_error},
 };
 use application::error::box_error;
@@ -107,7 +108,7 @@ impl NotificationDeliveryRepository for SqlxNotificationDeliveryRepository {
         .await
         .map_err(DeliveryOperationFailed)?;
         let source = match source {
-            Some(source) => Some(source_from_row(source)?),
+            Some(source) => Some(source_from_row(&mut transaction, source).await?),
             None => {
                 crate::saved_search_digest::load_delivery_source(
                     &mut transaction,
@@ -279,7 +280,8 @@ fn claimed_from_row(
     })
 }
 
-fn source_from_row(
+async fn source_from_row(
+    connection: &mut PgConnection,
     row: DeliverySourceRow,
 ) -> Result<NotificationDeliverySource, NotificationDeliveryError> {
     let notification = notification_core::notification::Notification::try_from(NotificationRow {
@@ -299,6 +301,8 @@ fn source_from_row(
     .map_err(|error| NotificationDeliveryError::InvalidPersistedState {
         source: mapping_error(error),
     })?;
+    let partner_listing_source_ids =
+        partner_listing_source_ids(connection, notification.content().listing_source_id()).await?;
 
     Ok(NotificationDeliverySource {
         notification_delivery_id: NotificationDeliveryId::try_from(row.notification_delivery_id)
@@ -328,6 +332,7 @@ fn source_from_row(
                 .unwrap_or(Language::En),
             show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
         },
+        partner_listing_source_ids,
     })
 }
 
@@ -484,6 +489,61 @@ mod tests {
                 "expected a claimed delivery with source",
             ))),
         }
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_load_listing_source_partner_status_with_the_claimed_delivery() {
+        let pool = get_postgres_client().await;
+        let partner =
+            crate::listing_source_partners::tests::seed_listing_source(&pool, Some("ACTIVE")).await;
+        let user_id = Uuid::now_v7();
+        let notification_id = Uuid::now_v7();
+        let delivery_id = NotificationDeliveryId::new();
+        sqlx::query(
+            "INSERT INTO users (user_id, email, tier, role) VALUES ($1, $2, 'FREE', 'USER')",
+        )
+        .bind(user_id)
+        .bind(format!("{user_id}@example.test"))
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("seed user: {error}"));
+        sqlx::query("INSERT INTO notifications (notification_id, user_id, kind, origin_event_id, product_listing_id, payload_version, payload) VALUES ($1, $2, 'WATCHLIST_PRICE_CHANGED', $3, $4, 1, $5)")
+            .bind(notification_id).bind(user_id).bind(Uuid::now_v7()).bind(Uuid::now_v7())
+            .bind(serde_json::json!({
+                "type": "WATCHLIST",
+                "snapshot": {
+                    "listing_source_id": partner.into_uuid().to_string(),
+                    "source_listing_id": "source-product",
+                    "listing_source_slug_id": "test-source",
+                    "product_listing_title_slug_id": "test-product-a1b2c3",
+                    "listing_source_name": "Snapshot Source",
+                    "title": null,
+                    "image": null,
+                    "url": "https://source.example/product",
+                    "view_url": "https://source.example/product?view=1"
+                },
+                "change": { "type": "PRICE_CHANGE", "old_price": null, "new_price": null }
+            }))
+            .execute(&pool).await
+            .unwrap_or_else(|error| panic!("seed notification: {error}"));
+        sqlx::query("INSERT INTO notification_deliveries (notification_delivery_id, notification_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'PRIMARY')")
+            .bind(delivery_id.into_uuid()).bind(notification_id).execute(&pool).await
+            .unwrap_or_else(|error| panic!("seed delivery: {error}"));
+        let now = OffsetDateTime::now_utc();
+
+        let outcome = SqlxNotificationDeliveryRepository::new(pool)
+            .claim_and_load_source(delivery_id, now, now + Duration::minutes(5), Uuid::now_v7())
+            .await
+            .unwrap_or_else(|error| panic!("claim delivery: {error}"));
+
+        let ClaimNotificationDeliveryOutcome::Claimed { source, .. } = outcome else {
+            panic!("expected a claimed delivery");
+        };
+        let source = source.unwrap_or_else(|| panic!("claimed delivery has a source"));
+        assert_eq!(
+            std::collections::HashSet::from([partner]),
+            source.partner_listing_source_ids
+        );
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

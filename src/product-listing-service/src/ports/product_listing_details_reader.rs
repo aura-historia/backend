@@ -10,7 +10,6 @@ use indexmap::IndexSet;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::content_policy::ContentPolicyDecision;
-use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
@@ -63,7 +62,6 @@ pub struct ProductListingDetailsReadModel {
     pub source: ListingSourceSummary,
     pub source_listing_id: SourceListingId,
     pub title: Option<ListingText<Title>>,
-    pub description: Option<ListingText<Description>>,
     pub pricing: ProductListingPricing,
     pub sale_observation: Option<ListingSaleObservation>,
     pub availability: Option<ListingAvailability>,

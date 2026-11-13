@@ -25,6 +25,8 @@ pub struct ListedNotification {
     pub notification_id: NotificationId,
     pub kind: NotificationKind,
     pub content: LocalizedNotificationContent,
+    /// See [`NotificationListItem::listing_source_partner`](crate::ports::notification_list_reader::NotificationListItem::listing_source_partner).
+    pub listing_source_partner: bool,
     pub seen: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
@@ -92,6 +94,7 @@ where
                     notification_id: item.notification_id,
                     kind,
                     content,
+                    listing_source_partner: item.listing_source_partner,
                     seen: item.seen,
                     created: item.created,
                     updated: item.updated,

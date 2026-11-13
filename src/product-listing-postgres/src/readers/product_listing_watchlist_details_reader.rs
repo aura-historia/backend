@@ -1,6 +1,6 @@
 use super::listing_row_values::{
-    InvalidListingRowValue, availability, content_policy, images, lifecycle, localized_description,
-    localized_title, price, product_listing_price,
+    InvalidListingRowValue, availability, content_policy, images, lifecycle, localized_title,
+    price, product_listing_price,
 };
 use crate::{
     listing_source_operator::listing_source_operator,
@@ -64,12 +64,8 @@ struct ProductListingDetailsRow {
     listing_source_operator_partner: bool,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
-    product_description_text: Option<String>,
-    product_description_language: Option<String>,
     title_text: Option<String>,
     title_language: Option<String>,
-    description_text: Option<String>,
-    description_language: Option<String>,
     price_kind: Option<String>,
     price_amount: Option<i64>,
     price_currency: Option<String>,
@@ -286,10 +282,7 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         listing_source_operator_partnership.partnership_id IS NOT NULL
             AS listing_source_operator_partner,
         p.title_text AS product_title_text, p.title_language AS product_title_language,
-        p.description_text AS product_description_text,
-        p.description_language AS product_description_language,
         selected_text.title_text, selected_text.title_language,
-        selected_text.description_text, selected_text.description_language,
         p.price_kind, p.price_amount, p.price_currency, p.price_estimate_min_amount,
         p.price_estimate_min_currency, p.price_estimate_max_amount,
         p.price_estimate_max_currency, p.sale_observation_fx_rate_id, p.sale_observed_at, p.availability, p.lifecycle, p.url,
@@ -378,51 +371,11 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
                         candidates.title_language,
                         candidates.title_text
                 ) FILTER (WHERE candidates.title_text IS NOT NULL AND candidates.title_language IS NOT NULL)
-            )[1] AS title_language,
-            (
-                array_agg(
-                    candidates.description_text
-                    ORDER BY
-                        CASE lower(candidates.description_language)
-                            WHEN lower($1) THEN 0
-                            WHEN 'en' THEN 1
-                            WHEN 'de' THEN 2
-                            ELSE 3
-                        END,
-                        lower(candidates.description_language),
-                        candidates.source_priority,
-                        candidates.description_language,
-                        candidates.description_text
-                ) FILTER (
-                    WHERE candidates.description_text IS NOT NULL
-                        AND candidates.description_language IS NOT NULL
-                )
-            )[1] AS description_text,
-            (
-                array_agg(
-                    candidates.description_language
-                    ORDER BY
-                        CASE lower(candidates.description_language)
-                            WHEN lower($1) THEN 0
-                            WHEN 'en' THEN 1
-                            WHEN 'de' THEN 2
-                            ELSE 3
-                        END,
-                        lower(candidates.description_language),
-                        candidates.source_priority,
-                        candidates.description_language,
-                        candidates.description_text
-                ) FILTER (
-                    WHERE candidates.description_text IS NOT NULL
-                        AND candidates.description_language IS NOT NULL
-                )
-            )[1] AS description_language
+            )[1] AS title_language
         FROM (
             SELECT
                 translation.title AS title_text,
                 translation.language AS title_language,
-                translation.description AS description_text,
-                translation.language AS description_language,
                 0 AS source_priority
             FROM product_listing_translations translation
             WHERE translation.product_listing_id = p.product_listing_id
@@ -432,8 +385,6 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
             SELECT
                 p.title_text,
                 p.title_language,
-                p.description_text,
-                p.description_language,
                 1 AS source_priority
         ) AS candidates
     ) AS selected_text ON TRUE
@@ -489,13 +440,6 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             localized_title(row.product_title_text, row.product_title_language)?,
             localized_title(row.title_text, row.title_language)?,
         );
-        let description = ListingText::select(
-            localized_description(
-                row.product_description_text,
-                row.product_description_language,
-            )?,
-            localized_description(row.description_text, row.description_language)?,
-        );
         let product_price =
             product_listing_price(row.price_kind, row.price_amount, row.price_currency)?;
         let product_price_estimate_min = price(
@@ -549,7 +493,6 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 },
                 source_listing_id,
                 title,
-                description,
                 pricing: ProductListingPricing {
                     price: product_price,
                     price_estimate_min: product_price_estimate_min,

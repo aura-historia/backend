@@ -431,7 +431,6 @@ mod tests {
                     Language::De,
                     Title::from("Watchlist-Schrank"),
                 ))),
-                description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {
                         price: Some(

@@ -63,7 +63,7 @@ status `EMBEDDING_PENDING`, REST `202`), ask again later.
   Tell the user to confirm both on the source page before acting.
 - A display price in another currency is a conversion for orientation; the seller's own
   amount and currency are authoritative.
-- Localized titles and descriptions may be machine translations; `original` holds the
-  source's own text when it is available.
+- Localized titles may be machine translations; `original` holds the source's own text when
+  it is available.
 - Do not add condition, provenance, shipping or authenticity claims that the listing does not
   make.

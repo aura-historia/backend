@@ -1,11 +1,13 @@
 use crate::presentation::NotificationPresentationPreferences;
 use application::error::BoxError;
+use listing_source_core::ListingSourceId;
 use notification_core::{
     notification::NotificationContent,
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_delivery_id::NotificationDeliveryId,
     notification_id::NotificationId,
 };
+use std::collections::HashSet;
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
 use uuid::Uuid;
@@ -43,6 +45,10 @@ pub struct NotificationDeliverySource {
     pub content: NotificationContent,
     pub saved_search_digest: Option<crate::saved_search_digest::SavedSearchEmailDigest>,
     pub presentation_preferences: NotificationPresentationPreferences,
+    /// The ListingSources named by `content` and the digest members whose operator
+    /// holds an active Partnership when the delivery is loaded. Resolved at send
+    /// time and never persisted, so a partner tag ends with the Partnership.
+    pub partner_listing_source_ids: HashSet<ListingSourceId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

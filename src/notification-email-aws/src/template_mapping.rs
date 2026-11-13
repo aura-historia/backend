@@ -293,6 +293,11 @@ pub(crate) fn template_data(
         .content
         .clone()
         .localized(&[email_language.as_language()]);
+    let is_partner = |listing_source_id| {
+        source
+            .partner_listing_source_ids
+            .contains(&listing_source_id)
+    };
     let present_image_url = |image, content_policy| {
         present_image(
             image,
@@ -311,6 +316,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 links,
                 snapshot.listing_source_name.to_string(),
+                is_partner(snapshot.listing_source_id),
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
@@ -350,6 +356,7 @@ pub(crate) fn template_data(
             let mut data = product_template_data(
                 links,
                 snapshot.listing_source_name.to_string(),
+                is_partner(snapshot.listing_source_id),
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
@@ -434,6 +441,9 @@ fn digest_template_data(
                     let mut card = product_template_data(
                         links,
                         snapshot.listing_source_name.to_string(),
+                        source
+                            .partner_listing_source_ids
+                            .contains(&snapshot.listing_source_id),
                         &snapshot.product_listing_title_slug_id,
                         snapshot.title.map(|title| title.payload.to_string()),
                         image,
@@ -474,6 +484,7 @@ fn digest_template_data(
 fn product_template_data(
     links: FrontendLinks<'_>,
     listing_source_name: String,
+    listing_source_partner: bool,
     product_listing_title_slug_id: &ProductListingSlugId,
     title: Option<String>,
     image_url: Option<String>,
@@ -481,6 +492,7 @@ fn product_template_data(
 ) -> Value {
     json!({
         "listing_source_name": listing_source_name,
+        "listing_source_partner": listing_source_partner,
         "product_listing_url": links.product_listing(product_listing_title_slug_id),
         "title": title,
         "image_url": image_url,
@@ -611,7 +623,10 @@ mod tests {
         source_listing_id::SourceListingId,
     };
     use rstest::rstest;
-    use std::{collections::HashMap, fs};
+    use std::{
+        collections::{HashMap, HashSet},
+        fs,
+    };
     use url::Url;
     use user_core::user_id::UserId;
 
@@ -1100,6 +1115,69 @@ mod tests {
         Ok(())
     }
 
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    fn should_flag_listing_source_partner_from_send_time_partner_status(
+        #[case] partner: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let listing_source_id = source
+            .content
+            .listing_source_id()
+            .ok_or("fixture names a listing source")?;
+        if partner {
+            source.partner_listing_source_ids = HashSet::from([listing_source_id]);
+        }
+
+        let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
+
+        assert_eq!(Some(partner), data["listing_source_partner"].as_bool());
+        Ok(())
+    }
+
+    #[test]
+    fn should_flag_digest_cards_by_their_own_listing_source_partner_status()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut source = source(false, None)?;
+        let NotificationContent::Watchlist { snapshot, .. } = source.content.clone() else {
+            return Err("fixture is not a watchlist notification".into());
+        };
+        let member = |listing_source_id| NotificationContent::SearchFilter {
+            origin_event_id: EventId::new(),
+            product_listing_id: ProductListingId::new(),
+            user_search_filter_id:
+                search_filter_core::user_search_filter_id::UserSearchFilterId::new(),
+            snapshot: ProductListingNotificationSnapshot {
+                listing_source_id,
+                ..snapshot.clone()
+            },
+            user_search_filter_name: "Art Nouveau".into(),
+        };
+        let partner = ListingSourceId::new();
+        let other = ListingSourceId::new();
+        source.partner_listing_source_ids = HashSet::from([partner]);
+        source.saved_search_digest = Some(
+            notification_service::saved_search_digest::SavedSearchEmailDigest {
+                digest_id: notification_core::saved_search_digest_id::SavedSearchDigestId::new(),
+                window_end: time::OffsetDateTime::UNIX_EPOCH,
+                members: vec![member(partner), member(other)],
+            },
+        );
+
+        let data = template_data(&source, EmailLanguage::En, None, links(EmailLanguage::En));
+
+        let mut flags = data["listings"]
+            .as_array()
+            .ok_or("digest listings")?
+            .iter()
+            .map(|card| card["listing_source_partner"].as_bool())
+            .collect::<Vec<_>>();
+        flags.sort();
+        assert_eq!(vec![Some(false), Some(true)], flags);
+        Ok(())
+    }
+
     fn links(language: EmailLanguage) -> FrontendLinks<'static> {
         FrontendLinks::new("https://stage.aura-historia.com", language)
     }
@@ -1221,6 +1299,7 @@ mod tests {
                 language: Language::En,
                 show_unassessed_or_sensitive_content,
             },
+            partner_listing_source_ids: HashSet::new(),
         })
     }
 }

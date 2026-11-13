@@ -13,6 +13,10 @@ pub struct NotificationListCursor {
 pub struct NotificationListItem {
     pub notification_id: NotificationId,
     pub content: NotificationContent,
+    /// Whether the operator of the ListingSource the content names holds an
+    /// active Partnership now. Resolved when read, never persisted, so it ends
+    /// with the Partnership. `false` when the content names no ListingSource.
+    pub listing_source_partner: bool,
     pub seen: bool,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,

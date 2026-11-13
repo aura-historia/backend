@@ -646,7 +646,6 @@ mod tests {
                 source_listing_id: SourceListingId::try_from("product")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 title: None,
-                description: None,
                 pricing: ProductListingPricing::default(),
                 sale_observation: None,
                 availability: Some(ListingAvailability::Available),

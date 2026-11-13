@@ -100,8 +100,6 @@ pub struct ProductListingDetailsData<
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<ListingTextData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<ListingTextData>,
     pricing: ProductListingPricingPresentationData,
     #[serde(
         with = "crate::wire::listing::availability_option",
@@ -427,7 +425,6 @@ where
             source: view.source.into(),
             source_listing_id: view.source_listing_id,
             title: view.title.map(Into::into),
-            description: view.description.map(Into::into),
             pricing: view.pricing.into(),
             availability: view.availability,
             lifecycle: view.lifecycle,

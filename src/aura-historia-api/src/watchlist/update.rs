@@ -211,7 +211,6 @@ mod tests {
                     Language::En,
                     Title::from("Watchlist cabinet"),
                 ))),
-                description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing::default(),
                     display: DisplayProductListingPricing {

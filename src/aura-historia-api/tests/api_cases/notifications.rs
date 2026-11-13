@@ -361,6 +361,10 @@ async fn should_return_localized_reason_specific_notification_payloads() {
         Some(false),
         price_change["payload"]["viewLink"]["affiliate"].as_bool()
     );
+    assert_eq!(
+        serde_json::json!(false),
+        price_change["payload"]["listingSourcePartner"]
+    );
 
     let availability_change = notification_with_kind(items, "WATCHLIST_AVAILABILITY_CHANGED");
     assert!(availability_change["payload"]["title"].is_null());
@@ -399,7 +403,13 @@ async fn should_return_localized_reason_specific_notification_payloads() {
             .is_some_and(|value| value.starts_with("sf_"))
     );
 
+    assert_eq!(
+        serde_json::json!(false),
+        search_filter["payload"]["listingSourcePartner"]
+    );
+
     let approved = notification_with_kind(items, "PARTNERSHIP_APPLICATION_APPROVED");
+    assert!(approved["payload"].get("listingSourcePartner").is_none());
     assert_eq!(
         serde_json::json!("APPROVED"),
         approved["payload"]["decision"]

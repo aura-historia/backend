@@ -355,7 +355,6 @@ fn details_view() -> PersonalizedProductListingDetailsView {
                 Language::En,
                 Title::from("Cabinet"),
             ))),
-            description: None,
             pricing: ProductListingPricingPresentation {
                 source: ProductListingPricing {
                     price: Some(Price::new(MonetaryAmount::from(u64::MAX), Currency::Eur).into()),
@@ -457,7 +456,6 @@ fn entries(product_listing_id: ProductListingId, count: usize) -> Vec<ProductLis
                             listing_source_id: ListingSourceId::new(),
                             source_listing_id: SourceListingId::try_from("source-42").unwrap(),
                             title: None,
-                            description: None,
                             pricing: ProductListingHistoryPricing {
                                 price: Some(price),
                                 ..Default::default()

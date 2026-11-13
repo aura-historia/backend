@@ -39,8 +39,7 @@ use user_core::user_id::UserId;
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_select_requested_translations_independently_and_preserve_original_text_for_id_lookup()
- {
+async fn should_select_requested_title_translation_and_preserve_original_title_for_id_lookup() {
     let pool = get_postgres_client().await;
     let product = persist_product(
         &pool,
@@ -76,22 +75,9 @@ async fn should_select_requested_translations_independently_and_preserve_origina
     let Some(title) = view.title.as_ref() else {
         panic!("missing title");
     };
-    let Some(description) = view.description.as_ref() else {
-        panic!("missing description");
-    };
     assert_localized_title(title.original.as_ref(), Language::En, "Original title");
-    assert_localized_description(
-        description.original.as_ref(),
-        Language::En,
-        "Original description",
-    );
     assert!(view.sale_observation.is_none());
     assert_localized_title(Some(&title.localized), Language::De, "Deutscher Titel");
-    assert_localized_description(
-        Some(&description.localized),
-        Language::En,
-        "Translated description",
-    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -196,17 +182,8 @@ async fn should_fall_back_to_de_then_deterministic_remaining_translation_for_slu
     let Some(title) = view.title.as_ref() else {
         panic!("missing title");
     };
-    let Some(description) = view.description.as_ref() else {
-        panic!("missing description");
-    };
     assert!(title.original.is_none());
-    assert!(description.original.is_none());
     assert_localized_title(Some(&title.localized), Language::De, "Deutscher Titel");
-    assert_localized_description(
-        Some(&description.localized),
-        Language::Es,
-        "Descripción española",
-    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -238,17 +215,8 @@ async fn should_return_original_english_text_when_no_translation_has_selected_te
     let Some(title) = view.title.as_ref() else {
         panic!("missing title");
     };
-    let Some(description) = view.description.as_ref() else {
-        panic!("missing description");
-    };
     assert_eq!(title.original.as_ref(), Some(&title.localized));
-    assert_eq!(description.original.as_ref(), Some(&description.localized));
     assert_localized_title(Some(&title.localized), Language::En, "Original title");
-    assert_localized_description(
-        Some(&description.localized),
-        Language::En,
-        "Original description",
-    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -267,7 +235,6 @@ async fn should_return_no_selected_text_when_product_has_no_stored_or_translated
     .await;
 
     assert!(view.title.is_none());
-    assert!(view.description.is_none());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
@@ -968,20 +935,6 @@ fn assert_localized_title(
             assert_eq!(value.payload.as_ref(), text);
         }
         None => panic!("missing title"),
-    }
-}
-
-fn assert_localized_description(
-    value: Option<&Localized<Language, Description>>,
-    language: Language,
-    text: &str,
-) {
-    match value {
-        Some(value) => {
-            assert_eq!(value.localization, language);
-            assert_eq!(value.payload.as_ref(), text);
-        }
-        None => panic!("missing description"),
     }
 }
 

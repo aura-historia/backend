@@ -334,7 +334,6 @@ mod tests {
                 localization::Language::De,
                 product_listing_core::title::Title::from("Schrank"),
             ))),
-            description: None,
             pricing: ProductListingPricingPresentation {
                 source: ProductListingPricing::default(),
                 display: DisplayProductListingPricing {

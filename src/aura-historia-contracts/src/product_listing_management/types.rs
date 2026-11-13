@@ -228,8 +228,6 @@ impl From<AdminProductListingSummary> for SummaryData {
 pub struct DetailsData {
     #[serde(flatten)]
     summary: SummaryData,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<LocalizedTextData>,
     #[schemars(schema_with = "crate::wire::schema::url")]
     url: Url,
     #[schemars(schema_with = "crate::product_listing_fields::image_urls_schema")]
@@ -285,7 +283,6 @@ impl From<AdminProductListingDetails> for DetailsData {
     fn from(value: AdminProductListingDetails) -> Self {
         Self {
             summary: value.summary.into(),
-            description: value.description.map(Into::into),
             url: value.url,
             images: value
                 .images
