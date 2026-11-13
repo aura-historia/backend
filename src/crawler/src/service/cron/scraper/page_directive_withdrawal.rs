@@ -28,6 +28,8 @@ pub(super) fn page_directive_withdrawal(
     else {
         return None;
     };
+    // A refusal names the page that refused: the candidate's own, or a redirect target it led
+    // to, which says nothing about whether the listing is still offered.
     if *url != candidate.url || candidate.last_captured_raw_input_sha256.is_none() {
         return None;
     }

@@ -1278,14 +1278,16 @@ async fn should_not_hold_back_a_released_page_when_its_wait_is_written_while_the
 }
 
 /// Waits until `count` statements that write a page's review wait or release it are blocked
-/// on a lock.
+/// on a lock. `pg_stat_activity` shows only the first kilobyte of a statement, so the URL
+/// failure write that records a wait is found by the tag it starts with.
 async fn wait_for_review_wait_lock_waiters(pool: &PgPool, count: i64) {
     for _ in 0..500 {
         let waiting: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM pg_stat_activity \
              WHERE datname = current_database() \
                AND wait_event_type = 'Lock' \
-               AND query LIKE '%schema_review_wait_streak%'",
+               AND (query LIKE '/* crawler_url_failure_write */%' \
+                    OR query LIKE '%schema_review_wait_streak%')",
         )
         .fetch_one(pool)
         .await
