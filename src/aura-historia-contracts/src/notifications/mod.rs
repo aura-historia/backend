@@ -323,3 +323,65 @@ impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeD
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use listing_source_core::{ListingSourceName, ListingSourceSlugId};
+    use localization::Language;
+    use product_listing_core::{
+        product_listing_slug_id::ProductListingSlugId, source_listing_id::SourceListingId,
+    };
+
+    fn snapshot() -> LocalizedProductListingNotificationSnapshot {
+        LocalizedProductListingNotificationSnapshot {
+            listing_source_id: ListingSourceId::new(),
+            source_listing_id: SourceListingId::try_from("source-item").unwrap(),
+            listing_source_slug_id: ListingSourceSlugId::raw("test-source").unwrap(),
+            product_listing_title_slug_id: ProductListingSlugId::raw("violin-a1b2c3").unwrap(),
+            listing_source_name: ListingSourceName::try_from("Test Source").unwrap(),
+            title: None,
+            image: None,
+            content_policy: None,
+            url: Url::parse("https://source.example/item").unwrap(),
+            view_url: Url::parse("https://source.example/item?view=1").unwrap(),
+        }
+    }
+
+    #[test]
+    fn should_serialize_listing_source_partner_on_listing_payloads() {
+        let preferences = NotificationPresentationPreferences {
+            language: Language::En,
+            show_unassessed_or_sensitive_content: false,
+        };
+        let contents = [
+            LocalizedNotificationContent::Watchlist {
+                product_listing_id: ProductListingId::new(),
+                snapshot: snapshot(),
+                change: LocalizedNotificationWatchlistChange::PriceChange {
+                    old_price: None,
+                    new_price: None,
+                },
+            },
+            LocalizedNotificationContent::SearchFilter {
+                product_listing_id: ProductListingId::new(),
+                snapshot: snapshot(),
+                user_search_filter_id: UserSearchFilterId::new(),
+                user_search_filter_name: "Violins".into(),
+            },
+        ];
+
+        for content in contents {
+            for partner in [true, false] {
+                let payload = serde_json::to_value(NotificationContentData::new(
+                    content.clone(),
+                    partner,
+                    preferences,
+                ))
+                .unwrap();
+
+                assert_eq!(serde_json::json!(partner), payload["listingSourcePartner"]);
+            }
+        }
+    }
+}
