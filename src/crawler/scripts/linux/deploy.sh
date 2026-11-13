@@ -200,7 +200,9 @@ adopt_legacy_bin() {
   fi
 }
 
+# Also marks the build as the latest deployed: pruning keeps the most recently deployed builds.
 switch_release() {
+  touch -- "$1"
   ln -sfn "$1" "${link}.new"
   mv -T "${link}.new" "$link"
 }
@@ -262,11 +264,14 @@ wait_healthy() {
 }
 
 prune_releases() {
-  local keep_current dir
-  keep_current="$(readlink -f "$link")"
-  # Newest first; the running release and the legacy fallback are never pruned.
+  local keep_current keep_previous="" dir name
+  keep_current="$(basename "$1")"
+  [[ -z "$2" ]] || keep_previous="$(basename "$2")"
+  # Most recently deployed first (switch_release touches each build it switches to); the running
+  # build, the build it replaced and the legacy fallback are never pruned.
   ls -1dt "${releases}"/*/ 2>/dev/null | sed 's:/$::' | tail -n +"$((KEEP + 1))" | while read -r dir; do
-    if [[ "$dir" != "$keep_current" && "$(basename "$dir")" != legacy-* ]]; then
+    name="$(basename "$dir")"
+    if [[ "$name" != "$keep_current" && "$name" != "$keep_previous" && "$name" != legacy-* ]]; then
       rm -rf -- "$dir"
     fi
   done
@@ -317,7 +322,7 @@ install_changed_units
 start_services
 
 if wait_healthy; then
-  prune_releases
+  prune_releases "$target" "$rollback_to"
   echo "deployed ${build}"
 else
   if $unattended && [[ -n "$rollback_to" && "$rollback_to" != "$target" ]]; then

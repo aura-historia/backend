@@ -43,6 +43,21 @@ if [[ "$url" == */health ]]; then
   echo '{"ok":true}'; exit 0
 fi
 if [[ "$url" == */api ]]; then cat "$FAKE_API_JSON"; exit 0; fi
+# The compare API: FAKE_COMMIT_ORDER lists the test SHAs in develop's commit order.
+if [[ "$url" == */compare/* ]]; then
+  [[ -z "${FAKE_COMPARE_FAIL:-}" ]] || exit 22
+  pair="${url##*/compare/}"; pair="${pair%%\?*}"
+  base_index=-1; head_index=-1; i=0
+  for sha in $FAKE_COMMIT_ORDER; do
+    [[ "$sha" != "${pair%%...*}" ]] || base_index=$i
+    [[ "$sha" != "${pair##*...}" ]] || head_index=$i
+    i=$((i + 1))
+  done
+  ahead=0; behind=0
+  if ((head_index > base_index)); then ahead=$((head_index - base_index)); else behind=$((base_index - head_index)); fi
+  printf '{"status": "x", "ahead_by": %s, "behind_by": %s, "files": [{"status": "modified"}]}\n' "$ahead" "$behind"
+  exit 0
+fi
 cp "$FAKE_RELEASES/$(basename "$url")" "$out"
 T
 cat > "$tmp/fakebin/pg_dump" <<'T'
@@ -112,6 +127,9 @@ if deploy "$sha_b" >/dev/null 2>&1; then fail "checksum mismatch accepted"; fi
 # --- Automatic deploys: autodeploy.sh and deploy.sh --unattended on a fresh host root. ---
 sha_c="$(printf 'c%.0s' {1..40})"
 sha_d="$(printf 'd%.0s' {1..40})"
+sha_e="$(printf 'e%.0s' {1..40})"
+sha_f="$(printf 'f%.0s' {1..40})"; sha_g="$(printf '1%.0s' {1..40})"; sha_h="$(printf '2%.0s' {1..40})"
+export FAKE_COMMIT_ORDER="$sha_a $sha_b $sha_c $sha_d $sha_e $sha_f $sha_g $sha_h"
 bash "$SCRIPT_DIR/package-release.sh" "$sha_b" "$tmp/build" "$tmp/releases-out" >/dev/null  # the tamper test corrupted it
 bash "$SCRIPT_DIR/package-release.sh" "$sha_c" "$tmp/build" "$tmp/releases-out" >/dev/null
 # A release that adds a crawler-local migration, packaged from a copy of the crawler directory.
@@ -175,7 +193,6 @@ bin_is "$sha_d" || fail "an unattended rollback over applied migrations switched
 # Migration checksums: a release that changes an applied migration cannot run on the migrated
 # database, so it is refused in both directions until the database is restored, never deployed
 # unattended, and backed up.
-sha_e="$(printf 'e%.0s' {1..40})"
 echo 'SELECT 1;' > "$alt/migrations/99990101000000_extra.sql"
 bash "$alt/scripts/linux/package-release.sh" "$sha_e" "$tmp/build" "$tmp/releases-out" >/dev/null
 status=0; deploy --unattended "$sha_e" >/dev/null 2>&1 || status=$?
@@ -190,6 +207,17 @@ bin_is "$sha_e" || fail "a refused rollback switched"
 echo 40 > "$FAKE_HEALTH_FAILS"
 CRAWLER_HEALTH_TIMEOUT=60 deploy "$sha_e" >/dev/null 2>&1 || fail "a build that became healthy within CRAWLER_HEALTH_TIMEOUT was rolled back"
 rm -f "$FAKE_HEALTH_FAILS"
+
+# The timer never downgrades: a release of an older commit, published later, is skipped once,
+# and a failed comparison is retried.
+api "$sha_c" "$sha_e"
+: > "$FAKE_LOG"
+FAKE_COMPARE_FAIL=1 autodeploy && fail "autodeploy went on without comparing the commits"
+[[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" != "$sha_c" ]] || fail "a failed comparison would not be retried"
+autodeploy || fail "skipping an older release failed the unit"
+bin_is "$sha_e" || fail "autodeploy downgraded to an older commit"
+! grep -q "stop" "$FAKE_LOG" || fail "autodeploy stopped the services for an older commit"
+[[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_c" ]] || fail "an older release would be compared again every run"
 
 # A host without the agent runner stops and starts only the server.
 rm -f "$FAKE_UNITS/review-agent-runner"
@@ -225,16 +253,24 @@ deploy "$sha_b" >/dev/null 2>&1 || fail "the deploy over a partial release faile
 [[ -x "$CRAWLER_ROOT/bin/server" && -f "$CRAWLER_ROOT/bin/.complete" ]] || fail "a partial release directory was trusted"
 if compgen -G "$CRAWLER_ROOT/releases/.*-*" >/dev/null; then fail "temporary release directories were left behind"; fi
 
-# More than five releases: the oldest go, the legacy binaries stay, and a healthy deploy exits 0
-# even when the last directory pruning looks at is kept.
-sha_f="$(printf 'f%.0s' {1..40})"; sha_g="$(printf '1%.0s' {1..40})"
-for sha in "$sha_f" "$sha_g"; do bash "$SCRIPT_DIR/package-release.sh" "$sha" "$tmp/build" "$tmp/releases-out" >/dev/null; done
+# More than five releases: the least recently deployed go, the legacy binaries stay, and a healthy
+# deploy exits 0 even when the last directory pruning looks at is kept. $sha_a was unpacked before
+# $sha_b but is deployed again after it, so $sha_b goes.
+for sha in "$sha_f" "$sha_g" "$sha_h"; do bash "$SCRIPT_DIR/package-release.sh" "$sha" "$tmp/build" "$tmp/releases-out" >/dev/null; done
 touch -d 2020-01-01 "$CRAWLER_ROOT/releases/$legacy_name"
 for sha in "$sha_a" "$sha_c" "$sha_f" "$sha_g" "$sha_d"; do
   deploy "$sha" > "$tmp/log/prune.out" 2>&1 || { cat "$tmp/log/prune.out" >&2; fail "a healthy deploy of ${sha} failed while pruning"; }
 done
 [[ "$(ls -d "$CRAWLER_ROOT"/releases/*/ | wc -l)" -eq 6 && -d "$CRAWLER_ROOT/releases/$legacy_name" ]] || fail "pruning kept the wrong releases"
-[[ ! -d "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "the oldest release was not pruned"
+[[ ! -d "$CRAWLER_ROOT/releases/$sha_b" ]] || fail "the least recently deployed release was not pruned"
+
+# Pruning follows deploys, not unpacking: after a rollback to the oldest unpacked release and a
+# new deploy, the rollback target stays and the least recently deployed release goes.
+deploy --db-restored "$sha_a" >/dev/null 2>&1 || fail "the rollback to ${sha_a} failed"
+deploy "$sha_h" >/dev/null 2>&1 || fail "the deploy after the rollback failed"
+[[ -d "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "the build a deploy replaced was pruned"
+[[ ! -d "$CRAWLER_ROOT/releases/$sha_c" ]] || fail "the least recently deployed release was kept"
+[[ -d "$CRAWLER_ROOT/releases/$legacy_name" ]] || fail "the legacy binaries were pruned"
 
 # The shipped timer's only trigger is OnCalendar, so a drop-in can replace the schedule.
 timer="$SCRIPT_DIR/crawler-autodeploy.timer"
