@@ -128,6 +128,13 @@ export function createEnvironmentRoles(scope: Construct, stage: StageName, bucke
   migrationExecution.addToPolicy(new iam.PolicyStatement({ actions: ["iam:PassRole"], resources: [migrationRoles],
     conditions: { StringEquals: { "iam:PassedToService": "lambda.amazonaws.com" } } }));
   migrationExecution.addToPolicy(new iam.PolicyStatement({ actions: ["ec2:DescribeSecurityGroups", "ec2:DescribeSubnets", "ec2:DescribeVpcs"], resources: ["*"] }));
+  // The migrator declares its own log group, so the migrate stack creates, retains and tags it.
+  const migrationLogGroup = stack.formatArn({ service: "logs", resource: "log-group",
+    resourceName: `/aws/lambda/database-migration-lambda-${stage}`, arnFormat: cdk.ArnFormat.COLON_RESOURCE_NAME });
+  migrationExecution.addToPolicy(new iam.PolicyStatement({ actions: ["logs:CreateLogGroup", "logs:DeleteLogGroup",
+    "logs:PutRetentionPolicy", "logs:DeleteRetentionPolicy", "logs:TagResource", "logs:UntagResource", "logs:ListTagsForResource",
+    "logs:TagLogGroup", "logs:ListTagsLogGroup"], resources: [migrationLogGroup, `${migrationLogGroup}:*`] }));
+  migrationExecution.addToPolicy(new iam.PolicyStatement({ actions: ["logs:DescribeLogGroups"], resources: ["*"] }));
   bucket.grantRead(migrationExecution, "objects/sha256/*");
   const action = new iam.Role(scope, `${stage}CloudFormationAction`, {
     roleName: `aura-delivery-${stage}-action`, path: "/aura-historia/delivery/",
