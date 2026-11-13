@@ -100,11 +100,34 @@ pub fn refusal_for_meta(html: &str) -> Option<DirectiveRefusal> {
     })
 }
 
-/// Whether the response's `X-Robots-Tag` headers or the page's meta robots tags forbid following
-/// the page's links for the crawler (`nofollow`, `none`).
-pub fn forbids_following(headers: &HeaderMap, html: &str) -> bool {
-    forbidding_header_directive(headers, Restriction::Following).is_some()
-        || forbidding_meta_directive(html, Restriction::Following).is_some()
+/// What a page's `X-Robots-Tag` headers and meta robots tags forbid the crawler to do.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PageDirectives {
+    /// `noindex`, `none` or `noai`: the page is not captured.
+    pub forbids_capture: bool,
+    /// `nofollow` or `none`: the page's links are not followed.
+    pub forbids_following: bool,
+}
+
+impl PageDirectives {
+    /// Whether the directives forbid anything the crawler does with the page.
+    pub const fn forbid_any(self) -> bool {
+        self.forbids_capture || self.forbids_following
+    }
+}
+
+/// Both restrictions of the response's headers and the page's meta robots tags, judged with one
+/// scan of the page's head.
+pub fn page_directives(headers: &HeaderMap, html: &str) -> PageDirectives {
+    let meta_tokens = applicable_meta_tokens(html);
+    let forbids = |restriction: Restriction| {
+        forbidding_header_directive(headers, restriction).is_some()
+            || forbidding_meta_token(&meta_tokens, restriction).is_some()
+    };
+    PageDirectives {
+        forbids_capture: forbids(Restriction::Capture),
+        forbids_following: forbids(Restriction::Following),
+    }
 }
 
 fn forbidding_header_directive(
@@ -138,11 +161,22 @@ fn forbidding_in_header_value(value: &str, restriction: Restriction) -> Option<&
 }
 
 fn forbidding_meta_directive(html: &str, restriction: Restriction) -> Option<&'static str> {
+    forbidding_meta_token(&applicable_meta_tokens(html), restriction)
+}
+
+fn forbidding_meta_token(tokens: &[String], restriction: Restriction) -> Option<&'static str> {
+    tokens
+        .iter()
+        .find_map(|token| restriction.forbidden_by(token))
+}
+
+/// The lowercased directives of the page's meta tags that address robots or the crawler.
+fn applicable_meta_tokens(html: &str) -> Vec<String> {
     let head = head_of(html);
     if !contains_ignore_ascii_case(head, "robots")
         && !contains_ignore_ascii_case(head, CRAWLER_PRODUCT_TOKEN)
     {
-        return None;
+        return Vec::new();
     }
     let head = Html::parse_document(head);
     head.select(&META_ROBOTS)
@@ -154,7 +188,8 @@ fn forbidding_meta_directive(html: &str, restriction: Restriction) -> Option<&'s
         })
         .filter_map(|meta| meta.value().attr("content"))
         .flat_map(|content| content.split(','))
-        .find_map(|token| restriction.forbidden_by(&token.trim().to_ascii_lowercase()))
+        .map(|token| token.trim().to_ascii_lowercase())
+        .collect()
 }
 
 /// A cheap test that spares most pages the HTML parse: a page without the word names no
@@ -303,18 +338,20 @@ mod tests {
             Some("meta robots tag forbids capture (noindex)".to_owned())
         );
     }
+
+    fn following_forbidden(values: &[&str], head: &str) -> bool {
+        page_directives(&headers(values), &page(head)).forbids_following
+    }
+
     #[test]
     fn should_forbid_following_when_a_header_or_meta_tag_says_nofollow_or_none() {
-        let follows =
-            |values: &[&str], head: &str| forbids_following(&headers(values), &page(head));
-
-        assert!(follows(&["nofollow"], ""));
-        assert!(follows(&["aurahistoriabot: none"], ""));
-        assert!(follows(
+        assert!(following_forbidden(&["nofollow"], ""));
+        assert!(following_forbidden(&["aurahistoriabot: none"], ""));
+        assert!(following_forbidden(
             &[],
             r#"<meta name="robots" content="index, nofollow">"#
         ));
-        assert!(follows(
+        assert!(following_forbidden(
             &[],
             r#"<meta name="AuraHistoriaBot" content="none">"#
         ));
@@ -322,18 +359,43 @@ mod tests {
 
     #[test]
     fn should_allow_following_when_the_directive_is_for_another_bot_or_only_noindex() {
-        let follows =
-            |values: &[&str], head: &str| forbids_following(&headers(values), &page(head));
-
-        assert!(!follows(&["googlebot: nofollow"], ""));
-        assert!(!follows(
+        assert!(!following_forbidden(&["googlebot: nofollow"], ""));
+        assert!(!following_forbidden(
             &["noindex"],
             r#"<meta name="robots" content="noindex">"#
         ));
-        assert!(!follows(
+        assert!(!following_forbidden(
             &[],
             r#"<meta name="googlebot" content="nofollow">"#
         ));
-        assert!(!follows(&[], ""));
+        assert!(!following_forbidden(&[], ""));
+    }
+
+    #[test]
+    fn should_judge_capture_and_following_from_the_same_head() {
+        let judged = |values: &[&str], head: &str| page_directives(&headers(values), &page(head));
+
+        assert_eq!(
+            judged(&[], r#"<meta name="robots" content="none">"#),
+            PageDirectives {
+                forbids_capture: true,
+                forbids_following: true,
+            }
+        );
+        assert_eq!(
+            judged(&["nofollow"], r#"<meta name="robots" content="noai">"#),
+            PageDirectives {
+                forbids_capture: true,
+                forbids_following: true,
+            }
+        );
+        assert_eq!(
+            judged(&[], r#"<meta name="robots" content="noindex">"#),
+            PageDirectives {
+                forbids_capture: true,
+                forbids_following: false,
+            }
+        );
+        assert_eq!(judged(&[], ""), PageDirectives::default());
     }
 }
