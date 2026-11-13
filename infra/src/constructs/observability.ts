@@ -47,7 +47,6 @@ export class Observability extends Construct {
     });
     const alarmAction = new actions.SnsAction(this.alarmTopic);
 
-    const settings = props.config.workerQueues.alarms;
     new cloudwatch.Alarm(this, "MaintenanceSchedulerDeadLetterVisibleAlarm", {
       alarmName: `${props.stageName}-maintenance-scheduler-dlq-visible`,
       alarmDescription: "Maintenance Scheduler has failed target deliveries; investigate the DLQ before replay.",
@@ -89,51 +88,8 @@ export class Observability extends Construct {
       });
     }
 
-    for (const workerScope of props.config.workerQueues.enabledScopes) {
-      const queues = props.workerQueues[workerScope];
-      if (!queues) {
-        throw new Error(`Missing alarm queues for enabled worker scope '${workerScope}'.`);
-      }
-      const definition = WORKER_QUEUE_DEFINITIONS[workerScope];
-      const metricOptions = { statistic: "Maximum", period: cdk.Duration.seconds(settings.periodSeconds) };
-      const alarmOptions = {
-        evaluationPeriods: settings.evaluationPeriods,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      };
-      new cloudwatch.Alarm(this, `Worker${definition.id}SourceAgeAlarm`, {
-        ...alarmOptions,
-        alarmName: `${props.stageName}-worker-${workerScope}-source-age`,
-        alarmDescription: `Oldest ${workerScope} job is at least ${settings.sourceAgeThresholdSeconds}s old; check consumer health and dependencies.`,
-        metric: queues.queue.metricApproximateAgeOfOldestMessage(metricOptions),
-        threshold: settings.sourceAgeThresholdSeconds,
-      }).addAlarmAction(alarmAction);
-      new cloudwatch.Alarm(this, `Worker${definition.id}DeadLetterVisibleAlarm`, {
-        ...alarmOptions,
-        alarmName: `${props.stageName}-worker-${workerScope}-dlq-visible`,
-        alarmDescription: `${workerScope} has dead-letter jobs; investigate before operator-controlled replay.`,
-        metric: queues.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions),
-        threshold: settings.deadLetterVisibleThreshold,
-      }).addAlarmAction(alarmAction);
-    }
-
-    const ingestion = props.ingestionQueues.productListingIngestion;
-    const metricOptions = { statistic: "Maximum", period: cdk.Duration.minutes(5) };
-    for (const [id, metric, threshold] of [
-      ["SourceAge", ingestion.queue.metricApproximateAgeOfOldestMessage(metricOptions), 900],
-      ["SourceBacklog", ingestion.queue.metricApproximateNumberOfMessagesVisible(metricOptions), 100],
-      ["DeadLetterVisible", ingestion.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions), 1],
-    ] as const) {
-      new cloudwatch.Alarm(this, `ProductListingIngestion${id}Alarm`, {
-        alarmName: `${props.stageName}-product-listing-ingestion-${toKebabCase(id)}`,
-        alarmDescription: `ProductListing ingestion ${id} requires operator investigation; do not purge or blindly redrive.`,
-        metric,
-        threshold,
-        evaluationPeriods: 1,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      }).addAlarmAction(alarmAction);
-    }
+    addWorkerQueueAlarms(this, props, alarmAction);
+    addIngestionQueueAlarms(this, props.stageName, props.ingestionQueues.productListingIngestion, alarmAction);
 
     // Runtime emits one structured outcome per record, including unprocessed records.
     for (const [outcome, metricName] of [
@@ -212,6 +168,61 @@ export class Observability extends Construct {
     }
 
     addCdcAlarms(this, props.stageName, props.dmsTaskArn, this.alarmTopic);
+  }
+}
+
+function addWorkerQueueAlarms(scope: Construct, props: ObservabilityProps, alarmAction: actions.SnsAction): void {
+  const settings = props.config.workerQueues.alarms;
+  for (const workerScope of props.config.workerQueues.enabledScopes) {
+    const queues = props.workerQueues[workerScope];
+    if (!queues) {
+      throw new Error(`Missing alarm queues for enabled worker scope '${workerScope}'.`);
+    }
+    const definition = WORKER_QUEUE_DEFINITIONS[workerScope];
+    const metricOptions = { statistic: "Maximum", period: cdk.Duration.seconds(settings.periodSeconds) };
+    const alarmOptions = {
+      evaluationPeriods: settings.evaluationPeriods,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    };
+    new cloudwatch.Alarm(scope, `Worker${definition.id}SourceAgeAlarm`, {
+      ...alarmOptions,
+      alarmName: `${props.stageName}-worker-${workerScope}-source-age`,
+      alarmDescription: `Oldest ${workerScope} job is at least ${settings.sourceAgeThresholdSeconds}s old; check consumer health and dependencies.`,
+      metric: queues.queue.metricApproximateAgeOfOldestMessage(metricOptions),
+      threshold: settings.sourceAgeThresholdSeconds,
+    }).addAlarmAction(alarmAction);
+    new cloudwatch.Alarm(scope, `Worker${definition.id}DeadLetterVisibleAlarm`, {
+      ...alarmOptions,
+      alarmName: `${props.stageName}-worker-${workerScope}-dlq-visible`,
+      alarmDescription: `${workerScope} has dead-letter jobs; investigate before operator-controlled replay.`,
+      metric: queues.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions),
+      threshold: settings.deadLetterVisibleThreshold,
+    }).addAlarmAction(alarmAction);
+  }
+}
+
+function addIngestionQueueAlarms(
+  scope: Construct,
+  stageName: string,
+  ingestion: QueueCatalog["productListingIngestion"],
+  alarmAction: actions.SnsAction,
+): void {
+  const metricOptions = { statistic: "Maximum", period: cdk.Duration.minutes(5) };
+  for (const [id, metric, threshold] of [
+    ["SourceAge", ingestion.queue.metricApproximateAgeOfOldestMessage(metricOptions), 900],
+    ["SourceBacklog", ingestion.queue.metricApproximateNumberOfMessagesVisible(metricOptions), 100],
+    ["DeadLetterVisible", ingestion.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions), 1],
+  ] as const) {
+    new cloudwatch.Alarm(scope, `ProductListingIngestion${id}Alarm`, {
+      alarmName: `${stageName}-product-listing-ingestion-${toKebabCase(id)}`,
+      alarmDescription: `ProductListing ingestion ${id} requires operator investigation; do not purge or blindly redrive.`,
+      metric,
+      threshold,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    }).addAlarmAction(alarmAction);
   }
 }
 
