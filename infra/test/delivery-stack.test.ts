@@ -137,6 +137,20 @@ test("requester trust and actual synthesized role grants cannot escalate into pl
   expect(JSON.stringify(template.findResources("AWS::S3::BucketPolicy"))).toContain("s3:if-none-match");
 });
 
+test("migration execution manages only the migrator's own log group", () => {
+  const roleId = Object.entries(template.findResources("AWS::IAM::Role"))
+    .find(([, role]) => role.Properties.RoleName === "aura-delivery-prod-migration-cloudformation")![0];
+  const statements = Object.values(template.findResources("AWS::IAM::Policy"))
+    .filter((policy) => JSON.stringify(policy.Properties.Roles).includes(`"Ref":"${roleId}"`))
+    .flatMap((policy) => policy.Properties.PolicyDocument.Statement);
+  const logs = statements.filter((statement: any) => [statement.Action].flat().some((action: string) => action.startsWith("logs:")));
+  const create = logs.find((statement: any) => [statement.Action].flat().includes("logs:CreateLogGroup"));
+  expect(JSON.stringify(create.Resource)).toContain("log-group:/aws/lambda/database-migration-lambda-prod");
+  expect(JSON.stringify(create.Resource)).not.toMatch(/log-group:\*|log-group:\/aws\/lambda\/\*/);
+  expect(logs.filter((statement: any) => statement.Resource === "*").flatMap((statement: any) => [statement.Action].flat()))
+    .toEqual(["logs:DescribeLogGroups"]);
+});
+
 test("protected ownership and alias rollout remain acyclic and use CloudFormation as sole owner", () => {
   const app = new cdk.App({ analyticsReporting: false });
   const stacks = createApplicationStacks(app, { stage: "prod" });
