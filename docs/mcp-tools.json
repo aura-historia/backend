@@ -1581,13 +1581,19 @@
           "type": "object"
         },
         "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
           "properties": {
             "name": {
               "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "partner"
           ],
           "type": "object"
         },
@@ -2037,6 +2043,23 @@
           ],
           "type": "object"
         },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
+          "type": "object"
+        },
         "PublicSourceData": {
           "properties": {
             "listingSourceId": {
@@ -2046,6 +2069,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -2053,7 +2079,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         }
@@ -2860,6 +2887,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -2867,7 +2897,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -3510,6 +3541,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -5090,6 +5138,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -5097,7 +5148,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -5727,6 +5779,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -7426,6 +7495,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -7433,7 +7505,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -8063,6 +8136,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -9621,13 +9711,19 @@
     "outputSchema": {
       "$defs": {
         "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
           "properties": {
             "name": {
               "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "partner"
           ],
           "type": "object"
         }
@@ -10441,6 +10537,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -10448,7 +10547,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -10942,6 +11042,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -12220,13 +12337,19 @@
           "type": "object"
         },
         "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
           "properties": {
             "name": {
               "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "partner"
           ],
           "type": "object"
         },
@@ -12907,13 +13030,19 @@
           "type": "object"
         },
         "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
           "properties": {
             "name": {
               "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "partner"
           ],
           "type": "object"
         },
@@ -13745,6 +13874,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -13752,7 +13884,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -14395,6 +14528,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -15180,6 +15330,23 @@
           ],
           "type": "object"
         },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
+          "type": "object"
+        },
         "PublicSourceData": {
           "properties": {
             "listingSourceId": {
@@ -15189,6 +15356,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -15196,7 +15366,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         }
@@ -16563,6 +16734,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -16570,7 +16744,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -17213,6 +17388,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -18995,6 +19187,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -19002,7 +19197,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -19632,6 +19828,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -20276,13 +20489,19 @@
           "type": "object"
         },
         "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
           "properties": {
             "name": {
               "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "partner"
           ],
           "type": "object"
         }
@@ -21667,6 +21886,9 @@
             "name": {
               "type": "string"
             },
+            "operator": {
+              "$ref": "#/$defs/PublicListingSourceOperatorData"
+            },
             "slugId": {
               "type": "string"
             }
@@ -21674,7 +21896,8 @@
           "required": [
             "listingSourceId",
             "name",
-            "slugId"
+            "slugId",
+            "operator"
           ],
           "type": "object"
         },
@@ -22183,6 +22406,23 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "partner"
+          ],
           "type": "object"
         },
         "SearchFilterUserStateData": {
@@ -24779,13 +25019,19 @@
           "type": "object"
         },
         "PublicListingSourceOperatorData": {
+          "description": "The Party that operates a ListingSource, as shown wherever a source is presented publicly.",
           "properties": {
             "name": {
               "type": "string"
+            },
+            "partner": {
+              "description": "`true` while the operator Party has an active Aura Historia Partnership, otherwise\n`false`, including after a Partnership is dissolved. Unrelated to ingestion methods and\nreferral configuration.",
+              "type": "boolean"
             }
           },
           "required": [
-            "name"
+            "name",
+            "partner"
           ],
           "type": "object"
         },

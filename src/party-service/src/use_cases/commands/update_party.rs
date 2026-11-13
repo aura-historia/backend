@@ -1,4 +1,7 @@
-use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory};
+use crate::ports::{
+    PartyPartnershipReadError, PartyPartnershipReader, PartyPartnershipReaderFactory,
+    PartyRepository, PartyRepositoryError, PartyRepositoryFactory,
+};
 use crate::use_cases::queries::get_party::PartyDetailsView;
 use application::error::BoxError;
 use application::operation_context::{
@@ -74,27 +77,30 @@ pub trait UpdatePartyUseCase: Send + Sync {
     ) -> Result<UpdatePartyResult, UpdatePartyError>;
 }
 
-pub struct UpdatePartyHandler<U, R, A> {
+pub struct UpdatePartyHandler<U, R, P, A> {
     unit_of_work: U,
     parties: R,
+    partnerships: P,
     check_user_admin: A,
 }
 
-impl<U, R, A> UpdatePartyHandler<U, R, A> {
-    pub fn new(unit_of_work: U, parties: R, check_user_admin: A) -> Self {
+impl<U, R, P, A> UpdatePartyHandler<U, R, P, A> {
+    pub fn new(unit_of_work: U, parties: R, partnerships: P, check_user_admin: A) -> Self {
         Self {
             unit_of_work,
             parties,
+            partnerships,
             check_user_admin,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, A> UpdatePartyUseCase for UpdatePartyHandler<U, R, A>
+impl<U, R, P, A> UpdatePartyUseCase for UpdatePartyHandler<U, R, P, A>
 where
     U: UnitOfWork,
     R: PartyRepositoryFactory<U::Tx>,
+    P: PartyPartnershipReaderFactory<U::Tx>,
     A: CheckUserAdminUseCase,
 {
     #[tracing::instrument(
@@ -130,23 +136,29 @@ where
             .find_by_id(command.party_id)
             .await?
             .ok_or(UpdatePartyError::NotFound)?;
+        // An update cannot change the Party's Partnership, so it is loaded with the Party.
+        let partnership_id = self
+            .partnerships
+            .in_transaction(&mut tx)
+            .find_active_partnership_id(command.party_id)
+            .await?;
         let mut party = stored.party;
         let outcome = apply_update(&mut party, command);
 
-        let result = if outcome.changed() {
+        let updated = if outcome.changed() {
             self.parties
                 .in_transaction(&mut tx)
                 .update(&party, stored.version)
                 .await?
-                .into()
         } else {
-            PartyDetailsView::from(crate::ports::StoredParty {
+            crate::ports::StoredParty {
                 party,
                 version: stored.version,
                 created: stored.created,
                 updated: stored.updated,
-            })
+            }
         };
+        let result = PartyDetailsView::new(updated, partnership_id);
 
         tx.commit()
             .await
@@ -241,6 +253,19 @@ fn map_admin_error(error: CheckUserAdminError) -> UpdatePartyError {
     }
 }
 
+impl From<PartyPartnershipReadError> for UpdatePartyError {
+    fn from(error: PartyPartnershipReadError) -> Self {
+        match error {
+            PartyPartnershipReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            PartyPartnershipReadError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
+            }
+        }
+    }
+}
+
 impl From<PartyRepositoryError> for UpdatePartyError {
     fn from(error: PartyRepositoryError) -> Self {
         match error {
@@ -264,6 +289,7 @@ mod tests {
     use application::error::static_error;
     use application::operation_context::{CorrelationId, Principal, RequestId};
     use application::transaction::TransactionError;
+    use partnership_core::partnership_id::PartnershipId;
     use party_core::party::{NewParty, Party};
     use serde_email::Email;
     use std::sync::{Arc, Mutex};
@@ -276,6 +302,7 @@ mod tests {
     #[derive(Default)]
     struct State {
         party: Option<StoredParty>,
+        partnership_id: Option<PartnershipId>,
         updates: usize,
         commits: usize,
         reject_update: bool,
@@ -305,6 +332,35 @@ mod tests {
 
         async fn begin(&self) -> Result<Self::Tx, TransactionError> {
             Ok(FakeTransaction(Arc::clone(&self.0)))
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakePartyPartnershipReaderFactory(Arc<Mutex<State>>);
+
+    struct FakePartyPartnershipReader(Arc<Mutex<State>>);
+
+    impl PartyPartnershipReaderFactory<FakeTransaction> for FakePartyPartnershipReaderFactory {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl PartyPartnershipReader + 'tx {
+            FakePartyPartnershipReader(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PartyPartnershipReader for FakePartyPartnershipReader {
+        async fn find_active_partnership_id(
+            &mut self,
+            _party_id: PartyId,
+        ) -> Result<Option<PartnershipId>, PartyPartnershipReadError> {
+            self.0
+                .lock()
+                .map(|state| state.partnership_id)
+                .map_err(|_| PartyPartnershipReadError::TemporarilyUnavailable {
+                    source: application::error::static_error("test state poisoned"),
+                })
         }
     }
 
@@ -424,10 +480,16 @@ mod tests {
     fn handler(
         state: Arc<Mutex<State>>,
         allowed: bool,
-    ) -> UpdatePartyHandler<FakeUnitOfWork, FakePartyRepositoryFactory, FakeAdmin> {
+    ) -> UpdatePartyHandler<
+        FakeUnitOfWork,
+        FakePartyRepositoryFactory,
+        FakePartyPartnershipReaderFactory,
+        FakeAdmin,
+    > {
         UpdatePartyHandler::new(
             FakeUnitOfWork(Arc::clone(&state)),
-            FakePartyRepositoryFactory(state),
+            FakePartyRepositoryFactory(Arc::clone(&state)),
+            FakePartyPartnershipReaderFactory(state),
             FakeAdmin { allowed },
         )
     }
@@ -518,6 +580,32 @@ mod tests {
             Err(error) => panic!("fake Party state poisoned: {error}"),
         };
         assert_eq!(1, updates);
+    }
+
+    #[tokio::test]
+    async fn should_report_the_active_partnership_of_the_updated_party() {
+        let state = seeded_state();
+        let party_id = seeded_party_id(&state);
+        let partnership_id = PartnershipId::new();
+        state
+            .lock()
+            .unwrap_or_else(|error| panic!("test state poisoned: {error}"))
+            .partnership_id = Some(partnership_id);
+
+        let result = handler(Arc::clone(&state), true)
+            .execute(
+                &context(Principal::User(UserId::new())),
+                UpdatePartyCommand {
+                    party_id,
+                    name: PatchField::Set(party_name("Renamed Party")),
+                    phone: PatchField::Unchanged,
+                    email: PatchField::Unchanged,
+                },
+            )
+            .await
+            .unwrap_or_else(|error| panic!("party update should succeed: {error}"));
+
+        assert_eq!(Some(partnership_id), result.partnership_id);
     }
 
     #[tokio::test]

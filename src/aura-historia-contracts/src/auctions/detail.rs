@@ -1,5 +1,6 @@
+use crate::listing_sources::PublicListingSourceOperatorData;
 use auction_core::{AuctionFormat, AuctionId, AuctionReportedStatus};
-use auction_service::ports::PublicAuctionDetails;
+use auction_service::ports::{AuctionSourceOperatorSummary, PublicAuctionDetails};
 use listing_source_core::ListingSourceId;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -47,6 +48,7 @@ impl TryFrom<PublicAuctionDetails> for PublicAuctionData {
                 listing_source_id: value.source.listing_source_id,
                 name: value.source.name.as_ref().to_owned(),
                 slug_id: value.source.slug_id.to_string(),
+                operator: (&value.source.operator).into(),
             },
             name: value.name.map(Into::into),
             catalogue_url: value.catalogue_url,
@@ -67,4 +69,11 @@ pub struct PublicSourceData {
     pub listing_source_id: ListingSourceId,
     pub name: String,
     pub slug_id: String,
+    pub operator: PublicListingSourceOperatorData,
+}
+
+impl From<&AuctionSourceOperatorSummary> for PublicListingSourceOperatorData {
+    fn from(operator: &AuctionSourceOperatorSummary) -> Self {
+        Self::new(&operator.name, operator.partner)
+    }
 }

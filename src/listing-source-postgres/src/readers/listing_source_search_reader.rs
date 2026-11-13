@@ -16,6 +16,7 @@ use listing_source_service::use_cases::queries::search_listing_sources::{
     ListingSourceOperatorSummary, ListingSourceSearchCursor, ListingSourceSearchSummary,
     ListingSourceSortKey, SearchListingSourcesRequest, SearchListingSourcesResult,
 };
+use partnership_core::partnership_id::PartnershipId;
 use party_core::{
     party_id::PartyId,
     party_name::{PartyName, PartyNameError},
@@ -60,6 +61,7 @@ struct ListingSourceSearchRow {
     operator_party_id: uuid::Uuid,
     operator_party_slug_id: String,
     operator_party_name: String,
+    operator_partnership_id: Option<uuid::Uuid>,
     ingestion_methods: Vec<String>,
     platform_technology: Option<String>,
     url: Option<String>,
@@ -75,6 +77,8 @@ enum ListingSourceSearchRowMappingError {
     ListingSourceId(#[source] ObjectIdError),
     #[error("invalid operator Party ID persisted")]
     OperatorPartyId(#[source] ObjectIdError),
+    #[error("invalid operator Partnership ID persisted")]
+    OperatorPartnershipId(#[source] ObjectIdError),
     #[error("invalid listing source slug")]
     ListingSourceSlug(#[source] InvalidListingSourceSlug),
     #[error("invalid listing source name")]
@@ -117,6 +121,11 @@ impl TryFrom<ListingSourceSearchRow> for ListingSourceSearchSummary {
                     .map_err(Self::Error::PartySlug)?,
                 name: PartyName::try_from(row.operator_party_name)
                     .map_err(Self::Error::PartyName)?,
+                partnership_id: row
+                    .operator_partnership_id
+                    .map(PartnershipId::try_from)
+                    .transpose()
+                    .map_err(Self::Error::OperatorPartnershipId)?,
             },
             platform_technology: row
                 .platform_technology
@@ -168,12 +177,12 @@ impl ListingSourceSearchReader for SqlxListingSourceSearchReader<'_> {
         let columns = keyset_columns(sort);
 
         let mut builder = QueryBuilder::<Postgres>::new(
-            "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.listing_source_type, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
+            "WITH filtered AS (SELECT s.listing_source_id, s.listing_source_slug_id, s.name AS listing_source_name, s.listing_source_type, s.operator_party_id, p.party_slug_id AS operator_party_slug_id, p.name AS operator_party_name, operator_partnership.partnership_id AS operator_partnership_id, COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS ingestion_methods, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id = s.listing_source_id WHERE TRUE",
         );
         push_filters(&mut builder, &request.search);
-        builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.listing_source_type, s.operator_party_id, p.party_slug_id, p.name, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated");
+        builder.push(" GROUP BY s.listing_source_id, s.listing_source_slug_id, s.name, s.listing_source_type, s.operator_party_id, p.party_slug_id, p.name, operator_partnership.partnership_id, s.url, s.image, s.platform_technology, s.referral_configuration, s.created, s.updated");
         builder.push(
-            ") SELECT listing_source_id, listing_source_slug_id, listing_source_name, listing_source_type, operator_party_id, operator_party_slug_id, operator_party_name, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM filtered WHERE TRUE",
+            ") SELECT listing_source_id, listing_source_slug_id, listing_source_name, listing_source_type, operator_party_id, operator_party_slug_id, operator_party_name, operator_partnership_id, ingestion_methods, url, image, platform_technology, referral_configuration, created, updated FROM filtered WHERE TRUE",
         );
         if let Some(after) = cursor.search_after {
             keyset::push_after(&mut builder, &columns, position(sort.sort, after)?).map_err(
@@ -356,6 +365,7 @@ mod tests {
             operator_party_id,
             operator_party_slug_id: "operator".to_owned(),
             operator_party_name: "Operator".to_owned(),
+            operator_partnership_id: None,
             ingestion_methods: Vec::new(),
             platform_technology: None,
             url: None,

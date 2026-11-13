@@ -1,6 +1,10 @@
+pub mod party_partnership_reader;
 pub mod party_repository;
 pub mod party_search_reader;
 
+pub use party_partnership_reader::{
+    PartyPartnershipReadError, PartyPartnershipReader, PartyPartnershipReaderFactory,
+};
 pub use party_repository::{
     PartyDeletionBlocker, PartyRepository, PartyRepositoryError, PartyRepositoryFactory,
     PartyStorageVersion, StoredParty,

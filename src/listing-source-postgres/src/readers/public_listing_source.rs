@@ -16,6 +16,7 @@ pub(super) struct PublicListingSourceRow {
     pub(super) listing_source_slug_id: String,
     pub(super) name: String,
     pub(super) operator_name: String,
+    pub(super) operator_partner: bool,
     pub(super) url: Option<String>,
     pub(super) image: Option<String>,
     pub(super) referral_configuration: Option<serde_json::Value>,
@@ -56,6 +57,7 @@ pub(super) fn map_public_listing_source(
         operator: PublicListingSourceOperatorSummary {
             name: PartyName::try_from(row.operator_name)
                 .map_err(PublicListingSourceMappingError::OperatorName)?,
+            partner: row.operator_partner,
         },
         website: map_website(row.url, referral_configuration.as_ref())?,
         image: map_public_url(row.image)?,
@@ -100,6 +102,7 @@ mod tests {
             listing_source_slug_id: "source".to_owned(),
             name: "Source".to_owned(),
             operator_name: "Operator".to_owned(),
+            operator_partner: false,
             url: url.map(ToOwned::to_owned),
             image: image.map(ToOwned::to_owned),
             referral_configuration: None,

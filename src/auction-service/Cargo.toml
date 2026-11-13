@@ -10,6 +10,7 @@ auction-core = { workspace = true }
 domain-primitives = { workspace = true }
 fake = { workspace = true, optional = true }
 listing-source-core = { workspace = true }
+party-core = { workspace = true }
 localization = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

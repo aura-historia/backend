@@ -193,6 +193,7 @@ struct SourceData {
     listing_source_id: String,
     name: String,
     slug_id: String,
+    operator: crate::listing_sources::PublicListingSourceOperatorData,
 }
 impl From<AdminProductListingSummary> for SummaryData {
     fn from(value: AdminProductListingSummary) -> Self {
@@ -203,6 +204,10 @@ impl From<AdminProductListingSummary> for SummaryData {
                 listing_source_id: value.source.listing_source_id.to_string(),
                 name: value.source.name.to_string(),
                 slug_id: value.source.slug_id.to_string(),
+                operator: crate::listing_sources::PublicListingSourceOperatorData::new(
+                    &value.source.operator.name,
+                    value.source.operator.partner,
+                ),
             },
             source_listing_id: value.source_listing_id.into(),
             title: value.title.map(Into::into),

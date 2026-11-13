@@ -1,4 +1,4 @@
-use crate::mapping::{PartyRow, party_columns};
+use crate::mapping::{PartySummaryRow, party_summary_columns};
 use application::error::{box_error, static_error};
 use application::pagination::{Cursor, SortKey};
 use domain_primitives::sort::{Sort, SortOrder};
@@ -55,7 +55,7 @@ impl PartySearchReader for SqlxPartySearchReader<'_> {
 
         let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
         builder
-            .push(party_columns())
+            .push(party_summary_columns())
             .push(" FROM parties WHERE TRUE");
         push_filters(&mut builder, request);
         if let Some(after) = cursor.search_after {
@@ -69,7 +69,7 @@ impl PartySearchReader for SqlxPartySearchReader<'_> {
         builder.push(" LIMIT ").push_bind(limit);
 
         let mut rows = builder
-            .build_query_as::<PartyRow>()
+            .build_query_as::<PartySummaryRow>()
             .fetch_all(&mut *self.connection)
             .await
             .map_err(|source| PartySearchReadError::TemporarilyUnavailable {
@@ -81,7 +81,7 @@ impl PartySearchReader for SqlxPartySearchReader<'_> {
         let next_sort_key = rows
             .last()
             .filter(|_| has_more)
-            .map(|row| row.sort_key(sort.sort));
+            .map(|row| row.party.sort_key(sort.sort));
         let items = rows
             .into_iter()
             .map(PartySummary::try_from)

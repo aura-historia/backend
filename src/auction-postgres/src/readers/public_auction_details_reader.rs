@@ -1,13 +1,14 @@
 use crate::mapping::{AuctionRow, map_stored_auction};
 use application::error::box_error;
 use auction_service::ports::{
-    PublicAuctionDetails, PublicAuctionDetailsReadError, PublicAuctionDetailsReader,
-    PublicAuctionSourceSummary,
+    AuctionSourceOperatorSummary, PublicAuctionDetails, PublicAuctionDetailsReadError,
+    PublicAuctionDetailsReader, PublicAuctionSourceSummary,
 };
 use listing_source_core::{
     ListingSourceId, ListingSourceName, ListingSourceSlugId, PartnerizeCamref,
     ReferralConfiguration,
 };
+use party_core::party_name::PartyName;
 use sqlx::PgPool;
 
 #[derive(Clone)]
@@ -41,6 +42,8 @@ struct PublicAuctionDetailsRow {
     updated: time::OffsetDateTime,
     listing_source_slug_id: String,
     listing_source_name: String,
+    operator_name: String,
+    operator_partner: bool,
     referral_configuration: Option<serde_json::Value>,
     visible_active_assigned_listing_count: i64,
 }
@@ -53,6 +56,8 @@ enum PublicAuctionDetailsRowMappingError {
     ListingSourceSlug(#[source] listing_source_core::InvalidListingSourceSlug),
     #[error("invalid persisted ListingSource name")]
     ListingSourceName(#[source] listing_source_core::ListingSourceNameError),
+    #[error("invalid persisted ListingSource operator name")]
+    OperatorName(#[source] party_core::party_name::PartyNameError),
     #[error("invalid persisted referral configuration")]
     ReferralConfiguration,
     #[error("invalid persisted Partnerize camref")]
@@ -71,7 +76,7 @@ impl PublicAuctionDetailsReader for SqlxPublicAuctionDetailsReader {
     ) -> Result<Option<PublicAuctionDetails>, PublicAuctionDetailsReadError> {
         let mut connection = self.pool.acquire().await.map_err(query_error)?;
         let row = sqlx::query_as::<_, PublicAuctionDetailsRow>(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, s.referral_configuration, (SELECT COUNT(*) FROM product_listings listing WHERE listing.auction_id = a.auction_id AND listing.lifecycle = 'ACTIVE') AS visible_active_assigned_listing_count FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE a.auction_id = $1",
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, source_operator.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner, s.referral_configuration, (SELECT COUNT(*) FROM product_listings listing WHERE listing.auction_id = a.auction_id AND listing.lifecycle = 'ACTIVE') AS visible_active_assigned_listing_count FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id JOIN parties source_operator ON source_operator.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE a.auction_id = $1",
         )
         .bind(auction_id.as_uuid())
         .fetch_optional(&mut *connection)
@@ -117,6 +122,11 @@ fn map_details(
             .map_err(PublicAuctionDetailsRowMappingError::ListingSourceSlug)?,
         name: ListingSourceName::try_from(row.listing_source_name)
             .map_err(PublicAuctionDetailsRowMappingError::ListingSourceName)?,
+        operator: AuctionSourceOperatorSummary {
+            name: PartyName::try_from(row.operator_name)
+                .map_err(PublicAuctionDetailsRowMappingError::OperatorName)?,
+            partner: row.operator_partner,
+        },
         referral_configuration: parse_referral_configuration(row.referral_configuration)?,
     };
     let auction = stored.auction;
@@ -192,6 +202,8 @@ mod tests {
             updated: datetime!(2026-01-01 00:00 UTC),
             listing_source_slug_id: "auction-house".to_owned(),
             listing_source_name: "Auction House".to_owned(),
+            operator_name: "Auction Operator".to_owned(),
+            operator_partner: false,
             referral_configuration,
             visible_active_assigned_listing_count: 3,
         }

@@ -7,6 +7,7 @@ use listing_source_core::{
 use listing_source_service::ports::{
     ListingSourceDetails, ListingSourceDetailsReader, ListingSourceReadError,
 };
+use partnership_core::partnership_id::PartnershipId;
 use party_core::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
 use time::OffsetDateTime;
 use url::Url;
@@ -20,6 +21,7 @@ struct DetailRow {
     operator_party_id: uuid::Uuid,
     party_slug_id: String,
     operator_name: String,
+    operator_partnership_id: Option<uuid::Uuid>,
     methods: Vec<String>,
     platform_technology: Option<String>,
     url: Option<String>,
@@ -57,6 +59,12 @@ fn detail(row: DetailRow) -> Result<ListingSourceDetails, ListingSourceReadError
                 source: box_error(error),
             }
         })?,
+        operator_partnership_id: row
+            .operator_partnership_id
+            .map(PartnershipId::try_from)
+            .transpose()
+            .map_err(InvalidDetailObjectId::OperatorPartnership)
+            .map_err(invalid_read)?,
         platform_technology: row
             .platform_technology
             .map(PlatformTechnology::try_from)
@@ -95,10 +103,12 @@ enum InvalidDetailObjectId {
     ListingSource(#[source] ObjectIdError),
     #[error("invalid operator Party ID persisted")]
     OperatorParty(#[source] ObjectIdError),
+    #[error("invalid operator Partnership ID persisted")]
+    OperatorPartnership(#[source] ObjectIdError),
 }
 
-const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id";
-const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.operator_party_id,p.party_slug_id,p.name AS operator_name,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id";
+const DETAIL_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.operator_party_id,p.party_slug_id,p.name AS operator_name,operator_partnership.partnership_id AS operator_partnership_id,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id=s.operator_party_id AND operator_partnership.business_state='ACTIVE' LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_id=$1 GROUP BY s.listing_source_id,p.party_id,operator_partnership.partnership_id";
+const DETAIL_BY_SLUG_SQL: &str = "SELECT s.listing_source_id,s.listing_source_slug_id,s.name,s.listing_source_type,s.operator_party_id,p.party_slug_id,p.name AS operator_name,operator_partnership.partnership_id AS operator_partnership_id,COALESCE(array_agg(m.ingestion_method) FILTER (WHERE m.ingestion_method IS NOT NULL), ARRAY[]::text[]) AS methods,s.platform_technology,s.url,s.image,s.created,s.updated FROM listing_sources s JOIN parties p ON p.party_id=s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id=s.operator_party_id AND operator_partnership.business_state='ACTIVE' LEFT JOIN listing_source_ingestion_methods m ON m.listing_source_id=s.listing_source_id WHERE s.listing_source_slug_id=$1 GROUP BY s.listing_source_id,p.party_id,operator_partnership.partnership_id";
 
 #[async_trait::async_trait]
 impl ListingSourceDetailsReader for SqlxListingSourceReaders {
@@ -143,6 +153,7 @@ mod tests {
             operator_party_id,
             party_slug_id: "operator".to_owned(),
             operator_name: "Operator".to_owned(),
+            operator_partnership_id: None,
             methods: Vec::new(),
             platform_technology: None,
             url: None,
@@ -160,6 +171,13 @@ mod tests {
     #[test]
     fn should_reject_wrong_version_operator_party_id() {
         assert!(detail(row(uuid::Uuid::now_v7(), uuid::Uuid::new_v4())).is_err());
+    }
+
+    #[test]
+    fn should_reject_wrong_version_operator_partnership_id() {
+        let mut invalid = row(uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        invalid.operator_partnership_id = Some(uuid::Uuid::new_v4());
+        assert!(detail(invalid).is_err());
     }
 
     #[test]

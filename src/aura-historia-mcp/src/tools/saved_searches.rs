@@ -1122,6 +1122,10 @@ mod tests {
                         listing_source_id: Default::default(),
                         name: "Source".try_into().unwrap(),
                         slug_id: listing_source_core::ListingSourceSlugId::raw("source").unwrap(),
+                        operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                            name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                            partner: false,
+                        },
                     },
                     source_listing_id: "merchant:local/42".try_into().unwrap(),
                     title: Some(ListingText::localized(localization::Localized::new(

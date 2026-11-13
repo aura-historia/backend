@@ -1,10 +1,16 @@
+use super::listing_row_values::{
+    InvalidListingRowValue, availability, content_policy, images, lifecycle, localized_description,
+    localized_title, price, product_listing_price,
+};
 use crate::{
+    listing_source_operator::listing_source_operator,
     object_id::{PersistedObjectIdError, try_from_uuid},
     product_listing_auction::{
         JoinedAuctionParts, ProductListingAuctionParts, auction_from_parts, map_joined_auction,
     },
     url::referral_configuration,
 };
+use application::error::box_error;
 use application::{
     pagination::{Cursor, CursoredResult},
     personalized::Personalized,
@@ -12,21 +18,14 @@ use application::{
 
 use indexmap::IndexSet;
 use listing_source_core::{ListingSourceName, ListingSourceSlugId, outbound_url};
-use localization::{Language, Localized};
-use money::{Currency, MonetaryAmount, Price};
 
 use platform_postgres::SqlxTransaction;
-use product_listing_core::content_policy::ContentPolicyDecision;
-use product_listing_core::description::Description;
-use product_listing_core::listing_availability::ListingAvailability;
-use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
 
 use product_listing_core::product_listing_image::ProductListingImage;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 use product_listing_core::source_listing_id::SourceListingId;
 
-use product_listing_core::title::Title;
 use product_listing_service::listing_text::ListingText;
 use product_listing_service::ports::{
     PersonalizedProductListingDetailsReadModel, ProductListingDetailsReadModel,
@@ -39,7 +38,6 @@ use product_listing_service::user_state::{
     SearchFilterUserState, WatchlistUserState,
 };
 use search_filter_core::user_search_filter_name::UserSearchFilterName;
-use serde::Deserialize;
 use sqlx::PgConnection;
 
 use time::OffsetDateTime;
@@ -62,6 +60,8 @@ struct ProductListingDetailsRow {
     listing_source_name: String,
     listing_source_slug_id: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
+    listing_source_operator_name: String,
+    listing_source_operator_partner: bool,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
     product_description_text: Option<String>,
@@ -115,23 +115,12 @@ struct ProductListingDetailsRow {
     watchlist_created: OffsetDateTime,
 }
 
-#[derive(Debug, Deserialize)]
-struct ProductListingImageJson {
-    url: String,
-}
-
 #[derive(Debug, thiserror::Error)]
 enum ProductListingWatchlistDetailsRowMappingError {
     #[error("product watchlist details row contains an invalid persisted object ID")]
     InvalidObjectId(#[source] PersistedObjectIdError),
     #[error("product watchlist details row contains an invalid persisted value")]
-    InvalidValue,
-}
-
-impl From<()> for ProductListingWatchlistDetailsRowMappingError {
-    fn from((): ()) -> Self {
-        Self::InvalidValue
-    }
+    InvalidValue(#[from] InvalidListingRowValue),
 }
 
 impl SqlxProductListingWatchlistDetailsReaderFactory {
@@ -165,10 +154,17 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
         >,
         ProductListingWatchlistDetailsReadError,
     > {
-        let page_size = usize::try_from(request.cursor.size)
-            .map_err(|_| ProductListingWatchlistDetailsReadError::QueryFailed)?;
-        let query_limit = i64::try_from(request.cursor.size.saturating_add(1))
-            .map_err(|_| ProductListingWatchlistDetailsReadError::QueryFailed)?;
+        let page_size = usize::try_from(request.cursor.size).map_err(|source| {
+            ProductListingWatchlistDetailsReadError::QueryFailed {
+                source: box_error(source),
+            }
+        })?;
+        let query_limit =
+            i64::try_from(request.cursor.size.saturating_add(1)).map_err(|source| {
+                ProductListingWatchlistDetailsReadError::QueryFailed {
+                    source: box_error(source),
+                }
+            })?;
         let mut rows =
             sqlx::query_as::<_, ProductListingDetailsRow>(SELECT_PRODUCT_WATCHLIST_DETAILS)
                 .bind(request.language.as_str())
@@ -188,7 +184,11 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
                 )
                 .fetch_all(&mut *self.connection)
                 .await
-                .map_err(|_| ProductListingWatchlistDetailsReadError::QueryFailed)?;
+                .map_err(
+                    |source| ProductListingWatchlistDetailsReadError::QueryFailed {
+                        source: box_error(source),
+                    },
+                )?;
 
         let has_more = rows.len() > page_size;
         if has_more {
@@ -211,7 +211,11 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
                     )
                 })
                 .transpose()
-                .map_err(|_| ProductListingWatchlistDetailsReadError::InvalidReadModel)?
+                .map_err(
+                    |source| ProductListingWatchlistDetailsReadError::InvalidReadModel {
+                        source: box_error(source),
+                    },
+                )?
         } else {
             None
         };
@@ -219,7 +223,11 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| ProductListingWatchlistDetailsReadError::InvalidReadModel)?;
+            .map_err(
+                |source| ProductListingWatchlistDetailsReadError::InvalidReadModel {
+                    source: box_error(source),
+                },
+            )?;
 
         Ok(CursoredResult {
             items: product_listings,
@@ -274,6 +282,9 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
         listing_source.name AS listing_source_name,
         listing_source.listing_source_slug_id,
         listing_source.referral_configuration AS listing_source_referral_configuration,
+        listing_source_operator.name AS listing_source_operator_name,
+        listing_source_operator_partnership.partnership_id IS NOT NULL
+            AS listing_source_operator_partner,
         p.title_text AS product_title_text, p.title_language AS product_title_language,
         p.description_text AS product_description_text,
         p.description_language AS product_description_language,
@@ -314,6 +325,11 @@ const SELECT_PRODUCT_WATCHLIST_DETAILS: &str = r#"
     FROM product_listings p
     JOIN listing_sources listing_source
         ON listing_source.listing_source_id = p.listing_source_id
+    JOIN parties listing_source_operator
+        ON listing_source_operator.party_id = listing_source.operator_party_id
+    LEFT JOIN partnerships listing_source_operator_partnership
+        ON listing_source_operator_partnership.party_id = listing_source.operator_party_id
+        AND listing_source_operator_partnership.business_state = 'ACTIVE'
     LEFT JOIN auctions a
         ON a.auction_id = p.auction_id
 
@@ -435,8 +451,8 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
     type Error = ProductListingWatchlistDetailsRowMappingError;
 
     fn try_from(row: ProductListingDetailsRow) -> Result<Self, Self::Error> {
-        let source_listing_id =
-            SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
+        let source_listing_id = SourceListingId::try_from(row.source_listing_id.clone())
+            .map_err(InvalidListingRowValue::of("source listing ID"))?;
         let parsed_images = images(row.product_images.clone())?;
         let user_state = user_state(&row, &parsed_images)?;
         let content_policy = content_policy(
@@ -451,7 +467,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             lot_scheduled_closes_at: row.lot_scheduled_closes_at,
             lot_reported_closed_at: row.lot_reported_closed_at,
         })
-        .map_err(|_| ())?;
+        .map_err(InvalidListingRowValue::of("lot facts"))?;
         let (auction, lot) = map_joined_auction(
             listing_auction,
             row.listing_source_id,
@@ -468,7 +484,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 reported_status: row.auction_reported_status,
             },
         )
-        .map_err(|_| ())?;
+        .map_err(InvalidListingRowValue::of("parent auction"))?;
         let title = ListingText::select(
             localized_title(row.product_title_text, row.product_title_language)?,
             localized_title(row.title_text, row.title_language)?,
@@ -483,21 +499,30 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         let product_price =
             product_listing_price(row.price_kind, row.price_amount, row.price_currency)?;
         let product_price_estimate_min = price(
+            "estimate minimum",
             row.price_estimate_min_amount,
             row.price_estimate_min_currency,
         )?;
         let product_price_estimate_max = price(
+            "estimate maximum",
             row.price_estimate_max_amount,
             row.price_estimate_max_currency,
         )?;
         let sale_observation =
             sale_observation(row.sale_observed_at, row.sale_observation_fx_rate_id)?;
-        let url = Url::parse(&row.url).map_err(|_| ())?;
+        let url = Url::parse(&row.url).map_err(InvalidListingRowValue::of("URL"))?;
         let view_url = outbound_url(
-            referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
+            referral_configuration(row.listing_source_referral_configuration.as_ref())
+                .map_err(|()| {
+                    InvalidListingRowValue::rejected(
+                        "ListingSource referral configuration",
+                        "unrecognized referral configuration",
+                    )
+                })?
+                .as_ref(),
             &url,
         )
-        .map_err(|_| ())?;
+        .map_err(InvalidListingRowValue::of("view URL"))?;
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
@@ -506,15 +531,21 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 product_listing_title_slug_id: ProductListingSlugId::raw(
                     &row.product_listing_title_slug_id,
                 )
-                .map_err(|_| ())?,
+                .map_err(InvalidListingRowValue::of("title slug"))?,
                 event_id: try_from_uuid(row.current_event_id, "current event ID")
                     .map_err(ProductListingWatchlistDetailsRowMappingError::InvalidObjectId)?,
                 source: product_listing_service::ports::ListingSourceSummary {
                     listing_source_id: try_from_uuid(row.listing_source_id, "ListingSource ID")
                         .map_err(ProductListingWatchlistDetailsRowMappingError::InvalidObjectId)?,
-                    name: ListingSourceName::try_from(row.listing_source_name).map_err(|_| ())?,
+                    name: ListingSourceName::try_from(row.listing_source_name)
+                        .map_err(InvalidListingRowValue::of("ListingSource name"))?,
                     slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
-                        .map_err(|_| ())?,
+                        .map_err(InvalidListingRowValue::of("ListingSource slug"))?,
+                    operator: listing_source_operator(
+                        row.listing_source_operator_name,
+                        row.listing_source_operator_partner,
+                    )
+                    .map_err(InvalidListingRowValue::of("ListingSource operator name"))?,
                 },
                 source_listing_id,
                 title,
@@ -541,19 +572,6 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
     }
 }
 
-fn content_policy(
-    decision: Option<&str>,
-    category: Option<&str>,
-) -> Result<Option<ContentPolicyDecision>, ()> {
-    match (decision, category) {
-        (None, None) => Ok(None),
-        (Some(decision), category) => ContentPolicyDecision::from_codes(decision, category)
-            .map(Some)
-            .ok_or(()),
-        (None, Some(_)) => Err(()),
-    }
-}
-
 fn sale_observation(
     observed_at: Option<OffsetDateTime>,
     fx_rate_id: Option<uuid::Uuid>,
@@ -565,7 +583,11 @@ fn sale_observation(
                 .map_err(ProductListingWatchlistDetailsRowMappingError::InvalidObjectId)?,
         ))),
         (None, None) => Ok(None),
-        _ => Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue),
+        _ => Err(InvalidListingRowValue::rejected(
+            "sale observation",
+            "observation time and FX rate must be present or absent together",
+        )
+        .into()),
     }
 }
 
@@ -586,7 +608,13 @@ fn user_state(
         (Some(consent), Some("FREE")) => (consent, "FREE"),
         (Some(consent), Some("PRO")) => (consent, "PRO"),
         (Some(consent), Some("ULTIMATE")) => (consent, "ULTIMATE"),
-        _ => return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue),
+        _ => {
+            return Err(InvalidListingRowValue::rejected(
+                "personalization user",
+                "unknown tier or missing content preference",
+            )
+            .into());
+        }
     };
     let search_filter = search_filter_user_state(row, Some(tier))?;
 
@@ -625,20 +653,41 @@ fn search_filter_user_state(
             || row.selected_match_feedback.is_some()
             || row.selected_match_month_position.is_some()
         {
-            return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue);
+            return Err(InvalidListingRowValue::rejected(
+                "saved-search match",
+                "match details without a matching search filter",
+            )
+            .into());
         }
         return Ok(SearchFilterUserState::default());
     };
 
-    let hidden = match tier.ok_or(())? {
-        "FREE" => row.selected_match_month_position.ok_or(())? > 10,
-        "PRO" | "ULTIMATE" => {
+    let hidden = match tier {
+        Some("FREE") => {
+            row.selected_match_month_position.ok_or_else(|| {
+                InvalidListingRowValue::rejected(
+                    "saved-search match",
+                    "free-tier match without a monthly position",
+                )
+            })? > 10
+        }
+        Some("PRO" | "ULTIMATE") => {
             if row.selected_match_month_position.is_some() {
-                return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue);
+                return Err(InvalidListingRowValue::rejected(
+                    "saved-search match",
+                    "paid-tier match with a monthly position",
+                )
+                .into());
             }
             false
         }
-        _ => return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue),
+        _ => {
+            return Err(InvalidListingRowValue::rejected(
+                "saved-search match",
+                "unknown user tier",
+            )
+            .into());
+        }
     };
 
     Ok(SearchFilterUserState {
@@ -655,102 +704,6 @@ fn search_filter_user_state(
         match_feedback: row.selected_match_feedback,
         shipping_match_valuation: None,
     })
-}
-
-fn localized_title(
-    text: Option<String>,
-    language: Option<String>,
-) -> Result<Option<Localized<Language, Title>>, ()> {
-    match (text, language) {
-        (Some(text), Some(language)) => {
-            let language = parse_language(&language)?;
-            Ok(crate::title::decode_nonempty_title(&text)?
-                .map(|title| Localized::new(language, title)))
-        }
-        (None, None) => Ok(None),
-        _ => Err(()),
-    }
-}
-
-fn localized_description(
-    text: Option<String>,
-    language: Option<String>,
-) -> Result<Option<Localized<Language, Description>>, ()> {
-    match (text, language) {
-        (Some(text), Some(language)) => {
-            let description = Description::from(text.as_str());
-            if description.as_ref().is_empty() || description.as_ref() != text.as_str() {
-                return Err(());
-            }
-            Ok(Some(Localized::new(
-                parse_language(&language)?,
-                description,
-            )))
-        }
-        (None, None) => Ok(None),
-        _ => Err(()),
-    }
-}
-
-fn product_listing_price(
-    kind: Option<String>,
-    amount: Option<i64>,
-    currency: Option<String>,
-) -> Result<Option<product_listing_core::product_listing_price::ProductListingPrice>, ()> {
-    match (kind.as_deref(), amount, currency) {
-        (None, None, None) => Ok(None),
-        (Some("MONETARY"), Some(amount), Some(currency)) => Ok(Some(
-            product_listing_core::product_listing_price::ProductListingPrice::Monetary(Price::new(
-                MonetaryAmount::from(u64::try_from(amount).map_err(|_| ())?),
-                parse_currency(&currency)?,
-            )),
-        )),
-        (Some("ON_REQUEST"), None, None) => Ok(Some(
-            product_listing_core::product_listing_price::ProductListingPrice::OnRequest,
-        )),
-        _ => Err(()),
-    }
-}
-
-fn price(amount: Option<i64>, currency: Option<String>) -> Result<Option<Price>, ()> {
-    match (amount, currency) {
-        (Some(amount), Some(currency)) => Ok(Some(Price::new(
-            MonetaryAmount::from(u64::try_from(amount).map_err(|_| ())?),
-            parse_currency(&currency)?,
-        ))),
-        (None, None) => Ok(None),
-        _ => Err(()),
-    }
-}
-
-fn images(value: serde_json::Value) -> Result<IndexSet<ProductListingImage>, ()> {
-    serde_json::from_value::<Vec<ProductListingImageJson>>(value)
-        .map_err(|_| ())?
-        .into_iter()
-        .map(|image| {
-            Ok(ProductListingImage::new(
-                Url::parse(&image.url).map_err(|_| ())?,
-            ))
-        })
-        .collect()
-}
-
-fn parse_language(value: &str) -> Result<Language, ()> {
-    Language::from_code(value).ok_or(())
-}
-
-fn parse_currency(value: &str) -> Result<Currency, ()> {
-    Currency::from_code(value).ok_or(())
-}
-
-fn availability(value: Option<&str>) -> Result<Option<ListingAvailability>, ()> {
-    value
-        .map(|value| ListingAvailability::from_code(value).ok_or(()))
-        .transpose()
-}
-
-fn lifecycle(value: &str) -> Result<ListingLifecycle, ()> {
-    ListingLifecycle::from_code(value).ok_or(())
 }
 
 #[cfg(test)]
@@ -775,34 +728,6 @@ mod tests {
     #[test]
     fn should_reject_incomplete_sale_observation() {
         let result = sale_observation(Some(OffsetDateTime::UNIX_EPOCH), None);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_selected_title_when_text_is_not_canonical() {
-        let result = localized_title(Some("title".to_owned()), Some("en".to_owned()));
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_selected_description_when_text_is_empty() {
-        let result = localized_description(Some(" ".to_owned()), Some("en".to_owned()));
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_selected_text_when_language_is_unrecognized() {
-        let result = localized_title(Some("Title".to_owned()), Some("xx".to_owned()));
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_invalid_persisted_listing_availability() {
-        let result = availability(Some("BROKEN"));
 
         assert!(result.is_err());
     }

@@ -25,4 +25,6 @@ pub struct PublicListingSourceWebsite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicListingSourceOperatorSummary {
     pub name: PartyName,
+    /// Whether the operator Party currently has an active Partnership.
+    pub partner: bool,
 }

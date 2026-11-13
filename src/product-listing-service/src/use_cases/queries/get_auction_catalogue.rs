@@ -500,6 +500,10 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             name: ListingSourceName::try_from("Source")?,
             slug_id: ListingSourceSlugId::raw("source")?,
+            operator: crate::ports::ListingSourceOperatorSummary {
+                name: party_core::party_name::PartyName::try_from("Operator")?,
+                partner: false,
+            },
         };
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
@@ -535,6 +539,10 @@ mod tests {
                 slug_id: ListingSourceSlugId::raw("source")?,
                 name: ListingSourceName::try_from("Source")?,
                 referral_configuration: None,
+                operator: auction_service::ports::AuctionSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                    partner: false,
+                },
             },
             name: None,
             catalogue_url: None,

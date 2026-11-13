@@ -1,4 +1,7 @@
-use crate::{object_id::try_from_uuid, url::referral_configuration};
+use crate::{
+    listing_source_operator::listing_source_operator, object_id::try_from_uuid,
+    url::referral_configuration,
+};
 use application::error::box_error;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
 use product_listing_service::ports::{
@@ -19,6 +22,8 @@ struct ListingSourceSummaryRow {
     name: String,
     listing_source_slug_id: String,
     referral_configuration: Option<serde_json::Value>,
+    operator_name: String,
+    operator_partner: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -53,9 +58,19 @@ impl ListingSourceSummaryReader for SqlxListingSourceSummaryReader {
 
         let rows = sqlx::query_as::<_, ListingSourceSummaryRow>(
             r#"
-            SELECT listing_source_id, name, listing_source_slug_id, referral_configuration
-            FROM listing_sources
-            WHERE listing_source_id = ANY($1::uuid[])
+            SELECT
+                listing_source.listing_source_id,
+                listing_source.name,
+                listing_source.listing_source_slug_id,
+                listing_source.referral_configuration,
+                source_operator.name AS operator_name,
+                source_operator_partnership.partnership_id IS NOT NULL AS operator_partner
+            FROM listing_sources listing_source
+            JOIN parties source_operator ON source_operator.party_id = listing_source.operator_party_id
+            LEFT JOIN partnerships source_operator_partnership
+                ON source_operator_partnership.party_id = listing_source.operator_party_id
+                AND source_operator_partnership.business_state = 'ACTIVE'
+            WHERE listing_source.listing_source_id = ANY($1::uuid[])
             "#,
         )
         .bind(
@@ -106,6 +121,12 @@ impl TryFrom<ListingSourceSummaryRow> for ListingSourceSummaryWithReferral {
                         }),
                     },
                 )?,
+                operator: listing_source_operator(row.operator_name, row.operator_partner)
+                    .map_err(|source| ListingSourceSummaryReadError::InvalidReadModel {
+                        source: box_error(ListingSourceSummaryMappingError {
+                            source: box_error(source),
+                        }),
+                    })?,
             },
             referral_configuration: referral_configuration(row.referral_configuration.as_ref())
                 .map_err(|_| ListingSourceSummaryReadError::InvalidReadModel {
@@ -130,6 +151,8 @@ mod tests {
             name: "\u{2003}".to_owned(),
             listing_source_slug_id: "".to_owned(),
             referral_configuration: None,
+            operator_name: "Operator".to_owned(),
+            operator_partner: false,
         });
 
         assert!(matches!(

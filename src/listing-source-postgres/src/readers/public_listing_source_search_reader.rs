@@ -17,9 +17,9 @@ use platform_postgres::SqlxTransaction;
 use sqlx::{Postgres, QueryBuilder};
 
 const STATEMENT_TIMEOUT: &str = "150ms";
-const BROWSE_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration, 0::smallint AS match_tier, s.name_search FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
-const PREFIX_SQL_AFTER_INPUT: &str = "::text AS prefix_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint ELSE 1::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint ELSE 4::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
-const CONTAINS_SQL_AFTER_INPUT: &str = "::text AS contains_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint WHEN s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 1::smallint ELSE 2::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.contains_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint WHEN p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 4::smallint ELSE 5::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.contains_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, s.url, s.image, s.referral_configuration, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id WHERE TRUE";
+const BROWSE_SQL: &str = "SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner, s.url, s.image, s.referral_configuration, 0::smallint AS match_tier, s.name_search FROM listing_sources s JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE TRUE";
+const PREFIX_SQL_AFTER_INPUT: &str = "::text AS prefix_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint ELSE 1::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint ELSE 4::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner, s.url, s.image, s.referral_configuration, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE TRUE";
+const CONTAINS_SQL_AFTER_INPUT: &str = "::text AS contains_pattern), candidates AS (SELECT s.listing_source_id, CASE WHEN s.name_search = i.query THEN 0::smallint WHEN s.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 1::smallint ELSE 2::smallint END AS match_tier FROM listing_sources s CROSS JOIN input i WHERE s.name_search LIKE i.contains_pattern ESCAPE E'\\\\' UNION ALL SELECT s.listing_source_id, CASE WHEN p.name_search = i.query THEN 3::smallint WHEN p.name_search LIKE i.prefix_pattern ESCAPE E'\\\\' THEN 4::smallint ELSE 5::smallint END AS match_tier FROM parties p JOIN listing_sources s ON s.operator_party_id = p.party_id CROSS JOIN input i WHERE p.name_search LIKE i.contains_pattern ESCAPE E'\\\\'), best AS (SELECT listing_source_id, min(match_tier) AS match_tier FROM candidates GROUP BY listing_source_id) SELECT s.listing_source_id, s.listing_source_slug_id, s.name, p.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner, s.url, s.image, s.referral_configuration, b.match_tier, s.name_search FROM best b JOIN listing_sources s ON s.listing_source_id = b.listing_source_id JOIN parties p ON p.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE TRUE";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqlxPublicListingSourceSearchReaderFactory;
@@ -380,6 +380,57 @@ mod tests {
 
         let short_prefix = search(&pool, request(Some("au"), 21, None)).await;
         assert!(short_prefix.items.is_empty());
+    }
+
+    #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+    async fn should_mark_partner_operators_on_every_search_path() {
+        let pool = get_postgres_client().await;
+        let partner_id = uuid::Uuid::now_v7();
+        insert_party(&pool, partner_id, "partner-operator", "Partner Operator").await;
+        sqlx::query(
+            "INSERT INTO partnerships (partnership_id, party_id, business_state) VALUES ($1, $2, 'ACTIVE')",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(partner_id)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert test partnership: {error}"));
+        insert_source(
+            &pool,
+            uuid::Uuid::now_v7(),
+            "alpha-source",
+            "Alpha Gallery",
+            partner_id,
+        )
+        .await;
+        let other_id = uuid::Uuid::now_v7();
+        insert_party(&pool, other_id, "other-operator", "Other Operator").await;
+        insert_source(
+            &pool,
+            uuid::Uuid::now_v7(),
+            "alpine-source",
+            "Alpine Gallery",
+            other_id,
+        )
+        .await;
+
+        for (path, query) in [
+            ("browse", None),
+            ("prefix", Some("al")),
+            ("contains", Some("alp")),
+        ] {
+            let result = search(&pool, request(query, 21, None)).await;
+            let partner = |slug: &str| {
+                result
+                    .items
+                    .iter()
+                    .find(|item| item.listing_source_slug_id.as_ref() == slug)
+                    .map(|item| item.operator.partner)
+            };
+
+            assert_eq!(Some(true), partner("alpha-source"), "{path}");
+            assert_eq!(Some(false), partner("alpine-source"), "{path}");
+        }
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

@@ -358,6 +358,7 @@ impl From<auction_service::ports::ListAuctionsDirectoryResult> for PublicAuction
                         listing_source_id: item.source.listing_source_id,
                         name: item.source.name.as_ref().to_owned(),
                         slug_id: item.source.slug_id.to_string(),
+                        operator: (&item.source.operator).into(),
                     },
                     name: item.name.map(Into::into),
                     format: item.format.map(AuctionFormat::as_str),

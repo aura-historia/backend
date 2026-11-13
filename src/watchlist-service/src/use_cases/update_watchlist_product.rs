@@ -3,7 +3,7 @@ use crate::ports::{
     WatchlistRepository, WatchlistRepositoryError, WatchlistRepositoryFactory,
 };
 use crate::tier_policy::active_watchlist_quota;
-use application::error::{BoxError, box_error};
+use application::error::{BoxError, box_error, static_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -188,7 +188,11 @@ where
             let hidden = factual_details
                 .user_state
                 .as_ref()
-                .ok_or(GetProductListingError::ProductListingDetailsReadModelInvalid)?
+                .ok_or_else(
+                    || GetProductListingError::ProductListingDetailsReadModelInvalid {
+                        source: static_error("personalized product details have no user state"),
+                    },
+                )?
                 .search_filter
                 .hidden;
             let sale_observation = factual_details.item.sale_observation.filter(|_| {
@@ -319,10 +323,11 @@ where
             };
         }
 
-        let user_state = product
-            .user_state
-            .as_mut()
-            .ok_or(GetProductListingError::ProductListingDetailsReadModelInvalid)?;
+        let user_state = product.user_state.as_mut().ok_or_else(|| {
+            GetProductListingError::ProductListingDetailsReadModelInvalid {
+                source: static_error("personalized product details have no user state"),
+            }
+        })?;
         // The reader reports membership; the persisted aggregate owns activation and settings.
         user_state.watchlist.watching = entry.state().is_active();
         user_state.watchlist.notifications = entry.notifications();
@@ -1119,6 +1124,11 @@ mod tests {
                     listing_source_id: ListingSourceId::new(),
                     name: ListingSourceName::try_from("Source").expect("valid source name"),
                     slug_id: ListingSourceSlugId::raw("source").expect("valid source slug"),
+                    operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator")
+                            .expect("valid test operator name"),
+                        partner: false,
+                    },
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .expect("valid source listing ID"),
@@ -2096,11 +2106,15 @@ mod tests {
                         Failure::MissingDetails => presentation.details_result = Some(Ok(None)),
                         Failure::Query => {
                             presentation.details_result = Some(Err(
-                                ProductListingDetailsReadError::ProductListingDetailsQueryFailed,
+                                ProductListingDetailsReadError::ProductListingDetailsQueryFailed {
+                                    source: static_error("details query failed"),
+                                },
                             ))
                         }
                         Failure::InvalidDetails => presentation.details_result = Some(Err(
-                            ProductListingDetailsReadError::ProductListingDetailsReadModelInvalid,
+                            ProductListingDetailsReadError::ProductListingDetailsReadModelInvalid {
+                                source: static_error("details read model invalid"),
+                            },
                         )),
                         Failure::MissingUserState => {
                             factual.user_state = None;
@@ -2161,13 +2175,15 @@ mod tests {
                     | (
                         Failure::Query,
                         Err(UpdateWatchlistProductListingError::Presentation(
-                            GetProductListingError::ProductListingDetailsQueryFailed,
+                            GetProductListingError::ProductListingDetailsQueryFailed { .. },
                         )),
                     )
                     | (
                         Failure::InvalidDetails | Failure::MissingUserState,
                         Err(UpdateWatchlistProductListingError::Presentation(
-                            GetProductListingError::ProductListingDetailsReadModelInvalid,
+                            GetProductListingError::ProductListingDetailsReadModelInvalid {
+                                ..
+                            },
                         )),
                     )
                     | (

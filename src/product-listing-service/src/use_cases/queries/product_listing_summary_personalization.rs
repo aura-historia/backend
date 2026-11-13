@@ -15,8 +15,9 @@ use product_listing_core::product_listing_id::ProductListingId;
 #[cfg(test)]
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
-use crate::ports::ListingSourceSummary;
+use crate::ports::{ListingSourceOperatorSummary, ListingSourceSummary};
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
+use party_core::party_name::PartyName;
 use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
 
@@ -225,6 +226,14 @@ fn redact_hidden_product_search_item(
                 source: box_error(source),
             }
         })?,
+        operator: ListingSourceOperatorSummary {
+            name: PartyName::try_from("Hidden").map_err(|source| {
+                ProductListingSummaryPersonalizationError::HiddenProductListingSummaryInvalid {
+                    source: box_error(source),
+                }
+            })?,
+            partner: false,
+        },
     };
     product.item.source_listing_id =
         SourceListingId::try_from("00000000-0000-0000-0000-000000000000").map_err(|error| {
@@ -370,6 +379,13 @@ mod tests {
                             slug_id: ListingSourceSlugId::raw("one").unwrap_or_else(|error| {
                                 panic!("valid test listing source slug: {error}")
                             }),
+                            operator: crate::ports::ListingSourceOperatorSummary {
+                                name: party_core::party_name::PartyName::try_from("Operator")
+                                    .unwrap_or_else(|error| {
+                                        panic!("valid test operator name: {error}")
+                                    }),
+                                partner: false,
+                            },
                         },
                         referral_configuration: Some(
                             listing_source_core::ReferralConfiguration::Partnerize {
@@ -390,6 +406,13 @@ mod tests {
                             slug_id: ListingSourceSlugId::raw("two").unwrap_or_else(|error| {
                                 panic!("valid test listing source slug: {error}")
                             }),
+                            operator: crate::ports::ListingSourceOperatorSummary {
+                                name: party_core::party_name::PartyName::try_from("Operator")
+                                    .unwrap_or_else(|error| {
+                                        panic!("valid test operator name: {error}")
+                                    }),
+                                partner: false,
+                            },
                         },
                         referral_configuration: None,
                     },
@@ -448,6 +471,11 @@ mod tests {
                 .unwrap_or_else(|error| panic!("valid test source name: {error}")),
             slug_id: ListingSourceSlugId::raw("source")
                 .unwrap_or_else(|error| panic!("valid test source slug: {error}")),
+            operator: crate::ports::ListingSourceOperatorSummary {
+                name: party_core::party_name::PartyName::try_from("Operator")
+                    .unwrap_or_else(|error| panic!("valid test operator name: {error}")),
+                partner: false,
+            },
         };
         let mut products = vec![Personalized {
             item: ProductListingSearchItemWithSource {

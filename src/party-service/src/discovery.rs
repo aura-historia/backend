@@ -22,6 +22,8 @@ pub struct PartyLocationDiscoveryCursor {
 pub struct PublicPartyLocation {
     pub party_id: PartyId,
     pub party_name: String,
+    /// Whether the Party currently has an active Partnership.
+    pub party_partner: bool,
     pub location_id: PartyLocationId,
     pub label: String,
     pub country: Option<CountryCode>,

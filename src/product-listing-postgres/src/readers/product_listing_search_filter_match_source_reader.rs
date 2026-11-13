@@ -1,6 +1,7 @@
 use crate::product_listing_event_codec;
 use crate::url::referral_configuration;
 use crate::{
+    listing_source_operator::listing_source_operator,
     object_id::try_from_uuid,
     product_listing_auction::{ProductListingAuctionParts, auction_from_parts},
 };
@@ -60,6 +61,8 @@ struct SourceRow {
     listing_source_slug_id: String,
     listing_source_name: String,
     listing_source_referral_configuration: Option<serde_json::Value>,
+    listing_source_operator_name: String,
+    listing_source_operator_partner: bool,
     source_listing_id: String,
     product_title_text: Option<String>,
     product_title_language: Option<String>,
@@ -213,6 +216,9 @@ impl ProductListingSearchFilterMatchSourceReader
                 listing_source.listing_source_slug_id,
                 listing_source.name AS listing_source_name,
                 listing_source.referral_configuration AS listing_source_referral_configuration,
+                listing_source_operator.name AS listing_source_operator_name,
+                listing_source_operator_partnership.partnership_id IS NOT NULL
+                    AS listing_source_operator_partner,
                 product.source_listing_id,
                 product.title_text AS product_title_text,
                 product.title_language AS product_title_language,
@@ -247,6 +253,11 @@ impl ProductListingSearchFilterMatchSourceReader
             JOIN product_listings product ON product.product_listing_id = event.product_listing_id
             JOIN listing_sources listing_source
               ON listing_source.listing_source_id = product.listing_source_id
+            JOIN parties listing_source_operator
+              ON listing_source_operator.party_id = listing_source.operator_party_id
+            LEFT JOIN partnerships listing_source_operator_partnership
+              ON listing_source_operator_partnership.party_id = listing_source.operator_party_id
+             AND listing_source_operator_partnership.business_state = 'ACTIVE'
 
             LEFT JOIN product_listing_shipping shipping ON shipping.product_listing_id=product.product_listing_id
             LEFT JOIN product_listing_geographies geography ON geography.product_listing_id=product.product_listing_id
@@ -410,6 +421,11 @@ fn source_from_rows(
                     "persisted product search-filter match source listing source slug is invalid",
                 )
             })?,
+            operator: listing_source_operator(
+                row.listing_source_operator_name.clone(),
+                row.listing_source_operator_partner,
+            )
+            .map_err(SourceRowMappingError::with_source)?,
         },
         source_listing_id,
         product_title,

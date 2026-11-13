@@ -144,6 +144,14 @@ Listing-owned Auction/lot facts may exist without an Auction ID; all-empty facts
 
 Public discovery and detail expose active listings only. Withdrawn detail is not found, rather than gone; withdrawal removes the search projection and restore rebuilds it. Auction filters match resolved membership, not standalone lot facts. Exact REST patch exceptions, routes and filter limits remain in [OpenAPI](swagger.yaml).
 
+Listing reads present the source's operator Party and whether it is a partner: it holds an
+`ACTIVE` Partnership. Partner status belongs to the Party, not to a ListingSource grant, and is
+read from PostgreSQL in the statement that already loads the source, or in the batched source
+lookup that hydrates search results. It is never copied into the search projection, events or
+notification snapshots, so approving or dissolving a Partnership needs no reindex and shows once
+the bounded source and response caches expire. Redacted listings hide the operator like the rest
+of the source.
+
 ### Personalized user state
 
 Listing reads may attach `userState`, the caller's private state for each returned listing. Use cases load the complete state for enforcement, then disclose it through one shared policy. Delegated credentials are closed-world, so each section needs its own read scope wherever listings are returned, including public routes:

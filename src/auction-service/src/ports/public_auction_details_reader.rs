@@ -9,12 +9,15 @@ use listing_source_core::{
 use localization::{Language, Localized};
 use url::Url;
 
+use super::AuctionSourceOperatorSummary;
+
 /// Safe source data needed to link a public Auction to its source and referral policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicAuctionSourceSummary {
     pub listing_source_id: ListingSourceId,
     pub slug_id: ListingSourceSlugId,
     pub name: ListingSourceName,
+    pub operator: AuctionSourceOperatorSummary,
     pub referral_configuration: Option<ReferralConfiguration>,
 }
 

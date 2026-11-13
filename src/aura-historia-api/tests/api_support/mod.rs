@@ -1461,6 +1461,7 @@ async fn test_state(
     let get_party = GetPartyHandler::new(
         unit_of_work.clone(),
         SqlxPartyRepositoryFactory::new(),
+        party_postgres::SqlxPartyPartnershipReaderFactory::new(),
         CheckUserAdminHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),
@@ -1469,6 +1470,7 @@ async fn test_state(
     let update_party = UpdatePartyHandler::new(
         unit_of_work.clone(),
         SqlxPartyRepositoryFactory::new(),
+        party_postgres::SqlxPartyPartnershipReaderFactory::new(),
         CheckUserAdminHandler::new(
             unit_of_work.clone(),
             user_postgres::SqlxUserAdminReaderFactory::new(),

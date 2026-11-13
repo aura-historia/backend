@@ -93,8 +93,30 @@ async fn should_discover_public_locations_without_cross_location_matches_or_mana
         result
             .items
             .iter()
-            .all(|i| i.party_id == party_id && i.basis == "CALLER_ASSERTED")
+            .all(|i| i.party_id == party_id && i.basis == "CALLER_ASSERTED" && !i.party_partner)
     );
+    tx.commit().await.unwrap();
+    sqlx::query(
+        "INSERT INTO partnerships (partnership_id, party_id, business_state) VALUES ($1, $2, 'ACTIVE')",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(party_id.into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut tx = uow.begin().await.unwrap();
+    let partnered = factory
+        .in_transaction(&mut tx)
+        .discover(&DiscoverPartyLocationsRequest {
+            geography: query(None, None, ProximityMode::Strict, None),
+            cursor: Cursor {
+                size: 100,
+                search_after: None,
+            },
+        })
+        .await
+        .unwrap();
+    assert!(partnered.items.iter().all(|i| i.party_partner));
     tx.commit().await.unwrap();
     let request = DiscoverPartyLocationsRequest {
         geography: query(

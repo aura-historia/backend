@@ -207,6 +207,52 @@ async fn should_return_reported_lot_count_separately_from_visible_active_assigne
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_hydrate_source_operator_partner_status_in_directory_and_details() {
+    let pool = get_postgres_client().await;
+    let partner_source = seed_listing_source(&pool, "operator-partner-source").await;
+    let other_source = seed_listing_source(&pool, "operator-other-source").await;
+    sqlx::query(
+        "INSERT INTO partnerships (partnership_id, party_id, business_state) \
+         SELECT $1, operator_party_id, 'ACTIVE' FROM listing_sources WHERE listing_source_id = $2",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(partner_source.into_uuid())
+    .execute(&pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed operator partnership: {error}"));
+    let partner_auction = seed_auction(&pool, partner_source, "operator-partner", 0).await;
+    let other_auction = seed_auction(&pool, other_source, "operator-other", 0).await;
+
+    let page = SqlxAuctionDirectoryReader::new(pool.clone())
+        .list(&ListAuctionsDirectoryRequest::default())
+        .await
+        .unwrap_or_else(|error| panic!("failed to list auction directory: {error:?}"));
+    let details = SqlxPublicAuctionDetailsReader::new(pool);
+
+    for (auction_id, slug, partner) in [
+        (partner_auction, "operator-partner-source", true),
+        (other_auction, "operator-other-source", false),
+    ] {
+        let listed = page
+            .items
+            .iter()
+            .find(|item| item.auction_id == auction_id)
+            .unwrap_or_else(|| panic!("missing listed auction"));
+        let detail = details
+            .find_by_id(auction_id)
+            .await
+            .unwrap_or_else(|error| panic!("failed to read public auction details: {error:?}"))
+            .unwrap_or_else(|| panic!("missing seeded auction"));
+
+        let operator_name = format!("{slug} party");
+        assert_eq!(operator_name, listed.source.operator.name.as_ref());
+        assert_eq!(partner, listed.source.operator.partner);
+        assert_eq!(operator_name, detail.source.operator.name.as_ref());
+        assert_eq!(partner, detail.source.operator.partner);
+    }
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_none_for_missing_public_auction_details() {
     let pool = get_postgres_client().await;
 

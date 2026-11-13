@@ -21,9 +21,15 @@ pub struct ProductListingWatchlistDetailsRequest {
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingWatchlistDetailsReadError {
     #[error("product watchlist details query failed")]
-    QueryFailed,
+    QueryFailed {
+        #[source]
+        source: application::error::BoxError,
+    },
     #[error("product watchlist details read model is invalid")]
-    InvalidReadModel,
+    InvalidReadModel {
+        #[source]
+        source: application::error::BoxError,
+    },
 }
 
 #[async_trait::async_trait]

@@ -1,4 +1,5 @@
 use crate::{
+    listing_source_operator::listing_source_operator,
     object_id::try_from_uuid,
     product_listing_auction::{ProductListingAuctionParts, auction_from_parts},
     product_listing_repository::{
@@ -38,9 +39,8 @@ impl SqlxAdminProductListingReader {
 }
 
 // No translated text, FX conversion, personalization, assessment dependency, or lifecycle exclusion.
-const SUMMARY_COLUMNS: &str = "p.product_listing_id, p.product_listing_title_slug_id, p.listing_source_id, p.source_listing_id, s.name AS source_name, s.listing_source_slug_id AS source_slug_id, p.title_text, p.title_language, p.price_kind, p.price_amount, p.price_currency, p.price_estimate_min_amount, p.price_estimate_min_currency, p.price_estimate_max_amount, p.price_estimate_max_currency, p.availability, p.lifecycle, p.auction_id, p.version, p.created, p.updated";
-const FROM: &str =
-    " FROM product_listings p JOIN listing_sources s ON s.listing_source_id = p.listing_source_id";
+const SUMMARY_COLUMNS: &str = "p.product_listing_id, p.product_listing_title_slug_id, p.listing_source_id, p.source_listing_id, s.name AS source_name, s.listing_source_slug_id AS source_slug_id, source_operator.name AS source_operator_name, source_operator_partnership.partnership_id IS NOT NULL AS source_operator_partner, p.title_text, p.title_language, p.price_kind, p.price_amount, p.price_currency, p.price_estimate_min_amount, p.price_estimate_min_currency, p.price_estimate_max_amount, p.price_estimate_max_currency, p.availability, p.lifecycle, p.auction_id, p.version, p.created, p.updated";
+const FROM: &str = " FROM product_listings p JOIN listing_sources s ON s.listing_source_id = p.listing_source_id JOIN parties source_operator ON source_operator.party_id = s.operator_party_id LEFT JOIN partnerships source_operator_partnership ON source_operator_partnership.party_id = s.operator_party_id AND source_operator_partnership.business_state = 'ACTIVE'";
 
 #[derive(sqlx::FromRow)]
 struct SummaryRow {
@@ -50,6 +50,8 @@ struct SummaryRow {
     source_listing_id: String,
     source_name: String,
     source_slug_id: String,
+    source_operator_name: String,
+    source_operator_partner: bool,
     title_text: Option<String>,
     title_language: Option<String>,
     price_kind: Option<String>,
@@ -272,6 +274,11 @@ fn map_summary(row: SummaryRow) -> Result<AdminProductListingSummary, BoxError> 
             name: ListingSourceName::try_from(row.source_name).map_err(box_error)?,
             slug_id: ListingSourceSlugId::raw(&row.source_slug_id)
                 .map_err(|_| static_error("invalid source slug"))?,
+            operator: listing_source_operator(
+                row.source_operator_name,
+                row.source_operator_partner,
+            )
+            .map_err(box_error)?,
         },
         source_listing_id: SourceListingId::try_from(row.source_listing_id).map_err(box_error)?,
         title: localized_title(row.title_text, row.title_language)?,

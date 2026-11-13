@@ -199,6 +199,11 @@ mod tests {
                     listing_source_id: ListingSourceId::new(),
                     name: ListingSourceName::try_from("Source").expect("valid source name"),
                     slug_id: ListingSourceSlugId::raw("source").expect("valid source slug"),
+                    operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator")
+                            .expect("valid test operator name"),
+                        partner: false,
+                    },
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .expect("valid source listing ID"),

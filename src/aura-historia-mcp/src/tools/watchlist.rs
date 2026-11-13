@@ -421,6 +421,10 @@ mod tests {
                     listing_source_id: ListingSourceId::new(),
                     name: ListingSourceName::try_from("Watchlist source").unwrap(),
                     slug_id: ListingSourceSlugId::raw("watchlist-source").unwrap(),
+                    operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                        partner: false,
+                    },
                 },
                 source_listing_id: SourceListingId::try_from("source:item/42").unwrap(),
                 title: Some(ListingText::localized(Localized::new(

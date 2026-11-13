@@ -1,4 +1,4 @@
-use application::error::BoxError;
+use application::error::{BoxError, box_error, static_error};
 use application::operation_context::{
     CredentialCapability, OperationAuthorizationError, OperationContext,
 };
@@ -53,9 +53,15 @@ pub enum ListWatchlistError {
     #[error("operation not permitted")]
     Forbidden,
     #[error("temporary watchlist read failure")]
-    TemporarilyUnavailable,
+    TemporarilyUnavailable {
+        #[source]
+        source: BoxError,
+    },
     #[error("invalid persisted watchlist state")]
-    InvalidPersistedState,
+    InvalidPersistedState {
+        #[source]
+        source: BoxError,
+    },
     #[error("no persisted FX snapshot is available for current product pricing")]
     CurrentPricingFxSnapshotMissing,
     #[error("sale valuation FX snapshot is missing")]
@@ -172,13 +178,17 @@ where
             .map_err(|source| ListWatchlistError::CommitTransactionFailed(Box::new(source)))?;
 
         for product in &mut items {
-            let user_state = product
-                .user_state
-                .as_ref()
-                .ok_or(ListWatchlistError::InvalidPersistedState)?;
+            let user_state = product.user_state.as_ref().ok_or_else(|| {
+                ListWatchlistError::InvalidPersistedState {
+                    source: static_error("watchlist product details have no user state"),
+                }
+            })?;
             if user_state.search_filter.hidden {
-                redact_hidden_product(&mut product.item)
-                    .map_err(|_| ListWatchlistError::InvalidPersistedState)?;
+                redact_hidden_product(&mut product.item).map_err(|source| {
+                    ListWatchlistError::InvalidPersistedState {
+                        source: box_error(source),
+                    }
+                })?;
             }
         }
 
@@ -313,9 +323,11 @@ impl From<OperationAuthorizationError> for ListWatchlistError {
 impl From<ProductListingWatchlistDetailsReadError> for ListWatchlistError {
     fn from(error: ProductListingWatchlistDetailsReadError) -> Self {
         match error {
-            ProductListingWatchlistDetailsReadError::QueryFailed => Self::TemporarilyUnavailable,
-            ProductListingWatchlistDetailsReadError::InvalidReadModel => {
-                Self::InvalidPersistedState
+            ProductListingWatchlistDetailsReadError::QueryFailed { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ProductListingWatchlistDetailsReadError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
             }
         }
     }
@@ -646,6 +658,11 @@ mod tests {
                     }),
                     slug_id: ListingSourceSlugId::raw("source")
                         .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                    operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator")
+                            .unwrap_or_else(|error| panic!("valid test operator name: {error}")),
+                        partner: false,
+                    },
                 },
                 source_listing_id: SourceListingId::try_from("product")
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
@@ -933,7 +950,9 @@ mod tests {
         let user_id = UserId::new();
         let state = state();
         lock(&state).details_result =
-            Some(Err(ProductListingWatchlistDetailsReadError::QueryFailed));
+            Some(Err(ProductListingWatchlistDetailsReadError::QueryFailed {
+                source: static_error("watchlist query failed"),
+            }));
 
         let result = handler(&state)
             .execute(&context(user_id), request(user_id))
@@ -941,7 +960,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ListWatchlistError::TemporarilyUnavailable)
+            Err(ListWatchlistError::TemporarilyUnavailable { .. })
         ));
         let state = lock(&state);
         assert_eq!(0, state.commit_count);
@@ -983,7 +1002,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ListWatchlistError::InvalidPersistedState)
+            Err(ListWatchlistError::InvalidPersistedState { .. })
         ));
         let state = lock(&state);
         assert_eq!(1, state.commit_count);

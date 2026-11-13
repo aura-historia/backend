@@ -401,6 +401,10 @@ fn should_emit_complete_public_auction_metadata_and_direct_schedule_without_admi
             name: ListingSourceName::try_from("Source")?,
             slug_id: ListingSourceSlugId::raw("source")?,
             referral_configuration: None,
+            operator: auction_service::ports::AuctionSourceOperatorSummary {
+                name: party_core::party_name::PartyName::try_from("Operator")?,
+                partner: true,
+            },
         },
         name: Some(Localized::new(
             Language::En,
@@ -419,7 +423,12 @@ fn should_emit_complete_public_auction_metadata_and_direct_schedule_without_admi
         &value
     ));
     assert_eq!(
-        json!({"listingSourceId":source,"name":"Source","slugId":"source"}),
+        json!({
+            "listingSourceId":source,
+            "name":"Source",
+            "slugId":"source",
+            "operator":{"name":"Operator","partner":true}
+        }),
         value["listingSource"]
     );
     assert_eq!(json!({"text":"Autumn","language":"en"}), value["name"]);

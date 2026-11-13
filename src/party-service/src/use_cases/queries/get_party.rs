@@ -1,9 +1,13 @@
-use crate::ports::{PartyRepository, PartyRepositoryError, PartyRepositoryFactory, StoredParty};
+use crate::ports::{
+    PartyPartnershipReadError, PartyPartnershipReader, PartyPartnershipReaderFactory,
+    PartyRepository, PartyRepositoryError, PartyRepositoryFactory, StoredParty,
+};
 use application::error::{BoxError, static_error};
 use application::operation_context::{
     CredentialAuthorizationError, CredentialCapability, OperationContext, Principal,
 };
 use application::transaction::{Transaction, UnitOfWork};
+use partnership_core::partnership_id::PartnershipId;
 use party_core::{
     party::PartyContact, party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId,
 };
@@ -24,17 +28,20 @@ pub struct PartyDetailsView {
     pub party_slug_id: PartySlugId,
     pub name: PartyName,
     pub contact: PartyContact,
+    /// The Party's active Partnership; present exactly when the Party is a partner.
+    pub partnership_id: Option<PartnershipId>,
     pub created: OffsetDateTime,
     pub updated: OffsetDateTime,
 }
 
-impl From<StoredParty> for PartyDetailsView {
-    fn from(stored: StoredParty) -> Self {
+impl PartyDetailsView {
+    pub fn new(stored: StoredParty, partnership_id: Option<PartnershipId>) -> Self {
         Self {
             party_id: stored.party.id(),
             party_slug_id: stored.party.slug_id().clone(),
             name: stored.party.name().clone(),
             contact: stored.party.contact().clone(),
+            partnership_id,
             created: stored.created,
             updated: stored.updated,
         }
@@ -79,27 +86,30 @@ pub trait GetPartyUseCase: Send + Sync {
     ) -> Result<PartyDetailsView, GetPartyError>;
 }
 
-pub struct GetPartyHandler<U, R, A> {
+pub struct GetPartyHandler<U, R, P, A> {
     unit_of_work: U,
     parties: R,
+    partnerships: P,
     check_user_admin: A,
 }
 
-impl<U, R, A> GetPartyHandler<U, R, A> {
-    pub fn new(unit_of_work: U, parties: R, check_user_admin: A) -> Self {
+impl<U, R, P, A> GetPartyHandler<U, R, P, A> {
+    pub fn new(unit_of_work: U, parties: R, partnerships: P, check_user_admin: A) -> Self {
         Self {
             unit_of_work,
             parties,
+            partnerships,
             check_user_admin,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, R, A> GetPartyUseCase for GetPartyHandler<U, R, A>
+impl<U, R, P, A> GetPartyUseCase for GetPartyHandler<U, R, P, A>
 where
     U: UnitOfWork,
     R: PartyRepositoryFactory<U::Tx>,
+    P: PartyPartnershipReaderFactory<U::Tx>,
     A: CheckUserAdminUseCase,
 {
     #[tracing::instrument(
@@ -128,7 +138,7 @@ where
             .begin()
             .await
             .map_err(|source| GetPartyError::BeginTransactionFailed(Box::new(source)))?;
-        let result = match request {
+        let stored = match request {
             GetPartyRequest::ById(id) => {
                 self.parties.in_transaction(&mut tx).find_by_id(id).await?
             }
@@ -139,8 +149,13 @@ where
                     .await?
             }
         }
-        .ok_or(GetPartyError::NotFound)?
-        .into();
+        .ok_or(GetPartyError::NotFound)?;
+        let partnership_id = self
+            .partnerships
+            .in_transaction(&mut tx)
+            .find_active_partnership_id(stored.party.id())
+            .await?;
+        let result = PartyDetailsView::new(stored, partnership_id);
 
         tx.commit()
             .await
@@ -191,6 +206,19 @@ fn map_admin_error(error: CheckUserAdminError) -> GetPartyError {
         CheckUserAdminError::BeginTransactionFailed(source)
         | CheckUserAdminError::CommitTransactionFailed(source) => {
             GetPartyError::TemporarilyUnavailable { source }
+        }
+    }
+}
+
+impl From<PartyPartnershipReadError> for GetPartyError {
+    fn from(error: PartyPartnershipReadError) -> Self {
+        match error {
+            PartyPartnershipReadError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            PartyPartnershipReadError::InvalidReadModel { source } => {
+                Self::InvalidPersistedState { source }
+            }
         }
     }
 }

@@ -137,7 +137,8 @@ where
             outcome = "success",
         );
 
-        Ok(stored.into())
+        // A Partnership references an existing Party, so a Party created here has none yet.
+        Ok(PartyDetailsView::new(stored, None))
     }
 }
 

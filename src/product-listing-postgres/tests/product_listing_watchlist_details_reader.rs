@@ -52,6 +52,7 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     )
     .await;
     let user_id = seed_user(&pool, "FREE", false).await;
+    insert_active_operator_partnership(&pool, product.listing_source_id()).await;
 
     insert_translation(
         &pool,
@@ -78,6 +79,11 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     assert_eq!(view.item.product_listing_id, product.id());
     assert_eq!(view.item.source_listing_id.as_ref(), "watchlist-joined");
     assert_eq!(view.item.source.name.as_ref(), "watchlist-joined-source");
+    assert_eq!(
+        view.item.source.operator.name.as_ref(),
+        "watchlist-joined-source party"
+    );
+    assert!(view.item.source.operator.partner);
     assert!(view.item.sale_observation.is_none());
     let Some(title) = view.item.title.as_ref() else {
         panic!("missing title");
@@ -433,6 +439,21 @@ fn sample_product(
         Ok(product) => product,
         Err(error) => panic!("failed to create product: {error}"),
     }
+}
+
+async fn insert_active_operator_partnership(
+    pool: &sqlx::PgPool,
+    listing_source_id: ListingSourceId,
+) {
+    sqlx::query(
+        "INSERT INTO partnerships (partnership_id, party_id, business_state) \
+         SELECT $1, operator_party_id, 'ACTIVE' FROM listing_sources WHERE listing_source_id = $2",
+    )
+    .bind(uuid::Uuid::now_v7())
+    .bind(listing_source_id.into_uuid())
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("failed to seed operator partnership: {error}"));
 }
 
 async fn seed_listing_source(pool: &sqlx::PgPool, slug: &str) -> ListingSourceId {

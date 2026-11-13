@@ -625,6 +625,10 @@ mod tests {
                     listing_source_id: ListingSourceId::new(),
                     name: ListingSourceName::try_from("Source")?,
                     slug_id: ListingSourceSlugId::raw("source")?,
+                    operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                        name: party_core::party_name::PartyName::try_from("Operator")?,
+                        partner: false,
+                    },
                 },
                 source_listing_id: SourceListingId::try_from("sku-1")?,
                 product_title: Some(Localized::new(Language::En, Title::from("Fenced listing"))),

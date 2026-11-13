@@ -888,6 +888,10 @@ mod tests {
             listing_source_id: "ls_01k6k0w000e008000000000002".parse().unwrap(),
             name: ListingSourceName::try_from("Source").unwrap(),
             slug_id: ListingSourceSlugId::raw("source").unwrap(),
+            operator: product_listing_service::ports::ListingSourceOperatorSummary {
+                name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                partner: false,
+            },
         }
     }
     fn details_view() -> PersonalizedProductListingDetailsView {

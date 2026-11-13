@@ -293,6 +293,10 @@ impl PublicAuctionDetailsReader for ListingFixture {
                 slug_id: self.source().slug_id,
                 name: self.source().name,
                 referral_configuration: None,
+                operator: auction_service::ports::AuctionSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator").unwrap(),
+                    partner: false,
+                },
             },
             name: None,
             catalogue_url: None,

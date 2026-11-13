@@ -6,11 +6,12 @@ use application::{
 use auction_core::{AuctionSchedule, AuctionSchedulePoint};
 use auction_service::ports::{
     AuctionDirectoryCursor, AuctionDirectoryReadError, AuctionDirectoryReader,
-    ListAuctionsDirectoryRequest, ListAuctionsDirectoryResult, PublicAuctionDirectoryItem,
-    PublicAuctionDirectorySourceSummary,
+    AuctionSourceOperatorSummary, ListAuctionsDirectoryRequest, ListAuctionsDirectoryResult,
+    PublicAuctionDirectoryItem, PublicAuctionDirectorySourceSummary,
 };
 use domain_primitives::sort::SortOrder;
 use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use party_core::party_name::PartyName;
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
 #[derive(Clone)]
@@ -44,6 +45,8 @@ struct AuctionDirectoryRow {
     updated: time::OffsetDateTime,
     listing_source_slug_id: String,
     listing_source_name: String,
+    operator_name: String,
+    operator_partner: bool,
 }
 
 impl AuctionDirectoryRow {
@@ -81,7 +84,7 @@ impl AuctionDirectoryReader for SqlxAuctionDirectoryReader {
         let limit = i64::try_from(size + 1).map_err(invalid_read_model)?;
 
         let mut builder = QueryBuilder::<Postgres>::new(
-            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id WHERE TRUE",
+            "SELECT a.auction_id, a.listing_source_id, a.source_auction_id, a.name_text, a.name_language, a.catalogue_url, a.format, a.bidding_opens_at, a.live_starts_at, a.lots_begin_closing_at, a.scheduled_end_at, a.reported_status, a.reported_lot_count, a.version, a.created, a.updated, s.listing_source_slug_id, s.name AS listing_source_name, source_operator.name AS operator_name, operator_partnership.partnership_id IS NOT NULL AS operator_partner FROM auctions a JOIN listing_sources s ON s.listing_source_id = a.listing_source_id JOIN parties source_operator ON source_operator.party_id = s.operator_party_id LEFT JOIN partnerships operator_partnership ON operator_partnership.party_id = s.operator_party_id AND operator_partnership.business_state = 'ACTIVE' WHERE TRUE",
         );
         push_filters(&mut builder, request)?;
         push_pagination(&mut builder, request, cursor.search_after.as_ref());
@@ -257,6 +260,10 @@ fn map_directory_item(row: AuctionDirectoryRow) -> Result<PublicAuctionDirectory
         listing_source_id: source_id,
         slug_id: ListingSourceSlugId::raw(row.listing_source_slug_id.clone()).map_err(box_error)?,
         name: ListingSourceName::try_from(row.listing_source_name.clone()).map_err(box_error)?,
+        operator: AuctionSourceOperatorSummary {
+            name: PartyName::try_from(row.operator_name.clone()).map_err(box_error)?,
+            partner: row.operator_partner,
+        },
     };
     let stored = map_stored_auction(row.auction()).map_err(map_error)?;
     if stored.auction.key().listing_source_id() != source_id {

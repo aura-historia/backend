@@ -83,9 +83,15 @@ pub type PersonalizedProductListingDetailsReadModel =
 #[derive(Debug, thiserror::Error)]
 pub enum ProductListingDetailsReadError {
     #[error("product details query failed")]
-    ProductListingDetailsQueryFailed,
+    ProductListingDetailsQueryFailed {
+        #[source]
+        source: application::error::BoxError,
+    },
     #[error("product details read model is invalid")]
-    ProductListingDetailsReadModelInvalid,
+    ProductListingDetailsReadModelInvalid {
+        #[source]
+        source: application::error::BoxError,
+    },
 }
 
 #[async_trait::async_trait]

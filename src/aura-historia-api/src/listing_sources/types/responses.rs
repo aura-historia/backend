@@ -4,7 +4,8 @@ use listing_source_service::ports::ListingSourceDetails;
 use listing_source_service::use_cases::queries::search_listing_sources::{
     ListingSourceSearchSummary, SearchListingSourcesResult,
 };
-use party_core::party_id::PartyId;
+use partnership_core::partnership_id::PartnershipId;
+use party_core::{party_id::PartyId, party_name::PartyName, party_slug_id::PartySlugId};
 use serde::Serialize;
 use std::collections::HashSet;
 use url::Url;
@@ -38,11 +39,12 @@ impl From<ListingSourceDetails> for ListingSourceData {
             listing_source_slug_id: value.slug_id.to_string(),
             name: value.name.to_string(),
             listing_source_type: value.listing_source_type,
-            operator: OperatorPartyData {
-                party_id: value.operator_party_id,
-                party_slug_id: value.operator_slug_id.to_string(),
-                name: value.operator_name.to_string(),
-            },
+            operator: OperatorPartyData::new(
+                value.operator_party_id,
+                &value.operator_slug_id,
+                &value.operator_name,
+                value.operator_partnership_id,
+            ),
             platform_technology: value
                 .platform_technology
                 .map(|platform| platform.to_string()),
@@ -113,11 +115,12 @@ impl From<ListingSourceSearchSummary> for ListingSourceSearchSummaryData {
             listing_source_slug_id: value.listing_source_slug_id.to_string(),
             name: value.name.to_string(),
             listing_source_type: value.listing_source_type,
-            operator: OperatorPartyData {
-                party_id: value.operator.party_id,
-                party_slug_id: value.operator.party_slug_id.to_string(),
-                name: value.operator.name.to_string(),
-            },
+            operator: OperatorPartyData::new(
+                value.operator.party_id,
+                &value.operator.party_slug_id,
+                &value.operator.name,
+                value.operator.partnership_id,
+            ),
             platform_technology: value
                 .platform_technology
                 .map(|platform| platform.to_string()),
@@ -148,6 +151,26 @@ struct OperatorPartyData {
     party_id: PartyId,
     party_slug_id: String,
     name: String,
+    partner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partnership_id: Option<PartnershipId>,
+}
+
+impl OperatorPartyData {
+    fn new(
+        party_id: PartyId,
+        party_slug_id: &PartySlugId,
+        name: &PartyName,
+        active_partnership_id: Option<PartnershipId>,
+    ) -> Self {
+        Self {
+            party_id,
+            party_slug_id: party_slug_id.to_string(),
+            name: name.to_string(),
+            partner: active_partnership_id.is_some(),
+            partnership_id: active_partnership_id,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -197,4 +220,44 @@ fn methods_data(values: HashSet<ListingIngestionMethod>) -> Vec<ListingIngestion
     let mut values = values.into_iter().collect::<Vec<_>>();
     values.sort_by_key(|value| value.as_str());
     values.into_iter().map(Into::into).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_serialize_operator_partnership_only_for_partners()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let party_id = PartyId::new();
+        let slug = PartySlugId::raw("ada-antiques-gmbh")?;
+        let name = PartyName::try_from("Ada Antiques GmbH")?;
+        let partnership_id = PartnershipId::new();
+
+        assert_eq!(
+            serde_json::json!({
+                "partyId": party_id,
+                "partySlugId": "ada-antiques-gmbh",
+                "name": "Ada Antiques GmbH",
+                "partner": true,
+                "partnershipId": partnership_id,
+            }),
+            serde_json::to_value(OperatorPartyData::new(
+                party_id,
+                &slug,
+                &name,
+                Some(partnership_id)
+            ))?
+        );
+        assert_eq!(
+            serde_json::json!({
+                "partyId": party_id,
+                "partySlugId": "ada-antiques-gmbh",
+                "name": "Ada Antiques GmbH",
+                "partner": false,
+            }),
+            serde_json::to_value(OperatorPartyData::new(party_id, &slug, &name, None))?
+        );
+        Ok(())
+    }
 }

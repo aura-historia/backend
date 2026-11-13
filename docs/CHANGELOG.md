@@ -2,6 +2,16 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-13 — Partner status on listings, sources and parties
+
+- Every payload that presents a ListingSource now states whether its operator Party is an Aura Historia partner. `operator.partner` is `true` while the Party has an active Partnership and `false` otherwise, including after a Partnership is dissolved. It is unrelated to the `PARTNER_API` ingestion method and to referral configuration.
+- `ProductListingSourceData` (the `source` of every ProductListing summary, detail and collection item, including watchlist, saved-search matches, auction catalogues and the admin and partner management directories) has a new required `operator` with `name` and `partner`. The MCP product-listing tools return it as well.
+- `PublicListingSourceOperatorData` (public ListingSource search, by-slug lookup and the `listingSources` cards of saved search filters, REST and MCP) has a new required `partner`.
+- `PublicAuctionSourceData` (`listingSource` of the public auction directory and detail, REST and MCP) has a new required `operator` with `name` and `partner`.
+- `PublicPartyLocationData` (`GET /v1/party-locations`) has a new required `partyPartner`.
+- Administrators: `OperatorPartyData` (admin ListingSource detail and search), `PartyData` and `PartySummaryData` (admin Party create, detail, update and search) have a new required `partner` and an optional `partnershipId`, present exactly when `partner` is `true`.
+- Partner status is read from current Partnership state. Approving or dissolving a Partnership is reflected once the shared response caches expire. Request shapes are unchanged.
+
 ## 2026-11-12 — One image per listing in collection reads
 
 - **Breaking change:** product-listing collection items no longer carry the `images` array. They carry an optional `image`: the listing's first image, with the same viewer-specific redaction (`url` omitted when the image is hidden from the viewer), and omitted when the listing has no images. This applies to `ProductListingSummaryData` (`GET /v1/product-listings`, `GET /v1/product-listings/{productListingId}/similar` and `POST /v1/me/search-filters/preview`) and `ProductListingCollectionDetailsData` (`GET /v1/me/watchlist`, `GET /v1/me/search-filters/{userSearchFilterId}/matches` and `GET /v1/auctions/{auctionId}/product-listings`), and to the MCP tools that return them: `simpleSearchProductListings`, `getSimilarProductListings`, `getWatchlistProductListings`, `listSearchFilterMatches` and `getAuctionCatalogue`.

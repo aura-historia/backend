@@ -321,6 +321,11 @@ mod tests {
                     .unwrap_or_else(|error| panic!("invalid test listing source name: {error}")),
                 slug_id: ListingSourceSlugId::raw("source")
                     .unwrap_or_else(|error| panic!("valid test listing source slug: {error}")),
+                operator: crate::ports::ListingSourceOperatorSummary {
+                    name: party_core::party_name::PartyName::try_from("Operator")
+                        .unwrap_or_else(|error| panic!("valid test operator name: {error}")),
+                    partner: false,
+                },
             },
             source_listing_id: SourceListingId::try_from("product-1")
                 .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
