@@ -395,4 +395,36 @@ mod tests {
             Some("meta robots tag forbids capture (noindex)".to_owned())
         );
     }
+
+    fn following_forbidden(values: &[&str], head: &str) -> bool {
+        PageDirectives::of_page(&headers(values), page(head).as_bytes()).forbids_following()
+    }
+
+    #[test]
+    fn should_forbid_following_when_a_header_or_meta_tag_says_nofollow_or_none() {
+        assert!(following_forbidden(&["nofollow"], ""));
+        assert!(following_forbidden(&["aurahistoriabot: none"], ""));
+        assert!(following_forbidden(
+            &[],
+            r#"<meta name="robots" content="index, nofollow">"#
+        ));
+        assert!(following_forbidden(
+            &[],
+            r#"<meta name="AuraHistoriaBot" content="none">"#
+        ));
+    }
+
+    #[test]
+    fn should_allow_following_when_the_directive_is_for_another_bot_or_only_noindex() {
+        assert!(!following_forbidden(&["googlebot: nofollow"], ""));
+        assert!(!following_forbidden(
+            &["noindex"],
+            r#"<meta name="robots" content="noindex">"#
+        ));
+        assert!(!following_forbidden(
+            &[],
+            r#"<meta name="googlebot" content="nofollow">"#
+        ));
+        assert!(!following_forbidden(&[], ""));
+    }
 }
