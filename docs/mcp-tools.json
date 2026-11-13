@@ -15714,6 +15714,10 @@
             "listingSourceName": {
               "type": "string"
             },
+            "listingSourcePartner": {
+              "description": "`true` while the ListingSource's operator holds an active Aura Historia partnership, like\n`operator.partner` on listing sources. It is read with the notification, so it turns\n`false` once the partnership ends.",
+              "type": "boolean"
+            },
             "listingSourceSlugId": {
               "type": "string"
             },
@@ -15764,6 +15768,7 @@
             "listingSourceSlugId",
             "productListingTitleSlugId",
             "listingSourceName",
+            "listingSourcePartner",
             "url",
             "viewUrl"
           ],
@@ -15885,6 +15890,10 @@
             "listingSourceName": {
               "type": "string"
             },
+            "listingSourcePartner": {
+              "description": "`true` while the ListingSource's operator holds an active Aura Historia partnership, like\n`operator.partner` on listing sources. It is read with the notification, so it turns\n`false` once the partnership ends.",
+              "type": "boolean"
+            },
             "listingSourceSlugId": {
               "type": "string"
             },
@@ -15926,6 +15935,7 @@
             "listingSourceSlugId",
             "productListingTitleSlugId",
             "listingSourceName",
+            "listingSourcePartner",
             "url",
             "viewUrl",
             "change"

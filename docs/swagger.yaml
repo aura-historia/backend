@@ -24924,6 +24924,7 @@ components:
         - listingSourceSlugId
         - productListingTitleSlugId
         - listingSourceName
+        - listingSourcePartner
         - url
         - viewUrl
         - change
@@ -24940,6 +24941,9 @@ components:
           type: string
         listingSourceName:
           type: string
+        listingSourcePartner:
+          type: boolean
+          description: "`true` while the ListingSource's operator holds an active Aura Historia partnership, like `operator.partner` on listing sources. It is read with the notification, so it turns `false` once the partnership ends."
         title:
           allOf:
             - $ref: "#/components/schemas/ListingTextData"
@@ -25003,6 +25007,7 @@ components:
         - listingSourceSlugId
         - productListingTitleSlugId
         - listingSourceName
+        - listingSourcePartner
         - url
         - viewUrl
       properties:
@@ -25022,6 +25027,9 @@ components:
           type: string
         listingSourceName:
           type: string
+        listingSourcePartner:
+          type: boolean
+          description: "`true` while the ListingSource's operator holds an active Aura Historia partnership, like `operator.partner` on listing sources. It is read with the notification, so it turns `false` once the partnership ends."
         title:
           allOf:
             - $ref: "#/components/schemas/ListingTextData"
