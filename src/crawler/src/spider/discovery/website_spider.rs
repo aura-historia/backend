@@ -344,8 +344,8 @@ pub struct CrawlDiagnostics {
     /// Answered (2xx) pages whose own robots directives forbid following their links
     /// (`nofollow`, `none`): the crawl did not follow those links.
     pub nofollow_pages: usize,
-    /// The crawl root answered with robots directives that forbid following its links or
-    /// capturing it, so a crawl that finds nothing else is a robots refusal
+    /// The crawl root answered with robots directives that forbid following its links, so a
+    /// crawl that finds nothing else is a robots refusal
     /// (`docs/crawler/networking.md#page-robots-directives`).
     pub root_directives_forbid_crawl: bool,
     /// Redirects pages answered whose target the crawl followed, each requested as a page of
@@ -2028,6 +2028,7 @@ async fn relay_library_pages(
             },
         };
         if filter.known_pages.answered(page.get_url()) {
+            filter.page_directives.forget(&page);
             continue;
         }
         diagnostics.pages_received += 1;
@@ -2084,12 +2085,8 @@ async fn relay_library_pages(
         // frontier for the next crawl, and neither its links nor its head are
         // the shop's.
         let is_page = challenge.is_none() && rate_limit_answer.is_none();
-        let judged_directives = filter.page_directives.take(&page);
-        let directives = match is_page {
-            true => judged_directives,
-            false => PageDirectives::default(),
-        };
-        if is_root && (directives.refusal().is_some() || directives.forbids_following()) {
+        let directives = filter.page_directives.take(&page);
+        if is_root && directives.forbids_following() {
             diagnostics.root_directives_forbid_crawl = true;
         }
         // A page whose directives forbid following its links has them neither crawled (Spider's
@@ -2185,6 +2182,14 @@ impl JudgedDirectives {
         }
     }
 
+    /// Drops the directives the hook judged on a page the relay skips.
+    fn forget(&self, page: &Page) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(page.get_url());
+    }
+
     /// The directives the hook judged on the page, or judged now for a page Spider delivered
     /// without asking the hook.
     fn take(&self, page: &Page) -> PageDirectives {
@@ -2197,10 +2202,13 @@ impl JudgedDirectives {
     }
 }
 
-/// The robots directives of an answered page. Only a 2xx answer carries directives the crawl
-/// honours; a redirect or an error page is judged by its status.
+/// The robots directives of an answered page. Only a 2xx answer that is the shop's page carries
+/// directives the crawl honours: a redirect or an error page is judged by its status, and a bot
+/// challenge says nothing about the page behind it. A rate-limit answer is never a 2xx.
 fn answered_page_directives(page: &Page) -> PageDirectives {
-    if !page.status_code.is_success() {
+    if !page.status_code.is_success()
+        || page_bot_challenge(page.status_code.as_u16(), page).is_some()
+    {
         return PageDirectives::default();
     }
     let no_headers = HeaderMap::new();
@@ -2434,7 +2442,7 @@ const fn is_access_denied_status(status_code: u16) -> bool {
 /// Distinguishes "the site refused the crawler" and "Spider delivered pages
 /// but local filtering accepted none" from a genuinely empty library
 /// response; a robots.txt refusal of the root fails the preflight instead, and a root whose own
-/// robots directives opt out is a robots refusal too. Library signals keep precedence, so a 403
+/// robots directives forbid following its links is a robots refusal too. Library signals keep precedence, so a 403
 /// Spider recognised as a JavaScript challenge or a vendor block stays that.
 fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
     if diagnostics.failure_kind.is_some() {
@@ -2451,9 +2459,10 @@ fn apply_local_filter_outcome(diagnostics: &mut CrawlDiagnostics) {
             CRAWL_ROOT_ACCESS_DENIED,
         ));
     } else if diagnostics.root_directives_forbid_crawl && diagnostics.accepted <= 1 {
-        // The root's own directives kept the crawl from following or storing it, and nothing
-        // else, such as the frontier seeds, made up for it: the shop opted out, like a
-        // robots.txt refusal of the root.
+        // The root's own directives kept the crawl from following its links, and nothing else,
+        // such as the frontier seeds, made up for it: the shop opted out, like a robots.txt
+        // refusal of the root. A root that only refuses capture lets the crawl go on, so how
+        // that crawl ends decides its outcome.
         diagnostics.apply_signal(DiagnosticSignal::new(
             CrawlFailureKind::RobotsBlocked,
             CRAWL_ROOT_DIRECTIVES_FORBID_CRAWL,
@@ -3559,7 +3568,7 @@ mod tests {
         }
 
         /// A challenge is not the shop's page, so the `noindex, nofollow` Cloudflare sends with it
-        /// counts as no page directive.
+        /// counts as no page directive, and Spider's hook does not stop at it either.
         #[tokio::test]
         async fn should_not_count_the_directives_of_a_challenge_as_the_pages() {
             let site = TestSite::spawn(Arc::new(|target: &str, _: usize| match target {
@@ -3568,19 +3577,26 @@ mod tests {
                     r#"<html><head><title>Antiques</title></head><body><a href="/chairs">Chairs</a></body></html>"#
                         .to_string(),
                 ),
-                _ => SiteResponse::HtmlWithHeaders(
+                "/chairs" => SiteResponse::HtmlWithHeaders(
                     "200 OK",
                     "X-Robots-Tag: noindex, nofollow\r\n",
-                    CHALLENGE.to_string(),
+                    CHALLENGE.replace("<body>", r#"<body><a href="/behind-challenge">x</a>"#),
                 ),
+                _ => SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
             }))
             .await;
             let spider =
                 SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
             let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
-            site.finish().await;
+            let requested = site.finish().await;
 
+            assert!(
+                requested
+                    .iter()
+                    .any(|(_, target, ..)| target == "/behind-challenge"),
+                "the challenge's nofollow does not stop the crawl: {requested:?}"
+            );
             assert_eq!(diagnostics.bot_challenge_pages, 1, "{diagnostics:?}");
             assert_eq!(diagnostics.nofollow_pages, 0, "{diagnostics:?}");
             assert_eq!(diagnostics.rejected_page_directive, 0, "{diagnostics:?}");
@@ -5058,15 +5074,13 @@ mod tests {
         assert_eq!(diagnostics.rejected_page_directive, 0, "{diagnostics:?}");
     }
 
-    /// A crawl root whose own directives forbid following its links or capturing it is the
-    /// shop's opt-out: a crawl that finds nothing else is a robots refusal, not a transient
-    /// failure.
+    /// A crawl root whose own directives forbid following its links is the shop's opt-out: a
+    /// crawl that finds nothing else is a robots refusal, not a transient failure.
     #[tokio::test]
     async fn should_refuse_the_crawl_when_the_root_opts_out_by_its_directives() {
         for (headers, head) in [
             ("X-Robots-Tag: nofollow\r\n", ""),
             ("X-Robots-Tag: none\r\n", ""),
-            ("", r#"<meta name="robots" content="noindex">"#),
             ("", r#"<meta name="robots" content="none">"#),
         ] {
             let body = format!(r#"<head>{head}</head><a href="/linked">a</a>"#);
@@ -5081,13 +5095,10 @@ mod tests {
             let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
             site.finish().await;
 
-            let forbids_following = headers.contains("no") || head.contains("none");
-            if forbids_following {
-                assert_eq!(
-                    diagnostics.pages_received, 1,
-                    "{headers}{head}: {diagnostics:?}"
-                );
-            }
+            assert_eq!(
+                diagnostics.pages_received, 1,
+                "{headers}{head}: {diagnostics:?}"
+            );
             assert!(
                 diagnostics.root_directives_forbid_crawl,
                 "{headers}{head}: {diagnostics:?}"
@@ -5101,6 +5112,42 @@ mod tests {
                 diagnostics.diagnostic_reason.as_deref(),
                 Some(CRAWL_ROOT_DIRECTIVES_FORBID_CRAWL),
                 "{headers}{head}: {diagnostics:?}"
+            );
+        }
+    }
+
+    /// A root that only says `noindex` is not stored but lets the crawl follow its links, so it is
+    /// no opt-out: a crawl that stores what it finds below the root succeeds, and one whose pages
+    /// below the root fail is judged by how they fail.
+    #[tokio::test]
+    async fn should_not_refuse_the_crawl_when_the_root_only_refuses_capture() {
+        for linked in [
+            SiteResponse::Html("200 OK", "<p>p</p>".to_string()),
+            SiteResponse::Html("500 Internal Server Error", "<p>p</p>".to_string()),
+        ] {
+            let linked = Arc::new(linked);
+            let site = TestSite::spawn(Arc::new(move |target: &str, _: usize| match target {
+                "/" => SiteResponse::Html(
+                    "200 OK",
+                    r#"<head><meta name="robots" content="noindex"></head><a href="/product/vase">a</a>"#
+                        .to_string(),
+                ),
+                "/product/vase" => linked.as_ref().clone(),
+                _ => SiteResponse::Html("404 Not Found", String::new()),
+            }))
+            .await;
+            let spider =
+                SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+            let (_, diagnostics) = run_crawl(&spider, "http://example.com/").await.unwrap();
+            site.finish().await;
+
+            assert_eq!(diagnostics.rejected_page_directive, 1, "{diagnostics:?}");
+            assert!(!diagnostics.root_directives_forbid_crawl, "{diagnostics:?}");
+            assert_ne!(
+                diagnostics.failure_kind,
+                Some(CrawlFailureKind::RobotsBlocked),
+                "{diagnostics:?}"
             );
         }
     }
