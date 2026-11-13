@@ -97,11 +97,11 @@ impl ScraperServiceImpl {
                         );
                         return Err(error);
                     }
-                    if err.kind().is_robots_refusal() {
+                    if err.kind().is_robots_rules_refusal() {
                         debug!(
                             error = %err,
                             sample_url = %sample_url,
-                            "Skipping sampled schema-seed page robots.txt refuses"
+                            "Skipping a sampled schema-seed page the shop's robots rules refuse"
                         );
                         continue;
                     }

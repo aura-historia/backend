@@ -1965,7 +1965,7 @@ async fn record_batch_error_state(ctx: &ScrapeBatchContext, error: &ScraperError
             | ScraperError::NotProductPage { .. }
             | ScraperError::RedirectToKnownProduct { .. }
             | ScraperError::PendingSchemaReview { .. }
-    ) || is_robots_refusal(error)
+    ) || is_robots_rules_refusal(error)
     {
         debug!(error = %error, "Scraper run failed");
     } else {
@@ -2023,12 +2023,12 @@ fn is_robots_unreachable(error: &ScraperError) -> bool {
     error.network_error_kind() == Some(NetworkErrorKind::RobotsUnreachable)
 }
 
-/// robots.txt refusals are the crawler honouring a shop's policy, not a
-/// failure to report as a warning.
-fn is_robots_refusal(error: &ScraperError) -> bool {
+/// Refusals by robots.txt or by a page's own robots directives are the crawler honouring a
+/// shop's policy, not a failure to report as a warning.
+fn is_robots_rules_refusal(error: &ScraperError) -> bool {
     error
         .network_error_kind()
-        .is_some_and(NetworkErrorKind::is_robots_refusal)
+        .is_some_and(NetworkErrorKind::is_robots_rules_refusal)
 }
 
 /// The error kind a fetch failure records on its URL: its HTTP status, or its kind when the
