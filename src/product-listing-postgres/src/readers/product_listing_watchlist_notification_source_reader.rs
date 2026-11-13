@@ -26,7 +26,7 @@ use product_listing_service::ports::{
 
 use sqlx::PgConnection;
 
-use super::product_listing_details_reader::images;
+use super::listing_row_values::images;
 use crate::product_listing_event_codec;
 
 #[derive(Debug, Clone, Copy, Default)]

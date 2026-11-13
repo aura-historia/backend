@@ -1,4 +1,5 @@
 mod admin_product_listing_reader;
+mod listing_row_values;
 pub use admin_product_listing_reader::SqlxAdminProductListingReader;
 mod auction_catalogue_reader;
 mod listing_source_summary_reader;
