@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packages the crawler's release binaries and example systemd units as
+# Packages the crawler's release binaries, deploy scripts and example systemd units as
 # crawler-<sha>.tar.gz plus crawler-<sha>.tar.gz.sha256, which `deploy.sh` installs on the host.
 # Usage: package-release.sh <full lowercase source sha> <cargo release target dir> <output dir>
 # Contract: docs/crawler/operations.md#build-and-release
@@ -34,10 +34,11 @@ for unit in "${UNITS[@]}"; do
   install -m 0644 "${SCRIPT_DIR}/${unit}" "${root}/systemd/${unit}"
 done
 
-# The crawler-local migrations this build applies at startup: `deploy.sh` compares them with the
-# running release's to decide whether a rollback or an upgrade needs a database restore or backup.
-(cd "${CRAWLER_DIR}/migrations" && find . -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | LC_ALL=C sort) \
-  > "${root}/MIGRATIONS"
+# The crawler-local migrations this build applies at startup, as `<sha256>  <file>` lines sorted by
+# file: `deploy.sh` compares them with the running release's to decide whether a rollback or an
+# upgrade needs a database restore or backup.
+(cd "${CRAWLER_DIR}/migrations" && find . -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | LC_ALL=C sort \
+  | xargs -r sha256sum --) > "${root}/MIGRATIONS"
 printf '%s\n' "$sha" > "${root}/SOURCE_SHA"
 
 # Reproducible archive: the same inputs give the same bytes.

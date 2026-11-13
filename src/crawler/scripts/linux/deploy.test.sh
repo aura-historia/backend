@@ -13,11 +13,25 @@ sha_b="$(printf 'b%.0s' {1..40})"
 
 # Fake host tools: systemctl logs calls, curl serves the release files and the health check.
 mkdir -p "$tmp/fakebin" "$tmp/build" "$tmp/releases-out" "$tmp/log"
+# The fake systemctl keeps each unit's state as a file in $FAKE_UNITS: present means active.
+# FAKE_MISSING_UNITS names units that are not installed, FAKE_STUCK_UNITS units that ignore a stop,
+# and FAKE_FAIL_DAEMON_RELOAD makes daemon-reload fail.
 cat > "$tmp/fakebin/systemctl" <<'T'
 #!/usr/bin/env bash
 echo "systemctl $*" >> "$FAKE_LOG"
-[[ "$1" == is-active ]] && exit "${FAKE_RUNNER_ACTIVE:-0}"
-exit 0
+cmd="$1"; shift
+listed() { [[ " $2 " == *" ${1%.service} "* ]]; }
+case "$cmd" in
+  show) if listed "${!#}" "${FAKE_MISSING_UNITS:-}"; then echo not-found; else echo loaded; fi ;;
+  is-active) [[ -f "$FAKE_UNITS/${!#%.service}" ]] ;;
+  stop|start)
+    for unit in "$@"; do ! listed "$unit" "${FAKE_MISSING_UNITS:-}" || exit 5; done
+    for unit in "$@"; do
+      if [[ "$cmd" == start ]]; then touch "$FAKE_UNITS/${unit%.service}"
+      elif ! listed "$unit" "${FAKE_STUCK_UNITS:-}"; then rm -f "$FAKE_UNITS/${unit%.service}"; fi
+    done ;;
+  daemon-reload) [[ -z "${FAKE_FAIL_DAEMON_RELOAD:-}" ]] ;;
+esac
 T
 cat > "$tmp/fakebin/curl" <<'T'
 #!/usr/bin/env bash
@@ -38,7 +52,9 @@ for a in "$@"; do [[ "$a" == --file=* ]] && echo dump > "${a#--file=}"; done
 T
 chmod +x "$tmp"/fakebin/*
 export PATH="$tmp/fakebin:$PATH" FAKE_LOG="$tmp/log/calls" FAKE_RELEASES="$tmp/releases-out"
-export FAKE_HEALTH_FAILS="$tmp/log/health-fails" FAKE_API_JSON="$tmp/log/api.json"
+export FAKE_HEALTH_FAILS="$tmp/log/health-fails" FAKE_API_JSON="$tmp/log/api.json" FAKE_UNITS="$tmp/state"
+mkdir -p "$FAKE_UNITS"; touch "$FAKE_UNITS/crawler-server" "$FAKE_UNITS/review-agent-runner"
+active() { [[ -f "$FAKE_UNITS/$1" ]]; }
 
 for bin in server review-mcp review-agent-runner; do echo "$bin" > "$tmp/build/$bin"; done
 bash "$SCRIPT_DIR/package-release.sh" "$sha_a" "$tmp/build" "$tmp/releases-out" >/dev/null
@@ -46,11 +62,15 @@ bash "$SCRIPT_DIR/package-release.sh" "$sha_b" "$tmp/build" "$tmp/releases-out" 
 first_sum="$(cat "$tmp/releases-out/crawler-$sha_a.tar.gz.sha256")"
 bash "$SCRIPT_DIR/package-release.sh" "$sha_a" "$tmp/build" "$tmp/releases-out" >/dev/null
 [[ "$first_sum" == "$(cat "$tmp/releases-out/crawler-$sha_a.tar.gz.sha256")" ]] || fail "package is not reproducible"
+tar -xzOf "$tmp/releases-out/crawler-$sha_a.tar.gz" "crawler-$sha_a/MIGRATIONS" > "$tmp/log/migrations"
+if [[ ! -s "$tmp/log/migrations" ]] || grep -Evq '^[a-f0-9]{64}  [0-9]{14}_[a-z0-9_]+\.sql$' "$tmp/log/migrations"; then
+  fail "MIGRATIONS does not record a sha256 per migration"
+fi
 
 echo 'LOCAL_DB_URL=postgres://u:p@127.0.0.1/db' > "$tmp/crawler.env"
 export CRAWLER_ROOT="$tmp/opt" CRAWLER_RELEASE_BASE_URL="https://example.test/dl" \
   CRAWLER_ENV_FILE="$tmp/crawler.env" CRAWLER_BACKUP_DIR="$tmp/backups" CRAWLER_UNIT_DIR="$tmp/units" \
-  CRAWLER_HEALTH_ATTEMPTS=1 CRAWLER_HEALTH_INTERVAL=0
+  CRAWLER_HEALTH_TIMEOUT=0 CRAWLER_HEALTH_INTERVAL=0
 mkdir -p "$tmp/units" "$CRAWLER_ROOT/bin"; echo legacy > "$CRAWLER_ROOT/bin/server"
 deploy() { bash "$SCRIPT_DIR/deploy.sh" "$@"; }
 
@@ -66,6 +86,8 @@ grep -q "stop review-agent-runner crawler-server" "$FAKE_LOG" || fail "services 
 
 # A migration the running build applied and the target lacks blocks the rollback; the rollback
 # itself adds no migration and takes no backup.
+# Releases published before checksums listed names only: they are still read.
+awk '{ print $2 }' "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS" > "$tmp/log/names" && mv "$tmp/log/names" "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS"
 echo 99990101000000_new.sql >> "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS"
 if deploy "$sha_a" >/dev/null 2>&1; then fail "rollback over a migration was allowed"; fi
 deploy --db-restored "$sha_a" >/dev/null
@@ -142,5 +164,82 @@ deploy "$sha_d" >/dev/null 2>&1
 [[ "$(ls "$CRAWLER_BACKUP_DIR"/*.dump | wc -l)" -eq 5 ]] || fail "more than five dumps kept"
 ls "$CRAWLER_BACKUP_DIR"/*"before-${sha_d}.dump" >/dev/null || fail "the newest dump was pruned"
 bin_is "$sha_d" || fail "an operator could not deploy the release with migrations"
+
+
+# Unattended mode leaves a rollback over applied migrations to an operator (exit 3), so autodeploy
+# does not retry it like a lock conflict.
+status=0; deploy --unattended "$sha_a" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 3 ]] || fail "an unattended rollback over applied migrations exited ${status}, not 3"
+bin_is "$sha_d" || fail "an unattended rollback over applied migrations switched"
+
+# Migration checksums: a release that changes an applied migration cannot run on the migrated
+# database, so it is refused in both directions until the database is restored, never deployed
+# unattended, and backed up.
+sha_e="$(printf 'e%.0s' {1..40})"
+echo 'SELECT 1;' > "$alt/migrations/99990101000000_extra.sql"
+bash "$alt/scripts/linux/package-release.sh" "$sha_e" "$tmp/build" "$tmp/releases-out" >/dev/null
+status=0; deploy --unattended "$sha_e" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 3 ]] || fail "a release that changes a migration was deployed unattended (exit ${status})"
+if deploy "$sha_e" >/dev/null 2>&1; then fail "a release that changes an applied migration was deployed"; fi
+deploy --db-restored "$sha_e" >/dev/null 2>&1 || fail "the release that changes a migration was not deployed"
+ls "$CRAWLER_BACKUP_DIR"/*"before-${sha_e}.dump" >/dev/null 2>&1 || fail "a release that changes a migration was not backed up"
+if deploy "$sha_d" >/dev/null 2>&1; then fail "a rollback over a changed migration was allowed"; fi
+bin_is "$sha_e" || fail "a refused rollback switched"
+
+# The health check waits CRAWLER_HEALTH_TIMEOUT seconds, long enough for startup migrations.
+echo 40 > "$FAKE_HEALTH_FAILS"
+CRAWLER_HEALTH_TIMEOUT=60 deploy "$sha_e" >/dev/null 2>&1 || fail "a build that became healthy within CRAWLER_HEALTH_TIMEOUT was rolled back"
+rm -f "$FAKE_HEALTH_FAILS"
+
+# A host without the agent runner stops and starts only the server.
+rm -f "$FAKE_UNITS/review-agent-runner"
+FAKE_MISSING_UNITS=review-agent-runner deploy "$sha_e" >/dev/null 2>&1 || fail "a deploy failed on a host without review-agent-runner.service"
+active crawler-server || fail "crawler-server not started on a host without the agent runner"
+touch "$FAKE_UNITS/review-agent-runner"
+
+# A server that does not stop is not switched under, and is left running.
+if FAKE_STUCK_UNITS=crawler-server deploy --db-restored "$sha_d" >/dev/null 2>&1; then fail "deployed while crawler-server was still active"; fi
+bin_is "$sha_e" || fail "switched while crawler-server was still active"
+
+# A failure between stop and start (here daemon-reload) starts the stopped services again.
+if FAKE_FAIL_DAEMON_RELOAD=1 deploy --install-units "$sha_e" >/dev/null 2>&1; then fail "a failed daemon-reload was ignored"; fi
+if ! active crawler-server || ! active review-agent-runner; then fail "the services stayed stopped after a failed deploy"; fi
+
+# --- A legacy host: rollback to the adopted binaries, partial releases and pruning. ---
+export CRAWLER_ROOT="$tmp/opt3"
+mkdir -p "$CRAWLER_ROOT/bin"; echo legacy > "$CRAWLER_ROOT/bin/server"
+echo 1 > "$FAKE_HEALTH_FAILS"
+status=0; deploy "$sha_a" > "$tmp/log/legacy.out" 2>&1 || status=$?
+[[ "$status" -eq 4 ]] || fail "an unhealthy first deploy exited ${status}, not 4"
+legacy_name="$(basename "$(ls -d "$CRAWLER_ROOT"/releases/legacy-*)")"
+grep -q -- "--db-restored ${legacy_name}" "$tmp/log/legacy.out" || fail "the first deploy on a legacy host printed no usable rollback hint"
+if deploy "$legacy_name" >/dev/null 2>&1; then fail "a rollback to binaries with unknown migrations was allowed"; fi
+deploy --db-restored "$legacy_name" >/dev/null 2>&1 || fail "the rollback to the legacy binaries failed"
+bin_is "$legacy_name" && [[ "$(cat "$CRAWLER_ROOT/bin/server")" == legacy ]] || fail "not rolled back to the legacy binaries"
+
+# A release directory an interrupted deploy left without its completion marker is fetched again,
+# and an abandoned download directory is removed.
+mkdir -p "$CRAWLER_ROOT/releases/$sha_b" "$CRAWLER_ROOT/releases/.incoming-old"
+echo "$sha_b" > "$CRAWLER_ROOT/releases/$sha_b/SOURCE_SHA"
+deploy "$sha_b" >/dev/null 2>&1 || fail "the deploy over a partial release failed"
+[[ -x "$CRAWLER_ROOT/bin/server" && -f "$CRAWLER_ROOT/bin/.complete" ]] || fail "a partial release directory was trusted"
+if compgen -G "$CRAWLER_ROOT/releases/.*-*" >/dev/null; then fail "temporary release directories were left behind"; fi
+
+# More than five releases: the oldest go, the legacy binaries stay, and a healthy deploy exits 0
+# even when the last directory pruning looks at is kept.
+sha_f="$(printf 'f%.0s' {1..40})"; sha_g="$(printf '1%.0s' {1..40})"
+for sha in "$sha_f" "$sha_g"; do bash "$SCRIPT_DIR/package-release.sh" "$sha" "$tmp/build" "$tmp/releases-out" >/dev/null; done
+touch -d 2020-01-01 "$CRAWLER_ROOT/releases/$legacy_name"
+for sha in "$sha_a" "$sha_c" "$sha_f" "$sha_g" "$sha_d"; do
+  deploy "$sha" > "$tmp/log/prune.out" 2>&1 || { cat "$tmp/log/prune.out" >&2; fail "a healthy deploy of ${sha} failed while pruning"; }
+done
+[[ "$(ls -d "$CRAWLER_ROOT"/releases/*/ | wc -l)" -eq 6 && -d "$CRAWLER_ROOT/releases/$legacy_name" ]] || fail "pruning kept the wrong releases"
+[[ ! -d "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "the oldest release was not pruned"
+
+# The shipped timer's only trigger is OnCalendar, so a drop-in can replace the schedule.
+timer="$SCRIPT_DIR/crawler-autodeploy.timer"
+if ! grep -q '^OnCalendar=' "$timer" || grep -Eq '^On(Boot|Startup|Active|UnitActive|UnitInactive)Sec=' "$timer"; then
+  fail "the timer has triggers besides OnCalendar"
+fi
 
 echo "deploy.test.sh: all checks passed"

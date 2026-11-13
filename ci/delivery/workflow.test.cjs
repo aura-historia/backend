@@ -104,3 +104,25 @@ test('approved control code remains stable across app commits and rejects entry/
     ),
   );
 });
+
+test('the crawler release pins every action and refuses an existing release tag', () => {
+  const workflow = fs.readFileSync('.github/workflows/crawler-release.yml', 'utf8');
+  const uses = [...workflow.matchAll(/^\s+- uses: (\S+)/gm)].map((m) => m[1]);
+  assert.ok(uses.length > 0);
+  for (const action of uses.filter((u) => !u.startsWith('./')))
+    assert.match(action, /@[0-9a-f]{40}$/, `${action} is not pinned to a commit`);
+  // gh release create attaches to an existing tag and ignores --target: check before the build
+  // and again right before publishing.
+  const tagCheck = /git ls-remote --tags \S+ "refs\/tags\/crawler-\$\{SOURCE_SHA\}"/;
+  const resolve = workflow.slice(workflow.indexOf('\n  resolve:\n'), workflow.indexOf('\n  tests:\n'));
+  const publish = workflow.slice(workflow.indexOf('\n  publish:\n'));
+  assert.match(resolve, tagCheck);
+  assert.ok(publish.search(tagCheck) >= 0 && publish.search(tagCheck) < publish.indexOf('gh release create'));
+});
+
+test('CI runs the crawler deploy script tests', () => {
+  for (const file of ['integrate.yml', 'crawler-release.yml']) {
+    const workflow = fs.readFileSync(`.github/workflows/${file}`, 'utf8');
+    assert.match(workflow, /run: bash src\/crawler\/scripts\/linux\/deploy\.test\.sh/, file);
+  }
+});

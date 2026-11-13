@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Deploys the newest published crawler release, for crawler-autodeploy.timer. It asks GitHub for
 # the newest crawler-<sha> release, skips it when it is the one it last handled, and otherwise runs
-# deploy.sh --unattended on it. A release that adds migrations is left for an operator, and the
-# newest release is handled once: after a manual rollback the timer stays quiet until a newer
-# release is published. Stop it with: systemctl disable --now crawler-autodeploy.timer
+# deploy.sh --unattended on it. A release that adds migrations, or a rollback over applied
+# migrations, is left for an operator, and the newest release is handled once: after a manual
+# rollback the timer stays quiet until a newer release is published. Stop it with: systemctl disable --now crawler-autodeploy.timer
 # Contract: docs/crawler/operations.md#automatic-deploys
 set -euo pipefail
 
@@ -32,7 +32,8 @@ status=0
 case "$status" in
   0) printf '%s\n' "$latest" > "$SEEN_FILE" ;;
   3|4)
-    # Decided about, not to be retried every tick: the unit stays failed until an operator acts.
+    # Decided about (needs an operator, or unhealthy and rolled back), not to be retried every
+    # tick: the unit stays failed until an operator acts. Exit 1 (a lock conflict) is retried.
     printf '%s\n' "$latest" > "$SEEN_FILE"
     echo "autodeploy: ${latest} needs an operator (exit ${status}); see the journal" >&2
     exit 1 ;;
