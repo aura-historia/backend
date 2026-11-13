@@ -12,6 +12,7 @@ mkdir -p "$tmp/fakebin" "$tmp/s3/bucket"
 cat > "$tmp/fakebin/pg_dump" <<'T'
 #!/usr/bin/env bash
 echo "pg_dump $*" >> "$FAKE_LOG"
+echo "PGPASSWORD=${PGPASSWORD-unset}" >> "$FAKE_LOG"
 echo "first half of the dump"
 [[ -z "${FAKE_PG_FAIL:-}" ]] || exit 1
 echo "second half of the dump"
@@ -54,6 +55,7 @@ dump="$(find "$FAKE_S3/bucket/crawler" -type f -name '*.dump')"
 [[ "$(cat "$dump.class")" == STANDARD_IA ]] || fail "the dump is not stored in STANDARD_IA"
 grep -q -- '--dbname=postgres://crawler@127.0.0.1/crawler' "$FAKE_LOG" || fail "pg_dump got another database"
 grep -q -- '--format=custom --no-owner --compress=6' "$FAKE_LOG" || fail "pg_dump got other options"
+grep -qx 'PGPASSWORD=unset' "$FAKE_LOG" || fail "a URL without a password set PGPASSWORD"
 grep -q -- '--expected-size 107374182400' "$FAKE_LOG" || fail "a stream needs an expected size"
 
 # Retention keeps the newest five.
@@ -77,6 +79,14 @@ run_at || fail "a backup failed"
 echo keep > "$FAKE_S3/bucket/crawler/notes.txt"
 run_at || fail "a backup failed"
 [[ -f "$FAKE_S3/bucket/crawler/notes.txt" ]] || fail "retention removed a file that is not a dump"
+
+# A password in the URL reaches pg_dump through PGPASSWORD, decoded, never in its arguments.
+echo 'LOCAL_DB_URL="postgresql://crawler:s3cr%40t%2Fpw@127.0.0.1:5432/crawler"' > "$tmp/crawler.env"
+: > "$FAKE_LOG"; run_at || fail "a backup with a password failed"
+grep -q 's3cr' <(grep '^pg_dump ' "$FAKE_LOG") && fail "the password is in pg_dump's arguments"
+grep -q -- '--dbname=postgresql://crawler@127.0.0.1:5432/crawler' "$FAKE_LOG" || fail "pg_dump got another database without the password"
+grep -qx 'PGPASSWORD=s3cr@t/pw' "$FAKE_LOG" || fail "pg_dump did not get the decoded password"
+echo 'LOCAL_DB_URL="postgres://crawler@127.0.0.1/crawler"' > "$tmp/crawler.env"
 
 # Settings are checked before anything is uploaded.
 : > "$FAKE_LOG"

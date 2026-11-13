@@ -39,6 +39,15 @@ done
 
 url="$(sed -n 's/^LOCAL_DB_URL=//p' "$ENV_FILE" | head -n1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")"
 [[ -n "$url" ]] || { echo "LOCAL_DB_URL is not set in ${ENV_FILE}" >&2; exit 1; }
+# The password goes to pg_dump through PGPASSWORD, never in its arguments: /proc/<pid>/cmdline is
+# readable by every local user for as long as the dump runs, its environment only by root and the
+# owner. URLs percent-encode reserved characters, so the password is decoded first, as libpq would.
+if [[ "$url" =~ ^(postgres(ql)?://[^:@/]*):([^@/]*)@(.*)$ ]]; then
+  password="${BASH_REMATCH[3]}"
+  password="$(printf '%b' "${password//%/\\x}")"
+  url="${BASH_REMATCH[1]}@${BASH_REMATCH[4]}"
+  export PGPASSWORD="$password"
+fi
 
 # One backup at a time: a run that outlasts the week must not overlap the next.
 mkdir -p "$(dirname -- "$LOCK_FILE")"
