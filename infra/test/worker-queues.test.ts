@@ -6,7 +6,14 @@ import { credentialSecrets } from "../src/credentials";
 import { credentialReference, releaseVersionDescription } from "./credential-reference";
 import { QUEUE_DEFINITIONS } from "../src/constructs/queues";
 import { importWorkerQueueCatalog, WorkerQueues } from "../src/constructs/worker-queues";
-import { WORKER_QUEUE_DEFINITIONS, WORKER_SCOPES, workerQueueName, type WorkerScope } from "../src/worker-queue-config";
+import {
+  sourceAgeThresholdSeconds,
+  WORKER_QUEUE_DEFINITIONS,
+  WORKER_QUEUE_SETTINGS,
+  WORKER_SCOPES,
+  workerQueueName,
+  type WorkerScope,
+} from "../src/worker-queue-config";
 
 // Independent contract: changing the catalog must not silently change the runtime boundary.
 const EXPECTED_WORKERS = {
@@ -25,6 +32,13 @@ const EXPECTED_WORKERS = {
   "user-identity-deletion": { id: "UserIdentityDeletion", visibility: 330 },
 } as const;
 const EXPECTED_SCOPES = Object.keys(EXPECTED_WORKERS) as WorkerScope[];
+
+// Bulk-fed scopes jam routinely, so their age alarm waits hours; every other scope alarms after 15 minutes.
+const DEFAULT_SOURCE_AGE_THRESHOLD_SECONDS = 900;
+const BULK_SOURCE_AGE_THRESHOLD_SECONDS: Partial<Record<WorkerScope, number>> = {
+  "product-embedding": 21_600,
+  "product-translation": 43_200,
+};
 
 function queueResource(template: Template, name: string) {
   const matches = Object.entries(template.findResources("AWS::SQS::Queue"))
@@ -791,17 +805,17 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"))
       .filter((resource) => String(resource.Properties.AlarmName).includes("product-listing-ingestion"));
     expect(alarms).toHaveLength(6);
-    for (const [suffix, metric, queue, threshold] of [
-      ["source-age", "ApproximateAgeOfOldestMessage", "queue", 900],
-      ["source-backlog", "ApproximateNumberOfMessagesVisible", "queue", 100],
-      ["dead-letter-visible", "ApproximateNumberOfMessagesVisible", "dlq", 1],
+    for (const [suffix, metric, queue, threshold, evaluationPeriods] of [
+      ["source-age", "ApproximateAgeOfOldestMessage", "queue", 900, 1],
+      ["source-backlog", "ApproximateNumberOfMessagesVisible", "queue", 1000, 3],
+      ["dead-letter-visible", "ApproximateNumberOfMessagesVisible", "dlq", 1, 1],
     ] as const) {
       const name = `prod-product-listing-ingestion-${suffix}`;
       expect(alarms.filter((alarm) => alarm.Properties.AlarmName === name)).toHaveLength(1);
       template.hasResourceProperties("AWS::CloudWatch::Alarm", {
         AlarmName: name, Namespace: "AWS/SQS", MetricName: metric,
         Dimensions: [{ Name: "QueueName", Value: `product-listing-ingestion-${queue}-prod.fifo` }],
-        Statistic: "Maximum", Period: 300, Threshold: threshold, EvaluationPeriods: 1,
+        Statistic: "Maximum", Period: 300, Threshold: threshold, EvaluationPeriods: evaluationPeriods,
         ComparisonOperator: "GreaterThanOrEqualToThreshold", TreatMissingData: "notBreaching",
         AlarmActions: [{ Ref: topicIds[0] }],
       });
@@ -856,7 +870,12 @@ describe.each(STAGES)("%s worker queues", (stage) => {
     expect(topicIds).toHaveLength(1);
     for (const scope of EXPECTED_SCOPES) {
       for (const [suffix, metricName, queueName, threshold] of [
-        ["source-age", "ApproximateAgeOfOldestMessage", workerQueueName(scope, "prod"), 900],
+        [
+          "source-age",
+          "ApproximateAgeOfOldestMessage",
+          workerQueueName(scope, "prod"),
+          BULK_SOURCE_AGE_THRESHOLD_SECONDS[scope] ?? DEFAULT_SOURCE_AGE_THRESHOLD_SECONDS,
+        ],
         ["dlq-visible", "ApproximateNumberOfMessagesVisible", workerQueueName(scope, "prod", true), 1],
       ] as const) {
         template.hasResourceProperties("AWS::CloudWatch::Alarm", {
@@ -868,6 +887,13 @@ describe.each(STAGES)("%s worker queues", (stage) => {
       }
     }
   });
+});
+
+test("every worker age alarm can fire before SQS drops a retained message", () => {
+  const retentionSeconds = WORKER_QUEUE_SETTINGS.sourceRetentionDays * 24 * 60 * 60;
+  for (const scope of WORKER_SCOPES) {
+    expect(sourceAgeThresholdSeconds(WORKER_QUEUE_SETTINGS.alarms, scope)).toBeLessThan(retentionSeconds);
+  }
 });
 
 test.each<{ enabledScopes: WorkerScope[] }>([
