@@ -62,12 +62,12 @@ cp "$FAKE_RELEASES/$(basename "$url")" "$out"
 T
 cat > "$tmp/fakebin/pg_dump" <<'T'
 #!/usr/bin/env bash
-[[ -z "${FAKE_PG_FAIL:-}" ]] || exit 1
-for a in "$@"; do [[ "$a" == --file=* ]] && echo dump > "${a#--file=}"; done
+# deploy.sh takes no backup of its own: the weekly S3 backup is the only one.
+echo called > "$FAKE_PG_CALLED"
 T
 chmod +x "$tmp"/fakebin/*
 export PATH="$tmp/fakebin:$PATH" FAKE_LOG="$tmp/log/calls" FAKE_RELEASES="$tmp/releases-out"
-export FAKE_HEALTH_FAILS="$tmp/log/health-fails" FAKE_API_JSON="$tmp/log/api.json" FAKE_UNITS="$tmp/state"
+export FAKE_PG_CALLED="$tmp/log/pg_dump-called" FAKE_HEALTH_FAILS="$tmp/log/health-fails" FAKE_API_JSON="$tmp/log/api.json" FAKE_UNITS="$tmp/state"
 mkdir -p "$FAKE_UNITS"; touch "$FAKE_UNITS/crawler-server" "$FAKE_UNITS/review-agent-runner"
 active() { [[ -f "$FAKE_UNITS/$1" ]]; }
 
@@ -84,7 +84,7 @@ fi
 
 echo 'LOCAL_DB_URL=postgres://u:p@127.0.0.1/db' > "$tmp/crawler.env"
 export CRAWLER_ROOT="$tmp/opt" CRAWLER_RELEASE_BASE_URL="https://example.test/dl" \
-  CRAWLER_ENV_FILE="$tmp/crawler.env" CRAWLER_BACKUP_DIR="$tmp/backups" CRAWLER_UNIT_DIR="$tmp/units" \
+  CRAWLER_ENV_FILE="$tmp/crawler.env" CRAWLER_UNIT_DIR="$tmp/units" \
   CRAWLER_HEALTH_TIMEOUT=0 CRAWLER_HEALTH_INTERVAL=0
 mkdir -p "$tmp/units" "$CRAWLER_ROOT/bin"; echo legacy > "$CRAWLER_ROOT/bin/server"
 deploy() { bash "$SCRIPT_DIR/deploy.sh" "$@"; }
@@ -93,32 +93,19 @@ deploy "$sha_a" >/dev/null
 [[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "symlink not switched"
 [[ -x "$CRAWLER_ROOT/bin/server" ]] || fail "binary missing behind symlink"
 ls "$CRAWLER_ROOT"/releases/legacy-* >/dev/null || fail "legacy binaries not kept"
-[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "a host without releases must be backed up"
 
 deploy "$sha_b" >/dev/null
-[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "a release without new migrations must take no backup"
 grep -q "stop review-agent-runner crawler-server" "$FAKE_LOG" || fail "services not stopped together"
 
-# A migration the running build applied and the target lacks blocks the rollback; the rollback
-# itself adds no migration and takes no backup.
+# A migration the running build applied and the target lacks blocks the rollback.
 # Releases published before checksums listed names only: they are still read.
 awk '{ print $2 }' "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS" > "$tmp/log/names" && mv "$tmp/log/names" "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS"
 echo 99990101000000_new.sql >> "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS"
 if deploy "$sha_a" >/dev/null 2>&1; then fail "rollback over a migration was allowed"; fi
 deploy --db-restored "$sha_a" >/dev/null
-[[ "$(ls "$tmp/backups" | wc -l)" -eq 1 ]] || fail "a rollback must take no backup"
 
-# A failed backup aborts a release that adds a migration before the switch and leaves the running
-# build up.
-: > "$FAKE_LOG"
-if FAKE_PG_FAIL=1 deploy "$sha_b" >/dev/null 2>&1; then fail "deploy went on without a backup"; fi
-[[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "switched despite the failed backup"
-grep -q "start crawler-server" "$FAKE_LOG" || fail "running build not restarted after failed backup"
-ls "$tmp/backups"/*.partial >/dev/null 2>&1 && fail "partial dump left behind"
-
-# A release that adds a migration is backed up before it is switched in.
+# A release that adds a migration is switched in without a dump of its own.
 deploy "$sha_b" >/dev/null
-[[ "$(ls "$tmp/backups" | wc -l)" -eq 2 ]] || fail "a release adding a migration must be backed up"
 
 # A tampered archive is refused.
 echo tampered >> "$tmp/releases-out/crawler-$sha_b.tar.gz"; rm -rf "$CRAWLER_ROOT/releases/$sha_b"
@@ -171,16 +158,7 @@ api "$sha_d" "$sha_c"
 if autodeploy; then fail "a release with migrations was deployed unattended"; fi
 bin_is "$sha_a" || fail "switched to a release with migrations"
 [[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_d" ]] || fail "a release with migrations would be retried"
-# Retention: at most five dumps in total, the oldest deleted once a new one succeeded.
-for day in 1 2 3 4 5 6; do
-  echo old > "$CRAWLER_BACKUP_DIR/crawler-2020010${day}T000000Z-before-x.dump"
-  touch -d "2020-01-0${day}" "$CRAWLER_BACKUP_DIR/crawler-2020010${day}T000000Z-before-x.dump"
-done
-FAKE_PG_FAIL=1 deploy "$sha_d" >/dev/null 2>&1 && fail "a failed backup was ignored"
-[[ "$(ls "$CRAWLER_BACKUP_DIR"/*.dump | wc -l)" -ge 6 ]] || fail "a failed backup deleted dumps"
 deploy "$sha_d" >/dev/null 2>&1
-[[ "$(ls "$CRAWLER_BACKUP_DIR"/*.dump | wc -l)" -eq 5 ]] || fail "more than five dumps kept"
-ls "$CRAWLER_BACKUP_DIR"/*"before-${sha_d}.dump" >/dev/null || fail "the newest dump was pruned"
 bin_is "$sha_d" || fail "an operator could not deploy the release with migrations"
 
 
@@ -192,14 +170,13 @@ bin_is "$sha_d" || fail "an unattended rollback over applied migrations switched
 
 # Migration checksums: a release that changes an applied migration cannot run on the migrated
 # database, so it is refused in both directions until the database is restored, never deployed
-# unattended, and backed up.
+# unattended.
 echo 'SELECT 1;' > "$alt/migrations/99990101000000_extra.sql"
 bash "$alt/scripts/linux/package-release.sh" "$sha_e" "$tmp/build" "$tmp/releases-out" >/dev/null
 status=0; deploy --unattended "$sha_e" >/dev/null 2>&1 || status=$?
 [[ "$status" -eq 3 ]] || fail "a release that changes a migration was deployed unattended (exit ${status})"
 if deploy "$sha_e" >/dev/null 2>&1; then fail "a release that changes an applied migration was deployed"; fi
 deploy --db-restored "$sha_e" >/dev/null 2>&1 || fail "the release that changes a migration was not deployed"
-ls "$CRAWLER_BACKUP_DIR"/*"before-${sha_e}.dump" >/dev/null 2>&1 || fail "a release that changes a migration was not backed up"
 if deploy "$sha_d" >/dev/null 2>&1; then fail "a rollback over a changed migration was allowed"; fi
 bin_is "$sha_e" || fail "a refused rollback switched"
 
@@ -277,5 +254,7 @@ timer="$SCRIPT_DIR/crawler-autodeploy.timer"
 if ! grep -q '^OnCalendar=' "$timer" || grep -Eq '^On(Boot|Startup|Active|UnitActive|UnitInactive)Sec=' "$timer"; then
   fail "the timer has triggers besides OnCalendar"
 fi
+
+[[ ! -e "$FAKE_PG_CALLED" ]] || fail "deploy.sh dumped the database; the weekly S3 backup is the only backup"
 
 echo "deploy.test.sh: all checks passed"

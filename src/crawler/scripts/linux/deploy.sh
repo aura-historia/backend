@@ -3,8 +3,9 @@
 # commit SHA of a published crawler-<sha> GitHub Release, or with the name of a kept legacy-<time>
 # build. Pull-based: the host downloads the release, so CI holds no host credentials, and needs
 # neither Git, Cargo nor a source tree.
-# A release that adds crawler-local migrations is preceded by a dump of that database; a failed
-# dump aborts the deploy. A failure after the services were stopped starts them again.
+# A release that adds crawler-local migrations is not backed up here: the weekly S3 backup
+# (crawler-backup.timer) is the only backup. Before such a deploy run it by hand:
+# systemctl start crawler-backup.service. A failure after the services were stopped starts them again.
 # --unattended is for the autodeploy timer: it refuses (exit 3) a release that adds migrations or a
 # rollback over applied migrations, which need an operator, and rolls an unhealthy release back
 # (exit 4) to the build it replaced.
@@ -20,10 +21,6 @@ HEALTH_URL="${CRAWLER_HEALTH_URL:-http://127.0.0.1:7878/health}"
 HEALTH_TIMEOUT="${CRAWLER_HEALTH_TIMEOUT:-600}"
 HEALTH_INTERVAL="${CRAWLER_HEALTH_INTERVAL:-5}"
 KEEP="${CRAWLER_KEEP_RELEASES:-5}"
-ENV_FILE="${CRAWLER_ENV_FILE:-/etc/crawler/crawler.env}"
-BACKUP_DIR="${CRAWLER_BACKUP_DIR:-/var/backups/crawler}"
-# Retention: at most this many dumps in total; the oldest go once a new dump succeeded.
-readonly KEEP_BACKUPS=5
 UNIT_DIR="${CRAWLER_UNIT_DIR:-/etc/systemd/system}"
 readonly SERVER_UNIT=crawler-server
 readonly RUNNER_UNIT=review-agent-runner
@@ -154,38 +151,19 @@ check_rollback() {
   if [[ -n "$missing" ]] && ! $db_restored; then
     echo "the running build applied migrations that ${build} lacks or holds with another checksum:" >&2
     echo "$missing" >&2
-    echo "restore the crawler database from a backup taken before them, then rerun with --db-restored" >&2
+    echo "restore the crawler database from an S3 backup taken before them, then rerun with --db-restored" >&2
     if $unattended; then exit "$EXIT_NEEDS_OPERATOR"; fi
     exit 1
   fi
 }
 
-# Migrations are applied at startup and never reverted, so only a build that adds some needs a
-# backup. Migrations that are unknown on either side (a host before releases) count as added.
+# Migrations are applied at startup and never reverted, so a build that adds some is deployed by an
+# operator. Migrations that are unknown on either side (a host before releases) count as added.
 release_adds_migrations() {
   local current="$1" added
   [[ -n "$current" && -f "${current}/MIGRATIONS" && -f "${target}/MIGRATIONS" ]] || return 0
   added="$(migrations_lost "$target" "$current")" || exit 1
   [[ -n "$added" ]]
-}
-
-# Dumps the crawler-local database (`LOCAL_DB_URL` of the crawler's environment file) with the
-# services stopped, so the dump is exactly the state the new build starts from.
-backup_database() {
-  local url dump
-  url="$(sed -n 's/^LOCAL_DB_URL=//p' "$ENV_FILE" | head -n1 | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")"
-  [[ -n "$url" ]] || { echo "LOCAL_DB_URL is not set in ${ENV_FILE}" >&2; return 1; }
-  install -d -m 0700 "$BACKUP_DIR"
-  dump="${BACKUP_DIR}/crawler-$(date -u +%Y%m%dT%H%M%SZ)-before-${build}.dump"
-  # Written under a temporary name: a dump that failed halfway is never mistaken for a backup.
-  if ! (umask 0077 && pg_dump --format=custom --no-owner --dbname="$url" --file="${dump}.partial"); then
-    rm -f -- "${dump}.partial"
-    echo "the database backup failed" >&2
-    return 1
-  fi
-  mv "${dump}.partial" "$dump"
-  echo "backed up the crawler database to ${dump}"
-  ls -1t "${BACKUP_DIR}"/crawler-*.dump 2>/dev/null | tail -n +"$((KEEP_BACKUPS + 1))" | xargs -r rm -f --
 }
 
 # `/opt/crawler/bin` was a directory of copied binaries before releases: keep it as the rollback
@@ -286,7 +264,7 @@ rollback_hint() {
   fi
   lost="$(migrations_lost "$target" "$to" 2>/dev/null)" || lost=unknown
   if [[ -n "$lost" ]]; then
-    echo "roll back: restore the crawler database from the dump taken before this deploy, then run: ${0##*/} --db-restored $(basename "$to")" >&2
+    echo "roll back: restore the crawler database from the last S3 backup, then run: ${0##*/} --db-restored $(basename "$to")" >&2
   else
     echo "roll back with: ${0##*/} $(basename "$to")" >&2
   fi
@@ -303,7 +281,7 @@ if [[ "$previous" == "$target" ]]; then
 fi
 [[ "$previous" == "$target" ]] || check_rollback "$previous"
 if $unattended && release_adds_migrations "$previous"; then
-  echo "${build} adds crawler-local migrations: deploy it by hand so the database is backed up and watched" >&2
+  echo "${build} adds crawler-local migrations: deploy it by hand: back the database up first (systemctl start crawler-backup.service) and watch it" >&2
   exit "$EXIT_NEEDS_OPERATOR"
 fi
 
@@ -311,9 +289,6 @@ unit_active "$RUNNER_UNIT" && runner_was_active=true
 
 stop_services
 # A failure from here on starts the stopped services again (on_exit).
-if release_adds_migrations "$previous"; then
-  backup_database
-fi
 adopt_legacy_bin
 # The build this one replaces, including binaries adopted as legacy-<time> just now.
 rollback_to="$(current_release)"
