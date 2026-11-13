@@ -907,7 +907,6 @@ mod tests {
                     Language::En,
                     Title::from("Cabinet"),
                 ))),
-                description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {
                         price: Some(

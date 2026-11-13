@@ -131,6 +131,21 @@ async fn events(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
         .await
         .unwrap()
 }
+/// Management details do not return the description, so preservation is checked in storage.
+async fn stored_description(pool: &sqlx::PgPool, id: ProductListingId) -> Option<(String, String)> {
+    let row: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT description_text, description_language FROM product_listings WHERE product_listing_id=$1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    match row {
+        (Some(text), Some(language)) => Some((text, language)),
+        (None, None) => None,
+        partial => panic!("partial stored description: {partial:?}"),
+    }
+}
 async fn fixture() -> Fixture {
     let pool = get_postgres_client().await;
     let mut ids = Vec::new();
@@ -556,8 +571,7 @@ async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursor
     assert_eq!(StatusCode::OK, status);
     assert_eq!("WITHDRAWN", detail["lifecycle"]);
     assert_eq!(Value::Null, detail["availability"]);
-    assert_eq!("Original description", detail["description"]["text"]);
-    assert_eq!("de", detail["description"]["language"]);
+    assert!(detail.get("description").is_none(), "{detail}");
     assert_eq!(
         "https://source.example.test/private.jpg",
         detail["images"][0]
@@ -681,6 +695,8 @@ async fn directory_reads_originals_both_lifecycles_and_scopes_filters_and_cursor
 async fn versioned_mutations_preserve_noops_and_explicit_lifecycle_semantics() {
     let f = fixture().await;
     let (_, initial) = request(&f.app, "GET", &f.detail(), Some("partner"), Value::Null).await;
+    let initial_description = stored_description(&f.pool, f.id).await;
+    assert!(initial_description.is_some());
     for (method, body) in [
         ("PATCH", json!({"expectedVersion":1})),
         ("POST", json!({"expectedVersion":1})),
@@ -735,7 +751,8 @@ async fn versioned_mutations_preserve_noops_and_explicit_lifecycle_semantics() {
     assert_eq!(2, events(&f.pool, f.id).await);
     let (_, detail) = request(&f.app, "GET", &f.detail(), Some("partner"), Value::Null).await;
     assert_eq!(initial["title"], detail["title"]);
-    assert_eq!(initial["description"], detail["description"]);
+    assert!(detail.get("description").is_none(), "{detail}");
+    assert_eq!(initial_description, stored_description(&f.pool, f.id).await);
     assert_eq!(
         initial["productListingTitleSlugId"],
         detail["productListingTitleSlugId"]

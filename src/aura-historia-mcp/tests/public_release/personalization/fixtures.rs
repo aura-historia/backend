@@ -103,7 +103,6 @@ impl ListingFixture {
                     Language::En,
                     Title::from("Cabinet"),
                 ))),
-                description: None,
                 pricing: ProductListingPricing {
                     price: Some(Price::new(125_u64.into(), Currency::Eur).into()),
                     ..Default::default()

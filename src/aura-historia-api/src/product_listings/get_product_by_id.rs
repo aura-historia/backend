@@ -752,7 +752,6 @@ mod tests {
                     localization: Language::En,
                     payload: Title::from("Cabinet"),
                 })),
-                description: None,
                 pricing: ProductListingPricingPresentation {
                     source: ProductListingPricing {
                         price: Some(

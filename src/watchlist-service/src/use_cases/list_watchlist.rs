@@ -386,7 +386,6 @@ mod tests {
     use product_listing_core::product_listing_slug_id::ProductListingSlugId;
     use product_listing_core::source_listing_id::SourceListingId;
 
-    use product_listing_core::description::Description;
     use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
     use product_listing_core::title::Title;
     use product_listing_service::ports::{
@@ -668,13 +667,6 @@ mod tests {
                     .unwrap_or_else(|error| panic!("valid source listing ID: {error}")),
                 title: ListingText::select(
                     Some(Localized::new(Language::En, Title::from("ProductListing"))),
-                    None,
-                ),
-                description: ListingText::select(
-                    Some(Localized::new(
-                        Language::En,
-                        Description::from("Description"),
-                    )),
                     None,
                 ),
                 pricing: ProductListingPricing {

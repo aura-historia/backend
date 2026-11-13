@@ -58,8 +58,6 @@ struct ProductListingDiscoveryHistoryData {
     source_listing_id: SourceListingId,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<LocalizedTextData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<LocalizedTextData>,
     pricing: ProductListingPricingData,
     #[serde(
         with = "crate::wire::listing::availability_option",
@@ -94,12 +92,7 @@ enum ProductListingHistoryChangeData {
         #[serde(skip_serializing_if = "Option::is_none")]
         current: Option<LocalizedTextData>,
     },
-    DescriptionChanged {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        previous: Option<LocalizedTextData>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        current: Option<LocalizedTextData>,
-    },
+    DescriptionChanged,
     DeliveryChanged,
     MainPriceChanged {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -261,7 +254,6 @@ impl From<ProductListingDiscoveryHistory> for ProductListingDiscoveryHistoryData
             listing_source_id: value.listing_source_id,
             source_listing_id: value.source_listing_id,
             title: value.title.map(Into::into),
-            description: value.description.map(Into::into),
             pricing: value.pricing.into(),
             availability: value.availability,
             url: value.url,
@@ -278,12 +270,7 @@ impl From<ProductListingHistoryChange> for ProductListingHistoryChangeData {
                 previous: previous.map(Into::into),
                 current: current.map(Into::into),
             },
-            ProductListingHistoryChange::DescriptionChanged { previous, current } => {
-                Self::DescriptionChanged {
-                    previous: previous.map(Into::into),
-                    current: current.map(Into::into),
-                }
-            }
+            ProductListingHistoryChange::DescriptionChanged => Self::DescriptionChanged,
             ProductListingHistoryChange::DeliveryChanged => Self::DeliveryChanged,
             ProductListingHistoryChange::MainPriceChanged { previous, current } => {
                 Self::MainPriceChanged {
@@ -561,9 +548,7 @@ mod tests {
     fn should_preserve_discovery_and_every_change_in_the_shared_output_schema() {
         use auction_core::AuctionId;
         use localization::{Language, Localized};
-        use product_listing_core::{
-            description::Description, product_listing::ProductListingAuction, title::Title,
-        };
+        use product_listing_core::{product_listing::ProductListingAuction, title::Title};
 
         let at = OffsetDateTime::UNIX_EPOCH;
         let fx_rate_id = FxRateId::new();
@@ -582,10 +567,6 @@ mod tests {
             listing_source_id: ListingSourceId::new(),
             source_listing_id: SourceListingId::try_from("source-42").unwrap(),
             title: Some(Localized::new(Language::De, Title::from("Schrank"))),
-            description: Some(Localized::new(
-                Language::En,
-                Description::from("Oak cabinet"),
-            )),
             pricing: ProductListingHistoryPricing::default(),
             availability: Some(ListingAvailability::Available),
             url: Url::parse("https://example.test/listing").unwrap(),
@@ -609,8 +590,7 @@ mod tests {
                 "eventId":event_id, "timestamp":"1970-01-01T00:00:00Z",
                 "payload":{
                     "listingSourceId":discovery.listing_source_id, "sourceListingId":"source-42",
-                    "title":{"text":"Schrank","language":"de"},
-                    "description":{"text":"Oak cabinet","language":"en"}, "pricing":{},
+                    "title":{"text":"Schrank","language":"de"}, "pricing":{},
                     "availability":"AVAILABLE", "url":"https://example.test/listing", "imageCount":u64::MAX,
                     "auction":{
                         "auctionId":auction.auction_id(),
@@ -726,14 +706,10 @@ mod tests {
         }
     }
     #[test]
-    fn should_expose_original_localized_text_and_omit_absent_text_in_history() {
+    fn should_expose_title_text_and_mark_description_changes_without_text_in_history() {
         use localization::{Language, Localized};
-        use product_listing_core::{description::Description, title::Title};
+        use product_listing_core::title::Title;
         let title = Localized::new(Language::Fr, Title::from("Nouveau titre"));
-        let description = Localized::new(
-            Language::De,
-            Description::from("Erster Absatz\n\nZweiter Absatz"),
-        );
         for (change, expected) in [
             (
                 ProductListingHistoryChange::TitleChanged {
@@ -743,11 +719,8 @@ mod tests {
                 serde_json::json!({"type":"TITLE_CHANGED","current":{"text":"Nouveau titre","language":"fr"}}),
             ),
             (
-                ProductListingHistoryChange::DescriptionChanged {
-                    previous: Some(description),
-                    current: None,
-                },
-                serde_json::json!({"type":"DESCRIPTION_CHANGED","previous":{"text":"Erster Absatz\n\nZweiter Absatz","language":"de"}}),
+                ProductListingHistoryChange::DescriptionChanged,
+                serde_json::json!({"type":"DESCRIPTION_CHANGED"}),
             ),
         ] {
             let entry = ProductListingHistoryEntry {
