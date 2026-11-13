@@ -667,7 +667,6 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
             "productListingTitleSlugId",
             "listingSourceName",
             "url",
-            "viewUrl",
         ] {
             assert!(payload[field].is_string(), "{field}: {payload}");
         }
@@ -676,7 +675,10 @@ fn assert_payload(item: &Value, foreign_id: NotificationId) {
         assert_eq!("violin-a1b2c3", payload["productListingTitleSlugId"]);
         assert_eq!("Snapshot Source", payload["listingSourceName"]);
         assert_eq!("https://example.test/item", payload["url"]);
-        assert_eq!("https://example.test/item?view=1", payload["viewUrl"]);
+        assert_eq!(
+            json!({"url": "https://example.test/item?view=1", "affiliate": false}),
+            payload["viewLink"]
+        );
         assert_eq!(
             json!({"localized":{"text":"Geige","language":"de"}}),
             payload["title"]

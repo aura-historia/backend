@@ -434,7 +434,7 @@ mod tests {
     }
 
     #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-    async fn should_derive_view_url_from_the_source_referral_on_every_search_path() {
+    async fn should_derive_view_link_from_the_source_referral_on_every_search_path() {
         let pool = get_postgres_client().await;
         let operator_id = uuid::Uuid::now_v7();
         insert_party(&pool, operator_id, "view-operator", "Gallery Operator").await;
@@ -471,25 +471,37 @@ mod tests {
             ("contains", Some("alp")),
         ] {
             let result = search(&pool, request(query, 21, None)).await;
-            let view_url = |slug: &str| {
+            let view_link = |slug: &str| {
                 result
                     .items
                     .iter()
                     .find(|item| item.listing_source_slug_id.as_ref() == slug)
                     .and_then(|item| item.website.as_ref())
-                    .map(|website| website.view_url.as_str().to_owned())
+                    .map(|website| website.view_link.clone())
             };
 
-            let referred = view_url("alpha-source").unwrap_or_default();
+            let referred = view_link("alpha-source")
+                .unwrap_or_else(|| panic!("{path}: alpha-source has no view link"));
             assert!(
-                referred.starts_with("https://prf.hn/click/camref:1101l3AbC/"),
-                "{path}: {referred}"
+                referred
+                    .url()
+                    .as_str()
+                    .starts_with("https://prf.hn/click/camref:1101l3AbC/"),
+                "{path}: {}",
+                referred.url()
             );
-            let plain = view_url("alpine-source").unwrap_or_default();
+            assert!(referred.is_affiliate(), "{path}");
+            let plain = view_link("alpine-source")
+                .unwrap_or_else(|| panic!("{path}: alpine-source has no view link"));
             assert!(
-                plain.starts_with("https://alpine.example.test/shop?utm_source=aura_historia"),
-                "{path}: {plain}"
+                plain
+                    .url()
+                    .as_str()
+                    .starts_with("https://alpine.example.test/shop?utm_source=aura_historia"),
+                "{path}: {}",
+                plain.url()
             );
+            assert!(!plain.is_affiliate(), "{path}");
         }
     }
 

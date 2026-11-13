@@ -1,6 +1,6 @@
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, ViewLink};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
@@ -180,6 +180,10 @@ struct ProductListingNotificationSnapshotV1 {
     content_policy: Option<PersistedContentPolicyDecision>,
     url: Url,
     view_url: Url,
+    /// Absent from snapshots written before affiliate links were disclosed. No ListingSource had
+    /// a referral configuration then, so such a `view_url` is never an affiliate link.
+    #[serde(default)]
+    view_url_affiliate: Option<bool>,
 }
 
 fn serialize_listing_source_id<S>(
@@ -310,7 +314,8 @@ impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSna
             image: snapshot.image.clone(),
             content_policy: snapshot.content_policy.map(Into::into),
             url: snapshot.url.clone(),
-            view_url: snapshot.view_url.clone(),
+            view_url: snapshot.view_link.url().clone(),
+            view_url_affiliate: Some(snapshot.view_link.is_affiliate()),
         }
     }
 }
@@ -347,7 +352,10 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             image: snapshot.image,
             content_policy: snapshot.content_policy.map(TryInto::try_into).transpose()?,
             url: snapshot.url,
-            view_url: snapshot.view_url,
+            view_link: match snapshot.view_url_affiliate {
+                Some(true) => ViewLink::affiliate(snapshot.view_url),
+                Some(false) | None => ViewLink::non_affiliate(snapshot.view_url),
+            },
         })
     }
 }
@@ -815,7 +823,7 @@ mod tests {
             image: None,
             content_policy: None,
             url: Url::parse("https://source.example/listings/42")?,
-            view_url: Url::parse("https://aura.example/listings/rare-vase")?,
+            view_link: ViewLink::affiliate(Url::parse("https://aura.example/listings/rare-vase")?),
         };
 
         let persisted = ProductListingNotificationSnapshotV1::from(&snapshot);
@@ -832,6 +840,7 @@ mod tests {
                 "content_policy": null,
                 "url": "https://source.example/listings/42",
                 "view_url": "https://aura.example/listings/rare-vase",
+                "view_url_affiliate": true,
             }),
             serde_json::to_value(&persisted)?
         );
@@ -840,6 +849,30 @@ mod tests {
             ProductListingNotificationSnapshot::try_from(persisted)?
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn should_read_snapshot_without_affiliate_flag_as_non_affiliate_link()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let persisted =
+            serde_json::from_value::<ProductListingNotificationSnapshotV1>(serde_json::json!({
+                "listing_source_id": ListingSourceId::new().as_uuid().to_string(),
+                "source_listing_id": "source-listing-42",
+                "listing_source_slug_id": "northwind-source",
+                "product_listing_title_slug_id": "rare-vase-000000",
+                "listing_source_name": "Northwind Source",
+                "title": null,
+                "image": null,
+                "content_policy": null,
+                "url": "https://source.example/listings/42",
+                "view_url": "https://aura.example/listings/rare-vase"
+            }))?;
+
+        assert_eq!(
+            ViewLink::non_affiliate(Url::parse("https://aura.example/listings/rare-vase")?),
+            ProductListingNotificationSnapshot::try_from(persisted)?.view_link
+        );
         Ok(())
     }
 

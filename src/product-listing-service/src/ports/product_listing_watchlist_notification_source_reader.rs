@@ -1,6 +1,7 @@
 use crate::ports::ListingSourceSummary;
 use application::error::BoxError;
 use domain_primitives::event_id::EventId;
+use listing_source_core::ViewLink;
 use localization::Language;
 use product_listing_core::product_listing_price::ProductListingPrice;
 use product_listing_core::{
@@ -26,7 +27,7 @@ pub struct ProductListingWatchlistNotificationSource {
     pub image: Option<ProductListingImage>,
     pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
     pub changes: Vec<ProductListingWatchlistNotificationChange>,
 }
 

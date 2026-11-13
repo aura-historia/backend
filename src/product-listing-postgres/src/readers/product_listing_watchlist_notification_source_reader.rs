@@ -7,7 +7,7 @@ use crate::{
 };
 use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
-use listing_source_core::{ListingSourceName, ListingSourceSlugId, outbound_url};
+use listing_source_core::{ListingSourceName, ListingSourceSlugId, view_link};
 
 use platform_postgres::SqlxTransaction;
 use product_listing_core::{
@@ -217,7 +217,7 @@ impl ProductListingWatchlistNotificationSourceReader
             .next();
         let url = url::Url::parse(&row.url)
             .map_err(WatchlistNotificationSourceMappingError::with_source)?;
-        let view_url = outbound_url(
+        let view_link = view_link(
             referral_configuration(row.listing_source_referral_configuration.as_ref())
                 .map_err(|_| {
                     WatchlistNotificationSourceMappingError::invalid(
@@ -261,7 +261,7 @@ impl ProductListingWatchlistNotificationSourceReader
                     row.content_policy_decision.as_deref(),
                     row.content_policy_category.as_deref(),
                 )?,
-                view_url,
+                view_link,
                 url,
                 changes,
             },

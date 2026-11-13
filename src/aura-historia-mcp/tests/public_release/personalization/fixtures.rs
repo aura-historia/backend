@@ -112,7 +112,9 @@ impl ListingFixture {
                 availability: Some(ListingAvailability::InStock),
                 lifecycle: ListingLifecycle::Active,
                 url: "https://source.example.test/listing/42".parse().unwrap(),
-                view_url: "https://source.example.test/listing/42".parse().unwrap(),
+                view_link: listing_source_core::ViewLink::non_affiliate(
+                    "https://source.example.test/listing/42".parse().unwrap(),
+                ),
                 images: [ProductListingImage::new(
                     "https://images.example.test/sensitive.jpg".parse().unwrap(),
                 )]

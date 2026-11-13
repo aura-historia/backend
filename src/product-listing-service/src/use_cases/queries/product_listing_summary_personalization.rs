@@ -16,7 +16,9 @@ use product_listing_core::product_listing_id::ProductListingId;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use crate::ports::{ListingSourceOperatorSummary, ListingSourceSummary};
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, outbound_url};
+use listing_source_core::{
+    ListingSourceId, ListingSourceName, ListingSourceSlugId, ViewLink, view_link,
+};
 use party_core::party_name::PartyName;
 use product_listing_core::source_listing_id::SourceListingId;
 use user_core::user_id::UserId;
@@ -57,8 +59,8 @@ pub(crate) enum ProductListingSummaryPersonalizationError {
     UserStateMissing {
         product_listing_id: ProductListingId,
     },
-    #[error("product listing view URL could not be constructed")]
-    ViewUrlInvalid {
+    #[error("product listing view link could not be constructed")]
+    ViewLinkInvalid {
         #[source]
         source: BoxError,
     },
@@ -130,16 +132,16 @@ pub(crate) fn attach_listing_sources(
                     listing_source_id,
                 },
             )?;
-            let view_url = outbound_url(source.referral_configuration.as_ref(), &item.url)
-                .map_err(
-                    |source| ProductListingSummaryPersonalizationError::ViewUrlInvalid {
+            let view_link =
+                view_link(source.referral_configuration.as_ref(), &item.url).map_err(|source| {
+                    ProductListingSummaryPersonalizationError::ViewLinkInvalid {
                         source: box_error(source),
-                    },
-                )?;
+                    }
+                })?;
             Ok(ProductListingSearchItemWithSource {
                 item,
                 source: source.summary,
-                view_url,
+                view_link,
             })
         })
         .collect()
@@ -247,7 +249,7 @@ fn redact_hidden_product_search_item(
     product.item.availability = None;
     product.item.lifecycle = ListingLifecycle::Active;
     product.item.url = hidden_url.clone();
-    product.view_url = hidden_url;
+    product.view_link = ViewLink::non_affiliate(hidden_url);
     product.item.images.clear();
     product.item.updated = OffsetDateTime::UNIX_EPOCH;
 
@@ -440,16 +442,20 @@ mod tests {
         );
         assert!(
             products[0]
-                .view_url
+                .view_link
+                .url()
                 .as_str()
                 .starts_with("https://prf.hn/click/camref:campaign/")
         );
+        assert!(products[0].view_link.is_affiliate());
         assert!(
             products[1]
-                .view_url
+                .view_link
+                .url()
                 .as_str()
                 .contains("utm_source=aura_historia")
         );
+        assert!(!products[1].view_link.is_affiliate());
         let requests = match reader.requests.lock() {
             Ok(requests) => requests,
             Err(poisoned) => poisoned.into_inner(),
@@ -458,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn should_remove_auction_data_from_hidden_product_summary() {
+    fn should_remove_auction_data_and_affiliate_link_from_hidden_product_summary() {
         let listing_source_id = ListingSourceId::new();
         let auction_id = AuctionId::new();
         let product_listing_id = ProductListingId::new();
@@ -481,8 +487,10 @@ mod tests {
             item: ProductListingSearchItemWithSource {
                 item,
                 source,
-                view_url: Url::parse("https://source.example/cabinet")
-                    .unwrap_or_else(|error| panic!("valid test view URL: {error}")),
+                view_link: ViewLink::affiliate(
+                    Url::parse("https://prf.hn/click/camref:campaign/destination:cabinet")
+                        .unwrap_or_else(|error| panic!("valid test view URL: {error}")),
+                ),
             },
             user_state: None,
         }];
@@ -497,6 +505,13 @@ mod tests {
 
         assert!(result.is_ok());
         assert_eq!(None, summaries[0].item.auction_id);
+        assert_eq!(
+            &ViewLink::non_affiliate(
+                Url::parse(HIDDEN_PRODUCT_LISTING_URL)
+                    .unwrap_or_else(|error| panic!("valid hidden URL: {error}"))
+            ),
+            &summaries[0].item.view_link
+        );
     }
 
     #[tokio::test]

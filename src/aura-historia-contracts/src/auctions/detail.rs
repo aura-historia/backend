@@ -15,9 +15,9 @@ pub struct PublicAuctionData {
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalogue_url: Option<url::Url>,
-    #[schemars(schema_with = "crate::wire::schema::optional_view_url")]
+    #[schemars(description = crate::wire::description::VIEW_LINK)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub view_url: Option<url::Url>,
+    pub view_link: Option<crate::values::ViewLinkData>,
     #[schemars(schema_with = "super::format_schema")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<&'static str>,
@@ -35,11 +35,12 @@ impl TryFrom<PublicAuctionDetails> for PublicAuctionData {
     type Error = listing_source_core::ReferralUrlError;
 
     fn try_from(value: PublicAuctionDetails) -> Result<Self, Self::Error> {
-        let view_url = value
+        let view_link = value
             .catalogue_url
             .as_ref()
             .map(|url| {
-                listing_source_core::outbound_url(value.source.referral_configuration.as_ref(), url)
+                listing_source_core::view_link(value.source.referral_configuration.as_ref(), url)
+                    .map(Into::into)
             })
             .transpose()?;
         Ok(Self {
@@ -52,7 +53,7 @@ impl TryFrom<PublicAuctionDetails> for PublicAuctionData {
             },
             name: value.name.map(Into::into),
             catalogue_url: value.catalogue_url,
-            view_url,
+            view_link,
             format: value.format.map(AuctionFormat::as_str),
             schedule: value.schedule.into(),
             reported_status: value.reported_status.map(AuctionReportedStatus::as_str),

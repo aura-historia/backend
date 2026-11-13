@@ -1156,7 +1156,9 @@ mod tests {
                     ),
                     lifecycle: product_listing_core::listing_lifecycle::ListingLifecycle::Active,
                     url: "https://source.example/product/42".parse().unwrap(),
-                    view_url: "https://aura.example/product/42".parse().unwrap(),
+                    view_link: listing_source_core::ViewLink::non_affiliate(
+                        "https://aura.example/product/42".parse().unwrap(),
+                    ),
                     images: vec![ProductListingImageView {
                         url: Some("https://source.example/image.jpg".parse().unwrap()),
                     }],

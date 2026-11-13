@@ -252,14 +252,14 @@ fn has_only_object_variants(schema: &JsonObject) -> bool {
 
 /// A tool states the shared rules that apply to its schemas, so no tool can leave one out: how
 /// money amounts are encoded when its arguments or result contain one, and how to link to a
-/// provider when its result contains a `viewUrl`.
+/// provider when its result contains a `viewLink`.
 fn with_shared_rules(
     description: &'static str,
     input: &JsonObject,
     output: &JsonObject,
 ) -> Cow<'static, str> {
     let amounts = object_declares_money(input) || object_declares_money(output);
-    let links = object_declares_view_url(output);
+    let links = object_declares_view_link(output);
     match (amounts, links) {
         (false, false) => Cow::Borrowed(description),
         (true, false) => Cow::Owned(format!("{description} {MINOR_UNIT_RULE}")),
@@ -268,21 +268,21 @@ fn with_shared_rules(
     }
 }
 
-/// A result links to a provider when any object in it has a `viewUrl` member.
-pub(crate) fn declares_view_url(schema: &Value) -> bool {
+/// A result links to a provider when any object in it has a `viewLink` member.
+pub(crate) fn declares_view_link(schema: &Value) -> bool {
     match schema {
-        Value::Object(object) => object_declares_view_url(object),
-        Value::Array(items) => items.iter().any(declares_view_url),
+        Value::Object(object) => object_declares_view_link(object),
+        Value::Array(items) => items.iter().any(declares_view_link),
         _ => false,
     }
 }
 
-fn object_declares_view_url(object: &JsonObject) -> bool {
+fn object_declares_view_link(object: &JsonObject) -> bool {
     object
         .get("properties")
         .and_then(Value::as_object)
-        .is_some_and(|properties| properties.contains_key("viewUrl"))
-        || object.values().any(declares_view_url)
+        .is_some_and(|properties| properties.contains_key("viewLink"))
+        || object.values().any(declares_view_link)
 }
 
 /// A money amount is an object with `amount` and `currency` members; a distance has `unit`

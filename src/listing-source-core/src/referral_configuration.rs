@@ -109,18 +109,61 @@ pub enum ReferralConfiguration {
 #[error("could not build referral URL")]
 pub struct ReferralUrlError;
 
-pub fn outbound_url(
+/// The link Aura Historia sends people to for a provider's page, and whether it is an affiliate
+/// link, one that can earn Aura Historia a commission and so must be disclosed as such.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewLink {
+    url: Url,
+    affiliate: bool,
+}
+
+impl ViewLink {
+    pub fn affiliate(url: Url) -> Self {
+        Self {
+            url,
+            affiliate: true,
+        }
+    }
+
+    /// A link that earns no commission: a provider address carrying only Aura Historia's
+    /// tracking parameters, or a link to Aura Historia itself.
+    pub fn non_affiliate(url: Url) -> Self {
+        Self {
+            url,
+            affiliate: false,
+        }
+    }
+
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    pub fn into_url(self) -> Url {
+        self.url
+    }
+
+    pub fn is_affiliate(&self) -> bool {
+        self.affiliate
+    }
+}
+
+/// The link to send people to for `destination`: the source's affiliate link when it has a
+/// referral configuration, otherwise `destination` tagged with Aura Historia's UTM parameters.
+pub fn view_link(
     referral_configuration: Option<&ReferralConfiguration>,
     destination: &Url,
-) -> Result<Url, ReferralUrlError> {
+) -> Result<ViewLink, ReferralUrlError> {
     match referral_configuration {
         Some(ReferralConfiguration::Partnerize { camref }) => Url::parse(&format!(
             "https://prf.hn/click/camref:{}/pubref:aurahistoria/destination:{}",
             utf8_percent_encode(camref.as_ref(), NON_ALPHANUMERIC),
             utf8_percent_encode(destination.as_str(), PARTNERIZE_DESTINATION)
         ))
+        .map(ViewLink::affiliate)
         .map_err(|_| ReferralUrlError),
-        None => Ok(append_aura_utm(destination.clone())),
+        None => Ok(ViewLink::non_affiliate(append_aura_utm(
+            destination.clone(),
+        ))),
     }
 }
 
@@ -175,40 +218,45 @@ mod tests {
     }
 
     #[test]
-    fn should_encode_partnerize_camref_defensively_when_building_outbound_url() {
+    fn should_build_affiliate_view_link_with_defensively_encoded_camref_when_referral_is_configured()
+     {
         let destination = Url::parse("https://source.example/item?colour=red")
             .unwrap_or_else(|error| panic!("test URL: {error}"));
         let camref = PartnerizeCamref::try_from("1101l3AbC")
             .unwrap_or_else(|error| panic!("test camref: {error}"));
 
-        let result = outbound_url(
+        let result = view_link(
             Some(&ReferralConfiguration::Partnerize { camref }),
             &destination,
         )
         .unwrap_or_else(|error| panic!("could not build referral URL: {error}"));
 
         assert_eq!(
-            Url::parse(
-                "https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Fsource.example%2Fitem%3Fcolour%3Dred",
-            )
-            .unwrap_or_else(|error| panic!("test URL: {error}")),
+            ViewLink::affiliate(
+                Url::parse(
+                    "https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Fsource.example%2Fitem%3Fcolour%3Dred",
+                )
+                .unwrap_or_else(|error| panic!("test URL: {error}"))
+            ),
             result
         );
     }
 
     #[test]
-    fn should_build_aura_utm_outbound_url_when_referral_is_not_configured() {
+    fn should_build_non_affiliate_aura_utm_view_link_when_referral_is_not_configured() {
         let destination = Url::parse("https://source.example/item?colour=red")
             .unwrap_or_else(|error| panic!("test URL: {error}"));
 
-        let result = outbound_url(None, &destination)
+        let result = view_link(None, &destination)
             .unwrap_or_else(|error| panic!("could not build referral URL: {error}"));
 
         assert_eq!(
-            Url::parse(
-                "https://source.example/item?colour=red&utm_source=aura_historia&utm_medium=referral",
-            )
-            .unwrap_or_else(|error| panic!("test URL: {error}")),
+            ViewLink::non_affiliate(
+                Url::parse(
+                    "https://source.example/item?colour=red&utm_source=aura_historia&utm_medium=referral",
+                )
+                .unwrap_or_else(|error| panic!("test URL: {error}"))
+            ),
             result
         );
     }

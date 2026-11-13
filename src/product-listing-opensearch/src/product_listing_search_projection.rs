@@ -640,7 +640,9 @@ mod tests {
                 availability: None,
                 lifecycle: ListingLifecycle::Active,
                 url: "https://example.test/listing".parse()?,
-                view_url: "https://example.test/listing".parse()?,
+                view_link: listing_source_core::ViewLink::non_affiliate(
+                    "https://example.test/listing".parse()?,
+                ),
                 image: None,
                 images: Default::default(),
                 embedding: Some(

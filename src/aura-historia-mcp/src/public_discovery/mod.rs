@@ -239,7 +239,7 @@ mod tests {
         .structured_content
         .unwrap();
         assert_eq!(
-            json!({"listingSourceId":source_id(),"listingSourceSlugId":"museum-source","name":"Museum Source","operator":{"name":"Museum Operator","partner":true},"url":"https://museum.example.test/","viewUrl":"https://museum.example.test/?utm_source=aura_historia&utm_medium=referral","image":"https://museum.example.test/card.jpg"}),
+            json!({"listingSourceId":source_id(),"listingSourceSlugId":"museum-source","name":"Museum Source","operator":{"name":"Museum Operator","partner":true},"url":"https://museum.example.test/","viewLink":{"url":"https://museum.example.test/?utm_source=aura_historia&utm_medium=referral","affiliate":false},"image":"https://museum.example.test/card.jpg"}),
             detail
         );
         let search = call(&registry, "searchPublicListingSources", json!({}))
@@ -625,10 +625,11 @@ mod tests {
                 },
                 website: Some(PublicListingSourceWebsite {
                     url: "https://museum.example.test/".parse().unwrap(),
-                    view_url:
+                    view_link: listing_source_core::ViewLink::non_affiliate(
                         "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral"
                             .parse()
                             .unwrap(),
+                    ),
                 }),
                 image: Some("https://museum.example.test/card.jpg".parse().unwrap()),
             }

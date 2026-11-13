@@ -25,7 +25,8 @@ pub use listing_source_slug_id::{InvalidListingSourceSlug, ListingSourceSlugId};
 pub use listing_source_type::{InvalidListingSourceType, ListingSourceType};
 pub use platform_technology::{PlatformTechnology, PlatformTechnologyError};
 pub use referral_configuration::{
-    PartnerizeCamref, PartnerizeCamrefError, ReferralConfiguration, ReferralUrlError, outbound_url,
+    PartnerizeCamref, PartnerizeCamrefError, ReferralConfiguration, ReferralUrlError, ViewLink,
+    view_link,
 };
 pub use sort_listing_source_field::SortListingSourceField;
 pub use woocommerce_webhook_secret::{InvalidWoocommerceWebhookSecret, WoocommerceWebhookSecret};

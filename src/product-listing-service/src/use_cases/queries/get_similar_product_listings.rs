@@ -335,7 +335,7 @@ impl From<ProductListingSummaryPersonalizationError> for GetSimilarProductListin
             ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
                 listing_source_id,
             } => Self::ListingSourceSummaryMissing { listing_source_id },
-            ProductListingSummaryPersonalizationError::ViewUrlInvalid { source } => {
+            ProductListingSummaryPersonalizationError::ViewLinkInvalid { source } => {
                 Self::ListingSourceSummaryReadModelInvalid { source }
             }
             ProductListingSummaryPersonalizationError::UserStateQueryFailed { source } => {

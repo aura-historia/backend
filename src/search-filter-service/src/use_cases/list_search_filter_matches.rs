@@ -653,7 +653,7 @@ mod tests {
                 lifecycle: ListingLifecycle::Active,
                 content_policy: None,
                 url: url.clone(),
-                view_url: url,
+                view_link: listing_source_core::ViewLink::non_affiliate(url),
                 images: IndexSet::new(),
                 auction: None,
                 lot: None,

@@ -97,8 +97,9 @@ async fn should_expose_public_collection_and_exact_slug_detail_anonymously() {
         Some(
             "https://prf.hn/click/camref:affiliatecampaign/pubref:aurahistoria/destination:https%3A%2F%2Flisting-source-search.example%2F"
         ),
-        item["viewUrl"].as_str()
+        item["viewLink"]["url"].as_str()
     );
+    assert_eq!(Some(true), item["viewLink"]["affiliate"].as_bool());
     assert!(item.get("referralConfiguration").is_none());
     assert!(item.get("ingestionMethods").is_none());
     assert!(item.get("platformTechnology").is_none());

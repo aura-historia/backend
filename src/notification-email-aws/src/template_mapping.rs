@@ -314,7 +314,7 @@ pub(crate) fn template_data(
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
-                snapshot.view_url.to_string(),
+                snapshot.view_link.url().to_string(),
             );
             match change {
                 LocalizedNotificationWatchlistChange::PriceChange {
@@ -353,7 +353,7 @@ pub(crate) fn template_data(
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
-                snapshot.view_url.to_string(),
+                snapshot.view_link.url().to_string(),
             );
             let search_filter_id = user_search_filter_id.to_string();
             data["search_filter_url"] = json!(links.search_filter(&search_filter_id));
@@ -437,7 +437,7 @@ fn digest_template_data(
                         &snapshot.product_listing_title_slug_id,
                         snapshot.title.map(|title| title.payload.to_string()),
                         image,
-                        snapshot.view_url.to_string(),
+                        snapshot.view_link.url().to_string(),
                     );
                     card["searches"] = json!([]);
                     card
@@ -1210,7 +1210,7 @@ mod tests {
                     image: Some(Url::parse("https://shop.example/image.jpg")?),
                     content_policy,
                     url: Url::parse("https://shop.example/product")?,
-                    view_url: Url::parse("https://aura-historia.example/product")?,
+                    view_link: listing_source_core::ViewLink::non_affiliate(Url::parse("https://aura-historia.example/product")?),
                 },
                 change: NotificationWatchlistChange::AvailabilityChange {
                     old_availability: Some(ListingAvailability::Available),

@@ -1,6 +1,7 @@
 use crate::ports::ListingSourceSummary;
 use domain_primitives::event_id::EventId;
 use indexmap::IndexSet;
+use listing_source_core::ViewLink;
 use localization::Language;
 use localization::Localized;
 use product_listing_core::{
@@ -64,7 +65,7 @@ pub struct ProductListingSearchFilterMatchSource {
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
     pub image: Option<ProductListingImage>,
     pub images: IndexSet<ProductListingImage>,
     /// Authoritative embedding, when enrichment completed.

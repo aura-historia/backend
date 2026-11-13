@@ -33,7 +33,7 @@ use product_listing_core::product_listing_price::ProductListingPrice;
 use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use crate::ports::ListingSourceSummary;
-use listing_source_core::ListingSourceId;
+use listing_source_core::{ListingSourceId, ViewLink};
 use product_listing_core::source_listing_id::SourceListingId;
 
 use crate::user_state::{ProductListingUserState, ProductListingUserStateView};
@@ -105,7 +105,7 @@ pub struct ProductListingSummary {
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
     /// The listing's first image; collections present one image rather than the whole gallery.
     pub image: Option<super::get_product_listing::ProductListingImageView>,
     pub content_policy: Option<ContentPolicyDecision>,
@@ -136,7 +136,7 @@ pub type ProductListingSummaryWithUserState =
 pub(crate) struct ProductListingSearchItemWithSource {
     pub(crate) item: ProductListingSearchItem,
     pub(crate) source: ListingSourceSummary,
-    pub(crate) view_url: Url,
+    pub(crate) view_link: ViewLink,
 }
 
 pub(crate) type PersonalizedProductListingSearchItem =
@@ -502,7 +502,7 @@ pub(crate) fn present_product_summaries_from_assessments(
                     availability: product.item.item.availability,
                     lifecycle: product.item.item.lifecycle,
                     url: product.item.item.url,
-                    view_url: product.item.view_url,
+                    view_link: product.item.view_link,
                     image: product.item.item.images.into_iter().next().map(|image| {
                         super::get_product_listing::ProductListingImageView {
                             url: visible.then(|| image.url().clone()),
@@ -650,7 +650,7 @@ impl From<ProductListingSummaryPersonalizationError> for SearchProductListingsEr
             ProductListingSummaryPersonalizationError::ListingSourceSummaryMissing {
                 listing_source_id,
             } => Self::ListingSourceSummaryMissing { listing_source_id },
-            error @ ProductListingSummaryPersonalizationError::ViewUrlInvalid { .. } => {
+            error @ ProductListingSummaryPersonalizationError::ViewLinkInvalid { .. } => {
                 Self::ProductListingSearchReadModelInvalid {
                     source: box_error(error),
                 }
@@ -1472,7 +1472,7 @@ mod tests {
                     partner: false,
                 },
             },
-            view_url: item.url.clone(),
+            view_link: ViewLink::non_affiliate(item.url.clone()),
             item,
         }
     }

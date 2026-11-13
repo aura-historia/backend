@@ -40,13 +40,14 @@ async fn should_find_exact_slug_with_public_projection() {
                 && summary.name.as_ref() == "Detail Source"
                 && summary.operator.name.as_ref() == "Detail Operator"
                 && summary.website.as_ref().is_some_and(|website| website.url.as_str() == "https://example.test/source"
-                    && website.view_url.as_str() == "https://example.test/source?utm_source=aura_historia&utm_medium=referral")
+                    && website.view_link.url().as_str() == "https://example.test/source?utm_source=aura_historia&utm_medium=referral"
+                    && !website.view_link.is_affiliate())
                 && summary.image.is_none()
     ));
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_route_view_url_through_the_source_referral_configuration() {
+async fn should_route_view_link_through_the_source_referral_configuration() {
     let pool = get_postgres_client().await;
     let party_id = uuid::Uuid::now_v7();
     insert_party(&pool, party_id, "referral-operator", "Referral Operator").await;
@@ -76,12 +77,14 @@ async fn should_route_view_url_through_the_source_referral_configuration() {
     assert_eq!("https://example.test/source", website.url.as_str());
     assert!(
         website
-            .view_url
+            .view_link
+            .url()
             .as_str()
             .starts_with("https://prf.hn/click/camref:1101l3AbC/"),
         "{}",
-        website.view_url
+        website.view_link.url()
     );
+    assert!(website.view_link.is_affiliate());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

@@ -441,11 +441,12 @@ fn should_emit_complete_public_auction_metadata_and_direct_schedule_without_admi
     assert_eq!(53, value["reportedLotCount"]);
     assert_eq!(42, value["visibleListingCount"]);
     assert!(
-        value["viewUrl"]
+        value["viewLink"]["url"]
             .as_str()
             .ok_or("no URL")?
             .contains("utm_source=aura_historia")
     );
+    assert_eq!(false, value["viewLink"]["affiliate"]);
     assert_eq!("https://example.test/catalogue", value["catalogueUrl"]);
     for private in [
         "sourceAuctionId",

@@ -111,8 +111,8 @@ struct WatchlistNotificationPayloadData {
     image: Option<ProductListingImageData>,
     #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::view_url")]
-    view_url: Url,
+    #[schemars(description = crate::wire::description::VIEW_LINK)]
+    view_link: crate::values::ViewLinkData,
     change: WatchlistNotificationChangeData,
 }
 
@@ -165,8 +165,8 @@ struct SearchFilterNotificationPayloadData {
     image: Option<ProductListingImageData>,
     #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::view_url")]
-    view_url: Url,
+    #[schemars(description = crate::wire::description::VIEW_LINK)]
+    view_link: crate::values::ViewLinkData,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -213,7 +213,7 @@ impl
                     title: snapshot.title,
                     image: snapshot.image,
                     url: snapshot.url,
-                    view_url: snapshot.view_url,
+                    view_link: snapshot.view_link,
                     change: change.into(),
                 })
             }
@@ -238,7 +238,7 @@ impl
                     title: snapshot.title,
                     image: snapshot.image,
                     url: snapshot.url,
-                    view_url: snapshot.view_url,
+                    view_link: snapshot.view_link,
                 })
             }
 
@@ -275,7 +275,7 @@ fn notification_product_snapshot(
         )
         .map(ProductListingImageData::from_presented),
         url: snapshot.url,
-        view_url: snapshot.view_url,
+        view_link: snapshot.view_link.into(),
     }
 }
 
@@ -292,7 +292,7 @@ struct NotificationProductListingSnapshotData {
     title: Option<ListingTextData>,
     image: Option<ProductListingImageData>,
     url: Url,
-    view_url: Url,
+    view_link: crate::values::ViewLinkData,
 }
 
 impl From<LocalizedNotificationWatchlistChange> for WatchlistNotificationChangeData {

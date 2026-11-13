@@ -9,7 +9,7 @@ use application::error::{BoxError, box_error, static_error};
 use domain_primitives::event_id::EventId;
 
 use indexmap::IndexSet;
-use listing_source_core::{ListingSourceName, ListingSourceSlugId, outbound_url};
+use listing_source_core::{ListingSourceName, ListingSourceSlugId, view_link};
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use platform_postgres::SqlxTransaction;
@@ -360,9 +360,9 @@ fn source_from_rows(
             "persisted product search-filter match referral configuration is invalid",
         )
     })?;
-    let view_url = outbound_url(referral_configuration.as_ref(), &url).map_err(|_| {
+    let view_link = view_link(referral_configuration.as_ref(), &url).map_err(|_| {
         SourceRowMappingError::invalid(
-            "persisted product search-filter match source view URL is invalid",
+            "persisted product search-filter match source view link is invalid",
         )
     })?;
 
@@ -436,7 +436,7 @@ fn source_from_rows(
         sale_observation,
         availability: availability(row.availability.as_deref())?,
         lifecycle: lifecycle(&row.lifecycle)?,
-        view_url,
+        view_link,
         url,
         image: images.iter().next().cloned(),
         images,

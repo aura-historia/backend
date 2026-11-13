@@ -114,8 +114,8 @@ pub struct ProductListingDetailsData<
     lifecycle: ListingLifecycle,
     #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::view_url")]
-    view_url: Url,
+    #[schemars(description = crate::wire::description::VIEW_LINK)]
+    view_link: crate::values::ViewLinkData,
     #[serde(flatten)]
     images: Images,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -247,8 +247,8 @@ pub struct ProductListingSummaryData {
     lifecycle: ListingLifecycle,
     #[schemars(schema_with = "crate::wire::schema::source_url")]
     url: Url,
-    #[schemars(schema_with = "crate::wire::schema::view_url")]
-    view_url: Url,
+    #[schemars(description = crate::wire::description::VIEW_LINK)]
+    view_link: crate::values::ViewLinkData,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<ProductListingImageData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -432,7 +432,7 @@ where
             availability: view.availability,
             lifecycle: view.lifecycle,
             url: view.url,
-            view_url: view.view_url,
+            view_link: view.view_link.into(),
             images: Images::project(view.images),
             content_policy: view.content_policy.map(Into::into),
             auction: view.auction.map(Into::into),
@@ -722,7 +722,7 @@ impl ProductListingSummaryData {
             availability: summary.availability,
             lifecycle: summary.lifecycle,
             url: summary.url,
-            view_url: summary.view_url,
+            view_link: summary.view_link.into(),
             image: summary.image.map(Into::into),
             content_policy: summary.content_policy.map(Into::into),
             geography: summary.geography.map(Into::into),

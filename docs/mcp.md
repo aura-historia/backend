@@ -150,9 +150,10 @@ there are no per-directory variants. Check new or changed tools against the
   as continuation, background matching, conflicts or non-idempotent creation, stated as facts
   about the tool. They give the model no behavioural instructions, promote nothing and name no
   other tool to call.
-- **Provider links.** Results pair a provider's own `url` with `viewUrl`, the referral-tagged
-  link meant to be shared. Both fields carry shared descriptions (`wire::description`), and the
-  registry appends the shared link statement to each tool whose result has a `viewUrl`. Like every
+- **Provider links.** Results pair a provider's own `url` with `viewLink`: the referral-tagged
+  `url` meant to be shared and whether it is an `affiliate` link. These fields carry shared
+  descriptions (`wire::description`), and the registry appends the shared link statement to each
+  tool whose result has a `viewLink`. Like every
   description, the appended text states a fact about the result. The server's `instructions` say
   only that Aura Historia is a discovery service and that people should confirm price and
   availability with the provider; they do not direct which link to share, and

@@ -248,7 +248,7 @@ fn notification_content(
             image: source.image.map(|image| image.url().clone()),
             content_policy: source.content_policy,
             url: source.url,
-            view_url: source.view_url,
+            view_link: source.view_link,
         },
         change,
     }
@@ -334,8 +334,10 @@ mod tests {
             content_policy: None,
             url: Url::parse("https://example.test/product")
                 .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
-            view_url: Url::parse("https://example.test/product/view")
-                .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
+            view_link: listing_source_core::ViewLink::non_affiliate(
+                Url::parse("https://example.test/product/view")
+                    .unwrap_or_else(|error| panic!("test URL invalid: {error}")),
+            ),
             changes: vec![ProductListingWatchlistNotificationChange::PriceChanged {
                 old_price: None,
                 new_price: None,

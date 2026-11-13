@@ -9,7 +9,7 @@ use aura_historia_contracts::{
     public_overview::PublicOverviewData,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, ViewLink};
 use listing_source_service::use_cases::queries::{
     public_listing_source::{
         PublicListingSourceOperatorSummary, PublicListingSourceSummary, PublicListingSourceWebsite,
@@ -182,7 +182,7 @@ fn should_expose_exact_public_source_fields_and_omit_absent_images_and_urls() {
 }
 
 #[test]
-fn should_expose_view_url_next_to_url_when_the_source_has_a_website() {
+fn should_expose_view_link_next_to_url_when_the_source_has_a_website() {
     let source = PublicListingSourceSummary {
         listing_source_id: source_id(),
         listing_source_slug_id: ListingSourceSlugId::raw("museum-source").unwrap(),
@@ -193,9 +193,11 @@ fn should_expose_view_url_next_to_url_when_the_source_has_a_website() {
         },
         website: Some(PublicListingSourceWebsite {
             url: "https://museum.example.test/".parse().unwrap(),
-            view_url: "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral"
-                .parse()
-                .unwrap(),
+            view_link: ViewLink::non_affiliate(
+                "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral"
+                    .parse()
+                    .unwrap(),
+            ),
         }),
         image: None,
     };
@@ -207,7 +209,10 @@ fn should_expose_view_url_next_to_url_when_the_source_has_a_website() {
             "name": "Museum Source",
             "operator": {"name": "Museum Operator", "partner": false},
             "url": "https://museum.example.test/",
-            "viewUrl": "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral",
+            "viewLink": {
+                "url": "https://museum.example.test/?utm_source=aura_historia&utm_medium=referral",
+                "affiliate": false,
+            },
         }),
         output(PublicListingSourceData::from(source))
     );

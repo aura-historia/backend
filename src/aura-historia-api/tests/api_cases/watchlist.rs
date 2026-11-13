@@ -751,12 +751,14 @@ async fn should_preserve_hidden_product_redaction_when_updating_watchlist() {
             body["item"]["title"]
         );
         assert_eq!(serde_json::json!("Hidden"), body["item"]["source"]["name"]);
-        for field in ["url", "viewUrl"] {
-            assert_eq!(
-                serde_json::json!("https://aura-historia.com/#pricing"),
-                body["item"][field]
-            );
-        }
+        assert_eq!(
+            serde_json::json!("https://aura-historia.com/#pricing"),
+            body["item"]["url"]
+        );
+        assert_eq!(
+            serde_json::json!({"url": "https://aura-historia.com/#pricing", "affiliate": false}),
+            body["item"]["viewLink"]
+        );
         assert_eq!(serde_json::json!({}), body["item"]["pricing"]["source"]);
         assert_eq!(serde_json::json!({}), body["item"]["pricing"]["display"]);
         assert_eq!(serde_json::json!([]), body["item"]["images"]);

@@ -104,8 +104,8 @@ pub struct PublicListingSourceData {
     #[schemars(schema_with = "crate::wire::schema::optional_source_url")]
     url: Option<Url>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(schema_with = "crate::wire::schema::optional_view_url")]
-    view_url: Option<Url>,
+    #[schemars(description = crate::wire::description::VIEW_LINK)]
+    view_link: Option<crate::values::ViewLinkData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(schema_with = "crate::wire::schema::optional_url")]
     image: Option<Url>,
@@ -113,9 +113,9 @@ pub struct PublicListingSourceData {
 
 impl From<PublicListingSourceSummary> for PublicListingSourceData {
     fn from(value: PublicListingSourceSummary) -> Self {
-        let (url, view_url) = value
+        let (url, view_link) = value
             .website
-            .map(|website| (website.url, website.view_url))
+            .map(|website| (website.url, website.view_link.into()))
             .unzip();
         Self {
             listing_source_id: value.listing_source_id,
@@ -126,7 +126,7 @@ impl From<PublicListingSourceSummary> for PublicListingSourceData {
                 value.operator.partner,
             ),
             url,
-            view_url,
+            view_link,
             image: value.image,
         }
     }

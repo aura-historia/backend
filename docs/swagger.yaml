@@ -5804,7 +5804,9 @@ paths:
                       availability: IN_STOCK
                       lifecycle: ACTIVE
                       url: https://tech-store.com/smartphone-case
-                      viewUrl: https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral
+                      viewLink:
+                        url: https://tech-store.com/smartphone-case?utm_source=aura_historia&utm_medium=referral
+                        affiliate: false
                       image:
                         url: https://tech-store.com/images/case-1.jpg
                       contentPolicy:
@@ -21464,7 +21466,7 @@ components:
         - priceValuation
         - lifecycle
         - url
-        - viewUrl
+        - viewLink
         - updated
       properties:
         shipping:
@@ -21504,10 +21506,8 @@ components:
         url:
           type: string
           format: uri
-        viewUrl:
-          type: string
-          format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
+        viewLink:
+          $ref: "#/components/schemas/ViewLinkData"
         image:
           allOf:
             - $ref: "#/components/schemas/ProductListingImageData"
@@ -21564,7 +21564,7 @@ components:
         - pricing
         - lifecycle
         - url
-        - viewUrl
+        - viewLink
         - images
         - created
         - updated
@@ -21614,10 +21614,8 @@ components:
         url:
           type: string
           format: uri
-        viewUrl:
-          type: string
-          format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
+        viewLink:
+          $ref: "#/components/schemas/ViewLinkData"
         images:
           type: array
           items:
@@ -21651,7 +21649,7 @@ components:
         - pricing
         - lifecycle
         - url
-        - viewUrl
+        - viewLink
         - created
         - updated
       properties:
@@ -21700,10 +21698,8 @@ components:
         url:
           type: string
           format: uri
-        viewUrl:
-          type: string
-          format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
+        viewLink:
+          $ref: "#/components/schemas/ViewLinkData"
         image:
           allOf:
             - $ref: "#/components/schemas/ProductListingImageData"
@@ -24941,7 +24937,7 @@ components:
         - productListingTitleSlugId
         - listingSourceName
         - url
-        - viewUrl
+        - viewLink
         - change
       properties:
         productListingId:
@@ -24966,10 +24962,8 @@ components:
         url:
           type: string
           format: uri
-        viewUrl:
-          type: string
-          format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
+        viewLink:
+          $ref: "#/components/schemas/ViewLinkData"
         change:
           $ref: "#/components/schemas/WatchlistNotificationChangeData"
     WatchlistNotificationChangeData:
@@ -25020,7 +25014,7 @@ components:
         - productListingTitleSlugId
         - listingSourceName
         - url
-        - viewUrl
+        - viewLink
       properties:
         productListingId:
           type: string
@@ -25048,10 +25042,8 @@ components:
         url:
           type: string
           format: uri
-        viewUrl:
-          type: string
-          format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
+        viewLink:
+          $ref: "#/components/schemas/ViewLinkData"
     PartnershipApplicationNotificationPayloadData:
       type: object
       required:
@@ -26032,6 +26024,20 @@ components:
         listingSourceSlugId:
           type: string
           example: ada-antiques
+    ViewLinkData:
+      type: object
+      description: The link to a provider's page that is meant to be shared with people, and whether it is an affiliate link.
+      required:
+        - url
+        - affiliate
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed. The provider's affiliate link when its ListingSource has a referral configuration, otherwise the provider's `url` with Aura Historia's `utm_source` and `utm_medium` parameters, unless it already carries a `utm_source`. Listings redacted as hidden link to Aura Historia's pricing page instead.
+        affiliate:
+          type: boolean
+          description: "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it; show an affiliate disclosure next to it and mark it `rel=\"sponsored\"`. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself."
     PublicListingSourceOperatorData:
       type: object
       description: The Party that operates a ListingSource, wherever a ListingSource is presented.
@@ -26047,7 +26053,7 @@ components:
           description: "`true` while the operator Party has an active Aura Historia Partnership, otherwise `false`, including after a Partnership is dissolved. Derived from current Partnership state when the response is built, so it can lag a Partnership change by up to the source and response cache lifetimes. Unrelated to ingestion methods (`PARTNER_API`) and referral configuration."
     PublicListingSourceData:
       type: object
-      description: Allowlisted public ListingSource card used by public collection search, exact slug lookup and the `listingSources` of a saved search filter. It omits Party identifiers/contact, ingestion/provider/referral configuration, timestamps, versions, and search metadata. The only trace of the referral configuration is `viewUrl`.
+      description: Allowlisted public ListingSource card used by public collection search, exact slug lookup and the `listingSources` of a saved search filter. It omits Party identifiers/contact, ingestion/provider/referral configuration, timestamps, versions, and search metadata. The only trace of the referral configuration is `viewLink`.
       required:
         - listingSourceId
         - listingSourceSlugId
@@ -26068,10 +26074,10 @@ components:
           type: string
           format: uri
           description: Optional http/https presentation URL, omitted when absent.
-        viewUrl:
-          type: string
-          format: uri
-          description: The link to send visitors to, derived from `url` the same way as a ProductListing's `viewUrl`. The source's affiliate link when it has a referral configuration, otherwise `url` with Aura's `utm_source` and `utm_medium` parameters, unless `url` already carries a `utm_source`. Present exactly when `url` is.
+        viewLink:
+          allOf:
+            - $ref: "#/components/schemas/ViewLinkData"
+          description: The link to send visitors to, derived from `url` the same way as a ProductListing's `viewLink`. Present exactly when `url` is.
         image:
           type: string
           format: uri
@@ -26765,10 +26771,8 @@ components:
         catalogueUrl:
           type: string
           format: uri
-        viewUrl:
-          type: string
-          format: uri
-          description: Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.
+        viewLink:
+          $ref: "#/components/schemas/ViewLinkData"
         format:
           allOf:
             - $ref: "#/components/schemas/AuctionFormatData"

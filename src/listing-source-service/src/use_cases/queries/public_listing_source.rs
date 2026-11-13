@@ -1,4 +1,4 @@
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, ViewLink};
 use party_core::party_name::PartyName;
 use url::Url;
 
@@ -13,13 +13,13 @@ pub struct PublicListingSourceSummary {
     pub image: Option<Url>,
 }
 
-/// The source's own website. `view_url` is the link to send visitors to: `url` with the source's
-/// referral or tracking applied, the way a ProductListing's view URL is derived from its URL.
-/// The two travel together so a view URL never exists without the URL it was derived from.
+/// The source's own website. `view_link` is the link to send visitors to: `url` with the source's
+/// referral or tracking applied, the way a ProductListing's view link is derived from its URL.
+/// The two travel together so a view link never exists without the URL it was derived from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicListingSourceWebsite {
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
