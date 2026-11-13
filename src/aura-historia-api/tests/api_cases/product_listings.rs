@@ -248,10 +248,7 @@ async fn should_apply_same_content_source_assessment_corrections_with_warm_searc
         get_json_from(AURA_API_WITH_ASSESSMENT_SEARCH_CACHES.base_url(), path).await;
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
-    assert_eq!(
-        json!(image_url),
-        body["items"][0]["item"]["images"][0]["url"]
-    );
+    assert_eq!(json!(image_url), body["items"][0]["item"]["image"]["url"]);
     assert_eq!(
         json!({ "decision": "ALLOWED" }),
         body["items"][0]["item"]["contentPolicy"]
@@ -269,7 +266,7 @@ async fn should_apply_same_content_source_assessment_corrections_with_warm_searc
         get_json_from(AURA_API_WITH_ASSESSMENT_SEARCH_CACHES.base_url(), path).await;
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
-    assert!(body["items"][0]["item"]["images"][0]["url"].is_null());
+    assert_eq!(json!({}), body["items"][0]["item"]["image"]);
     assert_eq!(
         json!({ "decision": "REQUIRES_CONSENT", "category": "NAZI_GERMANY" }),
         body["items"][0]["item"]["contentPolicy"]
@@ -287,7 +284,7 @@ async fn should_apply_same_content_source_assessment_corrections_with_warm_searc
         get_json_from(AURA_API_WITH_ASSESSMENT_SEARCH_CACHES.base_url(), path).await;
     let (status, body) = json_response(response).await;
     assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
-    assert!(body["items"][0]["item"]["images"][0]["url"].is_null());
+    assert_eq!(json!({}), body["items"][0]["item"]["image"]);
     assert!(body["items"][0]["item"]["contentPolicy"].is_null());
 }
 

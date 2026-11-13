@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-12 — One image per listing in collection reads
+
+- **Breaking change:** product-listing collection items no longer carry the `images` array. They carry an optional `image`: the listing's first image, with the same viewer-specific redaction (`url` omitted when the image is hidden from the viewer), and omitted when the listing has no images. This applies to `ProductListingSummaryData` (`GET /v1/product-listings`, `GET /v1/product-listings/{productListingId}/similar` and `POST /v1/me/search-filters/preview`) and `ProductListingCollectionDetailsData` (`GET /v1/me/watchlist`, `GET /v1/me/search-filters/{userSearchFilterId}/matches` and `GET /v1/auctions/{auctionId}/product-listings`), and to the MCP tools that return them: `simpleSearchProductListings`, `getSimilarProductListings`, `getWatchlistProductListings`, `listSearchFilterMatches` and `getAuctionCatalogue`.
+- Single-listing reads (`GET /v1/product-listings/{productListingId}`, `GET /v1/product-listings/by-slug/{productListingTitleSlugId}`, `PATCH /v1/me/watchlist/{productListingId}` and the MCP tools `getProductListing`, `getProductListingByTitleSlug` and `patchWatchlistProduct`) still return every image in `images`.
+
 ## 2026-11-11 — Provider names on search filters (#2902)
 
 - `UserSearchFilterData` has a new required, read-only `listingSources`: the `PublicListingSourceData` cards of every ListingSource that `search.listingSourceId` or `search.excludeListingSourceId` references, one per ID, ordered by `listingSourceId`, so clients can show provider names without further requests. An ID whose source no longer exists stays in `search` but has no card; the list is empty when the filter references no sources. It is returned by `GET /v1/me/search-filters`, `GET /v1/me/search-filters/{userSearchFilterId}`, `POST /v1/me/search-filters` and `PATCH /v1/me/search-filters/{userSearchFilterId}`, and by the MCP tools `getUserSearchFilters`, `getUserSearchFilter`, `createUserSearchFilter` and `updateUserSearchFilter`, whose descriptions now carry the `viewUrl` guidance. Request bodies are unchanged; the field cannot be set.
