@@ -1,3 +1,8 @@
+// The scraper's `async` call chain nests deeper than the default limit of 128 once the release
+// build optimizes it: computing the layout of the future in `ScraperService::scrape` failed with
+// "queries overflow the depth limit". The test profile never reaches that depth.
+#![recursion_limit = "256"]
+
 pub mod authoring;
 pub mod crawl_root;
 pub mod llm_runtime;
