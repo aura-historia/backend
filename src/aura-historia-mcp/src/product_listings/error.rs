@@ -8,12 +8,12 @@ pub(crate) fn details(error: GetProductListingError) -> OperationError {
     match error {
         Shipping(error) => shipping(error),
         NotFound => OperationError::NotFound("Listing not found: check the productListingId."),
-        error @ (ProductListingDetailsQueryFailed
+        error @ (ProductListingDetailsQueryFailed { .. }
         | PricingFxSnapshotMissing
         | PricingFxSnapshotUnavailable { .. }
         | BeginTransactionFailed(_)
         | CommitTransactionFailed(_)) => OperationError::Unavailable(Box::new(error)),
-        error @ (ProductListingDetailsReadModelInvalid
+        error @ (ProductListingDetailsReadModelInvalid { .. }
         | PricingFxSnapshotInvalid { .. }
         | SaleObservationFxSnapshotMismatch { .. }
         | ProductListingPriceConversionFailed { .. }) => OperationError::Internal(Box::new(error)),

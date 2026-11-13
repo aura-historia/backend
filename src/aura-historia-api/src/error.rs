@@ -1702,7 +1702,7 @@ impl From<GetProductListingError> for ApiError {
             GetProductListingError::Shipping(error) => error.into(),
             GetProductListingError::NotFound => ApiError::not_found(PRODUCT_LISTING_NOT_FOUND)
                 .with_detail("ProductListing was not found."),
-            GetProductListingError::ProductListingDetailsQueryFailed
+            GetProductListingError::ProductListingDetailsQueryFailed { .. }
             | GetProductListingError::PricingFxSnapshotMissing
             | GetProductListingError::PricingFxSnapshotUnavailable { .. }
             | GetProductListingError::BeginTransactionFailed(_)
@@ -1710,7 +1710,7 @@ impl From<GetProductListingError> for ApiError {
                 ApiError::service_unavailable(PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE)
                     .with_detail("ProductListing details are temporarily unavailable.")
             }
-            GetProductListingError::ProductListingDetailsReadModelInvalid
+            GetProductListingError::ProductListingDetailsReadModelInvalid { .. }
             | GetProductListingError::PricingFxSnapshotInvalid { .. }
             | GetProductListingError::SaleObservationFxSnapshotMismatch { .. }
             | GetProductListingError::ProductListingPriceConversionFailed { .. } => {
@@ -2553,7 +2553,7 @@ impl From<ListWatchlistError> for ApiError {
             ListWatchlistError::Forbidden => {
                 ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
             }
-            ListWatchlistError::TemporarilyUnavailable
+            ListWatchlistError::TemporarilyUnavailable { .. }
             | ListWatchlistError::CurrentPricingFxSnapshotMissing
             | ListWatchlistError::SalePricingFxSnapshotMissing { .. }
             | ListWatchlistError::PricingFxSnapshotUnavailable { .. }
@@ -2562,7 +2562,7 @@ impl From<ListWatchlistError> for ApiError {
                 ApiError::service_unavailable(WATCHLIST_TEMPORARILY_UNAVAILABLE)
                     .with_detail("Watchlist is temporarily unavailable.")
             }
-            ListWatchlistError::InvalidPersistedState
+            ListWatchlistError::InvalidPersistedState { .. }
             | ListWatchlistError::PricingFxSnapshotInvalid { .. }
             | ListWatchlistError::SaleFxSnapshotMismatch { .. }
             | ListWatchlistError::ProductListingPriceConversionFailed { .. } => {
@@ -3861,7 +3861,9 @@ mod tests {
                 PRODUCT_LISTING_TEMPORARILY_UNAVAILABLE,
             ),
             (
-                GetProductListingError::ProductListingDetailsReadModelInvalid,
+                GetProductListingError::ProductListingDetailsReadModelInvalid {
+                    source: application::error::static_error("invalid test read model"),
+                },
                 StatusCode::INTERNAL_SERVER_ERROR,
                 PRODUCT_LISTING_INTERNAL_ERROR,
             ),

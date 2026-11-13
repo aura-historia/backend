@@ -60,7 +60,9 @@ mod tests {
             _: &OperationContext,
             _: ListWatchlistRequest,
         ) -> Result<ListWatchlistResult, ListWatchlistError> {
-            Err(ListWatchlistError::TemporarilyUnavailable)
+            Err(ListWatchlistError::TemporarilyUnavailable {
+                source: application::error::static_error("watchlist read unavailable"),
+            })
         }
     }
 

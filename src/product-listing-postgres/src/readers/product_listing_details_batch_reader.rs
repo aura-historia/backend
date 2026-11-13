@@ -138,7 +138,12 @@ mod tests {
     fn should_map_read_model_failure_without_exposing_row() {
         let error: ProductListingDetailsBatchReadError =
             ProductListingDetailsBatchReadModelMappingError {
-                source: crate::readers::product_listing_details_reader::ProductListingDetailsRowMappingError::InvalidValue,
+                source: crate::readers::product_listing_details_reader::ProductListingDetailsRowMappingError::InvalidValue(
+                    crate::readers::listing_row_values::InvalidListingRowValue::rejected(
+                        "lifecycle",
+                        "unknown lifecycle code",
+                    ),
+                ),
             }
             .into();
 

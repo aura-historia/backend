@@ -9,13 +9,13 @@ pub(super) fn list(error: ListWatchlistError) -> OperationError {
     match error {
         Shipping(error) => shipping(error),
         AuthenticatedActorRequired | Forbidden => OperationError::Forbidden,
-        error @ (TemporarilyUnavailable
+        error @ (TemporarilyUnavailable { .. }
         | CurrentPricingFxSnapshotMissing
         | SalePricingFxSnapshotMissing { .. }
         | PricingFxSnapshotUnavailable { .. }
         | BeginTransactionFailed(_)
         | CommitTransactionFailed(_)) => OperationError::Unavailable(Box::new(error)),
-        error @ (InvalidPersistedState
+        error @ (InvalidPersistedState { .. }
         | PricingFxSnapshotInvalid { .. }
         | SaleFxSnapshotMismatch { .. }
         | ProductListingPriceConversionFailed { .. }) => OperationError::Internal(Box::new(error)),

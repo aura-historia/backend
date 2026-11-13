@@ -212,11 +212,7 @@ impl ProductListingWatchlistNotificationSourceReader
             );
         }
         let image = images(row.product_images)
-            .map_err(|_| {
-                WatchlistNotificationSourceMappingError::invalid(
-                    "persisted watchlist notification source images are invalid",
-                )
-            })?
+            .map_err(WatchlistNotificationSourceMappingError::with_source)?
             .into_iter()
             .next();
         let url = url::Url::parse(&row.url)

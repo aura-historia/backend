@@ -394,12 +394,26 @@ async fn should_reject_product_personalization_when_authenticated_user_is_missin
     let result =
         find_details_result(&pool, details_request(product.id(), Some(UserId::new()))).await;
 
-    assert!(matches!(
-        result,
-        Err(
-            product_listing_service::ports::ProductListingDetailsReadError::ProductListingDetailsReadModelInvalid
-        )
-    ));
+    let Err(
+        product_listing_service::ports::ProductListingDetailsReadError::ProductListingDetailsReadModelInvalid {
+            source,
+        },
+    ) = result
+    else {
+        panic!("a missing personalization user must be an invalid read model");
+    };
+    let mut causes = Vec::new();
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(source.as_ref());
+    while let Some(error) = cause {
+        causes.push(error.to_string());
+        cause = error.source();
+    }
+    assert!(
+        causes
+            .iter()
+            .any(|cause| cause == "invalid persisted listing personalization user"),
+        "{causes:?}"
+    );
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

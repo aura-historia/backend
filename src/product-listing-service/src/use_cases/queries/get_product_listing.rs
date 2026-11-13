@@ -5,7 +5,7 @@ use crate::ports::{
     ProductListingDetailsReadError, ProductListingDetailsReadRequest, ProductListingDetailsReader,
     ProductListingDetailsReaderFactory, ProductListingLot,
 };
-use application::error::BoxError;
+use application::error::{BoxError, box_error, static_error};
 use application::operation_context::{OperationContext, Principal};
 use application::personalized::Personalized;
 use application::transaction::{Transaction, UnitOfWork};
@@ -202,9 +202,15 @@ pub enum GetProductListingError {
     #[error("product not found")]
     NotFound,
     #[error("product details query failed")]
-    ProductListingDetailsQueryFailed,
+    ProductListingDetailsQueryFailed {
+        #[source]
+        source: BoxError,
+    },
     #[error("product details read model is invalid")]
-    ProductListingDetailsReadModelInvalid,
+    ProductListingDetailsReadModelInvalid {
+        #[source]
+        source: BoxError,
+    },
     #[error("no persisted FX snapshot is available for product pricing")]
     PricingFxSnapshotMissing,
     #[error("FX snapshot lookup is temporarily unavailable for product pricing")]
@@ -334,7 +340,11 @@ where
             && details
                 .user_state
                 .as_ref()
-                .ok_or(GetProductListingError::ProductListingDetailsReadModelInvalid)?
+                .ok_or_else(
+                    || GetProductListingError::ProductListingDetailsReadModelInvalid {
+                        source: static_error("personalized product details have no user state"),
+                    },
+                )?
                 .search_filter
                 .hidden
         {
@@ -467,25 +477,24 @@ pub fn redact_hidden_product(
         .map(|title| title.localized.localization)
         .unwrap_or(Language::En);
     let hidden_url = Url::parse(HIDDEN_PRODUCT_LISTING_URL)
-        .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
+        .map_err(GetProductListingError::invalid_read_model)?;
 
     details.product_listing_title_slug_id = None;
     details.event_id = EventId::new();
     details.source = ListingSourceSummary {
         listing_source_id: listing_source_core::ListingSourceId::new(),
         name: listing_source_core::ListingSourceName::try_from("Hidden")
-            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+            .map_err(GetProductListingError::invalid_read_model)?,
         slug_id: ListingSourceSlugId::raw("hidden")
-            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+            .map_err(GetProductListingError::invalid_read_model)?,
         operator: ListingSourceOperatorSummary {
             name: party_core::party_name::PartyName::try_from("Hidden")
-                .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?,
+                .map_err(GetProductListingError::invalid_read_model)?,
             partner: false,
         },
     };
-    details.source_listing_id =
-        SourceListingId::try_from("00000000-0000-0000-0000-000000000000")
-            .map_err(|_| GetProductListingError::ProductListingDetailsReadModelInvalid)?;
+    details.source_listing_id = SourceListingId::try_from("00000000-0000-0000-0000-000000000000")
+        .map_err(GetProductListingError::invalid_read_model)?;
     details.title = Some(ListingText::localized(Localized::new(
         language,
         hidden_title(language),
@@ -526,14 +535,22 @@ fn hidden_title(language: Language) -> Title {
     }
 }
 
+impl GetProductListingError {
+    fn invalid_read_model(source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self::ProductListingDetailsReadModelInvalid {
+            source: box_error(source),
+        }
+    }
+}
+
 impl From<ProductListingDetailsReadError> for GetProductListingError {
     fn from(error: ProductListingDetailsReadError) -> Self {
         match error {
-            ProductListingDetailsReadError::ProductListingDetailsQueryFailed => {
-                Self::ProductListingDetailsQueryFailed
+            ProductListingDetailsReadError::ProductListingDetailsQueryFailed { source } => {
+                Self::ProductListingDetailsQueryFailed { source }
             }
-            ProductListingDetailsReadError::ProductListingDetailsReadModelInvalid => {
-                Self::ProductListingDetailsReadModelInvalid
+            ProductListingDetailsReadError::ProductListingDetailsReadModelInvalid { source } => {
+                Self::ProductListingDetailsReadModelInvalid { source }
             }
         }
     }

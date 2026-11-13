@@ -1,6 +1,6 @@
 use super::listing_row_values::{
-    availability, content_policy, images, lifecycle, localized_description, localized_title, price,
-    product_listing_price,
+    InvalidListingRowValue, availability, content_policy, images, lifecycle, localized_description,
+    localized_title, price, product_listing_price,
 };
 use crate::{
     listing_source_operator::listing_source_operator,
@@ -10,6 +10,7 @@ use crate::{
     },
     url::referral_configuration,
 };
+use application::error::box_error;
 use application::{
     pagination::{Cursor, CursoredResult},
     personalized::Personalized,
@@ -119,13 +120,7 @@ enum ProductListingWatchlistDetailsRowMappingError {
     #[error("product watchlist details row contains an invalid persisted object ID")]
     InvalidObjectId(#[source] PersistedObjectIdError),
     #[error("product watchlist details row contains an invalid persisted value")]
-    InvalidValue,
-}
-
-impl From<()> for ProductListingWatchlistDetailsRowMappingError {
-    fn from((): ()) -> Self {
-        Self::InvalidValue
-    }
+    InvalidValue(#[from] InvalidListingRowValue),
 }
 
 impl SqlxProductListingWatchlistDetailsReaderFactory {
@@ -159,10 +154,17 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
         >,
         ProductListingWatchlistDetailsReadError,
     > {
-        let page_size = usize::try_from(request.cursor.size)
-            .map_err(|_| ProductListingWatchlistDetailsReadError::QueryFailed)?;
-        let query_limit = i64::try_from(request.cursor.size.saturating_add(1))
-            .map_err(|_| ProductListingWatchlistDetailsReadError::QueryFailed)?;
+        let page_size = usize::try_from(request.cursor.size).map_err(|source| {
+            ProductListingWatchlistDetailsReadError::QueryFailed {
+                source: box_error(source),
+            }
+        })?;
+        let query_limit =
+            i64::try_from(request.cursor.size.saturating_add(1)).map_err(|source| {
+                ProductListingWatchlistDetailsReadError::QueryFailed {
+                    source: box_error(source),
+                }
+            })?;
         let mut rows =
             sqlx::query_as::<_, ProductListingDetailsRow>(SELECT_PRODUCT_WATCHLIST_DETAILS)
                 .bind(request.language.as_str())
@@ -182,7 +184,11 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
                 )
                 .fetch_all(&mut *self.connection)
                 .await
-                .map_err(|_| ProductListingWatchlistDetailsReadError::QueryFailed)?;
+                .map_err(
+                    |source| ProductListingWatchlistDetailsReadError::QueryFailed {
+                        source: box_error(source),
+                    },
+                )?;
 
         let has_more = rows.len() > page_size;
         if has_more {
@@ -205,7 +211,11 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
                     )
                 })
                 .transpose()
-                .map_err(|_| ProductListingWatchlistDetailsReadError::InvalidReadModel)?
+                .map_err(
+                    |source| ProductListingWatchlistDetailsReadError::InvalidReadModel {
+                        source: box_error(source),
+                    },
+                )?
         } else {
             None
         };
@@ -213,7 +223,11 @@ impl ProductListingWatchlistDetailsReader for SqlxProductListingWatchlistDetails
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| ProductListingWatchlistDetailsReadError::InvalidReadModel)?;
+            .map_err(
+                |source| ProductListingWatchlistDetailsReadError::InvalidReadModel {
+                    source: box_error(source),
+                },
+            )?;
 
         Ok(CursoredResult {
             items: product_listings,
@@ -437,8 +451,8 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
     type Error = ProductListingWatchlistDetailsRowMappingError;
 
     fn try_from(row: ProductListingDetailsRow) -> Result<Self, Self::Error> {
-        let source_listing_id =
-            SourceListingId::try_from(row.source_listing_id.clone()).map_err(|_| ())?;
+        let source_listing_id = SourceListingId::try_from(row.source_listing_id.clone())
+            .map_err(InvalidListingRowValue::of("source listing ID"))?;
         let parsed_images = images(row.product_images.clone())?;
         let user_state = user_state(&row, &parsed_images)?;
         let content_policy = content_policy(
@@ -453,7 +467,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
             lot_scheduled_closes_at: row.lot_scheduled_closes_at,
             lot_reported_closed_at: row.lot_reported_closed_at,
         })
-        .map_err(|_| ())?;
+        .map_err(InvalidListingRowValue::of("lot facts"))?;
         let (auction, lot) = map_joined_auction(
             listing_auction,
             row.listing_source_id,
@@ -470,7 +484,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 reported_status: row.auction_reported_status,
             },
         )
-        .map_err(|_| ())?;
+        .map_err(InvalidListingRowValue::of("parent auction"))?;
         let title = ListingText::select(
             localized_title(row.product_title_text, row.product_title_language)?,
             localized_title(row.title_text, row.title_language)?,
@@ -485,21 +499,30 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         let product_price =
             product_listing_price(row.price_kind, row.price_amount, row.price_currency)?;
         let product_price_estimate_min = price(
+            "estimate minimum",
             row.price_estimate_min_amount,
             row.price_estimate_min_currency,
         )?;
         let product_price_estimate_max = price(
+            "estimate maximum",
             row.price_estimate_max_amount,
             row.price_estimate_max_currency,
         )?;
         let sale_observation =
             sale_observation(row.sale_observed_at, row.sale_observation_fx_rate_id)?;
-        let url = Url::parse(&row.url).map_err(|_| ())?;
+        let url = Url::parse(&row.url).map_err(InvalidListingRowValue::of("URL"))?;
         let view_url = outbound_url(
-            referral_configuration(row.listing_source_referral_configuration.as_ref())?.as_ref(),
+            referral_configuration(row.listing_source_referral_configuration.as_ref())
+                .map_err(|()| {
+                    InvalidListingRowValue::rejected(
+                        "ListingSource referral configuration",
+                        "unrecognized referral configuration",
+                    )
+                })?
+                .as_ref(),
             &url,
         )
-        .map_err(|_| ())?;
+        .map_err(InvalidListingRowValue::of("view URL"))?;
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
@@ -508,20 +531,21 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 product_listing_title_slug_id: ProductListingSlugId::raw(
                     &row.product_listing_title_slug_id,
                 )
-                .map_err(|_| ())?,
+                .map_err(InvalidListingRowValue::of("title slug"))?,
                 event_id: try_from_uuid(row.current_event_id, "current event ID")
                     .map_err(ProductListingWatchlistDetailsRowMappingError::InvalidObjectId)?,
                 source: product_listing_service::ports::ListingSourceSummary {
                     listing_source_id: try_from_uuid(row.listing_source_id, "ListingSource ID")
                         .map_err(ProductListingWatchlistDetailsRowMappingError::InvalidObjectId)?,
-                    name: ListingSourceName::try_from(row.listing_source_name).map_err(|_| ())?,
+                    name: ListingSourceName::try_from(row.listing_source_name)
+                        .map_err(InvalidListingRowValue::of("ListingSource name"))?,
                     slug_id: ListingSourceSlugId::raw(&row.listing_source_slug_id)
-                        .map_err(|_| ())?,
+                        .map_err(InvalidListingRowValue::of("ListingSource slug"))?,
                     operator: listing_source_operator(
                         row.listing_source_operator_name,
                         row.listing_source_operator_partner,
                     )
-                    .map_err(|_| ())?,
+                    .map_err(InvalidListingRowValue::of("ListingSource operator name"))?,
                 },
                 source_listing_id,
                 title,
@@ -559,7 +583,11 @@ fn sale_observation(
                 .map_err(ProductListingWatchlistDetailsRowMappingError::InvalidObjectId)?,
         ))),
         (None, None) => Ok(None),
-        _ => Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue),
+        _ => Err(InvalidListingRowValue::rejected(
+            "sale observation",
+            "observation time and FX rate must be present or absent together",
+        )
+        .into()),
     }
 }
 
@@ -580,7 +608,13 @@ fn user_state(
         (Some(consent), Some("FREE")) => (consent, "FREE"),
         (Some(consent), Some("PRO")) => (consent, "PRO"),
         (Some(consent), Some("ULTIMATE")) => (consent, "ULTIMATE"),
-        _ => return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue),
+        _ => {
+            return Err(InvalidListingRowValue::rejected(
+                "personalization user",
+                "unknown tier or missing content preference",
+            )
+            .into());
+        }
     };
     let search_filter = search_filter_user_state(row, Some(tier))?;
 
@@ -619,20 +653,41 @@ fn search_filter_user_state(
             || row.selected_match_feedback.is_some()
             || row.selected_match_month_position.is_some()
         {
-            return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue);
+            return Err(InvalidListingRowValue::rejected(
+                "saved-search match",
+                "match details without a matching search filter",
+            )
+            .into());
         }
         return Ok(SearchFilterUserState::default());
     };
 
-    let hidden = match tier.ok_or(())? {
-        "FREE" => row.selected_match_month_position.ok_or(())? > 10,
-        "PRO" | "ULTIMATE" => {
+    let hidden = match tier {
+        Some("FREE") => {
+            row.selected_match_month_position.ok_or_else(|| {
+                InvalidListingRowValue::rejected(
+                    "saved-search match",
+                    "free-tier match without a monthly position",
+                )
+            })? > 10
+        }
+        Some("PRO" | "ULTIMATE") => {
             if row.selected_match_month_position.is_some() {
-                return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue);
+                return Err(InvalidListingRowValue::rejected(
+                    "saved-search match",
+                    "paid-tier match with a monthly position",
+                )
+                .into());
             }
             false
         }
-        _ => return Err(ProductListingWatchlistDetailsRowMappingError::InvalidValue),
+        _ => {
+            return Err(InvalidListingRowValue::rejected(
+                "saved-search match",
+                "unknown user tier",
+            )
+            .into());
+        }
     };
 
     Ok(SearchFilterUserState {
