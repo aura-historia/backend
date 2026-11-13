@@ -25,14 +25,16 @@ pub struct CognitoJwtConfig {
 }
 
 impl CognitoJwtConfig {
+    /// Cognito publishes a user pool's signing keys under its issuer, so the JWKS URL is derived
+    /// rather than configured separately.
     pub fn new(
         issuer: impl Into<String>,
-        jwks_url: impl Into<String>,
         app_client_ids: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
+        let issuer = issuer.into();
         Self {
-            issuer: issuer.into(),
-            jwks_url: jwks_url.into(),
+            jwks_url: format!("{issuer}/.well-known/jwks.json"),
+            issuer,
             app_client_ids: app_client_ids.into_iter().map(Into::into).collect(),
         }
     }
@@ -613,11 +615,7 @@ mod tests {
     }
 
     fn test_config() -> CognitoJwtConfig {
-        CognitoJwtConfig::new(
-            "https://issuer.example/pool",
-            "https://issuer.example/pool/.well-known/jwks.json",
-            ["audience-1"],
-        )
+        CognitoJwtConfig::new("https://issuer.example/pool", ["audience-1"])
     }
 
     /// Authenticates `tokens` concurrently while the first token's JWKS fetch is blocked,
@@ -764,11 +762,20 @@ mod tests {
     }
 
     #[test]
-    fn should_build_cognito_jwt_config() {
-        let config = CognitoJwtConfig::new("issuer", "jwks", ["aud-1", "aud-2"]);
+    fn should_derive_jwks_url_from_issuer_when_building_cognito_jwt_config() {
+        let config = CognitoJwtConfig::new(
+            "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool",
+            ["aud-1", "aud-2"],
+        );
 
-        assert_eq!("issuer", config.issuer);
-        assert_eq!("jwks", config.jwks_url);
+        assert_eq!(
+            "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool",
+            config.issuer
+        );
+        assert_eq!(
+            "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_pool/.well-known/jwks.json",
+            config.jwks_url
+        );
         assert_eq!(
             HashSet::from(["aud-1".to_owned(), "aud-2".to_owned()]),
             config.app_client_ids

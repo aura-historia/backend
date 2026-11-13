@@ -579,7 +579,8 @@ mod tests {
         assert!(item.get("userState").is_none());
         assert_eq!("Schrank", item["item"]["title"]["localized"]["text"]);
         assert_eq!("de", item["item"]["title"]["localized"]["language"]);
-        assert!(item["item"]["images"][0]["url"].is_null());
+        assert_eq!(json!({}), item["item"]["image"]);
+        assert!(item["item"].get("images").is_none());
         // Catalogue items are a collection: bounded shipping, no advertised terms or bookkeeping.
         assert_eq!(
             json!({"requiredInputs": ["DESTINATION"], "collection": {"eligibility": "OFFERED"}}),

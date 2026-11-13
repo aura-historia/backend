@@ -972,7 +972,7 @@ mod tests {
                 lifecycle: view.lifecycle,
                 url: view.url,
                 view_url: view.view_url,
-                images: view.images,
+                image: view.images.into_iter().next(),
                 content_policy: view.content_policy,
                 updated: view.updated,
             },

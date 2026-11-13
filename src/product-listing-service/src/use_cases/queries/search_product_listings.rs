@@ -106,7 +106,8 @@ pub struct ProductListingSummary {
     pub lifecycle: ListingLifecycle,
     pub url: Url,
     pub view_url: Url,
-    pub images: Vec<super::get_product_listing::ProductListingImageView>,
+    /// The listing's first image; collections present one image rather than the whole gallery.
+    pub image: Option<super::get_product_listing::ProductListingImageView>,
     pub content_policy: Option<ContentPolicyDecision>,
     pub updated: OffsetDateTime,
 }
@@ -502,17 +503,11 @@ pub(crate) fn present_product_summaries_from_assessments(
                     lifecycle: product.item.item.lifecycle,
                     url: product.item.item.url,
                     view_url: product.item.view_url,
-                    images: product
-                        .item
-                        .item
-                        .images
-                        .into_iter()
-                        .map(
-                            |image| super::get_product_listing::ProductListingImageView {
-                                url: visible.then(|| image.url().clone()),
-                            },
-                        )
-                        .collect(),
+                    image: product.item.item.images.into_iter().next().map(|image| {
+                        super::get_product_listing::ProductListingImageView {
+                            url: visible.then(|| image.url().clone()),
+                        }
+                    }),
                     content_policy: decision,
                     updated: product.item.item.updated,
                 },
@@ -1713,7 +1708,13 @@ mod tests {
 
             let anonymous = handler.execute(&context(), request()).await?;
             assert_eq!(listing_id, anonymous.items[0].item.product_listing_id);
-            assert!(anonymous.items[0].item.images[0].url.is_none());
+            assert!(
+                anonymous.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .is_some_and(|image| image.url.is_none())
+            );
             assert!(anonymous.items[0].item.source.operator.partner);
             assert!(lock_state(&users.state).requests.is_empty());
             assert_eq!(1, fx_calls.load(Ordering::SeqCst));
@@ -1722,7 +1723,11 @@ mod tests {
             let as_a = handler.execute(&user_context(user_a), request()).await?;
             assert_eq!(
                 Some(image_url.clone()),
-                as_a.items[0].item.images[0].url.clone()
+                as_a.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .and_then(|image| image.url.clone())
             );
             assert!(
                 as_a.items[0].user_state.as_ref().is_some_and(|state| state
@@ -1731,7 +1736,13 @@ mod tests {
             );
 
             let as_b = handler.execute(&user_context(user_b), request()).await?;
-            assert!(as_b.items[0].item.images[0].url.is_none());
+            assert!(
+                as_b.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .is_some_and(|image| image.url.is_none())
+            );
             assert!(
                 as_b.items[0].user_state.as_ref().is_some_and(|state| state
                     .watchlist
@@ -1757,7 +1768,11 @@ mod tests {
             let updated_b = handler.execute(&user_context(user_b), request()).await?;
             assert_eq!(
                 Some(image_url.clone()),
-                updated_b.items[0].item.images[0].url.clone()
+                updated_b.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .and_then(|image| image.url.clone())
             );
             assert!(
                 updated_b.items[0]
@@ -1772,7 +1787,7 @@ mod tests {
                 .execute(&user_context(hidden_user), request())
                 .await?;
             assert!(hidden.items[0].item.product_listing_title_slug_id.is_none());
-            assert!(hidden.items[0].item.images.is_empty());
+            assert!(hidden.items[0].item.image.is_none());
             assert_eq!("Hidden", hidden.items[0].item.source.name.as_ref());
             assert_eq!("Hidden", hidden.items[0].item.source.operator.name.as_ref());
             assert!(!hidden.items[0].item.source.operator.partner);
@@ -1833,7 +1848,11 @@ mod tests {
             let allowed = handler.execute(&context(), request()).await?;
             assert_eq!(
                 Some(image_url.clone()),
-                allowed.items[0].item.images[0].url.clone()
+                allowed.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .and_then(|image| image.url.clone())
             );
 
             lock_state(&assessments.state).values.insert(
@@ -1847,11 +1866,23 @@ mod tests {
                 },
             );
             let consent_required = handler.execute(&context(), request()).await?;
-            assert!(consent_required.items[0].item.images[0].url.is_none());
+            assert!(
+                consent_required.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .is_some_and(|image| image.url.is_none())
+            );
 
             lock_state(&assessments.state).values.remove(&listing_id);
             let unassessed = handler.execute(&context(), request()).await?;
-            assert!(unassessed.items[0].item.images[0].url.is_none());
+            assert!(
+                unassessed.items[0]
+                    .item
+                    .image
+                    .as_ref()
+                    .is_some_and(|image| image.url.is_none())
+            );
 
             lock_state(&assessments.state).fail = true;
             assert!(matches!(
@@ -1899,7 +1930,10 @@ mod tests {
             product_listing_ids.push(product_listing_id);
             let mut summary = search_result()?.items.remove(0);
             summary.product_listing_id = product_listing_id;
-            summary.images = IndexSet::from([ProductListingImage::new(image_url.clone())]);
+            summary.images = IndexSet::from([
+                ProductListingImage::new(image_url.clone()),
+                ProductListingImage::new(Url::parse("https://example.test/second.jpg")?),
+            ]);
             if let Some(decision) = decision {
                 assessments.insert(
                     product_listing_id,
@@ -1933,12 +1967,12 @@ mod tests {
         for ((decision, _, visible), product) in cases.into_iter().zip(products) {
             assert_eq!(decision, product.item.content_policy);
             assert_eq!(
-                vec![
+                Some(
                     crate::use_cases::queries::get_product_listing::ProductListingImageView {
                         url: visible.then(|| image_url.clone()),
                     }
-                ],
-                product.item.images
+                ),
+                product.item.image
             );
         }
         let requests = match requests.lock() {
@@ -2822,11 +2856,15 @@ mod tests {
             if hidden {
                 assert_eq!(None, result.items[0].item.product_listing_title_slug_id);
                 assert_eq!("Hidden", result.items[0].item.source.name.as_ref());
-                assert!(result.items[0].item.images.is_empty());
+                assert!(result.items[0].item.image.is_none());
             } else {
                 assert_eq!(
                     Some(image_url.clone()),
-                    result.items[0].item.images[0].url.clone()
+                    result.items[0]
+                        .item
+                        .image
+                        .as_ref()
+                        .and_then(|image| image.url.clone())
                 );
             }
         }

@@ -3095,7 +3095,7 @@
           "type": "object"
         },
         "ProductListingDetailsData": {
-          "description": "`Shipping` follows the response purpose: details by default, summaries in collections.",
+          "description": "`Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.",
           "properties": {
             "auction": {
               "anyOf": [
@@ -3158,11 +3158,15 @@
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
             },
-            "images": {
-              "items": {
-                "$ref": "#/$defs/ProductListingImageData"
-              },
-              "type": "array"
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProductListingImageData"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "lifecycle": {
               "enum": [
@@ -3237,7 +3241,6 @@
             "lifecycle",
             "url",
             "viewUrl",
-            "images",
             "created",
             "updated"
           ],
@@ -5333,7 +5336,7 @@
           "type": "object"
         },
         "ProductListingDetailsData": {
-          "description": "`Shipping` follows the response purpose: details by default, summaries in collections.",
+          "description": "`Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.",
           "properties": {
             "auction": {
               "anyOf": [
@@ -7690,7 +7693,7 @@
           "type": "object"
         },
         "ProductListingDetailsData": {
-          "description": "`Shipping` follows the response purpose: details by default, summaries in collections.",
+          "description": "`Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.",
           "properties": {
             "auction": {
               "anyOf": [
@@ -10868,11 +10871,15 @@
                 }
               ]
             },
-            "images": {
-              "items": {
-                "$ref": "#/$defs/ProductListingImageData"
-              },
-              "type": "array"
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProductListingImageData"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "lifecycle": {
               "enum": [
@@ -10937,7 +10944,6 @@
             "lifecycle",
             "url",
             "viewUrl",
-            "images",
             "updated"
           ],
           "type": "object"
@@ -14076,7 +14082,7 @@
           "type": "object"
         },
         "ProductListingDetailsData": {
-          "description": "`Shipping` follows the response purpose: details by default, summaries in collections.",
+          "description": "`Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.",
           "properties": {
             "auction": {
               "anyOf": [
@@ -14139,11 +14145,15 @@
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
             },
-            "images": {
-              "items": {
-                "$ref": "#/$defs/ProductListingImageData"
-              },
-              "type": "array"
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProductListingImageData"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "lifecycle": {
               "enum": [
@@ -14218,7 +14228,6 @@
             "lifecycle",
             "url",
             "viewUrl",
-            "images",
             "created",
             "updated"
           ],
@@ -16933,7 +16942,7 @@
           "type": "object"
         },
         "ProductListingDetailsData": {
-          "description": "`Shipping` follows the response purpose: details by default, summaries in collections.",
+          "description": "`Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.",
           "properties": {
             "auction": {
               "anyOf": [
@@ -16996,11 +17005,15 @@
               "pattern": "^evt_[0-7][0-9a-hjkmnp-tv-z]{9}[ef][0-9a-hjkmnp-tv-z]{2}[89abrstv][0-9a-hjkmnp-tv-z]{12}$",
               "type": "string"
             },
-            "images": {
-              "items": {
-                "$ref": "#/$defs/ProductListingImageData"
-              },
-              "type": "array"
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProductListingImageData"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "lifecycle": {
               "enum": [
@@ -17075,7 +17088,6 @@
             "lifecycle",
             "url",
             "viewUrl",
-            "images",
             "created",
             "updated"
           ],
@@ -19373,7 +19385,7 @@
           "type": "object"
         },
         "ProductListingDetailsData": {
-          "description": "`Shipping` follows the response purpose: details by default, summaries in collections.",
+          "description": "`Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.",
           "properties": {
             "auction": {
               "anyOf": [
@@ -22223,11 +22235,15 @@
                 }
               ]
             },
-            "images": {
-              "items": {
-                "$ref": "#/$defs/ProductListingImageData"
-              },
-              "type": "array"
+            "image": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ProductListingImageData"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "lifecycle": {
               "enum": [
@@ -22292,7 +22308,6 @@
             "lifecycle",
             "url",
             "viewUrl",
-            "images",
             "updated"
           ],
           "type": "object"

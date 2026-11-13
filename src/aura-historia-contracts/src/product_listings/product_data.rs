@@ -27,7 +27,7 @@ use product_listing_service::ports::{ListingSourceSummary, ProductListingAuction
 use product_listing_service::shipping::{AdvertisedShipping, PersonalizedShipping};
 use product_listing_service::use_cases::{
     DisplayProductListingPricing, PersonalizedProductListingDetailsView,
-    PersonalizedProductListingSummary, ProductListingDetailsView,
+    PersonalizedProductListingSummary, ProductListingDetailsView, ProductListingImageView,
     ProductListingPricingPresentation, ProductListingPricingValuation, ProductListingSummary,
     ProductListingSummaryPriceValuation,
 };
@@ -77,10 +77,13 @@ impl<T: Into<String>> From<ListingText<T>> for ListingTextData {
     }
 }
 
-/// `Shipping` follows the response purpose: details by default, summaries in collections.
+/// `Shipping` and `Images` follow the response purpose: complete by default, bounded in collections.
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ProductListingDetailsData<Shipping = ListingShippingDetailData> {
+pub struct ProductListingDetailsData<
+    Shipping = ListingShippingDetailData,
+    Images = ProductListingImagesData,
+> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Shipping")]
     shipping: Option<Shipping>,
@@ -113,7 +116,8 @@ pub struct ProductListingDetailsData<Shipping = ListingShippingDetailData> {
     url: Url,
     #[schemars(schema_with = "crate::wire::schema::view_url")]
     view_url: Url,
-    images: Vec<ProductListingImageData>,
+    #[serde(flatten)]
+    images: Images,
     #[serde(skip_serializing_if = "Option::is_none")]
     content_policy: Option<ContentPolicyData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -245,7 +249,8 @@ pub struct ProductListingSummaryData {
     url: Url,
     #[schemars(schema_with = "crate::wire::schema::view_url")]
     view_url: Url,
-    images: Vec<ProductListingImageData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<ProductListingImageData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content_policy: Option<ContentPolicyData>,
     #[serde(with = "time::serde::rfc3339")]
@@ -325,6 +330,40 @@ pub struct ProductListingImageData {
     url: Option<Url>,
 }
 
+/// A listing image representation selected by the response's purpose.
+pub trait ListingImagesProjection {
+    fn project(images: Vec<ProductListingImageView>) -> Self;
+}
+
+/// Every listing image, for single-listing reads.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ProductListingImagesData {
+    images: Vec<ProductListingImageData>,
+}
+
+impl ListingImagesProjection for ProductListingImagesData {
+    fn project(images: Vec<ProductListingImageView>) -> Self {
+        Self {
+            images: images.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Only the first listing image, for collection reads; omitted when the listing has none.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ProductListingPrimaryImageData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<ProductListingImageData>,
+}
+
+impl ListingImagesProjection for ProductListingPrimaryImageData {
+    fn project(images: Vec<ProductListingImageView>) -> Self {
+        Self {
+            image: images.into_iter().next().map(Into::into),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(tag = "decision", rename_all = "SCREAMING_SNAKE_CASE")]
 enum ContentPolicyData {
@@ -374,8 +413,10 @@ pub struct ProductListingAuctionData {
     reported_closed_at: Option<OffsetDateTime>,
 }
 
-impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
-    ProductListingDetailsData<Shipping>
+impl<Shipping, Images> ProductListingDetailsData<Shipping, Images>
+where
+    Shipping: ListingShippingProjection<Source = AdvertisedShipping>,
+    Images: ListingImagesProjection,
 {
     fn from_view(view: ProductListingDetailsView) -> Self {
         Self {
@@ -392,7 +433,7 @@ impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
             lifecycle: view.lifecycle,
             url: view.url,
             view_url: view.view_url,
-            images: view.images.into_iter().map(Into::into).collect(),
+            images: Images::project(view.images),
             content_policy: view.content_policy.map(Into::into),
             auction: view.auction.map(Into::into),
             lot: view.lot.map(Into::into),
@@ -402,8 +443,11 @@ impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
     }
 }
 
-impl<Shipping: ListingShippingProjection<Source = AdvertisedShipping>>
-    From<ProductListingDetailsView> for ProductListingDetailsData<Shipping>
+impl<Shipping, Images> From<ProductListingDetailsView>
+    for ProductListingDetailsData<Shipping, Images>
+where
+    Shipping: ListingShippingProjection<Source = AdvertisedShipping>,
+    Images: ListingImagesProjection,
 {
     fn from(view: ProductListingDetailsView) -> Self {
         Self::from_view(view)
@@ -679,7 +723,7 @@ impl ProductListingSummaryData {
             lifecycle: summary.lifecycle,
             url: summary.url,
             view_url: summary.view_url,
-            images: summary.images.into_iter().map(Into::into).collect(),
+            image: summary.image.map(Into::into),
             content_policy: summary.content_policy.map(Into::into),
             geography: summary.geography.map(Into::into),
             updated: summary.updated,
@@ -699,17 +743,18 @@ impl ProductListingImageData {
     }
 }
 
-impl From<product_listing_service::use_cases::ProductListingImageView> for ProductListingImageData {
-    fn from(image: product_listing_service::use_cases::ProductListingImageView) -> Self {
+impl From<ProductListingImageView> for ProductListingImageData {
+    fn from(image: ProductListingImageView) -> Self {
         Self { url: image.url }
     }
 }
 
 pub type PersonalizedProductListingDetailsData =
     PersonalizedData<ProductListingDetailsData, ProductListingUserStateData>;
-/// A detail-shaped listing inside a collection carries the bounded collection shipping.
+/// A detail-shaped listing inside a collection carries the bounded collection shipping and only
+/// its first image.
 pub type PersonalizedProductListingCollectionDetailsData = PersonalizedData<
-    ProductListingDetailsData<ListingShippingSummaryData>,
+    ProductListingDetailsData<ListingShippingSummaryData, ProductListingPrimaryImageData>,
     ProductListingUserStateData<PersonalizedShippingSummaryData>,
 >;
 pub type PersonalizedProductListingSummaryData = PersonalizedData<
@@ -717,11 +762,12 @@ pub type PersonalizedProductListingSummaryData = PersonalizedData<
     ProductListingUserStateData<PersonalizedShippingSummaryData>,
 >;
 
-fn personalized_details<Public, Private>(
+fn personalized_details<Public, Images, Private>(
     personalized: PersonalizedProductListingDetailsView,
-) -> PersonalizedData<ProductListingDetailsData<Public>, ProductListingUserStateData<Private>>
+) -> PersonalizedData<ProductListingDetailsData<Public, Images>, ProductListingUserStateData<Private>>
 where
     Public: ListingShippingProjection<Source = AdvertisedShipping>,
+    Images: ListingImagesProjection,
     Private: ListingShippingProjection<Source = PersonalizedShipping>,
 {
     PersonalizedData {

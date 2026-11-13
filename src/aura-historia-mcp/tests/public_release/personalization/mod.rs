@@ -41,6 +41,16 @@ fn listing<'a>(name: &str, output: &'a Value) -> &'a Value {
     }
 }
 
+/// Collections carry only the first image; single-listing reads carry every image.
+fn first_image<'a>(name: &str, item: &'a Value) -> &'a Value {
+    match name {
+        "simpleSearchProductListings" | "getSimilarProductListings" | "getAuctionCatalogue" => {
+            &item["image"]
+        }
+        _ => &item["images"][0],
+    }
+}
+
 fn scoped_fields(mask: u8) -> (Vec<Scope>, BTreeSet<&'static str>) {
     let mut scopes = vec![];
     let mut fields = BTreeSet::new();
@@ -129,7 +139,7 @@ async fn should_omit_private_state_anonymously_with_real_listing_services() {
         let output = &response["result"]["structuredContent"];
         let value = listing(name, output);
         assert_private_fields(value, &BTreeSet::new());
-        assert!(value["item"]["images"][0]["url"].is_null());
+        assert_eq!(&json!({}), first_image(name, &value["item"]));
         assert_eq!(
             "REQUIRES_CONSENT",
             value["item"]["contentPolicy"]["decision"]
@@ -166,7 +176,7 @@ async fn should_disclose_exact_sections_for_all_read_scope_combinations_through_
             // Stored consent still controls images when users:read itself is absent.
             assert_eq!(
                 "https://images.example.test/sensitive.jpg",
-                value["item"]["images"][0]["url"]
+                first_image(name, &value["item"])["url"]
             );
             assert_eq!(LISTING_ID, value["item"]["productListingId"]);
             assert_eq!("merchant:42", value["item"]["sourceListingId"]);
@@ -225,7 +235,7 @@ async fn should_enforce_hidden_and_sensitive_image_policy_independently_of_discl
                     assert_private_fields(value, &fields);
                     let item = &value["item"];
                     if hidden {
-                        assert_eq!(json!([]), item["images"]);
+                        assert!(first_image(name, item).is_null());
                         assert!(item["productListingTitleSlugId"].is_null());
                         assert!(item["shipping"].is_null());
                         assert_eq!("Hidden", item["source"]["name"]);
@@ -235,7 +245,7 @@ async fn should_enforce_hidden_and_sensitive_image_policy_independently_of_discl
                             item["sourceListingId"]
                         );
                     } else {
-                        assert_eq!(consent, item["images"][0]["url"].is_string());
+                        assert_eq!(consent, first_image(name, item)["url"].is_string());
                         assert_eq!("cabinet-abcdef", item["productListingTitleSlugId"]);
                     }
                     if fields.contains("searchFilter") {
