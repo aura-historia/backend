@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-13 — MCP server instructions no longer direct which link to share
+
+- The `instructions` that the MCP server returns from `initialize` and `server/discover` no longer ask agents to share a result's `viewUrl` unchanged. They now say only that Aura Historia is a discovery service, not a seller, and that people should confirm price and availability with the provider. The tool and field descriptions are unchanged and still state that `viewUrl` is the referral-tagged link meant to be shared and `url` the provider's untagged address. No tool, argument or result changed.
+
 ## 2026-11-13 — Partner status on listings, sources and parties
 
 - Every payload that presents a ListingSource now states whether its operator Party is an Aura Historia partner. `operator.partner` is `true` while the Party has an active Partnership and `false` otherwise, including after a Partnership is dissolved. It is unrelated to the `PARTNER_API` ingestion method and to referral configuration.
