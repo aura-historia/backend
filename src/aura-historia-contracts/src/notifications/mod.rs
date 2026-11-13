@@ -81,7 +81,11 @@ impl From<(ListedNotification, NotificationPresentationPreferences)> for Notific
             created: value.created,
             updated: value.updated,
             kind: value.kind,
-            payload: (value.content, presentation_preferences).into(),
+            payload: NotificationContentData::new(
+                value.content,
+                value.listing_source_partner,
+                presentation_preferences,
+            ),
         }
     }
 }
@@ -105,6 +109,10 @@ struct WatchlistNotificationPayloadData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
+    /// `true` while the ListingSource's operator holds an active Aura Historia partnership, like
+    /// `operator.partner` on listing sources. It is read with the notification, so it turns
+    /// `false` once the partnership ends.
+    listing_source_partner: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<ListingTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -159,6 +167,10 @@ struct SearchFilterNotificationPayloadData {
     listing_source_slug_id: String,
     product_listing_title_slug_id: String,
     listing_source_name: String,
+    /// `true` while the ListingSource's operator holds an active Aura Historia partnership, like
+    /// `operator.partner` on listing sources. It is read with the notification, so it turns
+    /// `false` once the partnership ends.
+    listing_source_partner: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<ListingTextData>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,17 +196,11 @@ struct PartnershipApplicationNotificationPayloadData {
     image: Option<Url>,
 }
 
-impl
-    From<(
-        LocalizedNotificationContent,
-        NotificationPresentationPreferences,
-    )> for NotificationContentData
-{
-    fn from(
-        (value, presentation_preferences): (
-            LocalizedNotificationContent,
-            NotificationPresentationPreferences,
-        ),
+impl NotificationContentData {
+    fn new(
+        value: LocalizedNotificationContent,
+        listing_source_partner: bool,
+        presentation_preferences: NotificationPresentationPreferences,
     ) -> Self {
         match value {
             LocalizedNotificationContent::Watchlist {
@@ -210,6 +216,7 @@ impl
                     listing_source_slug_id: snapshot.listing_source_slug_id,
                     product_listing_title_slug_id: snapshot.product_listing_title_slug_id,
                     listing_source_name: snapshot.listing_source_name,
+                    listing_source_partner,
                     title: snapshot.title,
                     image: snapshot.image,
                     url: snapshot.url,
@@ -235,6 +242,7 @@ impl
                         .product_listing_title_slug_id
                         .to_string(),
                     listing_source_name: snapshot.listing_source_name.to_string(),
+                    listing_source_partner,
                     title: snapshot.title,
                     image: snapshot.image,
                     url: snapshot.url,

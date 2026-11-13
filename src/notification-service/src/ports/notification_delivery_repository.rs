@@ -5,6 +5,7 @@ use notification_core::{
     notification_delivery::{NotificationDeliveryChannel, NotificationDeliveryTargetKey},
     notification_delivery_id::NotificationDeliveryId,
     notification_id::NotificationId,
+    presentation::PartnerListingSources,
 };
 use time::OffsetDateTime;
 use user_core::user_id::UserId;
@@ -43,6 +44,9 @@ pub struct NotificationDeliverySource {
     pub content: NotificationContent,
     pub saved_search_digest: Option<crate::saved_search_digest::SavedSearchEmailDigest>,
     pub presentation_preferences: NotificationPresentationPreferences,
+    /// Partner status of the ListingSources that `content` and the digest members
+    /// name, resolved when the delivery is loaded.
+    pub partner_listing_sources: PartnerListingSources,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -251,6 +251,13 @@ pub(crate) async fn load_delivery_source(
         tracing::info!(digest_id = %digest_id, run_end = %target.window_end, "saved_search.digest.suppressed_current_eligibility");
         return Ok(None);
     };
+    let partner_listing_sources = crate::listing_source_partners::partner_listing_sources(
+        &mut *connection,
+        members
+            .iter()
+            .filter_map(NotificationContent::listing_source_id),
+    )
+    .await?;
     let language = match target.language.as_deref() {
         Some(code) => localization::Language::from_code(code)
             .ok_or_else(|| invalid("unknown saved-search recipient language"))?,
@@ -276,6 +283,7 @@ pub(crate) async fn load_delivery_source(
             language,
             show_unassessed_or_sensitive_content: target.show_unassessed_or_sensitive_content,
         },
+        partner_listing_sources,
     }))
 }
 fn delivery_error(

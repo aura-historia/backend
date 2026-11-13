@@ -111,6 +111,7 @@ mod tests {
         let data = json!({
             "first_name": "Ada",
             "listing_source_name": "Aster Antiques",
+            "listing_source_partner": true,
             "title": "Bronze Vase",
             "image_url": "https://images.example.test/bronze-vase.jpg",
             "product_listing_url": "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
@@ -141,8 +142,92 @@ mod tests {
                     contract.path
                 );
             }
+            let partner_tag = partner_tag(contract.path);
+            assert!(
+                rendered.contains(partner_tag),
+                "{} did not tag a partner with {partner_tag:?}",
+                contract.path
+            );
+            let mut non_partner = data.clone();
+            non_partner["listing_source_partner"] = json!(false);
+            assert!(
+                !render_template(&handlebars, contract.template, &non_partner)?.contains('✓'),
+                "{} tagged a non-partner",
+                contract.path
+            );
         }
 
+        Ok(())
+    }
+
+    /// The webapp badge's label in each e-mail language; never "verified".
+    fn partner_tag(path: &str) -> &'static str {
+        match path.rsplit('/').next() {
+            Some("fr.mjml") => "✓ PARTENAIRE",
+            Some("es.mjml") => "✓ SOCIO",
+            Some("de.mjml" | "en.mjml" | "it.mjml") => "✓ PARTNER",
+            _ => panic!("{path} is not a localized e-mail template"),
+        }
+    }
+
+    #[rstest::rstest]
+    #[case("de")]
+    #[case("en")]
+    #[case("es")]
+    #[case("fr")]
+    #[case("it")]
+    fn should_tag_only_partner_cards_in_the_digest(
+        #[case] language: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let path = format!("mjml/search-filter/digest/{language}.mjml");
+        let template = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(&path),
+        )?;
+        let mut handlebars = Handlebars::new();
+        handlebars.set_strict_mode(true);
+        let card = |name: &str, partner: bool| {
+            json!({
+                "listing_source_name": name,
+                "listing_source_partner": partner,
+                "product_listing_url": "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
+                "title": "Bronze Vase",
+                "image_url": null,
+                "view_url": "https://merchant.example.test/products/bronze-vase",
+                "searches": [{ "id": "f1", "name": "Art Nouveau", "url": "https://aura-historia.com/en/me/search-filter/f1" }],
+            })
+        };
+        let rendered = render_template(
+            &handlebars,
+            &template,
+            &json!({
+                "first_name": null,
+                "home_url": "https://aura-historia.com/en",
+                "match_count": 2,
+                "listing_count": 2,
+                "preview_count": 2,
+                "preview_limit": 20,
+                "has_more": false,
+                "groups": [{ "id": "f1", "name": "Art Nouveau", "url": "https://aura-historia.com/en/me/search-filter/f1", "match_count": 2 }],
+                "listings": [card("Aster Antiques", true), card("Brocante du Midi", false)],
+                "results_url": "https://aura-historia.com/en/me/search-filters",
+                "settings_url": "https://aura-historia.com/en/me/search-filters",
+            }),
+        )?;
+
+        assert_eq!(1, rendered.matches(partner_tag(&path)).count());
+        assert_eq!(1, rendered.matches('✓').count());
+        let tagged = rendered
+            .split("Aster Antiques")
+            .nth(1)
+            .ok_or("partner card rendered")?;
+        assert!(
+            tagged
+                .split("Brocante du Midi")
+                .next()
+                .is_some_and(|card| card.contains('✓'))
+        );
         Ok(())
     }
 

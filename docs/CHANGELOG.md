@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-13 — Partner status on notifications and in e-mails (#2928)
+
+- `WatchlistNotificationPayloadData` and `SearchFilterNotificationPayloadData` (`GET /v1/me/notifications` and the MCP tool `listNotifications`) have a new required `listingSourcePartner`. It means the same as `operator.partner` on listing sources: `true` while the ListingSource's operator holds an active Partnership. It is read with each notification, not stored with it, so older notifications show the current status and it turns `false` once the Partnership ends. Partnership application payloads are unchanged.
+- The watchlist price and availability e-mails, the search-filter match e-mail and the saved-search digest add a text tag after the provider name when the provider is a partner at send time: "✓ PARTNER" (`de`, `en`, `it`), "✓ PARTENAIRE" (`fr`), "✓ SOCIO" (`es`). Non-partners get no tag.
+
 ## 2026-11-13 — MCP server instructions no longer direct which link to share
 
 - The `instructions` that the MCP server returns from `initialize` and `server/discover` no longer ask agents to share a result's `viewUrl` unchanged. They now say only that Aura Historia is a discovery service, not a seller, and that people should confirm price and availability with the provider. The tool and field descriptions are unchanged and still state that `viewUrl` is the referral-tagged link meant to be shared and `url` the provider's untagged address. No tool, argument or result changed.

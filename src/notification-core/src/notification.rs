@@ -160,6 +160,17 @@ impl NotificationContent {
         }
     }
 
+    /// The ListingSource the notification names a listing of. A partnership
+    /// application decision names its source only by name, so it has none.
+    pub fn listing_source_id(&self) -> Option<ListingSourceId> {
+        match self {
+            Self::Watchlist { snapshot, .. } | Self::SearchFilter { snapshot, .. } => {
+                Some(snapshot.listing_source_id)
+            }
+            Self::PartnershipApplication { .. } => None,
+        }
+    }
+
     pub fn localized(
         self,
         preferred_languages: &[localization::Language],
