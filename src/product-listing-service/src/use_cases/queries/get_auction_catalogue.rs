@@ -518,7 +518,9 @@ mod tests {
                 availability: None,
                 lifecycle: ListingLifecycle::Active,
                 url: Url::parse("https://shop.example/products/1")?,
-                view_url: Url::parse("https://shop.example/products/1")?,
+                view_link: listing_source_core::ViewLink::non_affiliate(Url::parse(
+                    "https://shop.example/products/1",
+                )?),
                 images: IndexSet::from([ProductListingImage::new(image_url.clone())]),
                 content_policy: None,
                 auction: None,

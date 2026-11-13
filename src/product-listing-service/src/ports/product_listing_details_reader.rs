@@ -20,6 +20,7 @@ use product_listing_core::product_listing_slug_id::ProductListingSlugId;
 
 use product_listing_core::source_listing_id::SourceListingId;
 
+use listing_source_core::ViewLink;
 use product_listing_core::title::Title;
 use time::OffsetDateTime;
 use url::Url;
@@ -66,7 +67,7 @@ pub struct ProductListingDetailsReadModel {
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
     pub images: IndexSet<ProductListingImage>,
     pub content_policy: Option<ContentPolicyDecision>,
     pub auction: Option<ProductListingAuctionSummary>,

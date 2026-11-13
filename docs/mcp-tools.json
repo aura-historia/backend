@@ -413,7 +413,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Save a listing search for the signed-in user. Aura Historia matches new listings against it in the background and, with notifications on (the default), notifies the user, so matches appear later. Subscription tier limits apply. Each call creates a new saved search, so repeating a call that timed out can create a duplicate. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Save a listing search for the signed-in user. Aura Historia matches new listings against it in the background and, with notifications on (the default), notifies the user, so matches appear later. Subscription tier limits apply. Each call creates a new saved search, so repeating a call that timed out can create a duplicate. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$defs": {
         "AcceptShippingDestinationData": {
@@ -1557,19 +1557,18 @@
                   "type": "null"
                 }
               ],
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared."
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared."
             },
-            "viewUrl": {
+            "viewLink": {
               "anyOf": [
                 {
-                  "format": "uri",
-                  "type": "string"
+                  "$ref": "#/$defs/ViewLinkData"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -1648,6 +1647,25 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
           "type": "object"
         }
       },
@@ -1937,7 +1955,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Get one auction by its auctionId: name, provider, format, schedule, reported status, reported and visible lot counts, and the link to its catalogue at the provider. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address.",
+    "description": "Get one auction by its auctionId: name, provider, format, schedule, reported status, reported and visible lot counts, and the link to its catalogue at the provider. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -2083,6 +2101,25 @@
             "operator"
           ],
           "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
+          "type": "object"
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2158,17 +2195,16 @@
         "schedule": {
           "$ref": "#/$defs/AuctionScheduleResponseData"
         },
-        "viewUrl": {
+        "viewLink": {
           "anyOf": [
             {
-              "format": "uri",
-              "type": "string"
+              "$ref": "#/$defs/ViewLinkData"
             },
             {
               "type": "null"
             }
           ],
-          "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+          "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
         },
         "visibleListingCount": {
           "format": "uint64",
@@ -2200,7 +2236,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "List the lots of one auction by its auctionId in catalogue order, as listings in the requested language and currency with shipping details. Pass the returned searchAfter object as a JSON string to get the next page. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "List the lots of one auction by its auctionId in catalogue order, as listings in the requested language and currency with shipping details. Pass the returned searchAfter object as a JSON string to get the next page. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -3212,14 +3248,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -3230,7 +3265,7 @@
             "pricing",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "created",
             "updated"
           ],
@@ -3803,6 +3838,25 @@
           ],
           "type": "object"
         },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
+          "type": "object"
+        },
         "WatchlistUserStateData": {
           "properties": {
             "notifications": {
@@ -3978,7 +4032,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Get the full details of one listing by its productListingId: text, prices, images, provider, availability, auction and shipping, in the requested language and currency. Use it when the user wants more than a search result shows. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Get the full details of one listing by its productListingId: text, prices, images, provider, availability, auction and shipping, in the requested language and currency. Use it when the user wants more than a search result shows. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -5439,14 +5493,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -5457,7 +5510,7 @@
             "pricing",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "images",
             "created",
             "updated"
@@ -6272,6 +6325,25 @@
           ],
           "type": "object"
         },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
+          "type": "object"
+        },
         "WatchlistUserStateData": {
           "properties": {
             "notifications": {
@@ -6324,7 +6396,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Get the full details of one listing by its productListingTitleSlugId, the last segment of an Aura Historia listing page URL (/products/{slug}). Returns the same details as the lookup by productListingId. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Get the full details of one listing by its productListingTitleSlugId, the last segment of an Aura Historia listing page URL (/products/{slug}). Returns the same details as the lookup by productListingId. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -7786,14 +7858,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -7804,7 +7875,7 @@
             "pricing",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "images",
             "created",
             "updated"
@@ -8616,6 +8687,25 @@
           "required": [
             "minimum",
             "scope"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         },
@@ -9631,7 +9721,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Get the public profile of one provider (a dealer, auction house, marketplace or auction platform) by its listingSourceSlugId, the last segment of an Aura Historia provider page URL (/shops/{slug}): name, operator, website and image. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address.",
+    "description": "Get the public profile of one provider (a dealer, auction house, marketplace or auction platform) by its listingSourceSlugId, the last segment of an Aura Historia provider page URL (/shops/{slug}): name, operator, website and image. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -9664,6 +9754,25 @@
           "required": [
             "name",
             "partner"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         }
@@ -9704,19 +9813,18 @@
               "type": "null"
             }
           ],
-          "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared."
+          "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared."
         },
-        "viewUrl": {
+        "viewLink": {
           "anyOf": [
             {
-              "format": "uri",
-              "type": "string"
+              "$ref": "#/$defs/ViewLinkData"
             },
             {
               "type": "null"
             }
           ],
-          "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+          "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
         }
       },
       "required": [
@@ -9855,7 +9963,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Find listings similar to one listing, identified by its productListingId. Returns up to `size` neighbours (default 20; values outside 1 to 50 are clamped) in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Find listings similar to one listing, identified by its productListingId. Returns up to `size` neighbours (default 20; values outside 1 to 50 are clamped) in the requested language and currency. EMBEDDING_PENDING means the listing is not yet prepared for comparison and a later call can succeed; READY with an empty list means nothing similar was found. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -10865,14 +10973,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -10883,7 +10990,7 @@
             "priceValuation",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "updated"
           ],
           "type": "object"
@@ -11251,6 +11358,25 @@
             "service",
             "basis",
             "price"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         },
@@ -11729,7 +11855,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Get one of the signed-in user's saved searches by userSearchFilterId, with its criteria, state and notification settings. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Get one of the signed-in user's saved searches by userSearchFilterId, with its criteria, state and notification settings. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -12253,19 +12379,18 @@
                   "type": "null"
                 }
               ],
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared."
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared."
             },
-            "viewUrl": {
+            "viewLink": {
               "anyOf": [
                 {
-                  "format": "uri",
-                  "type": "string"
+                  "$ref": "#/$defs/ViewLinkData"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -12344,6 +12469,25 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
           "type": "object"
         }
       },
@@ -12432,7 +12576,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "List all of the signed-in user's saved searches with their criteria, state and notification settings. Takes no arguments. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "List all of the signed-in user's saved searches with their criteria, state and notification settings. Takes no arguments. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -12946,19 +13090,18 @@
                   "type": "null"
                 }
               ],
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared."
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared."
             },
-            "viewUrl": {
+            "viewLink": {
               "anyOf": [
                 {
-                  "format": "uri",
-                  "type": "string"
+                  "$ref": "#/$defs/ViewLinkData"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -13106,6 +13249,25 @@
             }
           },
           "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
+          "type": "object"
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -13162,7 +13324,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "List the listings on the signed-in user's watchlist with their full details and notification settings, in the requested language and currency. Pass the returned searchAfter array as a JSON string to get the next page. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "List the listings on the signed-in user's watchlist with their full details and notification settings, in the requested language and currency. Pass the returned searchAfter array as a JSON string to get the next page. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -14139,14 +14301,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -14157,7 +14318,7 @@
             "pricing",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "created",
             "updated"
           ],
@@ -14727,6 +14888,25 @@
             "service",
             "basis",
             "price"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         },
@@ -15350,7 +15530,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "List the signed-in user's notifications, such as watchlist changes and new saved-search matches, with each listing as it was when notified, in the requested language. Returns up to size notifications (default 21, 1 to 100); pass the returned searchAfter array as a JSON string to get the next page. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "List the signed-in user's notifications, such as watchlist changes and new saved-search matches, with each listing as it was when notified, in the requested language. Returns up to size notifications (default 21, 1 to 100); pass the returned searchAfter array as a JSON string to get the next page. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -15742,7 +15922,7 @@
               ]
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
@@ -15753,10 +15933,9 @@
             "userSearchFilterName": {
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -15770,7 +15949,26 @@
             "listingSourceName",
             "listingSourcePartner",
             "url",
-            "viewUrl"
+            "viewLink"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         },
@@ -15918,14 +16116,13 @@
               ]
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -15937,7 +16134,7 @@
             "listingSourceName",
             "listingSourcePartner",
             "url",
-            "viewUrl",
+            "viewLink",
             "change"
           ],
           "type": "object"
@@ -15996,7 +16193,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "List the listings that matched one of the signed-in user's saved searches, oldest match first, in the requested language and currency. Matching runs in the background, so an empty first page means there are no matches yet. Returns up to size matches (default 21, 1 to 100); pass the returned searchAfter array unchanged to get the next page. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "List the listings that matched one of the signed-in user's saved searches, oldest match first, in the requested language and currency. Matching runs in the background, so an empty first page means there are no matches yet. Returns up to size matches (default 21, 1 to 100); pass the returned searchAfter array unchanged to get the next page. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -16999,14 +17196,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -17017,7 +17213,7 @@
             "pricing",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "created",
             "updated"
           ],
@@ -17590,6 +17786,25 @@
           ],
           "type": "object"
         },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
+          "type": "object"
+        },
         "WatchlistUserStateData": {
           "properties": {
             "notifications": {
@@ -17955,7 +18170,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Turn notifications for a watched listing on or off, or pause (INACTIVE_BY_USER) or resume (ACTIVE) the entry. Omitted fields stay unchanged and null is invalid; resuming is subject to subscription tier limits. Returns the listing with its full details in the requested language and currency. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Turn notifications for a watched listing on or off, or pause (INACTIVE_BY_USER) or resume (ACTIVE) the entry. Omitted fields stay unchanged and null is invalid; resuming is subject to subscription tier limits. Returns the listing with its full details in the requested language and currency. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -19428,14 +19643,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -19446,7 +19660,7 @@
             "pricing",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "images",
             "created",
             "updated"
@@ -20261,6 +20475,25 @@
           ],
           "type": "object"
         },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
+          "type": "object"
+        },
         "WatchlistUserStateData": {
           "properties": {
             "notifications": {
@@ -20313,7 +20546,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Search the providers whose listings Aura Historia indexes (dealers, auction houses, marketplaces and auction platforms) by name. Without a query it browses all providers; a query too short to match returns no results. Returns 1 to 50 providers per page (default 21); pass the returned searchAfter unchanged, with the same query and size, to get the next page. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address.",
+    "description": "Search the providers whose listings Aura Historia indexes (dealers, auction houses, marketplaces and auction platforms) by name. Without a query it browses all providers; a query too short to match returns no results. Returns 1 to 50 providers per page (default 21); pass the returned searchAfter unchanged, with the same query and size, to get the next page. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address.",
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
@@ -20385,19 +20618,18 @@
                   "type": "null"
                 }
               ],
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared."
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared."
             },
-            "viewUrl": {
+            "viewLink": {
               "anyOf": [
                 {
-                  "format": "uri",
-                  "type": "string"
+                  "$ref": "#/$defs/ViewLinkData"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -20422,6 +20654,25 @@
           "required": [
             "name",
             "partner"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         }
@@ -20668,7 +20919,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Search Aura Historia's index of art, antiques and design objects listed by dealers, auction houses, marketplaces and auction platforms. Use it to find listings by text and by filters such as price, dates, availability, provider, auction, location and shipping. Returns listing summaries in the requested language and currency, with the total when known; pass the returned searchAfter object unchanged to get the next page. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Search Aura Historia's index of art, antiques and design objects listed by dealers, auction houses, marketplaces and auction platforms. Use it to find listings by text and by filters such as price, dates, availability, provider, auction, location and shipping. Returns listing summaries in the requested language and currency, with the total when known; pass the returned searchAfter object unchanged to get the next page. For a signed-in user, each result also carries userState sections for which the token has the read scope: watchlist:read, search-filters:read, notifications:read or users:read. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$defs": {
         "AmountData": {
@@ -22209,14 +22460,13 @@
               "type": "string"
             },
             "url": {
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared.",
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared.",
               "format": "uri",
               "type": "string"
             },
-            "viewUrl": {
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
-              "format": "uri",
-              "type": "string"
+            "viewLink": {
+              "$ref": "#/$defs/ViewLinkData",
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -22227,7 +22477,7 @@
             "priceValuation",
             "lifecycle",
             "url",
-            "viewUrl",
+            "viewLink",
             "updated"
           ],
           "type": "object"
@@ -22595,6 +22845,25 @@
             "service",
             "basis",
             "price"
+          ],
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
           ],
           "type": "object"
         },
@@ -23640,7 +23909,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Change the name, criteria, state or notification setting of one of the signed-in user's saved searches. Omitted fields stay unchanged and null clears fields that can be cleared; availability, orderability and includeUnspecifiedAvailability change together. Matching against new criteria runs in the background. Returns the saved search. Each result's `viewUrl` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
+    "description": "Change the name, criteria, state or notification setting of one of the signed-in user's saved searches. Omitted fields stay unchanged and null clears fields that can be cleared; availability, orderability and includeUnspecifiedAvailability change together. Matching against new criteria runs in the background. Returns the saved search. Each result's `viewLink.url` is the provider link meant to be shared with people: it carries Aura Historia's referral tagging, which is lost when its query parameters are changed. `viewLink.affiliate` is `true` when that link is an affiliate link, which can earn Aura Historia a commission. `url` is the provider's untagged address. Amounts are always integers in the currency's minor unit when one exists (EUR `119199` = €1,191.99; USD in cents). For currencies without minor units, such as JPY, the amount is whole units (`211453` = ¥211,453). Follow ISO 4217 exponents.",
     "inputSchema": {
       "$defs": {
         "AcceptShippingDestinationData": {
@@ -24915,19 +25184,18 @@
                   "type": "null"
                 }
               ],
-              "description": "The provider's own address, without Aura Historia's referral tagging; `viewUrl` is the link meant to be shared."
+              "description": "The provider's own address, without Aura Historia's referral tagging; `viewLink.url` is the link meant to be shared."
             },
-            "viewUrl": {
+            "viewLink": {
               "anyOf": [
                 {
-                  "format": "uri",
-                  "type": "string"
+                  "$ref": "#/$defs/ViewLinkData"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed."
+              "description": "The link to the provider's page that is meant to be shared with people, and whether it is an affiliate link."
             }
           },
           "required": [
@@ -25006,6 +25274,25 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "ViewLinkData": {
+          "description": "The provider link meant to be shared with people, paired with whether it is an affiliate link.",
+          "properties": {
+            "affiliate": {
+              "description": "`true` when `url` is an affiliate link, which can earn Aura Historia a commission when people follow it. `false` when it carries only Aura Historia's tracking parameters or leads to Aura Historia itself.",
+              "type": "boolean"
+            },
+            "url": {
+              "description": "Link to the provider's page that is meant to be shared with people. It carries Aura Historia's referral tagging, which is lost when its query parameters are changed.",
+              "format": "uri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "affiliate"
+          ],
           "type": "object"
         }
       },

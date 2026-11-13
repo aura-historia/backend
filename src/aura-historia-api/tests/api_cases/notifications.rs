@@ -352,7 +352,15 @@ async fn should_return_localized_reason_specific_notification_payloads() {
             .is_some()
     );
     assert!(price_change["payload"]["url"].as_str().is_some());
-    assert!(price_change["payload"]["viewUrl"].as_str().is_some());
+    assert!(
+        price_change["payload"]["viewLink"]["url"]
+            .as_str()
+            .is_some()
+    );
+    assert_eq!(
+        Some(false),
+        price_change["payload"]["viewLink"]["affiliate"].as_bool()
+    );
     assert_eq!(
         serde_json::json!(false),
         price_change["payload"]["listingSourcePartner"]

@@ -298,7 +298,7 @@ mod tests {
             availability: Some(ListingAvailability::Available),
             lifecycle: ListingLifecycle::Active,
             url: url.clone(),
-            view_url: url,
+            view_link: listing_source_core::ViewLink::non_affiliate(url),
             image: None,
             images: IndexSet::new(),
             embedding: None,
@@ -404,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn should_preserve_raw_urls_without_view_urls_in_projection_documents()
+    fn should_preserve_raw_urls_without_view_links_in_projection_documents()
     -> Result<(), Box<dyn std::error::Error>> {
         let product = source()?;
         let document = serde_json::to_value(product_listing_document(&product, None)?)?;
@@ -416,6 +416,7 @@ mod tests {
             document.get("url"),
         );
         assert!(document.get("viewUrl").is_none());
+        assert!(document.get("viewLink").is_none());
         Ok(())
     }
 

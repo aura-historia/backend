@@ -17,7 +17,7 @@ use application::{
 };
 
 use indexmap::IndexSet;
-use listing_source_core::{ListingSourceName, ListingSourceSlugId, outbound_url};
+use listing_source_core::{ListingSourceName, ListingSourceSlugId, view_link};
 
 use platform_postgres::SqlxTransaction;
 use product_listing_core::product_listing::{ListingSaleObservation, ProductListingPricing};
@@ -455,7 +455,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
         let sale_observation =
             sale_observation(row.sale_observed_at, row.sale_observation_fx_rate_id)?;
         let url = Url::parse(&row.url).map_err(InvalidListingRowValue::of("URL"))?;
-        let view_url = outbound_url(
+        let view_link = view_link(
             referral_configuration(row.listing_source_referral_configuration.as_ref())
                 .map_err(|()| {
                     InvalidListingRowValue::rejected(
@@ -466,7 +466,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 .as_ref(),
             &url,
         )
-        .map_err(InvalidListingRowValue::of("view URL"))?;
+        .map_err(InvalidListingRowValue::of("view link"))?;
 
         Ok(Personalized {
             item: ProductListingDetailsReadModel {
@@ -501,7 +501,7 @@ impl TryFrom<ProductListingDetailsRow> for PersonalizedProductListingDetailsRead
                 sale_observation,
                 availability: availability(row.availability.as_deref())?,
                 lifecycle: lifecycle(&row.lifecycle)?,
-                view_url,
+                view_link,
                 url,
                 images: parsed_images,
                 content_policy,

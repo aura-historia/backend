@@ -1,3 +1,4 @@
+use listing_source_core::ViewLink;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use product_listing_core::product_listing_price::ProductListingPrice;
@@ -100,9 +101,40 @@ impl From<ProductListingPrice> for ProductListingPriceData {
     }
 }
 
+/// The provider link meant to be shared with people, paired with whether it is an affiliate link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewLinkData {
+    #[schemars(schema_with = "crate::wire::schema::view_link_url")]
+    url: url::Url,
+    #[schemars(description = crate::wire::description::VIEW_LINK_AFFILIATE)]
+    affiliate: bool,
+}
+
+impl From<ViewLink> for ViewLinkData {
+    fn from(value: ViewLink) -> Self {
+        Self {
+            affiliate: value.is_affiliate(),
+            url: value.into_url(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_present_view_link_with_its_affiliate_disclosure() -> Result<(), url::ParseError> {
+        let url = url::Url::parse("https://prf.hn/click/camref:abc/destination:x")?;
+
+        assert_eq!(
+            serde_json::json!({"url": "https://prf.hn/click/camref:abc/destination:x", "affiliate": true}),
+            serde_json::to_value(ViewLinkData::from(ViewLink::affiliate(url)))
+                .unwrap_or_else(|error| panic!("serialize view link: {error}"))
+        );
+        Ok(())
+    }
 
     #[test]
     fn should_preserve_currency_and_localized_text_json_contract()

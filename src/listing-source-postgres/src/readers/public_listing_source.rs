@@ -2,7 +2,7 @@ use crate::persisted_referral::{self, PersistedReferralConfigurationError};
 use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::{
     ListingSourceId, ListingSourceName, ListingSourceSlugId, ReferralConfiguration,
-    ReferralUrlError, outbound_url,
+    ReferralUrlError, view_link,
 };
 use listing_source_service::use_cases::queries::public_listing_source::{
     PublicListingSourceOperatorSummary, PublicListingSourceSummary, PublicListingSourceWebsite,
@@ -38,8 +38,8 @@ pub(super) enum PublicListingSourceMappingError {
     UnsafeUrl,
     #[error("invalid public ListingSource referral configuration persisted")]
     ReferralConfiguration(#[source] PersistedReferralConfigurationError),
-    #[error("public ListingSource view URL could not be built")]
-    ViewUrl(#[source] ReferralUrlError),
+    #[error("public ListingSource view link could not be built")]
+    ViewLink(#[source] ReferralUrlError),
 }
 
 pub(super) fn map_public_listing_source(
@@ -70,9 +70,9 @@ fn map_website(
 ) -> Result<Option<PublicListingSourceWebsite>, PublicListingSourceMappingError> {
     map_public_url(url)?
         .map(|url| {
-            let view_url = outbound_url(referral_configuration, &url)
-                .map_err(PublicListingSourceMappingError::ViewUrl)?;
-            Ok(PublicListingSourceWebsite { url, view_url })
+            let view_link = view_link(referral_configuration, &url)
+                .map_err(PublicListingSourceMappingError::ViewLink)?;
+            Ok(PublicListingSourceWebsite { url, view_link })
         })
         .transpose()
 }
@@ -130,7 +130,8 @@ mod tests {
     }
 
     #[test]
-    fn should_tag_view_url_with_aura_utm_when_source_has_no_referral_configuration() {
+    fn should_tag_non_affiliate_view_link_with_aura_utm_when_source_has_no_referral_configuration()
+    {
         let summary = map_public_listing_source(row(Some("https://example.test/source"), None))
             .unwrap_or_else(|error| panic!("map public source: {error}"));
 
@@ -139,12 +140,14 @@ mod tests {
         assert_eq!("https://example.test/source", website.url.as_str());
         assert_eq!(
             "https://example.test/source?utm_source=aura_historia&utm_medium=referral",
-            website.view_url.as_str()
+            website.view_link.url().as_str()
         );
+        assert!(!website.view_link.is_affiliate());
     }
 
     #[test]
-    fn should_route_view_url_through_partnerize_when_source_has_referral_configuration() {
+    fn should_route_affiliate_view_link_through_partnerize_when_source_has_referral_configuration()
+    {
         let mut referred = row(Some("https://example.test/source"), None);
         referred.referral_configuration = Some(partnerize("1101l3AbC"));
 
@@ -156,8 +159,9 @@ mod tests {
         assert_eq!("https://example.test/source", website.url.as_str());
         assert_eq!(
             "https://prf.hn/click/camref:1101l3AbC/pubref:aurahistoria/destination:https%3A%2F%2Fexample.test%2Fsource",
-            website.view_url.as_str()
+            website.view_link.url().as_str()
         );
+        assert!(website.view_link.is_affiliate());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use application::error::{BoxError, box_error};
 use domain_primitives::event_id::EventId;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, ViewLink};
 use money::{Currency, MonetaryAmount, Price};
 use notification_core::{
     notification::{
@@ -310,7 +310,7 @@ impl From<&ProductListingNotificationSnapshot> for ProductListingNotificationSna
             image: snapshot.image.clone(),
             content_policy: snapshot.content_policy.map(Into::into),
             url: snapshot.url.clone(),
-            view_url: snapshot.view_url.clone(),
+            view_url: snapshot.view_link.url().clone(),
         }
     }
 }
@@ -347,7 +347,7 @@ impl TryFrom<ProductListingNotificationSnapshotV1> for ProductListingNotificatio
             image: snapshot.image,
             content_policy: snapshot.content_policy.map(TryInto::try_into).transpose()?,
             url: snapshot.url,
-            view_url: snapshot.view_url,
+            view_link: ViewLink::from_stored_url(snapshot.view_url),
         })
     }
 }
@@ -815,7 +815,9 @@ mod tests {
             image: None,
             content_policy: None,
             url: Url::parse("https://source.example/listings/42")?,
-            view_url: Url::parse("https://aura.example/listings/rare-vase")?,
+            view_link: ViewLink::non_affiliate(Url::parse(
+                "https://aura.example/listings/rare-vase",
+            )?),
         };
 
         let persisted = ProductListingNotificationSnapshotV1::from(&snapshot);
@@ -840,6 +842,33 @@ mod tests {
             ProductListingNotificationSnapshot::try_from(persisted)?
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn should_disclose_stored_partnerize_view_url_as_affiliate_link()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let persisted = serde_json::from_value::<ProductListingNotificationSnapshotV1>(
+            serde_json::json!({
+                "listing_source_id": ListingSourceId::new().as_uuid().to_string(),
+                "source_listing_id": "source-listing-42",
+                "listing_source_slug_id": "northwind-source",
+                "product_listing_title_slug_id": "rare-vase-000000",
+                "listing_source_name": "Northwind Source",
+                "title": null,
+                "image": null,
+                "content_policy": null,
+                "url": "https://source.example/listings/42",
+                "view_url": "https://prf.hn/click/camref:abc/pubref:aurahistoria/destination:https%3A%2F%2Fsource.example%2Flistings%2F42"
+            }),
+        )?;
+
+        assert_eq!(
+            ViewLink::affiliate(Url::parse(
+                "https://prf.hn/click/camref:abc/pubref:aurahistoria/destination:https%3A%2F%2Fsource.example%2Flistings%2F42"
+            )?),
+            ProductListingNotificationSnapshot::try_from(persisted)?.view_link
+        );
         Ok(())
     }
 

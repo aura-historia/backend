@@ -322,9 +322,11 @@ fn public_source() -> PublicListingSourceSummary {
         },
         website: Some(PublicListingSourceWebsite {
             url: "https://source.example.test".parse().unwrap(),
-            view_url: "https://source.example.test/?utm_source=aura_historia&utm_medium=referral"
-                .parse()
-                .unwrap(),
+            view_link: listing_source_core::ViewLink::non_affiliate(
+                "https://source.example.test/?utm_source=aura_historia&utm_medium=referral"
+                    .parse()
+                    .unwrap(),
+            ),
         }),
         image: None,
     }
@@ -374,9 +376,11 @@ fn details_view() -> PersonalizedProductListingDetailsView {
             url: "https://source.example/product/42?ref=aura"
                 .parse()
                 .unwrap(),
-            view_url: "https://aura.example/product-listings/pl_01k6k0w000e008000000000001"
-                .parse()
-                .unwrap(),
+            view_link: listing_source_core::ViewLink::non_affiliate(
+                "https://aura.example/product-listings/pl_01k6k0w000e008000000000001"
+                    .parse()
+                    .unwrap(),
+            ),
             images: vec![ProductListingImageView { url: None }],
             content_policy: Some(
                 product_listing_core::content_policy::ContentPolicyDecision::RequiresConsent(
@@ -412,7 +416,7 @@ fn summary() -> PersonalizedProductListingSummary {
             availability: view.availability,
             lifecycle: view.lifecycle,
             url: view.url,
-            view_url: view.view_url,
+            view_link: view.view_link,
             image: view.images.into_iter().next(),
             content_policy: view.content_policy,
             updated: view.updated,

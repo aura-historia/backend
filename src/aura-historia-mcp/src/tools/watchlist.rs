@@ -453,7 +453,9 @@ mod tests {
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
                 url: "https://shop.example.test/42".parse().unwrap(),
-                view_url: format!("https://aura.example.test/{id}").parse().unwrap(),
+                view_link: listing_source_core::ViewLink::non_affiliate(
+                    format!("https://aura.example.test/{id}").parse().unwrap(),
+                ),
                 images: (0..12)
                     .map(|index| ProductListingImageView {
                         url: Some(

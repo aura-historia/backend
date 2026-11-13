@@ -932,9 +932,11 @@ mod tests {
                 url: "https://source.example/product/42?ref=aura"
                     .parse()
                     .unwrap(),
-                view_url: "https://aura.example/product-listings/pl_01k6k0w000e008000000000001"
-                    .parse()
-                    .unwrap(),
+                view_link: listing_source_core::ViewLink::non_affiliate(
+                    "https://aura.example/product-listings/pl_01k6k0w000e008000000000001"
+                        .parse()
+                        .unwrap(),
+                ),
                 images: vec![ProductListingImageView { url: None }],
                 content_policy: Some(
                     product_listing_core::content_policy::ContentPolicyDecision::RequiresConsent(
@@ -970,7 +972,7 @@ mod tests {
                 availability: view.availability,
                 lifecycle: view.lifecycle,
                 url: view.url,
-                view_url: view.view_url,
+                view_link: view.view_link,
                 image: view.images.into_iter().next(),
                 content_policy: view.content_policy,
                 updated: view.updated,

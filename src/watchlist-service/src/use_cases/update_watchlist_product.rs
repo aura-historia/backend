@@ -1144,7 +1144,7 @@ mod tests {
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
                 url: url.clone(),
-                view_url: url.clone(),
+                view_link: listing_source_core::ViewLink::non_affiliate(url.clone()),
                 images: [ProductListingImage::new(url)].into_iter().collect(),
                 content_policy: Some(ContentPolicyDecision::Allowed),
                 auction: None,
@@ -1906,7 +1906,10 @@ mod tests {
                 "https://aura-historia.com/#pricing",
                 product.item.url.as_str()
             );
-            assert_eq!(product.item.url, product.item.view_url);
+            assert_eq!(
+                listing_source_core::ViewLink::non_affiliate(product.item.url.clone()),
+                product.item.view_link
+            );
             assert!(product.item.images.is_empty());
             assert!(product.item.auction.is_none());
             assert!(product.item.lot.is_none());

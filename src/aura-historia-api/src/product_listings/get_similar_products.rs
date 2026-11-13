@@ -494,7 +494,9 @@ mod tests {
                 availability: Some(ListingAvailability::Available),
                 lifecycle: ListingLifecycle::Active,
                 url: Url::parse("https://source.example/product-listings/1")?,
-                view_url: Url::parse("https://aura.example/product-listings/cabinet-abcdef")?,
+                view_link: listing_source_core::ViewLink::non_affiliate(Url::parse(
+                    "https://aura.example/product-listings/cabinet-abcdef",
+                )?),
                 image: None,
                 content_policy: None,
                 updated: OffsetDateTime::UNIX_EPOCH,

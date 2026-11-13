@@ -16,7 +16,7 @@ use fxrate_service::ports::{
     FxRateSnapshotRepository, FxRateSnapshotRepositoryError, FxRateSnapshotRepositoryFactory,
 };
 use indexmap::IndexSet;
-use listing_source_core::ListingSourceSlugId;
+use listing_source_core::{ListingSourceSlugId, ViewLink};
 use localization::{Language, Localized};
 use money::Currency;
 use product_listing_core::content_policy::{
@@ -172,7 +172,7 @@ pub struct ProductListingDetailsView {
     pub availability: Option<ListingAvailability>,
     pub lifecycle: ListingLifecycle,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
     pub images: Vec<ProductListingImageView>,
     pub content_policy: Option<ContentPolicyDecision>,
     pub auction: Option<ProductListingAuctionSummary>,
@@ -405,7 +405,7 @@ pub fn present_product_details(
             availability: item.availability,
             lifecycle: item.lifecycle,
             url: item.url,
-            view_url: item.view_url,
+            view_link: item.view_link,
             images: present_images(
                 item.images,
                 item.content_policy,
@@ -510,7 +510,7 @@ pub fn redact_hidden_product(
     };
     details.availability = None;
     details.url = hidden_url.clone();
-    details.view_url = hidden_url;
+    details.view_link = ViewLink::non_affiliate(hidden_url);
     details.images.clear();
     details.auction = None;
     details.lot = None;
@@ -898,7 +898,9 @@ mod tests {
                 availability: None,
                 lifecycle: ListingLifecycle::Active,
                 url: url("https://shop.example/products/1")?,
-                view_url: url("https://aura.example/products/cabinet-abcdef")?,
+                view_link: ViewLink::non_affiliate(url(
+                    "https://aura.example/products/cabinet-abcdef",
+                )?),
                 images: IndexSet::<ProductListingImage>::new(),
                 content_policy: None,
                 auction: None,

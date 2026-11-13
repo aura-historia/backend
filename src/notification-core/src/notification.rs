@@ -1,6 +1,6 @@
 use crate::{notification_id::NotificationId, notification_kind::NotificationKind};
 use domain_primitives::event_id::EventId;
-use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId};
+use listing_source_core::{ListingSourceId, ListingSourceName, ListingSourceSlugId, ViewLink};
 use localization::Localized;
 
 use partnership_core::partnership_application_id::PartnershipApplicationId;
@@ -222,7 +222,7 @@ pub struct ProductListingNotificationSnapshot {
     pub image: Option<Url>,
     pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
 }
 
 impl ProductListingNotificationSnapshot {
@@ -242,7 +242,7 @@ impl ProductListingNotificationSnapshot {
             image: self.image,
             content_policy: self.content_policy,
             url: self.url,
-            view_url: self.view_url,
+            view_link: self.view_link,
         }
     }
 }
@@ -324,7 +324,7 @@ pub struct LocalizedProductListingNotificationSnapshot {
     pub image: Option<Url>,
     pub content_policy: Option<ContentPolicyDecision>,
     pub url: Url,
-    pub view_url: Url,
+    pub view_link: ViewLink,
 }
 
 #[derive(Debug, Clone, PartialEq)]

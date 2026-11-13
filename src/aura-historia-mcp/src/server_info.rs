@@ -44,7 +44,7 @@ mod tests {
     fn should_state_what_the_service_is_without_steering_provider_links() {
         assert!(INSTRUCTIONS.contains("discovery service, not a seller"));
         assert!(INSTRUCTIONS.contains("confirm price and availability"));
-        for steering in ["viewUrl", "referral", "query parameters"] {
+        for steering in ["viewLink", "affiliate", "referral", "query parameters"] {
             assert!(!INSTRUCTIONS.contains(steering), "{steering}");
         }
     }

@@ -113,7 +113,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
         initial_status,
         "response body: {initial_body}"
     );
-    let initial_view_url = initial_body["items"][0]["item"]["viewUrl"]
+    let initial_view_url = initial_body["items"][0]["item"]["viewLink"]["url"]
         .as_str()
         .unwrap_or_else(|| panic!("initial search result has no view URL"))
         .to_owned();
@@ -129,7 +129,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
     );
     assert_eq!(
         Some(initial_view_url.as_str()),
-        short_ttl_initial_body["items"][0]["item"]["viewUrl"].as_str()
+        short_ttl_initial_body["items"][0]["item"]["viewLink"]["url"].as_str()
     );
 
     let client = reqwest::Client::new();
@@ -181,7 +181,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
     );
     assert_eq!(
         Some(initial_view_url.as_str()),
-        warm_body["items"][0]["item"]["viewUrl"].as_str()
+        warm_body["items"][0]["item"]["viewLink"]["url"].as_str()
     );
 
     let updated_view_url = "https://prf.hn/click/camref:campaign123/pubref:aurahistoria/destination:https%3A%2F%2Fcached-source.example%2Fproduct";
@@ -190,7 +190,7 @@ async fn should_keep_admin_source_reads_fresh_while_public_search_uses_a_warm_ca
             get_json_from(AURA_API_WITH_SHORT_TTL_SEARCH_CACHES.base_url(), path).await;
         let (status, body) = json_response(response).await;
         assert_eq!(reqwest::StatusCode::OK, status, "response body: {body}");
-        if body["items"][0]["item"]["viewUrl"].as_str() == Some(updated_view_url) {
+        if body["items"][0]["item"]["viewLink"]["url"].as_str() == Some(updated_view_url) {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -334,7 +334,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
         before_status,
         "response body: {before_body}"
     );
-    assert_product_view_urls(&before_body["item"], raw_url, aura_url);
+    assert_product_view_link(&before_body["item"], raw_url, aura_url, false);
 
     let admin_id = seed_user("ADMIN").await;
     let token = String::from(
@@ -374,7 +374,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
         id_status,
         "response body: {id_body}"
     );
-    assert_product_view_urls(&id_body["item"], raw_url, partnerize_url);
+    assert_product_view_link(&id_body["item"], raw_url, partnerize_url, true);
 
     let (slug_response, _) = get_json(format!("/v1/product-listings/by-slug/{title_slug}")).await;
     let (slug_status, slug_body) = json_response(slug_response).await;
@@ -383,7 +383,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
         slug_status,
         "response body: {slug_body}"
     );
-    assert_product_view_urls(&slug_body["item"], raw_url, partnerize_url);
+    assert_product_view_link(&slug_body["item"], raw_url, partnerize_url, true);
 
     let (search_response, _) = get_json(
         "/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
@@ -395,7 +395,12 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
         search_status,
         "response body: {search_body}"
     );
-    assert_product_view_urls(&search_body["items"][0]["item"], raw_url, partnerize_url);
+    assert_product_view_link(
+        &search_body["items"][0]["item"],
+        raw_url,
+        partnerize_url,
+        true,
+    );
 
     let (similar_response, _) = get_json(format!(
         "/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
@@ -407,7 +412,7 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
         similar_status,
         "response body: {similar_body}"
     );
-    assert_product_view_urls(&similar_body[0]["item"], raw_url, partnerize_url);
+    assert_product_view_link(&similar_body[0]["item"], raw_url, partnerize_url, true);
 
     let clear_response = reqwest::Client::new()
         .patch(format!(
@@ -432,22 +437,22 @@ async fn should_apply_listing_source_referral_policy_changes_to_product_listing_
 
     let (id_response, _) = get_json(format!("/v1/product-listings/{product_listing_id}")).await;
     let (_, id_body) = json_response(id_response).await;
-    assert_product_view_urls(&id_body["item"], raw_url, aura_url);
+    assert_product_view_link(&id_body["item"], raw_url, aura_url, false);
     let (slug_response, _) = get_json(format!("/v1/product-listings/by-slug/{title_slug}")).await;
     let (_, slug_body) = json_response(slug_response).await;
-    assert_product_view_urls(&slug_body["item"], raw_url, aura_url);
+    assert_product_view_link(&slug_body["item"], raw_url, aura_url, false);
     let (search_response, _) = get_json(
         "/v1/product-listings?language=en&currency=USD&productQuery[0]=Referral%20policy%20candidate".to_owned(),
     )
     .await;
     let (_, search_body) = json_response(search_response).await;
-    assert_product_view_urls(&search_body["items"][0]["item"], raw_url, aura_url);
+    assert_product_view_link(&search_body["items"][0]["item"], raw_url, aura_url, false);
     let (similar_response, _) = get_json(format!(
         "/v1/product-listings/{product_listing_id}/similar?language=en&currency=USD"
     ))
     .await;
     let (_, similar_body) = json_response(similar_response).await;
-    assert_product_view_urls(&similar_body[0]["item"], raw_url, aura_url);
+    assert_product_view_link(&similar_body[0]["item"], raw_url, aura_url, false);
 }
 
 #[aura_integration_test(services = [crate::api_support::API_TEST_STATE, BUSINESS_SCHEMA, OPENSEARCH, &AURA_API], isolated = true)]
@@ -1829,9 +1834,12 @@ fn with_embedding(mut document: Value, embedding: Vec<f32>) -> Value {
     document
 }
 
-fn assert_product_view_urls(item: &Value, raw_url: &str, view_url: &str) {
+fn assert_product_view_link(item: &Value, raw_url: &str, view_url: &str, affiliate: bool) {
     assert_eq!(json!(raw_url), item["url"]);
-    assert_eq!(json!(view_url), item["viewUrl"]);
+    assert_eq!(
+        json!({"url": view_url, "affiliate": affiliate}),
+        item["viewLink"]
+    );
 }
 
 fn product_listing_ids(body: &Value) -> Vec<String> {

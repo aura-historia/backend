@@ -110,7 +110,7 @@ async fn should_mark_operator_as_partner_only_while_its_partnership_is_active() 
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_derive_partnerize_view_url_without_changing_raw_product_url() {
+async fn should_derive_affiliate_partnerize_view_link_without_changing_raw_product_url() {
     let pool = get_postgres_client().await;
     let product = persist_product(&pool, "details-referral", None, None).await;
     let config = serde_json::json!({"kind": "PARTNERIZE", "camref": "campaign"});
@@ -138,8 +138,9 @@ async fn should_derive_partnerize_view_url_without_changing_raw_product_url() {
     assert_eq!("https://example.com/details-referral", view.url.as_str());
     assert_eq!(
         "https://prf.hn/click/camref:campaign/pubref:aurahistoria/destination:https%3A%2F%2Fexample.com%2Fdetails-referral",
-        view.view_url.as_str(),
+        view.view_link.url().as_str(),
     );
+    assert!(view.view_link.is_affiliate());
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]

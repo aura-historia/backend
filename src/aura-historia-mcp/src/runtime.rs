@@ -390,16 +390,19 @@ mod tests {
         }
     }
 
-    use crate::registry::{declares_money, declares_view_url};
+    use crate::registry::{declares_money, declares_view_link};
 
-    /// Every tool that returns a provider link says to share `viewUrl` unchanged, and every
-    /// `viewUrl` and its paired `url` describe which one to give people.
+    /// Every tool that returns a provider link states the link rule, and every `viewLink`, its
+    /// members and its paired `url` describe which link to give people and whether it is an
+    /// affiliate link.
     fn assert_link_tools_state_the_link_rule(tools: &[rmcp::model::Tool]) {
-        use aura_historia_contracts::wire::description::{LINK_RULE, SOURCE_URL, VIEW_URL};
+        use aura_historia_contracts::wire::description::{
+            LINK_RULE, SOURCE_URL, VIEW_LINK, VIEW_LINK_AFFILIATE, VIEW_LINK_URL,
+        };
         let mut with_links = 0;
         for tool in tools {
             let output = serde_json::to_value(&tool.output_schema).unwrap();
-            if !declares_view_url(&output) {
+            if !declares_view_link(&output) {
                 continue;
             }
             with_links += 1;
@@ -408,27 +411,22 @@ mod tests {
                     .as_deref()
                     .unwrap_or_default()
                     .contains(LINK_RULE),
-                "{}: returns viewUrl without stating the link rule",
+                "{}: returns viewLink without stating the link rule",
                 tool.name
             );
+            let definitions = output["$defs"].as_object();
             let mut objects = vec![&output];
-            objects.extend(
-                output["$defs"]
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .map(|(_, d)| d),
-            );
+            objects.extend(definitions.into_iter().flatten().map(|(_, d)| d));
             for object in objects {
                 let Some(properties) = object["properties"].as_object() else {
                     continue;
                 };
-                let Some(view_url) = properties.get("viewUrl") else {
+                let Some(view_link) = properties.get("viewLink") else {
                     continue;
                 };
                 assert_eq!(
-                    Some(VIEW_URL),
-                    view_url["description"].as_str(),
+                    Some(VIEW_LINK),
+                    view_link["description"].as_str(),
                     "{}",
                     tool.name
                 );
@@ -441,6 +439,21 @@ mod tests {
                     );
                 }
             }
+            let view_link = definitions
+                .and_then(|definitions| definitions.get("ViewLinkData"))
+                .unwrap_or_else(|| panic!("{}: ViewLinkData definition", tool.name));
+            assert_eq!(
+                Some(VIEW_LINK_URL),
+                view_link["properties"]["url"]["description"].as_str(),
+                "{}",
+                tool.name
+            );
+            assert_eq!(
+                Some(VIEW_LINK_AFFILIATE),
+                view_link["properties"]["affiliate"]["description"].as_str(),
+                "{}",
+                tool.name
+            );
         }
         assert!(with_links > 0);
     }

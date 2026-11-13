@@ -2,6 +2,14 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-13 — Affiliate disclosure on provider links (#2929)
+
+- **Breaking change:** every `viewUrl` is replaced by a `viewLink` object with the same link in `url` and a new `affiliate` flag. `affiliate` is `true` when the link is an affiliate link, which can earn Aura Historia a commission when people follow it; clients should disclose it as such and mark it `rel="sponsored"`. It is `false` for links that carry only Aura Historia's tracking parameters and for links to Aura Historia itself, such as listings redacted as hidden. The provider's untagged `url` next to it is unchanged.
+- REST: this applies to `ProductListingSummaryData`, `ProductListingDetailsData` and `ProductListingCollectionDetailsData` (product-listing search, detail, similar listings, watchlist, saved-search preview and matches, auction catalogue), to the watchlist and saved-search notification payloads (`GET /v1/me/notifications`), to `PublicListingSourceData` (`GET /v1/listing-sources`, `GET /v1/listing-sources/by-slug/{listingSourceSlugId}` and the `listingSources` of saved search filters) and to `PublicAuctionData` (`GET /v1/auctions/{auctionId}`). Where `viewUrl` was optional, `viewLink` is present exactly when `viewUrl` was.
+- MCP: every tool that returned `viewUrl` returns `viewLink` instead, and the link statement appended to those tools' descriptions now names `viewLink.url` and `viewLink.affiliate`. The `catalogue-search` agent skill asks agents to say when a link is an affiliate link.
+- Notification payloads take `affiliate` from the link stored with the notification, so notifications created before this change report it correctly too.
+- The watchlist price and availability e-mails and the search-filter match e-mail no longer link to the provider's site: the "View on merchant site" button is removed, so every link in them leads to Aura Historia.
+
 ## 2026-11-13 — Partner status on notifications and in e-mails (#2928)
 
 - `WatchlistNotificationPayloadData` and `SearchFilterNotificationPayloadData` (`GET /v1/me/notifications` and the MCP tool `listNotifications`) have a new required `listingSourcePartner`. It means the same as `operator.partner` on listing sources: `true` while the ListingSource's operator holds an active Partnership. It is read with each notification, not stored with it, so older notifications show the current status and it turns `false` once the Partnership ends. Partnership application payloads are unchanged.

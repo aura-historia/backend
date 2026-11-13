@@ -7,8 +7,8 @@ use url::Url;
 use crate::{
     InvalidListingSourceSlug, InvalidListingSourceType, ListingIngestionMethod, ListingSourceId,
     ListingSourceName, ListingSourceNameError, ListingSourceSlugId, ListingSourceType,
-    PlatformTechnology, PlatformTechnologyError, ReferralConfiguration, ReferralUrlError,
-    outbound_url,
+    PlatformTechnology, PlatformTechnologyError, ReferralConfiguration, ReferralUrlError, ViewLink,
+    view_link,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -148,8 +148,8 @@ impl ListingSource {
         replace(&mut self.referral_configuration, config)
     }
 
-    pub fn referral_url(&self, deeplink: &Url) -> Result<Url, ReferralUrlError> {
-        outbound_url(self.referral_configuration.as_ref(), deeplink)
+    pub fn view_link(&self, deeplink: &Url) -> Result<ViewLink, ReferralUrlError> {
+        view_link(self.referral_configuration.as_ref(), deeplink)
     }
 
     pub fn id(&self) -> ListingSourceId {

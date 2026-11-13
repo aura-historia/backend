@@ -353,7 +353,7 @@ mod tests {
             availability: None,
             lifecycle: ListingLifecycle::Active,
             url: url::Url::parse("https://example.test/lot").unwrap(),
-            view_url: url::Url::parse("https://example.test/lot?ref=aura").unwrap(),
+            view_link: listing_source_core::ViewLink::non_affiliate(url::Url::parse("https://example.test/lot?ref=aura").unwrap()),
             images: vec![ProductListingImageView { url: None }],
             content_policy: None,
             auction: None,
@@ -560,7 +560,7 @@ mod tests {
         assert!(detail.get("sourceAuctionId").is_none());
         assert!(detail.get("expectedVersion").is_none());
         assert!(
-            detail["viewUrl"]
+            detail["viewLink"]["url"]
                 .as_str()
                 .unwrap()
                 .contains("utm_source=aura_historia")

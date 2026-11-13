@@ -152,8 +152,9 @@ async fn should_map_full_listing_auction_context_and_referral_url_for_catalogue_
     );
     assert_eq!(
         "https://prf.hn/click/camref:catalogue/pubref:aurahistoria/destination:https%3A%2F%2Fexample.com%2Fcatalogue-full-listing",
-        item.item.view_url.as_str(),
+        item.item.view_link.url().as_str(),
     );
+    assert!(item.item.view_link.is_affiliate());
     let context = item
         .item
         .auction

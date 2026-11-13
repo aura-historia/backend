@@ -533,7 +533,7 @@ pub(crate) mod tests {
             availability: Some(ListingAvailability::Available),
             lifecycle: ListingLifecycle::Active,
             url: url.clone(),
-            view_url: url,
+            view_link: listing_source_core::ViewLink::non_affiliate(url),
             image: None,
             images: IndexSet::new(),
             embedding: None,
