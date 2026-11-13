@@ -45,59 +45,6 @@ images and can filter cases by intent or result. Text-only cases show a local
 photograph for human review, but that photograph is not submitted to the matcher.
 To regenerate a scored review, pass `review --report /path/to/report.json`.
 
-## Opt-in deployed run
-
-The live driver uses the **currently scheduled production task definition**. It
-does not rebuild the binary, change the schedule or modify deployed prompts,
-thresholds, batching, network rules, IAM, or bucket policies. It requires an empty
-active catalogue to bound fixture exposure and uses one isolated temporary source.
-It creates eight notifications-disabled saved filters, excludes other groups at
-filter creation, and verifies indexed freshness before starting the matcher.
-
-Use an authenticated AWS CLI and a current administrator bearer in a mode-0600
-file outside the repository. Delegated API tokens need users, search-filters,
-product-listings, listing-sources, partnerships, partnership-applications and
-notifications read/write scopes. The driver uses the supplied credential; it does
-not mint, revoke, print or copy it into the repository.
-
-```sh
-python3 src/search-filter-service/benchmarks/real-world-v1/run.py live \
-  --allow-production \
-  --token-file /tmp/matcher-admin-token \
-  --state-dir /tmp/matcher-corpus-private-state \
-  --output /tmp/matcher-corpus-results.json
-```
-
-The state directory must be new and outside the repository. It holds recovery
-identifiers and S3 object-version references, not the bearer or signed image URLs.
-Images are uploaded from the pinned local bytes to a temporary prefix in the
-existing endpoint-permitted artifact bucket. Short-lived signed reads use its
-IPv4-only S3 hostname, controlling for the separately tracked image DNS bug
-[#2659](https://github.com/aura-historia/backend/issues/2659). Therefore these results
-measure judgment with delivered evidence, not the reliability of merchant image
-hosting. No image is downloaded from a source website during a live replay.
-
-The runner temporarily resolves the account to Ultimate so source restrictions and
-enhanced intents can be exercised. Plain cases still submit zero images and no
-enhanced intent. This is not a Free/Pro entitlement-policy test. Invocation-only
-limits set projection lag to zero after convergence, concurrency to two, attempts
-to one and the matching deadline to ten minutes. Technical failures remain
-unresolved instead of becoming negative labels. The conservative preflight budget
-must stay below the manifest's 1,500-neuron ceiling; account-wide quota and upstream
-embedding consumption are not measured by that estimate.
-
-Cleanup runs on success or failure: filters and associated test notifications are
-deleted, listings withdrawn, grants removed, ingestion disabled, original account
-tier restored, and exact temporary S3 object versions deleted. Historical source,
-party, application, listing and matching-run rows remain by application contract.
-If cleanup is interrupted, use the retained private state and a valid bearer:
-
-```sh
-python3 src/search-filter-service/benchmarks/real-world-v1/run.py cleanup \
-  --state-dir /tmp/matcher-corpus-private-state \
-  --token-file /tmp/matcher-admin-token
-```
-
 ## Reading results
 
 The report keeps persisted matches, scores and requested/sent image counts per

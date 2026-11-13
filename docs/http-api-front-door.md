@@ -226,7 +226,7 @@ pin these boundaries to the transport budgets.
 
 ### MCP deployment and stage verification
 
-Use the [existing Release workflow](infra.md#routine-and-schema-dependent-releases).
+Use the [existing Release workflow](infra.md#deployment-inputs-and-approvals).
 Before first traffic, verify ownership and available aliases, then provision issued
 ACM certificates covering the exact host in `eu-central-1` (regional Gateway) and
 `us-east-1` (CloudFront viewer). Supply their ARNs through these external SSM String
@@ -294,8 +294,7 @@ through a generic client. Record safe status/timing/header evidence without toke
 bodies. Local synth/unit tests do not perform these live checks. If certificate,
 Host/TLS, WAF, CORS or forwarding checks fail, hold traffic. Restore the recorded DNS
 target when necessary; compatible code rollback follows the existing Release mechanism
-and repoints the MCP `live` alias to an immutable version. Review diffs before rolling
-back to a source predating MCP, since that may remove its front door. DNS is never
+and repoints the MCP `live` alias to an immutable version. DNS is never
 rolled back automatically, and rollback does not undo completed tool effects.
 
 ## REST client and provider configuration
@@ -310,45 +309,13 @@ Clients configured with an origin alone must include `/v1` in their request path
 The removed `/api/v1` routes have no compatibility aliases, redirects or deprecation
 period. Historical changelog entries retain their original paths.
 
-Coordinate these externally owned settings with the backend development cutover:
+## Front-door changes and rollback
 
-- In [`aura-historia/webapp`](https://github.com/aura-historia/webapp), refresh the checked-in
-  OpenAPI contract and regenerate REST/partner clients. Also update handwritten OAuth
-  approval and broker token-exchange endpoints, similar-listing `Location` validation,
-  partner-spec extraction, examples and test intercepts. Keep `VITE_API_URL` origin-only:
-  generated operation paths already include `/v1`. Verify login, consent metadata,
-  approval and code/token exchange end to end. Webapp-owned `/api/...` routes and client
-  callback URLs are independent; change a callback only if it targets a renamed backend route.
-- Aura discovery advertises the environment's webapp `/en/oauth/authorize` consent entry
-  and the API `/v1/oauth/token` endpoint. Backend consent approval uses `/v1/oauth/authorize`;
-  see the [OAuth contract](oauth.md). Do not change provider OAuth URLs.
-- Update each registered WooCommerce delivery URL to the API origin plus
-  `/v1/webhooks/woocommerce/{listingSourceId}` and the signed Loops preference endpoint to
-  `/v1/webhooks/loops`. Preserve provider authentication, signing secrets, delivery identity
-  and exact raw-body/signature handling; do not redirect deliveries. Loops' external
-  `https://app.loops.so/api` base URL is unrelated and remains unchanged. Shopify/Stripe
-  event ingestion is not part of this HTTP route migration.
-- In [`woocommerce-extension`](https://github.com/aura-historia/woocommerce-extension),
-  update the webhook URL builder, refresh its pinned backend schema/client, and trigger
-  managed webhook synchronization for existing installations; changing code alone does
-  not update registered delivery URLs. Keep its backend base URL origin-only. In
-  [`shopify-app`](https://github.com/aura-historia/shopify-app), update the backend token
-  endpoint and pinned generated client, not webapp consent-page URLs or callbacks.
-- Update other project-owned scripts and test clients from OpenAPI. Preserve existing
-  retry behavior: a prefix change does not make writes safe to replay.
-
-These registrations and webapp changes are not performed by CDK or verified by local
-fixtures. Local changes are not evidence that an external registration has changed.
-Owners must apply them and verify requests against the development edge before
-signing off the cutover; omitted live checks are not passes.
-
-## Deployment, cutover, and rollback
-
-Follow the [release procedure](infra.md#routine-and-schema-dependent-releases), then:
+Follow the [release procedure](infra.md#deployment-inputs-and-approvals), then:
 
 1. Inventory approved-account alias/domain claims, externally owned DNS, current
    consumers and the previous endpoint/rollback target. Resolve conflicts with their
-   owners. The dev public hostname does not rename AWS stages, SSM paths or stacks.
+   owners.
 2. Verify issued, valid ACM certificates covering the **exact public hostname**:
    regional Gateway in `eu-central-1`, CloudFront viewer in `us-east-1`. Check the
    stage references in configuration; `*.aura-historia.com` or `*.dev.aura-historia.com`
@@ -366,12 +333,10 @@ Follow the [release procedure](infra.md#routine-and-schema-dependent-releases), 
    readiness requires the [private-workload gate](opensearch-stage.md#dev-private-subnet-egress-and-release-gate).
    Keep credentials and signed payloads out of logs; omitted checks are not passes.
 4. With approval and successful probes, update affected frontend/provider registrations
-   as described [above](#rest-client-and-provider-configuration); change external DNS only
-   if its target changes. Repeat probes on the public hostname, including canonical
-   `/v1` reads, representative writes and signed webhooks, and verify that `/api/v1`
-   operations are rejected without redirecting. Do not retain old routes or mappings.
+   and change external DNS only if its target changes. Repeat probes on the public hostname,
+   including canonical `/v1` reads, representative writes and signed webhooks.
 
-If alias/certificate/Host/TLS/forwarding checks fail, hold cutover. After cutover,
+If alias/certificate/Host/TLS/forwarding checks fail, hold the change. To roll back,
 restore the recorded DNS target and affected client/provider URLs, accounting for TTL.
 [Code/stack rollback](infra.md#rollback-and-stack-recovery) does not reverse DNS or
 provider effects. Preserve WAF protections and retained state. Lambda timeout

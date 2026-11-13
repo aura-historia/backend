@@ -53,8 +53,8 @@ Start with the [documentation map](docs/README.md) to find the owning architectu
 
 ## Deployment and operations
 
-See the [workflow and release runbook](docs/infra.md#deployment-inputs) for
-coordinated `develop` → dev and UTC CalVer tag → prod releases with automatic PostgreSQL
+See the [workflow and release runbook](docs/infra.md#deployment-inputs-and-approvals) for
+manually dispatched, reviewed releases of protected `develop` commits with PostgreSQL
 migration, FX-only initialization, first-time setup and rollback. OpenSearch remains
 an [externally operated service](docs/opensearch-stage.md#release-and-schema-change-contract).
 

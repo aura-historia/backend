@@ -129,7 +129,7 @@ policies. Limit privacy/support lookup to approved subjects, groups and time win
 select event fields, not full messages. Fingerprints remain personal/pseudonymous data,
 not anonymous data or metric dimensions. Review access, minimization, retention and erasure.
 CloudWatch erasure is stream/group-level: assess collateral records and coordinate retained
-resource ownership. [Log-group adoption](infra.md#manual-operations) is a separate operator action.
+resource ownership.
 
 ## Operations and recovery
 
@@ -144,10 +144,7 @@ stack configuration, changed only under platform maintenance. Do not rely on
 or change the shared identity's externally owned default to configure a stage.
 Configuration and mocks do not prove live provider acceptance.
 
-Create the managed set and metrics destination before switching consumers. During a
-live cutover, preserve narrowly scoped permissions for old consumers until their
-versions/in-flight sends drain, then remove the transitional grant. Keep the legacy
-set/default for other consumers until their ownership and usage are reviewed.
+Keep the legacy SES configuration set/default for other consumers until their ownership and usage are reviewed.
 CloudWatch event metrics use a non-sensitive stage dimension; update monitoring to
 that dimension rather than mixing environments. Reputation/event metrics retain
 CloudWatch costs; no recipient, proof or rendered-mail logging is introduced.
@@ -155,7 +152,7 @@ CloudWatch costs; no recipient, proof or rendered-mail logging is introduced.
 Managed sets are retained for outstanding versions and rollback safety. A rollback
 that removes a set from its stack can leave the physical name orphaned; inspect and
 recover/import ownership before deploying it again, rather than deleting it or
-changing the shared identity. A forward fix is preferable to a pre-cutover rollback.
+changing the shared identity.
 For confirmation failures, correlate request IDs with preparation/SES failure categories
 and the terminal use-case error. Never enable raw SDK, recipient, proof or rendered-mail
 logging to diagnose delivery; an ambiguous send must not be blindly replayed.

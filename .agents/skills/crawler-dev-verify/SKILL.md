@@ -172,16 +172,15 @@ the crawler runs as in `manual`, makes no LLM call and needs no Vertex AI settin
    pointing at the token file above; stderr to a file of its own. Drive each over stdio with a
    small scripted client in the scratchpad (newline-delimited JSON-RPC: `initialize`,
    `notifications/initialized`, `tools/list`, `tools/call`), never with the `claude` CLI, so the run
-   spends no LLM budget and no login. Expect 12 author and 7 reviewer tools, JSON-RPC error
+   spends no LLM budget and no login. Expect 17 author and 9 reviewer tools, JSON-RPC error
    `-32602` for the other role's tool, `isError` results whose text is a JSON object with `kind`
    (`URL_OUTSIDE_REVIEW_SOURCE` for a URL off the review's ListingSource, before any request;
    `FORBIDDEN` with `reason`; `CONFLICT` with `failed_checks` when the approval guard refuses, for a
-   URL pattern `TOO_FEW_LABELS`, `PRODUCT_LABEL_NOT_MATCHED`, `NOT_PRODUCT_LABEL_MATCHED`;
+   URL pattern `PATTERN_MATCHES_NO_SAMPLE_URL`, `PATTERN_MATCHES_EVERY_SAMPLE_URL`, `PATTERN_TAKES_PROBE_PATHS` or `NO_PATTERN_NEEDS_HUMAN`;
    `CONFLICT` with `reason` `HUMAN_REQUIRED` once the agents' needs-repair verdicts on a review
    reach `CRAWLER_REVIEW_AGENT_MAX_REPAIR_ROUNDS`, until a human changes or judges it), and
    answers below 48 KiB. The author reads (`get_review`, `inspect_page`), tests
-   (`evaluate_candidate`), stages (`update_candidate`, `update_schema_field`, `add_review_page`) and
-   labels (`label_sample_urls`, `PRODUCT` or `NOT_PRODUCT` with a `reason`); the reviewer refreshes a
+   (`evaluate_candidate`), stages (`update_candidate`, `update_schema_field`, `add_review_page`); the reviewer refreshes a
    product-schema review's live matrix (`refresh_matrix`) and approves with the `candidate_version`
    it read, or rejects with `notes`. Until a pattern is approved the spider stores every crawled
    URL as `other`; check `listing_source_urls.url_class`. The event trail (`get_review`, `events`)

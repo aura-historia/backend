@@ -124,8 +124,7 @@ publication chronology.
 
 App companion [#370](https://github.com/aura-historia/shopify-app/issues/370) owns
 publication filtering, subscription/scope changes and imports through the existing API.
-Deployment order is in the
-[worker runbook](../durable-worker-runbook.md#shopify-channel-deployment).
+Recheck the current publication when resolving a reported mismatch.
 
 ## Geography dependency invalidation
 
@@ -281,7 +280,7 @@ freshness or widen the scheduled matching interval.
 The Cognito collision policy is provider-specific: Google linking requires verified
 incoming and destination identities; Facebook collisions are rejected, and a profile
 linked to Facebook is not a Google-link destination. The database's email uniqueness
-remains the race barrier. [Identity recovery](../infra.md#manual-operations) must preserve
+remains the race barrier. [Identity recovery](../infra.md#manual-platform-operations) must preserve
 the existing bound account. PostConfirmation errors propagate but do not roll back
 Cognito confirmation; there is no durable queue/DLQ for that registration boundary.
 Unsettled PostgreSQL registration therefore needs operator recovery.
@@ -467,8 +466,8 @@ enter the email payload.
 The delivery lease, retry and provider acceptance semantics are unchanged. SES has
 no idempotency token; a unique digest is one logical intent, not an exactly-once
 external-email guarantee. See [notification recovery](../durable-worker-runbook.md#notification-recovery-limits)
-for ambiguous sends and [digest recovery](../durable-worker-runbook.md#saved-search-digest-recovery-and-cutover)
-for interrupted runs and cutover.
+for ambiguous sends and [digest recovery](../durable-worker-runbook.md#saved-search-digest-recovery)
+for interrupted runs.
 
 ### Stripe subscription reconciliation
 
@@ -495,9 +494,7 @@ pagination is explicit and the entire provider read has a bounded deadline. Cust
 metadata may establish an unbound user's association but cannot replace another customer
 or contradict an existing user's association.
 
-Before running the updated consumer, apply the Stripe receipt migration and provide its
-`STRIPE_API_KEY` configuration using the existing stage credential reference. The consumer
-and billing API share that key: restricted permissions must preserve customer creation
+The consumer and billing API share the `STRIPE_API_KEY` stage credential: restricted permissions must preserve customer creation
 and Checkout/billing-portal session creation, plus customer and subscription reads.
 The key, product/price identifiers and event destination must use the same Stripe account
 and test/live environment. No transaction stays open across Stripe I/O; a failed
@@ -541,7 +538,5 @@ It advances listing freshness and the existing projection fence/current-event po
 routes only to the complete ProductListing projector. Canonical revision,
 content/embedding source pointers and public history remain unchanged. Dependency-only
 refreshes and redelivered acquisitions update nothing visible.
-The event codec rejects unknown versions or payload fields. Deploy compatible event/job
-readers, strict camelCase mappings and the isolated queue/consumer with the migration;
-older readers cannot consume the new event or scope. Rebuild and lag semantics belong
+The event codec rejects unknown versions or payload fields. Rebuild and lag semantics belong
 to the [shipping contract](../shipping.md#effective-shipping-discovery-projection).
