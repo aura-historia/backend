@@ -410,7 +410,7 @@ The host pulls the release from GitHub, so CI holds no host credentials and the 
 1. stops `review-agent-runner` and `crawler-server` together, skipping a unit the host has not installed, and fails if `crawler-server` is still active;
 2. repoints the `/opt/crawler/bin` symlink to the release directory atomically, so the units' paths stay unchanged. The first run keeps a previous directory of copied binaries as `releases/legacy-<timestamp>`;
 3. starts `crawler-server`, and `review-agent-runner` if it was running, from the same build;
-4. polls `http://127.0.0.1:7878/health` for `{"ok":true}` for up to `CRAWLER_HEALTH_TIMEOUT` seconds (default 600, every `CRAWLER_HEALTH_INTERVAL` = 5 seconds), long enough for startup to apply pending migrations, then prunes all but the five most recently deployed releases, the running one, the one it replaced and the legacy binaries.
+4. polls `http://127.0.0.1:7878/health` for `"ok": true` (whitespace ignored) for up to `CRAWLER_HEALTH_TIMEOUT` seconds (default 600, every `CRAWLER_HEALTH_INTERVAL` = 5 seconds), long enough for startup to apply pending migrations, then prunes all but the five most recently deployed releases, the running one, the one it replaced and the legacy binaries.
 
 `deploy.sh` takes no database backup: the weekly [S3 backup](#scheduled-s3-backups) is the only one. Before a release that adds or changes a crawler-local migration, and before the first deploy on a host, run `systemctl start crawler-backup.service` and check that it succeeded. A failure after step 1 starts the stopped units again before the script exits; a failure after the switch and before the start, such as a failed `systemctl daemon-reload`, first switches back to the build it replaced, because the new one was never health-checked, and exits 4. The script always switches `server`, `review-mcp` and `review-agent-runner` together: the runner fails every run against a console of another build ([review agent runner](#settings)). The example units are never overwritten silently: the script reports a unit that differs from the host's, and `--install-units` installs the release's units and runs `systemctl daemon-reload` before the restart. Use it when a release changes the example [`review-agent-runner.service`](../../src/crawler/scripts/linux/review-agent-runner.service): until the reload, systemd stops and starts the runner with the old unit's settings, such as its `KillMode` and `TimeoutStopSec`.
 
@@ -465,7 +465,7 @@ To restore, stop `crawler-server`, restore the dump (`pg_restore --clean --if-ex
 ### After start
 
 - The journal shows `Connected to crawler-local Postgres`, `Crawler authoring mode configured: ...` with `authoring_mode` `manual` or `agent` and `authoring_mode_source` `env`, in `agent` mode `Generated the review agents' tokens of this start and wrote them to their token file` with the file's `path`, and `Crawler review console listening`.
-- `curl -fsS http://127.0.0.1:7878/health` returns `{"ok":true}`.
+- `curl -fsS http://127.0.0.1:7878/health` returns `"ok": true`.
 - `curl -fsS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7878/api/listing_sources` lists the ListingSources, with the ListingSources that need an operator first.
 - The first spider pass does not log a `SPIDER_MAX_SIZE_BYTES` error: the spider checks that value, from 1048576 through 8388608, on each crawl, not at startup.
 

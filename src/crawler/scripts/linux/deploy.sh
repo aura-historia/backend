@@ -240,7 +240,9 @@ install_changed_units() {
 wait_healthy() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT))
   while true; do
-    if curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null | grep -q '"ok":true'; then
+    # The crawler pretty-prints its JSON (`"ok": true` on a line of its own), so whitespace is
+    # ignored: the compact and the pretty-printed body both count, `"ok": false` does not.
+    if curl -fsS --max-time 5 "$HEALTH_URL" 2>/dev/null | tr -d '[:space:]' | grep -q '"ok":true'; then
       echo "healthy: ${HEALTH_URL}"
       return 0
     fi

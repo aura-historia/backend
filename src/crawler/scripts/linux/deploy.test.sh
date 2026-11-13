@@ -40,7 +40,10 @@ while [[ $# -gt 0 ]]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) u
 if [[ "$url" == */health ]]; then
   fails="$(cat "$FAKE_HEALTH_FAILS" 2>/dev/null || echo 0)"
   if [[ "$fails" -gt 0 ]]; then echo $((fails - 1)) > "$FAKE_HEALTH_FAILS"; exit 22; fi
-  echo '{"ok":true}'; exit 0
+  # The crawler's real body: serde_json pretty-prints it. FAKE_HEALTH_BODY replaces it.
+  body="${FAKE_HEALTH_BODY:-}"
+  [[ -n "$body" ]] || body=$'{\n  "ok": true\n}'
+  printf '%s\n' "$body"; exit 0
 fi
 if [[ "$url" == */api ]]; then [[ -z "${FAKE_API_FAIL:-}" ]] || exit 22; cat "$FAKE_API_JSON"; exit 0; fi
 # The compare API: FAKE_COMMIT_ORDER lists the test SHAs in develop's commit order.
@@ -189,6 +192,10 @@ bin_is "$sha_e" || fail "a refused rollback switched"
 echo 40 > "$FAKE_HEALTH_FAILS"
 CRAWLER_HEALTH_TIMEOUT=60 deploy "$sha_e" >/dev/null 2>&1 || fail "a build that became healthy within CRAWLER_HEALTH_TIMEOUT was rolled back"
 rm -f "$FAKE_HEALTH_FAILS"
+
+# A health body that answers but does not say ok is unhealthy, whatever its whitespace.
+status=0; FAKE_HEALTH_BODY=$'{\n  "ok": false\n}' deploy "$sha_e" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 4 ]] || fail "a health body with \"ok\": false was taken as healthy (exit ${status})"
 
 # The timer never downgrades: a release of an older commit, published later, is skipped once,
 # and a failed comparison is retried.
