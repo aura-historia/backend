@@ -8,7 +8,6 @@ use indexmap::IndexSet;
 use localization::{Language, Localized};
 use money::{Currency, MonetaryAmount, Price};
 use product_listing_core::content_policy::ContentPolicyDecision;
-use product_listing_core::description::Description;
 use product_listing_core::listing_availability::ListingAvailability;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use product_listing_core::product_listing_image::ProductListingImage;
@@ -71,32 +70,6 @@ pub(super) fn localized_title(
         }
         (None, None) => Ok(None),
         _ => Err(InvalidListingRowValue::rejected("title", PARTIAL_COLUMNS)),
-    }
-}
-
-pub(super) fn localized_description(
-    text: Option<String>,
-    language: Option<String>,
-) -> Decoded<Option<Localized<Language, Description>>> {
-    match (text, language) {
-        (Some(text), Some(language)) => {
-            let description = Description::from(text.as_str());
-            if description.as_ref().is_empty() || description.as_ref() != text.as_str() {
-                return Err(InvalidListingRowValue::rejected(
-                    "description",
-                    "description is empty or not canonical",
-                ));
-            }
-            Ok(Some(Localized::new(
-                parse_language("description language", &language)?,
-                description,
-            )))
-        }
-        (None, None) => Ok(None),
-        _ => Err(InvalidListingRowValue::rejected(
-            "description",
-            PARTIAL_COLUMNS,
-        )),
     }
 }
 
@@ -204,13 +177,6 @@ mod tests {
     #[test]
     fn should_reject_selected_title_when_text_is_not_canonical() {
         let result = localized_title(Some("title".to_owned()), Some("en".to_owned()));
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn should_reject_selected_description_when_text_is_empty() {
-        let result = localized_description(Some(" ".to_owned()), Some("en".to_owned()));
 
         assert!(result.is_err());
     }

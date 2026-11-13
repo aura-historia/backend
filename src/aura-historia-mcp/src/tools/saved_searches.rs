@@ -1132,7 +1132,6 @@ mod tests {
                         language,
                         "Schrank".into(),
                     ))),
-                    description: None,
                     pricing: ProductListingPricingPresentation {
                         source: product_listing_core::product_listing::ProductListingPricing {
                             price: Some(

@@ -513,7 +513,6 @@ mod tests {
                 source,
                 source_listing_id: SourceListingId::try_from("cabinet-1")?,
                 title: None,
-                description: None,
                 pricing: ProductListingPricing::default(),
                 sale_observation: None,
                 availability: None,

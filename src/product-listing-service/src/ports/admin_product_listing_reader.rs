@@ -9,7 +9,6 @@ use indexmap::IndexSet;
 use listing_source_core::ListingSourceId;
 use localization::{Language, Localized};
 use product_listing_core::{
-    description::Description,
     listing_availability::ListingAvailability,
     listing_lifecycle::ListingLifecycle,
     product_listing::{ListingSaleObservation, ProductListingAuction, ProductListingPricing},
@@ -27,7 +26,6 @@ use url::Url;
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminProductListingDetails {
     pub summary: AdminProductListingSummary,
-    pub description: Option<Localized<Language, Description>>,
     pub url: Url,
     pub images: IndexSet<ProductListingImage>,
     pub auction: Option<ProductListingAuction>,

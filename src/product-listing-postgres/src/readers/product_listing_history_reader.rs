@@ -195,7 +195,6 @@ fn history_kind(
                 listing_source_id: discovered.listing_source_id(),
                 source_listing_id: discovered.source_listing_id().clone(),
                 title: discovered.title().cloned(),
-                description: discovered.description().cloned(),
                 pricing: discovered.pricing().into(),
                 availability: discovered.availability(),
                 url: discovered.url().clone(),
@@ -212,11 +211,8 @@ fn history_kind(
                     current: change.current().clone(),
                 });
             }
-            if let Some(change) = changed.description() {
-                changes.push(ProductListingHistoryChange::DescriptionChanged {
-                    previous: change.previous().clone(),
-                    current: change.current().clone(),
-                });
+            if changed.description().is_some() {
+                changes.push(ProductListingHistoryChange::DescriptionChanged);
             }
             if let Some(change) = changed.price() {
                 changes.push(ProductListingHistoryChange::MainPriceChanged {
@@ -313,11 +309,11 @@ fn history_kind(
 mod tests {
     use super::*;
     use localization::{Language, Localized};
-    use product_listing_core::{description::Description, title::Title};
+    use product_listing_core::title::Title;
     use serde_json::json;
 
     #[test]
-    fn should_present_text_before_other_changes_with_original_values_and_null_sides() {
+    fn should_present_text_before_other_changes_and_mark_description_changes_without_text() {
         let payload = product_listing_event_codec::decode("PRODUCT_LISTING_CHANGED", 1, &json!({
             "title":{"previous":null,"current":{"text":"Nouveau titre","language":"fr"}},
             "description":{"previous":{"text":"Old description","language":"en"},"current":null},
@@ -334,13 +330,7 @@ mod tests {
                     previous: None,
                     current: Some(Localized::new(Language::Fr, Title::from("Nouveau titre"))),
                 },
-                ProductListingHistoryChange::DescriptionChanged {
-                    previous: Some(Localized::new(
-                        Language::En,
-                        Description::from("Old description")
-                    )),
-                    current: None,
-                },
+                ProductListingHistoryChange::DescriptionChanged,
                 ProductListingHistoryChange::MainPriceChanged {
                     previous: None,
                     current: Some(

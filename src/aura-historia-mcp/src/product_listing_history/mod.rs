@@ -192,7 +192,6 @@ mod tests {
                                 listing_source_id: ListingSourceId::new(),
                                 source_listing_id: SourceListingId::try_from("source-42").unwrap(),
                                 title: None,
-                                description: None,
                                 pricing: ProductListingHistoryPricing {
                                     price: Some(price),
                                     ..Default::default()

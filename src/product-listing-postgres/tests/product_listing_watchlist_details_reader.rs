@@ -88,21 +88,8 @@ async fn should_join_watchlisted_product_localization_and_user_state() {
     let Some(title) = view.item.title.as_ref() else {
         panic!("missing title");
     };
-    let Some(description) = view.item.description.as_ref() else {
-        panic!("missing description");
-    };
     assert_localized_title(title.original.as_ref(), Language::En, "Original title");
-    assert_localized_description(
-        description.original.as_ref(),
-        Language::En,
-        "Original description",
-    );
     assert_localized_title(Some(&title.localized), Language::De, "Deutscher Titel");
-    assert_localized_description(
-        Some(&description.localized),
-        Language::De,
-        "Deutsche Beschreibung",
-    );
 
     let Some(user_state) = view.user_state.as_ref() else {
         panic!("missing product user state");
@@ -488,20 +475,6 @@ fn assert_localized_title(
             assert_eq!(value.payload.as_ref(), text);
         }
         None => panic!("missing title"),
-    }
-}
-
-fn assert_localized_description(
-    value: Option<&Localized<Language, Description>>,
-    language: Language,
-    text: &str,
-) {
-    match value {
-        Some(value) => {
-            assert_eq!(value.localization, language);
-            assert_eq!(value.payload.as_ref(), text);
-        }
-        None => panic!("missing description"),
     }
 }
 

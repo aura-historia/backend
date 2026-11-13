@@ -167,6 +167,25 @@ fn lifecycle(
         expected_version: version,
     }
 }
+/// Admin details no longer return the description, so writes are checked against storage.
+async fn stored_description(
+    pool: &sqlx::PgPool,
+    id: ProductListingId,
+) -> Option<Localized<Language, Description>> {
+    let (text, language): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT description_text, description_language FROM product_listings WHERE product_listing_id = $1",
+    )
+    .bind(id.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    text.zip(language).map(|(text, language)| {
+        Localized::new(
+            Language::from_code(&language).unwrap(),
+            Description::from(text),
+        )
+    })
+}
 async fn events(pool: &sqlx::PgPool, id: ProductListingId) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM product_listing_events WHERE product_listing_id = $1")
         .bind(id.as_uuid())
@@ -180,6 +199,7 @@ async fn admin_mutations_coalesce_preserve_originals_and_retain_lifecycle() {
     let pool = get_postgres_client().await;
     let id = seed(&pool, None, "SKU-42").await;
     let before = detail(&pool, id).await;
+    let description_before = stored_description(&pool, id).await;
     let handler = handler(&pool);
     let context = context();
     let result = UpdateAdminProductListingUseCase::execute(
@@ -218,7 +238,7 @@ async fn admin_mutations_coalesce_preserve_originals_and_retain_lifecycle() {
     let changed = detail(&pool, id).await;
     assert_eq!(None, changed.sale_observation);
     assert_eq!(before.summary.title, changed.summary.title);
-    assert_eq!(before.description, changed.description);
+    assert_eq!(description_before, stored_description(&pool, id).await);
     assert_eq!(
         before.summary.product_listing_title_slug_id,
         changed.summary.product_listing_title_slug_id
@@ -1104,7 +1124,7 @@ async fn text_revisions_invalidate_enrichment_and_fence_late_completions() {
     tx.commit().await.unwrap();
     let after = detail(&pool, id).await;
     assert!(after.summary.title.is_none());
-    assert_eq!(after.description, Some(description));
+    assert_eq!(stored_description(&pool, id).await, Some(description));
     assert_eq!(
         after.summary.product_listing_title_slug_id,
         before.summary.product_listing_title_slug_id
