@@ -4,7 +4,7 @@
 
 [Unit]
 Description=Aura Historia crawler automatic deploy
-Documentation=https://github.com/aura-historia/backend/blob/main/docs/crawler/operations.md#automatic-deploys
+Documentation=https://github.com/aura-historia/backend/blob/develop/docs/crawler/operations.md#automatic-deploys
 Wants=network-online.target
 After=network-online.target
 

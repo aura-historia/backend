@@ -1,0 +1,25 @@
+# Example systemd unit that streams a dump of the crawler database to S3: started by
+# crawler-backup.timer. Install as /etc/systemd/system/crawler-backup.service.
+# Settings go in /etc/crawler/backup.env (root:crawler 0640). It holds the bucket, never the crawler's own
+# settings. Contract and host prerequisites: docs/crawler/operations.md#scheduled-s3-backups
+
+[Unit]
+Description=Aura Historia crawler database backup to S3
+Documentation=https://github.com/aura-historia/backend/blob/develop/docs/crawler/operations.md#scheduled-s3-backups
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=crawler
+Group=crawler
+EnvironmentFile=/etc/crawler/backup.env
+StateDirectory=crawler
+ExecStart=/opt/crawler/bin/backup-to-s3.sh
+# A long dump holds a snapshot open on the busy tables: keep it out of the crawler's way.
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=6h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

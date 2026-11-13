@@ -6,8 +6,9 @@
 set -euo pipefail
 
 readonly BINARIES=(server review-mcp review-agent-runner)
-readonly UNITS=(crawler-server.service review-agent-runner.service crawler-autodeploy.service crawler-autodeploy.timer)
-readonly SCRIPTS=(deploy.sh autodeploy.sh)
+readonly UNITS=(crawler-server.service review-agent-runner.service crawler-autodeploy.service crawler-autodeploy.timer
+  crawler-backup.service crawler-backup.timer)
+readonly SCRIPTS=(deploy.sh autodeploy.sh backup-to-s3.sh)
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CRAWLER_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"

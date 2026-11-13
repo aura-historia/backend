@@ -58,6 +58,8 @@ jobs:
           ref: ${{ inputs.source_sha }}
       - name: Test the deploy scripts
         run: bash src/crawler/scripts/linux/deploy.test.sh
+      - name: Test the backup script
+        run: bash src/crawler/scripts/linux/backup.test.sh
       - uses: ./.github/actions/test-lane
         with:
           id: crawler

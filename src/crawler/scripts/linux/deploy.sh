@@ -31,7 +31,7 @@ readonly EXIT_NEEDS_OPERATOR=3
 readonly EXIT_UNHEALTHY=4
 readonly UNITS=("${SERVER_UNIT}.service" "${RUNNER_UNIT}.service")
 # Present in a release; managed only on a host that installed them.
-readonly OPTIONAL_UNITS=(crawler-autodeploy.service crawler-autodeploy.timer)
+readonly OPTIONAL_UNITS=(crawler-autodeploy.service crawler-autodeploy.timer crawler-backup.service crawler-backup.timer)
 # Written last into an unpacked release: a directory without it is never trusted.
 readonly COMPLETE_MARKER=.complete
 readonly USAGE="usage: ${0##*/} [--install-units] [--db-restored] [--unattended] <full lowercase sha | legacy-<time>>"

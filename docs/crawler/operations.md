@@ -307,7 +307,7 @@ Production runs one `server` process on one Linux host under systemd. Start from
 
 ### Build and release
 
-Production runs only CI-built releases: the host has no Git checkout, Rust toolchain or source tree. The manual [Crawler release](../../.github/workflows/crawler-release.yml) workflow takes a full lowercase `source_sha` and runs only from `develop` of `aura-historia/backend`. It requires that the commit is merged into protected `develop` and that the [CRAWLER test lane](../ci.md#required-ci) passes at that exact commit, so only a commit whose crawler tests passed is released. The workflow is independent of the AWS Release workflow: it uses none of its pinned control files, variables or approvals, and changing one does not affect the other. It builds `server`, `review-mcp` and `review-agent-runner` with `cargo build --release --locked -p crawler` on `ubuntu-24.04` (glibc 2.39, the host's), then [`package-release.sh`](../../src/crawler/scripts/linux/package-release.sh) packs them into a reproducible `crawler-<sha>.tar.gz` and its SHA-256 file. After the `crawler-release` environment's approval the workflow creates the GitHub Release `crawler-<sha>` with both files. It never overwrites a release: an existing release or `crawler-<sha>` tag fails the run, checked before the build and again right before publishing, so a published build never changes and its tag always names the source commit. The archive holds the three binaries, `deploy.sh` and `autodeploy.sh`, `systemd/` with the four example units (`crawler-server.service`, `review-agent-runner.service`, `crawler-autodeploy.service` and `crawler-autodeploy.timer`), `SOURCE_SHA` and `MIGRATIONS`: one `<sha256>  <file>` line per crawler-local migration the build embeds and applies at startup. Releases published before the checksums list names only; `deploy.sh` still reads them and compares those by name.
+Production runs only CI-built releases: the host has no Git checkout, Rust toolchain or source tree. The manual [Crawler release](../../.github/workflows/crawler-release.yml) workflow takes a full lowercase `source_sha` and runs only from `develop` of `aura-historia/backend`. It requires that the commit is merged into protected `develop` and that the [CRAWLER test lane](../ci.md#required-ci) passes at that exact commit, so only a commit whose crawler tests passed is released. The workflow is independent of the AWS Release workflow: it uses none of its pinned control files, variables or approvals, and changing one does not affect the other. It builds `server`, `review-mcp` and `review-agent-runner` with `cargo build --release --locked -p crawler` on `ubuntu-24.04` (glibc 2.39, the host's), then [`package-release.sh`](../../src/crawler/scripts/linux/package-release.sh) packs them into a reproducible `crawler-<sha>.tar.gz` and its SHA-256 file. After the `crawler-release` environment's approval the workflow creates the GitHub Release `crawler-<sha>` with both files. It never overwrites a release: an existing release or `crawler-<sha>` tag fails the run, checked before the build and again right before publishing, so a published build never changes and its tag always names the source commit. The archive holds the three binaries, `deploy.sh`, `autodeploy.sh` and `backup-to-s3.sh`, `systemd/` with the six example units (`crawler-server.service`, `review-agent-runner.service`, `crawler-autodeploy.service`, `crawler-autodeploy.timer`, `crawler-backup.service` and `crawler-backup.timer`), `SOURCE_SHA` and `MIGRATIONS`: one `<sha256>  <file>` line per crawler-local migration the build embeds and applies at startup. Releases published before the checksums list names only; `deploy.sh` still reads them and compares those by name.
 
 ### Host setup
 
@@ -428,6 +428,39 @@ Each run asks the GitHub releases API for the newest `crawler-<sha>` release. It
 
 A release that needs an operator or failed its health check is handled once: the service shows as failed (`systemctl --failed`, `journalctl -u crawler-autodeploy`) and the timer stays quiet until a newer release is published. So does a manual rollback: `deploy.sh <older sha>` is not undone by the next run. A download or API failure, including a failed comparison, and a deploy that found another one running, is retried at the next run. Every deploy stops the services; `review-agent-runner` takes up to 11 minutes to stop ([stop and undo](#stop-and-undo)), so the example service allows 60 minutes for a deploy and its rollback.
 
+
+### Scheduled S3 backups
+
+The dump that `deploy.sh` takes before a release with migrations is a restore point for that deploy, not a backup routine. `crawler-backup.timer` runs [`backup-to-s3.sh`](../../src/crawler/scripts/linux/backup-to-s3.sh) every Sunday at 03:00 (plus up to 30 minutes of random delay; a week missed while the host was down runs at the next boot). It streams a compressed `pg_dump --format=custom` of `LOCAL_DB_URL` straight to S3 without a local file, then keeps the newest 5 dumps. It is opt-in and backs up the crawler-local database only. Incremental backups (pgBackRest, WAL-G) are not used: at the crawler's write churn nearly every page changes within a week, so they cost more than weekly dumps and only add point-in-time recovery.
+
+Prerequisites on the host: the AWS CLI and `pg_dump` (version 16 or newer). Put the settings in `/etc/crawler/backup.env` (`install -m 0640 -o root -g crawler`; the unit runs as `crawler` and reads it as its `EnvironmentFile`):
+
+```sh
+CRAWLER_BACKUP_S3_URI=s3://<bucket>/crawler   # required
+AWS_DEFAULT_REGION=eu-central-1
+# Without an instance role, the keys of a user that may only use this bucket and prefix:
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+# Optional: CRAWLER_BACKUP_KEEP=5, CRAWLER_BACKUP_STORAGE_CLASS=STANDARD_IA,
+# CRAWLER_BACKUP_COMPRESS=6, CRAWLER_BACKUP_EXPECTED_SIZE=107374182400
+```
+
+The role or user needs `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject` on `<bucket>/crawler/*` and `s3:ListBucket` on the bucket with the prefix `crawler/`. On the bucket, block public access, leave versioning off (or expire noncurrent versions, or deleted dumps stay billed) and add a lifecycle rule that aborts incomplete multipart uploads after one day, so a broken stream does not leave parts that cost money. Install the example [service](../../src/crawler/scripts/linux/crawler-backup.service) and [timer](../../src/crawler/scripts/linux/crawler-backup.timer) from a release's `systemd/` directory, run one backup by hand to check the settings and the dump time, then `systemctl daemon-reload && systemctl enable --now crawler-backup.timer`:
+
+```sh
+systemctl start crawler-backup.service && journalctl -u crawler-backup -n 20
+```
+
+`STANDARD_IA` suits weekly dumps: the 30-day minimum is shorter than the retention of 5 weeks. Expect about 1 USD a month for a 15 GB dump kept 5 times; Glacier classes only pay off for dumps kept for months. `CRAWLER_BACKUP_EXPECTED_SIZE` must be at least the dump's size when it is above 50 GB, or the AWS CLI cannot size the parts of the stream.
+
+A dump counts only once its `crawler-<time>.dump.complete` marker exists. The marker is written last, a stream that breaks halfway is deleted, and a dump without a marker that could not be deleted is removed by the next run, so a truncated object is never one of the 5 kept. A failed run shows the service as failed (`systemctl --failed`) and the next Sunday tries again. The service runs with `Nice=19` and idle I/O priority, but a dump of the busy tables holds a snapshot open for as long as it runs and delays vacuum meanwhile: check the run time in the journal (`backed up ... bytes in ...s`) and move the schedule to a quiet hour if it grows. Check the restore now and then:
+
+```sh
+aws s3 cp s3://<bucket>/crawler/crawler-<time>.dump .
+pg_restore --list crawler-<time>.dump | head
+```
+
+To restore, stop `crawler-server`, restore the dump as in [deploy and roll back](#deploy-and-roll-back) (`pg_restore --clean --if-exists --no-owner --dbname "$LOCAL_DB_URL" <dump>`) and start the build that matches the dump's migrations.
 
 ### After start
 
