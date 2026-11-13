@@ -55,6 +55,8 @@ export interface WorkerQueueSettings {
     readonly periodSeconds: number;
     readonly evaluationPeriods: number;
     readonly sourceAgeThresholdSeconds: number;
+    /** Scopes fed in bulk, where a long queue is routine, wait longer before the age alarm fires. */
+    readonly sourceAgeThresholdSecondsByScope: Partial<Record<WorkerScope, number>>;
     readonly deadLetterVisibleThreshold: number;
   };
 }
@@ -69,9 +71,18 @@ export const WORKER_QUEUE_SETTINGS = {
     periodSeconds: 300,
     evaluationPeriods: 1,
     sourceAgeThresholdSeconds: 900,
+    // Set from observed jams and kept far below sourceRetentionDays, after which SQS drops the message.
+    sourceAgeThresholdSecondsByScope: {
+      "product-embedding": 6 * 60 * 60,
+      "product-translation": 12 * 60 * 60,
+    },
     deadLetterVisibleThreshold: 1,
   },
 } as const satisfies WorkerQueueSettings;
+
+export function sourceAgeThresholdSeconds(alarms: WorkerQueueSettings["alarms"], scope: WorkerScope): number {
+  return alarms.sourceAgeThresholdSecondsByScope[scope] ?? alarms.sourceAgeThresholdSeconds;
+}
 
 export function workerQueueName(scope: WorkerScope, stage: StageName, deadLetter = false): string {
   const definition = WORKER_QUEUE_DEFINITIONS[scope];

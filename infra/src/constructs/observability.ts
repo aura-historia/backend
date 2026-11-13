@@ -16,7 +16,7 @@ import { scheduledEcsClusterName } from "../scheduled-ecs-config";
 import { ecsTaskL2EventPattern } from "./ecs-task-event-patterns";
 import { cdcRouterEventSourceMappingIdExportName } from "./eventing";
 import { lambdaFunctionName, type LambdaCatalog, type LambdaKey } from "./lambdas";
-import { WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
+import { sourceAgeThresholdSeconds, WORKER_QUEUE_DEFINITIONS } from "../worker-queue-config";
 import type { WorkerQueueCatalog } from "./worker-queues";
 
 export interface ObservabilityProps {
@@ -185,12 +185,13 @@ function addWorkerQueueAlarms(scope: Construct, props: ObservabilityProps, alarm
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     };
+    const sourceAgeThreshold = sourceAgeThresholdSeconds(settings, workerScope);
     new cloudwatch.Alarm(scope, `Worker${definition.id}SourceAgeAlarm`, {
       ...alarmOptions,
       alarmName: `${props.stageName}-worker-${workerScope}-source-age`,
-      alarmDescription: `Oldest ${workerScope} job is at least ${settings.sourceAgeThresholdSeconds}s old; check consumer health and dependencies.`,
+      alarmDescription: `Oldest ${workerScope} job is at least ${sourceAgeThreshold}s old; check consumer health and dependencies.`,
       metric: queues.queue.metricApproximateAgeOfOldestMessage(metricOptions),
-      threshold: settings.sourceAgeThresholdSeconds,
+      threshold: sourceAgeThreshold,
     }).addAlarmAction(alarmAction);
     new cloudwatch.Alarm(scope, `Worker${definition.id}DeadLetterVisibleAlarm`, {
       ...alarmOptions,
@@ -209,17 +210,18 @@ function addIngestionQueueAlarms(
   alarmAction: actions.SnsAction,
 ): void {
   const metricOptions = { statistic: "Maximum", period: cdk.Duration.minutes(5) };
-  for (const [id, metric, threshold] of [
-    ["SourceAge", ingestion.queue.metricApproximateAgeOfOldestMessage(metricOptions), 900],
-    ["SourceBacklog", ingestion.queue.metricApproximateNumberOfMessagesVisible(metricOptions), 100],
-    ["DeadLetterVisible", ingestion.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions), 1],
+  for (const [id, metric, threshold, evaluationPeriods] of [
+    ["SourceAge", ingestion.queue.metricApproximateAgeOfOldestMessage(metricOptions), 900, 1],
+    // Bursts of a few hundred commands drain within seconds; only a backlog that persists needs an operator.
+    ["SourceBacklog", ingestion.queue.metricApproximateNumberOfMessagesVisible(metricOptions), 1000, 3],
+    ["DeadLetterVisible", ingestion.deadLetterQueue.metricApproximateNumberOfMessagesVisible(metricOptions), 1, 1],
   ] as const) {
     new cloudwatch.Alarm(scope, `ProductListingIngestion${id}Alarm`, {
       alarmName: `${stageName}-product-listing-ingestion-${toKebabCase(id)}`,
       alarmDescription: `ProductListing ingestion ${id} requires operator investigation; do not purge or blindly redrive.`,
       metric,
       threshold,
-      evaluationPeriods: 1,
+      evaluationPeriods,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     }).addAlarmAction(alarmAction);

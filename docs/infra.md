@@ -125,6 +125,16 @@ confirm the effective regional quota and other reservations with
 `Throttles` and duration, queue age, PostgreSQL connections and provider throttling;
 account for all mappings if adding another SQS source to a function.
 
+Worker queue-age alarms share one short default threshold. Scopes fed in bulk, where a long
+queue is routine (embedding and translation are the current examples), override it in
+[`worker-queue-config.ts`](../infra/src/worker-queue-config.ts) with a threshold of hours,
+set from observed jams and kept well below source-queue retention, so a burst that drains
+by itself does not page. On those scopes a saturated or stopped consumer shows in queue age
+only after that threshold; the DLQ and Lambda error alarms remain the prompt signals, so
+judge consumer health from `ConcurrentExecutions`, queue depth and deleted-message rate as
+well. The ingestion backlog alarm likewise needs a count that persists across periods,
+because bursts drain within seconds.
+
 MCP has its own Lambda reserved concurrency: **2 dev / 5 prod**, with one PostgreSQL
 connection per process, independently configured from REST. This bounds active MCP
 invocations and adds a configured steady-state pool budget of 2/5 connections when
