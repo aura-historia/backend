@@ -118,7 +118,6 @@ mod tests {
             "home_url": "https://aura-historia.com/en",
             "watchlist_url": "https://aura-historia.com/en/me/watchlist",
             "search_filter_url": "https://aura-historia.com/en/me/search-filter/a1b2c3d4",
-            "view_url": "https://merchant.example.test/products/bronze-vase",
             "search_filter_id": "a1b2c3d4",
             "search_filter_name": "Art Nouveau",
             "old_availability": "Available",
@@ -140,6 +139,14 @@ mod tests {
                     rendered.contains(marker),
                     "{} did not render required delivery value {marker:?}",
                     contract.path
+                );
+            }
+            for link in rendered.split("<a href=\"").skip(1) {
+                assert!(
+                    link.starts_with("https://aura-historia.com/") || link.starts_with("mailto:"),
+                    "{} links outside Aura Historia: {}",
+                    contract.path,
+                    link.split('"').next().unwrap_or_default()
                 );
             }
             let partner_tag = partner_tag(contract.path);
@@ -194,7 +201,6 @@ mod tests {
                 "product_listing_url": "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
                 "title": "Bronze Vase",
                 "image_url": null,
-                "view_url": "https://merchant.example.test/products/bronze-vase",
                 "searches": [{ "id": "f1", "name": "Art Nouveau", "url": "https://aura-historia.com/en/me/search-filter/f1" }],
             })
         };
@@ -245,7 +251,6 @@ mod tests {
             "https://images.example.test/bronze-vase.jpg",
             "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
             "https://aura-historia.com/en\"",
-            "https://merchant.example.test/products/bronze-vase",
             "https://aura-historia.com/en/me/search-filter/a1b2c3d4",
             "Art Nouveau",
         ];
@@ -256,7 +261,6 @@ mod tests {
             "https://images.example.test/bronze-vase.jpg",
             "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
             "https://aura-historia.com/en\"",
-            "https://merchant.example.test/products/bronze-vase",
             "https://aura-historia.com/en/me/watchlist",
             "Available",
             "In stock",
@@ -268,7 +272,6 @@ mod tests {
             "https://images.example.test/bronze-vase.jpg",
             "https://aura-historia.com/en/products/bronze-vase-a1b2c3",
             "https://aura-historia.com/en\"",
-            "https://merchant.example.test/products/bronze-vase",
             "https://aura-historia.com/en/me/watchlist",
             "100,00 €",
             "90,00 €",

@@ -320,7 +320,6 @@ pub(crate) fn template_data(
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
-                snapshot.view_link.url().to_string(),
             );
             match change {
                 LocalizedNotificationWatchlistChange::PriceChange {
@@ -360,7 +359,6 @@ pub(crate) fn template_data(
                 &snapshot.product_listing_title_slug_id,
                 snapshot.title.map(|title| title.payload.to_string()),
                 present_image_url(snapshot.image, snapshot.content_policy),
-                snapshot.view_link.url().to_string(),
             );
             let search_filter_id = user_search_filter_id.to_string();
             data["search_filter_url"] = json!(links.search_filter(&search_filter_id));
@@ -447,7 +445,6 @@ fn digest_template_data(
                         &snapshot.product_listing_title_slug_id,
                         snapshot.title.map(|title| title.payload.to_string()),
                         image,
-                        snapshot.view_link.url().to_string(),
                     );
                     card["searches"] = json!([]);
                     card
@@ -488,7 +485,6 @@ fn product_template_data(
     product_listing_title_slug_id: &ProductListingSlugId,
     title: Option<String>,
     image_url: Option<String>,
-    view_url: String,
 ) -> Value {
     json!({
         "listing_source_name": listing_source_name,
@@ -496,7 +492,6 @@ fn product_template_data(
         "product_listing_url": links.product_listing(product_listing_title_slug_id),
         "title": title,
         "image_url": image_url,
-        "view_url": view_url,
     })
 }
 
@@ -946,7 +941,7 @@ mod tests {
     }
 
     #[test]
-    fn should_include_frontend_product_listing_url_and_first_name_in_template_data()
+    fn should_link_only_to_aura_historia_and_include_first_name_in_template_data()
     -> Result<(), Box<dyn std::error::Error>> {
         let source = source(false, None)?;
         let data = template_data(
@@ -971,6 +966,7 @@ mod tests {
         assert_eq!(Some("Ada"), data["first_name"].as_str());
         assert!(data.get("listing_source_slug_id").is_none());
         assert!(data.get("product_listing_title_slug_id").is_none());
+        assert!(data.get("view_url").is_none());
         Ok(())
     }
 

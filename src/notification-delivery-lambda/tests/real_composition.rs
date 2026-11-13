@@ -289,7 +289,7 @@ async fn provider(
     let template = if invalid_template {
         vec![0xff]
     } else {
-        b"<html><body>{{listing_source_name}} {{first_name}} {{old_availability}} {{new_availability}} <a href=\"{{view_url}}\">View</a></body></html>".to_vec()
+        b"<html><body>{{listing_source_name}} {{first_name}} {{old_availability}} {{new_availability}} <a href=\"{{product_listing_url}}\">View</a></body></html>".to_vec()
     };
     s3.put_object()
         .bucket(&bucket)
