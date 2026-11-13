@@ -1,0 +1,128 @@
+name: Crawler release
+run-name: Crawler release ${{ inputs.source_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full lowercase SHA merged into protected develop
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_BUILD_JOBS: 4
+  GH_TOKEN: ${{ github.token }}
+concurrency:
+  group: crawler-release-${{ inputs.source_sha }}
+  cancel-in-progress: false
+jobs:
+  resolve:
+    name: Check the requested source
+    if: github.ref == 'refs/heads/develop' && github.repository == 'aura-historia/backend'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Require a full SHA merged into develop and no existing release
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Select a full lowercase source SHA" >&2; exit 1; }
+          git fetch --no-tags origin develop
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/develop
+          if gh release view "crawler-${SOURCE_SHA}" >/dev/null 2>&1; then
+            echo "Release crawler-${SOURCE_SHA} already exists; releases are immutable" >&2
+            exit 1
+          fi
+          # gh release create would attach to an existing tag and ignore --target.
+          if [[ -n "$(git ls-remote --tags origin "refs/tags/crawler-${SOURCE_SHA}")" ]]; then
+            echo "Tag crawler-${SOURCE_SHA} already exists; delete it or release another commit" >&2
+            exit 1
+          fi
+  tests:
+    name: Test crawler / ${{ inputs.source_sha }}
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+      - name: Test the deploy scripts
+        run: bash src/crawler/scripts/linux/deploy.test.sh
+      - name: Test the backup script
+        run: bash src/crawler/scripts/linux/backup.test.sh
+      - uses: ./.github/actions/test-lane
+        with:
+          id: crawler
+          lanes: CRAWLER
+          slots: 4
+          profile: postgres
+          compilation_cache: dependencies
+  build:
+    name: Build crawler / ${{ inputs.source_sha }}
+    needs: [resolve, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_sha }}
+      - name: Verify the exact source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+          rustc -Vv
+      - name: Build the release binaries
+        run: cargo build --release --locked -p crawler --bin server --bin review-mcp --bin review-agent-runner
+      - name: Package the release
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: bash src/crawler/scripts/linux/package-release.sh "$SOURCE_SHA" target/release release-out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: crawler-release-${{ inputs.source_sha }}
+          path: release-out/
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    name: Publish crawler-${{ inputs.source_sha }}
+    needs: build
+    environment: crawler-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crawler-release-${{ inputs.source_sha }}
+          path: release-out
+      - name: Publish the release without overwriting an existing one
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          # No --clobber: an existing release makes this step fail. An existing tag would not, and
+          # gh would publish the release on it instead of on the source commit, so check again.
+          if [[ -n "$(git ls-remote --tags "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "refs/tags/crawler-${SOURCE_SHA}")" ]]; then
+            echo "Tag crawler-${SOURCE_SHA} already exists; delete it or release another commit" >&2
+            exit 1
+          fi
+          gh release create "crawler-${SOURCE_SHA}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "Crawler ${SOURCE_SHA}" \
+            --notes "Crawler build of ${SOURCE_SHA}. Deploy on the host with deploy.sh ${SOURCE_SHA}; see docs/crawler/operations.md#deploy-and-roll-back." \
+            "release-out/crawler-${SOURCE_SHA}.tar.gz" \
+            "release-out/crawler-${SOURCE_SHA}.tar.gz.sha256"

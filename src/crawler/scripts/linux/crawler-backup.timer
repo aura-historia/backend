@@ -1,0 +1,19 @@
+# Example systemd timer: a weekly crawler database backup to S3.
+# Install as /etc/systemd/system/crawler-backup.timer next to crawler-backup.service and run
+# `systemctl daemon-reload && systemctl enable --now crawler-backup.timer`. Change the day and hour
+# with a drop-in (`systemctl edit crawler-backup.timer`) that first clears the schedule with an
+# empty `OnCalendar=` line and then sets its own.
+# Contract and host prerequisites: docs/crawler/operations.md#scheduled-s3-backups
+
+[Unit]
+Description=Aura Historia crawler database backup schedule
+
+[Timer]
+# The only trigger, so a drop-in that replaces it replaces the whole schedule.
+OnCalendar=Sun *-*-* 03:00:00
+RandomizedDelaySec=30min
+# A week missed while the host was down runs at the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -109,6 +109,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha || github.sha }}
+      - name: Test the deploy scripts
+        run: bash src/crawler/scripts/linux/deploy.test.sh
+      - name: Test the backup script
+        run: bash src/crawler/scripts/linux/backup.test.sh
       - uses: ./.github/actions/test-lane
         with:
           id: crawler
