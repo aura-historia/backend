@@ -24,8 +24,9 @@ pub const MAX_ROBOTS_TXT_BYTES: usize = 512 * 1024;
 /// even across authorities.
 pub const MAX_ROBOTS_TXT_REDIRECTS: usize = 5;
 
-/// The product token shops address the crawler by in `User-agent` lines.
-const CRAWLER_PRODUCT_TOKEN: &str = "aurahistoriabot";
+/// The product token shops address the crawler by, in robots.txt `User-agent` lines and in
+/// scoped page robots directives ([`robots_directives`](super::robots_directives)).
+pub(crate) const CRAWLER_PRODUCT_TOKEN: &str = "aurahistoriabot";
 
 /// The robots.txt URL of `url`'s origin.
 pub fn robots_txt_url(url: &Url) -> Url {
@@ -272,9 +273,9 @@ fn parse_groups(body: &str) -> Vec<Group> {
     groups
 }
 
-/// `User-agent` values are matched on their product token, case-insensitively,
-/// so `AuraHistoriaBot/1.0` addresses the crawler as well.
-fn product_token(value: &str) -> String {
+/// A bot name is matched on its product token, case-insensitively, so `AuraHistoriaBot/1.0`
+/// addresses the crawler as well.
+pub(crate) fn product_token(value: &str) -> String {
     value
         .split(['/', ' '])
         .next()

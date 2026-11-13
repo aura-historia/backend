@@ -1103,6 +1103,7 @@ const FAILURES = {
     HTTP_STATUS_BURST: {label: 'Rejected by the shop', cause: 'Several pages in a row answered with the same status, which means the shop rejects the scraper.', profile: 'circuit'},
     HttpError: {label: 'HTTP error', cause: 'The page answered with an error status.', profile: 'page'},
     RobotsDisallowed: {label: 'Disallowed by robots.txt', cause: "The shop's robots.txt forbids this page.", profile: 'page'},
+    PageDirectiveDisallowed: {label: 'Refused by page directives', cause: "The page's X-Robots-Tag header or meta robots tag forbids capturing it.", profile: 'page'},
     Timeout: {label: 'Timeout', cause: 'The page did not answer in time.', profile: 'page'},
     RawCaptureFailed: {label: 'Capture failed', cause: "The page's content could not be stored.", profile: 'page'},
     SourceListingIdConflict: {label: 'Identity conflict', cause: 'Two pages claim the same listing identity.', profile: 'page'},

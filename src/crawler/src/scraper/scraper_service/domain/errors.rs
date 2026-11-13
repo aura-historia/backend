@@ -247,6 +247,10 @@ pub enum RemovalEvidenceKind {
     RemovedPageTemplate,
     /// Fresh schema generation classified the page as removed.
     RemovedPageClassification,
+    /// The page's robots directives kept refusing its capture for the withdrawal grace period
+    /// (`docs/crawler/networking.md#page-robots-directives`): the shop no longer offers it to
+    /// the crawler, which says nothing about whether it sold.
+    PersistentPageDirectiveRefusal,
 }
 
 impl RemovalEvidenceKind {
@@ -262,6 +266,7 @@ impl RemovalEvidenceKind {
             Self::RedirectToSharedPage => "REDIRECT_TO_SHARED_PAGE",
             Self::RemovedPageTemplate => "REMOVED_PAGE_TEMPLATE",
             Self::RemovedPageClassification => "REMOVED_PAGE_CLASSIFICATION",
+            Self::PersistentPageDirectiveRefusal => "PERSISTENT_PAGE_DIRECTIVE_REFUSAL",
         }
     }
 }

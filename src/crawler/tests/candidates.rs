@@ -2855,6 +2855,106 @@ async fn scraper_page_error_streak_should_count_only_consecutive_page_errors() {
 }
 
 // ---------------------------------------------------------------------------
+// get_candidates — the page-directive refusal run counts refusals in a row
+// ---------------------------------------------------------------------------
+
+/// Each page-directive refusal continues the URL's refusal run from its first refusal, and a
+/// successful scrape or another failure ends it, so the next refusal starts a new run (#2914).
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn scraper_page_directive_refusal_run_should_last_until_another_outcome() {
+    let pool = get_postgres_client().await;
+    let service = ScraperCandidateServiceImpl::new(pool.clone());
+    let listing_source_id = ListingSourceId::new();
+    insert_listing_source(&pool, listing_source_id, "noindex.example.com").await;
+    let url = "https://noindex.example.com/p/1";
+    let parsed_url = url::Url::parse(url).unwrap();
+    insert_product_url(&pool, listing_source_id, url).await;
+    let fail = |error_kind: &'static str, expected_capture: Option<Vec<u8>>| {
+        let service = &service;
+        let parsed_url = &parsed_url;
+        async move {
+            let outcome = service
+                .mark_fetch_failure(
+                    &listing_source_id,
+                    parsed_url,
+                    error_kind,
+                    "meta robots tag forbids capture (noindex)",
+                    None,
+                    time::OffsetDateTime::now_utc() - time::Duration::minutes(1),
+                    expected_capture.as_deref(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome, CrawlerUrlWriteOutcome::Applied);
+        }
+    };
+    let candidate_run = || async {
+        let candidates = service.get_candidates(10, 10, &[]).await.unwrap();
+        let [candidate] = candidates.as_slice() else {
+            panic!("expected exactly one candidate");
+        };
+        candidate.page_directive_refusals
+    };
+
+    fail("PageDirectiveDisallowed", None).await;
+    let first = candidate_run().await.expect("a refusal starts a run");
+    assert_eq!(first.refusals, 1);
+    fail("PageDirectiveDisallowed", None).await;
+    fail("PageDirectiveDisallowed", None).await;
+    let run = candidate_run()
+        .await
+        .expect("refusals in a row continue the run");
+    assert_eq!(run.refusals, 3);
+    assert_eq!(run.since, first.since);
+
+    service
+        .mark_as_scraped(scrape_completion(
+            listing_source_id,
+            parsed_url.clone(),
+            (
+                "h".repeat(64),
+                "schema-fingerprint",
+                raw_input_hash(),
+                "SKU-1",
+                CrawlerDisposition::Active,
+                None,
+            ),
+        ))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE listing_source_urls SET last_scraped = NOW() - INTERVAL '2 days' WHERE url = $1",
+    )
+    .bind(url)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        candidate_run().await,
+        None,
+        "a successful scrape ends the run"
+    );
+    fail("PageDirectiveDisallowed", Some(raw_input_hash())).await;
+    let restarted = candidate_run()
+        .await
+        .expect("a refusal after a success starts a new run");
+    assert_eq!(restarted.refusals, 1);
+    assert!(restarted.since > first.since);
+
+    fail("Timeout", Some(raw_input_hash())).await;
+    assert_eq!(candidate_run().await, None, "another failure ends the run");
+    let stored: (i32, Option<time::OffsetDateTime>) = sqlx::query_as(
+        "SELECT page_directive_refusal_streak, page_directive_refused_since
+         FROM listing_source_urls WHERE url = $1",
+    )
+    .bind(url)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, (0, None));
+}
+
+// ---------------------------------------------------------------------------
 // get_candidates — excluded active ListingSources are NOT returned
 // ---------------------------------------------------------------------------
 

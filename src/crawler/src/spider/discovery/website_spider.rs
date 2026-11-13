@@ -28,7 +28,7 @@ use crate::network::policy::{
     location_text, network_error_kind_for_public_target_error, resolve_public_http_target,
 };
 use crate::network::politeness::{PolitenessGroups, politeness_group};
-use crate::network::robots_directives::{PageDirectives, page_directives};
+use crate::network::robots_directives::PageDirectives;
 use crate::network::{CRAWLER_USER_AGENT, crawler_request_headers};
 use crate::spider::discovery::frontier::{
     CrawlDiscovery, CrawlRequest, FollowRules, FoundLinks, SeedAdmission,
@@ -2089,17 +2089,17 @@ async fn relay_library_pages(
             true => judged_directives,
             false => PageDirectives::default(),
         };
-        if is_root && directives.forbid_any() {
+        if is_root && (directives.refusal().is_some() || directives.forbids_following()) {
             diagnostics.root_directives_forbid_crawl = true;
         }
         // A page whose directives forbid following its links has them neither crawled (Spider's
         // should-crawl hook refused them) nor kept for the frontier.
-        if directives.forbids_following {
+        if directives.forbids_following() {
             diagnostics.nofollow_pages += 1;
         }
         if is_page {
             filter.found_links.record_delivered(page.get_url());
-            if !directives.forbids_following
+            if !directives.forbids_following()
                 && let Some(page_links) = page.page_links.as_deref()
             {
                 filter.found_links.record(page.get_url(), page_links);
@@ -2128,7 +2128,7 @@ async fn relay_library_pages(
             continue;
         }
 
-        if directives.forbids_capture {
+        if directives.refusal().is_some() {
             diagnostics.count_rejection(LocalRejection::PageDirective);
             continue;
         }
@@ -2176,11 +2176,12 @@ impl JudgedDirectives {
     fn into_hook(self) -> impl Fn(&Page) -> bool + Send + Sync + 'static {
         move |page| {
             let directives = answered_page_directives(page);
+            let allows_following = !directives.forbids_following();
             self.0
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .insert(page.get_url().to_owned(), directives);
-            !directives.forbids_following
+            allows_following
         }
     }
 
@@ -2203,9 +2204,9 @@ fn answered_page_directives(page: &Page) -> PageDirectives {
         return PageDirectives::default();
     }
     let no_headers = HeaderMap::new();
-    page_directives(
+    PageDirectives::of_page(
         page.headers.as_ref().unwrap_or(&no_headers),
-        &String::from_utf8_lossy(page.get_html_bytes_u8()),
+        page.get_html_bytes_u8(),
     )
 }
 
