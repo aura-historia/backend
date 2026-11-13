@@ -64,6 +64,9 @@ name="crawler-${build}"
 work=""
 services_stopped=false
 runner_was_active=false
+# The build to switch back to if the deploy fails after the switch and before the new build started:
+# such a build was never health-checked, so it must not be left running.
+switched_from=""
 
 start_services() {
   systemctl start "$SERVER_UNIT"
@@ -74,8 +77,15 @@ start_services() {
 on_exit() {
   local status=$?
   if $services_stopped; then
+    if [[ -n "$switched_from" ]]; then
+      echo "switching back to $(basename "$switched_from")" >&2
+      switch_release "$switched_from" || echo "could not switch back to ${switched_from}" >&2
+    fi
     echo "the deploy failed with the services stopped; starting $(basename "$(readlink -f "$link")")" >&2
     start_services || echo "could not start the crawler's units; see: systemctl status ${SERVER_UNIT}" >&2
+    # Not exit 1, which autodeploy retries every run: each retry would stop the services again.
+    # Exit 4 leaves the release to an operator, like an unhealthy one.
+    ((status != 1)) || status=$EXIT_UNHEALTHY
   fi
   [[ -z "$work" ]] || rm -rf -- "$work"
   exit "$status"
@@ -293,8 +303,10 @@ adopt_legacy_bin
 # The build this one replaces, including binaries adopted as legacy-<time> just now.
 rollback_to="$(current_release)"
 switch_release "$target"
+[[ -z "$rollback_to" || "$rollback_to" == "$target" ]] || switched_from="$rollback_to"
 install_changed_units
 start_services
+switched_from=""
 
 if wait_healthy; then
   prune_releases "$target" "$rollback_to"

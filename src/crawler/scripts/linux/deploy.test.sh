@@ -42,7 +42,7 @@ if [[ "$url" == */health ]]; then
   if [[ "$fails" -gt 0 ]]; then echo $((fails - 1)) > "$FAKE_HEALTH_FAILS"; exit 22; fi
   echo '{"ok":true}'; exit 0
 fi
-if [[ "$url" == */api ]]; then cat "$FAKE_API_JSON"; exit 0; fi
+if [[ "$url" == */api ]]; then [[ -z "${FAKE_API_FAIL:-}" ]] || exit 22; cat "$FAKE_API_JSON"; exit 0; fi
 # The compare API: FAKE_COMMIT_ORDER lists the test SHAs in develop's commit order.
 if [[ "$url" == */compare/* ]]; then
   [[ -z "${FAKE_COMPARE_FAIL:-}" ]] || exit 22
@@ -141,6 +141,11 @@ bin_is "$sha_b" || fail "autodeploy did not deploy the newest release"
 : > "$FAKE_LOG"; autodeploy
 [[ ! -s "$FAKE_LOG" ]] || fail "autodeploy acted although the newest release runs"
 
+# An unreachable releases API fails the unit, so it shows in systemctl --failed, and changes nothing.
+: > "$FAKE_LOG"
+FAKE_API_FAIL=1 autodeploy && fail "autodeploy reported success although the releases API failed"
+! grep -q "systemctl" "$FAKE_LOG" || fail "autodeploy acted although the releases API failed"
+
 # After a manual rollback the timer stays quiet until a newer release is published.
 deploy --db-restored "$sha_a" >/dev/null 2>&1
 : > "$FAKE_LOG"; autodeploy
@@ -206,8 +211,12 @@ touch "$FAKE_UNITS/review-agent-runner"
 if FAKE_STUCK_UNITS=crawler-server deploy --db-restored "$sha_d" >/dev/null 2>&1; then fail "deployed while crawler-server was still active"; fi
 bin_is "$sha_e" || fail "switched while crawler-server was still active"
 
-# A failure between stop and start (here daemon-reload) starts the stopped services again.
-if FAKE_FAIL_DAEMON_RELOAD=1 deploy --install-units "$sha_e" >/dev/null 2>&1; then fail "a failed daemon-reload was ignored"; fi
+# A failure between the switch and the start (here daemon-reload) switches back to the running
+# build and starts it again: the new build was never health-checked. Exit 4, so autodeploy does not
+# stop the services again at every run.
+status=0; FAKE_FAIL_DAEMON_RELOAD=1 deploy --db-restored --install-units "$sha_d" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 4 ]] || fail "a failed daemon-reload exited ${status}, not 4"
+bin_is "$sha_e" || fail "a failed deploy left the build it switched to, not the one it replaced"
 if ! active crawler-server || ! active review-agent-runner; then fail "the services stayed stopped after a failed deploy"; fi
 
 # --- A legacy host: rollback to the adopted binaries, partial releases and pruning. ---

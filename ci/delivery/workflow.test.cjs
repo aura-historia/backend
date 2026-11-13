@@ -120,9 +120,10 @@ test('the crawler release pins every action and refuses an existing release tag'
   assert.ok(publish.search(tagCheck) >= 0 && publish.search(tagCheck) < publish.indexOf('gh release create'));
 });
 
-test('CI runs the crawler deploy script tests', () => {
+test('CI runs the crawler deploy and backup script tests', () => {
   for (const file of ['integrate.yml', 'crawler-release.yml']) {
     const workflow = fs.readFileSync(`.github/workflows/${file}`, 'utf8');
-    assert.match(workflow, /run: bash src\/crawler\/scripts\/linux\/deploy\.test\.sh/, file);
+    for (const script of ['deploy.test.sh', 'backup.test.sh'])
+      assert.ok(workflow.includes(`run: bash src/crawler/scripts/linux/${script}`), `${file} does not run ${script}`);
   }
 });

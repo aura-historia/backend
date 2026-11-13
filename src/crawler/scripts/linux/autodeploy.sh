@@ -17,8 +17,10 @@ SEEN_FILE="${ROOT}/autodeploy.handled"
 DEPLOY="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/deploy.sh"
 
 # The API lists releases newest first; only releases of this workflow count.
-latest="$(curl -fsSL --retry 3 --max-time 30 "$API_URL" \
-  | grep -o '"tag_name": *"crawler-[a-f0-9]\{40\}"' | head -n1 | grep -o '[a-f0-9]\{40\}' || true)"
+# A failed request fails the unit (it shows in systemctl --failed) and is retried at the next run.
+releases="$(curl -fsSL --retry 3 --max-time 30 "$API_URL")" \
+  || { echo "autodeploy: could not list the releases; retrying at the next run" >&2; exit 1; }
+latest="$(grep -o '"tag_name": *"crawler-[a-f0-9]\{40\}"' <<< "$releases" | head -n1 | grep -o '[a-f0-9]\{40\}' || true)"
 [[ -n "$latest" ]] || { echo "autodeploy: no crawler release found"; exit 0; }
 
 running=""
