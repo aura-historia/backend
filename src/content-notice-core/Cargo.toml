@@ -1,0 +1,18 @@
+[package]
+name = "content-notice-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+domain-primitives = { workspace = true }
+listing-source-core = { workspace = true }
+localization = { workspace = true }
+product-listing-core = { workspace = true }
+serde-email = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }

@@ -28,6 +28,7 @@ Prefixes are durable and collision-free; do not rename or reuse them.
 | `NewsletterConfirmationId` | `nsc` |
 | `PartnershipId` | `psh` |
 | `PartnershipApplicationId` | `pa` |
+| `ContentNoticeId` | `ntc` |
 | `UserSearchFilterId` | `sf` |
 | `NotificationId` | `ntf` |
 | `NotificationDeliveryId` | `nd` |

@@ -1,0 +1,23 @@
+[package]
+name = "content-notice-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application = { workspace = true }
+async-trait = { workspace = true }
+content-notice-core = { workspace = true }
+content-notice-service = { workspace = true }
+domain-primitives = { workspace = true }
+listing-source-core = { workspace = true }
+localization = { workspace = true }
+platform-postgres = { workspace = true }
+product-listing-core = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+test-api = { workspace = true, features = ["postgres"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
