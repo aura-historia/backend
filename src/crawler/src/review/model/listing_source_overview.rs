@@ -1,4 +1,4 @@
-use super::{AppliedSourceLabel, ReviewActor};
+use super::{AppliedQualification, AppliedSourceLabel, ReviewActor};
 use crate::CrawlerReviewId;
 use listing_source_core::ListingSourceId;
 use serde::Serialize;
@@ -11,6 +11,12 @@ pub struct ListingSourceOverview {
     /// The label a human gave the source because the crawler should not crawl it; `None` while
     /// it has none. A labelled source has crawling disabled and the scope sync keeps it so.
     pub source_label: Option<AppliedSourceLabel>,
+    /// Whether the latest scope refresh admits the source to crawling with a crawl root, which a
+    /// label or a missing qualification may still keep from being crawled.
+    pub in_crawl_scope: bool,
+    /// Whether the source is a real antique e-shop, as decided; `None` while it waits for its
+    /// qualification (`docs/crawler/README.md#listingsource-qualification`).
+    pub qualification: Option<AppliedQualification>,
     /// Where the source's crawl starts, derived from its presentation URL; `None` while the scope
     /// gives it no crawl root (`docs/crawler/README.md#listingsource-scope`).
     pub crawl_root_url: Option<String>,
@@ -112,6 +118,8 @@ mod tests {
             listing_source_name: None,
             crawl_enabled: true,
             source_label: None,
+            in_crawl_scope: true,
+            qualification: None,
             crawl_root_url: Some("https://example.com/".to_owned()),
             last_successful_crawl: last_successful,
             last_successful_scrape: last_successful,

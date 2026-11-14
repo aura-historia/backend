@@ -1,15 +1,18 @@
 //! The label of a ListingSource the crawler should not crawl, and its removal
 //! (`docs/crawler/README.md#listingsource-scope`). A human labels any source; in `agent` mode the
 //! author agent labels the source of the pending review it works. Labelling switches crawling off;
-//! the scope sync keeps it off while the label stands. Only a human clears a label. Every label
+//! the scope sync keeps it off while the label stands. Only a human clears a label, which also
+//! qualifies the source (`docs/crawler/README.md#listingsource-qualification`). Every label
 //! set or cleared appends one entry to the source's history in the same transaction, so a relabel
 //! never loses the label and note it replaces.
 
 use super::review_log::{ReviewLogEntry, log_committed_source};
+use super::source_qualification::qualify_after_label_clear;
 use super::{CrawlerReviewRepository, ReviewRepositoryError, lock_review_for_change};
 use crate::CrawlerReviewId;
 use crate::review::model::{
-    AppliedSourceLabel, ReviewActor, SourceLabelEventKind, SourceLabelNote, SourceLabelRequest,
+    AppliedSourceLabel, Qualification, ReviewActor, SourceLabel, SourceLabelEventKind,
+    SourceLabelNote, SourceLabelRequest,
 };
 use listing_source_core::ListingSourceId;
 use sqlx::{PgConnection, Postgres, Transaction};
@@ -90,49 +93,30 @@ impl CrawlerReviewRepository {
     /// Removes the label and the crawl failure state the labelled shop left, so the source starts
     /// a new failure streak and is due at once when the next scope refresh enables it again. It
     /// does not enable crawling itself, and keeps `last_crawled`, the frontier, URLs and schemas.
-    /// Clearing a source without a label changes nothing and succeeds.
+    /// The clear qualifies the source, so it does not wait for a qualification again. Clearing a
+    /// source without a label changes nothing and succeeds.
     pub async fn clear_source_label(
         &self,
         listing_source_id: &ListingSourceId,
         actor: ReviewActor,
     ) -> Result<(), ReviewRepositoryError> {
         let mut transaction = self.pool.begin().await?;
-        let (found, cleared) = sqlx::query_as::<_, (bool, bool)>(
-            "WITH cleared AS ( \
-                 UPDATE listing_sources \
-                 SET source_label = NULL, source_label_note = NULL, \
-                     source_labelled_at = NULL, source_labelled_by = NULL, \
-                     last_crawl_outcome = NULL, last_crawl_error_kind = NULL, \
-                     crawl_failure_count = 0, next_crawl_at = NULL, updated = NOW() \
-                 WHERE listing_source_id = $1 AND source_label IS NOT NULL \
-                 RETURNING 1) \
-             SELECT EXISTS (SELECT 1 FROM listing_sources WHERE listing_source_id = $1), \
-                    EXISTS (SELECT 1 FROM cleared)",
-        )
-        .bind(uuid::Uuid::from(*listing_source_id))
-        .fetch_one(&mut *transaction)
-        .await?;
-        if cleared {
-            append_label_event(
-                &mut transaction,
-                listing_source_id,
-                SourceLabelEventKind::Cleared,
-                None,
-                actor,
-            )
-            .await?;
+        let cleared = clear_label(&mut transaction, listing_source_id, actor).await?;
+        if let Some(label) = cleared {
+            qualify_after_label_clear(&mut transaction, listing_source_id, actor, label).await?;
         }
         transaction.commit().await?;
-        if !found {
-            return Err(ReviewRepositoryError::ListingSourceNotFound(
-                *listing_source_id,
-            ));
-        }
-        if cleared {
+        if cleared.is_some() {
             log_committed_source(
                 &self.pool,
                 listing_source_id,
                 ReviewLogEntry::source_label_cleared(actor),
+            )
+            .await;
+            log_committed_source(
+                &self.pool,
+                listing_source_id,
+                ReviewLogEntry::source_qualified(actor, Qualification::Qualified, None),
             )
             .await;
         }
@@ -140,9 +124,60 @@ impl CrawlerReviewRepository {
     }
 }
 
+/// Clears the ListingSource's label with the crawl failure state the labelled shop left and
+/// appends the clear to its label history, answering the label it cleared; `None` when the source
+/// had none. A ListingSource that does not exist is refused, and a stored label no label has
+/// fails closed.
+pub(super) async fn clear_label(
+    transaction: &mut Transaction<'_, Postgres>,
+    listing_source_id: &ListingSourceId,
+    actor: ReviewActor,
+) -> Result<Option<SourceLabel>, ReviewRepositoryError> {
+    let stored = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT source_label FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::ListingSourceNotFound(
+        *listing_source_id,
+    ))?;
+    let Some(name) = stored else {
+        return Ok(None);
+    };
+    let label = persisted_label(&name)?;
+    sqlx::query(
+        "UPDATE listing_sources \
+         SET source_label = NULL, source_label_note = NULL, \
+             source_labelled_at = NULL, source_labelled_by = NULL, \
+             last_crawl_outcome = NULL, last_crawl_error_kind = NULL, \
+             crawl_failure_count = 0, next_crawl_at = NULL, updated = NOW() \
+         WHERE listing_source_id = $1",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .execute(&mut **transaction)
+    .await?;
+    append_label_event(
+        transaction,
+        listing_source_id,
+        SourceLabelEventKind::Cleared,
+        None,
+        actor,
+    )
+    .await?;
+    Ok(Some(label))
+}
+
+/// The label a stored name stands for; a name no label has fails closed.
+pub(super) fn persisted_label(name: &str) -> Result<SourceLabel, sqlx::Error> {
+    SourceLabel::from_persisted(name).ok_or_else(|| {
+        sqlx::Error::Decode(format!("invalid persisted source_label `{name}`").into())
+    })
+}
+
 /// Stores `actor`'s label on the ListingSource with crawling switched off and appends it to the
 /// source's label history, and answers when; a ListingSource that does not exist is refused.
-async fn store_label(
+pub(super) async fn store_label(
     transaction: &mut Transaction<'_, Postgres>,
     listing_source_id: &ListingSourceId,
     actor: ReviewActor,

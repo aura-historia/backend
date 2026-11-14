@@ -9,7 +9,7 @@ use crawler::review::repository::CrawlerReviewRepository;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ListingSourceRegistrationService, ListingSourceRegistrationSource, ListingSourceSyncError,
-    RegisteredListingSource, ScopedListingSource,
+    QualificationGate, RegisteredListingSource, ScopedListingSource,
 };
 use crawler::spider::candidate_service::{SpiderCandidateService, SpiderCandidateServiceImpl};
 use crawler::spider::crawl_frontier_repository::{
@@ -92,7 +92,10 @@ impl ListingSourceRegistrationSource for FixedScope {
 async fn sync(pool: &PgPool, scope: Vec<RegisteredListingSource>) {
     ListingSourceRegistrationService::new(
         Box::new(FixedScope(scope)),
-        Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
+        Box::new(ListingSourceRegistrationRepositoryImpl::new(
+            pool.clone(),
+            QualificationGate::Off,
+        )),
     )
     .sync()
     .await
@@ -363,7 +366,8 @@ async fn crawl_enabled(pool: &PgPool, listing_source_id: ListingSourceId) -> boo
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_apply_a_snapshot_that_swaps_crawl_hosts_between_sources() {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let repository =
+        ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off);
     let first = ListingSourceId::new();
     let second = ListingSourceId::new();
     let leaving = ListingSourceId::new();
@@ -397,7 +401,8 @@ async fn should_apply_a_snapshot_that_swaps_crawl_hosts_between_sources() {
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_a_second_crawl_enabled_source_on_one_crawl_host() {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let repository =
+        ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off);
 
     let refused = repository
         .apply_snapshot(&[
@@ -467,7 +472,8 @@ async fn should_default_ad_hoc_listing_sources_to_crawl_disabled() {
 async fn should_roll_back_snapshot_when_final_disable_update_fails_and_retry_after_trigger_removal()
 {
     let pool = get_postgres_client().await;
-    let repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let repository =
+        ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off);
     let kept = ListingSourceId::new();
     let removed = ListingSourceId::new();
     sqlx::query(

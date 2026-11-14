@@ -82,7 +82,8 @@ use crawler::scraper::scraper_service::DEFAULT_SCHEMA_SEED_PAGES;
 use crawler::service::cron::CrawlerCronConfig;
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
-    ListingSourceRegistrationSource, ListingSourceSyncError, RegisteredListingSource,
+    ListingSourceRegistrationSource, ListingSourceSyncError, QualificationGate,
+    RegisteredListingSource,
 };
 use crawler::service::raw_capture::FileProductListingRawCaptureService;
 use tracing_subscriber::layer::SubscriberExt;
@@ -228,8 +229,10 @@ async fn main() {
         let listing_source_source = Box::new(DemoListingSourceSource {
             listing_sources: demo_listing_sources(),
         });
-        let listing_source_repo =
-            Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone()));
+        let listing_source_repo = Box::new(ListingSourceRegistrationRepositoryImpl::new(
+            pool.clone(),
+            QualificationGate::of(runtime_config.authoring),
+        ));
         let listing_source_registration =
             ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
         if let Err(error) = listing_source_registration.sync().await {

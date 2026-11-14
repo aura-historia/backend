@@ -29,6 +29,7 @@ pub mod sort_direction;
 pub mod source_event;
 pub mod source_label;
 pub mod source_product_url;
+pub mod source_qualification;
 pub mod status;
 pub mod url_pattern_candidate;
 
@@ -76,5 +77,10 @@ pub use source_label::{
     SourceLabelEvent, SourceLabelEventKind, SourceLabelNote, SourceLabelRequest,
 };
 pub use source_product_url::SourceProductUrl;
+pub use source_qualification::{
+    AppliedQualification, PreviousSourceLabel, Qualification, QualificationDecision,
+    QualificationDecisionError, QualificationEvent, QualificationLabelEffect, QualificationOutcome,
+    QueuedSourceLabel, SourceAwaitingQualification,
+};
 pub use status::*;
 pub use url_pattern_candidate::{UrlPatternDecision, UrlPatternReviewCandidate};

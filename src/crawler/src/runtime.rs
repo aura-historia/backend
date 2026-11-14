@@ -26,7 +26,7 @@ use crate::scraper::scraper_service::{ReqwestHtmlFetcher, ScraperServiceImpl};
 use crate::service::cron::{CrawlerCronConfig, CrawlerCronJob, CronStop};
 use crate::service::listing_source_registration::{
     ListingSourceRegistrationRepositoryImpl, ListingSourceRegistrationService,
-    ListingSourceRegistrationSource,
+    ListingSourceRegistrationSource, QualificationGate,
 };
 use crate::service::raw_capture::ProductListingRawCaptureService;
 use crate::spider::candidate_service::SpiderCandidateServiceImpl;
@@ -304,7 +304,10 @@ where
     let spider_candidates = Box::new(SpiderCandidateServiceImpl::new(pool.clone()));
 
     // Sync crawler scope from the profile's ListingSource source.
-    let listing_source_repo = Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone()));
+    let listing_source_repo = Box::new(ListingSourceRegistrationRepositoryImpl::new(
+        pool.clone(),
+        QualificationGate::of(authoring),
+    ));
     let listing_source_registration =
         ListingSourceRegistrationService::new(listing_source_source, listing_source_repo);
 

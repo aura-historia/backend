@@ -32,6 +32,14 @@ pub enum SourceStatus {
     Disabled,
     /// A human labelled the source: its crawling is off until the label is cleared.
     Labelled,
+    /// The scope admits the source, which waits for its qualification.
+    Unqualified,
+    /// Qualified as a real antique e-shop.
+    Qualified,
+    /// Disqualified: not an antique e-shop the crawler may reach.
+    Disqualified,
+    /// Its qualification could not be decided and waits for a human.
+    QualificationNeedsHuman,
     /// Its last crawl failed and is retried by the schedule.
     CrawlFailing,
     /// Its crawl waits for an operator.
@@ -50,6 +58,10 @@ impl QueryValue for SourceStatus {
         ("healthy", Self::Healthy),
         ("disabled", Self::Disabled),
         ("labelled", Self::Labelled),
+        ("unqualified", Self::Unqualified),
+        ("qualified", Self::Qualified),
+        ("disqualified", Self::Disqualified),
+        ("qualification_needs_human", Self::QualificationNeedsHuman),
         ("crawl_failing", Self::CrawlFailing),
         ("crawl_needs_operator", Self::CrawlNeedsOperator),
         ("blocked", Self::Blocked),

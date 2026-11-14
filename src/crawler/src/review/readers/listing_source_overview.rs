@@ -4,9 +4,9 @@
 //! ListingSources.
 
 use crate::review::model::{
-    AppliedSourceLabel, CrawlStateOverview, ListPage, ListWindow, ListingSourceOverview,
-    ReviewActor, SearchTerm, SortDirection, SourceActivity, SourceLabel, SourceSort, SourceStatus,
-    UrlErrorKindCount,
+    AppliedQualification, AppliedSourceLabel, CrawlStateOverview, ListPage, ListWindow,
+    ListingSourceOverview, Qualification, ReviewActor, SearchTerm, SortDirection, SourceActivity,
+    SourceLabel, SourceSort, SourceStatus, UrlErrorKindCount,
 };
 use crate::review::repository::{crawler_review_id_from_uuid, listing_source_id_from_uuid};
 use crate::scraper::removal_guard::MASS_REMOVAL_HELD_ERROR_KIND;
@@ -84,6 +84,11 @@ const OVERVIEW_CTES: &str = "WITH blocking AS (
         s.source_label_note,
         s.source_labelled_at,
         s.source_labelled_by,
+        s.in_crawl_scope,
+        s.qualification,
+        s.qualification_note,
+        s.qualified_at,
+        s.qualified_by,
         s.updated,
         s.crawl_root_url,
         s.last_crawled AS last_successful_crawl,
@@ -355,6 +360,10 @@ fn status_name(status: SourceStatus) -> &'static str {
         SourceStatus::Healthy => "healthy",
         SourceStatus::Disabled => "disabled",
         SourceStatus::Labelled => "labelled",
+        SourceStatus::Unqualified => "unqualified",
+        SourceStatus::Qualified => "qualified",
+        SourceStatus::Disqualified => "disqualified",
+        SourceStatus::QualificationNeedsHuman => "qualification_needs_human",
         SourceStatus::CrawlFailing => "crawl_failing",
         SourceStatus::CrawlNeedsOperator => "crawl_needs_operator",
         SourceStatus::Blocked => "blocked",
@@ -400,6 +409,10 @@ fn overview_page_sql(sort: SourceSort, direction: SortDirection) -> String {
                     OR ($8 = 'healthy' AND crawl_enabled AND NOT needs_attention)
                     OR ($8 = 'disabled' AND NOT crawl_enabled AND source_label IS NULL)
                     OR ($8 = 'labelled' AND source_label IS NOT NULL)
+                    OR ($8 = 'unqualified' AND in_crawl_scope AND qualification IS NULL)
+                    OR ($8 = 'qualified' AND qualification = 'QUALIFIED')
+                    OR ($8 = 'disqualified' AND qualification = 'DISQUALIFIED')
+                    OR ($8 = 'qualification_needs_human' AND qualification = 'NEEDS_HUMAN')
                     OR ($8 = 'crawl_failing' AND crawl_enabled AND crawl_failed)
                     OR ($8 = 'crawl_needs_operator' AND crawl_enabled AND needs_operator)
                     OR ($8 = 'blocked' AND crawl_enabled AND blocked_urls > 0)
@@ -460,6 +473,8 @@ fn overview_of_row(
         listing_source_name: row.try_get("listing_source_name")?,
         crawl_enabled: row.try_get("crawl_enabled")?,
         source_label: applied_source_label(row)?,
+        in_crawl_scope: row.try_get("in_crawl_scope")?,
+        qualification: applied_qualification(row)?,
         crawl_root_url: row.try_get("crawl_root_url")?,
         last_successful_crawl: row.try_get("last_successful_crawl")?,
         last_successful_scrape: row.try_get("last_successful_scrape")?,
@@ -539,6 +554,29 @@ fn applied_source_label(row: &PgRow) -> Result<Option<AppliedSourceLabel>, sqlx:
         note: row.try_get("source_label_note")?,
         labelled_at,
         labelled_by,
+    }))
+}
+
+/// The qualification the row's source carries; an unknown qualification or actor, or one without
+/// its note, time or actor, fails, so the console never shows a decision it cannot read whole.
+fn applied_qualification(row: &PgRow) -> Result<Option<AppliedQualification>, sqlx::Error> {
+    let Some(name) = row.try_get::<Option<String>, _>("qualification")? else {
+        return Ok(None);
+    };
+    let missing =
+        |column: &str| sqlx::Error::Decode(format!("qualification without {column}").into());
+    Ok(Some(AppliedQualification {
+        qualification: Qualification::from_persisted(&name).ok_or_else(|| {
+            sqlx::Error::Decode(format!("invalid persisted qualification `{name}`").into())
+        })?,
+        note: row
+            .try_get::<Option<String>, _>("qualification_note")?
+            .ok_or_else(|| missing("qualification_note"))?,
+        qualified_at: row
+            .try_get::<Option<OffsetDateTime>, _>("qualified_at")?
+            .ok_or_else(|| missing("qualified_at"))?,
+        qualified_by: persisted_actor("qualified_by", row.try_get("qualified_by")?)?
+            .ok_or_else(|| missing("qualified_by"))?,
     }))
 }
 

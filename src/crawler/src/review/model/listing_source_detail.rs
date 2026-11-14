@@ -2,7 +2,7 @@
 //! scrapes by. The contract is in `docs/crawler/operations.md` (review service).
 
 use super::ListingSourceOverview;
-use super::{ReviewActor, SourceLabelEvent};
+use super::{QualificationEvent, ReviewActor, SourceLabelEvent};
 use crate::CrawlerReviewId;
 use crate::scraper::css_selector::product_schema::ProductCssSelectorSchema;
 use crate::scraper::css_selector::removed_page_schema::RemovedPageSchema;
@@ -33,6 +33,8 @@ pub struct ListingSourceDetail {
     pub failing_urls: Vec<FailingUrl>,
     /// Every label the ListingSource was given or lost, oldest first.
     pub label_history: Vec<SourceLabelEvent>,
+    /// Every qualification the ListingSource was given or lost, oldest first.
+    pub qualification_history: Vec<QualificationEvent>,
 }
 
 /// How many failing product URLs the page shows as examples.

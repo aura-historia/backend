@@ -17,7 +17,8 @@ use crate::review::model::{
 use crate::review::page_coverage::{IncompleteCoverage, ReviewPageCoverage};
 use crate::review::readers::{
     ConsoleOverviewReader, ListingSourceDetailReader, ListingSourceOverviewReader,
-    ReviewQueueReader, SourceEventReader, SourceProductUrlReader, persisted_row_failure,
+    QualificationQueueReader, ReviewQueueReader, SourceEventReader, SourceProductUrlReader,
+    persisted_row_failure,
 };
 use crate::review::repository::{Approval, CrawlerReviewRepository, ReviewRepositoryError};
 use crate::scraper::css_selector::rule::ExtractionRule;
@@ -61,6 +62,7 @@ mod schema_matrix;
 mod selector_probe;
 mod source_label;
 mod source_pages;
+mod source_qualification;
 
 use schema_matrix::NoMatrixAnswer;
 use selector_probe::SelectorProbePayload;
@@ -72,6 +74,7 @@ pub struct ReviewServer {
     review_queue: ReviewQueueReader,
     listing_sources: ListingSourceOverviewReader,
     listing_source_details: ListingSourceDetailReader,
+    qualification_queue: QualificationQueueReader,
     overview: ConsoleOverviewReader,
     source_events: SourceEventReader,
     source_product_urls: SourceProductUrlReader,
@@ -99,6 +102,7 @@ impl ReviewServer {
             listing_source_details: ListingSourceDetailReader::new(listing_sources.clone()),
             overview: ConsoleOverviewReader::new(&repository, listing_sources.clone()),
             source_events: SourceEventReader::new(repository.pool().clone()),
+            qualification_queue: QualificationQueueReader::new(repository.pool().clone()),
             review_queue,
             listing_sources,
             source_product_urls: SourceProductUrlReader::new(repository.pool().clone()),
@@ -279,6 +283,9 @@ impl ReviewServer {
             return response;
         }
         if let Some(response) = self.route_review_source_label(&request, actor).await {
+            return response;
+        }
+        if let Some(response) = self.route_source_qualification(&request, actor).await {
             return response;
         }
         // Preview responses, including their errors, are framed by the console.
@@ -1255,6 +1262,7 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
         | ReviewRepositoryError::InvalidNoSoldPageNote
         | ReviewRepositoryError::AgentSourceLabelNeedsNote
         | ReviewRepositoryError::SourceLabelDoesNotFitReview { .. }
+        | ReviewRepositoryError::InvalidSourceLabel(_)
         | ReviewRepositoryError::InvalidNotProductReason
         | ReviewRepositoryError::TooManySampleLabels
         | ReviewRepositoryError::SampleLabelUrlNotAllowed(_)
@@ -1300,6 +1308,9 @@ fn review_error(error: ReviewRepositoryError) -> HttpResponse {
             409,
             &json!({ "error": error.to_string(), "reason": "PAGES_NOT_INSPECTED" }),
         ),
+        ReviewRepositoryError::SourceAlreadyQualified(_) => conflict(&error, "ALREADY_QUALIFIED"),
+        ReviewRepositoryError::SourceNotInCrawlScope(_) => conflict(&error, "NOT_IN_CRAWL_SCOPE"),
+        ReviewRepositoryError::HumanLabelStands(_) => conflict(&error, "HUMAN_LABEL"),
         ReviewRepositoryError::IncompleteCoverage { coverage, .. }
         | ReviewRepositoryError::StaleCoverageAcknowledgement { coverage, .. } => {
             HttpResponse::json(
@@ -1372,6 +1383,13 @@ fn log_invalid_candidate(detail: &ReviewDetail) {
 
 /// Answers a change `error` says the actor may not make with 403 and the machine-readable
 /// `reason` a client such as the review agent acts on.
+fn conflict(error: &ReviewRepositoryError, reason: &str) -> HttpResponse {
+    HttpResponse::json(
+        409,
+        &json!({ "error": error.to_string(), "reason": reason }),
+    )
+}
+
 fn forbidden(error: &ReviewRepositoryError, reason: &str) -> HttpResponse {
     HttpResponse::json(
         403,
@@ -1461,6 +1479,13 @@ fn live_fetch_failure(url: &str, failed: &str, error: &FetchError) -> HttpRespon
         json!({
             "error": format!("the shop answered {url} with a bot challenge instead of the page; retry later"),
             "reason": "BOT_CHALLENGE",
+            "url": url,
+            "details": error.to_string(),
+        })
+    } else if error.kind() == NetworkErrorKind::RobotsDisallowed {
+        json!({
+            "error": format!("the shop's robots.txt refuses the crawler {url}; the details quote the refusing rule"),
+            "reason": "ROBOTS_DISALLOWED",
             "url": url,
             "details": error.to_string(),
         })
@@ -5711,6 +5736,184 @@ Origin: http://127.0.0.1:7878/x
                 let (status, missing) = send(&server, &request, &body).await;
                 assert!(status.starts_with("HTTP/1.1 404"), "{status} {missing}");
             }
+        }
+    }
+    mod source_qualification {
+        use super::needs_repair::{AUTHOR_TOKEN, REVIEWER_TOKEN, TOKEN, send, send_as};
+        use super::*;
+        use crate::scraper::scraper_service::html_fetcher::FetchedHtml;
+        use listing_source_core::ListingSourceId;
+        use serde_json::json;
+        use test_api::IntegrationTestService as _;
+
+        /// The author agent reads the queue and a queued source's pages, whose robots.txt refusal
+        /// names the refusing rule, and decides the source once; the reviewer agent decides
+        /// nothing, and a human overrides and clears the qualification on the source's route,
+        /// which an agent token may not use.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_let_the_author_qualify_a_queued_source_from_its_pages() {
+            let pool = test_api::get_postgres_client().await;
+            let listing_source_id = ListingSourceId::new();
+            sqlx::query(
+                "INSERT INTO listing_sources \
+                 (listing_source_id, listing_source_name, listing_source_slug, crawl_enabled, \
+                  in_crawl_scope, crawl_root_url, crawl_host, created, updated) \
+                 VALUES ($1, 'Queued shop', 'queued-shop', FALSE, TRUE, \
+                         'https://shop.example/', 'shop.example', NOW(), NOW())",
+            )
+            .bind(listing_source_id.as_uuid())
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|error| panic!("insert fixture: {error}"));
+            let mut fetches = MockHtmlFetcher::new();
+            fetches.expect_fetch().times(2).returning(|url| {
+                let url = url.clone();
+                Box::pin(async move {
+                    if url.path() == "/" {
+                        Ok(FetchedHtml {
+                            html: "<main><h1>Antique clocks</h1><p>EUR 1,200</p><button>Add to cart</button></main>".to_owned(),
+                            final_url: url,
+                            status: reqwest::StatusCode::OK,
+                        })
+                    } else {
+                        Err(FetchError::Network {
+                            kind: NetworkErrorKind::RobotsDisallowed,
+                            details: format!(
+                                "robots.txt disallows {url} (User-agent: AuraHistoriaBot; Disallow: /private)"
+                            ),
+                        })
+                    }
+                })
+            });
+            let server = ReviewServer::new(
+                CrawlerReviewRepository::new(pool),
+                ReviewServerConfig {
+                    bind_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
+                    auth_token: Some(TOKEN.to_owned()),
+                    agent_tokens: Some(ReviewAgentTokens::of(AUTHOR_TOKEN, REVIEWER_TOKEN)),
+                    local_mutations_without_token: false,
+                    max_concurrent_live_jobs: DEFAULT_MAX_CONCURRENT_LIVE_JOBS,
+                },
+                Arc::new(fetches),
+            );
+
+            let (_, queue) =
+                send_as(&server, AUTHOR_TOKEN, "GET /api/source-qualifications", "").await;
+            assert_eq!(queue["total"], 1, "{queue}");
+            assert_eq!(
+                queue["sources"][0]["crawl_root_url"], "https://shop.example/",
+                "{queue}"
+            );
+            let page_route = format!("GET /api/source-qualifications/{listing_source_id}/page");
+            let (status, page) = send_as(&server, AUTHOR_TOKEN, &page_route, "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {page}");
+            assert!(
+                page["projection"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("Add to cart"),
+                "{page}"
+            );
+            let (status, refused) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("{page_route}?url=https%3A%2F%2Fshop.example%2Fprivate%2F1"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 502"), "{status} {refused}");
+            assert_eq!(refused["reason"], "ROBOTS_DISALLOWED", "{refused}");
+            assert!(
+                refused["details"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("Disallow: /private"),
+                "{refused}"
+            );
+            let (status, off_host) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("{page_route}?url=https%3A%2F%2Felsewhere.example%2F"),
+                "",
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 400"), "{status} {off_host}");
+
+            let decide = format!("POST /api/source-qualifications/{listing_source_id}");
+            let qualified = json!({
+                "qualification": "QUALIFIED",
+                "note": "/ sells antique clocks with prices and an add-to-cart button"
+            })
+            .to_string();
+            let (status, refused) = send_as(&server, REVIEWER_TOKEN, &decide, &qualified).await;
+            assert!(status.starts_with("HTTP/1.1 403"), "{status} {refused}");
+            let (status, refused) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &decide,
+                &json!({ "qualification": "QUALIFIED" }).to_string(),
+            )
+            .await;
+            assert!(
+                status.starts_with("HTTP/1.1 400"),
+                "a note is required: {status} {refused}"
+            );
+            let (status, outcome) = send_as(&server, AUTHOR_TOKEN, &decide, &qualified).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {outcome}");
+            assert_eq!(
+                (
+                    &outcome["qualification"],
+                    &outcome["qualified_by"],
+                    &outcome["label_effect"]
+                ),
+                (&json!("QUALIFIED"), &json!("AGENT_AUTHOR"), &json!("NONE"))
+            );
+            let (status, again) = send_as(&server, AUTHOR_TOKEN, &decide, &qualified).await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {again}");
+            assert_eq!(again["reason"], "ALREADY_QUALIFIED");
+
+            let source_route = format!("/api/listing-sources/{listing_source_id}/qualification");
+            let disqualified = json!({
+                "qualification": "DISQUALIFIED",
+                "label": "SHOP_CLOSED",
+                "note": "the shop announced its closure"
+            })
+            .to_string();
+            let (status, _) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("PUT {source_route}"),
+                &disqualified,
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 401"), "{status}");
+            let (status, overridden) =
+                send(&server, &format!("PUT {source_route}"), &disqualified).await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status} {overridden}");
+            assert_eq!(overridden["label"], "SHOP_CLOSED");
+            let (status, _) = send(&server, &format!("DELETE {source_route}"), "").await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+            let (_, detail) = send(
+                &server,
+                &format!("GET /api/listing-sources/{listing_source_id}"),
+                "",
+            )
+            .await;
+            assert!(detail["qualification"].is_null(), "{detail}");
+            assert_eq!(
+                detail["source_label"]["label"], "SHOP_CLOSED",
+                "the label stays"
+            );
+            assert_eq!(
+                detail["qualification_history"]
+                    .as_array()
+                    .map(|history| history
+                        .iter()
+                        .map(|event| event["qualification"].clone())
+                        .collect::<Vec<_>>()),
+                Some(vec![json!("QUALIFIED"), json!("DISQUALIFIED"), json!(null)]),
+                "{detail}"
+            );
         }
     }
     mod review_source_label {

@@ -4,7 +4,7 @@ use crawler::service::cron::{CrawlerCronConfig, CrawlerCronJob};
 use crawler::service::listing_source_registration::{
     ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
     ListingSourceRegistrationService, ListingSourceRegistrationSource, ListingSourceSyncError,
-    RegisteredListingSource, ScopedListingSource,
+    QualificationGate, RegisteredListingSource, ScopedListingSource,
 };
 use crawler::service::raw_capture::{
     ProductListingRawCaptureItem, ProductListingRawCaptureOutcome, ProductListingRawCaptureService,
@@ -129,7 +129,10 @@ fn build_scheduler(pool: sqlx::PgPool, probe: &SchedulerProbe) -> CrawlerCronJob
         Box::new(AbsentAuthoritativeSource {
             calls: Arc::clone(&probe.sync_calls),
         }),
-        Box::new(ListingSourceRegistrationRepositoryImpl::new(pool.clone())),
+        Box::new(ListingSourceRegistrationRepositoryImpl::new(
+            pool.clone(),
+            QualificationGate::Off,
+        )),
     );
     CrawlerCronJob::new(
         CrawlerCronConfig {
@@ -219,7 +222,8 @@ fn spawn_scheduler(probe: SchedulerProbe) -> (SchedulerStop, oneshot::Receiver<(
 async fn should_disable_absent_source_before_spider_and_scraper_select_work() {
     let pool = get_postgres_client().await;
     let listing_source_id = ListingSourceId::new();
-    let registration_repository = ListingSourceRegistrationRepositoryImpl::new(pool.clone());
+    let registration_repository =
+        ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off);
     registration_repository
         .apply_snapshot(&[scoped_listing_source(listing_source_id)])
         .await

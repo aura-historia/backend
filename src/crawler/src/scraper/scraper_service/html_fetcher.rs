@@ -322,7 +322,7 @@ impl ReqwestHtmlFetcher {
         let robots = self.robots_policy(url).await?;
         robots
             .check(url)
-            .map_err(|refusal| robots_refusal_error(url, refusal))?;
+            .map_err(|refusal| robots_refusal_error(url, refusal, robots.refusal_details(url)))?;
         Ok(robots.crawl_delay())
     }
 
@@ -429,7 +429,11 @@ impl ReqwestHtmlFetcher {
                     final_url: url.clone(),
                 },
             }),
-            Err(refusal) => Err(robots_refusal_error(url, refusal)),
+            Err(refusal) => Err(robots_refusal_error(
+                url,
+                refusal,
+                robots.refusal_details(url),
+            )),
         }
     }
 
@@ -617,18 +621,29 @@ fn total_timeout_error() -> FetchError {
     }
 }
 
-fn robots_refusal_error(url: &Url, refusal: RobotsRefusal) -> FetchAttemptError {
-    let (kind, details) = match refusal {
-        RobotsRefusal::Disallowed => (NetworkErrorKind::RobotsDisallowed, "robots.txt disallows"),
-        RobotsRefusal::Unreachable => (
-            NetworkErrorKind::RobotsUnreachable,
-            "robots.txt is unreachable, which disallows",
-        ),
+/// The error of a request robots.txt refuses; a disallowed one names the rule
+/// that refuses it, so the refusal can be quoted as evidence.
+fn robots_refusal_error(
+    url: &Url,
+    refusal: RobotsRefusal,
+    rule: Option<String>,
+) -> FetchAttemptError {
+    let details = match refusal {
+        RobotsRefusal::Disallowed => match rule {
+            Some(rule) => format!("robots.txt disallows {url} ({rule})"),
+            None => format!("robots.txt disallows {url}"),
+        },
+        RobotsRefusal::Unreachable => {
+            format!("robots.txt is unreachable, which disallows {url}")
+        }
     };
     FetchAttemptError {
         error: FetchError::Network {
-            kind,
-            details: format!("{details} {url}"),
+            kind: match refusal {
+                RobotsRefusal::Disallowed => NetworkErrorKind::RobotsDisallowed,
+                RobotsRefusal::Unreachable => NetworkErrorKind::RobotsUnreachable,
+            },
+            details,
         },
     }
 }

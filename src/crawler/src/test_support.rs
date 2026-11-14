@@ -31,11 +31,11 @@ pub(crate) async fn refresh_scope_with_crawl_root(
 ) {
     use crate::service::listing_source_registration::{
         ListingSourceRegistrationRepository, ListingSourceRegistrationRepositoryImpl,
-        ScopedListingSource,
+        QualificationGate, ScopedListingSource,
     };
     let crawl_root = crate::CrawlRoot::from_presentation_url(presentation_url)
         .unwrap_or_else(|error| panic!("{presentation_url} is a crawl root: {error}"));
-    ListingSourceRegistrationRepositoryImpl::new(pool.clone())
+    ListingSourceRegistrationRepositoryImpl::new(pool.clone(), QualificationGate::Off)
         .apply_snapshot(&[ScopedListingSource {
             listing_source_id,
             listing_source_name: listing_source_core::ListingSourceName::try_from("Test source")

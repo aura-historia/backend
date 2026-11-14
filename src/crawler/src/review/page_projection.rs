@@ -81,6 +81,22 @@ pub struct PageProjection {
     pub json_ld_product_ids: JsonLdProductIds,
 }
 
+/// A page of a ListingSource as the qualification of the source reads it:
+/// `GET /api/source-qualifications/{id}/page` answers it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourcePageProjection {
+    pub listing_source_id: listing_source_core::ListingSourceId,
+    /// The URL fetched.
+    pub url: String,
+    /// The URL the shop served the page from after redirects on its own host.
+    pub final_url: String,
+    pub view: PageView,
+    /// The page in `view`, as [`PageProjection::projection`] describes it.
+    pub projection: String,
+    /// Whether the page's structured data describes exactly one product. Information only.
+    pub describes_one_product: bool,
+}
+
 /// What a page's `html` shows the review agents: its projection in one view, and whether its
 /// structured data describes one product.
 #[derive(Debug, Clone, PartialEq, Eq)]

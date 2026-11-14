@@ -49,6 +49,7 @@ mod revocation;
 mod sample_labels;
 mod schema_payload;
 mod source_label;
+mod source_qualification;
 mod url_pattern_sample;
 mod verdicts;
 
@@ -139,6 +140,20 @@ pub enum ReviewRepositoryError {
         label: &'static str,
         artifact_type: String,
     },
+    #[error(transparent)]
+    InvalidSourceLabel(#[from] crate::review::model::SourceLabelError),
+    #[error(
+        "ListingSource {0} has a qualification already; only a human decides it again or clears it"
+    )]
+    SourceAlreadyQualified(ListingSourceId),
+    #[error(
+        "ListingSource {0} is not admitted to crawling by the scope, or has no crawl root, so there is nothing to qualify"
+    )]
+    SourceNotInCrawlScope(ListingSourceId),
+    #[error(
+        "a human labelled ListingSource {0}; a review agent replaces a human's label only in the one-off backfill"
+    )]
+    HumanLabelStands(ListingSourceId),
     #[error(
         "a record that no sold or unavailable page was found names between {MIN_CHECKED_URLS} and {MAX_CHECKED_URLS} distinct pages of the ListingSource that were checked"
     )]

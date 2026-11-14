@@ -264,6 +264,8 @@ const TONES = {
     rejected_by_model: 'bad',
     crawl_needs_operator: 'bad', crawl_failing: 'bad', failing_to_scrape: 'bad', blocked_by_review: 'warn', removals_held: 'warn',
     healthy: 'ok', not_scraped_yet: 'neutral', crawling_disabled: 'neutral', labelled: 'neutral',
+    awaiting_qualification: 'warn', qualification_needs_human: 'bad',
+    QUALIFIED: 'ok', DISQUALIFIED: 'bad', NEEDS_HUMAN: 'bad',
     crawling: 'info', scraping: 'info',
     HUMAN: 'info', AGENT_AUTHOR: 'neutral', AGENT_REVIEWER: 'neutral', SYSTEM: 'neutral',
     applied: 'ok', failed_check: 'bad', did_not_apply: 'bad', not_evaluated: 'warn', changed: 'info'
@@ -648,7 +650,8 @@ const lists = {
     reviews: {items: undefined, total: 0, failure: '', sequence: 0, loading: false, unfilteredTotal: null}
 };
 
-const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled']];
+const SOURCE_STATUS_CHIPS = [['', 'All'], ['needs_attention', 'Needs attention'], ['healthy', 'Healthy'], ['disabled', 'Disabled'], ['labelled', 'Labelled'],
+    ['unqualified', 'Unqualified'], ['qualified', 'Qualified'], ['disqualified', 'Disqualified'], ['qualification_needs_human', 'Qualification needs a human']];
 const REVIEW_STATUS_CHIPS = [['', 'All'], ['PENDING_REVIEW', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['SUPERSEDED', 'Superseded']];
 const REVIEW_TYPE_CHIPS = [['', 'Both types'], ['PRODUCT_SCHEMA', 'Product schema'], ['URL_PATTERN', 'URL pattern']];
 // The sort keys of the tables' columns, and whether a key sorts ascending first.
@@ -1039,6 +1042,15 @@ function primaryStatus(source) {
             title: `Labelled by ${actorWord(applied.labelled_by)}; not crawled until a human clears the label`
         };
     }
+    if (!source.crawl_enabled && source.qualification?.qualification === 'NEEDS_HUMAN') {
+        return {
+            key: 'qualification_needs_human', text: 'Qualification needs a human', more: source.qualification.note, note: true,
+            title: 'The review agent could not tell whether this is a real antique e-shop; not crawled until a human qualifies it'
+        };
+    }
+    if (!source.crawl_enabled && source.in_crawl_scope && !source.qualification) {
+        return {key: 'awaiting_qualification', text: 'Awaiting qualification', more: '', title: 'Not crawled until the review agent qualifies it as a real antique e-shop'};
+    }
     if (!source.crawl_enabled) return {key: 'crawling_disabled', text: 'Crawling disabled', more: ''};
     const [condition] = sourceConditions(source);
     if (condition) {
@@ -1163,7 +1175,8 @@ function sourceColumns() {
 // condition the rows share, with how many sources have it.
 const SOURCE_GROUP_LABELS = {
     crawl_needs_operator: 'Crawl needs operator', crawl_failing: 'Crawl failing', failing_to_scrape: 'Failing to scrape', blocked_by_review: 'Blocked by review',
-    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled'
+    removals_held: 'Removals held', healthy: 'Healthy', not_scraped_yet: 'Not scraped yet', crawling_disabled: 'Crawling disabled', labelled: 'Labelled',
+    awaiting_qualification: 'Awaiting qualification', qualification_needs_human: 'Qualification needs a human'
 };
 
 function sourceGroupCount(key) {
@@ -1255,6 +1268,7 @@ let sourcePage = null;
 const openMassRemovalConfirmations = new Set();
 // The sources whose label form is open on their page.
 const openSourceLabelForms = new Set();
+const openQualificationForms = new Set();
 const MASS_REMOVAL_CONFIRMATION_HOURS = [[6, '6 hours'], [24, '24 hours'], [72, '3 days'], [168, '7 days']];
 
 function sourcePageId() {
@@ -1417,6 +1431,9 @@ function renderSourceHealth(source) {
     if (source.source_label) lines.push(renderSourceLabelLine(source));
     else if (!source.crawl_enabled) lines.push('<div class="status-line"><span class="badge badge-neutral">Crawling disabled</span><div class="status-line-text">The source is neither crawled nor scraped.</div></div>');
     if (!source.source_label && openSourceLabelForms.has(source.listing_source_id)) lines.push(renderSourceLabelForm(source.listing_source_id));
+    const qualification = renderQualificationLine(source);
+    if (qualification) lines.push(qualification);
+    if (openQualificationForms.has(source.listing_source_id)) lines.push(renderQualificationForm(source.listing_source_id));
     const crawl = source.last_crawl_outcome
         ? `${escapeHtml(reasonWord(source.last_crawl_outcome))}${source.last_successful_crawl ? ` ${timeBadge(source.last_successful_crawl, 'Last successful crawl')}` : ''}${Number(source.crawl_failure_count) > 0 && source.last_crawl_outcome !== 'NEEDS_OPERATOR' ? ` · ${pluralize(Number(source.crawl_failure_count), 'failed crawl', 'failed crawls')}` : ''}`
         : 'not crawled yet';
@@ -1431,6 +1448,7 @@ function renderSourceHealth(source) {
         ${lines.length || activity.length ? `<div class="status-lines">${lines.join('')}${activity.join('')}</div>` : ''}
         ${renderFailingUrls(source)}
         ${renderSourceLabelHistory(source)}
+        ${renderQualificationHistory(source)}
         <dl class="kv">
           <dt>Crawl</dt><dd>${crawl} · next ${nextCrawlText(source)}</dd>
           <dt>Scrape</dt><dd>${scrape}</dd>
@@ -1650,6 +1668,82 @@ function renderSourceLabelLine(source) {
     const id = escapeHtmlAttr(source.listing_source_id);
     const note = applied.note ? `${escapeHtml(applied.note)} · ` : '';
     return `<div class="status-line"><span class="badge badge-${sourceLabelTone(applied.label)}">${escapeHtml(sourceLabelName(applied.label))}</span><div class="status-line-text">${note}not crawled · by ${escapeHtml(actorWord(applied.labelled_by))} ${timeBadge(applied.labelled_at, 'Labelled')} · <button class="btn-link" onclick="clearSourceLabel('${id}')" title="Crawl the source again once the next scope refresh enables it" type="button">Clear label</button></div></div>`;
+}
+
+// ───────────────────────────── ListingSource qualification ─────────────────────────────
+// Whether the source is a real antique e-shop, as the review agent or a human decided it, with the
+// note that names the evidence; a source the scope admits without one is not crawled in agent mode.
+const QUALIFICATION_NAMES = {QUALIFIED: 'QUALIFIED', DISQUALIFIED: 'DISQUALIFIED', NEEDS_HUMAN: 'QUALIFICATION NEEDS A HUMAN'};
+
+function renderQualificationLine(source) {
+    const id = escapeHtmlAttr(source.listing_source_id);
+    const applied = source.qualification;
+    const qualify = `<button class="btn-link" aria-expanded="${openQualificationForms.has(source.listing_source_id)}" onclick="toggleQualificationForm('${id}')" title="Decide whether this is a real antique e-shop" type="button">Qualify…</button>`;
+    if (!applied) {
+        if (!source.in_crawl_scope) return '';
+        return `<div class="status-line"><span class="badge badge-warn">AWAITING QUALIFICATION</span><div class="status-line-text">The review agent decides whether this is a real antique e-shop before it is crawled · ${qualify}</div></div>`;
+    }
+    const tone = TONES[applied.qualification] || 'neutral';
+    return `<div class="status-line"><span class="badge badge-${tone}">${escapeHtml(QUALIFICATION_NAMES[applied.qualification] || displayName(applied.qualification))}</span><div class="status-line-text">${escapeHtml(applied.note)} · by ${escapeHtml(actorWord(applied.qualified_by))} ${timeBadge(applied.qualified_at, 'Qualified')} · ${qualify} · <button class="btn-link" onclick="clearQualification('${id}')" title="Let the review agent decide again" type="button">Qualify again</button></div></div>`;
+}
+
+// A human qualifies the source with a note; qualifying it without a label clears its label.
+function renderQualificationForm(listingSourceId) {
+    const id = escapeHtmlAttr(listingSourceId);
+    return `<div class="list-row">
+      <select class="sm" aria-label="Qualification" id="qualification-${id}">
+        <option value="QUALIFIED">QUALIFIED</option>
+        <option value="DISQUALIFIED|NOT_AN_ESHOP">DISQUALIFIED: NOT AN E-SHOP</option>
+        <option value="DISQUALIFIED|NOT_AN_ANTIQUE_SHOP">DISQUALIFIED: NOT AN ANTIQUE SHOP</option>
+        <option value="DISQUALIFIED|ROBOTS_DISALLOWED">DISQUALIFIED: ROBOTS DISALLOWED</option>
+        <option value="DISQUALIFIED|SHOP_CLOSED">DISQUALIFIED: SHOP CLOSED</option>
+      </select>
+      <input class="sm" aria-label="Note" id="qualificationNote-${id}" maxlength="500" placeholder="Note (required)">
+      <button class="btn btn-primary btn-sm" onclick="qualifySource('${id}')" title="Qualifying without a label clears the source's label" type="button">Save</button>
+      <button class="btn btn-quiet btn-sm" onclick="toggleQualificationForm('${id}')" type="button">Cancel</button>
+    </div>`;
+}
+
+function toggleQualificationForm(listingSourceId) {
+    if (!openQualificationForms.delete(listingSourceId)) openQualificationForms.add(listingSourceId);
+    updateSourcePage();
+}
+
+async function qualifySource(listingSourceId) {
+    const [qualification, label] = (document.getElementById(`qualification-${listingSourceId}`)?.value || '').split('|');
+    const note = document.getElementById(`qualificationNote-${listingSourceId}`)?.value.trim() || '';
+    if (!qualification) return;
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/qualification`,
+            {method: 'PUT', body: JSON.stringify({qualification, label: label || null, note})});
+        openQualificationForms.delete(listingSourceId);
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+async function clearQualification(listingSourceId) {
+    try {
+        await api(`/api/listing-sources/${encodeURIComponent(listingSourceId)}/qualification`, {method: 'DELETE'});
+        await loadSourcePage();
+    } catch (error) {
+        alert(apiErrorMessage(error));
+    }
+}
+
+function renderQualificationHistory(source) {
+    const events = source.qualification_history || [];
+    if (!events.length) return '';
+    const items = events.map(event => {
+        const what = event.qualification
+            ? `<span class="badge badge-${TONES[event.qualification] || 'neutral'}">${escapeHtml(QUALIFICATION_NAMES[event.qualification] || displayName(event.qualification))}</span>`
+            : '<span class="badge badge-neutral">CLEARED</span>';
+        const label = event.label ? ` <span class="badge badge-${sourceLabelTone(event.label)}">${escapeHtml(sourceLabelName(event.label))}</span>` : '';
+        const note = event.note ? ` · ${escapeHtml(event.note)}` : '';
+        return `<li>${what}${label} by ${escapeHtml(actorWord(event.actor))} ${timeBadge(event.occurred_at, 'Decided')}${note}</li>`;
+    }).join('');
+    return `<details class="label-history"><summary>Qualification history (${formatCount(events.length)})</summary><ul>${items}</ul></details>`;
 }
 
 // The handler names the source by id and reads the form's own fields, never the page's HTML.

@@ -121,10 +121,12 @@ fn is_mutation_method(method: &str) -> bool {
     matches!(method, "POST" | "PUT" | "PATCH" | "DELETE")
 }
 
-/// The review routes the agent tokens may mutate: reviews and their pages, not ListingSource
-/// routes or sessions.
+/// The review routes the agent tokens may mutate: reviews and their pages and the qualification
+/// of a queued ListingSource, not ListingSource routes or sessions.
 fn is_review_route(path: &str) -> bool {
-    path.starts_with("/api/reviews/") || path.starts_with("/api/review-pages/")
+    path.starts_with("/api/reviews/")
+        || path.starts_with("/api/review-pages/")
+        || path.starts_with("/api/source-qualifications/")
 }
 
 /// The live previews, of any URL (`/api/live-inspect`, `/api/live-html`) and of a review page
@@ -266,6 +268,16 @@ mod tests {
         "PUT /api/listing-sources/ls_1/label",
         Some(REVIEW_TOKEN),
         Some(ReviewActor::Human)
+    )]
+    #[case::author_token_qualifies_a_queued_source(
+        "POST /api/source-qualifications/ls_1",
+        Some(AUTHOR_TOKEN),
+        Some(ReviewActor::AgentAuthor)
+    )]
+    #[case::author_token_overrides_no_qualification(
+        "PUT /api/listing-sources/ls_1/qualification",
+        Some(AUTHOR_TOKEN),
+        None
     )]
     #[case::author_token_labels_no_source(
         "PUT /api/listing-sources/ls_1/label",
