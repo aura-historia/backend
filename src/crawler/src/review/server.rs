@@ -5976,6 +5976,52 @@ Origin: http://127.0.0.1:7878/x
             assert_eq!(queue["totals"]["workable"], 0, "{queue}");
             assert_eq!(queue["reviews"], json!([]), "{queue}");
         }
+
+        /// A human who labels the source while the author agent still works one of its reviews
+        /// keeps the label: the agent's label on that review is refused and changes nothing.
+        #[test_api::aura_integration_test(services = [crate::test_support::CrawlerDatabase], isolated = true)]
+        async fn should_refuse_the_author_agent_a_label_over_a_human_label() {
+            let (server, review_id) = pending_review_server().await;
+            let (_, review) = send(&server, &format!("GET /api/reviews/{review_id}"), "").await;
+            let listing_source_id = review["review"]["listing_source_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("review without ListingSource: {review}"))
+                .to_owned();
+            let (status, _) = send(
+                &server,
+                &format!("PUT /api/listing-sources/{listing_source_id}/label"),
+                &json!({ "label": "OTHER", "note": "dealer asked us not to list them" })
+                    .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+
+            let (status, refused) = send_as(
+                &server,
+                AUTHOR_TOKEN,
+                &format!("POST /api/reviews/{review_id}/source-label"),
+                &json!({ "label": "NOT_AN_ESHOP", "note": "/ shows an enquiry form only" })
+                    .to_string(),
+            )
+            .await;
+            assert!(status.starts_with("HTTP/1.1 409"), "{status} {refused}");
+            assert_eq!(refused["reason"], "HUMAN_LABEL", "{refused}");
+            let (_, detail) = send(
+                &server,
+                &format!("GET /api/listing-sources/{listing_source_id}"),
+                "",
+            )
+            .await;
+            assert_eq!(
+                (
+                    &detail["source_label"]["label"],
+                    &detail["source_label"]["labelled_by"]
+                ),
+                (&json!("OTHER"), &json!("HUMAN")),
+                "{detail}"
+            );
+            assert_eq!(detail["label_history"].as_array().map(Vec::len), Some(1));
+        }
     }
     mod console_lists {
         use super::needs_repair::send;

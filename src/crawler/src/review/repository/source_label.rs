@@ -38,7 +38,8 @@ impl CrawlerReviewRepository {
     /// Labels the ListingSource of the review `review_id` as [`Self::label_source`] does, for the
     /// actor that may change the review: the author agent on a pending review that does not wait
     /// for a human, or a human. A review agent names its evidence in the note. The reviewer agent
-    /// labels nothing. An approach label must name the approach of the review it is set on.
+    /// labels nothing, and the author agent replaces no label a human set. An approach label must
+    /// name the approach of the review it is set on.
     pub async fn label_review_source(
         &self,
         review_id: CrawlerReviewId,
@@ -61,6 +62,9 @@ impl CrawlerReviewRepository {
             });
         }
         let listing_source_id = review.listing_source_id;
+        if actor.is_agent() && labelled_by_human(&mut transaction, &listing_source_id).await? {
+            return Err(ReviewRepositoryError::HumanLabelStands(listing_source_id));
+        }
         let labelled_at = store_label(&mut transaction, &listing_source_id, actor, request).await?;
         transaction.commit().await?;
         Ok(self
@@ -166,6 +170,26 @@ pub(super) async fn clear_label(
     )
     .await?;
     Ok(Some(label))
+}
+
+/// Locks the ListingSource's row and answers whether a human set the label it carries, which only
+/// a human replaces outside the qualification backfill; a ListingSource that does not exist is
+/// refused.
+async fn labelled_by_human(
+    transaction: &mut Transaction<'_, Postgres>,
+    listing_source_id: &ListingSourceId,
+) -> Result<bool, ReviewRepositoryError> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT source_labelled_by IS NOT DISTINCT FROM $2 \
+         FROM listing_sources WHERE listing_source_id = $1 FOR UPDATE",
+    )
+    .bind(uuid::Uuid::from(*listing_source_id))
+    .bind(ReviewActor::Human.as_str())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or(ReviewRepositoryError::ListingSourceNotFound(
+        *listing_source_id,
+    ))
 }
 
 /// The label a stored name stands for; a name no label has fails closed.
