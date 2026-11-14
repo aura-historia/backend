@@ -2,7 +2,9 @@
 
 import unittest
 
-from inventory import POLICY_EVIDENCE, POLICY_REFERENCE, apply, decide
+from unittest.mock import patch
+
+from inventory import POLICY_EVIDENCE, POLICY_REFERENCE, apply, decide, read
 
 EXPLICIT = {"reference": "https://dealer.example/showroom", "scope": "ADVERTISED_INVENTORY"}
 
@@ -83,6 +85,35 @@ class ApplyTest(unittest.TestCase):
     def test_should_fail_when_readback_differs(self):
         with self.assertRaisesRegex(ValueError, "readback"):
             apply(FakeApi(None), {"listingSourceId": "ls_a", "action": "SET", "revision": 2})
+
+
+class FlakyApi:
+    def __init__(self, failures, code=503):
+        self.failures, self.code, self.calls = failures, code, 0
+
+    def request(self, method, path, body=None):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise RuntimeError(f"Aura API returned HTTP {self.code}; reconcile before retrying writes")
+        return {"ok": True}
+
+
+@patch("inventory.time.sleep")
+class ReadTest(unittest.TestCase):
+    def test_should_retry_temporary_unavailability(self, _sleep):
+        api = FlakyApi(2)
+        self.assertEqual({"ok": True}, read(api, "/v1/x"))
+        self.assertEqual(3, api.calls)
+
+    def test_should_give_up_after_bounded_attempts(self, _sleep):
+        with self.assertRaisesRegex(RuntimeError, "503"):
+            read(FlakyApi(9), "/v1/x")
+
+    def test_should_not_retry_other_errors(self, _sleep):
+        api = FlakyApi(1, code=403)
+        with self.assertRaisesRegex(RuntimeError, "403"):
+            read(api, "/v1/x")
+        self.assertEqual(1, api.calls)
 
 
 if __name__ == "__main__":

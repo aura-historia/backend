@@ -12,6 +12,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
+import time
 from urllib.parse import urlencode
 
 from api import AuraApi
@@ -20,11 +21,22 @@ POLICY_REFERENCE = "aura-historia:policy/single-location-dealer-inventory/v1"
 POLICY_EVIDENCE = {"reference": POLICY_REFERENCE, "scope": "ADVERTISED_INVENTORY"}
 
 
+def read(api, path, attempts=4):
+    """GET with bounded backoff on temporary unavailability; writes are never retried."""
+    for attempt in range(attempts):
+        try:
+            return api.request("GET", path)
+        except RuntimeError as error:
+            if "HTTP 503" not in str(error) or attempt == attempts - 1:
+                raise
+            time.sleep(2 ** attempt)
+
+
 def active_location_ids(api, party_id):
     ids, after = [], None
     while True:
         params = {"limit": 100} | ({"after": after} if after else {})
-        page = api.request("GET", "/v1/parties/" + party_id + "/locations?" + urlencode(params))
+        page = read(api, "/v1/parties/" + party_id + "/locations?" + urlencode(params))
         ids.extend(item["id"] for item in page["items"] if item["lifecycle"] == "ACTIVE")
         after = page.get("next")
         if not after:
@@ -82,7 +94,7 @@ def default_path(source_id):
 
 def inspect(api, source, party_locations):
     source_id = source["listingSourceId"]
-    default = api.request("GET", default_path(source_id))
+    default = read(api, default_path(source_id))
     locations = party_locations(source["operator"]["partyId"])
     action, reason = decide(source["listingSourceType"], locations, default)
     return {"listingSourceId": source_id, "action": action, "reason": reason,
@@ -93,7 +105,7 @@ def apply(api, plan):
     path = default_path(plan["listingSourceId"])
     evidence = POLICY_EVIDENCE if plan["action"] == "SET" else None
     api.request("PATCH", path, {"expectedRevision": plan["revision"], "advertisedInventory": evidence})
-    current = api.request("GET", path)
+    current = read(api, path)
     inventory = (current.get("assignment") or {}).get("advertisedInventory")
     if inventory != evidence:
         raise ValueError("Advertised inventory readback differs")
@@ -106,7 +118,7 @@ def main():
     parser.add_argument("--apply", action="store_true", help="Write changes; default is a read-only plan")
     parser.add_argument("--source", action="append", help="Restrict to listing source IDs; repeatable")
     parser.add_argument("--limit", type=int, help="Maximum number of writes in this run")
-    parser.add_argument("--workers", type=int, default=4, help="Concurrent read workers")
+    parser.add_argument("--workers", type=int, default=2, help="Concurrent read workers")
     args = parser.parse_args()
     api = AuraApi(credential_file=args.credential_file)
     sources = api.collection("/v1/admin/listing-sources")
