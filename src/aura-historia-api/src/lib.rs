@@ -43,10 +43,11 @@ use crate::auth::{
 use crate::readiness::RuntimeReadiness;
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
-    ListingSourcesState, LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState,
-    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
-    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, PublicOverviewState,
-    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    ContentNoticesState, ListingSourcesState, LoopsWebhooksState, NewsletterState,
+    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
+    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, UsersState,
+    WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -81,6 +82,10 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
+use content_notice_postgres::{
+    SqlxContentNoticeRepositoryFactory, SqlxContentNoticeTargetReaderFactory,
+};
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeHandler;
 use embedding::VertexAiEmbeddingConfig;
 use notification_postgres::{
     SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
@@ -1141,12 +1146,12 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
-    if let Some(partnership_applications) = state.partnership_applications {
-        routes = routes.merge(partnership_applications::router(partnership_applications));
-    }
-
     if let Some(content_notices) = state.content_notices {
         routes = routes.merge(content_notices::router(content_notices));
+    }
+
+    if let Some(partnership_applications) = state.partnership_applications {
+        routes = routes.merge(partnership_applications::router(partnership_applications));
     }
 
     if let Some(partnerships) = state.partnerships {
@@ -2042,7 +2047,12 @@ async fn app_state_from_config_and_runtime(
         .with_user_addresses(user_addresses_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
-        .with_content_notices(state::ContentNoticesState::new(
+        .with_content_notices(ContentNoticesState::new(
+            Arc::new(SubmitContentNoticeHandler::new(
+                unit_of_work.clone(),
+                SqlxContentNoticeTargetReaderFactory::new(),
+                SqlxContentNoticeRepositoryFactory::new(),
+            )),
             Arc::new(list_admin_content_notices),
             Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
         ))

@@ -2129,13 +2129,17 @@ dependencies = [
  "domain-primitives",
  "fake",
  "listing-source-core",
+ "localization",
  "product-listing-core",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "time",
  "tokio",
  "tracing",
+ "url",
  "user-core",
  "user-service",
+ "uuid",
 ]
 
 [[package]]

@@ -1,10 +1,11 @@
-use super::{no_store, types::ContentNoticeSummaryData};
+use super::admin_types::ContentNoticeSummaryData;
 use crate::{
     auth::protected_context,
     error::{ApiError, BAD_ORDER_VALUE, BAD_QUERY_PARAMETER_VALUE, BAD_SORT_VALUE},
     keyset_cursor,
     pagination_data::JsonCursoredData,
     state::ContentNoticesState,
+    transport::cache::no_store,
     wire::parse_query_object_id,
 };
 use application::pagination::Cursor;

@@ -1,4 +1,5 @@
 use crate::mapping::{CONTENT_NOTICE_COLUMNS, ContentNoticeRow, MappingError, content_notice};
+use crate::sql_error::is_temporary;
 use application::error::box_error;
 use content_notice_core::{content_notice::ContentNotice, content_notice_id::ContentNoticeId};
 use content_notice_service::ports::{
@@ -106,6 +107,9 @@ fn read(error: sqlx::Error) -> ContentNoticeRepositoryError {
 }
 
 fn write(error: sqlx::Error) -> ContentNoticeRepositoryError {
+    if is_temporary(&error) {
+        return read(error);
+    }
     ContentNoticeRepositoryError::Internal {
         source: box_error(error),
     }

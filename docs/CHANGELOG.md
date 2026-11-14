@@ -8,6 +8,11 @@ Only document REST API contract and user-visible behavior changes here. No inter
 - Filters: `targetType`, `listingSourceId` (matches notices about the source and about its listings), `productListingId`, `reasonCategory`, `submitterRole` and `created[min]`/`created[max]`. There are no filters on personal data.
 - Keyset pagination with `size` (1–100, default 21), `sort=created` with `order=asc|desc` (both or neither) and an opaque `searchAfter` cursor bound to the filters and sort. There is no `total`. Responses, including errors, send `Cache-Control: no-store`.
 
+## 2026-11-14 — Submit content notices (#2938)
+
+- New `POST /v1/content-notices` (tag `ContentNotices`) lets anyone, with or without an account, ask Aura Historia to review one ProductListing or a ListingSource with all of its listings: a provider's opt-out, a rights infringement, illegal content, incorrect information or another reason. The body names the target, the submitter role, the reason category, an explanation (optional only for `PROVIDER_OPT_OUT`), up to ten additional URLs, the notifier's name, email and language, and `goodFaithConfirmed: true`. It is limited to 16 KiB and rejects unknown fields.
+- A stored notice returns an empty `202 Accepted`. Rejected fields return `400` with a JSON pointer in `source.field` and one of `CONTENT_NOTICE_INVALID_FIELD`, `CONTENT_NOTICE_EXPLANATION_REQUIRED`, `CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER` or `CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED`; an unknown or withdrawn listing or an unknown source returns `404 CONTENT_NOTICE_TARGET_NOT_FOUND`. An optional bearer credential is accepted, but an invalid one returns `401`. Every response is `Cache-Control: no-store`. A notice removes nothing by itself.
+
 ## 2026-11-14 — Scope `content-notices:read` (#2937)
 
 - New delegated scope `content-notices:read` for the upcoming admin content-notice reads (list, detail and overview counts). Personal access tokens and registered OAuth clients can request it; like every admin scope it grants nothing without the `ADMIN` role. No endpoint uses it yet, and existing tokens and connections are unchanged.

@@ -1,26 +1,21 @@
+mod admin_types;
 mod list_admin;
+mod submit;
 mod types;
 
 use crate::state::ContentNoticesState;
 use axum::{
     Router,
-    http::{HeaderValue, header},
-    response::Response,
-    routing::get,
+    routing::{get, post},
 };
+
+pub(crate) const MAX_CONTENT_NOTICE_BODY_BYTES: usize = 16 * 1024;
 
 pub(crate) fn router(state: ContentNoticesState) -> Router {
     Router::new()
+        .route("/v1/content-notices", post(submit::submit))
         .route("/v1/admin/content-notices", get(list_admin::list_admin))
         .with_state(state)
-}
-
-/// Content notices carry personal data, so no response is ever stored, errors included.
-fn no_store(mut response: Response) -> Response {
-    response
-        .headers_mut()
-        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
 }
 
 #[cfg(test)]
@@ -45,6 +40,10 @@ mod tests {
         reason_category::ReasonCategory,
         submitter::{SubmitterEmail, SubmitterName},
         submitter_role::SubmitterRole,
+    };
+    use content_notice_service::use_cases::commands::submit_content_notice::{
+        SubmitContentNoticeCommand, SubmitContentNoticeError, SubmitContentNoticeResult,
+        SubmitContentNoticeUseCase,
     };
     use content_notice_service::use_cases::queries::list_admin_content_notices::{
         ContentNoticeCursor, ContentNoticeSortKey, ContentNoticeSummary,
@@ -118,6 +117,20 @@ mod tests {
         }
     }
 
+    /// Submission shares the router; list tests never reach it.
+    struct UnusedSubmit;
+
+    #[async_trait::async_trait]
+    impl SubmitContentNoticeUseCase for UnusedSubmit {
+        async fn execute(
+            &self,
+            _: &OperationContext,
+            _: SubmitContentNoticeCommand,
+        ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError> {
+            unreachable!("list tests do not submit notices")
+        }
+    }
+
     struct FakeAuthenticator(bool);
 
     #[async_trait::async_trait]
@@ -144,6 +157,7 @@ mod tests {
         query: &str,
     ) -> (StatusCode, Option<String>, Value) {
         let router = router(ContentNoticesState::new(
+            Arc::new(UnusedSubmit),
             Arc::new(FakeListAdmin(outcome)),
             Arc::new(FakeAuthenticator(authenticated)),
         ));
@@ -157,7 +171,7 @@ mod tests {
         let status = response.status();
         let cache_control = response
             .headers()
-            .get(header::CACHE_CONTROL)
+            .get(axum::http::header::CACHE_CONTROL)
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();

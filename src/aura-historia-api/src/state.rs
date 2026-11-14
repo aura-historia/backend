@@ -96,6 +96,7 @@ use search_filter_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeUseCase;
 use std::sync::Arc;
 use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
@@ -466,24 +467,6 @@ impl AdminOverviewState {
     ) -> Self {
         Self {
             get_overview,
-            authenticator,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct ContentNoticesState {
-    pub(crate) list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
-    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
-}
-
-impl ContentNoticesState {
-    pub fn new(
-        list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
-        authenticator: Arc<dyn TokenAuthenticator>,
-    ) -> Self {
-        Self {
-            list_admin,
             authenticator,
         }
     }
@@ -1026,6 +1009,27 @@ impl WatchlistState {
             watch_product,
             update_watchlist_product,
             unwatch_product,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ContentNoticesState {
+    pub(crate) submit: Arc<dyn SubmitContentNoticeUseCase>,
+    pub(crate) list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl ContentNoticesState {
+    pub fn new(
+        submit: Arc<dyn SubmitContentNoticeUseCase>,
+        list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            submit,
+            list_admin,
             authenticator,
         }
     }

@@ -1,158 +1,180 @@
-use content_notice_core::{
-    content_notice_id::ContentNoticeId, content_notice_target::ContentNoticeTarget,
+use crate::error::{
+    ApiError, CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED, CONTENT_NOTICE_INVALID_FIELD,
 };
-use content_notice_service::use_cases::queries::list_admin_content_notices::ContentNoticeSummary;
-use listing_source_core::ListingSourceId;
-use product_listing_core::product_listing_id::ProductListingId;
-use serde::Serialize;
-use time::OffsetDateTime;
+use crate::wire::parse_body_object_id;
+use content_notice_core::{
+    additional_url::{AdditionalUrl, AdditionalUrls, AdditionalUrlsError},
+    good_faith_statement_version::GoodFaithStatementVersion,
+    notice_explanation::NoticeExplanation,
+    reason_category::ReasonCategory,
+    submitter::{Submitter, SubmitterEmail, SubmitterName},
+    submitter_role::SubmitterRole,
+};
+use content_notice_service::use_cases::commands::submit_content_notice::{
+    ContentNoticeTargetReference, SubmitContentNoticeCommand,
+};
+use localization::Language;
+use serde::Deserialize;
+use std::borrow::Cow;
 
-/// Admin review queue row. It carries the submitter's name and email, so it deliberately has
-/// no `Debug`.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ContentNoticeSummaryData {
-    content_notice_id: ContentNoticeId,
-    state: &'static str,
-    #[serde(with = "time::serde::rfc3339")]
-    created: OffsetDateTime,
+/// The good-faith statement the submission form shows. A changed wording gets a new version
+/// here and in the form.
+const CONFIRMED_GOOD_FAITH_STATEMENT: GoodFaithStatementVersion =
+    GoodFaithStatementVersion::GoodFaithV1;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct SubmitContentNoticeData {
     target: ContentNoticeTargetData,
-    listing_source_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    product_listing_title: Option<String>,
-    partner: bool,
-    submitter_role: &'static str,
-    reason_category: &'static str,
-    submitter_name: String,
-    submitter_email: String,
+    submitter_role: SubmitterRoleData,
+    reason_category: ReasonCategoryData,
+    #[serde(default)]
+    explanation: Option<String>,
+    #[serde(default)]
+    additional_urls: Vec<String>,
+    name: String,
+    email: String,
+    #[serde(with = "crate::wire::language")]
+    language: Language,
+    /// Optional on the wire so that a missing confirmation is a field error, like `false`.
+    #[serde(default)]
+    good_faith_confirmed: Option<bool>,
 }
 
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all_fields = "camelCase")]
-pub(super) enum ContentNoticeTargetData {
-    #[serde(rename = "LISTING_SOURCE")]
-    ListingSource { listing_source_id: ListingSourceId },
-    #[serde(rename = "PRODUCT_LISTING")]
-    ProductListing {
-        listing_source_id: ListingSourceId,
-        product_listing_id: ProductListingId,
-    },
+#[derive(Debug, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+enum ContentNoticeTargetData {
+    ProductListing { product_listing_id: String },
+    ListingSource { listing_source_id: String },
 }
 
-impl From<ContentNoticeTarget> for ContentNoticeTargetData {
-    fn from(target: ContentNoticeTarget) -> Self {
-        match target {
-            ContentNoticeTarget::ListingSource { listing_source_id } => {
-                Self::ListingSource { listing_source_id }
-            }
-            ContentNoticeTarget::ProductListing {
-                product_listing_id,
-                listing_source_id,
-            } => Self::ProductListing {
-                listing_source_id,
-                product_listing_id,
-            },
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum SubmitterRoleData {
+    Provider,
+    RightsHolder,
+    IllegalContentReporter,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum ReasonCategoryData {
+    ProviderOptOut,
+    RightsInfringement,
+    IllegalContent,
+    IncorrectInformation,
+    Other,
+}
+
+impl TryFrom<SubmitContentNoticeData> for SubmitContentNoticeCommand {
+    type Error = ApiError;
+
+    /// Builds the command through the domain constructors. A rejected value is reported with
+    /// the JSON pointer of the field and a detail that never repeats the value.
+    fn try_from(data: SubmitContentNoticeData) -> Result<Self, Self::Error> {
+        let target = target(data.target)?;
+        let explanation = data
+            .explanation
+            .map(NoticeExplanation::try_from)
+            .transpose()
+            .map_err(|error| invalid_field("/explanation", error))?;
+        let additional_urls = additional_urls(data.additional_urls)?;
+        let name =
+            SubmitterName::try_from(data.name).map_err(|error| invalid_field("/name", error))?;
+        let email =
+            SubmitterEmail::try_from(data.email).map_err(|error| invalid_field("/email", error))?;
+        if data.good_faith_confirmed != Some(true) {
+            return Err(
+                ApiError::bad_request(CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED)
+                    .with_body_field("/goodFaithConfirmed")
+                    .with_detail("The good-faith statement must be confirmed with true."),
+            );
         }
-    }
-}
-
-impl From<ContentNoticeSummary> for ContentNoticeSummaryData {
-    fn from(summary: ContentNoticeSummary) -> Self {
-        Self {
-            content_notice_id: summary.id,
-            state: summary.state.as_str(),
-            created: summary.created,
-            target: summary.target.into(),
-            listing_source_name: summary.listing_source_name.as_ref().to_owned(),
-            product_listing_title: summary
-                .product_listing_title
-                .map(|title| title.as_str().to_owned()),
-            partner: summary.listing_source_partner,
-            submitter_role: summary.submitter_role.as_str(),
-            reason_category: summary.reason_category.as_str(),
-            submitter_name: summary.submitter_name.as_str().to_owned(),
-            submitter_email: summary.submitter_email.as_str().to_owned(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use content_notice_core::{
-        content_notice_state::ContentNoticeState,
-        content_notice_target::ProductListingTitleSnapshot,
-        reason_category::ReasonCategory,
-        submitter::{SubmitterEmail, SubmitterName},
-        submitter_role::SubmitterRole,
-    };
-    use listing_source_core::ListingSourceName;
-    use serde_json::json;
-    use time::macros::datetime;
-
-    fn summary(target: ContentNoticeTarget) -> ContentNoticeSummary {
-        ContentNoticeSummary {
-            id: ContentNoticeId::new(),
-            state: ContentNoticeState::Submitted,
-            created: datetime!(2026-11-13 10:44:18.123 UTC),
+        Ok(Self {
             target,
-            listing_source_name: ListingSourceName::try_from("Antik Shop").unwrap(),
-            product_listing_title: target
-                .product_listing_id()
-                .map(|_| ProductListingTitleSnapshot::try_from("Jugendstil-Vase").unwrap()),
-            listing_source_partner: false,
-            submitter_role: SubmitterRole::Provider,
-            reason_category: ReasonCategory::ProviderOptOut,
-            submitter_name: SubmitterName::try_from("Erika Mustermann").unwrap(),
-            submitter_email: SubmitterEmail::try_from("erika@antik.example").unwrap(),
+            submitter_role: data.submitter_role.into(),
+            reason_category: data.reason_category.into(),
+            explanation,
+            additional_urls,
+            submitter: Submitter {
+                name,
+                email,
+                language: data.language,
+            },
+            good_faith_statement_version: CONFIRMED_GOOD_FAITH_STATEMENT,
+        })
+    }
+}
+
+fn target(data: ContentNoticeTargetData) -> Result<ContentNoticeTargetReference, ApiError> {
+    Ok(match data {
+        ContentNoticeTargetData::ProductListing { product_listing_id } => {
+            ContentNoticeTargetReference::ProductListing {
+                product_listing_id: parse_body_object_id(
+                    &product_listing_id,
+                    "/target/productListingId",
+                    "ProductListing",
+                )?,
+            }
+        }
+        ContentNoticeTargetData::ListingSource { listing_source_id } => {
+            ContentNoticeTargetReference::ListingSource {
+                listing_source_id: parse_body_object_id(
+                    &listing_source_id,
+                    "/target/listingSourceId",
+                    "ListingSource",
+                )?,
+            }
+        }
+    })
+}
+
+fn additional_urls(values: Vec<String>) -> Result<AdditionalUrls, ApiError> {
+    let urls = values
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| {
+            AdditionalUrl::try_from(value)
+                .map_err(|error| invalid_field(format!("/additionalUrls/{index}"), error))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    AdditionalUrls::try_from(urls).map_err(|error| match error {
+        AdditionalUrlsError::Duplicate { index } => {
+            invalid_field(format!("/additionalUrls/{index}"), error)
+        }
+        AdditionalUrlsError::TooMany { .. } => invalid_field("/additionalUrls", error),
+    })
+}
+
+fn invalid_field(pointer: impl Into<Cow<'static, str>>, error: impl std::fmt::Display) -> ApiError {
+    ApiError::bad_request(CONTENT_NOTICE_INVALID_FIELD)
+        .with_body_field(pointer)
+        .with_detail(error.to_string())
+}
+
+impl From<SubmitterRoleData> for SubmitterRole {
+    fn from(data: SubmitterRoleData) -> Self {
+        match data {
+            SubmitterRoleData::Provider => Self::Provider,
+            SubmitterRoleData::RightsHolder => Self::RightsHolder,
+            SubmitterRoleData::IllegalContentReporter => Self::IllegalContentReporter,
         }
     }
+}
 
-    #[test]
-    fn should_serialize_product_listing_summary() {
-        let listing_source_id = ListingSourceId::new();
-        let product_listing_id = ProductListingId::new();
-        let summary = summary(ContentNoticeTarget::ProductListing {
-            product_listing_id,
-            listing_source_id,
-        });
-        let id = summary.id;
-
-        assert_eq!(
-            json!({
-                "contentNoticeId": id.to_string(),
-                "state": "SUBMITTED",
-                "created": "2026-11-13T10:44:18.123Z",
-                "target": {
-                    "type": "PRODUCT_LISTING",
-                    "listingSourceId": listing_source_id.to_string(),
-                    "productListingId": product_listing_id.to_string(),
-                },
-                "listingSourceName": "Antik Shop",
-                "productListingTitle": "Jugendstil-Vase",
-                "partner": false,
-                "submitterRole": "PROVIDER",
-                "reasonCategory": "PROVIDER_OPT_OUT",
-                "submitterName": "Erika Mustermann",
-                "submitterEmail": "erika@antik.example",
-            }),
-            serde_json::to_value(ContentNoticeSummaryData::from(summary)).unwrap()
-        );
-    }
-
-    #[test]
-    fn should_omit_listing_fields_for_listing_source_summary() {
-        let listing_source_id = ListingSourceId::new();
-
-        let data = serde_json::to_value(ContentNoticeSummaryData::from(summary(
-            ContentNoticeTarget::ListingSource { listing_source_id },
-        )))
-        .unwrap();
-
-        assert_eq!(
-            json!({"type": "LISTING_SOURCE", "listingSourceId": listing_source_id.to_string()}),
-            data["target"]
-        );
-        assert!(data.get("productListingTitle").is_none());
+impl From<ReasonCategoryData> for ReasonCategory {
+    fn from(data: ReasonCategoryData) -> Self {
+        match data {
+            ReasonCategoryData::ProviderOptOut => Self::ProviderOptOut,
+            ReasonCategoryData::RightsInfringement => Self::RightsInfringement,
+            ReasonCategoryData::IllegalContent => Self::IllegalContent,
+            ReasonCategoryData::IncorrectInformation => Self::IncorrectInformation,
+            ReasonCategoryData::Other => Self::Other,
+        }
     }
 }

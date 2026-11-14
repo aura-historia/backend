@@ -93,20 +93,11 @@ impl ContentNotice {
         if !state.target_snapshot.matches(state.target) {
             return Err(ContentNoticeInvariantError::TargetSnapshotMismatch);
         }
-        if state.reason_category == ReasonCategory::ProviderOptOut
-            && state.submitter_role != SubmitterRole::Provider
-        {
-            return Err(
-                ContentNoticeInvariantError::ProviderOptOutRequiresProvider {
-                    submitter_role: state.submitter_role,
-                },
-            );
-        }
-        if state.explanation.is_none() && state.reason_category.requires_explanation() {
-            return Err(ContentNoticeInvariantError::ExplanationRequired {
-                reason_category: state.reason_category,
-            });
-        }
+        Self::check_reason(
+            state.submitter_role,
+            state.reason_category,
+            state.explanation.as_ref(),
+        )?;
         Ok(Self {
             id: state.id,
             target: state.target,
@@ -119,6 +110,26 @@ impl ContentNotice {
             good_faith_statement_version: state.good_faith_statement_version,
             state: state.state,
         })
+    }
+
+    /// Checks the rules that tie the reason to the submitter role and the explanation. They do
+    /// not depend on the target, so a submission can be checked before its target is resolved.
+    pub fn check_reason(
+        submitter_role: SubmitterRole,
+        reason_category: ReasonCategory,
+        explanation: Option<&NoticeExplanation>,
+    ) -> Result<(), ContentNoticeInvariantError> {
+        if reason_category == ReasonCategory::ProviderOptOut
+            && submitter_role != SubmitterRole::Provider
+        {
+            return Err(
+                ContentNoticeInvariantError::ProviderOptOutRequiresProvider { submitter_role },
+            );
+        }
+        if explanation.is_none() && reason_category.requires_explanation() {
+            return Err(ContentNoticeInvariantError::ExplanationRequired { reason_category });
+        }
+        Ok(())
     }
 
     pub fn id(&self) -> ContentNoticeId {

@@ -111,6 +111,7 @@ export const API_ROUTE_CATALOG: readonly RouteDefinition[] = [
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/listing-sources/by-slug/{listing_source_slug_id}", ["GET"]),
   ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/newsletter-subscriptions", ["PUT"]),
   ...apiRoutes(RouteAuthPolicy.Anonymous, "/v1/newsletter-subscriptions/confirm", ["POST"]),
+  ...apiRoutes(RouteAuthPolicy.OptionalBearer, "/v1/content-notices", ["POST"]),
 
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/location-default", ["GET", "PUT", "PATCH", "DELETE"]),
   ...apiRoutes(RouteAuthPolicy.ApplicationBearer, "/v1/listing-sources/{listing_source_id}/shipping-profiles", ["GET", "POST"]),

@@ -2051,6 +2051,13 @@ async fn test_state(
         .with_partnership_applications(partnership_applications_state)
         .with_content_notices(state::ContentNoticesState::new(
             Arc::new(
+                content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeHandler::new(
+                    unit_of_work.clone(),
+                    content_notice_postgres::SqlxContentNoticeTargetReaderFactory::new(),
+                    content_notice_postgres::SqlxContentNoticeRepositoryFactory::new(),
+                ),
+            ),
+            Arc::new(
                 content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesHandler::new(
                     unit_of_work.clone(),
                     content_notice_postgres::SqlxContentNoticeAdminSearchReaderFactory::new(),
