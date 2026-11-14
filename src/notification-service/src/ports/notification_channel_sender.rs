@@ -102,11 +102,11 @@ impl NotificationDeliveryDispatcher {
         &self,
         source: &NotificationDeliverySource,
     ) -> Result<SentNotificationDelivery, NotificationDeliveryDispatchError> {
-        let sender = self.senders.get(&source.channel).ok_or(
-            NotificationDeliveryDispatchError::UnregisteredChannel {
-                channel: source.channel,
-            },
-        )?;
+        let channel = source.channel();
+        let sender = self
+            .senders
+            .get(&channel)
+            .ok_or(NotificationDeliveryDispatchError::UnregisteredChannel { channel })?;
         sender
             .send(source)
             .await

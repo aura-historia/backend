@@ -12,6 +12,7 @@ use notification_core::{
 use notification_service::ports::notification_delivery_repository::{
     ClaimNotificationDeliveryOutcome, ClaimedNotificationDelivery, NotificationDeliveryError,
     NotificationDeliveryRepository, NotificationDeliverySource, NotificationDeliverySourceId,
+    UserNotificationDeliverySource,
 };
 use notification_service::presentation::NotificationPresentationPreferences;
 use sqlx::{PgConnection, PgPool};
@@ -304,36 +305,40 @@ async fn source_from_row(
     let partner_listing_source_ids =
         partner_listing_source_ids(connection, notification.content().listing_source_id()).await?;
 
-    Ok(NotificationDeliverySource {
-        notification_delivery_id: NotificationDeliveryId::try_from(row.notification_delivery_id)
+    Ok(NotificationDeliverySource::User(Box::new(
+        UserNotificationDeliverySource {
+            notification_delivery_id: NotificationDeliveryId::try_from(
+                row.notification_delivery_id,
+            )
             .map_err(|source| NotificationDeliveryError::InvalidPersistedState {
                 source: box_error(source),
             })?,
-        source_id: NotificationDeliverySourceId::Notification(notification.notification_id()),
-        user_id: notification.user_id(),
-        channel: channel_from_persisted(&row.channel).map_err(|source| {
-            NotificationDeliveryError::InvalidPersistedState {
-                source: box_error(source),
-            }
-        })?,
-        target_key: NotificationDeliveryTargetKey::try_from(row.target_key).map_err(|source| {
-            NotificationDeliveryError::InvalidPersistedState {
-                source: box_error(source),
-            }
-        })?,
-        content: notification.content().clone(),
-        saved_search_digest: None,
-        presentation_preferences: NotificationPresentationPreferences {
-            language: row
-                .language
-                .as_deref()
-                .map(parse_language)
-                .transpose()?
-                .unwrap_or(Language::En),
-            show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
+            source_id: NotificationDeliverySourceId::Notification(notification.notification_id()),
+            user_id: notification.user_id(),
+            channel: channel_from_persisted(&row.channel).map_err(|source| {
+                NotificationDeliveryError::InvalidPersistedState {
+                    source: box_error(source),
+                }
+            })?,
+            target_key: NotificationDeliveryTargetKey::try_from(row.target_key).map_err(
+                |source| NotificationDeliveryError::InvalidPersistedState {
+                    source: box_error(source),
+                },
+            )?,
+            content: notification.content().clone(),
+            saved_search_digest: None,
+            presentation_preferences: NotificationPresentationPreferences {
+                language: row
+                    .language
+                    .as_deref()
+                    .map(parse_language)
+                    .transpose()?
+                    .unwrap_or(Language::En),
+                show_unassessed_or_sensitive_content: row.show_unassessed_or_sensitive_content,
+            },
+            partner_listing_source_ids,
         },
-        partner_listing_source_ids,
-    })
+    )))
 }
 
 fn parse_language(value: &str) -> Result<Language, NotificationDeliveryError> {
@@ -539,7 +544,9 @@ mod tests {
         let ClaimNotificationDeliveryOutcome::Claimed { source, .. } = outcome else {
             panic!("expected a claimed delivery");
         };
-        let source = source.unwrap_or_else(|| panic!("claimed delivery has a source"));
+        let Some(NotificationDeliverySource::User(source)) = *source else {
+            panic!("claimed delivery has a user source");
+        };
         assert_eq!(
             std::collections::HashSet::from([partner]),
             source.partner_listing_source_ids

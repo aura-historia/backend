@@ -7,7 +7,7 @@ use notification_core::{
     },
     presentation::present_image,
 };
-use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
+use notification_service::ports::notification_delivery_repository::UserNotificationDeliverySource;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_price::ProductListingPrice,
     product_listing_slug_id::ProductListingSlugId,
@@ -281,7 +281,7 @@ impl<'a> FrontendLinks<'a> {
 }
 
 pub(crate) fn template_data(
-    source: &NotificationDeliverySource,
+    source: &UserNotificationDeliverySource,
     email_language: EmailLanguage,
     first_name: Option<&str>,
     links: FrontendLinks<'_>,
@@ -399,7 +399,7 @@ fn add_recipient_data(
 const DIGEST_PREVIEW_LIMIT: usize = 20;
 
 fn digest_template_data(
-    source: &NotificationDeliverySource,
+    source: &UserNotificationDeliverySource,
     digest: &notification_service::saved_search_digest::SavedSearchEmailDigest,
     language: EmailLanguage,
     first_name: Option<&str>,
@@ -607,7 +607,7 @@ mod tests {
         notification_delivery_id::NotificationDeliveryId,
     };
     use notification_service::{
-        ports::notification_delivery_repository::NotificationDeliverySource,
+        ports::notification_delivery_repository::UserNotificationDeliverySource,
         presentation::NotificationPresentationPreferences,
     };
     use product_listing_core::{
@@ -1255,8 +1255,8 @@ mod tests {
     fn source(
         show_unassessed_or_sensitive_content: bool,
         content_policy: Option<ContentPolicyDecision>,
-    ) -> Result<NotificationDeliverySource, Box<dyn std::error::Error>> {
-        Ok(NotificationDeliverySource {
+    ) -> Result<UserNotificationDeliverySource, Box<dyn std::error::Error>> {
+        Ok(UserNotificationDeliverySource {
             saved_search_digest: None,
             notification_delivery_id: NotificationDeliveryId::new(),
             source_id: notification_service::ports::notification_delivery_repository::NotificationDeliverySourceId::Notification(NotificationId::new()),

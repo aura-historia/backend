@@ -429,7 +429,7 @@ mod tests {
             NotificationDeliveryDispatcherRegistrationError, SentNotificationDelivery,
         },
         notification_delivery_repository::{
-            ClaimedNotificationDelivery, NotificationDeliverySource,
+            ClaimedNotificationDelivery, NotificationDeliverySource, UserNotificationDeliverySource,
         },
     };
     use application::error::box_error;
@@ -530,7 +530,7 @@ mod tests {
             Self {
                 claimed: ClaimedNotificationDelivery {
                     notification_delivery_id,
-                    source_id: source.source_id,
+                    source_id: source.source_id(),
                     lease_token: Uuid::now_v7(),
                     lease_expires_at: OffsetDateTime::now_utc() + DELIVERY_LEASE_DURATION,
                     attempt_count: 2,
@@ -816,7 +816,7 @@ mod tests {
     }
 
     fn source(notification_delivery_id: NotificationDeliveryId) -> NotificationDeliverySource {
-        NotificationDeliverySource {
+        NotificationDeliverySource::User(Box::new(UserNotificationDeliverySource {
             saved_search_digest: None,
             notification_delivery_id,
             source_id: crate::ports::notification_delivery_repository::NotificationDeliverySourceId::Notification(NotificationId::new()),
@@ -841,7 +841,7 @@ mod tests {
                 show_unassessed_or_sensitive_content: false,
             },
             partner_listing_source_ids: Default::default(),
-        }
+        }))
     }
 
     fn repository_error() -> NotificationDeliveryError {

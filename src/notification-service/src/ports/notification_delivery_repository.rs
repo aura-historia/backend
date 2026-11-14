@@ -35,8 +35,29 @@ pub struct ClaimedNotificationDelivery {
     pub attempt_count: u32,
 }
 
+/// The loaded content and recipient of a claimed delivery.
 #[derive(Debug, Clone, PartialEq)]
-pub struct NotificationDeliverySource {
+pub enum NotificationDeliverySource {
+    /// A notification or saved-search digest addressed to a user account.
+    User(Box<UserNotificationDeliverySource>),
+}
+
+impl NotificationDeliverySource {
+    pub fn source_id(&self) -> NotificationDeliverySourceId {
+        match self {
+            Self::User(source) => source.source_id,
+        }
+    }
+
+    pub fn channel(&self) -> NotificationDeliveryChannel {
+        match self {
+            Self::User(source) => source.channel,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserNotificationDeliverySource {
     pub notification_delivery_id: NotificationDeliveryId,
     pub source_id: NotificationDeliverySourceId,
     pub user_id: UserId,

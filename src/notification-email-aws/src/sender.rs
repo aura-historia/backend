@@ -20,7 +20,9 @@ use notification_service::ports::{
     notification_channel_sender::{
         NotificationChannelSendError, NotificationChannelSender, SentNotificationDelivery,
     },
-    notification_delivery_repository::NotificationDeliverySource,
+    notification_delivery_repository::{
+        NotificationDeliverySource, UserNotificationDeliverySource,
+    },
 };
 use serde_email::Email;
 use std::sync::Arc;
@@ -210,9 +212,9 @@ impl SesNotificationChannelSender {
             .email_tags(email_tag)
     }
 
-    async fn render(
+    async fn render_for_user(
         &self,
-        source: &NotificationDeliverySource,
+        source: &UserNotificationDeliverySource,
         first_name: Option<&str>,
     ) -> Result<RenderedEmail, NotificationChannelSendError> {
         let template_type = if source.saved_search_digest.is_some() {
@@ -240,23 +242,10 @@ impl SesNotificationChannelSender {
             html_body: body,
         })
     }
-}
 
-struct RenderedEmail {
-    template_type: EmailTemplateType,
-    subject: String,
-    html_body: String,
-}
-
-#[async_trait::async_trait]
-impl NotificationChannelSender for SesNotificationChannelSender {
-    fn channel(&self) -> NotificationDeliveryChannel {
-        NotificationDeliveryChannel::Email
-    }
-
-    async fn send(
+    async fn send_to_user(
         &self,
-        source: &NotificationDeliverySource,
+        source: &UserNotificationDeliverySource,
     ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
         let target = self
             .targets
@@ -267,7 +256,17 @@ impl NotificationChannelSender for SesNotificationChannelSender {
                 code: "EMAIL_TARGET_MISSING",
                 source: box_error(std::io::Error::other("email delivery target is missing")),
             })?;
-        let rendered = self.render(source, target.first_name.as_deref()).await?;
+        let rendered = self
+            .render_for_user(source, target.first_name.as_deref())
+            .await?;
+        self.send_rendered(rendered, &target.address).await
+    }
+
+    async fn send_rendered(
+        &self,
+        rendered: RenderedEmail,
+        destination: &Email,
+    ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
         let message = Message::builder()
             .subject(
                 Content::builder()
@@ -303,7 +302,7 @@ impl NotificationChannelSender for SesNotificationChannelSender {
         let response = self
             .send_email_request(
                 rendered.template_type,
-                target.address.to_string(),
+                destination.to_string(),
                 message,
                 email_tag,
             )
@@ -311,6 +310,28 @@ impl NotificationChannelSender for SesNotificationChannelSender {
             .await
             .map_err(SesSendFailed)?;
         sent_delivery(response)
+    }
+}
+
+struct RenderedEmail {
+    template_type: EmailTemplateType,
+    subject: String,
+    html_body: String,
+}
+
+#[async_trait::async_trait]
+impl NotificationChannelSender for SesNotificationChannelSender {
+    fn channel(&self) -> NotificationDeliveryChannel {
+        NotificationDeliveryChannel::Email
+    }
+
+    async fn send(
+        &self,
+        source: &NotificationDeliverySource,
+    ) -> Result<SentNotificationDelivery, NotificationChannelSendError> {
+        match source {
+            NotificationDeliverySource::User(source) => self.send_to_user(source).await,
+        }
     }
 }
 
