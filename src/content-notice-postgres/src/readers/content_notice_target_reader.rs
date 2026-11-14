@@ -144,14 +144,38 @@ fn product_listing_target(
         snapshot: ProductListingSnapshot {
             title: row
                 .product_listing_title
-                .map(ProductListingTitleSnapshot::try_from)
+                .as_deref()
+                .map(title_snapshot)
                 .transpose()
-                .map_err(TargetMappingError::ProductListingTitle)?,
+                .map_err(TargetMappingError::ProductListingTitle)?
+                .flatten(),
             url: Url::parse(&row.product_listing_url)
                 .map_err(TargetMappingError::ProductListingUrl)?,
         },
         listing_source: listing_source_target(row.listing_source)?,
     })
+}
+
+/// Listing titles are stored as providers publish them and may hold control characters, which
+/// the snapshot type rejects. They are blanked rather than failing the notice: the listing ID
+/// and URL identify the listing, the title only helps a reviewer read it. A title of nothing
+/// but control characters is no title.
+fn title_snapshot(title: &str) -> Result<Option<ProductListingTitleSnapshot>, BoundedTextError> {
+    let printable = title
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    match ProductListingTitleSnapshot::try_from(printable) {
+        Ok(title) => Ok(Some(title)),
+        Err(BoundedTextError::Blank) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn temporary(error: sqlx::Error) -> ContentNoticeTargetReadError {
@@ -163,5 +187,27 @@ fn temporary(error: sqlx::Error) -> ContentNoticeTargetReadError {
 fn invalid(error: TargetMappingError) -> ContentNoticeTargetReadError {
     ContentNoticeTargetReadError::InvalidReadModel {
         source: box_error(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::title_snapshot;
+    use content_notice_core::bounded_text::BoundedTextError;
+
+    #[test]
+    fn should_blank_control_characters_of_a_stored_title() {
+        let title = title_snapshot("Jugendstil\u{93}Vase\n").unwrap().unwrap();
+
+        assert_eq!("Jugendstil Vase", title.as_str());
+        assert_eq!(None, title_snapshot("\u{7}\n").unwrap());
+    }
+
+    #[test]
+    fn should_still_reject_a_title_longer_than_the_snapshot_allows() {
+        assert!(matches!(
+            title_snapshot(&"t".repeat(501)),
+            Err(BoundedTextError::TooLong { .. })
+        ));
     }
 }

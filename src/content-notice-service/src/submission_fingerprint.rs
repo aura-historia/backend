@@ -80,7 +80,9 @@ mod tests {
         additional_url::{AdditionalUrl, AdditionalUrls},
         content_notice::{ContentNotice, NewContentNotice},
         content_notice_id::ContentNoticeId,
-        content_notice_target::{ContentNoticeTarget, ListingSourceSnapshot, TargetSnapshot},
+        content_notice_target::{
+            ContentNoticeTarget, ListingSourceSnapshot, ProductListingSnapshot, TargetSnapshot,
+        },
         good_faith_statement_version::GoodFaithStatementVersion,
         notice_explanation::NoticeExplanation,
         reason_category::ReasonCategory,
@@ -89,6 +91,8 @@ mod tests {
     };
     use listing_source_core::{ListingSourceId, ListingSourceName};
     use localization::Language;
+    use product_listing_core::product_listing_id::ProductListingId;
+    use url::Url;
 
     fn input() -> NewContentNotice {
         NewContentNotice {
@@ -137,7 +141,6 @@ mod tests {
         let mut repeated = first.clone();
         repeated.id = ContentNoticeId::new();
         repeated.target_snapshot.listing_source.partner = true;
-        repeated.good_faith_statement_version = GoodFaithStatementVersion::GoodFaithV1;
 
         assert_eq!(fingerprint(first), fingerprint(repeated));
     }
@@ -183,6 +186,16 @@ mod tests {
         let mut other_language = base.clone();
         other_language.submitter.language = Language::En;
         variants.push(other_language);
+        let mut product_listing = base.clone();
+        product_listing.target = ContentNoticeTarget::ProductListing {
+            product_listing_id: ProductListingId::new(),
+            listing_source_id: base.target.listing_source_id(),
+        };
+        product_listing.target_snapshot.product_listing = Some(ProductListingSnapshot {
+            title: None,
+            url: Url::parse("https://shop.example/vase").unwrap(),
+        });
+        variants.push(product_listing);
         let mut other_email = base;
         other_email.submitter.email = SubmitterEmail::try_from("john@example.com").unwrap();
         variants.push(other_email);
@@ -212,6 +225,36 @@ mod tests {
         assert_ne!(
             fingerprint(provider_opt_out),
             fingerprint(without_explanation)
+        );
+    }
+
+    /// Stored fingerprints are never recomputed, so the encoding must not change by accident.
+    #[test]
+    fn should_keep_the_canonical_encoding_stable() {
+        let mut fixed = input();
+        fixed.target = ContentNoticeTarget::ProductListing {
+            product_listing_id: ProductListingId::try_from(uuid::Uuid::from_u128(
+                0x0189_0a5d_ac96_7000_8000_0000_0000_0002,
+            ))
+            .unwrap(),
+            listing_source_id: ListingSourceId::try_from(uuid::Uuid::from_u128(
+                0x0189_0a5d_ac96_7000_8000_0000_0000_0001,
+            ))
+            .unwrap(),
+        };
+        fixed.target_snapshot.product_listing = Some(ProductListingSnapshot {
+            title: None,
+            url: Url::parse("https://shop.example/vase").unwrap(),
+        });
+
+        let hex = fingerprint(fixed)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        assert_eq!(
+            "2515cb27c328b0f9c9cb977d25b441eb845f08a8ae96ebe358e9bd1b9955268a",
+            hex
         );
     }
 }

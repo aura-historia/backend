@@ -55,12 +55,10 @@ valid, but the caller's identity is not stored with the notice.
 - The target is resolved and snapshotted in the transaction that stores the notice, with the
   partner flag under the same rule as the public listing source details.
 - The good-faith confirmation records the statement version the submission form shows.
-- The submission fingerprint is SHA-256 over a length-prefixed encoding of the lowercased email,
-  the target, role and category, the explanation, the sorted normalized additional URLs, and the
-  name and language. [`submission_fingerprint`](../src/content-notice-service/src/submission_fingerprint.rs)
-  owns the exact encoding; changing it changes every new fingerprint.
-- After commit the use case logs `content_notice.submitted` with the notice ID, target,
-  role, category and actor type, never personal data.
+- The submission fingerprint is SHA-256 over a canonical encoding of the submitted content;
+  [`submission_fingerprint`](../src/content-notice-service/src/submission_fingerprint.rs) owns
+  the encoding, which never changes for stored notices.
+- The committed submission is logged without personal data.
 
 ## States
 

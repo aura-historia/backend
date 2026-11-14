@@ -23,3 +23,4 @@ test-data = ["fake"]
 localization = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 url = { workspace = true }
+uuid = { workspace = true }

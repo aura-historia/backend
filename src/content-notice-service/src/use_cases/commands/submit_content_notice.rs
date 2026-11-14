@@ -38,6 +38,24 @@ pub enum ContentNoticeTargetReference {
     },
 }
 
+impl ContentNoticeTargetReference {
+    /// The same code as the resolved [`ContentNoticeTarget`] kind.
+    pub fn type_code(self) -> &'static str {
+        match self {
+            Self::ProductListing { .. } => "PRODUCT_LISTING",
+            Self::ListingSource { .. } => "LISTING_SOURCE",
+        }
+    }
+
+    /// The named target's identifier, for tracing.
+    pub fn id(self) -> String {
+        match self {
+            Self::ProductListing { product_listing_id } => product_listing_id.to_string(),
+            Self::ListingSource { listing_source_id } => listing_source_id.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubmitContentNoticeCommand {
     pub target: ContentNoticeTargetReference,
@@ -120,6 +138,9 @@ where
         skip_all,
         fields(
             principal_type = context.principal.kind(),
+            actor_id = tracing::field::Empty,
+            target_type = command.target.type_code(),
+            target_id = %command.target.id(),
             request_id = %context.request_id,
             correlation_id = %context.correlation_id,
         )
@@ -129,6 +150,9 @@ where
         context: &OperationContext,
         command: SubmitContentNoticeCommand,
     ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError> {
+        if let Some(actor_id) = context.principal.actor_id() {
+            tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
+        }
         ContentNotice::check_reason(
             command.submitter_role,
             command.reason_category,
