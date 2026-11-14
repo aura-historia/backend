@@ -1,4 +1,5 @@
 use domain_primitives::query::text_query::TextQuery;
+use geo::CountryCode;
 use party_core::party_id::PartyId;
 
 use crate::{
@@ -16,4 +17,6 @@ pub struct ListingSourceSearch {
     pub listing_source_type: Option<ListingSourceType>,
     pub platform_technology: Option<PlatformTechnology>,
     pub ingestion_method: Option<ListingIngestionMethod>,
+    /// Country of the source's effective location default; see `docs/geography.md`.
+    pub country: Option<CountryCode>,
 }

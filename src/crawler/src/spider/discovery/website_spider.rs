@@ -2099,7 +2099,9 @@ async fn relay_library_pages(
             if !directives.forbids_following()
                 && let Some(page_links) = page.page_links.as_deref()
             {
-                filter.found_links.record(page.get_url(), page_links);
+                filter
+                    .found_links
+                    .record(page.get_url(), page.get_html_bytes_u8(), page_links);
             }
         }
 
@@ -4082,6 +4084,56 @@ mod tests {
         );
         assert_eq!(diagnostics.known_skipped, 1);
         assert_eq!(diagnostics.completion, CrawlCompletion::Completed);
+        assert!(discovery.frontier.is_empty(), "{discovery:?}");
+    }
+
+    /// marrisantiqueglass.com: every page's `<base>` names the shop's root, and a nested listing
+    /// page links its products relatively from there.
+    fn root_based_site(target: &str, _: usize) -> SiteResponse {
+        let page = |links: &str| {
+            format!(
+                r#"<html><head><base href="http://example.com/"></head><body>{links}</body></html>"#
+            )
+        };
+        match target {
+            "/" => SiteResponse::Html("200 OK", page(r#"<a href="en-GB/latest/page_2">2</a>"#)),
+            "/en-GB/latest/page_2" => SiteResponse::Html(
+                "200 OK",
+                page(
+                    r#"<a href="en-GB/glass/vase/prod_1">Vase</a>
+                       <a href="en-GB/glass/bowl/prod_2">Bowl</a>"#,
+                ),
+            ),
+            "/en-GB/glass/vase/prod_1" | "/en-GB/glass/bowl/prod_2" => {
+                SiteResponse::Html("200 OK", page(""))
+            }
+            _ => SiteResponse::Html("404 Not Found", String::new()),
+        }
+    }
+
+    #[tokio::test]
+    async fn should_count_known_products_linked_relative_to_the_page_base_as_skipped() {
+        let site = TestSite::spawn(Arc::new(root_based_site)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+        let seeds = CrawlSeeds {
+            known: vec![example("/en-GB/glass/vase/prod_1")],
+            ..CrawlSeeds::default()
+        };
+
+        let (delivered, diagnostics, discovery) = run_seeded_crawl(&spider, seeds).await;
+        let requests = site.finish().await;
+
+        assert!(
+            delivered.contains("http://example.com/en-GB/glass/bowl/prod_2"),
+            "{delivered:?}"
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|(_, target, ..)| !target.starts_with("/en-GB/latest/en-GB/")),
+            "{requests:?}"
+        );
+        assert_eq!(diagnostics.known_skipped, 1, "{diagnostics:?}");
         assert!(discovery.frontier.is_empty(), "{discovery:?}");
     }
 

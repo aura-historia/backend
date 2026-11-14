@@ -113,6 +113,18 @@ fallback, automatic site selection or separate default per role. Associated busi
 advertised inventory each need their own scoped evidence on that reference. Legal or shop
 addresses alone do not establish inventory, seller identity, pickup or dispatch.
 
+The API never derives inventory. One operator policy asserts it: a `DEALER` source whose
+operator Party has exactly one active location, selected by the source's active default,
+asserts advertised inventory there with the reference
+`aura-historia:policy/single-location-dealer-inventory/v1`. A dealer with a single address
+almost always sells its stock from there. The assertion is ordinary evidence that is
+written through the default API and labelled `SOURCE_DEFAULT_DERIVED` in public
+geography; it establishes no seller identity, pickup or dispatch. First-party inventory
+evidence takes precedence. The dealer onboarding skill applies the policy and its
+[reconciler](../.agents/skills/discover-antique-dealers/scripts/inventory.py) removes only
+policy assertions once the condition stops holding, for example after a second location is
+added.
+
 Current unsuspended administrators/internal callers may manage defaults; other users need
 active operator-partnership membership and the exact source grant. Delegated credentials
 add the corresponding listing-source scope. Admin routes require administrator authority.
@@ -246,6 +258,8 @@ never claims individually verified custody. Submitted geography precedes current
 resolution. Missing, retired or wholly unresolved sites supply absence. The public overview's
 `countries` aggregate also reads the business dimension (inventory country, otherwise business
 country) to state where sources are located; it never claims where an object is held.
+The administrator ListingSource `country` filter applies the same derivation to the source
+itself, so a source matches by its default even before it has listings.
 
 Compact projections contain location identity, basis, ISO release/codes and point/precision,
 never raw addresses, postal text, applicability evidence or provider payloads. Dependency

@@ -375,6 +375,12 @@ omitted image whose fetch failed also logs the fetcher's bounded failure categor
 and attempt count, never the image URL, which may be signed.
 Exact prepared-image duplicates are omitted. The adapter enforces four images, per-image
 and aggregate media/body limits and a conservative context bound before provider truncation.
+It drops the Multi-Picture Format index that phone cameras add to JPEGs, which Workers AI
+rejects, and keeps the primary image intact. A provider rejection whose every validation issue
+rejects the payload of a sent image is a permanent candidate failure, so a shared request
+recovers its members as singletons; any other unmapped 4xx stays an operator-actionable
+configuration failure. A failed
+`CLASSIFIER_INVOCATION` logs the provider HTTP status and first error code, never its message.
 A technical failure is never a negative semantic decision. Permanent candidate failures
 are reported as terminal incomplete evaluations and permit bounded-window progress;
 retryable failures leave progress unchanged even when accepted
@@ -404,7 +410,8 @@ candidates, the reference that shared requests must match before the
 differs where a run's scope does: it searches the whole catalogue (only an authored `updated`
 range applies) at the current FX snapshot, has no existing matches to skip and evaluates a
 bounded, rank-ordered prefix of candidates ([API contract](../swagger.yaml)). An undecided
-candidate is retried with the filter backoff, then fails the preview instead of being skipped.
+candidate is retried with the filter backoff, then fails the preview instead of being skipped;
+a permanent candidate failure is not shown, as a run would skip it.
 Images get a short interactive fetch budget; a slower image is omitted like any failed fetch.
 The preview persists nothing; its classifier diagnostics and decision events carry
 correlation IDs starting with `preview:`.

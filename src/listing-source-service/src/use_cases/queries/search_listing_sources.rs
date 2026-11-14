@@ -39,7 +39,7 @@ impl SearchListingSourcesRequest {
     pub fn scope_binding(&self) -> ScopeBinding {
         let search = &self.search;
         let sort = self.effective_sort();
-        ScopeBinding::builder("listing-source-search/v1")
+        let builder = ScopeBinding::builder("listing-source-search/v1")
             .optional_part(search.query.as_deref())
             .optional_part(search.name_query.as_deref())
             .optional_part(
@@ -67,8 +67,13 @@ impl SearchListingSourcesRequest {
             .optional_part(search.ingestion_method.map(ListingIngestionMethod::as_str))
             .optional_part(search.listing_source_type.map(ListingSourceType::as_str))
             .part(sort_field_code(sort.sort))
-            .part(sort.order.as_str())
-            .finish()
+            .part(sort.order.as_str());
+        // Appended only when present so cursors issued before this filter existed stay valid;
+        // length-prefixed parts keep both shapes distinct.
+        match search.country {
+            Some(country) => builder.part(country.alpha2()).finish(),
+            None => builder.finish(),
+        }
     }
 
     fn continuation_in_scope(&self) -> bool {
@@ -607,6 +612,16 @@ mod tests {
             !SearchListingSourcesRequest {
                 search: ListingSourceSearch {
                     listing_source_type: Some(ListingSourceType::Dealer),
+                    ..ListingSourceSearch::default()
+                },
+                ..continuation(&request(), name.clone())
+            }
+            .continuation_in_scope()
+        );
+        assert!(
+            !SearchListingSourcesRequest {
+                search: ListingSourceSearch {
+                    country: Some(geo::CountryCode::DEU),
                     ..ListingSourceSearch::default()
                 },
                 ..continuation(&request(), name.clone())

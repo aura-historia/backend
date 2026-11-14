@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from api import AuraApi, PRODUCTION, read_ledger
+from inventory import expected_inventory_reference
 
 ROOT = Path(__file__).resolve().parents[4]
 LEDGER = ROOT / "data/dealer-discovery/countries/DE/dealers.jsonl"
@@ -70,7 +71,7 @@ def check_location(api, row, ids, index):
             and len(location["roles"]) == len(expected["roles"]), "Location roles differ")
 
 
-def check_location_default(current, row, ids):
+def check_location_default(current, ids, inventory_reference):
     expected = ids.get("partyLocationIds", [])
     assignment = current.get("assignment")
     if not expected:
@@ -78,7 +79,7 @@ def check_location_default(current, row, ids):
         return
     require(assignment and assignment["partyLocationId"] == expected[0]
             and current["eligibility"] == "ACTIVE", "Business location default differs")
-    require(bool(assignment.get("advertisedInventory")) == bool(row.get("inventoryEvidence")),
+    require((assignment.get("advertisedInventory") or {}).get("reference") == inventory_reference,
             "Advertised inventory assertion differs")
 
 
@@ -134,7 +135,8 @@ def verify_dealer(api, row):
     for index in range(len(locations)):
         check_location(api, row, ids, index)
     check_location_default(api.request("GET", "/v1/admin/listing-sources/"
-                                      + ids["listingSourceId"] + "/location-default"), row, ids)
+                                      + ids["listingSourceId"] + "/location-default"),
+                           ids, expected_inventory_reference(api, row, ids))
     default = api.request("GET", "/v1/listing-sources/" + ids["listingSourceId"] + "/shipping-default")
     require(bool(ids.get("shippingProfileId")) == bool(value(row, "shippingTerms")),
             "Delivery observation and profile presence differ")
@@ -218,7 +220,8 @@ def main():
                           "Location/default/profile readbacks dated individually; unchanged observations may reuse prior checks",
                           "Managed ingestion lists empty; platform metadata independent",
                           "Profile terms and active defaults match reviewed observations",
-                          "Inventory inheritance requires explicit separate evidence"], "dealers": results}
+                          "Inventory inheritance has explicit evidence or the single-location dealer policy"],
+               "dealers": results}
     temporary = args.output.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(args.output)

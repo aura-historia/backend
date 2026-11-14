@@ -329,7 +329,28 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ListingSourceSear
         builder.push_bind(ingestion_method.as_str());
         builder.push(")");
     }
+    if let Some(country) = search.country {
+        builder
+            .push(LOCATED_IN_COUNTRY)
+            .push_bind(country.alpha2())
+            .push(")");
+    }
 }
+
+/// Matches the country that listing geography derives from the source's location default
+/// (`docs/geography.md`): an active selected location with business-association or
+/// advertised-inventory evidence, its submitted country, otherwise the country of the
+/// accepted geocoding candidate bound to the location's current revision. The accepted-candidate
+/// expression mirrors `party-postgres` location discovery. Like that filter, it only selects
+/// rows: malformed stored geography never matches and is rejected when it is read for display.
+const LOCATED_IN_COUNTRY: &str = " AND EXISTS (SELECT 1 FROM listing_source_location_defaults filter_default \
+JOIN party_locations filter_location ON filter_location.party_location_id = filter_default.party_location_id AND filter_location.party_id = filter_default.party_id \
+LEFT JOIN geo_resolution_bindings filter_binding ON filter_binding.subject_kind = 'PARTY_LOCATION' AND filter_binding.subject_id = filter_location.party_location_id AND filter_binding.guard = filter_location.revision AND filter_binding.input_revision = filter_location.input_revision \
+LEFT JOIN geo_resolutions filter_resolution ON filter_resolution.resolution_id = filter_binding.resolution_id AND NOT filter_resolution.erased \
+WHERE filter_default.listing_source_id = s.listing_source_id \
+AND filter_location.lifecycle = 'ACTIVE' \
+AND (filter_default.business_evidence IS NOT NULL OR filter_default.inventory_evidence IS NOT NULL) \
+AND COALESCE(filter_location.geography->>'country', filter_resolution.evidence->'candidates'->COALESCE(CASE WHEN filter_binding.selected_generation = filter_resolution.generation THEN filter_binding.selected_candidate END, (filter_resolution.evidence->>'accepted_index')::integer)->'description'->>'country') = ";
 
 fn push_ilike(builder: &mut QueryBuilder<Postgres>, column: &str, value: &str) {
     builder
