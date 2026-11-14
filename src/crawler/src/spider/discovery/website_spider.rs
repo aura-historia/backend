@@ -1026,7 +1026,22 @@ fn preflight_transport_error(
     }
 }
 
+/// A crawl-root request the shop closed without an answer is the shop refusing the crawler, as
+/// nginx's `return 444` and bad-bot filters do, and fails as `AccessDenied` once the inline retry
+/// meets it too; it is told apart first, since the TLS form of it mentions `close_notify`.
 fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptError {
+    let network_kind = classify_reqwest_error(&error);
+    if network_kind == NetworkErrorKind::ConnectionDropped {
+        return PreflightAttemptError {
+            retryable: true,
+            error: SpiderDiscoveryError::Preflight {
+                kind: CrawlFailureKind::AccessDenied,
+                reason: "crawl-root connection closed without an answer",
+                source: Some(Box::new(error)),
+                root_reroot: None,
+            },
+        };
+    }
     if is_tls_failure(&error) {
         return PreflightAttemptError {
             retryable: false,
@@ -1038,7 +1053,6 @@ fn preflight_request_error(error: spider::reqwest::Error) -> PreflightAttemptErr
             },
         };
     }
-    let network_kind = classify_reqwest_error(&error);
     PreflightAttemptError {
         retryable: action_for(network_kind) == NetworkAction::Retry,
         error: SpiderDiscoveryError::Preflight {
@@ -4366,7 +4380,7 @@ mod tests {
     /// move, so the twin's failure is not taken for the configured host's.
     #[tokio::test]
     async fn should_record_the_move_when_the_preflight_then_fails_on_the_twin() {
-        let unreachable = failure_after_the_move(test_config(), |target| match target {
+        let dropped = failure_after_the_move(test_config(), |target| match target {
             "/" => Some(SiteResponse::Drop),
             _ => None,
         })
@@ -4411,7 +4425,7 @@ mod tests {
             "{out_of_time:?}"
         );
         for (error, expected_kind) in [
-            (unreachable, CrawlFailureKind::ConnectError),
+            (dropped, CrawlFailureKind::AccessDenied),
             (redirected_away, CrawlFailureKind::RedirectProblem),
             (robots_blocked, CrawlFailureKind::RobotsBlocked),
             (out_of_time, CrawlFailureKind::ConnectError),
@@ -4449,7 +4463,7 @@ mod tests {
             matches!(
                 error,
                 SpiderDiscoveryError::Preflight {
-                    kind: CrawlFailureKind::ConnectError,
+                    kind: CrawlFailureKind::AccessDenied,
                     ..
                 }
             ),
@@ -4879,7 +4893,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_fail_preflight_with_connect_error_after_retry_budget() {
+    async fn should_fail_preflight_as_access_denied_when_every_attempt_is_dropped() {
         let site = TestSite::spawn(Arc::new(|_: &str, _: usize| SiteResponse::Drop)).await;
         let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
 
@@ -4888,7 +4902,7 @@ mod tests {
         assert!(matches!(
             error,
             SpiderDiscoveryError::Preflight {
-                kind: CrawlFailureKind::ConnectError,
+                kind: CrawlFailureKind::AccessDenied,
                 source: Some(_),
                 ..
             }
@@ -5633,6 +5647,29 @@ mod tests {
             assert_eq!(site.requests_for("/category/1").await, 0);
             site.finish().await;
         }
+    }
+
+    /// A shop whose crawl root answers but whose robots.txt connection is closed unanswered
+    /// refuses the crawler as a root that does so does, so the crawl is denied, not unreachable.
+    #[tokio::test]
+    async fn should_deny_the_crawl_when_the_shop_drops_robots_txt() {
+        let site = TestSite::spawn(site_with_robots(SiteResponse::Drop)).await;
+        let spider = SpiderImpl::with_transport(test_config(), site.transport(&["example.com"]));
+
+        let error = run_crawl(&spider, "http://example.com/").await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                SpiderDiscoveryError::Preflight {
+                    kind: CrawlFailureKind::AccessDenied,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert_eq!(site.requests_for("/category/1").await, 0);
+        site.finish().await;
     }
 
     #[tokio::test]

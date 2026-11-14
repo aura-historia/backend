@@ -1077,7 +1077,7 @@ const FAILURES = {
     NoAcceptedPages: {label: 'No pages accepted', cause: 'Every page the crawl fetched was rejected.', profile: 'transient'},
     RobotsBlocked: {label: 'Blocked by robots.txt', cause: "The shop's robots.txt forbids crawling its start page.", profile: 'recoverable'},
     RateLimited: {label: 'Rate limited', cause: 'The shop asked the crawler to slow down.', profile: 'transient'},
-    AccessDenied: {label: 'Access denied', cause: 'The shop refuses the crawler with a 401 or 403.', profile: 'durable'},
+    AccessDenied: {label: 'Access denied', cause: 'The shop refuses the crawler with a 401 or 403, or closes its connections without answering.', profile: 'durable'},
     CloudflareChallenge: {label: 'Cloudflare challenge', cause: 'A Cloudflare check stops the crawler before it reaches the shop.', profile: 'transient'},
     BotProtection: {label: 'Bot protection', cause: "The shop's bot protection blocks the request.", profile: 'transient'},
     TlsError: {label: 'TLS error', cause: "The shop's certificate or secure connection is broken.", profile: 'recoverable'},

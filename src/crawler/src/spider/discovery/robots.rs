@@ -182,7 +182,7 @@ async fn fetch_robots_policy(
                         RobotsUnreachable::new(&robots_url, UnreachableCause::Transport(kind)),
                     )),
                     Some(policy) => Ok(FetchedRobots::Policy(policy)),
-                    None => Err(robots_request_failed(source)),
+                    None => Err(robots_request_failed(kind, source)),
                 };
             }
         }
@@ -263,10 +263,23 @@ fn robots_unreachable_error(source: Option<application::error::BoxError>) -> Spi
     }
 }
 
-fn robots_request_failed(source: application::error::BoxError) -> SpiderDiscoveryError {
+/// A failed robots.txt request of the crawl root's own host fails the crawl. A connection the
+/// host closed without an answer is the shop refusing the crawler (`AccessDenied`), as for the
+/// crawl root itself; any other failure is a connection fault.
+fn robots_request_failed(
+    kind: NetworkErrorKind,
+    source: application::error::BoxError,
+) -> SpiderDiscoveryError {
+    let (kind, reason) = match kind {
+        NetworkErrorKind::ConnectionDropped => (
+            CrawlFailureKind::AccessDenied,
+            "robots.txt connection closed without an answer",
+        ),
+        _ => (CrawlFailureKind::ConnectError, "robots.txt request failed"),
+    };
     SpiderDiscoveryError::Preflight {
-        kind: CrawlFailureKind::ConnectError,
-        reason: "robots.txt request failed",
+        kind,
+        reason,
         source: Some(source),
         root_reroot: None,
     }
