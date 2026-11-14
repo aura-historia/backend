@@ -144,7 +144,7 @@ describe("HTTP API route policy matrix", () => {
     const axum = axumRouteKeys();
 
     for (const routes of [catalog, swagger, axum]) {
-      expect(routes).toHaveLength(176);
+      expect(routes).toHaveLength(179);
       expect(new Set(routes).size).toBe(routes.length);
       expect(routes.every(isCanonicalRouteKey)).toBe(true);
       expect(routes.some((key) => /[*+]/.test(key))).toBe(false);
@@ -194,6 +194,23 @@ describe("HTTP API route policy matrix", () => {
       } });
       expect(matchesSelectiveCacheBehavior(route.path)).toBe(true);
     }
+  });
+
+  test("keeps content-notice submission optional-bearer and public", () => {
+    expect(API_ROUTE_CATALOG.filter((route) => route.path === "/v1/content-notices")).toEqual([
+      {
+        method: "POST",
+        path: "/v1/content-notices",
+        lambda: "auraHistoriaApi",
+        auth: RouteAuthPolicy.OptionalBearer,
+        policy: {
+          bearer: "OPTIONAL",
+          authorization: RouteAuthorizationClass.Public,
+          oauthCredentials: OAuthCredentialRequirement.None,
+          providerProof: ProviderProofRequirement.None,
+        },
+      },
+    ]);
   });
 
   test("keeps newsletter request optional-bearer and confirmation anonymous", () => {
@@ -580,7 +597,7 @@ describe("HTTP API route policy matrix", () => {
       const [method, ...pathParts] = String(route.Properties.RouteKey).split(" ");
       return routeKey(method, pathParts.join(" "));
     }).sort()).toEqual(catalogRouteKeys());
-    expect(routes).toHaveLength(176);
+    expect(routes).toHaveLength(179);
     // Final-state bound only: also review the HEAD-to-current create-before-delete peak.
     // Prefix cutover has already landed; exact discovery and site-document routes add one route
     // per method each.
@@ -629,7 +646,7 @@ describe("HTTP API route policy matrix", () => {
     });
   });
 
-  test.each(STAGES)("allows wildcard origins and exposes idempotency and trace response headers in %s REST Gateway CORS", (stage) => {
+  test.each(STAGES)("allows wildcard origins and exposes idempotency, trace and retry response headers in %s REST Gateway CORS", (stage) => {
     const [api] = Object.values(apiTemplate(stage).findResources("AWS::ApiGatewayV2::Api")) as CloudFormationResource[];
     const cors = api.Properties.CorsConfiguration as Record<string, unknown>;
 
@@ -638,7 +655,7 @@ describe("HTTP API route policy matrix", () => {
     expect(stageConfig(stage).apiCorsAllowOrigins).toEqual(["*"]);
     expect(cors.AllowOrigins).toEqual(["*"]);
     expect(cors).not.toHaveProperty("AllowCredentials");
-    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate"]);
+    expect(cors.ExposeHeaders).toEqual(["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate", "Retry-After"]);
   });
 
   test("partitions identical discovery requests across different browser origins", () => {

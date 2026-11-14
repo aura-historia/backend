@@ -210,6 +210,11 @@ async fn start_opensearch(run: &str, network: &str) -> Result<String> {
         "DISABLE_INSTALL_DEMO_CONFIG=true".into(),
         "--env".into(),
         "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m".into(),
+        // A shared runner disk above the 90% high watermark makes this single-node test
+        // cluster block index creation with 403 `index_create_block_exception`. Disk headroom
+        // is guarded separately (`ci/guard-disk.py`), so the watermarks only cause flakes here.
+        "--env".into(),
+        "cluster.routing.allocation.disk.threshold_enabled=false".into(),
         "--mount".into(),
         format!("type=volume,src={volume},dst=/usr/share/opensearch/data"),
     ];

@@ -5,12 +5,14 @@ use auction_service::use_cases::{
     queries::get_auction::GetAuctionError,
 };
 use axum::Json;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use billing_service::use_cases::{
     CreateBillingCheckoutSessionError, CreateBillingManagementSessionError,
     CreateBillingPortalSessionError,
 };
+use content_notice_service::use_cases::queries::get_admin_content_notice::GetAdminContentNoticeError;
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesError;
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceError;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceError;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceError;
@@ -68,8 +70,12 @@ use search_filter_service::use_cases::{
 use serde::Serialize;
 use woocommerce_service::WoocommerceWebhookIntakeError;
 
+use content_notice_core::content_notice::ContentNoticeInvariantError;
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeError;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU32;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleError;
 use user_service::use_cases::commands::change_user_tier::ChangeUserTierError;
 use user_service::use_cases::commands::create_access_token::CreateAccessTokenError;
@@ -106,6 +112,10 @@ pub(crate) struct ApiError {
     /// The request presented a bearer credential that is malformed, invalid or expired.
     #[serde(skip)]
     bearer_credential_rejected: bool,
+    /// Seconds after which the client may retry, sent as `Retry-After`. 32 bits fit into the
+    /// struct's padding, which keeps `Result<_, ApiError>` small.
+    #[serde(skip)]
+    retry_after_seconds: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
@@ -177,6 +187,23 @@ pub(crate) const BAD_QUERY_PARAMETER_VALUE: ApiErrorCode =
     ApiErrorCode("BAD_QUERY_PARAMETER_VALUE");
 pub(crate) const BAD_SORT_VALUE: ApiErrorCode = ApiErrorCode("BAD_SORT_VALUE");
 pub(crate) const CONFLICT: ApiErrorCode = ApiErrorCode("CONFLICT");
+pub(crate) const CONTENT_NOTICE_EXPLANATION_REQUIRED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_EXPLANATION_REQUIRED");
+pub(crate) const CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED");
+pub(crate) const CONTENT_NOTICE_INTERNAL_ERROR: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_INTERNAL_ERROR");
+pub(crate) const CONTENT_NOTICE_INVALID_FIELD: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_INVALID_FIELD");
+pub(crate) const CONTENT_NOTICE_NOT_FOUND: ApiErrorCode = ApiErrorCode("CONTENT_NOTICE_NOT_FOUND");
+pub(crate) const CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER");
+pub(crate) const CONTENT_NOTICE_RATE_LIMITED: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_RATE_LIMITED");
+pub(crate) const CONTENT_NOTICE_TARGET_NOT_FOUND: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_TARGET_NOT_FOUND");
+pub(crate) const CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE: ApiErrorCode =
+    ApiErrorCode("CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE");
 pub(crate) const PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE: ApiErrorCode =
     ApiErrorCode("PRODUCT_LISTING_INGESTION_PAYLOAD_TOO_LARGE");
 pub(crate) const FORBIDDEN: ApiErrorCode = ApiErrorCode("FORBIDDEN");
@@ -293,9 +320,9 @@ impl Display for ApiErrorCode {
     }
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 pub(crate) struct ApiErrorSource {
-    field: &'static str,
+    field: Cow<'static, str>,
     #[serde(rename = "type")]
     source_type: ApiErrorSourceType,
 }
@@ -323,6 +350,7 @@ impl ApiError {
             detail: None,
             cause: None,
             bearer_credential_rejected: false,
+            retry_after_seconds: None,
         }
     }
 
@@ -354,6 +382,15 @@ impl ApiError {
         )
     }
 
+    /// A `429` with `Retry-After`, at least one second and saturating at `u32::MAX`.
+    pub(crate) fn too_many_requests(error: ApiErrorCode, retry_after_seconds: u64) -> Self {
+        let seconds = u32::try_from(retry_after_seconds).unwrap_or(u32::MAX);
+        Self {
+            retry_after_seconds: Some(NonZeroU32::new(seconds).unwrap_or(NonZeroU32::MIN)),
+            ..Self::new(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests", error)
+        }
+    }
+
     pub(crate) fn internal_server_error(error: ApiErrorCode) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -370,9 +407,9 @@ impl ApiError {
         )
     }
 
-    pub(crate) fn with_body_field(mut self, field: &'static str) -> Self {
+    pub(crate) fn with_body_field(mut self, field: impl Into<Cow<'static, str>>) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: field.into(),
             source_type: ApiErrorSourceType::Body,
         });
         self
@@ -380,7 +417,7 @@ impl ApiError {
 
     pub(crate) fn with_header_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Header,
         });
         self
@@ -388,7 +425,7 @@ impl ApiError {
 
     pub(crate) fn with_query_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Query,
         });
         self
@@ -396,7 +433,7 @@ impl ApiError {
 
     pub(crate) fn with_path_field(mut self, field: &'static str) -> Self {
         self.source = Some(ApiErrorSource {
-            field,
+            field: Cow::Borrowed(field),
             source_type: ApiErrorSourceType::Path,
         });
         self
@@ -2741,6 +2778,50 @@ impl From<SubmitPartnershipApplicationError> for ApiError {
     }
 }
 
+impl From<SubmitContentNoticeError> for ApiError {
+    fn from(error: SubmitContentNoticeError) -> Self {
+        match error {
+            SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::ExplanationRequired { .. },
+            ) => ApiError::bad_request(CONTENT_NOTICE_EXPLANATION_REQUIRED)
+                .with_body_field("/explanation")
+                .with_detail("An explanation is required for this reason category."),
+            SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::ProviderOptOutRequiresProvider { .. },
+            ) => ApiError::bad_request(CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER)
+                .with_body_field("/reasonCategory")
+                .with_detail("Only submitter role PROVIDER may choose PROVIDER_OPT_OUT."),
+            SubmitContentNoticeError::TargetNotFound => {
+                ApiError::not_found(CONTENT_NOTICE_TARGET_NOT_FOUND)
+                    .with_detail("The product listing or listing source was not found.")
+            }
+            SubmitContentNoticeError::RateLimited { retry_after } => ApiError::too_many_requests(
+                CONTENT_NOTICE_RATE_LIMITED,
+                retry_after.seconds(),
+            )
+            .with_detail(
+                "Too many content notices were submitted from this email address. Try again later.",
+            ),
+            SubmitContentNoticeError::TemporarilyUnavailable { source }
+            | SubmitContentNoticeError::BeginTransactionFailed(source)
+            | SubmitContentNoticeError::CommitTransactionFailed(source) => {
+                ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("The content notice could not be submitted right now.")
+                    .with_cause(source)
+            }
+            error @ (SubmitContentNoticeError::InvalidNotice(
+                ContentNoticeInvariantError::TargetSnapshotMismatch,
+            )
+            | SubmitContentNoticeError::InvalidPersistedState { .. }
+            | SubmitContentNoticeError::Internal { .. }) => {
+                ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
+                    .with_detail("Content notice submission failed internally.")
+                    .with_cause(Box::new(error))
+            }
+        }
+    }
+}
+
 impl From<ListOwnPartnershipApplicationsError> for ApiError {
     fn from(error: ListOwnPartnershipApplicationsError) -> Self {
         match error {
@@ -2838,6 +2919,57 @@ impl_partnership_application_admin_read_error!(
     ListAdminPartnershipApplicationsError,
     InvalidReadModel
 );
+
+impl From<ListAdminContentNoticesError> for ApiError {
+    fn from(error: ListAdminContentNoticesError) -> Self {
+        match error {
+            ListAdminContentNoticesError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            ListAdminContentNoticesError::CursorScopeMismatch => {
+                crate::keyset_cursor::foreign_scope()
+            }
+            ListAdminContentNoticesError::TemporarilyUnavailable { source }
+            | ListAdminContentNoticesError::BeginTransactionFailed(source)
+            | ListAdminContentNoticesError::CommitTransactionFailed(source) => {
+                ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Content notices are temporarily unavailable.")
+                    .with_cause(source)
+            }
+            error @ (ListAdminContentNoticesError::InvalidReadModel { .. }
+            | ListAdminContentNoticesError::Internal { .. }) => {
+                ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
+                    .with_detail("Content notice search failed internally.")
+                    .with_cause(Box::new(error))
+            }
+        }
+    }
+}
+
+impl From<GetAdminContentNoticeError> for ApiError {
+    fn from(error: GetAdminContentNoticeError) -> Self {
+        match error {
+            GetAdminContentNoticeError::Forbidden => {
+                ApiError::forbidden(FORBIDDEN).with_detail("Operation is not permitted.")
+            }
+            GetAdminContentNoticeError::NotFound => ApiError::not_found(CONTENT_NOTICE_NOT_FOUND)
+                .with_detail("Content notice was not found."),
+            GetAdminContentNoticeError::TemporarilyUnavailable { source }
+            | GetAdminContentNoticeError::BeginTransactionFailed(source)
+            | GetAdminContentNoticeError::CommitTransactionFailed(source) => {
+                ApiError::service_unavailable(CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE)
+                    .with_detail("Content notices are temporarily unavailable.")
+                    .with_cause(source)
+            }
+            error @ (GetAdminContentNoticeError::InvalidReadModel { .. }
+            | GetAdminContentNoticeError::Internal { .. }) => {
+                ApiError::internal_server_error(CONTENT_NOTICE_INTERNAL_ERROR)
+                    .with_detail("Content notice read failed internally.")
+                    .with_cause(Box::new(error))
+            }
+        }
+    }
+}
 
 impl From<GetAdminPartnershipError> for ApiError {
     fn from(error: GetAdminPartnershipError) -> Self {
@@ -3343,6 +3475,7 @@ impl IntoResponse for ApiError {
             } else {
                 BearerAuthenticationFailure::Missing
             });
+        let retry_after_seconds = self.retry_after_seconds;
         let mut response = (
             self.status_code(),
             [(header::CONTENT_TYPE, "application/problem+json")],
@@ -3351,6 +3484,11 @@ impl IntoResponse for ApiError {
             .into_response();
         if let Some(failure) = bearer_authentication_failure {
             response.extensions_mut().insert(failure);
+        }
+        if let Some(seconds) = retry_after_seconds {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(seconds.get()));
         }
         response
     }

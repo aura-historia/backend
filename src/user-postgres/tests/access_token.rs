@@ -53,6 +53,7 @@ async fn should_insert_find_by_id_find_by_hash_and_update_access_token_in_postgr
             Scope::PartnershipsRead,
             Scope::PartnershipsWrite,
             Scope::AdminOverviewRead,
+            Scope::ContentNoticesRead,
             Scope::SearchFiltersRead,
             Scope::NotificationsRead,
             Scope::NotificationsWrite,

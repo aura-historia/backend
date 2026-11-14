@@ -100,6 +100,7 @@ fn credential_capability(scope: Scope) -> CredentialCapability {
         Scope::PartnershipsRead => CredentialCapability::PartnershipsRead,
         Scope::PartnershipsWrite => CredentialCapability::PartnershipsWrite,
         Scope::AdminOverviewRead => CredentialCapability::AdminOverviewRead,
+        Scope::ContentNoticesRead => CredentialCapability::ContentNoticesRead,
         Scope::SearchFiltersRead => CredentialCapability::SearchFiltersRead,
         Scope::NotificationsRead => CredentialCapability::NotificationsRead,
         Scope::NotificationsWrite => CredentialCapability::NotificationsWrite,
@@ -178,6 +179,10 @@ mod tests {
             (
                 Scope::AdminOverviewRead,
                 CredentialCapability::AdminOverviewRead,
+            ),
+            (
+                Scope::ContentNoticesRead,
+                CredentialCapability::ContentNoticesRead,
             ),
             (
                 Scope::SearchFiltersRead,

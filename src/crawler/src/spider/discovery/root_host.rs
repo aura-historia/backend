@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 use url::{Host, Url};
 
+use super::page_base::absolute_base;
 use crate::spider::utils::url::CrawledUrl;
 
 /// Fewest distinct pages linked on the twin host that move a crawl root there, so a root page
@@ -20,8 +21,6 @@ pub(super) const MIN_TWIN_LINKS: usize = 5;
 
 static LINKS: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("a[href]").expect("link selector"));
-static BASE: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("base[href]").expect("base selector"));
 
 /// A crawl root moved to its twin host, with the links on the root page that moved it.
 #[derive(Clone, PartialEq, Eq)]
@@ -92,10 +91,7 @@ fn page_key(url: &CrawledUrl) -> String {
 pub(super) fn dominant_twin(root: &Url, html: &[u8]) -> Option<RootReroot> {
     let twin = www_twin(root)?;
     let document = Html::parse_document(&String::from_utf8_lossy(html));
-    let base = document
-        .select(&BASE)
-        .find_map(|base| Url::parse(base.value().attr("href")?.trim()).ok())
-        .unwrap_or_else(|| root.clone());
+    let base = absolute_base(&document).unwrap_or_else(|| root.clone());
     let (mut root_pages, mut twin_pages) = (HashSet::new(), HashSet::new());
     for link in document.select(&LINKS) {
         let href = link.value().attr("href").unwrap_or_default().trim();

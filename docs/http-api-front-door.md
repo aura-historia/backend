@@ -60,7 +60,7 @@ Preserve request headers, cookies, query strings and exact signed bodies through
 Lambda proxy integration, including JSON bodies on DELETE. Do not rewrite webhook
 payloads or move one-time confirmation into GET/redirect processing. Gateway preflight
 and Axum response CORS must retain required authorization/provider headers,
-`Idempotency-Key` admission/exposure and `WWW-Authenticate` exposure. REST Gateway CORS allows any Origin (`*`)
+`Idempotency-Key` admission/exposure and `WWW-Authenticate` and `Retry-After` exposure. REST Gateway CORS allows any Origin (`*`)
 in both stages, including preview hosts, for browser requests that do not use
 `credentials: "include"`. Clients supply bearer tokens explicitly in the
 `Authorization` header. CORS does not grant application authority; all existing
@@ -91,9 +91,11 @@ explicit origin allowlist.
   and, as IPv4 literals, its RFI body/query rules; so can URL-valued OAuth `client_id`s.
   Those four rules are counted in the group; a label rule after it blocks their matches
   everywhere except the exact OAuth client registration/update, authorize, token and
-  metadata-document consent (`GET /v1/oauth/metadata-document-clients`) paths. The API never fetches a
-  redirect URI submitted there. It fetches only a URL-valued `client_id`'s metadata
-  document, through the dedicated outbound policy in the [OAuth contract](oauth.md#metadata-document-clients):
+  metadata-document consent (`GET /v1/oauth/metadata-document-clients`) paths and the exact
+  content-notice submission path (`POST /v1/content-notices`), whose notices may cite reported
+  content at raw IP addresses. The API never fetches a redirect URI or a cited URL submitted
+  there. It fetches only a URL-valued `client_id`'s metadata document, through the dedicated
+  outbound policy in the [OAuth contract](oauth.md#metadata-document-clients):
   HTTPS on port 443 to hosts resolving exclusively to public addresses, without redirects.
   That application control replaces the WAF URL-target rules on these paths. Their
   cookie/URI-path variants and every other managed rule still apply. Never widen this scope

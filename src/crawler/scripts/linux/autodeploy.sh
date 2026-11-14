@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Deploys the newest published crawler release, for crawler-autodeploy.timer. It asks GitHub for
 # the newest crawler-<sha> release, skips it when it is the one it last handled, and otherwise runs
-# deploy.sh --unattended on it. A release that adds migrations, or a rollback over applied
-# migrations, is left for an operator, and the newest release is handled once: after a manual
-# rollback the timer stays quiet until a newer release is published. It never downgrades: a release
+# deploy.sh --unattended on it, which backs the database up first when the release adds migrations.
+# A rollback over applied migrations is left for an operator, and the newest release is handled
+# once: after a manual rollback the timer stays quiet until a newer release is published. It never
+# downgrades: a release
 # whose commit does not come after the running one on develop (an older commit released later) is
 # skipped. Stop it with: systemctl disable --now crawler-autodeploy.timer
 # Contract: docs/crawler/operations.md#automatic-deploys
@@ -53,8 +54,9 @@ status=0
 case "$status" in
   0) printf '%s\n' "$latest" > "$SEEN_FILE" ;;
   3|4)
-    # Decided about (needs an operator, or unhealthy and rolled back), not to be retried every
-    # tick: the unit stays failed until an operator acts. Exit 1 (a lock conflict) is retried.
+    # Decided about (needs an operator, failed backup, or unhealthy: rolled back, or left for a
+    # restore when it applied migrations), not to be retried every tick: the unit stays failed
+    # until an operator acts. Exit 1 (a lock conflict, a missing backup unit) is retried.
     printf '%s\n' "$latest" > "$SEEN_FILE"
     echo "autodeploy: ${latest} needs an operator (exit ${status}); see the journal" >&2
     exit 1 ;;

@@ -1,7 +1,8 @@
 use crate::auth::RequestMetadata;
 use crate::error::{ApiError, BAD_BODY_VALUE, LOOPS_WEBHOOK_PAYLOAD_TOO_LARGE};
-use crate::newsletter::common::no_store;
+use cache::no_store;
 pub(crate) mod cache;
+pub(crate) mod json_body;
 use axum::Router;
 use axum::extract::Request;
 use axum::http::{HeaderName, HeaderValue, Method, header};
@@ -109,6 +110,7 @@ pub(crate) fn with_transport_middleware(router: Router, request_timeout: Duratio
                     CORRELATION_ID_HEADER,
                     IDEMPOTENCY_KEY_HEADER,
                     header::WWW_AUTHENTICATE,
+                    header::RETRY_AFTER,
                 ]),
         )
         .layer(axum::middleware::from_fn(request_metadata))
@@ -140,17 +142,20 @@ async fn request_body_limit_error(request: Request, next: Next) -> Response {
             .strip_prefix("/v1/webhooks/woocommerce/")
             .is_some_and(|source| !source.is_empty() && !source.contains('/'));
     let loops_webhook = request.method() == Method::POST && path == "/v1/webhooks/loops";
-    let newsletter = (request.method() == Method::PUT && path == "/v1/newsletter-subscriptions")
-        || (request.method() == Method::POST && path == "/v1/newsletter-subscriptions/confirm");
+    // Public submission forms answer every oversized body like their own capped body.
+    let public_submission = (request.method() == Method::PUT
+        && path == "/v1/newsletter-subscriptions")
+        || (request.method() == Method::POST && path == "/v1/newsletter-subscriptions/confirm")
+        || (request.method() == Method::POST && path == "/v1/content-notices");
     let response = next.run(request).await;
-    if (async_ingestion || woocommerce_webhook || loops_webhook || newsletter)
+    if (async_ingestion || woocommerce_webhook || loops_webhook || public_submission)
         && response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE
         && response
             .headers()
             .get(header::CONTENT_TYPE)
             .is_some_and(|value| value == "text/plain; charset=utf-8")
     {
-        if newsletter {
+        if public_submission {
             no_store(ApiError::bad_request(BAD_BODY_VALUE).into_response())
         } else if loops_webhook {
             ApiError::new(
@@ -474,6 +479,13 @@ mod tests {
         "BAD_BODY_VALUE",
         "no-store"
     )]
+    #[case(
+        Method::POST,
+        "/v1/content-notices",
+        StatusCode::BAD_REQUEST,
+        "BAD_BODY_VALUE",
+        "no-store"
+    )]
     #[tokio::test]
     async fn should_preserve_path_specific_errors_for_oversized_canonical_requests(
         #[case] method: Method,
@@ -586,7 +598,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn should_expose_correlation_headers_for_cors_requests() {
+    async fn should_expose_correlation_and_retry_after_headers_for_cors_requests() {
         let response = app()
             .oneshot(
                 Request::builder()
@@ -604,6 +616,12 @@ mod tests {
                 .to_str()
                 .unwrap()
                 .contains(REQUEST_ID_HEADER.as_str())
+        );
+        assert!(
+            response.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS]
+                .to_str()
+                .unwrap()
+                .contains(header::RETRY_AFTER.as_str())
         );
     }
 

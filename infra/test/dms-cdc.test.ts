@@ -216,6 +216,7 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "newsletter_subscription_confirmations",
       "loops_webhook_receipts",
       "loops_webhook_preference_fences",
+      "external_email_messages",
     ]) {
       expect(includedTables).not.toContain(excludedTable);
     }
@@ -277,6 +278,8 @@ describe.each(REAL_STAGES)("%s private DMS CDC", (stage) => {
       "product_listing_raw_revisions.normalization_context",
       "product_listing_raw_revisions.provenance",
       "notification_deliveries.target_key",
+      "notification_deliveries.digest_id",
+      "notification_deliveries.external_email_message_id",
     ]));
 
     const decimalStrings = mappings.rules

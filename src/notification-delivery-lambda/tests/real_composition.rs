@@ -1,3 +1,4 @@
+use application::transaction::{Transaction, UnitOfWork};
 use aura_historia_jobs::{
     DomainJob, DomainJobPayload, IdempotencyKey, NotificationDeliveryCreatedJob, OrderingKey,
     WorkerQueue, encode,
@@ -9,17 +10,28 @@ use aws_sdk_s3::{
     types::{BucketLocationConstraint, CreateBucketConfiguration},
 };
 use aws_sdk_sesv2::Client as SesClient;
+use content_notice_core::content_notice::ContentNotice;
 use domain_primitives::event_id::EventId;
 use lambda_runtime::{Context, LambdaEvent};
 use listing_source_core::ListingSourceId;
 use notification_core::{
-    notification_delivery_id::NotificationDeliveryId, notification_id::NotificationId,
+    external_email::{
+        ContentNoticeReceipt, ExternalEmailContent, ExternalEmailOrigin, ExternalEmailRecipient,
+    },
+    notification_delivery_id::NotificationDeliveryId,
+    notification_id::NotificationId,
 };
 use notification_delivery_lambda::{compose_delivery_use_case, handler};
 use notification_email_aws::{EmailDeliveryConfig, SesNotificationChannelSender};
-use notification_postgres::{SqlxEmailDeliveryTargetReader, SqlxNotificationDeliveryRepository};
+use notification_postgres::{
+    SqlxEmailDeliveryTargetReader, SqlxExternalEmailOutboxFactory,
+    SqlxNotificationDeliveryRepository,
+};
 use notification_service::{
     ports::{
+        external_email_outbox::{
+            ExternalEmailOutbox, ExternalEmailOutboxFactory, ExternalEmailRequest,
+        },
         notification_channel_sender::{NotificationChannelSender, NotificationDeliveryDispatcher},
         notification_delivery_repository::{
             ClaimNotificationDeliveryOutcome, NotificationDeliveryError,
@@ -180,6 +192,147 @@ async fn finalization_retry_keeps_the_original_ses_receipt_without_resending() {
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA, S3(), Ses()], isolated = true)]
+async fn content_notice_receipt_is_claimed_rendered_and_delivered_to_the_notifier_without_a_user() {
+    let result: TestResult = async {
+        let pool = get_postgres_client().await;
+        let use_case = composition(pool.clone(), false).await?;
+        let notice = content_notice()?;
+        let recipient = notice.submitter().email.as_str().to_owned();
+        let mut tx = platform_postgres::SqlxUnitOfWork::new(pool.clone()).begin().await?;
+        let message = SqlxExternalEmailOutboxFactory::new()
+            .in_transaction(&mut tx)
+            .enqueue(ExternalEmailRequest {
+                recipient: ExternalEmailRecipient::try_from(recipient.as_str())?,
+                language: notice.submitter().language,
+                content: ExternalEmailContent::ContentNoticeReceipt(
+                    ContentNoticeReceipt::for_notice(
+                        &notice,
+                        time::macros::datetime!(2026-11-14 12:00 UTC),
+                    ),
+                ),
+                origin: ExternalEmailOrigin::ContentNotice(notice.id()),
+            })
+            .await?
+            .external_email_message_id();
+        tx.commit().await?;
+        let delivery = NotificationDeliveryId::try_from(
+            sqlx::query_scalar::<_, uuid::Uuid>("SELECT notification_delivery_id FROM notification_deliveries WHERE external_email_message_id = $1")
+                .bind(message.into_uuid())
+                .fetch_one(&pool)
+                .await?,
+        )?;
+
+        assert_eq!(0, sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users").fetch_one(&pool).await?);
+
+        let (logs, guard) = test_api::CapturedLogs::start();
+        let response = handler(event("receipt", job_body(delivery)?), use_case.as_ref()).await?;
+        drop(guard);
+
+        assert!(failure_ids(response).is_empty());
+        assert_eq!(
+            1,
+            logs.events_where("message", "notification delivery claimed")
+                .iter()
+                .filter(|fields| fields["source_type"] == "external")
+                .count()
+        );
+        let stored = snapshot(&pool, delivery).await?;
+        assert_eq!("DELIVERED", stored["status"]);
+        assert_eq!(1, stored["attempt_count"]);
+        for private in [recipient.as_str(), "MarkerName", "MarkerExplanation"] {
+            assert!(!logs.text().contains(private), "{private} must never be logged");
+        }
+        let email = get_sent_emails().await.into_iter().find(|email|
+            email.destination.to_addresses.contains(&recipient)
+        ).ok_or("SES delivery not captured")?;
+        assert_eq!("Abbiamo ricevuto la sua segnalazione", email.subject);
+        assert_eq!(
+            format!(
+                "\"Content Notice | Aura Historia\" <{}>",
+                test_api::TestContext::current().ok_or("delivery test context")?.sender_email()?
+            ),
+            email.source
+        );
+        let html = email.body.html_part.ok_or("receipt has no HTML part")?;
+        for expected in [
+            notice.id().to_string().as_str(),
+            "Antik Shop",
+            "Jugendstil-Vase",
+            "14 novembre 2026 alle 12:00 UTC",
+            "Violazione di diritti",
+            "https://stage.aura-historia.com/it",
+            "Se non ha inviato questa segnalazione",
+        ] {
+            assert!(html.contains(expected), "receipt lacks {expected:?}");
+        }
+        for marker in ["MarkerName", "MarkerExplanation", "marker-url.example"] {
+            assert!(!html.contains(marker), "{marker} reached the receipt");
+        }
+        Ok(())
+    }
+    .await;
+    assert!(
+        result.is_ok(),
+        "real content notice receipt delivery test failed: {result:?}"
+    );
+}
+
+/// A listing notice in Italian whose submitter-typed fields carry marker text.
+fn content_notice() -> Result<ContentNotice, Box<dyn std::error::Error + Send + Sync>> {
+    use content_notice_core::{
+        additional_url::{AdditionalUrl, AdditionalUrls},
+        content_notice::NewContentNotice,
+        content_notice_id::ContentNoticeId,
+        content_notice_target::{
+            ContentNoticeTarget, ListingSourceSnapshot, ProductListingSnapshot,
+            ProductListingTitleSnapshot, TargetSnapshot,
+        },
+        good_faith_statement_version::GoodFaithStatementVersion,
+        notice_explanation::NoticeExplanation,
+        reason_category::ReasonCategory,
+        submitter::{Submitter, SubmitterEmail, SubmitterName},
+        submitter_role::SubmitterRole,
+    };
+    use listing_source_core::ListingSourceName;
+    use product_listing_core::product_listing_id::ProductListingId;
+
+    let id = ContentNoticeId::new();
+    Ok(ContentNotice::submit(NewContentNotice {
+        id,
+        target: ContentNoticeTarget::ProductListing {
+            product_listing_id: ProductListingId::new(),
+            listing_source_id: ListingSourceId::new(),
+        },
+        target_snapshot: TargetSnapshot {
+            listing_source: ListingSourceSnapshot {
+                name: ListingSourceName::try_from("Antik Shop")?,
+                url: None,
+                partner: false,
+            },
+            product_listing: Some(ProductListingSnapshot {
+                title: Some(ProductListingTitleSnapshot::try_from("Jugendstil-Vase")?),
+                url: url::Url::parse("https://antik.example/vase")?,
+            }),
+        },
+        submitter_role: SubmitterRole::RightsHolder,
+        reason_category: ReasonCategory::RightsInfringement,
+        explanation: Some(NoticeExplanation::try_from("MarkerExplanation")?),
+        additional_urls: AdditionalUrls::try_from(vec![AdditionalUrl::try_from(
+            "https://marker-url.example/photo",
+        )?])?,
+        submitter: Submitter {
+            name: SubmitterName::try_from("MarkerName")?,
+            email: SubmitterEmail::try_from(format!(
+                "notifier-{}@example.test",
+                id.as_uuid().simple()
+            ))?,
+            language: localization::Language::It,
+        },
+        good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
+    })?)
+}
+
 #[derive(Default)]
 struct FinalizationFault {
     failed: AtomicBool,
@@ -297,6 +450,20 @@ async fn provider(
             "{stage}/{commit}/mjml/watchlist/product-update/availability/en.html"
         ))
         .body(template.into())
+        .send()
+        .await?;
+    // The receipt's MJML source renders like its compiled HTML: both hold the same
+    // Handlebars expressions.
+    s3.put_object()
+        .bucket(&bucket)
+        .key(format!(
+            "{stage}/{commit}/mjml/content-notice/receipt/it.html"
+        ))
+        .body(
+            include_bytes!("../../../mjml/content-notice/receipt/it.mjml")
+                .to_vec()
+                .into(),
+        )
         .send()
         .await?;
     Ok((

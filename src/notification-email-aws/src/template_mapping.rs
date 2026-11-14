@@ -7,7 +7,7 @@ use notification_core::{
     },
     presentation::present_image,
 };
-use notification_service::ports::notification_delivery_repository::NotificationDeliverySource;
+use notification_service::ports::notification_delivery_repository::UserNotificationDeliverySource;
 use product_listing_core::{
     listing_availability::ListingAvailability, product_listing_price::ProductListingPrice,
     product_listing_slug_id::ProductListingSlugId,
@@ -77,6 +77,7 @@ pub(crate) enum EmailTemplateType {
     SavedSearchDigest,
     PartnershipApplicationApproval,
     PartnershipApplicationRejection,
+    ContentNoticeReceipt,
 }
 
 pub(crate) const fn template_type(content: &NotificationContent) -> EmailTemplateType {
@@ -111,6 +112,7 @@ pub(crate) const fn template_directory(template_type: EmailTemplateType) -> &'st
         EmailTemplateType::PartnershipApplicationRejection => {
             "mjml/partnership-application/rejection"
         }
+        EmailTemplateType::ContentNoticeReceipt => "mjml/content-notice/receipt",
     }
 }
 
@@ -134,6 +136,7 @@ pub(crate) const fn ses_template_tag_value(template_type: EmailTemplateType) -> 
         EmailTemplateType::SavedSearchDigest => "SAVED_SEARCH_DIGEST",
         EmailTemplateType::PartnershipApplicationApproval => "PARTNERSHIP_APPLICATION_APPROVAL",
         EmailTemplateType::PartnershipApplicationRejection => "PARTNERSHIP_APPLICATION_REJECTION",
+        EmailTemplateType::ContentNoticeReceipt => "CONTENT_NOTICE_RECEIPT",
     }
 }
 
@@ -152,6 +155,7 @@ pub(crate) const fn sender_name(template_type: EmailTemplateType) -> &'static st
         | EmailTemplateType::PartnershipApplicationRejection => {
             "Partnership Application | Aura Historia"
         }
+        EmailTemplateType::ContentNoticeReceipt => "Content Notice | Aura Historia",
     }
 }
 
@@ -173,6 +177,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Update zu deinem Partnerschaftsantrag"
             }
+            EmailTemplateType::ContentNoticeReceipt => "Ihre Meldung ist eingegangen",
         },
         EmailLanguage::Fr => match template_type {
             EmailTemplateType::SavedSearchDigest => {
@@ -191,6 +196,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Mise à jour de votre demande de partenariat"
             }
+            EmailTemplateType::ContentNoticeReceipt => "Nous avons bien reçu votre notification",
         },
         EmailLanguage::Es => match template_type {
             EmailTemplateType::SavedSearchDigest => {
@@ -207,6 +213,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Actualización de tu solicitud de asociación"
             }
+            EmailTemplateType::ContentNoticeReceipt => "Hemos recibido su notificación",
         },
         EmailLanguage::It => match template_type {
             EmailTemplateType::SavedSearchDigest => "Nuovi risultati per le tue ricerche salvate",
@@ -223,6 +230,7 @@ pub(crate) const fn subject(
             EmailTemplateType::PartnershipApplicationRejection => {
                 "Aggiornamento della tua richiesta di partnership"
             }
+            EmailTemplateType::ContentNoticeReceipt => "Abbiamo ricevuto la sua segnalazione",
         },
         EmailLanguage::En => match template_type {
             EmailTemplateType::SavedSearchDigest => "New matches for your saved searches",
@@ -233,6 +241,7 @@ pub(crate) const fn subject(
             EmailTemplateType::SearchFilterMatch => "New search filter match",
             EmailTemplateType::PartnershipApplicationApproval => "Partnership application approved",
             EmailTemplateType::PartnershipApplicationRejection => "Partnership application update",
+            EmailTemplateType::ContentNoticeReceipt => "We have received your notice",
         },
     }
 }
@@ -255,7 +264,11 @@ impl<'a> FrontendLinks<'a> {
         format!("{}/{}{path}", self.origin, self.language.as_str())
     }
 
-    fn home(self) -> String {
+    pub(crate) const fn language(self) -> EmailLanguage {
+        self.language
+    }
+
+    pub(crate) fn home(self) -> String {
         self.page("")
     }
 
@@ -281,7 +294,7 @@ impl<'a> FrontendLinks<'a> {
 }
 
 pub(crate) fn template_data(
-    source: &NotificationDeliverySource,
+    source: &UserNotificationDeliverySource,
     email_language: EmailLanguage,
     first_name: Option<&str>,
     links: FrontendLinks<'_>,
@@ -399,7 +412,7 @@ fn add_recipient_data(
 const DIGEST_PREVIEW_LIMIT: usize = 20;
 
 fn digest_template_data(
-    source: &NotificationDeliverySource,
+    source: &UserNotificationDeliverySource,
     digest: &notification_service::saved_search_digest::SavedSearchEmailDigest,
     language: EmailLanguage,
     first_name: Option<&str>,
@@ -607,7 +620,7 @@ mod tests {
         notification_delivery_id::NotificationDeliveryId,
     };
     use notification_service::{
-        ports::notification_delivery_repository::NotificationDeliverySource,
+        ports::notification_delivery_repository::UserNotificationDeliverySource,
         presentation::NotificationPresentationPreferences,
     };
     use product_listing_core::{
@@ -826,6 +839,14 @@ mod tests {
         "Actualización de tu solicitud de asociación",
         "Aggiornamento della tua richiesta di partnership"
     )]
+    #[case(
+        EmailTemplateType::ContentNoticeReceipt,
+        "Ihre Meldung ist eingegangen",
+        "We have received your notice",
+        "Nous avons bien reçu votre notification",
+        "Hemos recibido su notificación",
+        "Abbiamo ricevuto la sua segnalazione"
+    )]
     fn should_localize_subject_for_every_email_template_and_email_language(
         #[case] template: EmailTemplateType,
         #[case] expected_de: &str,
@@ -866,6 +887,10 @@ mod tests {
         EmailTemplateType::PartnershipApplicationRejection,
         "Partnership Application | Aura Historia"
     )]
+    #[case(
+        EmailTemplateType::ContentNoticeReceipt,
+        "Content Notice | Aura Historia"
+    )]
     fn should_name_sender_after_the_email_reason(
         #[case] template: EmailTemplateType,
         #[case] expected: &str,
@@ -882,6 +907,7 @@ mod tests {
             EmailTemplateType::SavedSearchDigest,
             EmailTemplateType::PartnershipApplicationApproval,
             EmailTemplateType::PartnershipApplicationRejection,
+            EmailTemplateType::ContentNoticeReceipt,
         ] {
             let name = sender_name(template);
             assert!(name.ends_with(" | Aura Historia"), "{name}");
@@ -1255,8 +1281,8 @@ mod tests {
     fn source(
         show_unassessed_or_sensitive_content: bool,
         content_policy: Option<ContentPolicyDecision>,
-    ) -> Result<NotificationDeliverySource, Box<dyn std::error::Error>> {
-        Ok(NotificationDeliverySource {
+    ) -> Result<UserNotificationDeliverySource, Box<dyn std::error::Error>> {
+        Ok(UserNotificationDeliverySource {
             saved_search_digest: None,
             notification_delivery_id: NotificationDeliveryId::new(),
             source_id: notification_service::ports::notification_delivery_repository::NotificationDeliverySourceId::Notification(NotificationId::new()),

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exercises package-release.sh and deploy.sh against fake systemctl, curl and pg_dump.
+# Exercises package-release.sh, deploy.sh and autodeploy.sh against fake systemctl and curl.
 # Run: bash src/crawler/scripts/linux/deploy.test.sh
 set -euo pipefail
 
@@ -15,7 +15,7 @@ sha_b="$(printf 'b%.0s' {1..40})"
 mkdir -p "$tmp/fakebin" "$tmp/build" "$tmp/releases-out" "$tmp/log"
 # The fake systemctl keeps each unit's state as a file in $FAKE_UNITS: present means active.
 # FAKE_MISSING_UNITS names units that are not installed, FAKE_STUCK_UNITS units that ignore a stop,
-# and FAKE_FAIL_DAEMON_RELOAD makes daemon-reload fail.
+# FAKE_FAILING_UNITS units whose start fails, and FAKE_FAIL_DAEMON_RELOAD makes daemon-reload fail.
 cat > "$tmp/fakebin/systemctl" <<'T'
 #!/usr/bin/env bash
 echo "systemctl $*" >> "$FAKE_LOG"
@@ -26,6 +26,7 @@ case "$cmd" in
   is-active) [[ -f "$FAKE_UNITS/${!#%.service}" ]] ;;
   stop|start)
     for unit in "$@"; do ! listed "$unit" "${FAKE_MISSING_UNITS:-}" || exit 5; done
+    if [[ "$cmd" == start ]]; then for unit in "$@"; do ! listed "$unit" "${FAKE_FAILING_UNITS:-}" || exit 1; done; fi
     for unit in "$@"; do
       if [[ "$cmd" == start ]]; then touch "$FAKE_UNITS/${unit%.service}"
       elif ! listed "$unit" "${FAKE_STUCK_UNITS:-}"; then rm -f "$FAKE_UNITS/${unit%.service}"; fi
@@ -63,14 +64,9 @@ if [[ "$url" == */compare/* ]]; then
 fi
 cp "$FAKE_RELEASES/$(basename "$url")" "$out"
 T
-cat > "$tmp/fakebin/pg_dump" <<'T'
-#!/usr/bin/env bash
-# deploy.sh takes no backup of its own: the weekly S3 backup is the only one.
-echo called > "$FAKE_PG_CALLED"
-T
 chmod +x "$tmp"/fakebin/*
 export PATH="$tmp/fakebin:$PATH" FAKE_LOG="$tmp/log/calls" FAKE_RELEASES="$tmp/releases-out"
-export FAKE_PG_CALLED="$tmp/log/pg_dump-called" FAKE_HEALTH_FAILS="$tmp/log/health-fails" FAKE_API_JSON="$tmp/log/api.json" FAKE_UNITS="$tmp/state"
+export FAKE_HEALTH_FAILS="$tmp/log/health-fails" FAKE_API_JSON="$tmp/log/api.json" FAKE_UNITS="$tmp/state"
 mkdir -p "$FAKE_UNITS"; touch "$FAKE_UNITS/crawler-server" "$FAKE_UNITS/review-agent-runner"
 active() { [[ -f "$FAKE_UNITS/$1" ]]; }
 
@@ -91,6 +87,8 @@ export CRAWLER_ROOT="$tmp/opt" CRAWLER_RELEASE_BASE_URL="https://example.test/dl
   CRAWLER_HEALTH_TIMEOUT=0 CRAWLER_HEALTH_INTERVAL=0
 mkdir -p "$tmp/units" "$CRAWLER_ROOT/bin"; echo legacy > "$CRAWLER_ROOT/bin/server"
 deploy() { bash "$SCRIPT_DIR/deploy.sh" "$@"; }
+bin_is() { [[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$1" ]]; }
+backed_up() { grep -qx "systemctl start crawler-backup.service" "$FAKE_LOG"; }
 
 deploy "$sha_a" >/dev/null
 [[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$sha_a" ]] || fail "symlink not switched"
@@ -107,8 +105,34 @@ echo 99990101000000_new.sql >> "$CRAWLER_ROOT/releases/$sha_b/MIGRATIONS"
 if deploy "$sha_a" >/dev/null 2>&1; then fail "rollback over a migration was allowed"; fi
 deploy --db-restored "$sha_a" >/dev/null
 
-# A release that adds a migration is switched in without a dump of its own.
-deploy "$sha_b" >/dev/null
+# A release that adds a migration is backed up first, with the services stopped, so the dump is the
+# database its migrations start from.
+: > "$FAKE_LOG"; deploy "$sha_b" >/dev/null
+[[ "$(grep -E '^systemctl (stop|start) ' "$FAKE_LOG")" == $'systemctl stop review-agent-runner crawler-server\nsystemctl start crawler-backup.service\nsystemctl start crawler-server\nsystemctl start review-agent-runner' ]] \
+  || fail "a release with migrations was not backed up between the stop and the start"
+: > "$FAKE_LOG"; deploy "$sha_b" >/dev/null
+! backed_up || fail "a build without new migrations was backed up"
+
+# A failed backup deploys nothing and starts the running build again; exit 4, like any failure
+# with the services stopped.
+deploy --db-restored "$sha_a" >/dev/null
+status=0; FAKE_FAILING_UNITS=crawler-backup deploy "$sha_b" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 4 ]] || fail "a failed backup exited ${status}, not 4"
+bin_is "$sha_a" || fail "a failed backup still switched the build"
+if ! active crawler-server || ! active review-agent-runner; then fail "the services stayed stopped after a failed backup"; fi
+
+# Without the backup unit, a release with migrations is refused before anything stops, unless
+# --skip-backup leaves the backup to the operator.
+: > "$FAKE_LOG"
+if FAKE_MISSING_UNITS=crawler-backup deploy "$sha_b" >/dev/null 2>&1; then fail "a release with migrations was deployed without a backup unit"; fi
+! grep -q "systemctl stop" "$FAKE_LOG" || fail "the services were stopped although no backup could be taken"
+FAKE_MISSING_UNITS=crawler-backup deploy --skip-backup "$sha_b" >/dev/null 2>&1 || fail "--skip-backup did not deploy"
+bin_is "$sha_b" && ! backed_up || fail "--skip-backup still backed up or did not switch"
+
+# A restored database is not dumped again: it is the backup it came from, or empty after a squash.
+deploy --db-restored "$sha_a" >/dev/null
+: > "$FAKE_LOG"; deploy --db-restored "$sha_b" >/dev/null
+bin_is "$sha_b" && ! backed_up || fail "a deploy onto a restored database dumped it again"
 
 # A tampered archive is refused.
 echo tampered >> "$tmp/releases-out/crawler-$sha_b.tar.gz"; rm -rf "$CRAWLER_ROOT/releases/$sha_b"
@@ -131,7 +155,6 @@ bash "$alt/scripts/linux/package-release.sh" "$sha_d" "$tmp/build" "$tmp/release
 export CRAWLER_ROOT="$tmp/opt2" CRAWLER_RELEASES_API_URL="https://example.test/api"
 mkdir -p "$CRAWLER_ROOT"
 api() { for sha in "$@"; do printf '{"tag_name": "crawler-%s"},\n' "$sha"; done > "$FAKE_API_JSON"; }
-bin_is() { [[ "$(readlink -f "$CRAWLER_ROOT/bin")" == "$CRAWLER_ROOT/releases/$1" ]]; }
 autodeploy() { bash "$SCRIPT_DIR/autodeploy.sh" > "$tmp/log/autodeploy.out" 2>&1; }
 
 deploy "$sha_a" >/dev/null 2>&1
@@ -161,13 +184,25 @@ if autodeploy; then fail "an unhealthy release was reported as deployed"; fi
 bin_is "$sha_a" || fail "an unhealthy release was not rolled back"
 [[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_c" ]] || fail "an unhealthy release would be retried"
 
-# A release that adds migrations is never deployed unattended.
+# A release that adds migrations is deployed unattended, backed up first.
 api "$sha_d" "$sha_c"
-if autodeploy; then fail "a release with migrations was deployed unattended"; fi
-bin_is "$sha_a" || fail "switched to a release with migrations"
-[[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_d" ]] || fail "a release with migrations would be retried"
-deploy "$sha_d" >/dev/null 2>&1
-bin_is "$sha_d" || fail "an operator could not deploy the release with migrations"
+: > "$FAKE_LOG"
+autodeploy || fail "autodeploy did not deploy a release with migrations"
+bin_is "$sha_d" || fail "autodeploy did not switch to the release with migrations"
+backed_up || fail "autodeploy deployed a release with migrations without a backup"
+
+# An unhealthy release that brought migrations is not rolled back: the build it replaced cannot run
+# on the migrated database. It stays, exit 4, with the restore to go back.
+sha_i="$(printf '3%.0s' {1..40})"
+touch "$alt/migrations/99990102000000_more.sql"
+bash "$alt/scripts/linux/package-release.sh" "$sha_i" "$tmp/build" "$tmp/releases-out" >/dev/null
+rm "$alt/migrations/99990102000000_more.sql"
+echo 1 > "$FAKE_HEALTH_FAILS"
+status=0; deploy --unattended "$sha_i" > "$tmp/log/unhealthy.out" 2>&1 || status=$?
+[[ "$status" -eq 4 ]] || fail "an unhealthy unattended release with migrations exited ${status}, not 4"
+bin_is "$sha_i" || fail "an unhealthy release with migrations was rolled back onto its migrated database"
+grep -q -- "--db-restored ${sha_d}" "$tmp/log/unhealthy.out" || fail "an unhealthy release with migrations printed no restore hint"
+deploy --db-restored "$sha_d" >/dev/null 2>&1 || fail "the rollback after a restore failed"
 
 
 # Unattended mode leaves a rollback over applied migrations to an operator (exit 3), so autodeploy
@@ -270,7 +305,5 @@ timer="$SCRIPT_DIR/crawler-autodeploy.timer"
 if ! grep -q '^OnCalendar=' "$timer" || grep -Eq '^On(Boot|Startup|Active|UnitActive|UnitInactive)Sec=' "$timer"; then
   fail "the timer has triggers besides OnCalendar"
 fi
-
-[[ ! -e "$FAKE_PG_CALLED" ]] || fail "deploy.sh dumped the database; the weekly S3 backup is the only backup"
 
 echo "deploy.test.sh: all checks passed"

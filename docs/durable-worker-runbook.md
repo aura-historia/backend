@@ -465,7 +465,21 @@ finalization with the **same lease and result**, not another send. Active claims
 leases are not completion. A send/finalize crash can duplicate mail after lease expiry.
 Inspect safe delivery IDs, database completion and restricted provider evidence before
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
-historic customer mail.
+historic customer mail. An SES account-level or configuration refusal (sending paused,
+account suspended, unverified MAIL FROM domain, missing configuration resource) is retried
+with error code `SES_SENDING_UNAVAILABLE` and leaves the delivery `PENDING`; once its jobs
+are dead-lettered, fix the account or configuration, then redrive them.
+
+External email deliveries ([event flow](events/flow.md#external-email-delivery)) follow
+the same rules. Their message rows hold the recipient address and payload: triage by
+delivery ID, source type and error code, and never export or log addresses or payloads.
+A dead-lettered `delivery_state_invalid` job with source type `external` points to a
+corrupt or missing message; fix the persisted state through a reviewed change before
+redrive. Exception: a release that adds a delivery source or template kind together with
+its producer can briefly run the new producer next to an older delivery Lambda, which
+dead-letters those jobs as `delivery_state_invalid`, possibly without a source type. Such
+jobs from the rollout window need no state change: redrive them once the new delivery
+Lambda is live.
 
 ## Saved-search digest recovery
 
