@@ -60,6 +60,7 @@ fn received_at_text(received_at: OffsetDateTime, language: EmailLanguage) -> Str
         EmailLanguage::Fr if day == 1 => format!("1er {month} {year} à {time}"),
         EmailLanguage::Fr => format!("{day} {month} {year} à {time}"),
         EmailLanguage::Es => format!("{day} de {month} de {year} a las {time}"),
+        EmailLanguage::It if day == 1 => format!("1º {month} {year} alle {time}"),
         EmailLanguage::It => format!("{day} {month} {year} alle {time}"),
     }
 }
@@ -326,7 +327,7 @@ mod tests {
     #[case(EmailLanguage::En, "1 January 2027 at 00:00 UTC")]
     #[case(EmailLanguage::Fr, "1er janvier 2027 à 00:00 UTC")]
     #[case(EmailLanguage::Es, "1 de enero de 2027 a las 00:00 UTC")]
-    #[case(EmailLanguage::It, "1 gennaio 2027 alle 00:00 UTC")]
+    #[case(EmailLanguage::It, "1º gennaio 2027 alle 00:00 UTC")]
     fn should_write_the_receipt_time_in_utc_for_the_email_language(
         #[case] language: EmailLanguage,
         #[case] expected: &str,

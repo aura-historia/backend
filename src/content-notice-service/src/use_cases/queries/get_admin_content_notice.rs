@@ -49,10 +49,10 @@ pub struct ContentNoticeReceiptDelivery {
 /// The delivery status of a receipt email, with the delivery pipeline's codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContentNoticeReceiptStatus {
-    /// Waiting for its first or next attempt. A receipt whose retries are exhausted stays
-    /// pending while its delivery job is dead-lettered.
+    /// Waiting for its first or next attempt.
     Pending,
-    /// An attempt is in progress.
+    /// An attempt is in progress or its outcome is uncertain. Like `Pending`, it persists while
+    /// the delivery job is dead-lettered.
     Processing,
     Delivered,
     /// Permanently undeliverable, for example rejected by the email provider; never retried.

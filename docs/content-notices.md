@@ -122,9 +122,9 @@ the per-address budget already bounds receipts, and every accepted notice is ack
 - **Admin view:** the admin detail shows the receipt's delivery status, attempts and delivery
   time. `FAILED` means the receipt is permanently undeliverable, for example because the email
   provider rejected the address, and will not be retried; admins then answer the notifier
-  manually from the contact mailbox. A receipt whose retries are exhausted stays `PENDING`
-  while its delivery job sits in the dead-letter queue, which alarms
-  ([runbook](durable-worker-runbook.md#notification-recovery-limits)).
+  manually from the contact mailbox. `PENDING` and `PROCESSING` normally pass within minutes;
+  a receipt whose delivery job was dead-lettered, which alarms, keeps either status until the
+  job is redriven ([runbook](durable-worker-runbook.md#notification-recovery-limits)).
 
 ## States
 

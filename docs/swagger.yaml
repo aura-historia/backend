@@ -27128,10 +27128,11 @@ components:
         status:
           type: string
           description: |
-            `PENDING`: waiting for its first or next attempt; a receipt whose retries are exhausted stays
-            `PENDING` while its delivery job is dead-lettered and alarmed. `PROCESSING`: an attempt is in progress.
-            `DELIVERED`: accepted by the email provider. `FAILED`: permanently undeliverable, for example rejected
-            by the email provider; it is not retried.
+            `PENDING`: waiting for its first or next attempt. `PROCESSING`: an attempt is in progress or its outcome
+            is uncertain. `DELIVERED`: accepted by the email provider. `FAILED`: permanently undeliverable, for
+            example rejected by the email provider; it is not retried. Both `PENDING` and `PROCESSING` normally pass
+            within minutes; a receipt whose delivery job was dead-lettered (which alarms) keeps its status until
+            the job is redriven.
           enum:
             - PENDING
             - PROCESSING

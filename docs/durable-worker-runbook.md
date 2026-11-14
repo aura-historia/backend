@@ -472,7 +472,10 @@ the same rules. Their message rows hold the recipient address and payload: triag
 delivery ID, source type and error code, and never export or log addresses or payloads.
 A dead-lettered `delivery_state_invalid` job with source type `external` points to a
 corrupt or missing message; fix the persisted state through a reviewed change before
-redrive.
+redrive. Exception: a release that adds a template kind together with its producer (the
+content notice receipt did) can briefly run the new producer next to an older delivery
+Lambda, which rejects the unknown kind the same way. Such jobs from the rollout window
+need no state change: redrive them once the new delivery Lambda is live.
 
 ## Saved-search digest recovery
 
