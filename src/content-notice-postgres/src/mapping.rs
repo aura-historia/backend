@@ -5,8 +5,8 @@ use content_notice_core::{
     content_notice_id::ContentNoticeId,
     content_notice_state::ContentNoticeState,
     content_notice_target::{
-        ContentNoticeTarget, ListingSourceSnapshot, ProductListingSnapshot,
-        ProductListingTitleSnapshot, TargetSnapshot,
+        ContentNoticeTarget, ContentNoticeTargetType, ListingSourceSnapshot,
+        ProductListingSnapshot, ProductListingTitleSnapshot, TargetSnapshot,
     },
     good_faith_statement_version::GoodFaithStatementVersion,
     notice_explanation::NoticeExplanation,
@@ -22,9 +22,6 @@ use product_listing_core::product_listing_id::ProductListingId;
 use url::Url;
 
 pub(crate) const CONTENT_NOTICE_COLUMNS: &str = "content_notice_id, target_type, listing_source_id, product_listing_id, listing_source_name, listing_source_url, listing_source_partner, product_listing_title, product_listing_url, submitter_role, reason_category, explanation, additional_urls, submitter_name, submitter_email, submitter_language, good_faith_statement_version, business_state, version";
-
-const LISTING_SOURCE_TARGET: &str = "LISTING_SOURCE";
-const PRODUCT_LISTING_TARGET: &str = "PRODUCT_LISTING";
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct ContentNoticeRow {
@@ -95,19 +92,16 @@ pub(crate) enum MappingError {
     Invariant(#[source] ContentNoticeInvariantError),
 }
 
-pub(crate) fn target_type(target: ContentNoticeTarget) -> &'static str {
-    match target {
-        ContentNoticeTarget::ListingSource { .. } => LISTING_SOURCE_TARGET,
-        ContentNoticeTarget::ProductListing { .. } => PRODUCT_LISTING_TARGET,
-    }
-}
-
 pub(crate) fn content_notice(
     row: ContentNoticeRow,
 ) -> Result<VersionedContentNotice, MappingError> {
     let version =
         ContentNoticeStorageVersion::try_from(row.version).map_err(|_| MappingError::Version)?;
-    let target = target(&row)?;
+    let target = target(
+        &row.target_type,
+        row.listing_source_id,
+        row.product_listing_id,
+    )?;
     let target_snapshot = target_snapshot(&row)?;
     let notice = ContentNotice::rehydrate(RehydratedContentNoticeState {
         id: ContentNoticeId::try_from(row.content_notice_id)
@@ -142,14 +136,21 @@ pub(crate) fn content_notice(
     Ok(Versioned::new(notice, version))
 }
 
-fn target(row: &ContentNoticeRow) -> Result<ContentNoticeTarget, MappingError> {
+fn target(
+    target_type: &str,
+    listing_source_id: uuid::Uuid,
+    product_listing_id: Option<uuid::Uuid>,
+) -> Result<ContentNoticeTarget, MappingError> {
     let listing_source_id =
-        ListingSourceId::try_from(row.listing_source_id).map_err(MappingError::ListingSourceId)?;
-    match (row.target_type.as_str(), row.product_listing_id) {
-        (LISTING_SOURCE_TARGET, None) => {
+        ListingSourceId::try_from(listing_source_id).map_err(MappingError::ListingSourceId)?;
+    match (
+        ContentNoticeTargetType::from_code(target_type),
+        product_listing_id,
+    ) {
+        (Some(ContentNoticeTargetType::ListingSource), None) => {
             Ok(ContentNoticeTarget::ListingSource { listing_source_id })
         }
-        (PRODUCT_LISTING_TARGET, Some(product_listing_id)) => {
+        (Some(ContentNoticeTargetType::ProductListing), Some(product_listing_id)) => {
             Ok(ContentNoticeTarget::ProductListing {
                 product_listing_id: ProductListingId::try_from(product_listing_id)
                     .map_err(MappingError::ProductListingId)?,

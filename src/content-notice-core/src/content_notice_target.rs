@@ -16,6 +16,13 @@ pub enum ContentNoticeTarget {
 }
 
 impl ContentNoticeTarget {
+    pub fn target_type(self) -> ContentNoticeTargetType {
+        match self {
+            Self::ListingSource { .. } => ContentNoticeTargetType::ListingSource,
+            Self::ProductListing { .. } => ContentNoticeTargetType::ProductListing,
+        }
+    }
+
     pub fn listing_source_id(self) -> ListingSourceId {
         match self {
             Self::ListingSource { listing_source_id }
@@ -32,6 +39,28 @@ impl ContentNoticeTarget {
                 product_listing_id, ..
             } => Some(product_listing_id),
         }
+    }
+}
+
+/// The kind of thing a content notice is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
+pub enum ContentNoticeTargetType {
+    ListingSource,
+    ProductListing,
+}
+
+impl ContentNoticeTargetType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ListingSource => "LISTING_SOURCE",
+            Self::ProductListing => "PRODUCT_LISTING",
+        }
+    }
+
+    pub fn from_code(value: &str) -> Option<Self> {
+        use strum::IntoEnumIterator;
+
+        Self::iter().find(|target_type| target_type.as_str() == value)
     }
 }
 
@@ -104,10 +133,28 @@ mod tests {
             listing_source_id,
         };
 
+        assert_eq!(ContentNoticeTargetType::ListingSource, source.target_type());
+        assert_eq!(
+            ContentNoticeTargetType::ProductListing,
+            listing.target_type()
+        );
         assert_eq!(listing_source_id, source.listing_source_id());
         assert_eq!(None, source.product_listing_id());
         assert_eq!(listing_source_id, listing.listing_source_id());
         assert_eq!(Some(product_listing_id), listing.product_listing_id());
+    }
+
+    #[test]
+    fn should_round_trip_every_target_type_code() {
+        use strum::IntoEnumIterator;
+
+        for target_type in ContentNoticeTargetType::iter() {
+            assert_eq!(
+                Some(target_type),
+                ContentNoticeTargetType::from_code(target_type.as_str())
+            );
+        }
+        assert_eq!(None, ContentNoticeTargetType::from_code("listing_source"));
     }
 
     #[test]
