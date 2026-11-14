@@ -100,14 +100,33 @@ mod tests {
     }
 
     #[test]
+    fn should_remove_every_index_and_keep_fill_bytes_when_segments_are_padded() {
+        let primary = jpeg();
+        let index = app2(b"MPF\0");
+        let fill = [0xFF];
+        let padded = [&fill[..], &index, &fill, &index, &fill].concat();
+
+        let stripped = without_multi_picture_index(&camera_jpeg(&primary, &[], &padded, &[]))
+            .unwrap_or_else(|| panic!("MPF indexes are removed"));
+
+        assert_eq!(camera_jpeg(&primary, &[], &[0xFF; 3], &[]), stripped);
+        assert!(image::load_from_memory_with_format(&stripped, ImageFormat::Jpeg).is_ok());
+    }
+
+    #[test]
     fn should_keep_the_jpeg_when_it_has_no_multi_picture_index() {
         let primary = jpeg();
         let icc = app2(b"ICC_PROFILE\0\x01\x01");
+        let short_app2 = app2(b"MP");
 
         assert_eq!(None, without_multi_picture_index(&primary));
         assert_eq!(
             None,
             without_multi_picture_index(&camera_jpeg(&primary, &icc, &[], &jpeg()))
+        );
+        assert_eq!(
+            None,
+            without_multi_picture_index(&camera_jpeg(&primary, &short_app2, &[], &[]))
         );
     }
 
