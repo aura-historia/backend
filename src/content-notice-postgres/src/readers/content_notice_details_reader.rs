@@ -134,14 +134,7 @@ fn details(row: ContentNoticeDetailsRow) -> Result<AdminContentNoticeDetails, De
             )
         })
         .transpose()?;
-    let product_listing = row
-        .current_product_listing_lifecycle
-        .map(|lifecycle| {
-            ListingLifecycle::from_code(&lifecycle)
-                .map(|lifecycle| CurrentProductListing { lifecycle })
-                .ok_or(DetailsMappingError::Lifecycle)
-        })
-        .transpose()?;
+    let product_listing = current_product_listing(row.current_product_listing_lifecycle)?;
     Ok(AdminContentNoticeDetails {
         notice,
         version,
@@ -152,6 +145,18 @@ fn details(row: ContentNoticeDetailsRow) -> Result<AdminContentNoticeDetails, De
             product_listing,
         },
     })
+}
+
+fn current_product_listing(
+    lifecycle: Option<String>,
+) -> Result<Option<CurrentProductListing>, DetailsMappingError> {
+    lifecycle
+        .map(|lifecycle| {
+            ListingLifecycle::from_code(&lifecycle)
+                .map(|lifecycle| CurrentProductListing { lifecycle })
+                .ok_or(DetailsMappingError::Lifecycle)
+        })
+        .transpose()
 }
 
 fn current_listing_source(
@@ -203,6 +208,21 @@ mod tests {
                 false
             ),
             Err(DetailsMappingError::IngestionMethod(_))
+        ));
+    }
+
+    #[test]
+    fn should_map_current_lifecycle_and_fail_closed_on_an_unknown_one() {
+        assert_eq!(
+            Some(CurrentProductListing {
+                lifecycle: ListingLifecycle::Withdrawn
+            }),
+            current_product_listing(Some("WITHDRAWN".into())).unwrap()
+        );
+        assert_eq!(None, current_product_listing(None).unwrap());
+        assert!(matches!(
+            current_product_listing(Some("ARCHIVED".into())),
+            Err(DetailsMappingError::Lifecycle)
         ));
     }
 

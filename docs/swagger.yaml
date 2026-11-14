@@ -15201,11 +15201,20 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 500
-                title: Internal Server Error
-                error: CONTENT_NOTICE_INTERNAL_ERROR
-                detail: Content notice read failed internally.
+              examples:
+                content_notice:
+                  summary: The stored notice or its current target could not be read
+                  value:
+                    status: 500
+                    title: Internal Server Error
+                    error: CONTENT_NOTICE_INTERNAL_ERROR
+                    detail: Content notice read failed internally.
+                authentication:
+                  summary: Authentication failed internally
+                  value:
+                    status: 500
+                    title: Internal Server Error
+                    error: AUTH_INTERNAL_ERROR
         "503":
           description: Authentication, admin authorization, or content notice storage is temporarily unavailable.
           headers:
@@ -15218,11 +15227,20 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-              example:
-                status: 503
-                title: Service Unavailable
-                error: CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE
-                detail: Content notices are temporarily unavailable.
+              examples:
+                content_notice:
+                  summary: Admin authorization or content notice storage is temporarily unavailable
+                  value:
+                    status: 503
+                    title: Service Unavailable
+                    error: CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE
+                    detail: Content notices are temporarily unavailable.
+                authentication:
+                  summary: Authentication is temporarily unavailable
+                  value:
+                    status: 503
+                    title: Service Unavailable
+                    error: AUTH_TEMPORARILY_UNAVAILABLE
   /v1/admin/partnership-applications:
     get:
       summary: Search PartnershipApplications for administration
