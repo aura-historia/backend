@@ -15,10 +15,11 @@ use std::collections::HashSet;
 use std::time::Duration;
 use url::Url;
 
-/// Consecutive same-kind failures of a slow-host kind (timeout, connect, DNS
-/// timeout) that open the circuit. The streak is persisted, so the failures
-/// may span scheduler passes; a responsive fetch between them resets it.
-pub const SLOW_HOST_CONSECUTIVE_FAILURES: u32 = 2;
+/// Consecutive same-kind failures of a kind that needs sustained evidence
+/// ([`DomainFailureKind::opens_on_first_failure`]) that open the circuit. The
+/// streak is persisted, so the failures may span scheduler passes; a
+/// responsive fetch between them resets it.
+pub const SUSTAINED_FAILURE_STREAK: u32 = 2;
 /// Distinct URLs of one batch that must fail with a slow-host kind before
 /// their share of the attempted URLs is judged.
 pub const SLOW_HOST_BATCH_MIN_URLS: usize = 3;
@@ -122,8 +123,8 @@ impl BatchEvidence {
             Some(kind) if kind.opens_on_first_failure() => ScrapeCircuitDecision::Open(kind),
             Some(kind) => {
                 let sustained = next_scrape_failure_streak(scrape_health, kind)
-                    >= SLOW_HOST_CONSECUTIVE_FAILURES
-                    || self.slow_host_share_reached_with(candidate_url);
+                    >= SUSTAINED_FAILURE_STREAK
+                    || (kind.is_slow_host() && self.slow_host_share_reached_with(candidate_url));
                 if sustained {
                     ScrapeCircuitDecision::Open(kind)
                 } else {
@@ -169,7 +170,7 @@ impl BatchEvidence {
                     self.server_failure_urls.insert(candidate_url.clone());
                 }
             }
-            DomainFetchHealth::CircuitFailure { kind, .. } if !kind.opens_on_first_failure() => {
+            DomainFetchHealth::CircuitFailure { kind, .. } if kind.is_slow_host() => {
                 self.slow_host_urls.insert(candidate_url.clone());
             }
             _ => {}

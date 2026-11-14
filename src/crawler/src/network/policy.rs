@@ -87,11 +87,18 @@ impl DomainFailureKind {
         }
     }
 
-    /// Whether one observation of this kind opens the circuit. A timeout,
-    /// a connection failure or a DNS timeout also comes from a slow host, so
-    /// those kinds need sustained evidence first (`scraper::scrape_circuit`).
+    /// Whether one observation of this kind opens the circuit. The other
+    /// kinds need sustained evidence first (`scraper::scrape_circuit`).
     pub const fn opens_on_first_failure(self) -> bool {
-        !matches!(self, Self::Timeout | Self::Connect | Self::DnsTimeout)
+        !self.is_slow_host()
+    }
+
+    /// Whether the kind also comes from a slow host, which is the shop
+    /// segment the crawler targets: a timeout, a connection failure or a DNS
+    /// timeout. A batch where enough URLs fail with these kinds opens the
+    /// circuit (`scraper::scrape_circuit`).
+    pub const fn is_slow_host(self) -> bool {
+        matches!(self, Self::Timeout | Self::Connect | Self::DnsTimeout)
     }
 
     pub const fn base_cooldown(self) -> Duration {

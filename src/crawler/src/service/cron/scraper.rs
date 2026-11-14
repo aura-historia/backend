@@ -180,9 +180,9 @@ struct ScrapeCandidateOutcome {
     /// The scrape-health snapshot an applied scrape-circuit write left behind, which the
     /// batch carries forward as the fence for its later writes.
     persisted_scrape_health: Option<ScrapeHealthSnapshot>,
-    /// robots.txt of the URL's origin could not be reached, which disallows
-    /// every URL there until it is fetched again.
-    robots_unreachable: bool,
+    /// The failure refuses every URL of the origin, so the rest of the batch is deferred
+    /// for this reason instead of each URL recording the same failure.
+    origin_deferral: Option<DeferralReason>,
     /// The error kind the failure recorded on its URL; `None` for a review wait, which is no
     /// failure.
     failure_kind: Option<String>,
@@ -1439,7 +1439,7 @@ async fn handle_scrape_error(
         http_failure: record.answer,
         circuit_opened: record.circuit_opened,
         persisted_scrape_health: record.persisted_scrape_health,
-        robots_unreachable: is_robots_unreachable(&error),
+        origin_deferral: origin_deferral(&error),
         // A wait is no URL failure, so `UrlFailures` leaves it out as `ScrapesFailed` does.
         failure_kind: awaited_schema_review.is_none().then_some(record.error_kind),
         ..Default::default()
@@ -1649,7 +1649,7 @@ async fn open_scrape_circuit(
                 .is_work_locked(WorkLockScope::Spider, candidate.listing_source_id),
             batch_attempted_urls = evidence.attempted_urls() + 1,
             batch_slow_host_urls = evidence.slow_host_urls()
-                + usize::from(!domain_kind.opens_on_first_failure()),
+                + usize::from(domain_kind.is_slow_host()),
             batch_repeated_status_urls = FailedAnswer::of(failure.kind, status_code)
                 .map(|answer| evidence.rejection_run_with(answer, &candidate.url)),
             cooldown_seconds = domain_cooldown.as_secs(),
@@ -2028,8 +2028,13 @@ fn is_schema_generation_validation_failure(error: &ScraperError) -> bool {
     )
 }
 
-fn is_robots_unreachable(error: &ScraperError) -> bool {
-    error.network_error_kind() == Some(NetworkErrorKind::RobotsUnreachable)
+/// Why a failure defers the rest of its batch: robots.txt of the URL's origin could not be
+/// reached, which disallows every URL there until it is fetched again.
+fn origin_deferral(error: &ScraperError) -> Option<DeferralReason> {
+    match error.network_error_kind()? {
+        NetworkErrorKind::RobotsUnreachable => Some(DeferralReason::RobotsUnreachable),
+        _ => None,
+    }
 }
 
 /// Refusals by robots.txt or by a page's own robots directives are the crawler honouring a
@@ -2213,17 +2218,16 @@ async fn scrape_batch_candidates(
             break;
         }
 
-        // One unreachable robots.txt refuses the whole origin: the rest of
-        // the batch waits for a later pass instead of each URL recording the
-        // same refusal.
-        if candidate_outcome.robots_unreachable {
+        // A failure that refuses the whole origin: the rest of the batch waits for a later
+        // pass instead of each URL recording the same refusal.
+        if let Some(reason) = candidate_outcome.origin_deferral {
             let remaining = candidate_count.saturating_sub(candidate_index + 1);
             debug!(
                 event = "crawler.scraper.robots_unreachable_batch_stopped",
                 deferred_urls = remaining,
                 "Deferring remaining scraper URLs while robots.txt is unreachable"
             );
-            outcome.record_deferred(DeferralReason::RobotsUnreachable, remaining);
+            outcome.record_deferred(reason, remaining);
             break;
         }
     }
