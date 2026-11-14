@@ -10608,6 +10608,12 @@ paths:
 
         Retries: retrying the identical submission within 24 hours, for example after a `503`, a lost response
         or a double click, is safe and stores the notice at most once. A changed submission is a new notice.
+
+        Receipt: every stored notice gets exactly one receipt email to `email`, sent asynchronously after the
+        `202`, in `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It confirms the
+        receipt time, a reference (the ContentNotice ID), the provider, the listing title for `PRODUCT_LISTING`
+        targets and the reason category. It never repeats anything the submitter typed. An identical
+        resubmission and a `429` send no receipt.
       operationId: submitContentNotice
       tags:
         - ContentNotices
@@ -15129,6 +15135,10 @@ paths:
                       email: erika@example.com
                       language: de
                     goodFaithStatement: GOOD_FAITH_V1
+                    receipt:
+                      status: DELIVERED
+                      attempts: 1
+                      deliveredAt: "2026-11-13T10:44:21.502Z"
                 listing_source:
                   summary: A provider opt-out for a ListingSource that was deleted after submission
                   value:
@@ -15155,6 +15165,9 @@ paths:
                       email: max@antik.example
                       language: de
                     goodFaithStatement: GOOD_FAITH_V1
+                    receipt:
+                      status: FAILED
+                      attempts: 5
         "400":
           description: Bad request - invalid ContentNotice ID.
           headers:
@@ -27050,6 +27063,7 @@ components:
         - additionalUrls
         - submitter
         - goodFaithStatement
+        - receipt
       properties:
         contentNoticeId:
           type: string
@@ -27097,6 +27111,41 @@ components:
           description: Version of the good-faith statement wording the submitter confirmed.
           enum:
             - GOOD_FAITH_V1
+        receipt:
+          description: The delivery of the receipt email to the submitter. `null` only when no receipt was enqueued.
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminContentNoticeReceiptData"
+    AdminContentNoticeReceiptData:
+      type: object
+      description: |
+        Where the receipt email to the submitter stands. `FAILED` means it was not delivered and will not be
+        retried; answer the submitter from the contact mailbox.
+      required:
+        - status
+        - attempts
+      properties:
+        status:
+          type: string
+          description: |
+            `PENDING`: waiting for its first or next attempt; a receipt whose retries are exhausted stays
+            `PENDING` while its delivery job is dead-lettered and alarmed. `PROCESSING`: an attempt is in progress.
+            `DELIVERED`: accepted by the email provider. `FAILED`: permanently undeliverable, for example rejected
+            by the email provider; it is not retried.
+          enum:
+            - PENDING
+            - PROCESSING
+            - DELIVERED
+            - FAILED
+        attempts:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Send attempts so far.
+        deliveredAt:
+          type: string
+          format: date-time
+          description: When the email provider accepted the receipt. Present exactly when `status` is `DELIVERED`.
     AdminContentNoticeTargetSnapshotData:
       type: object
       description: The target as it was at submission. It never changes.

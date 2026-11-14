@@ -90,7 +90,8 @@ use content_notice_service::ports::SystemContentNoticeClock;
 use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeHandler;
 use embedding::VertexAiEmbeddingConfig;
 use notification_postgres::{
-    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
+    SqlxExternalEmailOutboxFactory, SqlxNotificationDeliveryIntentRepositoryFactory,
+    SqlxNotificationRepositoryFactory,
 };
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
@@ -2063,6 +2064,7 @@ async fn app_state_from_config_and_runtime(
                 SqlxContentNoticeTargetReaderFactory::new(),
                 SqlxContentNoticeRepositoryFactory::new(),
                 SqlxContentNoticeSubmissionHistoryFactory::new(),
+                SqlxExternalEmailOutboxFactory::new(),
                 SystemContentNoticeClock,
             )),
             Arc::new(list_admin_content_notices),

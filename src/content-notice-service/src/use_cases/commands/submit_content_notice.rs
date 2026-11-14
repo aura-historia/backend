@@ -26,6 +26,12 @@ use content_notice_core::{
     submitter_role::SubmitterRole,
 };
 use listing_source_core::ListingSourceId;
+use notification_core::external_email::{
+    ContentNoticeReceipt, ExternalEmailContent, ExternalEmailOrigin, ExternalEmailRecipient,
+};
+use notification_service::ports::external_email_outbox::{
+    ExternalEmailOutbox, ExternalEmailOutboxError, ExternalEmailOutboxFactory, ExternalEmailRequest,
+};
 use product_listing_core::{
     listing_lifecycle::ListingLifecycle, product_listing_id::ProductListingId,
 };
@@ -117,33 +123,36 @@ pub trait SubmitContentNoticeUseCase: Send + Sync {
     ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError>;
 }
 
-pub struct SubmitContentNoticeHandler<U, T, R, H, C> {
+pub struct SubmitContentNoticeHandler<U, T, R, H, O, C> {
     unit_of_work: U,
     targets: T,
     notices: R,
     history: H,
+    receipts: O,
     clock: C,
 }
 
-impl<U, T, R, H, C> SubmitContentNoticeHandler<U, T, R, H, C> {
-    pub fn new(unit_of_work: U, targets: T, notices: R, history: H, clock: C) -> Self {
+impl<U, T, R, H, O, C> SubmitContentNoticeHandler<U, T, R, H, O, C> {
+    pub fn new(unit_of_work: U, targets: T, notices: R, history: H, receipts: O, clock: C) -> Self {
         Self {
             unit_of_work,
             targets,
             notices,
             history,
+            receipts,
             clock,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, T, R, H, C> SubmitContentNoticeUseCase for SubmitContentNoticeHandler<U, T, R, H, C>
+impl<U, T, R, H, O, C> SubmitContentNoticeUseCase for SubmitContentNoticeHandler<U, T, R, H, O, C>
 where
     U: UnitOfWork,
     T: ContentNoticeTargetReaderFactory<U::Tx>,
     R: ContentNoticeRepositoryFactory<U::Tx>,
     H: ContentNoticeSubmissionHistoryFactory<U::Tx>,
+    O: ExternalEmailOutboxFactory<U::Tx>,
     C: ContentNoticeClock,
 {
     // The target ID stays out of the span: a rate-limited request must not log it, because it
@@ -221,11 +230,12 @@ where
     }
 }
 
-impl<U, T, R, H, C> SubmitContentNoticeHandler<U, T, R, H, C>
+impl<U, T, R, H, O, C> SubmitContentNoticeHandler<U, T, R, H, O, C>
 where
     U: UnitOfWork,
     R: ContentNoticeRepositoryFactory<U::Tx>,
     H: ContentNoticeSubmissionHistoryFactory<U::Tx>,
+    O: ExternalEmailOutboxFactory<U::Tx>,
     C: ContentNoticeClock,
 {
     /// Serializes the address's submissions for the rest of the transaction, then decides the
@@ -245,8 +255,8 @@ where
         Ok((decide(now, fingerprint, &submissions), now))
     }
 
-    /// Stores the notice in the submission transaction. Everything that must commit or roll
-    /// back together with the notice belongs here.
+    /// Stores the notice and the intent to send its receipt in the submission transaction.
+    /// Everything that must commit or roll back together with the notice belongs here.
     async fn record(
         &self,
         tx: &mut U::Tx,
@@ -258,8 +268,37 @@ where
             .in_transaction(tx)
             .insert(notice, fingerprint, submitted)
             .await?;
+        // The notice ID is new, so the outbox finds no earlier receipt to return instead.
+        self.receipts
+            .in_transaction(tx)
+            .enqueue(receipt_request(notice, submitted)?)
+            .await?;
         Ok(())
     }
+}
+
+/// The receipt of a stored notice, sent to the address the notifier gave in the language
+/// they chose (`docs/content-notices.md`, Receipt email).
+fn receipt_request(
+    notice: &ContentNotice,
+    received_at: OffsetDateTime,
+) -> Result<ExternalEmailRequest, SubmitContentNoticeError> {
+    let submitter = notice.submitter();
+    let recipient =
+        ExternalEmailRecipient::try_from(submitter.email.as_str()).map_err(|source| {
+            SubmitContentNoticeError::Internal {
+                source: box_error(source),
+            }
+        })?;
+    Ok(ExternalEmailRequest {
+        recipient,
+        language: submitter.language,
+        content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt::for_notice(
+            notice,
+            received_at,
+        )),
+        origin: ExternalEmailOrigin::ContentNotice(notice.id()),
+    })
 }
 
 /// Logs a committed submission, stored or duplicate, without personal data.
@@ -378,6 +417,19 @@ impl From<ContentNoticeRepositoryError> for SubmitContentNoticeError {
     }
 }
 
+impl From<ExternalEmailOutboxError> for SubmitContentNoticeError {
+    fn from(error: ExternalEmailOutboxError) -> Self {
+        match error {
+            ExternalEmailOutboxError::OperationFailed { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ExternalEmailOutboxError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+        }
+    }
+}
+
 impl From<ContentNoticeSubmissionHistoryError> for SubmitContentNoticeError {
     fn from(error: ContentNoticeSubmissionHistoryError) -> Self {
         match error {
@@ -414,6 +466,10 @@ mod tests {
     use domain_primitives::versioned::Versioned;
     use listing_source_core::ListingSourceName;
     use localization::Language;
+    use notification_core::external_email_message_id::ExternalEmailMessageId;
+    use notification_service::ports::external_email_outbox::{
+        ExternalEmailEnqueueOutcome, ExternalEmailErasure,
+    };
     use std::sync::{Arc, Mutex, MutexGuard};
     use time::{Duration, macros::datetime};
     use url::Url;
@@ -431,7 +487,9 @@ mod tests {
         read_error: Option<ContentNoticeTargetReadError>,
         insert_error: Option<ContentNoticeRepositoryError>,
         history_error: Option<ContentNoticeSubmissionHistoryError>,
+        enqueue_error: Option<ExternalEmailOutboxError>,
         inserted: Vec<(ContentNotice, ContentNoticeSubmissionFingerprint)>,
+        enqueued: Vec<ExternalEmailRequest>,
         /// Stored submissions per lowercased address, as the history port groups them.
         history: Vec<(String, RecentSubmission)>,
         /// The limit steps in the order they ran.
@@ -454,6 +512,8 @@ mod tests {
     struct FakeNoticeRepository(Shared);
     struct FakeHistories(Shared);
     struct FakeHistory(Shared);
+    struct FakeOutboxes(Shared);
+    struct FakeOutbox(Shared);
     struct FixedClock;
 
     fn address_key(email: &SubmitterEmail) -> String {
@@ -614,6 +674,40 @@ mod tests {
         }
     }
 
+    impl ExternalEmailOutboxFactory<FakeTransaction> for FakeOutboxes {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ExternalEmailOutbox + 'tx {
+            FakeOutbox(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ExternalEmailOutbox for FakeOutbox {
+        async fn enqueue(
+            &mut self,
+            request: ExternalEmailRequest,
+        ) -> Result<ExternalEmailEnqueueOutcome, ExternalEmailOutboxError> {
+            let mut state = lock(&self.0);
+            if let Some(error) = state.enqueue_error.take() {
+                return Err(error);
+            }
+            state.steps.push("enqueue receipt".to_owned());
+            state.enqueued.push(request);
+            Ok(ExternalEmailEnqueueOutcome::Enqueued(
+                ExternalEmailMessageId::new(),
+            ))
+        }
+
+        async fn erase_origin(
+            &mut self,
+            _origin: ExternalEmailOrigin,
+        ) -> Result<ExternalEmailErasure, ExternalEmailOutboxError> {
+            unreachable!("submission never erases receipts")
+        }
+    }
+
     impl ContentNoticeClock for FixedClock {
         fn now_utc(&self) -> OffsetDateTime {
             NOW
@@ -626,6 +720,7 @@ mod tests {
             FakeTargets(Arc::clone(state)),
             FakeNotices(Arc::clone(state)),
             FakeHistories(Arc::clone(state)),
+            FakeOutboxes(Arc::clone(state)),
             FixedClock,
         )
     }
@@ -998,6 +1093,7 @@ mod tests {
                 "lock Jane@Example.com".to_owned(),
                 format!("read after {}", NOW - SUBMISSION_WINDOW),
                 "insert".to_owned(),
+                "enqueue receipt".to_owned(),
             ],
             lock(&state).steps
         );
@@ -1021,6 +1117,7 @@ mod tests {
         assert_eq!(SubmitContentNoticeResult::Duplicate, repeated);
         let state = lock(&state);
         assert_eq!(1, state.inserted.len());
+        assert_eq!(1, state.enqueued.len());
         assert_eq!(2, state.commits);
     }
 
@@ -1063,6 +1160,7 @@ mod tests {
         );
         let state = lock(&state);
         assert!(state.inserted.is_empty());
+        assert!(state.enqueued.is_empty());
         assert_eq!(0, state.commits);
     }
 
@@ -1121,6 +1219,73 @@ mod tests {
         assert!(text.contains("\"level\":\"INFO\""), "{text}");
         for private in ["jane@example.com", "Jane Doe", "My photograph."] {
             assert!(!text.contains(private), "{text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn should_enqueue_one_receipt_to_the_submitter_for_a_stored_notice() {
+        let listing = product_listing(ListingLifecycle::Active);
+        let state = state(|state| state.product_listings.push(listing.clone()));
+
+        handler(&state)
+            .execute(&context(), command(listing_reference(&listing)))
+            .await
+            .unwrap();
+
+        let state = lock(&state);
+        let notice = &state.inserted[0].0;
+        assert_eq!(
+            vec![ExternalEmailRequest {
+                recipient: ExternalEmailRecipient::try_from("jane@example.com").unwrap(),
+                language: Language::De,
+                content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt {
+                    content_notice_id: notice.id(),
+                    received_at: NOW,
+                    provider_name: ListingSourceName::try_from("Antik Shop").unwrap(),
+                    listing_title: Some(
+                        ProductListingTitleSnapshot::try_from("Jugendstil-Vase").unwrap()
+                    ),
+                    reason_category: ReasonCategory::RightsInfringement,
+                }),
+                origin: ExternalEmailOrigin::ContentNotice(notice.id()),
+            }],
+            state.enqueued
+        );
+        assert_eq!(1, state.commits);
+    }
+
+    #[tokio::test]
+    async fn should_fail_and_roll_back_the_submission_when_the_receipt_cannot_be_enqueued() {
+        let source = listing_source(false);
+        for (error, expected) in [
+            (
+                ExternalEmailOutboxError::OperationFailed {
+                    source: static_error("enqueue"),
+                },
+                "temporary",
+            ),
+            (
+                ExternalEmailOutboxError::InvalidPersistedState {
+                    source: static_error("enqueue"),
+                },
+                "invalid",
+            ),
+        ] {
+            let state = state(|state| {
+                state.listing_sources.push(source.clone());
+                state.enqueue_error = Some(error);
+            });
+
+            let result = handler(&state)
+                .execute(&context(), command(source_reference(&source)))
+                .await;
+
+            match (expected, result) {
+                ("temporary", Err(SubmitContentNoticeError::TemporarilyUnavailable { .. }))
+                | ("invalid", Err(SubmitContentNoticeError::InvalidPersistedState { .. })) => {}
+                (_, other) => panic!("unexpected {expected} outcome {other:?}"),
+            }
+            assert_eq!(0, lock(&state).commits);
         }
     }
 }

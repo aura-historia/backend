@@ -1,0 +1,67 @@
+<mjml lang="de">
+  <mj-head>
+    <mj-title>Ihre Meldung ist eingegangen</mj-title>
+    <mj-preview>Wir haben Ihre Meldung erhalten. Referenz: {{reference}}</mj-preview>
+    <mj-font name="Newsreader" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&amp;display=swap" />
+    <mj-font name="Geist" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+    <mj-attributes>
+      <mj-all font-family="Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif" />
+      <mj-wrapper padding="20px 0" />
+      <mj-section padding="0 40px" background-color="#F4EEE3" css-class="ah-px" />
+      <mj-column padding="0" />
+      <mj-text padding="0" color="#4F4441" font-size="16px" line-height="1.6" />
+      <mj-image padding="0" />
+      <mj-spacer height="28px" />
+      <mj-class name="eyebrow" font-family="'Geist Mono', Menlo, Consolas, 'Courier New', monospace" font-size="12px" line-height="1.4" letter-spacing="0.2em" color="#7A5C30" padding="0 0 18px" />
+      <mj-class name="headline" font-family="Newsreader, Georgia, 'Times New Roman', serif" font-size="40px" line-height="1.06" letter-spacing="-0.02em" color="#170D0E" css-class="ah-headline" />
+      <mj-class name="note" font-size="14px" color="#6B5E58" />
+      <mj-class name="footnote" font-size="13px" color="#6B5E58" />
+      <mj-divider padding="0 0 24px" border-width="1px" border-color="#D5CFC5" />
+    </mj-attributes>
+    <mj-style>
+      a { color: #170D0E; }
+      @media only screen and (max-width: 480px) {
+        .ah-px > table > tbody > tr > td { padding-left: 20px !important; padding-right: 20px !important; }
+        .ah-headline > div { font-size: 32px !important; }
+      }
+    </mj-style>
+  </mj-head>
+  <mj-body background-color="#EDE5D7" width="600px">
+    <mj-wrapper>
+    <mj-section background-color="#170D0E" padding="30px 40px" border-radius="14px 14px 0 0">
+      <mj-column>
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;"><tr><td style="vertical-align:middle;"><a href="{{home_url}}" style="text-decoration:none;"><img src="https://assets.aura-historia.com/branding/email-wordmark.png" alt="Aura Historia" width="151" height="30" style="display:block;width:151px;height:30px;border:0;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:18px;letter-spacing:0.22em;color:#F4EEE3;" /></a></td><td align="right" style="vertical-align:middle;text-align:right;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.16em;color:#B8935A;">MELDUNG</td></tr></table></mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section padding="44px 40px 48px">
+      <mj-column>
+        <mj-text mj-class="eyebrow">EINGANGSBESTÄTIGUNG</mj-text>
+        <mj-text mj-class="headline">Ihre Meldung ist <em>eingegangen.</em></mj-text>
+        <mj-spacer />
+        <mj-text padding="0 0 12px" color="#170D0E">Guten Tag,</mj-text>
+        <mj-text>Wir haben Ihre Meldung am {{received_at}} erhalten.</mj-text>
+        <mj-spacer />
+        <mj-text><table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;background-color:#FBF8F2;border:1px solid #E5DED4;border-radius:14px;"><tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;border-bottom:1px solid #E9E5E0;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">REFERENZ</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;border-bottom:1px solid #E9E5E0;">{{reference}}</td></tr><tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;border-bottom:1px solid #E9E5E0;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">BETRIFFT</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;border-bottom:1px solid #E9E5E0;">{{provider_name}}</td></tr>{{#if listing_title}}<tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;border-bottom:1px solid #E9E5E0;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">ANGEBOT</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;border-bottom:1px solid #E9E5E0;">{{listing_title}}</td></tr>{{/if}}<tr><td width="150" style="width:150px;padding:18px 12px 18px 22px;vertical-align:middle;"><span style="font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.4;letter-spacing:0.14em;color:#6B5E58;">GRUND</span></td><td style="padding:18px 22px 18px 0;vertical-align:middle;font-family:Geist, 'Helvetica Neue', Helvetica, Arial, sans-serif;font-size:15px;line-height:1.4;font-weight:600;color:#170D0E;">{{category_label}}</td></tr></table></mj-text>
+        <mj-spacer />
+        <mj-text>Wir prüfen Ihre Meldung und teilen Ihnen unsere Entscheidung per E-Mail mit. Bitte geben Sie bei Rückfragen die Referenz an.</mj-text>
+        <mj-spacer />
+        <mj-text mj-class="footnote">Falls Sie diese Meldung nicht abgegeben haben, können Sie diese E-Mail ignorieren.</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#170D0E" padding="36px 40px 40px" border-radius="0 0 14px 14px">
+      <mj-column>
+        <mj-text font-size="14px" color="#D8CABE">
+          <div style="padding-bottom:10px;font-family:Newsreader, Georgia, 'Times New Roman', serif;font-size:20px;line-height:1;letter-spacing:0.22em;color:#F4EEE3;">AURA HISTORIA</div>
+          <div style="padding-bottom:16px;">Der weltweite Antiquitätenmarkt in einer einzigen Suche.</div>
+          <div style="padding-bottom:22px;line-height:2;"><a href="{{home_url}}" style="color:#F4EEE3;text-decoration:none;">aura-historia.com</a>&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:contact@aura-historia.com" style="color:#F4EEE3;text-decoration:none;">contact@aura-historia.com</a></div>
+          <div style="border-top:1px solid #362D2C;padding-top:22px;font-size:12px;color:#A8988D;">
+            <div style="padding-bottom:10px;font-family:'Geist Mono', Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;letter-spacing:0.14em;color:#D8CABE;">IMPRESSUM</div>
+            <div style="padding-bottom:10px;">Handelsname: Aura Historia &middot; Inhaber: Julian Bruder Einzelunternehmen<br />Anschrift: Hardenbergstraße 80, 04275 Leipzig, Deutschland<br />Kontakt: contact@aura-historia.com &middot; USt-IdNr.: DE463899077</div>
+            <div>© 2026 Aura Historia — Alle Rechte vorbehalten.</div>
+          </div>
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    </mj-wrapper>
+  </mj-body>
+</mjml>

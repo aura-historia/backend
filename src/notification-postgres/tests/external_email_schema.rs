@@ -124,7 +124,7 @@ async fn should_reject_unsupported_templates_and_a_second_email_per_origin_and_t
 
     assert_eq!(
         "external_email_messages_template_check",
-        violated_constraint(insert_message(&pool, "CONTENT_NOTICE_RECEIPT", Uuid::now_v7()).await)
+        violated_constraint(insert_message(&pool, "NEWSLETTER_CONFIRMATION", Uuid::now_v7()).await)
     );
     assert_eq!(
         "external_email_messages_origin_template_unique",

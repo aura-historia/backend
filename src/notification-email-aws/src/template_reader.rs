@@ -449,25 +449,127 @@ mod tests {
     /// checks below run for the mechanism.
     const EXTERNAL_TEST_PROBE_TEMPLATE: &str = "<html><body><a href=\"{{home_url}}\">Aura Historia</a><p>Reference: {{reference}}</p><a href=\"mailto:contact@aura-historia.com\">contact@aura-historia.com</a></body></html>";
 
-    /// Every external kind must list its templates (de, en, es, fr, it) and sample content
-    /// here; a new kind does not compile until it does.
+    /// The content notice receipt templates in the order de, en, es, fr, it.
+    const CONTENT_NOTICE_RECEIPT_TEMPLATES: [&str; 5] = [
+        include_str!("../../../mjml/content-notice/receipt/de.mjml"),
+        include_str!("../../../mjml/content-notice/receipt/en.mjml"),
+        include_str!("../../../mjml/content-notice/receipt/es.mjml"),
+        include_str!("../../../mjml/content-notice/receipt/fr.mjml"),
+        include_str!("../../../mjml/content-notice/receipt/it.mjml"),
+    ];
+
+    /// Text a notifier typed into a notice. None of it may reach a receipt.
+    const SUBMITTER_MARKERS: [&str; 4] = [
+        "MarkerName",
+        "marker-email@submitter.example",
+        "MarkerExplanation",
+        "marker-url.example",
+    ];
+
+    /// A stored notice whose submitter-typed fields carry [`SUBMITTER_MARKERS`].
+    fn content_notice(
+        listing_title: Option<&str>,
+    ) -> Result<content_notice_core::content_notice::ContentNotice, Box<dyn std::error::Error>>
+    {
+        use content_notice_core::{
+            additional_url::{AdditionalUrl, AdditionalUrls},
+            content_notice::{ContentNotice, NewContentNotice},
+            content_notice_id::ContentNoticeId,
+            content_notice_target::{
+                ContentNoticeTarget, ListingSourceSnapshot, ProductListingSnapshot,
+                ProductListingTitleSnapshot, TargetSnapshot,
+            },
+            good_faith_statement_version::GoodFaithStatementVersion,
+            notice_explanation::NoticeExplanation,
+            reason_category::ReasonCategory,
+            submitter::{Submitter, SubmitterEmail, SubmitterName},
+            submitter_role::SubmitterRole,
+        };
+        use listing_source_core::{ListingSourceId, ListingSourceName};
+        use product_listing_core::product_listing_id::ProductListingId;
+
+        let listing_source_id = ListingSourceId::new();
+        let (target, product_listing) = match listing_title {
+            Some(title) => (
+                ContentNoticeTarget::ProductListing {
+                    product_listing_id: ProductListingId::new(),
+                    listing_source_id,
+                },
+                Some(ProductListingSnapshot {
+                    title: Some(ProductListingTitleSnapshot::try_from(title)?),
+                    url: url::Url::parse("https://antik.example/vase")?,
+                }),
+            ),
+            None => (
+                ContentNoticeTarget::ListingSource { listing_source_id },
+                None,
+            ),
+        };
+        Ok(ContentNotice::submit(NewContentNotice {
+            id: ContentNoticeId::new(),
+            target,
+            target_snapshot: TargetSnapshot {
+                listing_source: ListingSourceSnapshot {
+                    name: ListingSourceName::try_from("Antik <Shop>")?,
+                    url: Some(url::Url::parse("https://antik.example/")?),
+                    partner: true,
+                },
+                product_listing,
+            },
+            submitter_role: SubmitterRole::RightsHolder,
+            reason_category: ReasonCategory::RightsInfringement,
+            explanation: Some(NoticeExplanation::try_from(
+                "MarkerExplanation: see https://marker-url.example/",
+            )?),
+            additional_urls: AdditionalUrls::try_from(vec![AdditionalUrl::try_from(
+                "https://marker-url.example/photo",
+            )?])?,
+            submitter: Submitter {
+                name: SubmitterName::try_from("MarkerName")?,
+                email: SubmitterEmail::try_from("marker-email@submitter.example")?,
+                language: localization::Language::De,
+            },
+            good_faith_statement_version: GoodFaithStatementVersion::GoodFaithV1,
+        })?)
+    }
+
+    /// An external kind's templates (de, en, es, fr, it), sample content and the text its
+    /// rendered email must contain.
+    struct ExternalTemplateFixture {
+        templates: [&'static str; 5],
+        content: notification_core::external_email::ExternalEmailContent,
+        expected: Vec<String>,
+    }
+
+    /// Every external kind must have a fixture; a new kind does not compile until it does.
     fn external_template_fixture(
         template: notification_core::external_email::ExternalEmailTemplate,
-    ) -> Result<
-        (
-            [&'static str; 5],
-            notification_core::external_email::ExternalEmailContent,
-        ),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<ExternalTemplateFixture, Box<dyn std::error::Error>> {
         use notification_core::external_email::{
-            ExternalEmailContent, ExternalEmailTemplate, ExternalEmailTestProbe,
+            ContentNoticeReceipt, ExternalEmailContent, ExternalEmailTemplate,
+            ExternalEmailTestProbe,
         };
         Ok(match template {
-            ExternalEmailTemplate::TestProbe => (
-                [EXTERNAL_TEST_PROBE_TEMPLATE; 5],
-                ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new("probe-1")?),
-            ),
+            ExternalEmailTemplate::TestProbe => ExternalTemplateFixture {
+                templates: [EXTERNAL_TEST_PROBE_TEMPLATE; 5],
+                content: ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new("probe-1")?),
+                expected: vec!["probe-1".to_owned()],
+            },
+            ExternalEmailTemplate::ContentNoticeReceipt => {
+                let notice = content_notice(Some("Jugendstil-Vase"))?;
+                ExternalTemplateFixture {
+                    templates: CONTENT_NOTICE_RECEIPT_TEMPLATES,
+                    content: ExternalEmailContent::ContentNoticeReceipt(
+                        ContentNoticeReceipt::for_notice(&notice, time::OffsetDateTime::UNIX_EPOCH),
+                    ),
+                    expected: vec![
+                        notice.id().to_string(),
+                        "Antik &lt;Shop&gt;".to_owned(),
+                        "Jugendstil-Vase".to_owned(),
+                        "1970".to_owned(),
+                    ],
+                }
+            }
         })
     }
 
@@ -497,7 +599,11 @@ mod tests {
             EmailLanguage::It,
         ];
         for template in ExternalEmailTemplate::iter() {
-            let (templates, content) = external_template_fixture(template)?;
+            let ExternalTemplateFixture {
+                templates,
+                content,
+                expected,
+            } = external_template_fixture(template)?;
             let template_type = external_template_type(&content);
             // Ja has no email language and falls back to the English template.
             for language in [
@@ -532,10 +638,12 @@ mod tests {
                     !rendered.contains("{{"),
                     "{template_type:?} left an expression"
                 );
-                assert!(
-                    rendered.contains("probe-1"),
-                    "{template_type:?} lost its data"
-                );
+                for text in &expected {
+                    assert!(
+                        rendered.contains(text.as_str()),
+                        "{template_type:?} in {email_language:?} lost {text:?}"
+                    );
+                }
                 for link in rendered.split("<a href=\"").skip(1) {
                     let link = link.split('"').next().unwrap_or_default();
                     assert!(
@@ -550,6 +658,89 @@ mod tests {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Renders a receipt as delivery would, in strict mode.
+    fn render_receipt(
+        notice: &content_notice_core::content_notice::ContentNotice,
+        language: localization::Language,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        use crate::{external_template::external_template_data, template_mapping::FrontendLinks};
+        use notification_core::{
+            external_email::{ContentNoticeReceipt, ExternalEmailContent, ExternalEmailRecipient},
+            external_email_message_id::ExternalEmailMessageId,
+            notification_delivery_id::NotificationDeliveryId,
+        };
+        use notification_service::ports::notification_delivery_repository::ExternalEmailDeliverySource;
+
+        let email_language = EmailLanguage::resolve(language);
+        let template = match email_language {
+            EmailLanguage::De => CONTENT_NOTICE_RECEIPT_TEMPLATES[0],
+            EmailLanguage::En => CONTENT_NOTICE_RECEIPT_TEMPLATES[1],
+            EmailLanguage::Es => CONTENT_NOTICE_RECEIPT_TEMPLATES[2],
+            EmailLanguage::Fr => CONTENT_NOTICE_RECEIPT_TEMPLATES[3],
+            EmailLanguage::It => CONTENT_NOTICE_RECEIPT_TEMPLATES[4],
+        };
+        let source = ExternalEmailDeliverySource {
+            notification_delivery_id: NotificationDeliveryId::new(),
+            external_email_message_id: ExternalEmailMessageId::new(),
+            recipient: ExternalEmailRecipient::try_from(notice.submitter().email.as_str())?,
+            language,
+            content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt::for_notice(
+                notice,
+                time::macros::datetime!(2026-11-14 12:00 UTC),
+            )),
+        };
+        let data = external_template_data(
+            &source,
+            FrontendLinks::new("https://aura-historia.com", email_language),
+        );
+        let mut handlebars = Handlebars::new();
+        handlebars.set_strict_mode(true);
+        Ok(render_template(&handlebars, template, &data)?)
+    }
+
+    #[rstest::rstest]
+    #[case(
+        localization::Language::De,
+        "Falls Sie diese Meldung nicht abgegeben haben"
+    )]
+    #[case(localization::Language::En, "If you did not submit this notice")]
+    #[case(localization::Language::Es, "Si usted no ha enviado esta notificación")]
+    #[case(
+        localization::Language::Fr,
+        "Si vous n’avez pas soumis cette notification"
+    )]
+    #[case(localization::Language::It, "Se non ha inviato questa segnalazione")]
+    #[case(localization::Language::Ja, "If you did not submit this notice")]
+    fn should_render_content_notice_receipts_without_submitter_text_for_both_target_kinds(
+        #[case] language: localization::Language,
+        #[case] ignore_line: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let listing_notice = content_notice(Some("Jugendstil-Vase"))?;
+        let source_notice = content_notice(None)?;
+
+        let listing = render_receipt(&listing_notice, language)?;
+        let source = render_receipt(&source_notice, language)?;
+
+        for (notice, rendered) in [(&listing_notice, &listing), (&source_notice, &source)] {
+            assert!(rendered.contains(&notice.id().to_string()));
+            assert!(rendered.contains("Antik &lt;Shop&gt;"));
+            assert!(rendered.contains("2026"));
+            assert!(rendered.contains("12:00 UTC"));
+            assert!(rendered.contains(ignore_line), "{rendered}");
+            for marker in SUBMITTER_MARKERS {
+                assert!(!rendered.contains(marker), "{marker} reached the receipt");
+            }
+            assert!(!rendered.to_lowercase().contains("partner"));
+        }
+        assert!(listing.contains("Jugendstil-Vase"));
+        assert_eq!(
+            source.matches("<tr>").count() + 1,
+            listing.matches("<tr>").count(),
+            "only a listing receipt names the listing"
+        );
         Ok(())
     }
 

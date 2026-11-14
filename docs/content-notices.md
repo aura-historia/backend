@@ -95,6 +95,37 @@ budgets. A human reviews every notice, so this is accepted for phase 1. There is
 limit: handlers have no trustworthy client IP and notices store none, and the web ACL has no
 rate rule ([front door](http-api-front-door.md)).
 
+## Receipt email
+
+Every stored notice gets exactly one receipt email to the address the notifier gave, the
+confirmation of receipt that DSA Art. 16(5) expects. An identical resubmission and a
+rate-limited submission store nothing, so they send nothing. There is no separate receipt cap:
+the per-address budget already bounds receipts, and every accepted notice is acknowledged.
+
+- **Delivery:** the submission enqueues the receipt through the notification context's
+  [external email delivery](events/flow.md#external-email-delivery) in the transaction that
+  stores the notice. The notice and its receipt intent commit together or not at all; a failed
+  enqueue fails the submission with `503`. The delivery pipeline sends it after commit, with
+  its retries, DLQ and alarms. The receipt's origin is the notice (`CONTENT_NOTICE` and the
+  notice ID), its template kind `CONTENT_NOTICE_RECEIPT`.
+- **Content:** fixed localized text plus data from Aura Historia's side only: the reference
+  (the notice ID), the receipt time in UTC, the listing source's name and, for a listing, its
+  title from the snapshot, and the reason category. Nothing the notifier typed is echoed back
+  (no name, explanation or URLs), so the endpoint cannot send arbitrary content to a third
+  party. [`ContentNoticeReceipt::for_notice`](../src/notification-core/src/external_email.rs)
+  owns that selection.
+- **Wording:** it promises no time frame, advertises nothing and links to no account or
+  settings page, because the recipient usually has no account. It says that whoever did not
+  submit the notice can ignore the email, since the address may belong to someone else. The
+  [templates](../mjml/content-notice/receipt) exist in `de`, `en`, `es`, `fr` and `it`; any
+  other submitter language gets English.
+- **Admin view:** the admin detail shows the receipt's delivery status, attempts and delivery
+  time. `FAILED` means the receipt is permanently undeliverable, for example because the email
+  provider rejected the address, and will not be retried; admins then answer the notifier
+  manually from the contact mailbox. A receipt whose retries are exhausted stays `PENDING`
+  while its delivery job sits in the dead-letter queue, which alarms
+  ([runbook](durable-worker-runbook.md#notification-recovery-limits)).
+
 ## States
 
 Every notice starts and, for now, stays `SUBMITTED`. Decision states come with the decision
@@ -111,7 +142,8 @@ A notice holds the notifier's name and email, and free text and URLs they typed.
 - Admin lists offer no filter on personal data.
 
 Notices are kept until a retention rule exists; retention and erasure come with the decision
-workflow, which has to define what an erased notice still proves.
+workflow, which has to define what an erased notice still proves. The receipt message holds
+the notifier's address too; that retention rule must erase it by the notice's origin as well.
 
 The table also stores two support values for the submission rules: the lowercased email
 address and a SHA-256 fingerprint of the submission, which the submission use case defines.
@@ -151,6 +183,8 @@ needs to handle it: the submitted content, the snapshot, and the target as it is
   whether the listing source still exists, its name, slug, ingestion methods and partner status
   (same rule as at submission), and for a listing target whether the listing exists and its
   lifecycle. A target that no longer exists is reported as such; the notice is still returned.
+- The [receipt](#receipt-email) delivery is read in the same query, found by its origin. It is
+  `null` only when no receipt was enqueued.
 - A stored notice that breaks an invariant, or an unknown stored value, fails the read instead of
   being defaulted.
 - Responses are never cached.
@@ -159,7 +193,8 @@ The [OpenAPI](swagger.yaml) operation `adminGetContentNotice` owns the response 
 
 ## References
 
-- Schema: [`content_notices` migration](../migrations/20261114090000_content_notices.sql)
-  and the [scope migration](../migrations/20261114090100_content_notices_read_scope.sql).
+- Schema: [`content_notices` migration](../migrations/20261114090000_content_notices.sql),
+  the [scope migration](../migrations/20261114090100_content_notices_read_scope.sql) and the
+  [receipt template kind](../migrations/20261114130000_content_notice_receipt_email_template.sql).
 - Public contract: [OpenAPI](swagger.yaml) and the [changelog](CHANGELOG.md).
 - Object ID prefix `ntc`: [object IDs](object-ids.md).

@@ -2056,6 +2056,7 @@ async fn test_state(
                     content_notice_postgres::SqlxContentNoticeTargetReaderFactory::new(),
                     content_notice_postgres::SqlxContentNoticeRepositoryFactory::new(),
                     content_notice_postgres::SqlxContentNoticeSubmissionHistoryFactory::new(),
+                    notification_postgres::SqlxExternalEmailOutboxFactory::new(),
                     content_notice_service::ports::SystemContentNoticeClock,
                 ),
             ),

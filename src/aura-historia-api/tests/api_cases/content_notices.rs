@@ -95,6 +95,11 @@ async fn should_return_a_submitted_notice_with_its_current_target_only_to_admins
         body["currentTarget"]["listingSource"]["exists"]
     );
     assert!(body.get("explanation").is_none());
+    assert_eq!(
+        json!({"status": "PENDING", "attempts": 0}),
+        body["receipt"],
+        "the submission enqueued the receipt"
+    );
 
     let unknown = content_notice_core::content_notice_id::ContentNoticeId::new();
     let (status, body, _) = admin_get(&admin, &format!("/{unknown}")).await;

@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Content notice receipt email (#2958)
+
+- Every notice that `POST /v1/content-notices` (`submitContentNotice`) stores now gets exactly one receipt email to the submitted `email`, sent asynchronously after the `202`, in the submitted `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It names the receipt time (UTC), a reference (the `contentNoticeId`), the provider, the listing title for `PRODUCT_LISTING` targets and the reason category, and repeats nothing the submitter typed. An identical resubmission and a `429` send no receipt. If the receipt cannot be enqueued, the notice is not stored and the request returns `503`. Requests and responses are unchanged.
+- `GET /v1/admin/content-notices/{contentNoticeId}` (`adminGetContentNotice`) returns a new required, nullable `receipt`: `status` (`PENDING`, `PROCESSING`, `DELIVERED` or `FAILED`), `attempts` and, once delivered, `deliveredAt`. It is `null` only when no receipt was enqueued. `FAILED` means the receipt is permanently undeliverable and will not be retried.
+
 ## 2026-11-14 — Content notice submission limits (#2939)
 
 - `POST /v1/content-notices` (`submitContentNotice`) now limits submissions per email address, compared case-insensitively, within the 24 hours before each submission.

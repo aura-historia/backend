@@ -32,7 +32,8 @@ use content_notice_service::{
             SubmitContentNoticeResult, SubmitContentNoticeUseCase,
         },
         queries::get_admin_content_notice::{
-            AdminContentNoticeDetails, CurrentListingSource, CurrentProductListing,
+            AdminContentNoticeDetails, ContentNoticeReceiptDelivery, ContentNoticeReceiptStatus,
+            CurrentListingSource, CurrentProductListing,
         },
     },
 };
@@ -40,6 +41,7 @@ use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceName, ListingSourceSlugId,
 };
 use localization::Language;
+use notification_postgres::SqlxExternalEmailOutboxFactory;
 use platform_postgres::SqlxUnitOfWork;
 use product_listing_core::listing_lifecycle::ListingLifecycle;
 use sqlx::PgPool;
@@ -60,6 +62,7 @@ async fn submit(
         SqlxContentNoticeTargetReaderFactory::new(),
         SqlxContentNoticeRepositoryFactory::new(),
         SqlxContentNoticeSubmissionHistoryFactory::new(),
+        SqlxExternalEmailOutboxFactory::new(),
         SystemContentNoticeClock,
     )
     .execute(
@@ -362,4 +365,98 @@ async fn should_find_nothing_for_an_unknown_notice() {
     let pool = get_postgres_client().await;
 
     assert_eq!(None, find(&pool, ContentNoticeId::new()).await);
+}
+
+/// Moves the notice's receipt delivery to a final status, as the delivery pipeline's fenced
+/// finalization would.
+async fn finish_receipt(pool: &PgPool, id: ContentNoticeId, status: &str, attempts: i32) {
+    sqlx::query(
+        "UPDATE notification_deliveries d SET status = $2, attempt_count = $3, \
+         completed_lease_token = gen_random_uuid(), completed_at = now(), \
+         provider_message_id = CASE WHEN $2 = 'DELIVERED' THEN 'ses-message' END, \
+         delivered_at = CASE WHEN $2 = 'DELIVERED' THEN TIMESTAMPTZ '2026-11-14 12:00:05Z' END, \
+         last_error_code = CASE WHEN $2 = 'FAILED' THEN 'SES_REJECTED' END \
+         FROM external_email_messages m \
+         WHERE d.external_email_message_id = m.external_email_message_id \
+         AND m.origin_type = 'CONTENT_NOTICE' AND m.origin_id = $1",
+    )
+    .bind(id.into_uuid())
+    .bind(status)
+    .bind(attempts)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("finish receipt: {error}"));
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_show_the_receipt_delivery_as_pending_delivered_or_failed() {
+    let pool = get_postgres_client().await;
+    let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
+    let pending = submit_about_source(&pool, source).await;
+    let delivered = submit(
+        &pool,
+        ContentNoticeTargetReference::ListingSource {
+            listing_source_id: source,
+        },
+        SubmitterRole::RightsHolder,
+        ReasonCategory::RightsInfringement,
+    )
+    .await;
+    let failed = submit(
+        &pool,
+        ContentNoticeTargetReference::ListingSource {
+            listing_source_id: source,
+        },
+        SubmitterRole::IllegalContentReporter,
+        ReasonCategory::IllegalContent,
+    )
+    .await;
+    finish_receipt(&pool, delivered, "DELIVERED", 1).await;
+    finish_receipt(&pool, failed, "FAILED", 5).await;
+
+    let receipt = |id| {
+        let pool = pool.clone();
+        async move { find(&pool, id).await.expect("stored notice").receipt }
+    };
+
+    assert_eq!(
+        Some(ContentNoticeReceiptDelivery {
+            status: ContentNoticeReceiptStatus::Pending,
+            attempts: 0,
+            delivered_at: None,
+        }),
+        receipt(pending).await
+    );
+    assert_eq!(
+        Some(ContentNoticeReceiptDelivery {
+            status: ContentNoticeReceiptStatus::Delivered,
+            attempts: 1,
+            delivered_at: Some(time::macros::datetime!(2026-11-14 12:00:05 UTC)),
+        }),
+        receipt(delivered).await
+    );
+    assert_eq!(
+        Some(ContentNoticeReceiptDelivery {
+            status: ContentNoticeReceiptStatus::Failed,
+            attempts: 5,
+            delivered_at: None,
+        }),
+        receipt(failed).await
+    );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_show_no_receipt_when_no_receipt_message_exists() {
+    let pool = get_postgres_client().await;
+    let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
+    let id = submit_about_source(&pool, source).await;
+    sqlx::query("DELETE FROM external_email_messages WHERE origin_id = $1")
+        .bind(id.into_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let details = find(&pool, id).await.expect("stored notice");
+
+    assert_eq!(None, details.receipt);
 }
