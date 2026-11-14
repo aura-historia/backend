@@ -173,6 +173,22 @@ async fn seed_product_listing(
     }
 }
 
+async fn seed_content_notice(pool: &sqlx::PgPool, listing_source_id: Uuid) {
+    let content_notice_id = Uuid::now_v7();
+    let result = sqlx::query(
+            "INSERT INTO content_notices (content_notice_id, target_type, listing_source_id, listing_source_name, listing_source_partner, submitter_role, reason_category, submitter_name, submitter_email, submitter_language, good_faith_statement_version, submission_fingerprint, business_state) VALUES ($1, 'LISTING_SOURCE', $2, 'Admin overview source', false, 'PROVIDER', 'PROVIDER_OPT_OUT', 'Notifier', $3, 'en', 'GOOD_FAITH_V1', $4, 'SUBMITTED')",
+        )
+        .bind(content_notice_id)
+        .bind(listing_source_id)
+        .bind(format!("{content_notice_id}@admin-overview.test"))
+        .bind(content_notice_id.as_bytes().repeat(2))
+        .execute(pool)
+        .await;
+    if let Err(error) = result {
+        panic!("failed to seed content notice: {error}");
+    }
+}
+
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_empty_overview() {
     assert_eq!(AdminOverview::default(), read_overview().await);
@@ -228,4 +244,19 @@ async fn should_aggregate_representative_authoritative_data() {
     assert_eq!(1, overview.product_listings.by_lifecycle.withdrawn);
     assert_eq!(1, overview.product_listings.active_availability.available);
     assert_eq!(1, overview.product_listings.active_without_availability);
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_count_submitted_content_notices() {
+    let pool = get_postgres_client().await;
+    let party_id = seed_party(&pool).await;
+    let listing_source_id = seed_listing_source(&pool, party_id).await;
+    seed_content_notice(&pool, listing_source_id).await;
+    seed_content_notice(&pool, listing_source_id).await;
+    seed_content_notice(&pool, Uuid::now_v7()).await;
+
+    let overview = read_overview().await;
+
+    assert_eq!(3, overview.content_notices.total);
+    assert_eq!(3, overview.content_notices.by_state.submitted);
 }

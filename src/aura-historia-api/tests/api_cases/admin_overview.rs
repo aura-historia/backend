@@ -3,6 +3,7 @@ use api_support::{
     assert_problem, json_response, seed_access_token_for, seed_listing_source,
     seed_partnership_application, seed_user, seed_user_with_tier,
 };
+use listing_source_core::ListingSourceId;
 use serde_json::json;
 use test_api::{IntegrationTestService, aura_integration_test};
 use time::OffsetDateTime;
@@ -53,6 +54,11 @@ async fn should_aggregate_representative_admin_overview_counts() {
         timestamp,
     )
     .await;
+    super::content_notices::submit_provider_opt_out(
+        ListingSourceId::try_from(listing_source_id)
+            .unwrap_or_else(|error| panic!("invalid seeded listing source id: {error}")),
+    )
+    .await;
     let token = String::from(
         seed_access_token_for(
             admin_id,
@@ -80,6 +86,8 @@ async fn should_aggregate_representative_admin_overview_counts() {
         json!(1),
         body["partnershipApplications"]["byState"]["rejected"]
     );
+    assert_eq!(json!(1), body["contentNotices"]["total"]);
+    assert_eq!(json!(1), body["contentNotices"]["byState"]["submitted"]);
     assert_eq!(json!(1), body["parties"]["total"]);
     assert_eq!(json!(1), body["listingSources"]["total"]);
     assert_eq!(
