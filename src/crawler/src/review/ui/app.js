@@ -1728,7 +1728,7 @@ function renderQualificationLine(source) {
         return `<div class="status-line"><span class="badge badge-warn">AWAITING QUALIFICATION</span><div class="status-line-text">The review agent decides whether this is a real antique e-shop before it is crawled · ${qualify}</div></div>`;
     }
     const tone = TONES[applied.qualification] || 'neutral';
-    return `<div class="status-line"><span class="badge badge-${tone}">${escapeHtml(QUALIFICATION_NAMES[applied.qualification] || displayName(applied.qualification))}</span><div class="status-line-text">${escapeHtml(applied.note)} · by ${escapeHtml(actorWord(applied.qualified_by))} ${timeBadge(applied.qualified_at, 'Qualified')} · ${qualify} · <button class="btn-link" onclick="clearQualification('${id}')" title="Let the review agent decide again" type="button">Qualify again</button></div></div>`;
+    return `<div class="status-line"><span class="badge badge-${tone}">${escapeHtml(QUALIFICATION_NAMES[applied.qualification] || displayName(applied.qualification))}</span><div class="status-line-text">${escapeHtml(applied.note)} · by ${escapeHtml(actorWord(applied.qualified_by))} ${timeBadge(applied.qualified_at, 'Qualified')} · ${qualify} · <button class="btn-link" onclick="clearQualification('${id}')" title="Clear the qualification so the source waits for a new one; the review agent decides it unless a human's label stands" type="button">Qualify again</button></div></div>`;
 }
 
 // A human qualifies the source with a note; qualifying it without a label clears its label.

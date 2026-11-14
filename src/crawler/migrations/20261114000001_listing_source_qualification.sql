@@ -1,6 +1,6 @@
 -- Whether a ListingSource is a real antique e-shop, decided before it is crawled
 -- (docs/crawler/README.md, ListingSource qualification). Nothing existing changes: every source
--- that exists now joins the one-off backfill and keeps being crawled as before until it is
+-- the scope admits now joins the one-off backfill and keeps being crawled as before until it is
 -- decided.
 ALTER TABLE listing_sources
     -- Whether the latest scope refresh admits the source to crawling with a crawl root, before a
@@ -25,9 +25,11 @@ ALTER TABLE listing_sources
             OR (qualification IS NOT NULL AND qualification_note IS NOT NULL
                 AND qualified_at IS NOT NULL AND qualified_by IS NOT NULL));
 
+-- Only the sources the scope admits now join the backfill; one that is out of scope and returns
+-- later waits for its qualification like a new source.
 UPDATE listing_sources
-SET in_crawl_scope = (crawl_enabled OR source_label IS NOT NULL) AND crawl_root_url IS NOT NULL,
-    qualification_backfill = TRUE;
+SET in_crawl_scope = (crawl_enabled OR source_label IS NOT NULL) AND crawl_root_url IS NOT NULL;
+UPDATE listing_sources SET qualification_backfill = in_crawl_scope;
 
 -- One row per qualification decided or cleared, written in the transaction of the change: the
 -- decision, the label a disqualification set, the note and who decided. A row is never updated,
