@@ -56,9 +56,9 @@ async fn submit_notice(
 /// The bounded category of a failure that is not the caller's fault, for the terminal log.
 fn terminal_failure(error: &SubmitContentNoticeError) -> Option<&'static str> {
     match error {
-        SubmitContentNoticeError::InvalidNotice(_) | SubmitContentNoticeError::TargetNotFound => {
-            None
-        }
+        SubmitContentNoticeError::InvalidNotice(_)
+        | SubmitContentNoticeError::TargetNotFound
+        | SubmitContentNoticeError::RateLimited { .. } => None,
         SubmitContentNoticeError::TemporarilyUnavailable { .. } => Some("temporarily_unavailable"),
         SubmitContentNoticeError::InvalidPersistedState { .. } => Some("invalid_persisted_state"),
         SubmitContentNoticeError::Internal { .. } => Some("internal"),
@@ -84,8 +84,11 @@ mod tests {
         content_notice::ContentNoticeInvariantError, content_notice_id::ContentNoticeId,
         reason_category::ReasonCategory, submitter_role::SubmitterRole,
     };
-    use content_notice_service::use_cases::commands::submit_content_notice::{
-        ContentNoticeTargetReference, SubmitContentNoticeResult, SubmitContentNoticeUseCase,
+    use content_notice_service::{
+        submission_policy::RetryAfter,
+        use_cases::commands::submit_content_notice::{
+            ContentNoticeTargetReference, SubmitContentNoticeResult, SubmitContentNoticeUseCase,
+        },
     };
     use listing_source_core::ListingSourceId;
     use product_listing_core::product_listing_id::ProductListingId;
@@ -131,7 +134,7 @@ mod tests {
     }
 
     fn stored() -> Result<SubmitContentNoticeResult, SubmitContentNoticeError> {
-        Ok(SubmitContentNoticeResult {
+        Ok(SubmitContentNoticeResult::Stored {
             content_notice_id: ContentNoticeId::new(),
         })
     }
@@ -501,5 +504,45 @@ mod tests {
             assert_eq!(code, problem["error"]);
             assert_eq!(pointer, problem["source"]["field"].as_str());
         }
+    }
+
+    #[tokio::test]
+    async fn should_answer_a_duplicate_exactly_like_a_stored_notice() {
+        let use_case = RecordingUseCase::returning(|| Ok(SubmitContentNoticeResult::Duplicate));
+
+        let response = post_json(&use_case, &listing_source_body(ListingSourceId::new())).await;
+
+        assert_eq!(StatusCode::ACCEPTED, response.status());
+        assert_eq!("no-store", response.headers()[header::CACHE_CONTROL]);
+        assert!(
+            to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn should_answer_rate_limit_with_retry_after_and_never_store_it() {
+        let use_case = RecordingUseCase::returning(|| {
+            Err(SubmitContentNoticeError::RateLimited {
+                retry_after: RetryAfter::rounded_up(time::Duration::milliseconds(3_599_001)),
+            })
+        });
+
+        let response = post_json(&use_case, &listing_source_body(ListingSourceId::new())).await;
+
+        assert_eq!("3600", response.headers()[header::RETRY_AFTER]);
+        let (status, problem) = problem(response).await;
+        assert_eq!(StatusCode::TOO_MANY_REQUESTS, status);
+        assert_eq!(
+            json!({
+                "status": 429,
+                "title": "Too Many Requests",
+                "error": "CONTENT_NOTICE_RATE_LIMITED",
+                "detail": "Too many content notices were submitted from this email address. Try again later."
+            }),
+            problem
+        );
     }
 }

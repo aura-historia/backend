@@ -1,6 +1,7 @@
 use application::error::BoxError;
 use content_notice_core::{content_notice::ContentNotice, content_notice_id::ContentNoticeId};
 use domain_primitives::versioned::Versioned;
+use time::OffsetDateTime;
 
 domain_primitives::version_newtype!(ContentNoticeStorageVersion, no_serde);
 pub type VersionedContentNotice = Versioned<ContentNotice, ContentNoticeStorageVersion>;
@@ -50,10 +51,13 @@ pub enum ContentNoticeRepositoryError {
 
 #[async_trait::async_trait]
 pub trait ContentNoticeRepository: Send {
+    /// Stores a new notice, created and last updated at `created`, the submission time the
+    /// submission limits decided with.
     async fn insert(
         &mut self,
         notice: &ContentNotice,
         fingerprint: ContentNoticeSubmissionFingerprint,
+        created: OffsetDateTime,
     ) -> Result<VersionedContentNotice, ContentNoticeRepositoryError>;
 
     async fn find_by_id(

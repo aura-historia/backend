@@ -83,8 +83,10 @@ use billing_service::use_cases::{
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
 use content_notice_postgres::{
-    SqlxContentNoticeRepositoryFactory, SqlxContentNoticeTargetReaderFactory,
+    SqlxContentNoticeRepositoryFactory, SqlxContentNoticeSubmissionHistoryFactory,
+    SqlxContentNoticeTargetReaderFactory,
 };
+use content_notice_service::ports::SystemContentNoticeClock;
 use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeHandler;
 use embedding::VertexAiEmbeddingConfig;
 use notification_postgres::{
@@ -2060,6 +2062,8 @@ async fn app_state_from_config_and_runtime(
                 unit_of_work.clone(),
                 SqlxContentNoticeTargetReaderFactory::new(),
                 SqlxContentNoticeRepositoryFactory::new(),
+                SqlxContentNoticeSubmissionHistoryFactory::new(),
+                SystemContentNoticeClock,
             )),
             Arc::new(list_admin_content_notices),
             Arc::new(get_admin_content_notice),

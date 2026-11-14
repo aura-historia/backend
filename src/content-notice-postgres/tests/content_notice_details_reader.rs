@@ -20,14 +20,16 @@ use content_notice_core::{
 };
 use content_notice_postgres::{
     SqlxContentNoticeDetailsReaderFactory, SqlxContentNoticeRepositoryFactory,
-    SqlxContentNoticeTargetReaderFactory,
+    SqlxContentNoticeSubmissionHistoryFactory, SqlxContentNoticeTargetReaderFactory,
 };
 use content_notice_service::{
-    ports::{ContentNoticeDetailsReader, ContentNoticeDetailsReaderFactory},
+    ports::{
+        ContentNoticeDetailsReader, ContentNoticeDetailsReaderFactory, SystemContentNoticeClock,
+    },
     use_cases::{
         commands::submit_content_notice::{
             ContentNoticeTargetReference, SubmitContentNoticeCommand, SubmitContentNoticeHandler,
-            SubmitContentNoticeUseCase,
+            SubmitContentNoticeResult, SubmitContentNoticeUseCase,
         },
         queries::get_admin_content_notice::{
             AdminContentNoticeDetails, CurrentListingSource, CurrentProductListing,
@@ -53,10 +55,12 @@ async fn submit(
     submitter_role: SubmitterRole,
     reason_category: ReasonCategory,
 ) -> ContentNoticeId {
-    SubmitContentNoticeHandler::new(
+    let result = SubmitContentNoticeHandler::new(
         SqlxUnitOfWork::new(pool.clone()),
         SqlxContentNoticeTargetReaderFactory::new(),
         SqlxContentNoticeRepositoryFactory::new(),
+        SqlxContentNoticeSubmissionHistoryFactory::new(),
+        SystemContentNoticeClock,
     )
     .execute(
         &OperationContext {
@@ -84,8 +88,11 @@ async fn submit(
         },
     )
     .await
-    .unwrap()
-    .content_notice_id
+    .unwrap();
+    let SubmitContentNoticeResult::Stored { content_notice_id } = result else {
+        panic!("expected a stored notice, got {result:?}");
+    };
+    content_notice_id
 }
 
 async fn submit_about_source(pool: &PgPool, listing_source_id: ListingSourceId) -> ContentNoticeId {

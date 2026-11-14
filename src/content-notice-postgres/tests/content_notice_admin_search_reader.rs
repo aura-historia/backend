@@ -147,13 +147,7 @@ async fn seed(pool: &PgPool, seeds: &[Seed]) -> Vec<ContentNoticeId> {
         let notice = seed.notice();
         repository
             .in_transaction(&mut transaction)
-            .insert(&notice, FINGERPRINT)
-            .await
-            .unwrap();
-        sqlx::query("UPDATE content_notices SET created = $1 WHERE content_notice_id = $2")
-            .bind(seed.created)
-            .bind(notice.id().into_uuid())
-            .execute(transaction.connection())
+            .insert(&notice, FINGERPRINT, seed.created)
             .await
             .unwrap();
         ids.push(notice.id());

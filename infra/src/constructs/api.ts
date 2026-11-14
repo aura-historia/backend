@@ -239,7 +239,7 @@ export class BackendHttpApi extends Construct {
         ],
         allowMethods: [apigwv2.CorsHttpMethod.ANY],
         allowOrigins: props.config.apiCorsAllowOrigins,
-        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate"],
+        exposeHeaders: ["Idempotency-Key", "X-Request-Id", "X-Correlation-Id", "WWW-Authenticate", "Retry-After"],
       },
     });
 
