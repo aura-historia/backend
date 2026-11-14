@@ -2,6 +2,10 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Scope `content-notices:read` (#2937)
+
+- New delegated scope `content-notices:read` for the upcoming admin content-notice reads (list, detail and overview counts). Personal access tokens and registered OAuth clients can request it; like every admin scope it grants nothing without the `ADMIN` role. No endpoint uses it yet, and existing tokens and connections are unchanged.
+
 ## 2026-11-14 — Overview `countries` counts where sources are located (#2957)
 
 - `countries` in `GET /v1/overview` and the MCP tool `getPublicOverview` now counts the distinct countries where the counted listings' ListingSources are located: the country of the listing's effective advertised-inventory geography when it has one, otherwise the country of the source's associated business. It previously counted advertised-inventory countries only, which excluded business-only sources and understated the figure. It describes sources, not where an object is held; shipping destinations still do not count. The field name and type are unchanged, so clients need no change, but the value is usually higher. The stored figure changes with the next scheduled calculation after deployment.

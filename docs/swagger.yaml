@@ -23366,6 +23366,7 @@ components:
         - partnerships:read
         - partnerships:write
         - admin-overview:read
+        - content-notices:read
         - search-filters:read
         - notifications:read
         - notifications:write

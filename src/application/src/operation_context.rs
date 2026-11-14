@@ -446,6 +446,10 @@ mod tests {
                 "admin-overview:read",
             ),
             (
+                CredentialCapability::ContentNoticesRead,
+                "content-notices:read",
+            ),
+            (
                 CredentialCapability::SearchFiltersRead,
                 "search-filters:read",
             ),
