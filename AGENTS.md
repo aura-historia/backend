@@ -5,6 +5,7 @@
 - This is a Rust workspace for an AWS serverless backend.
 - `src/` contains workspace crates; `infra/` contains CDK infrastructure; `migrations/` contains business PostgreSQL migrations; `docs/` contains durable architecture and public-contract documentation.
 - `mjml/` and `opensearch/` contain shared email and OpenSearch assets.
+- Email templates are designed on the Aura Historia Redesign design canvas first and mirrored in `mjml/`; follow [mjml/README.md](mjml/README.md) before adding or changing any email.
 
 ## Work safely
 
