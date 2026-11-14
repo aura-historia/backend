@@ -230,52 +230,14 @@ impl CloudflareClassifierModel {
         }
 
         let request_started = Instant::now();
-        let result = async {
-            let response = self
-                .client
-                .post(self.endpoint.clone())
-                .bearer_auth(&self.api_token)
-                .header(reqwest::header::CONTENT_TYPE, "application/json")
-                .timeout(request.options.request_timeout)
-                .body(body)
-                .send()
-                .await
-                .map_err(|error| {
-                    if error.is_timeout() {
-                        ClassificationError::Timeout
-                    } else {
-                        ClassificationError::Transient
-                    }
-                })?;
-            let status = response.status();
-            let retry_after = retry_after(response.headers().get(RETRY_AFTER));
-            let response_bytes = read_bounded_body(response).await;
-            if !status.is_success() {
-                return Err(status_error(status, retry_after));
-            }
-            let response_bytes = response_bytes?;
-            // Value's default object decoder silently overwrites duplicate keys.
-            let envelope: UniqueValue = serde_json::from_slice(&response_bytes)
-                .map_err(|_| ClassificationError::InvalidResponse)?;
-            let envelope: CloudflareEnvelope = serde_json::from_value(envelope.0)
-                .map_err(|_| ClassificationError::InvalidResponse)?;
-            if envelope.success != Some(true) {
-                return Err(ClassificationError::InvalidResponse);
-            }
-            let result = envelope
-                .result
-                .ok_or(ClassificationError::InvalidResponse)?;
-            if result.model != self.model.as_str() {
-                return Err(ClassificationError::InvalidResponse);
-            }
-            parse_answers_with_partial(
-                result.answers,
-                result.usage,
+        let result = self
+            .exchange(
+                body,
+                request.options.request_timeout,
                 &expected_question_ids,
                 allow_partial_answers,
             )
-        }
-        .await;
+            .await;
         diagnostics.duration_millis =
             duration_millis(image_fetch_duration.saturating_add(request_started.elapsed()));
         match result {
@@ -301,6 +263,59 @@ impl CloudflareClassifierModel {
                 Err(error)
             }
         }
+    }
+
+    /// Sends one serialized request and maps the provider answer to typed answers.
+    async fn exchange(
+        &self,
+        body: Vec<u8>,
+        timeout: Duration,
+        expected_question_ids: &BTreeSet<String>,
+        allow_partial_answers: bool,
+    ) -> Result<ClassificationResponse, ClassificationError> {
+        let response = self
+            .client
+            .post(self.endpoint.clone())
+            .bearer_auth(&self.api_token)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(timeout)
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| {
+                if error.is_timeout() {
+                    ClassificationError::Timeout
+                } else {
+                    ClassificationError::Transient
+                }
+            })?;
+        let status = response.status();
+        let retry_after = retry_after(response.headers().get(RETRY_AFTER));
+        let response_bytes = read_bounded_body(response).await;
+        if !status.is_success() {
+            return Err(status_error(status, retry_after));
+        }
+        let response_bytes = response_bytes?;
+        // Value's default object decoder silently overwrites duplicate keys.
+        let envelope: UniqueValue = serde_json::from_slice(&response_bytes)
+            .map_err(|_| ClassificationError::InvalidResponse)?;
+        let envelope: CloudflareEnvelope =
+            serde_json::from_value(envelope.0).map_err(|_| ClassificationError::InvalidResponse)?;
+        if envelope.success != Some(true) {
+            return Err(ClassificationError::InvalidResponse);
+        }
+        let result = envelope
+            .result
+            .ok_or(ClassificationError::InvalidResponse)?;
+        if result.model != self.model.as_str() {
+            return Err(ClassificationError::InvalidResponse);
+        }
+        parse_answers_with_partial(
+            result.answers,
+            result.usage,
+            expected_question_ids,
+            allow_partial_answers,
+        )
     }
 }
 
