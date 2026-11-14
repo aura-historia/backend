@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Admin content notice detail (#2941)
+
+- New `GET /v1/admin/content-notices/{contentNoticeId}` (`adminGetContentNotice`) returns one content notice to administrators. It requires the `ADMIN` role and, for delegated access tokens, the `content-notices:read` scope. A malformed ID returns `400 INVALID_OBJECT_ID`, an unknown one `404 CONTENT_NOTICE_NOT_FOUND`. Responses, including errors, send `Cache-Control: no-store`.
+- The response carries the submitted content (role, category, explanation, additional URLs, the submitter's name, email and language, the good-faith statement version), `created`, `updated` and `version`, the target, `targetSnapshot` (the target at submission, never changed) and `currentTarget` (read live: whether the ListingSource still exists with its current name, `slugId`, `ingestionMethods` and `partner` status, and for `PRODUCT_LISTING` targets whether the ProductListing still exists and its `lifecycle`). A target that no longer exists has `exists: false` and no other fields. `explanation` is omitted when absent, and the `productListing*` snapshot fields for `LISTING_SOURCE` targets.
+
 ## 2026-11-14 — Admin content notice list (#2940)
 
 - New `GET /v1/admin/content-notices` (`adminSearchContentNotices`) lists content notices for administrators, newest first. It requires the `ADMIN` role and, for delegated access tokens, the `content-notices:read` scope.

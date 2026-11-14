@@ -1,6 +1,9 @@
 mod admin_types;
+mod get_admin;
 mod list_admin;
 mod submit;
+#[cfg(test)]
+mod test_support;
 mod types;
 
 use crate::state::ContentNoticesState;
@@ -15,6 +18,10 @@ pub(crate) fn router(state: ContentNoticesState) -> Router {
     Router::new()
         .route("/v1/content-notices", post(submit::submit))
         .route("/v1/admin/content-notices", get(list_admin::list_admin))
+        .route(
+            "/v1/admin/content-notices/{content_notice_id}",
+            get(get_admin::get_admin),
+        )
         .with_state(state)
 }
 
@@ -24,6 +31,7 @@ mod tests {
     use crate::auth::{
         AuthError, AuthMethod, RequestMetadata, TokenAuthenticator, TransportPrincipal,
     };
+    use crate::content_notices::test_support::Unused;
     use application::{
         error::static_error,
         operation_context::OperationContext,
@@ -40,10 +48,6 @@ mod tests {
         reason_category::ReasonCategory,
         submitter::{SubmitterEmail, SubmitterName},
         submitter_role::SubmitterRole,
-    };
-    use content_notice_service::use_cases::commands::submit_content_notice::{
-        SubmitContentNoticeCommand, SubmitContentNoticeError, SubmitContentNoticeResult,
-        SubmitContentNoticeUseCase,
     };
     use content_notice_service::use_cases::queries::list_admin_content_notices::{
         ContentNoticeCursor, ContentNoticeSortKey, ContentNoticeSummary,
@@ -117,20 +121,6 @@ mod tests {
         }
     }
 
-    /// Submission shares the router; list tests never reach it.
-    struct UnusedSubmit;
-
-    #[async_trait::async_trait]
-    impl SubmitContentNoticeUseCase for UnusedSubmit {
-        async fn execute(
-            &self,
-            _: &OperationContext,
-            _: SubmitContentNoticeCommand,
-        ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError> {
-            unreachable!("list tests do not submit notices")
-        }
-    }
-
     struct FakeAuthenticator(bool);
 
     #[async_trait::async_trait]
@@ -157,8 +147,9 @@ mod tests {
         query: &str,
     ) -> (StatusCode, Option<String>, Value) {
         let router = router(ContentNoticesState::new(
-            Arc::new(UnusedSubmit),
+            Arc::new(Unused),
             Arc::new(FakeListAdmin(outcome)),
+            Arc::new(Unused),
             Arc::new(FakeAuthenticator(authenticated)),
         ));
         let request = Request::builder()
