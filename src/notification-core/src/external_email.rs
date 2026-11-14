@@ -5,8 +5,10 @@
 //! (External email delivery) owns the contract.
 
 use content_notice_core::{
-    content_notice::ContentNotice, content_notice_id::ContentNoticeId,
-    content_notice_target::ProductListingTitleSnapshot, reason_category::ReasonCategory,
+    content_notice::ContentNotice,
+    content_notice_id::ContentNoticeId,
+    content_notice_target::{ContentNoticeTarget, ProductListingTitleSnapshot},
+    reason_category::ReasonCategory,
 };
 use listing_source_core::ListingSourceName;
 use serde_email::Email;
@@ -155,10 +157,19 @@ pub struct ContentNoticeReceipt {
     pub received_at: OffsetDateTime,
     /// The listing source's name from the notice's target snapshot.
     pub provider_name: ListingSourceName,
-    /// The listing's title from the snapshot; `None` for a notice about a listing source or a
-    /// listing without a title.
-    pub listing_title: Option<ProductListingTitleSnapshot>,
+    pub target: ContentNoticeReceiptTarget,
     pub reason_category: ReasonCategory,
+}
+
+/// What the notice is about, as the receipt names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContentNoticeReceiptTarget {
+    /// The whole provider, with all of its listings.
+    ListingSource,
+    /// One listing, with its title from the snapshot when it had one.
+    ProductListing {
+        title: Option<ProductListingTitleSnapshot>,
+    },
 }
 
 impl ContentNoticeReceipt {
@@ -170,10 +181,19 @@ impl ContentNoticeReceipt {
             content_notice_id: notice.id(),
             received_at,
             provider_name: snapshot.listing_source.name.clone(),
-            listing_title: snapshot
-                .product_listing
-                .as_ref()
-                .and_then(|listing| listing.title.clone()),
+            target: match notice.target() {
+                ContentNoticeTarget::ListingSource { .. } => {
+                    ContentNoticeReceiptTarget::ListingSource
+                }
+                ContentNoticeTarget::ProductListing { .. } => {
+                    ContentNoticeReceiptTarget::ProductListing {
+                        title: snapshot
+                            .product_listing
+                            .as_ref()
+                            .and_then(|listing| listing.title.clone()),
+                    }
+                }
+            },
             reason_category: notice.reason_category(),
         }
     }
@@ -316,7 +336,9 @@ mod tests {
         assert_eq!(id.into_uuid(), origin.origin_id());
     }
 
-    fn notice(listing_title: Option<&str>) -> Result<ContentNotice, Box<dyn std::error::Error>> {
+    /// A notice about a listing with `listing`'s title, or about the whole provider when
+    /// `listing` is `None`.
+    fn notice(listing: Option<Option<&str>>) -> Result<ContentNotice, Box<dyn std::error::Error>> {
         use content_notice_core::{
             additional_url::{AdditionalUrl, AdditionalUrls},
             content_notice::NewContentNotice,
@@ -332,14 +354,16 @@ mod tests {
         use product_listing_core::product_listing_id::ProductListingId;
 
         let listing_source_id = ListingSourceId::new();
-        let (target, product_listing) = match listing_title {
+        let (target, product_listing) = match listing {
             Some(title) => (
                 ContentNoticeTarget::ProductListing {
                     product_listing_id: ProductListingId::new(),
                     listing_source_id,
                 },
                 Some(ProductListingSnapshot {
-                    title: Some(ProductListingTitleSnapshot::try_from(title)?),
+                    title: title
+                        .map(ProductListingTitleSnapshot::try_from)
+                        .transpose()?,
                     url: url::Url::parse("https://shop.example/vase")?,
                 }),
             ),
@@ -377,7 +401,7 @@ mod tests {
     #[test]
     fn should_take_only_our_own_data_from_a_listing_notice_into_its_receipt()
     -> Result<(), Box<dyn std::error::Error>> {
-        let notice = notice(Some("Jugendstil-Vase"))?;
+        let notice = notice(Some(Some("Jugendstil-Vase")))?;
         let received_at = OffsetDateTime::UNIX_EPOCH;
 
         let receipt = ContentNoticeReceipt::for_notice(&notice, received_at);
@@ -387,7 +411,9 @@ mod tests {
                 content_notice_id: notice.id(),
                 received_at,
                 provider_name: ListingSourceName::try_from("Antik Shop")?,
-                listing_title: Some(ProductListingTitleSnapshot::try_from("Jugendstil-Vase")?),
+                target: ContentNoticeReceiptTarget::ProductListing {
+                    title: Some(ProductListingTitleSnapshot::try_from("Jugendstil-Vase")?),
+                },
                 reason_category: ReasonCategory::RightsInfringement,
             },
             receipt
@@ -402,11 +428,24 @@ mod tests {
     }
 
     #[test]
-    fn should_name_no_listing_in_the_receipt_of_a_listing_source_notice()
+    fn should_name_the_whole_provider_in_the_receipt_of_a_listing_source_notice()
     -> Result<(), Box<dyn std::error::Error>> {
         let receipt = ContentNoticeReceipt::for_notice(&notice(None)?, OffsetDateTime::UNIX_EPOCH);
 
-        assert_eq!(None, receipt.listing_title);
+        assert_eq!(ContentNoticeReceiptTarget::ListingSource, receipt.target);
+        Ok(())
+    }
+
+    #[test]
+    fn should_keep_a_listing_without_a_title_a_listing_in_its_receipt()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let receipt =
+            ContentNoticeReceipt::for_notice(&notice(Some(None))?, OffsetDateTime::UNIX_EPOCH);
+
+        assert_eq!(
+            ContentNoticeReceiptTarget::ProductListing { title: None },
+            receipt.target
+        );
         Ok(())
     }
 }

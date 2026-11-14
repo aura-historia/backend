@@ -10611,9 +10611,10 @@ paths:
 
         Receipt: every stored notice gets exactly one receipt email to `email`, sent asynchronously after the
         `202`, in `language` when it is `de`, `en`, `es`, `fr` or `it` and in English otherwise. It confirms the
-        receipt time, a reference (the ContentNotice ID), the provider, the listing title for `PRODUCT_LISTING`
-        targets and the reason category. It never repeats anything the submitter typed. An identical
-        resubmission and a `429` send no receipt.
+        receipt time, a reference (the ContentNotice ID), the provider, what the notice covers (the listing and
+        its title for `PRODUCT_LISTING` targets, the whole provider with all of its listings for
+        `LISTING_SOURCE` targets) and the reason category. It never repeats anything the submitter typed. An
+        identical resubmission and a `429` send no receipt.
       operationId: submitContentNotice
       tags:
         - ContentNotices

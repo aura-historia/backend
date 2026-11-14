@@ -3,7 +3,9 @@
 
 use crate::template_mapping::{EmailLanguage, EmailTemplateType, FrontendLinks};
 use content_notice_core::reason_category::ReasonCategory;
-use notification_core::external_email::{ContentNoticeReceipt, ExternalEmailContent};
+use notification_core::external_email::{
+    ContentNoticeReceipt, ContentNoticeReceiptTarget, ExternalEmailContent,
+};
 use notification_service::ports::notification_delivery_repository::ExternalEmailDeliverySource;
 use serde_json::{Value, json};
 use time::{OffsetDateTime, UtcOffset};
@@ -32,16 +34,21 @@ pub(crate) fn external_template_data(
 }
 
 /// The receipt carries only data from Aura Historia's side (`docs/content-notices.md`,
-/// Receipt email). `listing_title` is empty when there is no listing title to name.
+/// Receipt email). `listing_target` tells a notice about one listing from one about the whole
+/// provider; `listing_title` is empty when there is no listing title to name.
 fn content_notice_receipt_data(receipt: &ContentNoticeReceipt, language: EmailLanguage) -> Value {
+    let (listing_target, listing_title) = match &receipt.target {
+        ContentNoticeReceiptTarget::ListingSource => (false, ""),
+        ContentNoticeReceiptTarget::ProductListing { title } => {
+            (true, title.as_ref().map_or("", |title| title.as_str()))
+        }
+    };
     json!({
         "reference": receipt.content_notice_id.to_string(),
         "received_at": received_at_text(receipt.received_at, language),
         "provider_name": receipt.provider_name.as_ref(),
-        "listing_title": receipt
-            .listing_title
-            .as_ref()
-            .map_or("", |title| title.as_str()),
+        "listing_target": listing_target,
+        "listing_title": listing_title,
         "category_label": category_label(receipt.reason_category, language),
     })
 }
@@ -225,17 +232,23 @@ mod tests {
         }
     }
 
-    fn receipt(listing_title: Option<&str>) -> ContentNoticeReceipt {
+    fn receipt(target: ContentNoticeReceiptTarget) -> ContentNoticeReceipt {
         ContentNoticeReceipt {
             content_notice_id: ContentNoticeId::new(),
             received_at: datetime!(2026-11-14 13:05:59 +01:00),
             provider_name: ListingSourceName::try_from("Antik Shop")
                 .unwrap_or_else(|error| panic!("invalid test name: {error}")),
-            listing_title: listing_title.map(|title| {
+            target,
+            reason_category: ReasonCategory::RightsInfringement,
+        }
+    }
+
+    fn listing(title: Option<&str>) -> ContentNoticeReceiptTarget {
+        ContentNoticeReceiptTarget::ProductListing {
+            title: title.map(|title| {
                 ProductListingTitleSnapshot::try_from(title)
                     .unwrap_or_else(|error| panic!("invalid test title: {error}"))
             }),
-            reason_category: ReasonCategory::RightsInfringement,
         }
     }
 
@@ -281,7 +294,7 @@ mod tests {
 
     #[test]
     fn should_give_a_listing_receipt_only_its_reference_target_category_and_home_link() {
-        let receipt = receipt(Some("Jugendstil-Vase"));
+        let receipt = receipt(listing(Some("Jugendstil-Vase")));
         let reference = receipt.content_notice_id.to_string();
         let source = source(
             Language::De,
@@ -293,6 +306,7 @@ mod tests {
                 "reference": reference,
                 "received_at": "14. November 2026 um 12:05 UTC",
                 "provider_name": "Antik Shop",
+                "listing_target": true,
                 "listing_title": "Jugendstil-Vase",
                 "category_label": "Rechtsverletzung",
                 "home_url": "https://stage.aura-historia.com/de",
@@ -309,17 +323,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn should_give_a_listing_source_receipt_an_empty_listing_title() {
+    #[rstest]
+    #[case(ContentNoticeReceiptTarget::ListingSource, false)]
+    #[case(listing(None), true)]
+    fn should_tell_provider_receipts_from_untitled_listing_receipts(
+        #[case] target: ContentNoticeReceiptTarget,
+        #[case] listing_target: bool,
+    ) {
         let source = source(
             Language::En,
-            ExternalEmailContent::ContentNoticeReceipt(receipt(None)),
+            ExternalEmailContent::ContentNoticeReceipt(receipt(target)),
         );
 
-        assert_eq!(
-            json!(""),
-            external_template_data(&source, links(EmailLanguage::En))["listing_title"]
-        );
+        let data = external_template_data(&source, links(EmailLanguage::En));
+
+        assert_eq!(json!(listing_target), data["listing_target"]);
+        assert_eq!(json!(""), data["listing_title"]);
     }
 
     #[rstest]

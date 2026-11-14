@@ -466,7 +466,10 @@ mod tests {
     use domain_primitives::versioned::Versioned;
     use listing_source_core::ListingSourceName;
     use localization::Language;
-    use notification_core::external_email_message_id::ExternalEmailMessageId;
+    use notification_core::{
+        external_email::ContentNoticeReceiptTarget,
+        external_email_message_id::ExternalEmailMessageId,
+    };
     use notification_service::ports::external_email_outbox::{
         ExternalEmailEnqueueOutcome, ExternalEmailErasure,
     };
@@ -1242,9 +1245,11 @@ mod tests {
                     content_notice_id: notice.id(),
                     received_at: NOW,
                     provider_name: ListingSourceName::try_from("Antik Shop").unwrap(),
-                    listing_title: Some(
-                        ProductListingTitleSnapshot::try_from("Jugendstil-Vase").unwrap()
-                    ),
+                    target: ContentNoticeReceiptTarget::ProductListing {
+                        title: Some(
+                            ProductListingTitleSnapshot::try_from("Jugendstil-Vase").unwrap()
+                        ),
+                    },
                     reason_category: ReasonCategory::RightsInfringement,
                 }),
                 origin: ExternalEmailOrigin::ContentNotice(notice.id()),

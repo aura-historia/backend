@@ -109,8 +109,9 @@ the per-address budget already bounds receipts, and every accepted notice is ack
   its retries, DLQ and alarms. The receipt's origin is the notice (`CONTENT_NOTICE` and the
   notice ID), its template kind `CONTENT_NOTICE_RECEIPT`.
 - **Content:** fixed localized text plus data from Aura Historia's side only: the reference
-  (the notice ID), the receipt time in UTC, the listing source's name and, for a listing, its
-  title from the snapshot, and the reason category. Nothing the notifier typed is echoed back
+  (the notice ID), the receipt time in UTC, the listing source's name, what the notice covers
+  (one listing, with its snapshot title or an "untitled listing" stand-in, or the whole
+  provider with all of its listings), and the reason category. Nothing the notifier typed is echoed back
   (no name, explanation or URLs), so the endpoint cannot send arbitrary content to a third
   party. [`ContentNoticeReceipt::for_notice`](../src/notification-core/src/external_email.rs)
   owns that selection.
@@ -118,7 +119,8 @@ the per-address budget already bounds receipts, and every accepted notice is ack
   settings page, because the recipient usually has no account. It says that whoever did not
   submit the notice can ignore the email, since the address may belong to someone else. The
   [templates](../mjml/content-notice/receipt) exist in `de`, `en`, `es`, `fr` and `it`; any
-  other submitter language gets English.
+  other submitter language gets English. Their design is the `Email · content-notice/receipt`
+  artboards ([email templates](../mjml/README.md)).
 - **Admin view:** the admin detail shows the receipt's delivery status, attempts and delivery
   time. `FAILED` means the receipt is permanently undeliverable, for example because the email
   provider rejected the address, and will not be retried; admins then answer the notifier

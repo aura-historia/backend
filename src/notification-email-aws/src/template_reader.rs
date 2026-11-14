@@ -467,8 +467,10 @@ mod tests {
     ];
 
     /// A stored notice whose submitter-typed fields carry [`SUBMITTER_MARKERS`].
+    /// `listing` is the listed title of a notice about one listing; `None` makes it a notice
+    /// about the whole provider.
     fn content_notice(
-        listing_title: Option<&str>,
+        listing: Option<Option<&str>>,
     ) -> Result<content_notice_core::content_notice::ContentNotice, Box<dyn std::error::Error>>
     {
         use content_notice_core::{
@@ -489,14 +491,16 @@ mod tests {
         use product_listing_core::product_listing_id::ProductListingId;
 
         let listing_source_id = ListingSourceId::new();
-        let (target, product_listing) = match listing_title {
+        let (target, product_listing) = match listing {
             Some(title) => (
                 ContentNoticeTarget::ProductListing {
                     product_listing_id: ProductListingId::new(),
                     listing_source_id,
                 },
                 Some(ProductListingSnapshot {
-                    title: Some(ProductListingTitleSnapshot::try_from(title)?),
+                    title: title
+                        .map(ProductListingTitleSnapshot::try_from)
+                        .transpose()?,
                     url: url::Url::parse("https://antik.example/vase")?,
                 }),
             ),
@@ -556,7 +560,7 @@ mod tests {
                 expected: vec!["probe-1".to_owned()],
             },
             ExternalEmailTemplate::ContentNoticeReceipt => {
-                let notice = content_notice(Some("Jugendstil-Vase"))?;
+                let notice = content_notice(Some(Some("Jugendstil-Vase")))?;
                 ExternalTemplateFixture {
                     templates: CONTENT_NOTICE_RECEIPT_TEMPLATES,
                     content: ExternalEmailContent::ContentNoticeReceipt(
@@ -701,46 +705,81 @@ mod tests {
         Ok(render_template(&handlebars, template, &data)?)
     }
 
+    /// The localized texts a receipt must show: the ignore line, the whole-provider scope and
+    /// the stand-in for a listing without a title.
+    struct ReceiptTexts {
+        ignore_line: &'static str,
+        whole_provider: &'static str,
+        untitled_listing: &'static str,
+    }
+
+    const DE: ReceiptTexts = ReceiptTexts {
+        ignore_line: "Falls Sie diese Meldung nicht abgegeben haben",
+        whole_provider: "Der gesamte Anbieter mit allen seinen Angeboten",
+        untitled_listing: "Angebot ohne Titel",
+    };
+    const EN: ReceiptTexts = ReceiptTexts {
+        ignore_line: "If you did not submit this notice",
+        whole_provider: "The entire provider, including all of its listings",
+        untitled_listing: "Untitled listing",
+    };
+    const ES: ReceiptTexts = ReceiptTexts {
+        ignore_line: "Si usted no ha enviado esta notificación",
+        whole_provider: "Todo el proveedor, incluidos todos sus anuncios",
+        untitled_listing: "Anuncio sin título",
+    };
+    const FR: ReceiptTexts = ReceiptTexts {
+        ignore_line: "Si vous n’avez pas soumis cette notification",
+        whole_provider: "L’ensemble du fournisseur, y compris toutes ses annonces",
+        untitled_listing: "Annonce sans titre",
+    };
+    const IT: ReceiptTexts = ReceiptTexts {
+        ignore_line: "Se non ha inviato questa segnalazione",
+        whole_provider: "L’intero fornitore, inclusi tutti i suoi annunci",
+        untitled_listing: "Annuncio senza titolo",
+    };
+
     #[rstest::rstest]
-    #[case(
-        localization::Language::De,
-        "Falls Sie diese Meldung nicht abgegeben haben"
-    )]
-    #[case(localization::Language::En, "If you did not submit this notice")]
-    #[case(localization::Language::Es, "Si usted no ha enviado esta notificación")]
-    #[case(
-        localization::Language::Fr,
-        "Si vous n’avez pas soumis cette notification"
-    )]
-    #[case(localization::Language::It, "Se non ha inviato questa segnalazione")]
-    #[case(localization::Language::Ja, "If you did not submit this notice")]
-    fn should_render_content_notice_receipts_without_submitter_text_for_both_target_kinds(
+    #[case(localization::Language::De, DE)]
+    #[case(localization::Language::En, EN)]
+    #[case(localization::Language::Es, ES)]
+    #[case(localization::Language::Fr, FR)]
+    #[case(localization::Language::It, IT)]
+    #[case(localization::Language::Ja, EN)]
+    fn should_render_content_notice_receipts_without_submitter_text_for_every_target_kind(
         #[case] language: localization::Language,
-        #[case] ignore_line: &str,
+        #[case] texts: ReceiptTexts,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let listing_notice = content_notice(Some("Jugendstil-Vase"))?;
+        let listing_notice = content_notice(Some(Some("Jugendstil-Vase")))?;
+        let untitled_notice = content_notice(Some(None))?;
         let source_notice = content_notice(None)?;
 
         let listing = render_receipt(&listing_notice, language)?;
+        let untitled = render_receipt(&untitled_notice, language)?;
         let source = render_receipt(&source_notice, language)?;
 
-        for (notice, rendered) in [(&listing_notice, &listing), (&source_notice, &source)] {
+        for (notice, rendered) in [
+            (&listing_notice, &listing),
+            (&untitled_notice, &untitled),
+            (&source_notice, &source),
+        ] {
             assert!(rendered.contains(&notice.id().to_string()));
             assert!(rendered.contains("Antik &lt;Shop&gt;"));
             assert!(rendered.contains("2026"));
             assert!(rendered.contains("12:00 UTC"));
-            assert!(rendered.contains(ignore_line), "{rendered}");
+            assert!(rendered.contains(texts.ignore_line), "{rendered}");
             for marker in SUBMITTER_MARKERS {
                 assert!(!rendered.contains(marker), "{marker} reached the receipt");
             }
             assert!(!rendered.to_lowercase().contains("partner"));
         }
         assert!(listing.contains("Jugendstil-Vase"));
-        assert_eq!(
-            source.matches("<tr>").count() + 1,
-            listing.matches("<tr>").count(),
-            "only a listing receipt names the listing"
-        );
+        assert!(untitled.contains(texts.untitled_listing));
+        assert!(source.contains(texts.whole_provider));
+        for rendered in [&listing, &untitled] {
+            assert!(!rendered.contains(texts.whole_provider));
+        }
+        assert!(!source.contains("Jugendstil-Vase") && !source.contains(texts.untitled_listing));
         Ok(())
     }
 

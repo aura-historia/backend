@@ -157,6 +157,7 @@ async fn should_commit_a_stored_notice_with_exactly_one_pending_receipt_of_our_o
                 "content_notice_id": content_notice_id.into_uuid(),
                 "received_at": "2026-11-14T12:00:00.25Z",
                 "provider_name": "Antik Shop",
+                "target_type": "PRODUCT_LISTING",
                 "listing_title": "Jugendstil-Vase",
                 "reason_category": "RIGHTS_INFRINGEMENT",
             },
@@ -176,7 +177,7 @@ async fn should_commit_a_stored_notice_with_exactly_one_pending_receipt_of_our_o
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_enqueue_a_listing_source_receipt_without_a_listing_title() {
+async fn should_enqueue_a_listing_source_receipt_for_the_whole_provider() {
     let pool = get_postgres_client().await;
     let source = seed_listing_source(&pool, "Antik Shop", None, None).await;
 
@@ -192,6 +193,7 @@ async fn should_enqueue_a_listing_source_receipt_without_a_listing_title() {
 
     let emails = external_emails(&pool).await;
     assert_eq!(1, emails.len());
+    assert_eq!("LISTING_SOURCE", emails[0]["payload"]["target_type"]);
     assert_eq!(Value::Null, emails[0]["payload"]["listing_title"]);
 }
 
