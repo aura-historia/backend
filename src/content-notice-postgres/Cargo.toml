@@ -15,6 +15,7 @@ platform-postgres = { workspace = true }
 product-listing-core = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 

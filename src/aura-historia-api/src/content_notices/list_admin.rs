@@ -201,7 +201,16 @@ fn parse_cursor(
 }
 
 fn parse_search_after(value: &str) -> Result<ContentNoticeCursor, ApiError> {
-    Ok(keyset_cursor::decode::<ContentNoticeSortKeyData, _>(value)?.map_sort_key(Into::into))
+    let cursor = keyset_cursor::decode::<ContentNoticeSortKeyData, _>(value)?;
+    // A forged position outside what PostgreSQL stores is client input, not an outage.
+    let ContentNoticeSortKeyData::Created(created) = cursor.sort_key;
+    if !(1..=9999).contains(&created.year()) {
+        return Err(bad_query(
+            "searchAfter",
+            "searchAfter must be a cursor returned by this search.",
+        ));
+    }
+    Ok(cursor.map_sort_key(Into::into))
 }
 
 fn encode_search_after(cursor: ContentNoticeCursor) -> String {

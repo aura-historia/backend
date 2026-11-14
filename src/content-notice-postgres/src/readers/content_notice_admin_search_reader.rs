@@ -15,6 +15,7 @@ use content_notice_service::{
 use domain_primitives::sort::SortOrder;
 use platform_postgres::SqlxTransaction;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
+use time::{Duration, OffsetDateTime};
 
 const MIN_PAGE_SIZE: u64 = 1;
 const MAX_PAGE_SIZE: u64 = 100;
@@ -134,7 +135,9 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ContentNoticeSear
     }
     if let Some(created) = search.created {
         if let Some(min) = created.min {
-            builder.push(" AND created >= ").push_bind(min);
+            builder
+                .push(" AND created >= ")
+                .push_bind(ceil_to_microsecond(min));
         }
         if let Some(max) = created.max {
             builder.push(" AND created <= ").push_bind(max);
@@ -182,5 +185,32 @@ fn internal(
 ) -> ContentNoticeAdminSearchReadError {
     ContentNoticeAdminSearchReadError::Internal {
         source: box_error(error),
+    }
+}
+
+/// PostgreSQL stores microseconds and the bind truncates finer values, which would move an
+/// inclusive lower bound earlier and admit a row before it.
+fn ceil_to_microsecond(instant: OffsetDateTime) -> OffsetDateTime {
+    match instant.nanosecond() % 1_000 {
+        0 => instant,
+        below => instant + Duration::nanoseconds(i64::from(1_000 - below)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::macros::datetime;
+
+    #[test]
+    fn should_round_a_lower_bound_up_to_the_next_stored_microsecond() {
+        assert_eq!(
+            datetime!(2026-11-13 10:00:00.000001 UTC),
+            ceil_to_microsecond(datetime!(2026-11-13 10:00:00.0000005 UTC))
+        );
+        assert_eq!(
+            datetime!(2026-11-13 10:00:00.123456 UTC),
+            ceil_to_microsecond(datetime!(2026-11-13 10:00:00.123456 UTC))
+        );
     }
 }

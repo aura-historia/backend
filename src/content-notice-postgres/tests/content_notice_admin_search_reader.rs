@@ -207,7 +207,7 @@ fn page(
 async fn should_order_by_created_and_break_ties_by_id_in_the_same_direction() {
     let pool = get_postgres_client().await;
     let source = ListingSourceId::new();
-    let tie = datetime!(2026-11-13 10:00 UTC);
+    let tie = datetime!(2026-11-13 10:00:00.123456 UTC);
     let ids = seed(
         &pool,
         &[
@@ -433,7 +433,7 @@ async fn should_map_summary_from_the_submission_snapshot() {
 async fn should_continue_across_three_pages_without_gaps_or_duplicates() {
     let pool = get_postgres_client().await;
     let source = ListingSourceId::new();
-    let tie = datetime!(2026-11-13 10:00 UTC);
+    let tie = datetime!(2026-11-13 10:00:00.123456 UTC);
     let seeds = (0..7)
         .map(|index| {
             let created = if (2..5).contains(&index) {
