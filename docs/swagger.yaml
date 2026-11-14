@@ -6117,7 +6117,11 @@ paths:
         match to the ListingSource name. `listingSourceId` and `listingSourceSlugId` are exact
         identity filters. `operatorPartyId`, `listingSourceType`, `ingestionMethod`, and
         `platformTechnology` are exact filters and can be combined. ListingSource type and platform
-        technology are descriptive metadata independent of ingestion.
+        technology are descriptive metadata independent of ingestion. `country` keeps only sources
+        located in that country: the source's selected location default is active, carries
+        associated-business or advertised-inventory evidence, and its submitted country, otherwise
+        its accepted geocoded country, is the requested ISO 3166-1 alpha-2 code. Sources without such
+        a location never match.
 
         Results use deterministic keyset pagination. The default sort is `name` ascending;
         override it by providing both `sort` and `order`. Valid sort fields are `name`, `slug`,
@@ -6195,6 +6199,14 @@ paths:
           schema:
             $ref: "#/components/schemas/PlatformTechnology"
           example: BIGCOMMERCE
+        - name: country
+          in: query
+          required: false
+          description: Optional exact filter for the country where the ListingSource is located, as an uppercase ISO 3166-1 alpha-2 code. Lowercase, alpha-3 and unknown codes return `400 BAD_QUERY_PARAMETER_VALUE`.
+          schema:
+            type: string
+            pattern: "^[A-Z]{2}$"
+          example: DE
         - name: sort
           in: query
           required: false
