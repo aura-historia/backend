@@ -10600,7 +10600,7 @@ paths:
         provider's opt-out, a rights infringement or a report of illegal content. Anyone can submit a notice
         without an account. An optional Cognito JWT or Aura Historia access-token bearer credential may be
         supplied; an invalid, expired or revoked supplied credential returns 401 and is never treated as
-        anonymous. The caller's identity is not stored with the notice.
+        anonymous. The caller's identity is neither stored with the notice nor logged.
 
         The server resolves the target and stores a snapshot of it as it was at submission. A ProductListing
         target must be publicly visible: a withdrawn listing is not found. A notice never removes anything by

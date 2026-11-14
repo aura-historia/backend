@@ -448,7 +448,10 @@ mod tests {
     use localization::Language;
     use notification_core::notification_id::NotificationId;
     use notification_core::{
-        external_email::{ExternalEmailContent, ExternalEmailRecipient, ExternalEmailTestProbe},
+        external_email::{
+            ContentNoticeReceipt, ContentNoticeReceiptTarget, ExternalEmailContent,
+            ExternalEmailRecipient,
+        },
         external_email_message_id::ExternalEmailMessageId,
     };
     use notification_core::{
@@ -868,10 +871,14 @@ mod tests {
             recipient: ExternalEmailRecipient::try_from("notifier@example.test")
                 .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
             language: Language::De,
-            content: ExternalEmailContent::TestProbe(
-                ExternalEmailTestProbe::new("probe-1")
-                    .unwrap_or_else(|error| panic!("invalid test probe: {error}")),
-            ),
+            content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt {
+                content_notice_id: content_notice_core::content_notice_id::ContentNoticeId::new(),
+                received_at: time::OffsetDateTime::UNIX_EPOCH,
+                provider_name: ListingSourceName::try_from("Antik Shop")
+                    .unwrap_or_else(|error| panic!("invalid test provider name: {error}")),
+                target: ContentNoticeReceiptTarget::ListingSource,
+                reason_category: content_notice_core::reason_category::ReasonCategory::Other,
+            }),
         })
     }
 

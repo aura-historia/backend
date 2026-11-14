@@ -5572,6 +5572,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "content-notice-core",
  "fake",
  "listing-source-core",
  "localization",

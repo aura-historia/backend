@@ -1,7 +1,11 @@
 use application::transaction::{Transaction, UnitOfWork};
+use content_notice_core::content_notice_id::ContentNoticeId;
+use content_notice_core::reason_category::ReasonCategory;
+use listing_source_core::ListingSourceName;
 use localization::Language;
 use notification_core::external_email::{
-    ExternalEmailContent, ExternalEmailOrigin, ExternalEmailRecipient, ExternalEmailTestProbe,
+    ContentNoticeReceipt, ContentNoticeReceiptTarget, ExternalEmailContent, ExternalEmailOrigin,
+    ExternalEmailRecipient,
 };
 use notification_postgres::SqlxExternalEmailOutboxFactory;
 use notification_service::ports::external_email_outbox::{
@@ -15,17 +19,39 @@ use uuid::Uuid;
 
 const BUSINESS_SCHEMA: Postgres = Postgres::new("migrations");
 
-fn request(origin: ExternalEmailOrigin, reference: &str) -> ExternalEmailRequest {
+fn origin() -> ExternalEmailOrigin {
+    ExternalEmailOrigin::ContentNotice(ContentNoticeId::new())
+}
+
+/// The receipt of the notice `origin` names, about the whole provider `provider_name`.
+fn request(origin: ExternalEmailOrigin, provider_name: &str) -> ExternalEmailRequest {
+    let ExternalEmailOrigin::ContentNotice(content_notice_id) = origin;
     ExternalEmailRequest {
         recipient: ExternalEmailRecipient::try_from("notifier@example.test")
             .unwrap_or_else(|error| panic!("invalid test recipient: {error}")),
         language: Language::It,
-        content: ExternalEmailContent::TestProbe(
-            ExternalEmailTestProbe::new(reference)
-                .unwrap_or_else(|error| panic!("invalid test probe: {error}")),
-        ),
+        content: ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt {
+            content_notice_id,
+            received_at: time::OffsetDateTime::UNIX_EPOCH,
+            provider_name: ListingSourceName::try_from(provider_name)
+                .unwrap_or_else(|error| panic!("invalid test provider name: {error}")),
+            target: ContentNoticeReceiptTarget::ListingSource,
+            reason_category: ReasonCategory::Other,
+        }),
         origin,
     }
+}
+
+/// The stored payload of [`request`].
+fn payload(origin: ExternalEmailOrigin, provider_name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "content_notice_id": origin.origin_id(),
+        "received_at": "1970-01-01T00:00:00Z",
+        "provider_name": provider_name,
+        "target_type": "LISTING_SOURCE",
+        "listing_title": null,
+        "reason_category": "OTHER",
+    })
 }
 
 async fn enqueue(pool: &PgPool, request: ExternalEmailRequest) -> ExternalEmailEnqueueOutcome {
@@ -69,13 +95,9 @@ struct StoredMessage {
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_commit_message_and_pending_delivery_in_the_callers_transaction() {
     let pool = get_postgres_client().await;
-    let origin_id = Uuid::now_v7();
+    let origin = origin();
 
-    let outcome = enqueue(
-        &pool,
-        request(ExternalEmailOrigin::TestProbe(origin_id), "probe-1"),
-    )
-    .await;
+    let outcome = enqueue(&pool, request(origin, "Antik Shop")).await;
 
     let ExternalEmailEnqueueOutcome::Enqueued(id) = outcome else {
         panic!("expected a new external email, got {outcome:?}");
@@ -91,11 +113,11 @@ async fn should_commit_message_and_pending_delivery_in_the_callers_transaction()
         StoredMessage {
             recipient_email: "notifier@example.test".to_owned(),
             language: "it".to_owned(),
-            template: "TEST_PROBE".to_owned(),
+            template: "CONTENT_NOTICE_RECEIPT".to_owned(),
             payload_version: 1,
-            payload: serde_json::json!({ "reference": "probe-1" }),
-            origin_type: "TEST_PROBE".to_owned(),
-            origin_id,
+            payload: payload(origin, "Antik Shop"),
+            origin_type: "CONTENT_NOTICE".to_owned(),
+            origin_id: origin.origin_id(),
             status: "PENDING".to_owned(),
             channel: "EMAIL".to_owned(),
             target_key: "RECIPIENT".to_owned(),
@@ -114,10 +136,7 @@ async fn should_leave_nothing_behind_when_the_callers_transaction_rolls_back() {
         .unwrap_or_else(|error| panic!("begin transaction: {error}"));
     SqlxExternalEmailOutboxFactory::new()
         .in_transaction(&mut tx)
-        .enqueue(request(
-            ExternalEmailOrigin::TestProbe(Uuid::now_v7()),
-            "probe-1",
-        ))
+        .enqueue(request(origin(), "Antik Shop"))
         .await
         .unwrap_or_else(|error| panic!("enqueue external email: {error}"));
 
@@ -136,15 +155,11 @@ async fn should_leave_nothing_behind_when_the_callers_transaction_rolls_back() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_return_the_existing_message_when_an_origin_enqueues_the_same_template_again() {
     let pool = get_postgres_client().await;
-    let origin = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
+    let origin = origin();
 
-    let first = enqueue(&pool, request(origin, "probe-1")).await;
-    let repeated = enqueue(&pool, request(origin, "probe-2")).await;
-    let other_origin = enqueue(
-        &pool,
-        request(ExternalEmailOrigin::TestProbe(Uuid::now_v7()), "probe-1"),
-    )
-    .await;
+    let first = enqueue(&pool, request(origin, "Antik Shop")).await;
+    let repeated = enqueue(&pool, request(origin, "Kunsthandel")).await;
+    let other_origin = enqueue(&pool, request(self::origin(), "Antik Shop")).await;
 
     assert!(matches!(first, ExternalEmailEnqueueOutcome::Enqueued(_)));
     assert_eq!(
@@ -164,7 +179,7 @@ async fn should_return_the_existing_message_when_an_origin_enqueues_the_same_tem
         count(&pool, "SELECT count(*) FROM notification_deliveries").await
     );
     assert_eq!(
-        serde_json::json!({ "reference": "probe-1" }),
+        payload(origin, "Antik Shop"),
         sqlx::query_scalar::<_, serde_json::Value>(
             "SELECT payload FROM external_email_messages WHERE external_email_message_id = $1"
         )
@@ -179,7 +194,7 @@ async fn should_return_the_existing_message_when_an_origin_enqueues_the_same_tem
 async fn should_wait_for_a_concurrent_enqueue_and_follow_its_outcome() {
     let pool = get_postgres_client().await;
     for commit_first in [true, false] {
-        let origin = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
+        let origin = origin();
         let factory = SqlxExternalEmailOutboxFactory::new();
         let unit_of_work = SqlxUnitOfWork::new(pool.clone());
         let mut first_tx = unit_of_work
@@ -188,13 +203,13 @@ async fn should_wait_for_a_concurrent_enqueue_and_follow_its_outcome() {
             .unwrap_or_else(|error| panic!("begin transaction: {error}"));
         let first = factory
             .in_transaction(&mut first_tx)
-            .enqueue(request(origin, "probe-1"))
+            .enqueue(request(origin, "Antik Shop"))
             .await
             .unwrap_or_else(|error| panic!("enqueue external email: {error}"));
 
         let second = tokio::spawn({
             let pool = pool.clone();
-            async move { enqueue(&pool, request(origin, "probe-1")).await }
+            async move { enqueue(&pool, request(origin, "Antik Shop")).await }
         });
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert!(
@@ -250,12 +265,12 @@ async fn erase(pool: &PgPool, origin: ExternalEmailOrigin) -> ExternalEmailErasu
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_erase_only_finished_messages_of_an_origin_with_their_deliveries() {
     let pool = get_postgres_client().await;
-    let finished = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
-    let pending = ExternalEmailOrigin::TestProbe(Uuid::now_v7());
-    let finished_id = enqueue(&pool, request(finished, "probe-1"))
+    let finished = origin();
+    let pending = origin();
+    let finished_id = enqueue(&pool, request(finished, "Antik Shop"))
         .await
         .external_email_message_id();
-    let pending_id = enqueue(&pool, request(pending, "probe-2"))
+    let pending_id = enqueue(&pool, request(pending, "Kunsthandel"))
         .await
         .external_email_message_id();
     sqlx::query("UPDATE notification_deliveries SET status = 'DELIVERED', provider_message_id = 'receipt', delivered_at = now() WHERE external_email_message_id = $1")

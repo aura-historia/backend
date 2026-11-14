@@ -47,7 +47,8 @@ identifiers may therefore name rows that no longer exist.
 
 `POST /v1/content-notices` accepts a notice from anyone; the [OpenAPI operation](swagger.yaml)
 `submitContentNotice` is the request and error contract. A supplied bearer credential must be
-valid, but the caller's identity is not stored with the notice.
+valid, but the caller's identity is neither stored with the notice nor logged; logs say only
+whether the caller was signed in.
 
 - The submission rules are checked before the target is read. A product listing target must be
   publicly visible under the same lifecycle rule as the public listing detail, so a withdrawn
@@ -125,10 +126,10 @@ the per-address budget already bounds receipts, and every accepted notice is ack
   other submitter language gets English. Their design is the `Email · content-notice/receipt`
   artboards ([email templates](../mjml/README.md)).
 - **Admin view:** the admin detail shows the receipt's delivery status, attempts and delivery
-  time. `FAILED` means the receipt was not delivered and will not be retried, for example
-  because the email provider rejected the address or refused to send, as it does while sending
-  is paused for the account; admins then answer the notifier manually from the contact
-  mailbox. `PENDING` and `PROCESSING` normally pass within minutes;
+  time. `FAILED` means the email provider rejected the receipt, for example its address, and
+  it will not be retried; admins then answer the notifier manually from the contact mailbox.
+  An account-level refusal, such as paused sending, is retried and then dead-lettered instead.
+  `PENDING` and `PROCESSING` normally pass within minutes;
   a receipt whose delivery job was dead-lettered, which alarms, keeps either status until the
   job is redriven ([runbook](durable-worker-runbook.md#notification-recovery-limits)).
 
@@ -199,8 +200,6 @@ The [OpenAPI](swagger.yaml) operation `adminGetContentNotice` owns the response 
 
 ## References
 
-- Schema: [`content_notices` migration](../migrations/20261114090000_content_notices.sql),
-  the [scope migration](../migrations/20261114090100_content_notices_read_scope.sql) and the
-  [receipt template kind](../migrations/20261114130000_content_notice_receipt_email_template.sql).
+- Schema: [migration](../migrations/20261114090000_content_notices_and_external_email.sql).
 - Public contract: [OpenAPI](swagger.yaml) and the [changelog](CHANGELOG.md).
 - Object ID prefix `ntc`: [object IDs](object-ids.md).

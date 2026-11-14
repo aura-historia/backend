@@ -12,7 +12,6 @@ use time::{OffsetDateTime, UtcOffset};
 
 pub(crate) const fn external_template_type(content: &ExternalEmailContent) -> EmailTemplateType {
     match content {
-        ExternalEmailContent::TestProbe(_) => EmailTemplateType::ExternalEmailTestProbe,
         ExternalEmailContent::ContentNoticeReceipt(_) => EmailTemplateType::ContentNoticeReceipt,
     }
 }
@@ -24,7 +23,6 @@ pub(crate) fn external_template_data(
     links: FrontendLinks<'_>,
 ) -> Value {
     let mut data = match &source.content {
-        ExternalEmailContent::TestProbe(probe) => json!({ "reference": probe.reference() }),
         ExternalEmailContent::ContentNoticeReceipt(receipt) => {
             content_notice_receipt_data(receipt, links.language())
         }
@@ -203,23 +201,12 @@ mod tests {
     use listing_source_core::ListingSourceName;
     use localization::Language;
     use notification_core::{
-        external_email::{ExternalEmailRecipient, ExternalEmailTestProbe},
-        external_email_message_id::ExternalEmailMessageId,
+        external_email::ExternalEmailRecipient, external_email_message_id::ExternalEmailMessageId,
         notification_delivery_id::NotificationDeliveryId,
     };
     use rstest::rstest;
     use strum::IntoEnumIterator;
     use time::macros::datetime;
-
-    fn external_source(language: Language) -> ExternalEmailDeliverySource {
-        source(
-            language,
-            ExternalEmailContent::TestProbe(
-                ExternalEmailTestProbe::new("probe-1")
-                    .unwrap_or_else(|error| panic!("invalid test probe: {error}")),
-            ),
-        )
-    }
 
     fn source(language: Language, content: ExternalEmailContent) -> ExternalEmailDeliverySource {
         ExternalEmailDeliverySource {
@@ -267,28 +254,20 @@ mod tests {
         #[case] language: Language,
         #[case] expected_key_language: &str,
     ) {
-        let source = external_source(language);
+        let source = source(
+            language,
+            ExternalEmailContent::ContentNoticeReceipt(receipt(
+                ContentNoticeReceiptTarget::ListingSource,
+            )),
+        );
 
         assert_eq!(
-            format!("mail/build-id/test/external-email/test-probe/{expected_key_language}.html"),
+            format!("mail/build-id/mjml/content-notice/receipt/{expected_key_language}.html"),
             s3_template_key(
                 "mail/build-id/",
                 external_template_type(&source.content),
                 EmailLanguage::resolve(source.language),
             )
-        );
-    }
-
-    #[test]
-    fn should_give_external_templates_only_message_data_and_the_home_link() {
-        let source = external_source(Language::Fr);
-
-        assert_eq!(
-            json!({
-                "reference": "probe-1",
-                "home_url": "https://stage.aura-historia.com/fr",
-            }),
-            external_template_data(&source, links(EmailLanguage::Fr))
         );
     }
 

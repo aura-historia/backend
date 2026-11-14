@@ -51,14 +51,24 @@ pub(crate) fn classify_s3_template_fetch(
     }
 }
 
+/// Classifies a failed SES send. `sending_unavailable` marks account-level or configuration
+/// refusals (sending paused, account suspended, unverified MAIL FROM domain, missing
+/// configuration resource): they say nothing about the message, so the delivery stays pending
+/// and is retried; once retries are exhausted its job is dead-lettered, which alarms, and can
+/// be redriven after the account or configuration is fixed.
 pub(crate) fn classify_ses_send(
     throttled: bool,
+    sending_unavailable: bool,
     permanently_rejected: bool,
     status_code: Option<u16>,
 ) -> ProviderFailure {
     if throttled || matches!(status_code, Some(429)) {
         ProviderFailure::Retryable {
             code: "SES_THROTTLED",
+        }
+    } else if sending_unavailable {
+        ProviderFailure::Retryable {
+            code: "SES_SENDING_UNAVAILABLE",
         }
     } else if permanently_rejected
         || matches!(status_code, Some(400..=499) if status_code != Some(408))
@@ -87,12 +97,11 @@ impl From<SesSendFailed> for NotificationChannelSendError {
                 classify_ses_send(
                     service.is_limit_exceeded_exception()
                         || service.is_too_many_requests_exception(),
-                    service.is_bad_request_exception()
-                        || service.is_message_rejected()
-                        || service.is_account_suspended_exception()
+                    service.is_account_suspended_exception()
+                        || service.is_sending_paused_exception()
                         || service.is_mail_from_domain_not_verified_exception()
-                        || service.is_not_found_exception()
-                        || service.is_sending_paused_exception(),
+                        || service.is_not_found_exception(),
+                    service.is_bad_request_exception() || service.is_message_rejected(),
                     Some(response.raw().status().as_u16()),
                 )
             }
@@ -136,28 +145,35 @@ mod tests {
     }
 
     #[rstest]
-    #[case(true, false, None, ProviderFailure::Retryable { code: "SES_THROTTLED" })]
-    #[case(false, true, None, ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(false, false, Some(400), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(false, false, Some(403), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(false, false, Some(429), ProviderFailure::Retryable { code: "SES_THROTTLED" })]
-    #[case(false, false, Some(408), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, Some(500), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, Some(502), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, Some(503), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, Some(504), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, None, ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, Some(200), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
-    #[case(false, false, Some(302), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(true, false, false, None, ProviderFailure::Retryable { code: "SES_THROTTLED" })]
+    #[case(false, true, false, Some(400), ProviderFailure::Retryable { code: "SES_SENDING_UNAVAILABLE" })]
+    #[case(false, false, true, None, ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
+    #[case(false, false, false, Some(400), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
+    #[case(false, false, false, Some(403), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
+    #[case(false, false, false, Some(429), ProviderFailure::Retryable { code: "SES_THROTTLED" })]
+    #[case(false, false, false, Some(408), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, Some(500), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, Some(502), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, Some(503), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, Some(504), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, None, ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, Some(200), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
+    #[case(false, false, false, Some(302), ProviderFailure::Ambiguous { code: "SES_SEND_AMBIGUOUS" })]
     fn should_classify_ses_send_failures(
         #[case] throttled: bool,
+        #[case] sending_unavailable: bool,
         #[case] permanently_rejected: bool,
         #[case] status_code: Option<u16>,
         #[case] expected: ProviderFailure,
     ) {
         assert_eq!(
             expected,
-            classify_ses_send(throttled, permanently_rejected, status_code)
+            classify_ses_send(
+                throttled,
+                sending_unavailable,
+                permanently_rejected,
+                status_code
+            )
         );
     }
 
@@ -191,10 +207,10 @@ mod tests {
     #[case(SendEmailError::LimitExceededException(aws_sdk_sesv2::types::error::LimitExceededException::builder().build()), ProviderFailure::Retryable { code: "SES_THROTTLED" })]
     #[case(SendEmailError::BadRequestException(aws_sdk_sesv2::types::error::BadRequestException::builder().build()), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
     #[case(SendEmailError::MessageRejected(aws_sdk_sesv2::types::error::MessageRejected::builder().build()), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(SendEmailError::AccountSuspendedException(aws_sdk_sesv2::types::error::AccountSuspendedException::builder().build()), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(SendEmailError::MailFromDomainNotVerifiedException(aws_sdk_sesv2::types::error::MailFromDomainNotVerifiedException::builder().build()), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(SendEmailError::NotFoundException(aws_sdk_sesv2::types::error::NotFoundException::builder().build()), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
-    #[case(SendEmailError::SendingPausedException(aws_sdk_sesv2::types::error::SendingPausedException::builder().build()), ProviderFailure::Permanent { code: "SES_REQUEST_OR_CONFIGURATION_INVALID" })]
+    #[case(SendEmailError::AccountSuspendedException(aws_sdk_sesv2::types::error::AccountSuspendedException::builder().build()), ProviderFailure::Retryable { code: "SES_SENDING_UNAVAILABLE" })]
+    #[case(SendEmailError::MailFromDomainNotVerifiedException(aws_sdk_sesv2::types::error::MailFromDomainNotVerifiedException::builder().build()), ProviderFailure::Retryable { code: "SES_SENDING_UNAVAILABLE" })]
+    #[case(SendEmailError::NotFoundException(aws_sdk_sesv2::types::error::NotFoundException::builder().build()), ProviderFailure::Retryable { code: "SES_SENDING_UNAVAILABLE" })]
+    #[case(SendEmailError::SendingPausedException(aws_sdk_sesv2::types::error::SendingPausedException::builder().build()), ProviderFailure::Retryable { code: "SES_SENDING_UNAVAILABLE" })]
     fn should_classify_modeled_ses_rejections_and_retain_sdk_source(
         #[case] service_error: SendEmailError,
         #[case] expected: ProviderFailure,

@@ -8,7 +8,6 @@ use domain_primitives::object_id::ObjectIdError;
 use listing_source_core::{ListingSourceName, ListingSourceNameError};
 use notification_core::external_email::{
     ContentNoticeReceipt, ContentNoticeReceiptTarget, ExternalEmailContent, ExternalEmailTemplate,
-    ExternalEmailTestProbe, InvalidExternalEmailTestProbe,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,8 +26,6 @@ pub(crate) enum ExternalEmailMappingError {
     PayloadSerialization(#[source] serde_json::Error),
     #[error("external email payload is invalid")]
     InvalidPayload(#[source] serde_json::Error),
-    #[error("external email test probe payload contains an invalid value")]
-    InvalidTestProbe(#[source] InvalidExternalEmailTestProbe),
     #[error("content notice receipt payload contains an invalid content notice ID")]
     InvalidContentNoticeId(#[source] ObjectIdError),
     #[error("content notice receipt payload contains an invalid provider name")]
@@ -41,12 +38,6 @@ pub(crate) enum ExternalEmailMappingError {
     UnknownTargetType,
     #[error("content notice receipt payload names a listing title for a listing source")]
     ListingTitleForListingSource,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct TestProbePayloadV1 {
-    reference: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,9 +57,6 @@ pub(crate) fn encode_payload(
     content: &ExternalEmailContent,
 ) -> Result<Value, ExternalEmailMappingError> {
     match content {
-        ExternalEmailContent::TestProbe(probe) => serde_json::to_value(TestProbePayloadV1 {
-            reference: probe.reference().to_owned(),
-        }),
         ExternalEmailContent::ContentNoticeReceipt(receipt) => {
             let (target_type, listing_title) = match &receipt.target {
                 ContentNoticeReceiptTarget::ListingSource => {
@@ -105,13 +93,6 @@ pub(crate) fn decode_content(
         ));
     }
     match template {
-        ExternalEmailTemplate::TestProbe => {
-            let payload = serde_json::from_value::<TestProbePayloadV1>(payload)
-                .map_err(ExternalEmailMappingError::InvalidPayload)?;
-            ExternalEmailTestProbe::new(&payload.reference)
-                .map(ExternalEmailContent::TestProbe)
-                .map_err(ExternalEmailMappingError::InvalidTestProbe)
-        }
         ExternalEmailTemplate::ContentNoticeReceipt => {
             let payload = serde_json::from_value::<ContentNoticeReceiptPayloadV1>(payload)
                 .map_err(ExternalEmailMappingError::InvalidPayload)?;
@@ -161,60 +142,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn probe() -> ExternalEmailContent {
-        ExternalEmailContent::TestProbe(
-            ExternalEmailTestProbe::new("probe-1")
-                .unwrap_or_else(|error| panic!("invalid test probe: {error}")),
-        )
-    }
-
-    #[test]
-    fn should_round_trip_test_probe_payload() -> Result<(), ExternalEmailMappingError> {
-        let content = probe();
-        let payload = encode_payload(&content)?;
-
-        assert_eq!(json!({ "reference": "probe-1" }), payload);
-        assert_eq!(
-            content,
-            decode_content("TEST_PROBE", PAYLOAD_VERSION, payload)?
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_unknown_template() {
-        assert!(matches!(
-            decode_content(
-                "UNKNOWN",
-                PAYLOAD_VERSION,
-                json!({ "reference": "probe-1" })
-            ),
-            Err(ExternalEmailMappingError::UnknownTemplate(_))
-        ));
-    }
-
-    #[test]
-    fn should_reject_unsupported_payload_version() {
-        assert!(matches!(
-            decode_content("TEST_PROBE", 2, json!({ "reference": "probe-1" })),
-            Err(ExternalEmailMappingError::UnsupportedPayloadVersion(2))
-        ));
-    }
-
-    #[test]
-    fn should_reject_undecodable_payload() {
-        for payload in [
-            json!({}),
-            json!({ "reference": 1 }),
-            json!({ "reference": "probe-1", "extra": true }),
-        ] {
-            assert!(matches!(
-                decode_content("TEST_PROBE", PAYLOAD_VERSION, payload),
-                Err(ExternalEmailMappingError::InvalidPayload(_))
-            ));
-        }
-    }
-
     fn receipt(target: ContentNoticeReceiptTarget) -> ExternalEmailContent {
         ExternalEmailContent::ContentNoticeReceipt(ContentNoticeReceipt {
             content_notice_id: ContentNoticeId::try_from(
@@ -248,6 +175,22 @@ mod tests {
             "listing_title": "Jugendstil-Vase",
             "reason_category": "RIGHTS_INFRINGEMENT",
         })
+    }
+
+    #[test]
+    fn should_reject_unknown_template() {
+        assert!(matches!(
+            decode_content("UNKNOWN", PAYLOAD_VERSION, receipt_payload()),
+            Err(ExternalEmailMappingError::UnknownTemplate(_))
+        ));
+    }
+
+    #[test]
+    fn should_reject_unsupported_payload_version() {
+        assert!(matches!(
+            decode_content("CONTENT_NOTICE_RECEIPT", 2, receipt_payload()),
+            Err(ExternalEmailMappingError::UnsupportedPayloadVersion(2))
+        ));
     }
 
     #[test]
@@ -307,6 +250,10 @@ mod tests {
             with("target_type", json!("LISTING_SOURCE")),
             Err(ExternalEmailMappingError::ListingTitleForListingSource)
         ));
+        assert!(matches!(
+            decode_content("CONTENT_NOTICE_RECEIPT", PAYLOAD_VERSION, json!({})),
+            Err(ExternalEmailMappingError::InvalidPayload(_))
+        ));
         for (field, value) in [
             ("received_at", json!("yesterday")),
             ("reason_category", json!(null)),
@@ -321,13 +268,5 @@ mod tests {
                 "{field}"
             );
         }
-    }
-
-    #[test]
-    fn should_reject_payload_that_violates_content_validation() {
-        assert!(matches!(
-            decode_content("TEST_PROBE", PAYLOAD_VERSION, json!({ "reference": " " })),
-            Err(ExternalEmailMappingError::InvalidTestProbe(_))
-        ));
     }
 }

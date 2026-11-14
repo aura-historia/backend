@@ -10,7 +10,7 @@ async fn insert_message(
     origin_id: Uuid,
 ) -> Result<Uuid, sqlx::Error> {
     let id = Uuid::now_v7();
-    sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, 'notifier@example.test', 'en', $2, 1, '{\"reference\": \"probe-1\"}', 'TEST_PROBE', $3)")
+    sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, 'notifier@example.test', 'en', $2, 1, '{}', 'CONTENT_NOTICE', $3)")
         .bind(id)
         .bind(template)
         .bind(origin_id)
@@ -69,7 +69,7 @@ fn violated_constraint(result: Result<impl std::fmt::Debug, sqlx::Error>) -> Str
 async fn should_accept_exactly_one_source_per_delivery() {
     let pool = get_postgres_client().await;
     let notification_id = insert_notification(&pool).await;
-    let message_id = insert_message(&pool, "TEST_PROBE", Uuid::now_v7())
+    let message_id = insert_message(&pool, "CONTENT_NOTICE_RECEIPT", Uuid::now_v7())
         .await
         .unwrap_or_else(|error| panic!("seed message: {error}"));
 
@@ -80,7 +80,7 @@ async fn should_accept_exactly_one_source_per_delivery() {
         .await
         .unwrap_or_else(|error| panic!("external delivery is valid: {error}"));
 
-    let other_message_id = insert_message(&pool, "TEST_PROBE", Uuid::now_v7())
+    let other_message_id = insert_message(&pool, "CONTENT_NOTICE_RECEIPT", Uuid::now_v7())
         .await
         .unwrap_or_else(|error| panic!("seed message: {error}"));
     assert_eq!(
@@ -104,7 +104,7 @@ async fn should_accept_exactly_one_source_per_delivery() {
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
 async fn should_require_the_recipient_target_for_external_deliveries() {
     let pool = get_postgres_client().await;
-    let message_id = insert_message(&pool, "TEST_PROBE", Uuid::now_v7())
+    let message_id = insert_message(&pool, "CONTENT_NOTICE_RECEIPT", Uuid::now_v7())
         .await
         .unwrap_or_else(|error| panic!("seed message: {error}"));
 
@@ -118,7 +118,7 @@ async fn should_require_the_recipient_target_for_external_deliveries() {
 async fn should_reject_unsupported_templates_and_a_second_email_per_origin_and_template() {
     let pool = get_postgres_client().await;
     let origin_id = Uuid::now_v7();
-    insert_message(&pool, "TEST_PROBE", origin_id)
+    insert_message(&pool, "CONTENT_NOTICE_RECEIPT", origin_id)
         .await
         .unwrap_or_else(|error| panic!("seed message: {error}"));
 
@@ -128,6 +128,26 @@ async fn should_reject_unsupported_templates_and_a_second_email_per_origin_and_t
     );
     assert_eq!(
         "external_email_messages_origin_template_unique",
-        violated_constraint(insert_message(&pool, "TEST_PROBE", origin_id).await)
+        violated_constraint(insert_message(&pool, "CONTENT_NOTICE_RECEIPT", origin_id).await)
     );
+}
+
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_reject_a_recipient_the_email_provider_cannot_address() {
+    let pool = get_postgres_client().await;
+
+    for recipient in ["jane@müller.example.test", "Jane <jane@example.test>"] {
+        let result = sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, $2, 'en', 'CONTENT_NOTICE_RECEIPT', 1, '{}', 'CONTENT_NOTICE', $3)")
+            .bind(Uuid::now_v7())
+            .bind(recipient)
+            .bind(Uuid::now_v7())
+            .execute(&pool)
+            .await
+            .map(|_| ());
+        assert_eq!(
+            "external_email_messages_recipient_email_check",
+            violated_constraint(result),
+            "{recipient}"
+        );
+    }
 }

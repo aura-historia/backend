@@ -465,7 +465,10 @@ finalization with the **same lease and result**, not another send. Active claims
 leases are not completion. A send/finalize crash can duplicate mail after lease expiry.
 Inspect safe delivery IDs, database completion and restricted provider evidence before
 approved recovery. Never interpret timeout as definitely unsent or automatically resend
-historic customer mail.
+historic customer mail. An SES account-level or configuration refusal (sending paused,
+account suspended, unverified MAIL FROM domain, missing configuration resource) is retried
+with error code `SES_SENDING_UNAVAILABLE` and leaves the delivery `PENDING`; once its jobs
+are dead-lettered, fix the account or configuration, then redrive them.
 
 External email deliveries ([event flow](events/flow.md#external-email-delivery)) follow
 the same rules. Their message rows hold the recipient address and payload: triage by

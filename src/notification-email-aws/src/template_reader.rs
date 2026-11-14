@@ -445,10 +445,6 @@ mod tests {
         Ok(())
     }
 
-    /// Stands in for the test-only external kind, which has no deployed template, so the
-    /// checks below run for the mechanism.
-    const EXTERNAL_TEST_PROBE_TEMPLATE: &str = "<html><body><a href=\"{{home_url}}\">Aura Historia</a><p>Reference: {{reference}}</p><a href=\"mailto:contact@aura-historia.com\">contact@aura-historia.com</a></body></html>";
-
     /// The content notice receipt templates in the order de, en, es, fr, it.
     const CONTENT_NOTICE_RECEIPT_TEMPLATES: [&str; 5] = [
         include_str!("../../../mjml/content-notice/receipt/de.mjml"),
@@ -551,14 +547,8 @@ mod tests {
     ) -> Result<ExternalTemplateFixture, Box<dyn std::error::Error>> {
         use notification_core::external_email::{
             ContentNoticeReceipt, ExternalEmailContent, ExternalEmailTemplate,
-            ExternalEmailTestProbe,
         };
         Ok(match template {
-            ExternalEmailTemplate::TestProbe => ExternalTemplateFixture {
-                templates: [EXTERNAL_TEST_PROBE_TEMPLATE; 5],
-                content: ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new("probe-1")?),
-                expected: vec!["probe-1".to_owned()],
-            },
             ExternalEmailTemplate::ContentNoticeReceipt => {
                 let notice = content_notice(Some(Some("Jugendstil-Vase")))?;
                 ExternalTemplateFixture {

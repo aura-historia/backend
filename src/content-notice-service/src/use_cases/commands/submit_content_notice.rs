@@ -112,8 +112,8 @@ pub enum SubmitContentNoticeError {
 }
 
 /// Records a content notice from anyone, with or without an account, within the
-/// [submission limits](crate::submission_policy). The caller's identity is used for logging
-/// only and is never stored with the notice.
+/// [submission limits](crate::submission_policy). The caller's identity is neither stored with
+/// the notice nor logged: logs name only whether the caller was signed in.
 #[async_trait::async_trait]
 pub trait SubmitContentNoticeUseCase: Send + Sync {
     async fn execute(
@@ -155,14 +155,13 @@ where
     O: ExternalEmailOutboxFactory<U::Tx>,
     C: ContentNoticeClock,
 {
-    // The target ID stays out of the span: a rate-limited request must not log it, because it
-    // can indicate who complained about what.
+    // Neither the caller's user ID nor the target ID is in the span: next to a notice or a
+    // rate-limited request they can indicate who complained about what.
     #[tracing::instrument(
         name = "submit_content_notice",
         skip_all,
         fields(
             principal_type = context.principal.kind(),
-            actor_id = tracing::field::Empty,
             target_type = command.target.type_code(),
             request_id = %context.request_id,
             correlation_id = %context.correlation_id,
@@ -173,9 +172,6 @@ where
         context: &OperationContext,
         command: SubmitContentNoticeCommand,
     ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError> {
-        if let Some(actor_id) = context.principal.actor_id() {
-            tracing::Span::current().record("actor_id", tracing::field::display(actor_id));
-        }
         ContentNotice::check_reason(
             command.submitter_role,
             command.reason_category,
@@ -1223,6 +1219,34 @@ mod tests {
         for private in ["jane@example.com", "Jane Doe", "My photograph."] {
             assert!(!text.contains(private), "{text}");
         }
+    }
+
+    /// Next to the notice and its target, a signed-in caller's user ID would tell who
+    /// complained about what; only the principal type is logged.
+    #[tokio::test]
+    async fn should_not_log_the_user_id_of_a_signed_in_submitter() {
+        let source = listing_source(false);
+        let state = state(|state| state.listing_sources.push(source.clone()));
+        let user_id = user_core::user_id::UserId::new();
+        let context = OperationContext {
+            principal: Principal::User(user_id),
+            ..context()
+        };
+        let (logs, _guard) = test_api::CapturedLogs::start();
+
+        handler(&state)
+            .execute(&context, command(source_reference(&source)))
+            .await
+            .unwrap();
+
+        let events = logs.events_where("event", "content_notice.submitted");
+        assert_eq!(1, events.len(), "{}", logs.text());
+        assert_eq!("user", events[0]["actor_type"]);
+        assert!(
+            !logs.text().contains(&user_id.to_string()),
+            "{}",
+            logs.text()
+        );
     }
 
     #[tokio::test]

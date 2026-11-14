@@ -84,7 +84,7 @@ fn invalid_source(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use notification_core::external_email::{ExternalEmailContent, ExternalEmailTestProbe};
+    use notification_core::external_email::{ContentNoticeReceiptTarget, ExternalEmailContent};
     use serde_json::json;
 
     fn row() -> ExternalEmailSourceRow {
@@ -94,9 +94,16 @@ mod tests {
             external_email_message_id: ExternalEmailMessageId::new().into_uuid(),
             recipient_email: "notifier@example.test".to_owned(),
             language: "fr".to_owned(),
-            template: "TEST_PROBE".to_owned(),
+            template: "CONTENT_NOTICE_RECEIPT".to_owned(),
             payload_version: 1,
-            payload: json!({ "reference": "probe-1" }),
+            payload: json!({
+                "content_notice_id": "01890a5d-ac96-774b-bf1d-d5586c639f75",
+                "received_at": "2026-11-14T12:30:05Z",
+                "provider_name": "Antik Shop",
+                "target_type": "LISTING_SOURCE",
+                "listing_title": null,
+                "reason_category": "OTHER",
+            }),
         }
     }
 
@@ -109,13 +116,9 @@ mod tests {
         assert_eq!(id, source.notification_delivery_id);
         assert_eq!("notifier@example.test", source.recipient.as_str());
         assert_eq!(Language::Fr, source.language);
-        assert_eq!(
-            ExternalEmailContent::TestProbe(
-                ExternalEmailTestProbe::new("probe-1")
-                    .unwrap_or_else(|error| panic!("invalid test probe: {error}"))
-            ),
-            source.content
-        );
+        let ExternalEmailContent::ContentNoticeReceipt(receipt) = source.content;
+        assert_eq!("Antik Shop", receipt.provider_name.as_ref());
+        assert_eq!(ContentNoticeReceiptTarget::ListingSource, receipt.target);
         Ok(())
     }
 

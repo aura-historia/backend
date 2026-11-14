@@ -519,8 +519,20 @@ mod tests {
     async fn seed_external(pool: &PgPool) -> Result<NotificationDeliveryId, sqlx::Error> {
         let message_id = Uuid::now_v7();
         let delivery_id = NotificationDeliveryId::new();
-        sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, 'notifier@example.test', 'es', 'TEST_PROBE', 1, '{\"reference\": \"probe-1\"}', 'TEST_PROBE', $2)")
-            .bind(message_id).bind(Uuid::now_v7()).execute(pool).await?;
+        let origin_id = Uuid::now_v7();
+        sqlx::query("INSERT INTO external_email_messages (external_email_message_id, recipient_email, language, template, payload_version, payload, origin_type, origin_id) VALUES ($1, 'notifier@example.test', 'es', 'CONTENT_NOTICE_RECEIPT', 1, $2, 'CONTENT_NOTICE', $3)")
+            .bind(message_id)
+            .bind(serde_json::json!({
+                "content_notice_id": origin_id,
+                "received_at": "2026-11-14T12:30:05Z",
+                "provider_name": "Antik Shop",
+                "target_type": "LISTING_SOURCE",
+                "listing_title": null,
+                "reason_category": "OTHER",
+            }))
+            .bind(origin_id)
+            .execute(pool)
+            .await?;
         sqlx::query("INSERT INTO notification_deliveries (notification_delivery_id, external_email_message_id, channel, target_key) VALUES ($1, $2, 'EMAIL', 'RECIPIENT')")
             .bind(delivery_id.into_uuid()).bind(message_id).execute(pool).await?;
         Ok(delivery_id)

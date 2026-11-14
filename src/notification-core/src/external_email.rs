@@ -92,9 +92,6 @@ impl std::fmt::Debug for ExternalEmailRecipient {
 /// The typed template variables of an external email. Each variant is one template kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExternalEmailContent {
-    /// Test-only kind that exercises the delivery mechanism. No producer enqueues it and
-    /// no template is deployed for it, so a delivery of it fails permanently.
-    TestProbe(ExternalEmailTestProbe),
     /// Confirms to a notifier that their content notice was received (DSA Art. 16(5)).
     ContentNoticeReceipt(ContentNoticeReceipt),
 }
@@ -102,7 +99,6 @@ pub enum ExternalEmailContent {
 impl ExternalEmailContent {
     pub const fn template(&self) -> ExternalEmailTemplate {
         match self {
-            Self::TestProbe(_) => ExternalEmailTemplate::TestProbe,
             Self::ContentNoticeReceipt(_) => ExternalEmailTemplate::ContentNoticeReceipt,
         }
     }
@@ -111,14 +107,12 @@ impl ExternalEmailContent {
 /// The template kind of an external email, one per [`ExternalEmailContent`] variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum ExternalEmailTemplate {
-    TestProbe,
     ContentNoticeReceipt,
 }
 
 impl ExternalEmailTemplate {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::TestProbe => "TEST_PROBE",
             Self::ContentNoticeReceipt => "CONTENT_NOTICE_RECEIPT",
         }
     }
@@ -132,22 +126,18 @@ impl ExternalEmailTemplate {
 /// kind at most once, and erasing an origin erases its messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExternalEmailOrigin {
-    /// Origin of the test-only [`ExternalEmailContent::TestProbe`] kind.
-    TestProbe(Uuid),
     ContentNotice(ContentNoticeId),
 }
 
 impl ExternalEmailOrigin {
     pub const fn origin_type(self) -> &'static str {
         match self {
-            Self::TestProbe(_) => "TEST_PROBE",
             Self::ContentNotice(_) => "CONTENT_NOTICE",
         }
     }
 
     pub const fn origin_id(self) -> Uuid {
         match self {
-            Self::TestProbe(id) => id,
             Self::ContentNotice(id) => id.into_uuid(),
         }
     }
@@ -204,37 +194,6 @@ impl ContentNoticeReceipt {
         }
     }
 }
-
-const TEST_PROBE_REFERENCE_MAX_CHARS: usize = 100;
-
-/// Variables of the test-only kind: a short reference that must reach the rendered email.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExternalEmailTestProbe {
-    reference: String,
-}
-
-impl ExternalEmailTestProbe {
-    pub fn new(reference: &str) -> Result<Self, InvalidExternalEmailTestProbe> {
-        let reference = reference.trim();
-        if reference.is_empty()
-            || reference.chars().count() > TEST_PROBE_REFERENCE_MAX_CHARS
-            || reference.chars().any(char::is_control)
-        {
-            return Err(InvalidExternalEmailTestProbe);
-        }
-        Ok(Self {
-            reference: reference.to_owned(),
-        })
-    }
-
-    pub fn reference(&self) -> &str {
-        &self.reference
-    }
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("external email test probe reference must be 1 to 100 printable characters")]
-pub struct InvalidExternalEmailTestProbe;
 
 #[cfg(test)]
 mod tests {
@@ -302,43 +261,10 @@ mod tests {
                 ExternalEmailTemplate::from_code(template.as_str())
             );
         }
-        assert_eq!(None, ExternalEmailTemplate::from_code("test_probe"));
-    }
-
-    #[test]
-    fn should_name_the_template_of_the_content() -> Result<(), InvalidExternalEmailTestProbe> {
-        let content = ExternalEmailContent::TestProbe(ExternalEmailTestProbe::new("probe-1")?);
-
-        assert_eq!(ExternalEmailTemplate::TestProbe, content.template());
-        Ok(())
-    }
-
-    #[test]
-    fn should_trim_test_probe_reference() -> Result<(), InvalidExternalEmailTestProbe> {
         assert_eq!(
-            "probe-1",
-            ExternalEmailTestProbe::new(" probe-1\t")?.reference()
+            None,
+            ExternalEmailTemplate::from_code("content_notice_receipt")
         );
-        Ok(())
-    }
-
-    #[test]
-    fn should_reject_blank_overlong_or_control_test_probe_reference() {
-        for reference in [" ", &"x".repeat(101), "probe\n1"] {
-            assert_eq!(
-                Err(InvalidExternalEmailTestProbe),
-                ExternalEmailTestProbe::new(reference)
-            );
-        }
-    }
-
-    #[test]
-    fn should_expose_persisted_origin_identity() {
-        let id = Uuid::now_v7();
-        let origin = ExternalEmailOrigin::TestProbe(id);
-
-        assert_eq!("TEST_PROBE", origin.origin_type());
-        assert_eq!(id, origin.origin_id());
     }
 
     #[test]
