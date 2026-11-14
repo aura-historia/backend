@@ -4,6 +4,7 @@ pub mod agent_discovery;
 pub mod auctions;
 pub mod auth;
 pub mod billing;
+pub(crate) mod content_notices;
 pub mod error;
 mod geographic_search;
 pub(crate) mod keyset_cursor;
@@ -42,10 +43,11 @@ use crate::auth::{
 use crate::readiness::RuntimeReadiness;
 use crate::state::{
     AdminOverviewState, AppState, AsyncPartnerProductListingsState, AuctionsState, BillingState,
-    ListingSourcesState, LoopsWebhooksState, NewsletterState, NotificationsState, OAuthState,
-    PartiesState, PartnerProductListingsState, PartnershipApplicationsState, PartnershipsState,
-    ProductListingsState, PublicAuctionsState, PublicListingSourceReadBudget, PublicOverviewState,
-    SearchFiltersState, UsersState, WatchlistState, WebhooksState,
+    ContentNoticesState, ListingSourcesState, LoopsWebhooksState, NewsletterState,
+    NotificationsState, OAuthState, PartiesState, PartnerProductListingsState,
+    PartnershipApplicationsState, PartnershipsState, ProductListingsState, PublicAuctionsState,
+    PublicListingSourceReadBudget, PublicOverviewState, SearchFiltersState, UsersState,
+    WatchlistState, WebhooksState,
 };
 use crate::transport::with_transport_middleware;
 use admin_overview_postgres::SqlxAdminOverviewReaderFactory;
@@ -80,9 +82,16 @@ use billing_service::use_cases::{
     CreateBillingPortalSessionHandler,
 };
 use billing_stripe::{StripeBillingClient, StripeBillingConfig};
+use content_notice_postgres::{
+    SqlxContentNoticeRepositoryFactory, SqlxContentNoticeSubmissionHistoryFactory,
+    SqlxContentNoticeTargetReaderFactory,
+};
+use content_notice_service::ports::SystemContentNoticeClock;
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeHandler;
 use embedding::VertexAiEmbeddingConfig;
 use notification_postgres::{
-    SqlxNotificationDeliveryIntentRepositoryFactory, SqlxNotificationRepositoryFactory,
+    SqlxExternalEmailOutboxFactory, SqlxNotificationDeliveryIntentRepositoryFactory,
+    SqlxNotificationRepositoryFactory,
 };
 use notification_service::{
     initial_external_delivery_plan_reader::InitialExternalDeliveryPlanReaderFactory,
@@ -117,6 +126,11 @@ use product_listing_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntake;
 
+use content_notice_postgres::{
+    SqlxContentNoticeAdminSearchReaderFactory, SqlxContentNoticeDetailsReaderFactory,
+};
+use content_notice_service::use_cases::queries::get_admin_content_notice::GetAdminContentNoticeHandler;
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesHandler;
 use listing_source_postgres::{
     SqlxListingSourceReaders, SqlxListingSourceRepositoryFactory,
     SqlxListingSourceSearchReaderFactory,
@@ -1138,6 +1152,10 @@ fn app_with_request_timeout(state: AppState, request_timeout: Duration) -> Route
         );
     }
 
+    if let Some(content_notices) = state.content_notices {
+        routes = routes.merge(content_notices::router(content_notices));
+    }
+
     if let Some(partnership_applications) = state.partnership_applications {
         routes = routes.merge(partnership_applications::router(partnership_applications));
     }
@@ -1492,6 +1510,16 @@ async fn app_state_from_config_and_runtime(
     let list_admin_partnership_applications = ListAdminPartnershipApplicationsHandler::new(
         unit_of_work.clone(),
         SqlxPartnershipApplicationReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let list_admin_content_notices = ListAdminContentNoticesHandler::new(
+        unit_of_work.clone(),
+        SqlxContentNoticeAdminSearchReaderFactory::new(),
+        SqlxUserAdminReaderFactory::new(),
+    );
+    let get_admin_content_notice = GetAdminContentNoticeHandler::new(
+        unit_of_work.clone(),
+        SqlxContentNoticeDetailsReaderFactory::new(),
         SqlxUserAdminReaderFactory::new(),
     );
     let list_admin_partnerships = ListAdminPartnershipsHandler::new(
@@ -2030,6 +2058,19 @@ async fn app_state_from_config_and_runtime(
         .with_user_addresses(user_addresses_state)
         .with_watchlist(watchlist_state)
         .with_partnership_applications(partnership_state)
+        .with_content_notices(ContentNoticesState::new(
+            Arc::new(SubmitContentNoticeHandler::new(
+                unit_of_work.clone(),
+                SqlxContentNoticeTargetReaderFactory::new(),
+                SqlxContentNoticeRepositoryFactory::new(),
+                SqlxContentNoticeSubmissionHistoryFactory::new(),
+                SqlxExternalEmailOutboxFactory::new(),
+                SystemContentNoticeClock,
+            )),
+            Arc::new(list_admin_content_notices),
+            Arc::new(get_admin_content_notice),
+            Arc::clone(&authenticator) as Arc<dyn TokenAuthenticator>,
+        ))
         .with_partnerships(partnerships_state)
         .with_products(
             ProductListingsState::new(

@@ -1,0 +1,11 @@
+pub mod additional_url;
+pub mod bounded_text;
+pub mod content_notice;
+pub mod content_notice_id;
+pub mod content_notice_state;
+pub mod content_notice_target;
+pub mod good_faith_statement_version;
+pub mod notice_explanation;
+pub mod reason_category;
+pub mod submitter;
+pub mod submitter_role;

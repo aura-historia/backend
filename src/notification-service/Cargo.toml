@@ -20,6 +20,7 @@ uuid = { workspace = true }
 mockall = { workspace = true, optional = true }
 
 [dev-dependencies]
+content-notice-core = { workspace = true }
 notification-service = { workspace = true, features = ["test-data", "mock"] }
 partnership-core = { workspace = true }
 party-core = { workspace = true }

@@ -20,6 +20,7 @@ choices, safety rules and operator procedures—not every type, setting or imple
 | Local tests, CI lanes and fixture diagnostics | [Testing and CI](ci.md) |
 | HTTP creation retry exceptions and recovery | [Command retries](command-retries.md) |
 | HTTP routing, authentication and cache isolation | [API front door](http-api-front-door.md) |
+| Content notices: who may submit, targets, snapshots and personal data | [Content notices](content-notices.md) |
 | OAuth consent, shared resource and credential binding | [OAuth](oauth.md) |
 | MCP protocol compatibility, registry and bounded transport | [MCP transport](mcp.md) |
 | Discovery documents for agents: server card, API catalog, protected-resource metadata, website documents | [Agent discovery](agent-discovery.md) |

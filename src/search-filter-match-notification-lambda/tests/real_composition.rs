@@ -245,7 +245,7 @@ async fn digest_waits_for_filters_and_selection_recovers_persisted_matches_and_f
         let repository = notification_postgres::SqlxNotificationDeliveryRepository::new(pool.clone());
         let now = time::OffsetDateTime::now_utc();
         let ClaimNotificationDeliveryOutcome::Claimed { delivery, source } = repository.claim_and_load_source(id, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected digest claim") };
-        assert_eq!(2, source.unwrap().saved_search_digest.unwrap().members.len());
+        assert_eq!(2, user_source(*source).saved_search_digest.unwrap().members.len());
         // Accepted provider result and its exact lease survive a lost commit response.
         assert!(repository.mark_delivered(id, delivery.lease_token, "test-provider-accepted", now).await?);
         assert!(repository.mark_delivered(id, delivery.lease_token, "test-provider-accepted", now).await?);
@@ -465,7 +465,7 @@ async fn finalization_rollback_retains_members_and_delivery_uses_snapshots_with_
         let now = time::OffsetDateTime::now_utc();
         let repository = notification_postgres::SqlxNotificationDeliveryRepository::new(pool.clone());
         let ClaimNotificationDeliveryOutcome::Claimed { source, .. } = repository.claim_and_load_source(notification_delivery_id(id)?, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected digest") };
-        let digest = source.unwrap().saved_search_digest.unwrap();
+        let digest = user_source(*source).saved_search_digest.unwrap();
         assert_eq!(2, digest.members.len());
         for member in &digest.members {
             let notification_core::notification::NotificationContent::SearchFilter { user_search_filter_name, .. } = member else { panic!("unexpected member") };
@@ -555,7 +555,7 @@ async fn digest_claim_rejects_snapshot_identity_corruption_and_preserves_deliver
             .bind(id.as_uuid()).execute(&pool).await?;
         let ClaimNotificationDeliveryOutcome::Claimed { delivery, source } = repository.claim_and_load_source(id, now, now + time::Duration::minutes(5), uuid::Uuid::now_v7()).await? else { panic!("expected corrected claim") };
         assert_eq!(1, delivery.attempt_count);
-        let source = source.unwrap();
+        let source = user_source(*source);
         assert_eq!("SECONDARY", source.target_key.as_str());
         assert_eq!(delivery.source_id, source.source_id);
         Ok(())
@@ -871,4 +871,15 @@ async fn assert_notification(
     );
     assert_eq!(1, rows[0].2);
     Ok(())
+}
+
+fn user_source(
+    source: Option<
+        notification_service::ports::notification_delivery_repository::NotificationDeliverySource,
+    >,
+) -> notification_service::ports::notification_delivery_repository::UserNotificationDeliverySource {
+    match source {
+        Some(notification_service::ports::notification_delivery_repository::NotificationDeliverySource::User(source)) => *source,
+        other => panic!("expected a user delivery source, got {other:?}"),
+    }
 }

@@ -170,7 +170,7 @@ pub(crate) async fn load_delivery_source(
     };
     use notification_service::{
         ports::notification_delivery_repository::{
-            NotificationDeliveryError, NotificationDeliverySource,
+            NotificationDeliveryError, NotificationDeliverySource, UserNotificationDeliverySource,
         },
         presentation::NotificationPresentationPreferences,
         saved_search_digest::SavedSearchEmailDigest,
@@ -263,7 +263,7 @@ pub(crate) async fn load_delivery_source(
             .ok_or_else(|| invalid("unknown saved-search recipient language"))?,
         None => localization::Language::En,
     };
-    Ok(Some(NotificationDeliverySource {
+    Ok(Some(NotificationDeliverySource::User(Box::new(UserNotificationDeliverySource {
         notification_delivery_id: delivery_id,
         source_id: notification_service::ports::notification_delivery_repository::NotificationDeliverySourceId::SavedSearchDigest(digest_id),
         user_id,
@@ -284,7 +284,7 @@ pub(crate) async fn load_delivery_source(
             show_unassessed_or_sensitive_content: target.show_unassessed_or_sensitive_content,
         },
         partner_listing_source_ids,
-    }))
+    }))))
 }
 fn delivery_error(
     source: sqlx::Error,

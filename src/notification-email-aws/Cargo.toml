@@ -9,6 +9,7 @@ async-trait = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 aws-sdk-sesv2 = { workspace = true }
 application = { workspace = true }
+content-notice-core = { workspace = true }
 domain-primitives = { workspace = true }
 localization = { workspace = true }
 money = { workspace = true }
@@ -20,13 +21,15 @@ notification-email = { workspace = true }
 notification-service = { workspace = true }
 serde-email = { workspace = true }
 serde_json = { workspace = true }
+time = { workspace = true }
 url = { workspace = true }
 
 
 [dev-dependencies]
 search-filter-core = { workspace = true }
-time = { workspace = true }
+time = { workspace = true, features = ["macros"] }
 listing-source-core = { workspace = true }
 party-core = { workspace = true }
 partnership-core = { workspace = true }
 rstest = { workspace = true }
+strum = { workspace = true }

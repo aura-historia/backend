@@ -12,6 +12,8 @@ use billing_service::use_cases::{
     CreateBillingCheckoutSessionUseCase, CreateBillingManagementSessionUseCase,
     CreateBillingPortalSessionUseCase,
 };
+use content_notice_service::use_cases::queries::get_admin_content_notice::GetAdminContentNoticeUseCase;
+use content_notice_service::use_cases::queries::list_admin_content_notices::ListAdminContentNoticesUseCase;
 use listing_source_service::use_cases::commands::create_listing_source::CreateListingSourceUseCase;
 use listing_source_service::use_cases::commands::delete_listing_source::DeleteListingSourceUseCase;
 use listing_source_service::use_cases::commands::update_listing_source::UpdateListingSourceUseCase;
@@ -95,6 +97,7 @@ use search_filter_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeUseCase;
 use std::sync::Arc;
 use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
@@ -159,6 +162,7 @@ pub struct AppState {
     pub(crate) user_addresses: Option<UserAddressesState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
+    pub(crate) content_notices: Option<ContentNoticesState>,
     pub(crate) partnerships: Option<PartnershipsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
@@ -213,6 +217,7 @@ impl AppState {
             user_addresses: None,
             watchlist: None,
             partnership_applications: None,
+            content_notices: None,
             partnerships: None,
             oauth: None,
             search_filters: None,
@@ -325,6 +330,11 @@ impl AppState {
         partnership_applications: PartnershipApplicationsState,
     ) -> Self {
         self.partnership_applications = Some(partnership_applications);
+        self
+    }
+
+    pub fn with_content_notices(mut self, content_notices: ContentNoticesState) -> Self {
+        self.content_notices = Some(content_notices);
         self
     }
 
@@ -1000,6 +1010,30 @@ impl WatchlistState {
             watch_product,
             update_watchlist_product,
             unwatch_product,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ContentNoticesState {
+    pub(crate) submit: Arc<dyn SubmitContentNoticeUseCase>,
+    pub(crate) list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
+    pub(crate) get_admin: Arc<dyn GetAdminContentNoticeUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl ContentNoticesState {
+    pub fn new(
+        submit: Arc<dyn SubmitContentNoticeUseCase>,
+        list_admin: Arc<dyn ListAdminContentNoticesUseCase>,
+        get_admin: Arc<dyn GetAdminContentNoticeUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            submit,
+            list_admin,
+            get_admin,
             authenticator,
         }
     }

@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { createApplicationStacks } from "../src/application-stack";
 import {
   API_MAX_REQUEST_BODY_BYTES,
-  API_OAUTH_REDIRECT_URI_PATH_PATTERN,
+  API_URL_TARGET_EXEMPT_PATH_PATTERN,
   API_OVERSIZED_CONTENT_LENGTH_PATTERN,
   API_ROUTE_CATALOG,
   API_SCOPED_URL_TARGET_RULES,
@@ -76,7 +76,7 @@ describe("API CloudFront Web ACL", () => {
     expect(rule(properties, "AWS-AWSManagedRulesKnownBadInputsRuleSet").Statement.ManagedRuleGroupStatement?.RuleActionOverrides).toBeUndefined();
   });
 
-  test.each(["dev", "prod"] as const)("%s re-blocks counted URL-target rules outside OAuth redirect-URI paths", (stage) => {
+  test.each(["dev", "prod"] as const)("%s re-blocks counted URL-target rules outside the exempt paths", (stage) => {
     const properties = webAclProperties(stage);
     const scoped = rule(properties, "API-UrlTargetOutsideOAuthRedirects");
 
@@ -98,7 +98,7 @@ describe("API CloudFront Web ACL", () => {
             Statement: {
               RegexMatchStatement: {
                 FieldToMatch: { UriPath: {} },
-                RegexString: API_OAUTH_REDIRECT_URI_PATH_PATTERN,
+                RegexString: API_URL_TARGET_EXEMPT_PATH_PATTERN,
                 TextTransformations: [{ Priority: 0, Type: "NONE" }],
               },
             },
@@ -113,8 +113,8 @@ describe("API CloudFront Web ACL", () => {
     expect(counted).toEqual(expect.arrayContaining(API_SCOPED_URL_TARGET_RULES.map(({ name }) => name)));
   });
 
-  test("OAuth redirect-URI scope covers exactly the routes that carry client redirect URIs", () => {
-    const pattern = new RegExp(API_OAUTH_REDIRECT_URI_PATH_PATTERN);
+  test("URL-target exemption covers exactly the OAuth redirect-URI routes and content-notice submission", () => {
+    const pattern = new RegExp(API_URL_TARGET_EXEMPT_PATH_PATTERN);
     const clientId = "oc_01m5avv95qeyj84c66cn827eyh";
     const scopedRoutes = API_ROUTE_CATALOG
       .filter((route) => pattern.test(route.path.replace(/\{[^}]+}/g, clientId)))
@@ -128,10 +128,12 @@ describe("API CloudFront Web ACL", () => {
       "GET /v1/oauth/metadata-document-clients",
       "PATCH /v1/admin/oauth-clients/{client_id}",
       "POST /v1/admin/oauth-clients",
+      "POST /v1/content-notices",
       "POST /v1/oauth/token",
     ]);
     // Public AS metadata needs no URI-bearing input; only the exact OAuth authorize, token
-    // and metadata-document consent paths carry client, resource and callback URIs.
+    // and metadata-document consent paths carry client, resource and callback URIs, and only
+    // the exact public submission path carries the URLs a content notice cites.
     for (const outside of [
       "/v1/admin/oauth-clients/",
       "/v1/admin/oauth-clients/oc_01m5avv95qeyj84c66cn827eyh/",
@@ -147,6 +149,10 @@ describe("API CloudFront Web ACL", () => {
       "/.well-known/oauth-authorization-server/",
       "/v1/oauth/revoke",
       "/v1/oauth/introspect",
+      "/v1/content-notices/",
+      "/v1/admin/content-notices",
+      "/v1/admin/content-notices/ntc_01m5avv95qeyj84c66cn827eyh",
+      "/api/v1/content-notices",
       "/v1/oauth/clients/oc_01m5avv95qeyj84c66cn827eyh",
       "/v1/oauth/clients",
       "/v1/oauth/metadata-document-clients/",

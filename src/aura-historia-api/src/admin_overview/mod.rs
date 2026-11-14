@@ -1,6 +1,7 @@
 use crate::{auth::protected_context, error::ApiError, state::AdminOverviewState};
 use admin_overview_service::use_cases::get_admin_overview::{
     AdminOverview, AdminOverviewActiveListingAvailabilityCounts,
+    AdminOverviewContentNoticeStateCounts, AdminOverviewContentNotices,
     AdminOverviewListingSourceMethodAssignmentCounts, AdminOverviewListingSources,
     AdminOverviewPartnershipApplicationStateCounts, AdminOverviewPartnershipApplications,
     AdminOverviewProductListingLifecycleCounts, AdminOverviewProductListings,
@@ -22,6 +23,7 @@ struct AdminOverviewData {
     schema_version: u8,
     users: AdminOverviewUsersData,
     partnership_applications: AdminOverviewPartnershipApplicationsData,
+    content_notices: AdminOverviewContentNoticesData,
     parties: AdminOverviewCountData,
     listing_sources: AdminOverviewListingSourcesData,
     partnerships: AdminOverviewCountData,
@@ -72,6 +74,19 @@ struct AdminOverviewPartnershipApplicationStateCountsData {
     approved: u64,
     rejected: u64,
     withdrawn: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminOverviewContentNoticesData {
+    total: u64,
+    by_state: AdminOverviewContentNoticeStateCountsData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminOverviewContentNoticeStateCountsData {
+    submitted: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,6 +144,7 @@ impl From<AdminOverview> for AdminOverviewData {
             schema_version: ADMIN_OVERVIEW_SCHEMA_VERSION,
             users: value.users.into(),
             partnership_applications: value.partnership_applications.into(),
+            content_notices: value.content_notices.into(),
             parties: AdminOverviewCountData {
                 total: value.parties_total,
             },
@@ -189,6 +205,23 @@ impl From<AdminOverviewPartnershipApplicationStateCounts>
             approved: value.approved,
             rejected: value.rejected,
             withdrawn: value.withdrawn,
+        }
+    }
+}
+
+impl From<AdminOverviewContentNotices> for AdminOverviewContentNoticesData {
+    fn from(value: AdminOverviewContentNotices) -> Self {
+        Self {
+            total: value.total,
+            by_state: value.by_state.into(),
+        }
+    }
+}
+
+impl From<AdminOverviewContentNoticeStateCounts> for AdminOverviewContentNoticeStateCountsData {
+    fn from(value: AdminOverviewContentNoticeStateCounts) -> Self {
+        Self {
+            submitted: value.submitted,
         }
     }
 }
@@ -400,6 +433,10 @@ mod tests {
                 },
                 by_role: AdminOverviewUserRoleCounts { user: 2, admin: 1 },
             },
+            content_notices: AdminOverviewContentNotices {
+                total: 4,
+                by_state: AdminOverviewContentNoticeStateCounts { submitted: 4 },
+            },
             parties_total: 2,
             ..Default::default()
         };
@@ -436,6 +473,10 @@ mod tests {
                         "submitted": 0, "inReview": 0, "approved": 0, "rejected": 0,
                         "withdrawn": 0
                     }
+                },
+                "contentNotices": {
+                    "total": 4,
+                    "byState": { "submitted": 4 }
                 },
                 "parties": { "total": 2 },
                 "listingSources": {

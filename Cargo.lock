@@ -323,6 +323,9 @@ dependencies = [
  "billing-service",
  "billing-stripe",
  "classifier-model",
+ "content-notice-core",
+ "content-notice-postgres",
+ "content-notice-service",
  "credential-core",
  "domain-primitives",
  "embedding",
@@ -2075,6 +2078,76 @@ name = "constant_time_eq"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21a53c0a4d288377e7415b53dcfc3c04da5cdc2cc95c8d5ac178b58f0b861ad6"
+
+[[package]]
+name = "content-notice-core"
+version = "0.1.0"
+dependencies = [
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "product-listing-core",
+ "serde-email",
+ "strum 0.28.0",
+ "strum_macros 0.28.0",
+ "thiserror 2.0.21",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "content-notice-postgres"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "content-notice-core",
+ "content-notice-service",
+ "domain-primitives",
+ "listing-source-core",
+ "localization",
+ "notification-core",
+ "notification-postgres",
+ "notification-service",
+ "platform-postgres",
+ "product-listing-core",
+ "serde_json",
+ "sqlx",
+ "test-api",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "url",
+ "user-core",
+ "user-service",
+ "uuid",
+]
+
+[[package]]
+name = "content-notice-service"
+version = "0.1.0"
+dependencies = [
+ "application",
+ "async-trait",
+ "content-notice-core",
+ "domain-primitives",
+ "fake",
+ "listing-source-core",
+ "localization",
+ "notification-core",
+ "notification-service",
+ "product-listing-core",
+ "sha2 0.11.1",
+ "test-api",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "user-core",
+ "user-service",
+ "uuid",
+]
 
 [[package]]
 name = "convert_case"
@@ -5355,6 +5428,7 @@ checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 name = "notification-core"
 version = "0.1.0"
 dependencies = [
+ "content-notice-core",
  "domain-primitives",
  "fake",
  "listing-source-core",
@@ -5366,9 +5440,11 @@ dependencies = [
  "rstest",
  "search-filter-core",
  "serde",
+ "serde-email",
  "strum 0.28.0",
  "strum_macros 0.28.0",
  "thiserror 2.0.21",
+ "time",
  "url",
  "user-core",
  "uuid",
@@ -5378,6 +5454,7 @@ dependencies = [
 name = "notification-delivery-lambda"
 version = "0.1.0"
 dependencies = [
+ "application",
  "async-trait",
  "aura-historia-jobs",
  "aws-config",
@@ -5385,9 +5462,11 @@ dependencies = [
  "aws-sdk-sesv2",
  "aws-smithy-types",
  "aws_lambda_events",
+ "content-notice-core",
  "domain-primitives",
  "lambda_runtime",
  "listing-source-core",
+ "localization",
  "notification-core",
  "notification-email-aws",
  "notification-postgres",
@@ -5396,6 +5475,7 @@ dependencies = [
  "platform-lambda-sqs",
  "platform-observability",
  "platform-postgres",
+ "product-listing-core",
  "serde_json",
  "serial_test",
  "sqlx",
@@ -5403,6 +5483,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "url",
  "user-core",
  "uuid",
 ]
@@ -5427,6 +5508,7 @@ dependencies = [
  "async-trait",
  "aws-sdk-s3",
  "aws-sdk-sesv2",
+ "content-notice-core",
  "domain-primitives",
  "handlebars",
  "listing-source-core",
@@ -5442,6 +5524,7 @@ dependencies = [
  "search-filter-core",
  "serde-email",
  "serde_json",
+ "strum 0.28.0",
  "time",
  "tracing",
  "url",
@@ -5454,6 +5537,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "content-notice-core",
  "domain-primitives",
  "listing-source-core",
  "localization",
@@ -5488,6 +5572,7 @@ version = "0.1.0"
 dependencies = [
  "application",
  "async-trait",
+ "content-notice-core",
  "fake",
  "listing-source-core",
  "localization",

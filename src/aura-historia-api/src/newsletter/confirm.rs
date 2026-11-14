@@ -2,8 +2,9 @@ use crate::error::{
     ApiError, NEWSLETTER_CONFIRMATION_INVALID, NEWSLETTER_INTERNAL_ERROR,
     NEWSLETTER_TEMPORARILY_UNAVAILABLE,
 };
-use crate::newsletter::common::{no_store, parse_body};
+use crate::newsletter::common::parse_body;
 use crate::state::NewsletterState;
+use crate::transport::cache::no_store;
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;

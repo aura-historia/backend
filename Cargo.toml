@@ -103,6 +103,9 @@ members = [
     "src/partnership-core",
     "src/partnership-service",
     "src/partnership-postgres",
+    "src/content-notice-core",
+    "src/content-notice-service",
+    "src/content-notice-postgres",
     "src/shopify-lambda",
     "src/stripe-lambda",
     "src/user-core",
@@ -211,6 +214,9 @@ listing-source-postgres = { path = "src/listing-source-postgres" }
 partnership-core = { path = "src/partnership-core" }
 partnership-service = { path = "src/partnership-service" }
 partnership-postgres = { path = "src/partnership-postgres" }
+content-notice-core = { path = "src/content-notice-core" }
+content-notice-service = { path = "src/content-notice-service" }
+content-notice-postgres = { path = "src/content-notice-postgres" }
 notification-core = { path = "src/notification-core" }
 notification-email = { path = "src/notification-email" }
 notification-email-aws = { path = "src/notification-email-aws" }
