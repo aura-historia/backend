@@ -29,6 +29,7 @@ pub const ONE_WEEK: Duration = Duration::days(7);
 pub enum ProcessRole {
     Author,
     Reviewer,
+    Qualifier,
 }
 
 impl From<AgentRole> for ProcessRole {
@@ -36,6 +37,7 @@ impl From<AgentRole> for ProcessRole {
         match role {
             AgentRole::Author => Self::Author,
             AgentRole::Reviewer => Self::Reviewer,
+            AgentRole::Qualifier => Self::Qualifier,
         }
     }
 }

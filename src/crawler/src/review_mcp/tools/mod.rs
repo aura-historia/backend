@@ -4,6 +4,7 @@
 //! tools are neither listed nor callable.
 
 mod author;
+mod qualifier;
 mod reviewer;
 mod shared;
 
@@ -221,11 +222,21 @@ impl ToolDefinition {
 
     /// Whether the tool works on one review, the one its required `review_id` argument names.
     pub fn takes_review(&self) -> bool {
+        self.requires("review_id")
+    }
+
+    /// Whether the tool works on one ListingSource, the one its required `listing_source_id`
+    /// argument names.
+    pub fn takes_listing_source(&self) -> bool {
+        self.requires("listing_source_id")
+    }
+
+    fn requires(&self, argument: &str) -> bool {
         self.tool
             .input_schema
             .get("required")
             .and_then(Value::as_array)
-            .is_some_and(|required| required.iter().any(|name| name == "review_id"))
+            .is_some_and(|required| required.iter().any(|name| name == argument))
     }
 
     /// Runs the tool on `arguments` and answers its result or its tool error. The call is logged
@@ -371,12 +382,17 @@ fn object_schema<T: JsonSchema>(settings: SchemaSettings) -> Option<JsonObject> 
     Some(schema)
 }
 
-/// The tools of `role`, in the order they are listed.
+/// The tools of `role`, in the order they are listed. The qualifier works no review, so it has
+/// none of the review tools both review agents share.
 pub fn tools_for(role: AgentRole) -> Result<Vec<ToolDefinition>, ToolSchemaError> {
+    if role == AgentRole::Qualifier {
+        return qualifier::tools();
+    }
     let mut tools = shared::tools()?;
     tools.extend(match role {
         AgentRole::Author => author::tools()?,
         AgentRole::Reviewer => reviewer::tools()?,
+        AgentRole::Qualifier => Vec::new(),
     });
     Ok(tools)
 }
@@ -563,6 +579,28 @@ mod tests {
                 .map(|name| (*name).to_owned())
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// The qualifier has only its two tools, each on one ListingSource and none on a review.
+    #[test]
+    fn should_give_the_qualifier_only_its_tools_on_one_listing_source() {
+        let tools = tools_for(AgentRole::Qualifier).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            tools.iter().map(ToolDefinition::name).collect::<Vec<_>>(),
+            vec!["read_source_page", "qualify_source"]
+        );
+        for tool in &tools {
+            assert!(tool.takes_listing_source(), "{}", tool.name());
+            assert!(!tool.takes_review(), "{}", tool.name());
+        }
+        let qualify = tools
+            .iter()
+            .find(|tool| tool.name() == "qualify_source")
+            .unwrap_or_else(|| panic!("qualify_source"));
+        let schema = serde_json::to_string(&*qualify.tool().input_schema)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(schema.contains("NOT_AN_ANTIQUE_SHOP"), "{schema}");
+        assert!(!schema.contains("\"APPROACH_NOT_APPLICABLE\""), "{schema}");
     }
 
     #[test]

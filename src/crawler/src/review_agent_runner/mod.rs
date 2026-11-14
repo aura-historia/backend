@@ -24,6 +24,7 @@ mod ledger;
 mod login;
 mod pass;
 mod process;
+mod qualification;
 mod queue;
 mod reports;
 mod settings;
@@ -168,6 +169,27 @@ pub async fn run(settings: &RunnerSettings, stop: &RunnerStop) -> Result<RunOutc
     let mut ledger = ProcessLedger::open(&settings.state_dir)?;
     ledger.prune(started - LEDGER_RETENTION)?;
 
+    // New sources are not crawled until they are qualified, so they come before the reviews; a
+    // failed qualification pass leaves them waiting for the next run and does not hold up the
+    // reviews.
+    match qualification::qualify_waiting_sources(settings, &console, stop, &mut state).await {
+        Ok(summary) if summary.processes > 0 => info!(
+            event = "crawler.review_agent.qualification_pass_completed",
+            waiting = summary.waiting,
+            processes = summary.processes,
+            decided = summary.decided,
+            stopped = summary.stopped,
+            "Qualification pass finished"
+        ),
+        Ok(_) => {}
+        Err(error) => warn!(
+            error = %error,
+            cause = ?std::error::Error::source(&error),
+            "Qualification pass failed; its sources wait for the next run"
+        ),
+    }
+    save_state(&settings.state_dir, &state)?;
+
     let (pass, mut state, ledger) =
         work_pending_reviews(settings, &console, limits, stop, state, ledger).await;
     save_state(&settings.state_dir, &state)?;
@@ -306,7 +328,10 @@ async fn write_digest(
         ledger.since(from).cloned().collect(),
         queue,
         rolling,
-    );
+    )
+    .with_qualifications(qualification::digest_section(
+        &qualification::records_since(&settings.state_dir, from),
+    ));
     match digest.write(&settings.state_dir) {
         Ok(path) => {
             info!(

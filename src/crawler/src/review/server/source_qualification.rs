@@ -113,19 +113,27 @@ impl ReviewServer {
         let view = named::<PageView>(&request.query, "view")
             .map_err(|error| HttpResponse::json(400, &json!({ "error": error })))?
             .unwrap_or_default();
-        let raw_url = match request.query.get("url") {
-            Some(url) => url.clone(),
-            None => self
-                .repository
-                .listing_source_crawl_root(&listing_source_id)
-                .await
-                .map_err(review_error)?
-                .ok_or_else(|| {
-                    HttpResponse::json(
-                        409,
-                        &json!({ "error": "the ListingSource has no crawl root", "reason": "NOT_IN_CRAWL_SCOPE" }),
-                    )
-                })?,
+        let crawl_root = self
+            .repository
+            .listing_source_crawl_root(&listing_source_id)
+            .await
+            .map_err(review_error)?
+            .ok_or_else(|| {
+                HttpResponse::json(
+                    409,
+                    &json!({ "error": "the ListingSource has no crawl root", "reason": "NOT_IN_CRAWL_SCOPE" }),
+                )
+            })?;
+        // A path names a page of the crawl root's host.
+        let raw_url = match request.query.get("url").map(|url| url.trim()) {
+            None | Some("") => crawl_root,
+            Some(path) if path.starts_with('/') && !path.starts_with("//") => {
+                url::Url::parse(&crawl_root)
+                    .and_then(|root| root.join(path))
+                    .map(|url| url.to_string())
+                    .unwrap_or_else(|_| path.to_owned())
+            }
+            Some(url) => url.to_owned(),
         };
         let url = self
             .repository

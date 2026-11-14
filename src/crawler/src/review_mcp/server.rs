@@ -5,6 +5,7 @@ use super::errors::ToolError;
 use super::settings::{AgentRole, ReviewScope};
 use super::tools::{ToolContext, ToolDefinition};
 use crate::CrawlerReviewId;
+use listing_source_core::ListingSourceId;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, Implementation, JsonObject, ListToolsResult,
     PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
@@ -37,7 +38,11 @@ impl ReviewMcpServer {
     ) -> Self {
         let tools = tools
             .into_iter()
-            .filter(|tool| scope == ReviewScope::AnyReview || tool.takes_review())
+            .filter(|tool| match scope {
+                ReviewScope::AnyReview => true,
+                ReviewScope::Only(_) => tool.takes_review(),
+                ReviewScope::OnlySource(_) => tool.takes_listing_source(),
+            })
             .collect();
         Self {
             role,
@@ -63,11 +68,17 @@ impl ReviewMcpServer {
             AgentRole::Reviewer => {
                 "You are the reviewer agent: you check what the author agent or a human staged and approve, reject or ask for repair; you change no candidate."
             }
+            AgentRole::Qualifier => {
+                "You are the qualifier: you read a ListingSource's own pages and decide once whether it is a real antique e-shop the crawler may crawl."
+            }
         };
         let scope = match self.scope {
             ReviewScope::AnyReview => String::new(),
             ReviewScope::Only(review_id) => format!(
                 " This process works review {review_id} only: a call on any other review is refused."
+            ),
+            ReviewScope::OnlySource(listing_source_id) => format!(
+                " This process qualifies ListingSource {listing_source_id} only: a call on any other source is refused."
             ),
         };
         format!(
@@ -120,8 +131,29 @@ impl ServerHandler for ReviewMcpServer {
                 .into_tool_result()
                 .into());
         }
+        if let ReviewScope::OnlySource(scoped) = self.scope
+            && !named_source(&arguments)
+                .is_some_and(|listing_source_id| self.scope.admits_source(listing_source_id))
+        {
+            warn!(
+                tool = %request.name,
+                "Qualification tool call refused: it names no ListingSource or one outside the process's scope"
+            );
+            return Ok(ToolError::SourceOutsideScope(scoped)
+                .into_tool_result()
+                .into());
+        }
         Ok(tool.call(arguments, Arc::clone(&self.context)).await.into())
     }
+}
+
+/// The ListingSource a tool call's `listing_source_id` argument names, decoded as the tools decode
+/// it.
+fn named_source(arguments: &JsonObject) -> Option<ListingSourceId> {
+    arguments
+        .get("listing_source_id")
+        .and_then(Value::as_str)
+        .and_then(|listing_source_id| listing_source_id.parse().ok())
 }
 
 /// The review a tool call's `review_id` argument names, decoded as the tools decode it.

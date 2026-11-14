@@ -812,6 +812,10 @@ impl Pass<'_> {
                 let report = match role {
                     AgentRole::Author => AgentReport::author(output, review.review_id),
                     AgentRole::Reviewer => AgentReport::reviewer(output, review.review_id),
+                    // The qualification works no review; its processes run outside the pass.
+                    AgentRole::Qualifier => Err(super::reports::ReportError::Malformed(
+                        "the review pass starts no qualifier".to_owned(),
+                    )),
                 };
                 match report {
                     Ok(report) => {
