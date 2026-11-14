@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Single-location dealer inventory (#2960)
+
+- Listings of a dealer with exactly one active location now carry public `geography` (basis `SOURCE_DEFAULT_DERIVED`) and match geographic search and saved-search geography filters. Previously only dealers with first-party inventory evidence did, which left most listings without geography.
+- Protected location-default reads (`GET /v1/listing-sources/{id}/location-default` and its admin variant) can return `advertisedInventory.reference` `aura-historia:policy/single-location-dealer-inventory/v1` for these dealers. The request and response schemas are unchanged, and the API still never derives inventory from business, legal or correspondence evidence.
+
 ## 2026-11-14 — Overview `countries` counts where sources are located (#2957)
 
 - `countries` in `GET /v1/overview` and the MCP tool `getPublicOverview` now counts the distinct countries where the counted listings' ListingSources are located: the country of the listing's effective advertised-inventory geography when it has one, otherwise the country of the source's associated business. It previously counted advertised-inventory countries only, which excluded business-only sources and understated the figure. It describes sources, not where an object is held; shipping destinations still do not count. The field name and type are unchanged, so clients need no change, but the value is usually higher. The stored figure changes with the next scheduled calculation after deployment.
