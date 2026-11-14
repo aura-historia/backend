@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Filter admin ListingSource search by country
+
+- `GET /v1/admin/listing-sources` accepts an optional `country` query parameter, an uppercase ISO 3166-1 alpha-2 code such as `DE`. It returns only ListingSources located in that country: the source's selected location default is active, has associated-business or advertised-inventory evidence, and its submitted country, otherwise its accepted geocoded country, matches. Sources without such a location never match. Lowercase, alpha-3 and unknown codes return `400 BAD_QUERY_PARAMETER_VALUE`. It combines with every other filter, and a `searchAfter` cursor is bound to it like the other filters. Response shapes are unchanged.
+- `searchAfter` cursors issued before this change are rejected with `400 BAD_QUERY_PARAMETER_VALUE`; restart the search from the first page.
+
 ## 2026-11-14 — Overview `countries` counts where sources are located (#2957)
 
 - `countries` in `GET /v1/overview` and the MCP tool `getPublicOverview` now counts the distinct countries where the counted listings' ListingSources are located: the country of the listing's effective advertised-inventory geography when it has one, otherwise the country of the source's associated business. It previously counted advertised-inventory countries only, which excluded business-only sources and understated the figure. It describes sources, not where an object is held; shipping destinations still do not count. The field name and type are unchanged, so clients need no change, but the value is usually higher. The stored figure changes with the next scheduled calculation after deployment.

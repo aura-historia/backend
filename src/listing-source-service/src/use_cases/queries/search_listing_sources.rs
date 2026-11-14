@@ -66,6 +66,7 @@ impl SearchListingSourcesRequest {
             )
             .optional_part(search.ingestion_method.map(ListingIngestionMethod::as_str))
             .optional_part(search.listing_source_type.map(ListingSourceType::as_str))
+            .optional_part(search.country.map(|country| country.alpha2()))
             .part(sort_field_code(sort.sort))
             .part(sort.order.as_str())
             .finish()
@@ -607,6 +608,16 @@ mod tests {
             !SearchListingSourcesRequest {
                 search: ListingSourceSearch {
                     listing_source_type: Some(ListingSourceType::Dealer),
+                    ..ListingSourceSearch::default()
+                },
+                ..continuation(&request(), name.clone())
+            }
+            .continuation_in_scope()
+        );
+        assert!(
+            !SearchListingSourcesRequest {
+                search: ListingSourceSearch {
+                    country: Some(geo::CountryCode::DEU),
                     ..ListingSourceSearch::default()
                 },
                 ..continuation(&request(), name.clone())

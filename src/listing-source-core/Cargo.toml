@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 domain-primitives = { workspace = true }
 fake = { workspace = true, optional = true }
+geo = { workspace = true }
 party-core = { workspace = true }
 percent-encoding = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

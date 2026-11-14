@@ -2,6 +2,7 @@ use application::pagination::Cursor;
 use application::transaction::{Transaction, UnitOfWork};
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
+use geo::CountryCode;
 use listing_source_core::{ListingSourceId, ListingSourceSearch, SortListingSourceField};
 use listing_source_postgres::SqlxListingSourceSearchReaderFactory;
 use listing_source_service::ports::{ListingSourceSearchReader, ListingSourceSearchReaderFactory};
@@ -9,6 +10,7 @@ use listing_source_service::use_cases::queries::search_listing_sources::{
     SearchListingSourcesRequest, SearchListingSourcesResult,
 };
 use platform_postgres::SqlxUnitOfWork;
+use serde_json::json;
 use test_api::{IntegrationTestService, Postgres, aura_integration_test, get_postgres_client};
 use time::OffsetDateTime;
 use time::macros::datetime;
@@ -131,6 +133,72 @@ async fn should_traverse_duplicate_sort_values_deterministically_in_both_directi
     );
 }
 
+#[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
+async fn should_filter_by_the_country_where_the_source_is_located() {
+    let pool = get_postgres_client().await;
+    let operator = insert_operator(&pool).await;
+    let ids = [1, 2, 3, 4, 5, 6, 7, 8].map(ordered_source_id);
+    for id in ids {
+        insert_source(
+            &pool,
+            id,
+            "Located",
+            operator,
+            datetime!(2026-01-01 00:00 UTC),
+        )
+        .await;
+    }
+    let business = Evidence::Business;
+    let inventory = Evidence::Inventory;
+    let submitted_de = Some(
+        json!({"reference_release": "iso-codes-4.20.1", "address_text": "Supplied", "country": "DE", "subdivision": null, "postal_code": null}),
+    );
+    let unsubmitted = Some(
+        json!({"reference_release": "iso-codes-4.20.1", "address_text": "Supplied", "country": null, "subdivision": null, "postal_code": null}),
+    );
+    let submitted_fr = Some(
+        json!({"reference_release": "iso-codes-4.20.1", "address_text": "Supplied", "country": "FR", "subdivision": null, "postal_code": null}),
+    );
+
+    let business_de = insert_location(&pool, operator, submitted_de.clone(), "ACTIVE", 1).await;
+    select_location(&pool, ids[0], operator, business_de, &[business]).await;
+    let inventory_de = insert_location(&pool, operator, submitted_de.clone(), "ACTIVE", 1).await;
+    select_location(&pool, ids[1], operator, inventory_de, &[inventory]).await;
+    let geocoded_de = insert_location(&pool, operator, unsubmitted.clone(), "ACTIVE", 1).await;
+    bind_accepted_resolution(&pool, geocoded_de, 1, "DE").await;
+    select_location(&pool, ids[2], operator, geocoded_de, &[business]).await;
+    let stale_geocoded_de = insert_location(&pool, operator, unsubmitted, "ACTIVE", 2).await;
+    bind_accepted_resolution(&pool, stale_geocoded_de, 1, "DE").await;
+    select_location(&pool, ids[3], operator, stale_geocoded_de, &[business]).await;
+    let without_evidence =
+        insert_location(&pool, operator, submitted_de.clone(), "ACTIVE", 1).await;
+    select_location(&pool, ids[4], operator, without_evidence, &[]).await;
+    let retired = insert_location(&pool, operator, submitted_de, "RETIRED", 1).await;
+    select_location(&pool, ids[5], operator, retired, &[business, inventory]).await;
+    let france = insert_location(&pool, operator, submitted_fr, "ACTIVE", 1).await;
+    select_location(&pool, ids[6], operator, france, &[business]).await;
+
+    let in_country = |country| SearchListingSourcesRequest {
+        search: ListingSourceSearch {
+            operator_party_id: Some(operator),
+            country: Some(country),
+            ..ListingSourceSearch::default()
+        },
+        sort: None,
+        cursor: None,
+    };
+
+    assert_eq!(
+        ids[..3].to_vec(),
+        source_ids(&search(&pool, &in_country(CountryCode::DEU)).await)
+    );
+    assert_eq!(
+        vec![ids[6]],
+        source_ids(&search(&pool, &in_country(CountryCode::FRA)).await)
+    );
+    assert!(source_ids(&search(&pool, &in_country(CountryCode::ITA)).await).is_empty());
+}
+
 async fn search(
     pool: &sqlx::PgPool,
     request: &SearchListingSourcesRequest,
@@ -196,6 +264,106 @@ async fn insert_source(
         .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("insert test source: {error}"));
+}
+
+#[derive(Clone, Copy)]
+enum Evidence {
+    Business,
+    Inventory,
+}
+
+async fn insert_location(
+    pool: &sqlx::PgPool,
+    operator: party_core::party_id::PartyId,
+    geography: Option<serde_json::Value>,
+    lifecycle: &str,
+    revision: i64,
+) -> uuid::Uuid {
+    let location_id = uuid::Uuid::now_v7();
+    sqlx::query("INSERT INTO party_locations (party_location_id, party_id, label, geography, lifecycle, revision, input_revision, created_actor, updated_actor) VALUES ($1, $2, 'Site', $3, $4, $5, 1, 'SERVICE:test', 'SERVICE:test')")
+        .bind(location_id)
+        .bind(operator.into_uuid())
+        .bind(geography)
+        .bind(lifecycle)
+        .bind(revision)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert test party location: {error}"));
+    location_id
+}
+
+async fn select_location(
+    pool: &sqlx::PgPool,
+    source: ListingSourceId,
+    operator: party_core::party_id::PartyId,
+    location_id: uuid::Uuid,
+    evidence: &[Evidence],
+) {
+    let scoped = |kind: Evidence, scope: &str| {
+        evidence
+            .iter()
+            .any(|present| std::mem::discriminant(present) == std::mem::discriminant(&kind))
+            .then(|| json!({"scope": scope, "reference": "source catalogue"}))
+    };
+    sqlx::query("INSERT INTO listing_source_location_defaults (listing_source_id, party_id, party_location_id, business_evidence, inventory_evidence, revision, updated_actor) VALUES ($1, $2, $3, $4, $5, 2, 'SERVICE:test')")
+        .bind(source.into_uuid())
+        .bind(operator.into_uuid())
+        .bind(location_id)
+        .bind(scoped(Evidence::Business, "ASSOCIATED_BUSINESS"))
+        .bind(scoped(Evidence::Inventory, "ADVERTISED_INVENTORY"))
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert test location default: {error}"));
+}
+
+/// Binds an accepted administrative geocoding result guarded by `guard`.
+async fn bind_accepted_resolution(
+    pool: &sqlx::PgPool,
+    location_id: uuid::Uuid,
+    guard: i64,
+    country: &str,
+) {
+    const PROFILE: &str = "LISTING_SOURCE_SEARCH_TEST";
+    sqlx::query(
+        "INSERT INTO geo_resolution_provider_controls (profile) VALUES ($1) ON CONFLICT DO NOTHING",
+    )
+    .bind(PROFILE)
+    .execute(pool)
+    .await
+    .unwrap_or_else(|error| panic!("insert test geocoding profile: {error}"));
+    let resolution_id = uuid::Uuid::now_v7();
+    let fingerprint = resolution_id.simple().to_string().repeat(2);
+    let evidence = json!({
+        "status": "ACCEPTED",
+        "accepted_index": 0,
+        "candidates": [{
+            "description": {"reference_release": "iso-codes-4.20.1", "address_text": null, "country": country, "subdivision": null, "postal_code": null},
+            "position": null,
+            "acceptable": true,
+            "provider": "test",
+            "product": "test",
+            "data_source": "test",
+            "region": "test",
+            "profile": PROFILE,
+            "external_reference": "test",
+            "attribution_url": "https://example.test"
+        }]
+    });
+    sqlx::query("INSERT INTO geo_resolutions (resolution_id, fingerprint, profile, policy_version, scope_key, input, status, evidence) VALUES ($1, $2, $3, 'PRECISION_FIRST_V1', $2, '{}', 'ACCEPTED', $4)")
+        .bind(resolution_id)
+        .bind(fingerprint)
+        .bind(PROFILE)
+        .bind(evidence)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("insert test geocoding resolution: {error}"));
+    sqlx::query("INSERT INTO geo_resolution_bindings (subject_kind, subject_id, resolution_id, input_revision, guard) VALUES ('PARTY_LOCATION', $1, $2, 1, $3)")
+        .bind(location_id)
+        .bind(resolution_id)
+        .bind(guard)
+        .execute(pool)
+        .await
+        .unwrap_or_else(|error| panic!("bind test geocoding resolution: {error}"));
 }
 
 async fn delete_source(pool: &sqlx::PgPool, id: ListingSourceId) {

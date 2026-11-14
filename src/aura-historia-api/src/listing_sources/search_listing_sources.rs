@@ -10,6 +10,8 @@ use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use domain_primitives::query::text_query::TextQuery;
 use domain_primitives::sort::{Sort, SortOrder};
+use geo::reference::ReferenceRelease;
+use geo::{CountryCode, country_from_code};
 use listing_source_core::{
     ListingIngestionMethod, ListingSourceId, ListingSourceSearch, ListingSourceSlugId,
     PlatformTechnology, SortListingSourceField,
@@ -40,6 +42,8 @@ struct SearchListingSourcesQuery {
     ingestion_method: Option<String>,
     #[serde(default)]
     platform_technology: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
     #[serde(default)]
     sort: Option<String>,
     #[serde(default)]
@@ -105,6 +109,7 @@ fn parse_search_listing_sources_query(
                     .map_err(|error| bad_query("platformTechnology", error))
             })
             .transpose()?,
+        country: parse_country(query.country)?,
     };
     let sort = parse_sort(query.sort.as_deref(), query.order.as_deref())?;
     let cursor = parse_cursor(query.size.as_deref(), query.search_after.as_deref())?;
@@ -157,6 +162,15 @@ fn parse_ingestion_method(
             value
                 .parse()
                 .map_err(|error| bad_query("ingestionMethod", error))
+        })
+        .transpose()
+}
+
+fn parse_country(value: Option<String>) -> Result<Option<CountryCode>, ApiError> {
+    value
+        .map(|value| {
+            country_from_code(&value, ReferenceRelease::CURRENT)
+                .map_err(|error| bad_query("country", error))
         })
         .transpose()
 }
@@ -285,7 +299,7 @@ mod tests {
         let operator_party_id = PartyId::new();
         let cursor = cursor(ListingSourceSortKey::Created(OffsetDateTime::UNIX_EPOCH));
         let request = parse_search_listing_sources_query(Some(&format!(
-            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&listingSourceType=AUCTION_HOUSE&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&sort=created&order=desc&size=200&searchAfter={}",
+            "query=operator&name=Antik&listingSourceId={listing_source_id}&listingSourceSlugId=antik-source&operatorPartyId={operator_party_id}&listingSourceType=AUCTION_HOUSE&ingestionMethod=SHOPIFY&platformTechnology=CUSTOM_PLATFORM_2&country=DE&sort=created&order=desc&size=200&searchAfter={}",
             encode_search_after(cursor.clone())
         )))?;
 
@@ -316,6 +330,7 @@ mod tests {
             Some(ListingIngestionMethod::Shopify),
             request.search.ingestion_method
         );
+        assert_eq!(Some(CountryCode::DEU), request.search.country);
         assert_eq!(
             Some(Sort {
                 sort: SortListingSourceField::Created,
@@ -377,6 +392,10 @@ mod tests {
             "listingSourceType=",
             "platformTechnology=shopify",
             "platformTechnology=",
+            "country=de",
+            "country=DEU",
+            "country=XX",
+            "country=",
         ] {
             assert!(
                 parse_search_listing_sources_query(Some(query)).is_err(),
