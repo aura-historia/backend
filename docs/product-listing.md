@@ -152,6 +152,27 @@ notification snapshots, so approving or dissolving a Partnership needs no reinde
 the bounded source and response caches expire. Redacted listings hide the operator like the rest
 of the source.
 
+### Search ranking
+
+Public product search ranks by relevance unless a sort is requested. With a search term,
+relevance is a hybrid query whose two result lists are fused with equal weight (Reciprocal Rank
+Fusion, [`hybrid-search-pipeline.json`](../opensearch/hybrid-search-pipeline.json)): a title-only
+lexical match that requires every query word in the user-language or the original title and
+favours the user-language title, exact phrases and, as a small bonus, close spellings; and semantic
+nearest neighbours of the query embedding against the listing embedding (title, description and
+first image). If the query embedding fails, the search and its continuation pages are ranked
+lexically only. Without a term every listing scores equally and the listing ID (creation order)
+breaks ties. `created` and `updated` sort by those timestamps; geographic searches sort by
+distance. Ranking never uses partner status, referral configuration, commissions or payments, and
+nothing about the user except the request language. The query lives in
+`product-listing-opensearch/src/product_listing_search_reader.rs`.
+
+These parameters and their weighting are a legal disclosure (§ 5b Abs. 2 UWG), shown next to the
+sort control in the webapp (`search.ranking.*`, `SearchRankingInfo` in `aura-historia/webapp`).
+A change to any of them, a new sort mode, or any partner, referral or paid signal must update
+this section and the webapp text in the same release; a paid signal must also be labelled in the
+results.
+
 ### Personalized user state
 
 Listing reads may attach `userState`, the caller's private state for each returned listing. Use cases load the complete state for enforcement, then disclose it through one shared policy. Delegated credentials are closed-world, so each section needs its own read scope wherever listings are returned, including public routes:

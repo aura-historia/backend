@@ -31,6 +31,7 @@
 - Route deserialization through existing newtype constructors so their validation or normalization rules cannot be bypassed.
 - Do not log credentials, tokens, raw provider payloads, or other sensitive content.
 - Update `docs/swagger.yaml` and `docs/CHANGELOG.md` when a public API contract changes.
+- Changing product search ranking or sort modes (`product_listing_search_reader.rs`, `opensearch/hybrid-search-pipeline.json`) requires updating [Search ranking](docs/product-listing.md#search-ranking) and the webapp's legally required ranking disclosure (`search.ranking.*`) in the same release.
 - Update the owning specialized document when a durable event, persistence, or operational contract changes; do not copy implementation details into `docs/arch.md` or `docs/storage.md`.
 
 ## Documentation
