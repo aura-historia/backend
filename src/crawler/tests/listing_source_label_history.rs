@@ -112,6 +112,44 @@ async fn should_keep_every_replaced_and_cleared_label_in_the_history() {
     );
 }
 
+/// The database accepts every label the crawler persists, the retired one included, on a source
+/// and in its history, and refuses a name no label has.
+#[aura_integration_test(services = [POSTGRES], isolated = true)]
+async fn should_store_exactly_the_labels_the_crawler_persists() {
+    let pool = get_postgres_client().await;
+    let listing_source_id = insert_source(&pool).await;
+    let store = |name: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let on_source = sqlx::query(
+                "UPDATE listing_sources \
+                 SET source_label = $2, source_label_note = 'seen', source_labelled_at = NOW(), \
+                     source_labelled_by = 'HUMAN', crawl_enabled = FALSE \
+                 WHERE listing_source_id = $1",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(name)
+            .execute(&pool)
+            .await;
+            let in_history = sqlx::query(
+                "INSERT INTO listing_source_label_events \
+                     (listing_source_id, event_kind, source_label, source_label_note, actor) \
+                 VALUES ($1, 'LABELLED', $2, 'seen', 'HUMAN')",
+            )
+            .bind(listing_source_id.as_uuid())
+            .bind(name)
+            .execute(&pool)
+            .await;
+            (on_source.is_ok(), in_history.is_ok())
+        }
+    };
+
+    for label in SourceLabel::ALL {
+        assert_eq!(store(label.as_str()).await, (true, true), "{label:?}");
+    }
+    assert_eq!(store("NOT_A_LABEL").await, (false, false));
+}
+
 /// No entry of the history can be changed or deleted, only the deletion of its source removes it.
 #[aura_integration_test(services = [POSTGRES], isolated = true)]
 async fn should_refuse_to_change_or_delete_a_history_entry() {
