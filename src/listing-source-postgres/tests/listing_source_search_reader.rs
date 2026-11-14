@@ -137,7 +137,7 @@ async fn should_traverse_duplicate_sort_values_deterministically_in_both_directi
 async fn should_filter_by_the_country_where_the_source_is_located() {
     let pool = get_postgres_client().await;
     let operator = insert_operator(&pool).await;
-    let ids = [1, 2, 3, 4, 5, 6, 7, 8].map(ordered_source_id);
+    let ids: [ListingSourceId; 11] = std::array::from_fn(|index| ordered_source_id(index as u128));
     for id in ids {
         insert_source(
             &pool,
@@ -150,33 +150,60 @@ async fn should_filter_by_the_country_where_the_source_is_located() {
     }
     let business = Evidence::Business;
     let inventory = Evidence::Inventory;
-    let submitted_de = Some(
-        json!({"reference_release": "iso-codes-4.20.1", "address_text": "Supplied", "country": "DE", "subdivision": null, "postal_code": null}),
-    );
-    let unsubmitted = Some(
-        json!({"reference_release": "iso-codes-4.20.1", "address_text": "Supplied", "country": null, "subdivision": null, "postal_code": null}),
-    );
-    let submitted_fr = Some(
-        json!({"reference_release": "iso-codes-4.20.1", "address_text": "Supplied", "country": "FR", "subdivision": null, "postal_code": null}),
-    );
+    let site = |country: Option<&str>| Some(description("Supplied", country));
 
-    let business_de = insert_location(&pool, operator, submitted_de.clone(), "ACTIVE", 1).await;
+    let business_de = insert_location(&pool, operator, site(Some("DE")), "ACTIVE", 1).await;
     select_location(&pool, ids[0], operator, business_de, &[business]).await;
-    let inventory_de = insert_location(&pool, operator, submitted_de.clone(), "ACTIVE", 1).await;
+    let inventory_de = insert_location(&pool, operator, site(Some("DE")), "ACTIVE", 1).await;
     select_location(&pool, ids[1], operator, inventory_de, &[inventory]).await;
-    let geocoded_de = insert_location(&pool, operator, unsubmitted.clone(), "ACTIVE", 1).await;
-    bind_accepted_resolution(&pool, geocoded_de, 1, "DE").await;
+    let geocoded_de = insert_location(&pool, operator, site(None), "ACTIVE", 1).await;
+    bind_resolution(&pool, geocoded_de, 1, Resolution::administrative("DE")).await;
     select_location(&pool, ids[2], operator, geocoded_de, &[business]).await;
-    let stale_geocoded_de = insert_location(&pool, operator, unsubmitted, "ACTIVE", 2).await;
-    bind_accepted_resolution(&pool, stale_geocoded_de, 1, "DE").await;
+    let stale_geocoded_de = insert_location(&pool, operator, site(None), "ACTIVE", 2).await;
+    bind_resolution(
+        &pool,
+        stale_geocoded_de,
+        1,
+        Resolution::administrative("DE"),
+    )
+    .await;
     select_location(&pool, ids[3], operator, stale_geocoded_de, &[business]).await;
-    let without_evidence =
-        insert_location(&pool, operator, submitted_de.clone(), "ACTIVE", 1).await;
+    let without_evidence = insert_location(&pool, operator, site(Some("DE")), "ACTIVE", 1).await;
     select_location(&pool, ids[4], operator, without_evidence, &[]).await;
-    let retired = insert_location(&pool, operator, submitted_de, "RETIRED", 1).await;
+    let retired = insert_location(&pool, operator, site(Some("DE")), "RETIRED", 1).await;
     select_location(&pool, ids[5], operator, retired, &[business, inventory]).await;
-    let france = insert_location(&pool, operator, submitted_fr, "ACTIVE", 1).await;
+    let france = insert_location(&pool, operator, site(Some("FR")), "ACTIVE", 1).await;
     select_location(&pool, ids[6], operator, france, &[business]).await;
+    // ids[7] selects no location default.
+    let submitted_over_geocoded =
+        insert_location(&pool, operator, site(Some("FR")), "ACTIVE", 1).await;
+    bind_resolution(
+        &pool,
+        submitted_over_geocoded,
+        1,
+        Resolution::administrative("DE"),
+    )
+    .await;
+    select_location(
+        &pool,
+        ids[8],
+        operator,
+        submitted_over_geocoded,
+        &[inventory],
+    )
+    .await;
+    let reviewed = insert_location(&pool, operator, site(None), "ACTIVE", 1).await;
+    bind_resolution(&pool, reviewed, 1, Resolution::reviewed(["IT", "AT"], 1, 2)).await;
+    select_location(&pool, ids[9], operator, reviewed, &[business]).await;
+    let stale_review = insert_location(&pool, operator, site(None), "ACTIVE", 1).await;
+    bind_resolution(
+        &pool,
+        stale_review,
+        1,
+        Resolution::reviewed(["IT", "AT"], 1, 1),
+    )
+    .await;
+    select_location(&pool, ids[10], operator, stale_review, &[business]).await;
 
     let in_country = |country| SearchListingSourcesRequest {
         search: ListingSourceSearch {
@@ -187,16 +214,18 @@ async fn should_filter_by_the_country_where_the_source_is_located() {
         sort: None,
         cursor: None,
     };
-
-    assert_eq!(
-        ids[..3].to_vec(),
-        source_ids(&search(&pool, &in_country(CountryCode::DEU)).await)
-    );
-    assert_eq!(
-        vec![ids[6]],
-        source_ids(&search(&pool, &in_country(CountryCode::FRA)).await)
-    );
-    assert!(source_ids(&search(&pool, &in_country(CountryCode::ITA)).await).is_empty());
+    for (country, expected) in [
+        (CountryCode::DEU, vec![ids[0], ids[1], ids[2]]),
+        (CountryCode::FRA, vec![ids[6], ids[8]]),
+        (CountryCode::AUT, vec![ids[9]]),
+        (CountryCode::ITA, vec![]),
+    ] {
+        assert_eq!(
+            expected,
+            source_ids(&search(&pool, &in_country(country)).await),
+            "{country:?}"
+        );
+    }
 }
 
 async fn search(
@@ -316,51 +345,102 @@ async fn select_location(
         .unwrap_or_else(|error| panic!("insert test location default: {error}"));
 }
 
-/// Binds an accepted administrative geocoding result guarded by `guard`.
-async fn bind_accepted_resolution(
+fn description(address_text: &str, country: Option<&str>) -> serde_json::Value {
+    json!({"reference_release": "iso-codes-4.20.1", "address_text": address_text, "country": country, "subdivision": null, "postal_code": null})
+}
+
+const GEOCODING_PROFILE: &str = "LISTING_SOURCE_SEARCH_TEST";
+
+/// Stored geocoding outcome in the shapes `geo-postgres` persists. The filter reads only the
+/// evidence and binding, so the fixture omits the replayable resolution input.
+struct Resolution {
+    status: &'static str,
+    generation: i64,
+    evidence: serde_json::Value,
+    selection: Option<(i32, i64)>,
+}
+
+impl Resolution {
+    /// Administrative acceptance retains the source candidate and accepts its projection.
+    fn administrative(country: &str) -> Self {
+        Self {
+            status: "ACCEPTED",
+            generation: 1,
+            evidence: json!({
+                "status": "ACCEPTED",
+                "accepted_index": 1,
+                "candidates": [
+                    candidate(description("Provider address", Some(country))),
+                    candidate(json!({"reference_release": "iso-codes-4.20.1", "address_text": null, "country": country, "subdivision": null, "postal_code": null})),
+                ],
+            }),
+            selection: None,
+        }
+    }
+
+    /// Ambiguous evidence with an administrator's selection made at `selected_generation`.
+    fn reviewed(countries: [&str; 2], selected: i32, selected_generation: i64) -> Self {
+        Self {
+            status: "AMBIGUOUS",
+            generation: 2,
+            evidence: json!({
+                "status": "AMBIGUOUS",
+                "accepted_index": null,
+                "candidates": countries.map(|country| candidate(description("Provider address", Some(country)))),
+            }),
+            selection: Some((selected, selected_generation)),
+        }
+    }
+}
+
+fn candidate(description: serde_json::Value) -> serde_json::Value {
+    json!({
+        "description": description,
+        "position": null,
+        "acceptable": true,
+        "provider": "TEST",
+        "product": "TEST",
+        "data_source": "TEST",
+        "region": "TEST",
+        "profile": GEOCODING_PROFILE,
+        "external_reference": "synthetic-site",
+        "attribution_url": "https://example.test/attribution"
+    })
+}
+
+/// Binds `resolution` to the location's state at `guard`.
+async fn bind_resolution(
     pool: &sqlx::PgPool,
     location_id: uuid::Uuid,
     guard: i64,
-    country: &str,
+    resolution: Resolution,
 ) {
-    const PROFILE: &str = "LISTING_SOURCE_SEARCH_TEST";
     sqlx::query(
         "INSERT INTO geo_resolution_provider_controls (profile) VALUES ($1) ON CONFLICT DO NOTHING",
     )
-    .bind(PROFILE)
+    .bind(GEOCODING_PROFILE)
     .execute(pool)
     .await
     .unwrap_or_else(|error| panic!("insert test geocoding profile: {error}"));
     let resolution_id = uuid::Uuid::now_v7();
     let fingerprint = resolution_id.simple().to_string().repeat(2);
-    let evidence = json!({
-        "status": "ACCEPTED",
-        "accepted_index": 0,
-        "candidates": [{
-            "description": {"reference_release": "iso-codes-4.20.1", "address_text": null, "country": country, "subdivision": null, "postal_code": null},
-            "position": null,
-            "acceptable": true,
-            "provider": "test",
-            "product": "test",
-            "data_source": "test",
-            "region": "test",
-            "profile": PROFILE,
-            "external_reference": "test",
-            "attribution_url": "https://example.test"
-        }]
-    });
-    sqlx::query("INSERT INTO geo_resolutions (resolution_id, fingerprint, profile, policy_version, scope_key, input, status, evidence) VALUES ($1, $2, $3, 'PRECISION_FIRST_V1', $2, '{}', 'ACCEPTED', $4)")
+    sqlx::query("INSERT INTO geo_resolutions (resolution_id, fingerprint, profile, policy_version, scope_key, input, generation, status, evidence) VALUES ($1, $2, $3, 'PRECISION_FIRST_V1', $2, '{}', $4, $5, $6)")
         .bind(resolution_id)
         .bind(fingerprint)
-        .bind(PROFILE)
-        .bind(evidence)
+        .bind(GEOCODING_PROFILE)
+        .bind(resolution.generation)
+        .bind(resolution.status)
+        .bind(resolution.evidence)
         .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("insert test geocoding resolution: {error}"));
-    sqlx::query("INSERT INTO geo_resolution_bindings (subject_kind, subject_id, resolution_id, input_revision, guard) VALUES ('PARTY_LOCATION', $1, $2, 1, $3)")
+    let (selected_candidate, selected_generation) = resolution.selection.unzip();
+    sqlx::query("INSERT INTO geo_resolution_bindings (subject_kind, subject_id, resolution_id, input_revision, guard, selected_candidate, selected_generation, reviewed_actor) VALUES ('PARTY_LOCATION', $1, $2, 1, $3, $4, $5, CASE WHEN $4::integer IS NULL THEN NULL ELSE 'USER:test' END)")
         .bind(location_id)
         .bind(resolution_id)
         .bind(guard)
+        .bind(selected_candidate)
+        .bind(selected_generation)
         .execute(pool)
         .await
         .unwrap_or_else(|error| panic!("bind test geocoding resolution: {error}"));

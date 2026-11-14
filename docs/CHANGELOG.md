@@ -5,7 +5,6 @@ Only document REST API contract and user-visible behavior changes here. No inter
 ## 2026-11-14 — Filter admin ListingSource search by country
 
 - `GET /v1/admin/listing-sources` accepts an optional `country` query parameter, an uppercase ISO 3166-1 alpha-2 code such as `DE`. It returns only ListingSources located in that country: the source's selected location default is active, has associated-business or advertised-inventory evidence, and its submitted country, otherwise its accepted geocoded country, matches. Sources without such a location never match. Lowercase, alpha-3 and unknown codes return `400 BAD_QUERY_PARAMETER_VALUE`. It combines with every other filter, and a `searchAfter` cursor is bound to it like the other filters. Response shapes are unchanged.
-- `searchAfter` cursors issued before this change are rejected with `400 BAD_QUERY_PARAMETER_VALUE`; restart the search from the first page.
 
 ## 2026-11-14 — Overview `countries` counts where sources are located (#2957)
 

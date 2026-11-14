@@ -340,7 +340,9 @@ fn push_filters(builder: &mut QueryBuilder<Postgres>, search: &ListingSourceSear
 /// Matches the country that listing geography derives from the source's location default
 /// (`docs/geography.md`): an active selected location with business-association or
 /// advertised-inventory evidence, its submitted country, otherwise the country of the
-/// accepted geocoding candidate bound to the location's current revision.
+/// accepted geocoding candidate bound to the location's current revision. The accepted-candidate
+/// expression mirrors `party-postgres` location discovery. Like that filter, it only selects
+/// rows: malformed stored geography never matches and is rejected when it is read for display.
 const LOCATED_IN_COUNTRY: &str = " AND EXISTS (SELECT 1 FROM listing_source_location_defaults filter_default \
 JOIN party_locations filter_location ON filter_location.party_location_id = filter_default.party_location_id AND filter_location.party_id = filter_default.party_id \
 LEFT JOIN geo_resolution_bindings filter_binding ON filter_binding.subject_kind = 'PARTY_LOCATION' AND filter_binding.subject_id = filter_location.party_location_id AND filter_binding.guard = filter_location.revision AND filter_binding.input_revision = filter_location.input_revision \
