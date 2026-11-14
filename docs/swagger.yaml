@@ -10580,6 +10580,220 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /v1/content-notices:
+    post:
+      summary: Submit a content notice
+      description: |
+        Asks Aura Historia to review a listed ProductListing or a ListingSource as a whole, for example a
+        provider's opt-out, a rights infringement or a report of illegal content. Anyone can submit a notice
+        without an account. An optional Cognito JWT or Aura Historia access-token bearer credential may be
+        supplied; an invalid, expired or revoked supplied credential returns 401 and is never treated as
+        anonymous. The caller's identity is not stored with the notice.
+
+        The server resolves the target and stores a snapshot of it as it was at submission. A ProductListing
+        target must be publicly visible: a withdrawn listing is not found. A notice never removes anything by
+        itself; a person reviews every notice. The additional URLs are recorded for that review and never
+        fetched.
+
+        The body is limited to 16 KiB. Every result is `Cache-Control: no-store`. Field-level validation errors
+        name the rejected field as a JSON pointer in `source.field`, such as `/explanation` or
+        `/additionalUrls/2`, and never repeat the submitted value.
+
+        Retries: after a `503` or a lost response it is unknown whether the notice was stored, and retrying the
+        same submission can store it a second time.
+      operationId: submitContentNotice
+      tags:
+        - ContentNotices
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        description: The notice.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitContentNoticeData"
+            examples:
+              rights_infringement:
+                summary: A rights holder reports one listing
+                value:
+                  target:
+                    type: PRODUCT_LISTING
+                    productListingId: pl_01h455vb4pex5vy7enb1p677vn
+                  submitterRole: RIGHTS_HOLDER
+                  reasonCategory: RIGHTS_INFRINGEMENT
+                  explanation: The second photograph is mine and was used without a licence.
+                  additionalUrls:
+                    - https://portfolio.example/photographs/vase
+                  name: Erika Mustermann
+                  email: erika@example.com
+                  language: de
+                  goodFaithConfirmed: true
+              provider_opt_out:
+                summary: A provider opts out with all of its listings
+                value:
+                  target:
+                    type: LISTING_SOURCE
+                    listingSourceId: ls_01h455vb4pex5vy7enb1p677vn
+                  submitterRole: PROVIDER
+                  reasonCategory: PROVIDER_OPT_OUT
+                  name: Max Mustermann
+                  email: max@antik.example
+                  language: de
+                  goodFaithConfirmed: true
+      responses:
+        "202":
+          description: The notice was stored for review. The response has no body.
+          headers:
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+        "400":
+          description: |
+            Malformed JSON, an unknown or missing field, an unsupported value, a body over 16 KiB
+            (`BAD_BODY_VALUE`), a malformed target ID (`INVALID_OBJECT_ID`), or a field that breaks a
+            submission rule. Field errors carry the JSON pointer of the field in `source.field`.
+          headers:
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                invalid_body:
+                  summary: Malformed JSON, an unknown field or an oversized body
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: BAD_BODY_VALUE
+                invalid_target_id:
+                  summary: Malformed target ID
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: INVALID_OBJECT_ID
+                    source:
+                      field: /target/productListingId
+                      type: BODY
+                    detail: must be a valid ProductListing ID
+                invalid_field:
+                  summary: A field value is rejected
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: CONTENT_NOTICE_INVALID_FIELD
+                    source:
+                      field: /additionalUrls/2
+                      type: BODY
+                    detail: additional URL must use http or https
+                explanation_required:
+                  summary: The reason category requires an explanation
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: CONTENT_NOTICE_EXPLANATION_REQUIRED
+                    source:
+                      field: /explanation
+                      type: BODY
+                    detail: An explanation is required for this reason category.
+                provider_opt_out_requires_provider:
+                  summary: Only a provider may opt out
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: CONTENT_NOTICE_PROVIDER_OPT_OUT_REQUIRES_PROVIDER
+                    source:
+                      field: /reasonCategory
+                      type: BODY
+                    detail: Only submitter role PROVIDER may choose PROVIDER_OPT_OUT.
+                good_faith_not_confirmed:
+                  summary: The good-faith statement is missing or not confirmed
+                  value:
+                    status: 400
+                    title: Bad Request
+                    error: CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED
+                    source:
+                      field: /goodFaithConfirmed
+                      type: BODY
+                    detail: The good-faith statement must be confirmed with true.
+        "401":
+          description: A supplied bearer credential is invalid, expired or revoked.
+          headers:
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 401
+                title: Unauthorized
+                error: INVALID_CREDENTIALS
+                source:
+                  field: Authorization
+                  type: HEADER
+                detail: Bearer token is invalid.
+        "404":
+          description: The ProductListing does not exist or is withdrawn, or the ListingSource does not exist.
+          headers:
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 404
+                title: Not Found
+                error: CONTENT_NOTICE_TARGET_NOT_FOUND
+                detail: The product listing or listing source was not found.
+        "503":
+          description: The notice could not be stored right now. It is unknown whether a retry is a resubmission.
+          headers:
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 503
+                title: Service Unavailable
+                error: CONTENT_NOTICE_TEMPORARILY_UNAVAILABLE
+                detail: The content notice could not be submitted right now.
+        "500":
+          description: Internal failure, including invalid stored target data.
+          headers:
+            Cache-Control:
+              description: Caching is disabled for the response.
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                status: 500
+                title: Internal Server Error
+                error: CONTENT_NOTICE_INTERNAL_ERROR
+                detail: Content notice submission failed internally.
   /v1/newsletter-subscriptions:
     put:
       summary: Request newsletter confirmation
@@ -24800,6 +25014,120 @@ components:
           format: uri
           description: Hosted Stripe URL that the frontend should redirect the authenticated user to
           example: https://checkout.stripe.com/c/pay/cs_test_123
+    SubmitContentNoticeData:
+      type: object
+      additionalProperties: false
+      description: |
+        A content notice. Text is trimmed; it must not be blank and must not contain control characters, except
+        that the explanation may keep line breaks and tabs. Values are never truncated.
+      required:
+        - target
+        - submitterRole
+        - reasonCategory
+        - name
+        - email
+        - language
+        - goodFaithConfirmed
+      properties:
+        target:
+          $ref: "#/components/schemas/ContentNoticeTargetData"
+        submitterRole:
+          $ref: "#/components/schemas/ContentNoticeSubmitterRoleData"
+        reasonCategory:
+          $ref: "#/components/schemas/ContentNoticeReasonCategoryData"
+        explanation:
+          type: string
+          minLength: 1
+          maxLength: 5000
+          description: A reasoned explanation. Required, except that it may be omitted for `PROVIDER_OPT_OUT`.
+        additionalUrls:
+          type: array
+          maxItems: 10
+          default: []
+          description: Further locations the notice points to, never fetched. No two may be equal after URL normalization.
+          items:
+            type: string
+            format: uri
+            maxLength: 2048
+            description: An absolute `http` or `https` URL without credentials.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The notifier's name.
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: The notifier's bare email address, without display text.
+        language:
+          allOf:
+            - $ref: "#/components/schemas/LanguageData"
+          description: The language for correspondence about the notice.
+        goodFaithConfirmed:
+          type: boolean
+          enum:
+            - true
+          description: |
+            Confirms that the information is accurate and complete. Must be `true`; `false` or a missing value is
+            rejected with `CONTENT_NOTICE_GOOD_FAITH_NOT_CONFIRMED`.
+    ContentNoticeTargetData:
+      oneOf:
+        - $ref: "#/components/schemas/ProductListingContentNoticeTargetData"
+        - $ref: "#/components/schemas/ListingSourceContentNoticeTargetData"
+      discriminator:
+        propertyName: type
+        mapping:
+          PRODUCT_LISTING: "#/components/schemas/ProductListingContentNoticeTargetData"
+          LISTING_SOURCE: "#/components/schemas/ListingSourceContentNoticeTargetData"
+      description: What the notice is about, one listing or a listing source with all of its listings.
+    ProductListingContentNoticeTargetData:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - productListingId
+      properties:
+        type:
+          type: string
+          enum:
+            - PRODUCT_LISTING
+        productListingId:
+          type: string
+          description: A publicly visible ProductListing.
+          example: pl_01h455vb4pex5vy7enb1p677vn
+    ListingSourceContentNoticeTargetData:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - listingSourceId
+      properties:
+        type:
+          type: string
+          enum:
+            - LISTING_SOURCE
+        listingSourceId:
+          type: string
+          example: ls_01h455vb4pex5vy7enb1p677vn
+    ContentNoticeSubmitterRoleData:
+      type: string
+      enum:
+        - PROVIDER
+        - RIGHTS_HOLDER
+        - ILLEGAL_CONTENT_REPORTER
+      description: |
+        Who submits the notice, as the submitter declares: the operator of the listing source, a holder of rights
+        in the listed content, or anyone reporting content they consider illegal.
+    ContentNoticeReasonCategoryData:
+      type: string
+      enum:
+        - PROVIDER_OPT_OUT
+        - RIGHTS_INFRINGEMENT
+        - ILLEGAL_CONTENT
+        - INCORRECT_INFORMATION
+        - OTHER
+      description: Why the notice is submitted. Only submitter role `PROVIDER` may choose `PROVIDER_OPT_OUT`.
     PutNewsletterSubscriptionData:
       type: object
       description:
@@ -28098,6 +28426,7 @@ x-tagGroups:
       - User Account
       - Billing
       - Newsletter
+      - ContentNotices
   - name: Partner & Platform Integrations
     tags:
       - Partnerships
@@ -28131,6 +28460,8 @@ tags:
     description: Stripe checkout, billing-portal, and subscription-management session creation for authenticated users.
   - name: Newsletter
     description: Newsletter subscription upsert workflows for website or product-surface sign-up flows.
+  - name: ContentNotices
+    description: Notices from providers, rights holders and reporters of illegal content asking for a listing or a listing source to be reviewed.
   - name: Partnerships
     description: Partnership administration, safe summary reads, and membership/ListingSource count workflows.
   - name: PartnershipApplications

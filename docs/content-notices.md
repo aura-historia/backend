@@ -43,6 +43,25 @@ is evidence. It must survive a later change, delisting or deletion of its target
 with their deletion ([storage guide](storage.md#retention-deletion-and-expiry)). The target
 identifiers may therefore name rows that no longer exist.
 
+## Submission
+
+`POST /v1/content-notices` accepts a notice from anyone; the [OpenAPI operation](swagger.yaml)
+`submitContentNotice` is the request and error contract. A supplied bearer credential must be
+valid, but the caller's identity is not stored with the notice.
+
+- The submission rules are checked before the target is read. A product listing target must be
+  publicly visible under the same lifecycle rule as the public listing detail, so a withdrawn
+  listing is not found.
+- The target is resolved and snapshotted in the transaction that stores the notice, with the
+  partner flag under the same rule as the public listing source details.
+- The good-faith confirmation records the statement version the submission form shows.
+- The submission fingerprint is SHA-256 over a length-prefixed encoding of the lowercased email,
+  the target, role and category, the explanation, the sorted normalized additional URLs, and the
+  name and language. [`submission_fingerprint`](../src/content-notice-service/src/submission_fingerprint.rs)
+  owns the exact encoding; changing it changes every new fingerprint.
+- After commit the use case logs `content_notice.submitted` with the notice ID, target,
+  role, category and actor type, never personal data.
+
 ## States
 
 Every notice starts and, for now, stays `SUBMITTED`. Decision states come with the decision

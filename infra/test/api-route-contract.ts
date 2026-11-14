@@ -3,6 +3,7 @@ import * as path from "node:path";
 
 const RUST_ROUTE_FILES = [
   "../../src/aura-historia-api/src/lib.rs",
+  "../../src/aura-historia-api/src/content_notices/mod.rs",
   "../../src/aura-historia-api/src/search_filters/mod.rs",
   "../../src/aura-historia-api/src/notifications/mod.rs",
   "../../src/aura-historia-api/src/partnership_applications/mod.rs",

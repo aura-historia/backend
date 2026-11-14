@@ -95,6 +95,7 @@ use search_filter_service::use_cases::{
 };
 use woocommerce_service::WoocommerceWebhookIntakeUseCase;
 
+use content_notice_service::use_cases::commands::submit_content_notice::SubmitContentNoticeUseCase;
 use std::sync::Arc;
 use user_service::use_cases::ApplyLoopsPreferenceEventUseCase;
 use user_service::use_cases::commands::change_user_role::ChangeUserRoleUseCase;
@@ -159,6 +160,7 @@ pub struct AppState {
     pub(crate) user_addresses: Option<UserAddressesState>,
     pub(crate) watchlist: Option<WatchlistState>,
     pub(crate) partnership_applications: Option<PartnershipApplicationsState>,
+    pub(crate) content_notices: Option<ContentNoticesState>,
     pub(crate) partnerships: Option<PartnershipsState>,
     pub(crate) oauth: Option<OAuthState>,
     pub(crate) search_filters: Option<SearchFiltersState>,
@@ -213,6 +215,7 @@ impl AppState {
             user_addresses: None,
             watchlist: None,
             partnership_applications: None,
+            content_notices: None,
             partnerships: None,
             oauth: None,
             search_filters: None,
@@ -325,6 +328,11 @@ impl AppState {
         partnership_applications: PartnershipApplicationsState,
     ) -> Self {
         self.partnership_applications = Some(partnership_applications);
+        self
+    }
+
+    pub fn with_content_notices(mut self, content_notices: ContentNoticesState) -> Self {
+        self.content_notices = Some(content_notices);
         self
     }
 
@@ -1000,6 +1008,24 @@ impl WatchlistState {
             watch_product,
             update_watchlist_product,
             unwatch_product,
+            authenticator,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ContentNoticesState {
+    pub(crate) submit: Arc<dyn SubmitContentNoticeUseCase>,
+    pub(crate) authenticator: Arc<dyn TokenAuthenticator>,
+}
+
+impl ContentNoticesState {
+    pub fn new(
+        submit: Arc<dyn SubmitContentNoticeUseCase>,
+        authenticator: Arc<dyn TokenAuthenticator>,
+    ) -> Self {
+        Self {
+            submit,
             authenticator,
         }
     }
