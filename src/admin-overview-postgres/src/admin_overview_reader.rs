@@ -2,6 +2,7 @@ use admin_overview_service::{
     ports::{AdminOverviewReadError, AdminOverviewReader, AdminOverviewReaderFactory},
     use_cases::get_admin_overview::{
         AdminOverview, AdminOverviewActiveListingAvailabilityCounts,
+        AdminOverviewContentNoticeStateCounts, AdminOverviewContentNotices,
         AdminOverviewListingSourceMethodAssignmentCounts, AdminOverviewListingSources,
         AdminOverviewPartnershipApplicationStateCounts, AdminOverviewPartnershipApplications,
         AdminOverviewProductListingLifecycleCounts, AdminOverviewProductListings,
@@ -32,6 +33,8 @@ struct AdminOverviewRow {
     partnership_applications_approved: i64,
     partnership_applications_rejected: i64,
     partnership_applications_withdrawn: i64,
+    content_notices_total: i64,
+    content_notices_submitted: i64,
     parties_total: i64,
     listing_sources_total: i64,
     listing_sources_without_ingestion_method: i64,
@@ -106,6 +109,12 @@ partnership_application_counts AS (
         COUNT(*) FILTER (WHERE business_state = 'WITHDRAWN')::bigint AS partnership_applications_withdrawn
     FROM partnership_applications
 ),
+content_notice_counts AS (
+    SELECT
+        COUNT(*)::bigint AS content_notices_total,
+        COUNT(*) FILTER (WHERE business_state = 'SUBMITTED')::bigint AS content_notices_submitted
+    FROM content_notices
+),
 party_counts AS (
     SELECT COUNT(*)::bigint AS parties_total
     FROM parties
@@ -156,6 +165,7 @@ product_listing_counts AS (
 SELECT *
 FROM user_counts
 CROSS JOIN partnership_application_counts
+CROSS JOIN content_notice_counts
 CROSS JOIN party_counts
 CROSS JOIN listing_source_counts
 CROSS JOIN listing_source_method_counts
@@ -229,6 +239,12 @@ impl TryFrom<AdminOverviewRow> for AdminOverview {
                     )?,
                 },
             },
+            content_notices: AdminOverviewContentNotices {
+                total: count("content_notices_total", row.content_notices_total)?,
+                by_state: AdminOverviewContentNoticeStateCounts {
+                    submitted: count("content_notices_submitted", row.content_notices_submitted)?,
+                },
+            },
             parties_total: count("parties_total", row.parties_total)?,
             listing_sources: AdminOverviewListingSources {
                 total: count("listing_sources_total", row.listing_sources_total)?,
@@ -290,10 +306,10 @@ impl TryFrom<AdminOverviewRow> for AdminOverview {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn should_reject_negative_persisted_count() {
-        let result = AdminOverview::try_from(AdminOverviewRow {
-            users_total: -1,
+
+    fn zero_row() -> AdminOverviewRow {
+        AdminOverviewRow {
+            users_total: 0,
             users_free: 0,
             users_pro: 0,
             users_ultimate: 0,
@@ -305,6 +321,8 @@ mod tests {
             partnership_applications_approved: 0,
             partnership_applications_rejected: 0,
             partnership_applications_withdrawn: 0,
+            content_notices_total: 0,
+            content_notices_submitted: 0,
             parties_total: 0,
             listing_sources_total: 0,
             listing_sources_without_ingestion_method: 0,
@@ -328,11 +346,56 @@ mod tests {
             active_out_of_stock: 0,
             active_sold_out: 0,
             active_without_availability: 0,
+        }
+    }
+
+    #[test]
+    fn should_reject_negative_persisted_count() {
+        let result = AdminOverview::try_from(AdminOverviewRow {
+            users_total: -1,
+            ..zero_row()
         });
 
         assert!(matches!(
             result,
             Err(AdminOverviewRowMappingError::Count { .. })
         ));
+    }
+
+    #[test]
+    fn should_reject_negative_persisted_content_notice_count() {
+        let result = AdminOverview::try_from(AdminOverviewRow {
+            content_notices_submitted: -1,
+            ..zero_row()
+        });
+
+        assert!(matches!(
+            result,
+            Err(AdminOverviewRowMappingError::Count {
+                field: "content_notices_submitted",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn should_map_content_notice_counts() {
+        let result = AdminOverview::try_from(AdminOverviewRow {
+            content_notices_total: 3,
+            content_notices_submitted: 2,
+            ..zero_row()
+        });
+
+        let overview = match result {
+            Ok(overview) => overview,
+            Err(error) => panic!("overview mapping failed: {error}"),
+        };
+        assert_eq!(
+            AdminOverviewContentNotices {
+                total: 3,
+                by_state: AdminOverviewContentNoticeStateCounts { submitted: 2 },
+            },
+            overview.content_notices
+        );
     }
 }
