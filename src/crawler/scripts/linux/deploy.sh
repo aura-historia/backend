@@ -6,9 +6,10 @@
 # Before a build that adds crawler-local migrations it runs crawler-backup.service with the services
 # stopped, so the S3 dump is the database those migrations start from; --skip-backup leaves that to
 # the operator. A failure after the services were stopped, a failed backup included, starts them again.
-# --unattended is for the autodeploy timer: it refuses (exit 3) a release that adds migrations or a
-# rollback over applied migrations, which need an operator, and rolls an unhealthy release back
-# (exit 4) to the build it replaced.
+# --unattended is for the autodeploy timer: it refuses (exit 3) a rollback over applied migrations,
+# which needs an operator, and rolls an unhealthy release without new migrations back (exit 4) to
+# the build it replaced. An unhealthy release with new migrations stays (exit 4): the build it
+# replaced cannot run on the migrated database, so going back means restoring the backup.
 # Usage: deploy.sh [--install-units] [--db-restored] [--skip-backup] [--unattended] <full lowercase sha | legacy-<time>>
 # Contract: docs/crawler/operations.md#deploy-and-roll-back
 set -euo pipefail
@@ -309,10 +310,6 @@ fi
 [[ "$previous" == "$target" ]] || check_rollback "$previous"
 adds_migrations=false
 release_adds_migrations "$previous" && adds_migrations=true
-if $unattended && $adds_migrations; then
-  echo "${build} adds crawler-local migrations: deploy it by hand, which backs the database up first, and watch it" >&2
-  exit "$EXIT_NEEDS_OPERATOR"
-fi
 # A restored database is the backup it came from, or empty after a squash: a dump of it would only
 # push a real one out of the dumps the backup keeps.
 take_backup=false
@@ -345,8 +342,8 @@ if wait_healthy; then
   prune_releases "$target" "$rollback_to"
   echo "deployed ${build}"
 else
-  if $unattended && [[ -n "$rollback_to" && "$rollback_to" != "$target" ]]; then
-    # No migration was applied (refused above), so the previous build runs on the same database.
+  if $unattended && ! $adds_migrations && [[ -n "$rollback_to" && "$rollback_to" != "$target" ]]; then
+    # The build brought no migration, so the previous build runs on the same database.
     echo "rolling back to $(basename "$rollback_to")" >&2
     stop_services
     switch_release "$rollback_to"

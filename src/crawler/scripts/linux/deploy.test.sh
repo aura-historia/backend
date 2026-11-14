@@ -184,13 +184,25 @@ if autodeploy; then fail "an unhealthy release was reported as deployed"; fi
 bin_is "$sha_a" || fail "an unhealthy release was not rolled back"
 [[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_c" ]] || fail "an unhealthy release would be retried"
 
-# A release that adds migrations is never deployed unattended.
+# A release that adds migrations is deployed unattended, backed up first.
 api "$sha_d" "$sha_c"
-if autodeploy; then fail "a release with migrations was deployed unattended"; fi
-bin_is "$sha_a" || fail "switched to a release with migrations"
-[[ "$(cat "$CRAWLER_ROOT/autodeploy.handled")" == "$sha_d" ]] || fail "a release with migrations would be retried"
-deploy "$sha_d" >/dev/null 2>&1
-bin_is "$sha_d" || fail "an operator could not deploy the release with migrations"
+: > "$FAKE_LOG"
+autodeploy || fail "autodeploy did not deploy a release with migrations"
+bin_is "$sha_d" || fail "autodeploy did not switch to the release with migrations"
+backed_up || fail "autodeploy deployed a release with migrations without a backup"
+
+# An unhealthy release that brought migrations is not rolled back: the build it replaced cannot run
+# on the migrated database. It stays, exit 4, with the restore to go back.
+sha_i="$(printf '3%.0s' {1..40})"
+touch "$alt/migrations/99990102000000_more.sql"
+bash "$alt/scripts/linux/package-release.sh" "$sha_i" "$tmp/build" "$tmp/releases-out" >/dev/null
+rm "$alt/migrations/99990102000000_more.sql"
+echo 1 > "$FAKE_HEALTH_FAILS"
+status=0; deploy --unattended "$sha_i" > "$tmp/log/unhealthy.out" 2>&1 || status=$?
+[[ "$status" -eq 4 ]] || fail "an unhealthy unattended release with migrations exited ${status}, not 4"
+bin_is "$sha_i" || fail "an unhealthy release with migrations was rolled back onto its migrated database"
+grep -q -- "--db-restored ${sha_d}" "$tmp/log/unhealthy.out" || fail "an unhealthy release with migrations printed no restore hint"
+deploy --db-restored "$sha_d" >/dev/null 2>&1 || fail "the rollback after a restore failed"
 
 
 # Unattended mode leaves a rollback over applied migrations to an operator (exit 3), so autodeploy
