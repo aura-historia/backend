@@ -24,6 +24,7 @@ test-data = ["fake"]
 
 [dev-dependencies]
 localization = { workspace = true }
+time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 url = { workspace = true }
 uuid = { workspace = true }

@@ -2,6 +2,12 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Content notice submission limits (#2939)
+
+- `POST /v1/content-notices` (`submitContentNotice`) now limits submissions per email address, compared case-insensitively, within the 24 hours before each submission.
+- An identical resubmission (same target, role, category, explanation, additional URLs, name, email and language) stores nothing and returns the same empty `202` as a new notice. Retrying a submission after a `503`, a lost response or a double click is therefore safe within 24 hours.
+- Once 10 notices from an address are stored within 24 hours, a further notice returns `429 Too Many Requests` with error `CONTENT_NOTICE_RATE_LIMITED`, `Retry-After` in whole seconds until the address can submit again, and `Cache-Control: no-store`. Identical resubmissions do not count.
+
 ## 2026-11-14 — Admin content notice detail (#2941)
 
 - New `GET /v1/admin/content-notices/{contentNoticeId}` (`adminGetContentNotice`) returns one content notice to administrators. It requires the `ADMIN` role and, for delegated access tokens, the `content-notices:read` scope. A malformed ID returns `400 INVALID_OBJECT_ID`, an unknown one `404 CONTENT_NOTICE_NOT_FOUND`. Responses, including errors, send `Cache-Control: no-store`.

@@ -2055,6 +2055,8 @@ async fn test_state(
                     unit_of_work.clone(),
                     content_notice_postgres::SqlxContentNoticeTargetReaderFactory::new(),
                     content_notice_postgres::SqlxContentNoticeRepositoryFactory::new(),
+                    content_notice_postgres::SqlxContentNoticeSubmissionHistoryFactory::new(),
+                    content_notice_service::ports::SystemContentNoticeClock,
                 ),
             ),
             Arc::new(

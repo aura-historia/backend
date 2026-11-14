@@ -1,9 +1,13 @@
 use crate::{
     ports::{
-        ContentNoticeRepository, ContentNoticeRepositoryError, ContentNoticeRepositoryFactory,
-        ContentNoticeTargetReadError, ContentNoticeTargetReader, ContentNoticeTargetReaderFactory,
+        ContentNoticeClock, ContentNoticeRepository, ContentNoticeRepositoryError,
+        ContentNoticeRepositoryFactory, ContentNoticeSubmissionFingerprint,
+        ContentNoticeSubmissionHistory, ContentNoticeSubmissionHistoryError,
+        ContentNoticeSubmissionHistoryFactory, ContentNoticeTargetReadError,
+        ContentNoticeTargetReader, ContentNoticeTargetReaderFactory,
     },
     submission_fingerprint::submission_fingerprint,
+    submission_policy::{RetryAfter, SubmissionDecision, decide, window_start},
 };
 use application::{
     error::{BoxError, box_error},
@@ -18,7 +22,7 @@ use content_notice_core::{
     good_faith_statement_version::GoodFaithStatementVersion,
     notice_explanation::NoticeExplanation,
     reason_category::ReasonCategory,
-    submitter::Submitter,
+    submitter::{Submitter, SubmitterEmail},
     submitter_role::SubmitterRole,
 };
 use listing_source_core::ListingSourceId;
@@ -46,14 +50,6 @@ impl ContentNoticeTargetReference {
             Self::ListingSource { .. } => "LISTING_SOURCE",
         }
     }
-
-    /// The named target's identifier, for tracing.
-    pub fn id(self) -> String {
-        match self {
-            Self::ProductListing { product_listing_id } => product_listing_id.to_string(),
-            Self::ListingSource { listing_source_id } => listing_source_id.to_string(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,9 +63,15 @@ pub struct SubmitContentNoticeCommand {
     pub good_faith_statement_version: GoodFaithStatementVersion,
 }
 
+/// Both outcomes are answered alike, so a resubmission is indistinguishable from a new notice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SubmitContentNoticeResult {
-    pub content_notice_id: ContentNoticeId,
+pub enum SubmitContentNoticeResult {
+    Stored {
+        content_notice_id: ContentNoticeId,
+    },
+    /// The same submission from the same address is already stored within the submission
+    /// window. Nothing was stored.
+    Duplicate,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -78,6 +80,9 @@ pub enum SubmitContentNoticeError {
     InvalidNotice(#[source] ContentNoticeInvariantError),
     #[error("content notice target not found")]
     TargetNotFound,
+    /// The submitter's address has used its notice budget for the submission window.
+    #[error("too many content notices from one address")]
+    RateLimited { retry_after: RetryAfter },
     #[error("temporary content notice failure")]
     TemporarilyUnavailable {
         #[source]
@@ -99,8 +104,9 @@ pub enum SubmitContentNoticeError {
     CommitTransactionFailed(#[source] BoxError),
 }
 
-/// Records a content notice from anyone, with or without an account. The caller's identity is
-/// used for logging only and is never stored with the notice.
+/// Records a content notice from anyone, with or without an account, within the
+/// [submission limits](crate::submission_policy). The caller's identity is used for logging
+/// only and is never stored with the notice.
 #[async_trait::async_trait]
 pub trait SubmitContentNoticeUseCase: Send + Sync {
     async fn execute(
@@ -110,29 +116,37 @@ pub trait SubmitContentNoticeUseCase: Send + Sync {
     ) -> Result<SubmitContentNoticeResult, SubmitContentNoticeError>;
 }
 
-pub struct SubmitContentNoticeHandler<U, T, R> {
+pub struct SubmitContentNoticeHandler<U, T, R, H, C> {
     unit_of_work: U,
     targets: T,
     notices: R,
+    history: H,
+    clock: C,
 }
 
-impl<U, T, R> SubmitContentNoticeHandler<U, T, R> {
-    pub fn new(unit_of_work: U, targets: T, notices: R) -> Self {
+impl<U, T, R, H, C> SubmitContentNoticeHandler<U, T, R, H, C> {
+    pub fn new(unit_of_work: U, targets: T, notices: R, history: H, clock: C) -> Self {
         Self {
             unit_of_work,
             targets,
             notices,
+            history,
+            clock,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<U, T, R> SubmitContentNoticeUseCase for SubmitContentNoticeHandler<U, T, R>
+impl<U, T, R, H, C> SubmitContentNoticeUseCase for SubmitContentNoticeHandler<U, T, R, H, C>
 where
     U: UnitOfWork,
     T: ContentNoticeTargetReaderFactory<U::Tx>,
     R: ContentNoticeRepositoryFactory<U::Tx>,
+    H: ContentNoticeSubmissionHistoryFactory<U::Tx>,
+    C: ContentNoticeClock,
 {
+    // The target ID stays out of the span: a rate-limited request must not log it, because it
+    // can indicate who complained about what.
     #[tracing::instrument(
         name = "submit_content_notice",
         skip_all,
@@ -140,7 +154,6 @@ where
             principal_type = context.principal.kind(),
             actor_id = tracing::field::Empty,
             target_type = command.target.type_code(),
-            target_id = %command.target.id(),
             request_id = %context.request_id,
             correlation_id = %context.correlation_id,
         )
@@ -180,48 +193,115 @@ where
         .map_err(|source| SubmitContentNoticeError::Internal {
             source: box_error(source),
         })?;
-        self.record(&mut tx, &notice).await?;
+        let fingerprint = submission_fingerprint(&notice);
+        let decision = self
+            .check_submission_limits(&mut tx, &notice.submitter().email, fingerprint)
+            .await?;
+        let result = match decision {
+            SubmissionDecision::RateLimited { retry_after } => {
+                log_rate_limited(context, retry_after);
+                return Err(SubmitContentNoticeError::RateLimited { retry_after });
+            }
+            SubmissionDecision::Duplicate => SubmitContentNoticeResult::Duplicate,
+            SubmissionDecision::Store => {
+                self.record(&mut tx, &notice, fingerprint).await?;
+                SubmitContentNoticeResult::Stored {
+                    content_notice_id: notice.id(),
+                }
+            }
+        };
         tx.commit().await.map_err(|source| {
             SubmitContentNoticeError::CommitTransactionFailed(Box::new(source))
         })?;
 
-        tracing::info!(
-            event = "content_notice.submitted",
-            content_notice_id = %notice.id(),
-            target_type = notice.target().type_code(),
-            listing_source_id = %notice.target().listing_source_id(),
-            product_listing_id = notice.target().product_listing_id().map(tracing::field::display),
-            submitter_role = notice.submitter_role().as_str(),
-            reason_category = notice.reason_category().as_str(),
-            actor_type = context.principal.kind(),
-            request_id = %context.request_id,
-            correlation_id = %context.correlation_id,
-            outcome = "success",
-        );
-        Ok(SubmitContentNoticeResult {
-            content_notice_id: notice.id(),
-        })
+        log_accepted(context, &notice, result);
+        Ok(result)
     }
 }
 
-impl<U, T, R> SubmitContentNoticeHandler<U, T, R>
+impl<U, T, R, H, C> SubmitContentNoticeHandler<U, T, R, H, C>
 where
     U: UnitOfWork,
     R: ContentNoticeRepositoryFactory<U::Tx>,
+    H: ContentNoticeSubmissionHistoryFactory<U::Tx>,
+    C: ContentNoticeClock,
 {
+    /// Serializes the address's submissions for the rest of the transaction, then decides the
+    /// submission from the address's notices within the window.
+    async fn check_submission_limits(
+        &self,
+        tx: &mut U::Tx,
+        email: &SubmitterEmail,
+        fingerprint: ContentNoticeSubmissionFingerprint,
+    ) -> Result<SubmissionDecision, SubmitContentNoticeError> {
+        let mut history = self.history.in_transaction(tx);
+        history.lock_address(email).await?;
+        let now = self.clock.now_utc();
+        let submissions = history.submissions_after(email, window_start(now)).await?;
+        Ok(decide(now, fingerprint, &submissions))
+    }
+
     /// Stores the notice in the submission transaction. Everything that must commit or roll
     /// back together with the notice belongs here.
     async fn record(
         &self,
         tx: &mut U::Tx,
         notice: &ContentNotice,
+        fingerprint: ContentNoticeSubmissionFingerprint,
     ) -> Result<(), SubmitContentNoticeError> {
         self.notices
             .in_transaction(tx)
-            .insert(notice, submission_fingerprint(notice))
+            .insert(notice, fingerprint)
             .await?;
         Ok(())
     }
+}
+
+/// Logs a committed submission, stored or duplicate, without personal data.
+fn log_accepted(
+    context: &OperationContext,
+    notice: &ContentNotice,
+    result: SubmitContentNoticeResult,
+) {
+    let target = notice.target();
+    match result {
+        SubmitContentNoticeResult::Stored { content_notice_id } => tracing::info!(
+            event = "content_notice.submitted",
+            content_notice_id = %content_notice_id,
+            target_type = target.type_code(),
+            listing_source_id = %target.listing_source_id(),
+            product_listing_id = target.product_listing_id().map(tracing::field::display),
+            submitter_role = notice.submitter_role().as_str(),
+            reason_category = notice.reason_category().as_str(),
+            actor_type = context.principal.kind(),
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+            outcome = "success",
+        ),
+        SubmitContentNoticeResult::Duplicate => tracing::info!(
+            event = "content_notice.duplicate",
+            target_type = target.type_code(),
+            listing_source_id = %target.listing_source_id(),
+            product_listing_id = target.product_listing_id().map(tracing::field::display),
+            actor_type = context.principal.kind(),
+            request_id = %context.request_id,
+            correlation_id = %context.correlation_id,
+            outcome = "duplicate",
+        ),
+    }
+}
+
+/// Logs a rejected submission without personal data and without the target, which can
+/// indicate who complained about what.
+fn log_rate_limited(context: &OperationContext, retry_after: RetryAfter) {
+    tracing::warn!(
+        event = "content_notice.rate_limited",
+        retry_after_seconds = retry_after.seconds(),
+        actor_type = context.principal.kind(),
+        request_id = %context.request_id,
+        correlation_id = %context.correlation_id,
+        outcome = "rate_limited",
+    );
 }
 
 /// Resolves the named target and snapshots it. A withdrawn listing is not found, as in the
@@ -293,13 +373,27 @@ impl From<ContentNoticeRepositoryError> for SubmitContentNoticeError {
     }
 }
 
+impl From<ContentNoticeSubmissionHistoryError> for SubmitContentNoticeError {
+    fn from(error: ContentNoticeSubmissionHistoryError) -> Self {
+        match error {
+            ContentNoticeSubmissionHistoryError::TemporarilyUnavailable { source } => {
+                Self::TemporarilyUnavailable { source }
+            }
+            ContentNoticeSubmissionHistoryError::InvalidPersistedState { source } => {
+                Self::InvalidPersistedState { source }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ports::{
-        ContentNoticeStorageVersion, ContentNoticeSubmissionFingerprint, ListingSourceTarget,
-        ProductListingTarget, VersionedContentNotice,
+        ContentNoticeStorageVersion, ListingSourceTarget, ProductListingTarget, RecentSubmission,
+        VersionedContentNotice,
     };
+    use crate::submission_policy::{MAX_NOTICES_PER_ADDRESS, SUBMISSION_WINDOW};
     use application::{
         error::static_error,
         operation_context::{CorrelationId, Principal, RequestId},
@@ -316,7 +410,10 @@ mod tests {
     use listing_source_core::ListingSourceName;
     use localization::Language;
     use std::sync::{Arc, Mutex, MutexGuard};
+    use time::{Duration, OffsetDateTime, macros::datetime};
     use url::Url;
+
+    const NOW: OffsetDateTime = datetime!(2026-11-14 12:00:00 UTC);
 
     #[derive(Default)]
     struct State {
@@ -328,7 +425,12 @@ mod tests {
         product_listings: Vec<ProductListingTarget>,
         read_error: Option<ContentNoticeTargetReadError>,
         insert_error: Option<ContentNoticeRepositoryError>,
+        history_error: Option<ContentNoticeSubmissionHistoryError>,
         inserted: Vec<(ContentNotice, ContentNoticeSubmissionFingerprint)>,
+        /// Stored submissions per lowercased address, as the history port groups them.
+        history: Vec<(String, RecentSubmission)>,
+        /// The limit steps in the order they ran.
+        steps: Vec<String>,
     }
 
     type Shared = Arc<Mutex<State>>;
@@ -345,6 +447,13 @@ mod tests {
     struct FakeTargetReader(Shared);
     struct FakeNotices(Shared);
     struct FakeNoticeRepository(Shared);
+    struct FakeHistories(Shared);
+    struct FakeHistory(Shared);
+    struct FixedClock;
+
+    fn address_key(email: &SubmitterEmail) -> String {
+        email.as_str().to_lowercase()
+    }
 
     #[async_trait::async_trait]
     impl UnitOfWork for FakeUnitOfWork {
@@ -436,7 +545,15 @@ mod tests {
             if let Some(error) = state.insert_error.take() {
                 return Err(error);
             }
+            state.steps.push("insert".to_owned());
             state.inserted.push((notice.clone(), fingerprint));
+            state.history.push((
+                address_key(&notice.submitter().email),
+                RecentSubmission {
+                    fingerprint,
+                    created: NOW,
+                },
+            ));
             Ok(Versioned::new(
                 notice.clone(),
                 ContentNoticeStorageVersion::INITIAL,
@@ -451,12 +568,77 @@ mod tests {
         }
     }
 
+    impl ContentNoticeSubmissionHistoryFactory<FakeTransaction> for FakeHistories {
+        fn in_transaction<'tx>(
+            &'tx self,
+            _tx: &'tx mut FakeTransaction,
+        ) -> impl ContentNoticeSubmissionHistory + 'tx {
+            FakeHistory(Arc::clone(&self.0))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ContentNoticeSubmissionHistory for FakeHistory {
+        async fn lock_address(
+            &mut self,
+            email: &SubmitterEmail,
+        ) -> Result<(), ContentNoticeSubmissionHistoryError> {
+            let mut state = lock(&self.0);
+            if let Some(error) = state.history_error.take() {
+                return Err(error);
+            }
+            state.steps.push(format!("lock {}", address_key(email)));
+            Ok(())
+        }
+
+        async fn submissions_after(
+            &mut self,
+            email: &SubmitterEmail,
+            after: OffsetDateTime,
+        ) -> Result<Vec<RecentSubmission>, ContentNoticeSubmissionHistoryError> {
+            let mut state = lock(&self.0);
+            state.steps.push(format!("read after {after}"));
+            let key = address_key(email);
+            Ok(state
+                .history
+                .iter()
+                .filter(|(address, submission)| *address == key && submission.created > after)
+                .map(|(_, submission)| *submission)
+                .collect())
+        }
+    }
+
+    impl ContentNoticeClock for FixedClock {
+        fn now_utc(&self) -> OffsetDateTime {
+            NOW
+        }
+    }
+
     fn handler(state: &Shared) -> impl SubmitContentNoticeUseCase {
         SubmitContentNoticeHandler::new(
             FakeUnitOfWork(Arc::clone(state)),
             FakeTargets(Arc::clone(state)),
             FakeNotices(Arc::clone(state)),
+            FakeHistories(Arc::clone(state)),
+            FixedClock,
         )
+    }
+
+    /// `count` distinct notices from `email`, stored within the window.
+    fn stored_from(email: &str, count: usize) -> Vec<(String, RecentSubmission)> {
+        (0..count)
+            .map(|index| {
+                (
+                    email.to_lowercase(),
+                    RecentSubmission {
+                        fingerprint: ContentNoticeSubmissionFingerprint::from_sha256(
+                            [index as u8; 32],
+                        ),
+                        created: NOW - Duration::hours(23) + Duration::minutes(index as i64),
+                    },
+                )
+            })
+            .collect()
     }
 
     fn context() -> OperationContext {
@@ -536,7 +718,12 @@ mod tests {
 
         let state = lock(&state);
         let (notice, fingerprint) = &state.inserted[0];
-        assert_eq!(result.content_notice_id, notice.id());
+        assert_eq!(
+            SubmitContentNoticeResult::Stored {
+                content_notice_id: notice.id()
+            },
+            result
+        );
         assert_eq!(
             ContentNoticeTarget::ProductListing {
                 product_listing_id: listing.product_listing_id,
@@ -692,7 +879,7 @@ mod tests {
         let source = listing_source(false);
         type Configure = fn(&mut State);
         type Expect = fn(&SubmitContentNoticeError) -> bool;
-        let cases: [(Configure, Expect); 4] = [
+        let cases: [(Configure, Expect); 6] = [
             (
                 |state| {
                     state.read_error = Some(ContentNoticeTargetReadError::TemporarilyUnavailable {
@@ -741,6 +928,35 @@ mod tests {
                 },
                 |error| matches!(error, SubmitContentNoticeError::Internal { .. }),
             ),
+            (
+                |state| {
+                    state.history_error = Some(
+                        ContentNoticeSubmissionHistoryError::TemporarilyUnavailable {
+                            source: static_error("lock"),
+                        },
+                    )
+                },
+                |error| {
+                    matches!(
+                        error,
+                        SubmitContentNoticeError::TemporarilyUnavailable { .. }
+                    )
+                },
+            ),
+            (
+                |state| {
+                    state.history_error =
+                        Some(ContentNoticeSubmissionHistoryError::InvalidPersistedState {
+                            source: static_error("history"),
+                        })
+                },
+                |error| {
+                    matches!(
+                        error,
+                        SubmitContentNoticeError::InvalidPersistedState { .. }
+                    )
+                },
+            ),
         ];
 
         for (configure, expected) in cases {
@@ -757,5 +973,89 @@ mod tests {
             assert!(expected(&error), "{error:?}");
             assert_eq!(0, lock(&state).commits);
         }
+    }
+    #[tokio::test]
+    async fn should_lock_the_address_and_read_its_window_before_storing() {
+        let source = listing_source(false);
+        let mut submission = command(source_reference(&source));
+        submission.submitter.email = SubmitterEmail::try_from("Jane@Example.com").unwrap();
+        let state = state(|state| state.listing_sources.push(source.clone()));
+
+        handler(&state)
+            .execute(&context(), submission)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            vec![
+                "lock jane@example.com".to_owned(),
+                format!("read after {}", NOW - SUBMISSION_WINDOW),
+                "insert".to_owned(),
+            ],
+            lock(&state).steps
+        );
+    }
+
+    #[tokio::test]
+    async fn should_store_nothing_but_commit_for_an_identical_resubmission() {
+        let source = listing_source(false);
+        let state = state(|state| state.listing_sources.push(source.clone()));
+
+        let first = handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap();
+        let repeated = handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap();
+
+        assert!(matches!(first, SubmitContentNoticeResult::Stored { .. }));
+        assert_eq!(SubmitContentNoticeResult::Duplicate, repeated);
+        let state = lock(&state);
+        assert_eq!(1, state.inserted.len());
+        assert_eq!(2, state.commits);
+    }
+
+    #[tokio::test]
+    async fn should_store_the_last_notice_of_the_budget() {
+        let source = listing_source(false);
+        let state = state(|state| {
+            state.listing_sources.push(source.clone());
+            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_ADDRESS - 1);
+        });
+
+        let result = handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap();
+
+        assert!(matches!(result, SubmitContentNoticeResult::Stored { .. }));
+        assert_eq!(1, lock(&state).inserted.len());
+    }
+
+    #[tokio::test]
+    async fn should_rate_limit_without_storing_or_committing_once_the_budget_is_used() {
+        let source = listing_source(false);
+        let state = state(|state| {
+            state.listing_sources.push(source.clone());
+            state.history = stored_from("jane@example.com", MAX_NOTICES_PER_ADDRESS);
+        });
+
+        let error = handler(&state)
+            .execute(&context(), command(source_reference(&source)))
+            .await
+            .unwrap_err();
+
+        let SubmitContentNoticeError::RateLimited { retry_after } = error else {
+            panic!("expected rate limit, got {error:?}");
+        };
+        assert_eq!(
+            Duration::hours(1).whole_seconds() as u64,
+            retry_after.seconds()
+        );
+        let state = lock(&state);
+        assert!(state.inserted.is_empty());
+        assert_eq!(0, state.commits);
     }
 }

@@ -60,6 +60,35 @@ valid, but the caller's identity is not stored with the notice.
   the encoding, which never changes for stored notices.
 - The committed submission is logged without personal data.
 
+## Submission limits
+
+The anonymous endpoint has cheap abuse protection that needs no UI change. The values were
+approved by the product owner and are named constants in
+[`submission_policy`](../src/content-notice-service/src/submission_policy.rs); there is no
+environment configuration.
+
+- **Address:** submissions are grouped by the lowercased email address, the stored
+  `submitter_email_key`. PostgreSQL computes it for the lock, the read and the stored row alike.
+- **Window:** rolling, the 24 hours before the submission's `now`, read from a clock port.
+- **Identical resubmission:** the same submission fingerprint from the same address within the
+  window stores nothing, commits, and gets the same `202` as a new notice, so client retries and
+  double clicks are safe. It does not count against the budget.
+- **Budget:** when 10 notices from the address were stored within the window, a further notice
+  is rejected with `429 CONTENT_NOTICE_RATE_LIMITED` and `Retry-After`: the whole seconds until
+  enough of them leave the window, normally the oldest. The webapp then offers its `mailto:`
+  fallback. The budget also bounds receipts per address.
+- **No races:** after resolving the target, the submission transaction takes a
+  transaction-scoped advisory lock on the address key, then checks for a duplicate, then the
+  budget, then inserts. Concurrent identical submissions store one notice, and concurrent
+  distinct submissions cannot push an address past its budget.
+- **Logging:** the outcomes `duplicate` (INFO) and `rate_limited` (WARN) are logged with the
+  request and correlation IDs, never with the email, its key or a hash of either. A
+  rate-limited request does not log its target either, because it can indicate who complained
+  about what.
+
+There is no per-IP limit: handlers have no trustworthy client IP and notices store none. The
+web ACL has no rule for it either ([front door](http-api-front-door.md)).
+
 ## States
 
 Every notice starts and, for now, stays `SUBMITTED`. Decision states come with the decision
