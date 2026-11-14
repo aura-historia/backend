@@ -474,8 +474,9 @@ mod tests {
     #[test]
     fn should_render_every_external_template_in_strict_mode_without_account_links()
     -> Result<(), Box<dyn std::error::Error>> {
-        use crate::template_mapping::{
-            FrontendLinks, external_template_data, external_template_type,
+        use crate::{
+            external_template::{external_template_data, external_template_type},
+            template_mapping::FrontendLinks,
         };
         use localization::Language;
         use notification_core::{

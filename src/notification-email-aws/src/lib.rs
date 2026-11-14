@@ -1,3 +1,4 @@
+mod external_template;
 mod provider_failure;
 mod sender;
 mod template_mapping;
