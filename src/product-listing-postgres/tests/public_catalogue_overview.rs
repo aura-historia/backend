@@ -455,7 +455,7 @@ async fn should_union_original_title_and_description_languages_without_multiplyi
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_count_distinct_advertised_inventory_countries_of_live_listings() {
+async fn should_count_distinct_source_countries_of_live_listings() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
     let source = seed_source(&pool, party_id, "DEALER").await;
@@ -475,7 +475,9 @@ async fn should_count_distinct_advertised_inventory_countries_of_live_listings()
 
     let overview = read_overview().await;
 
-    assert_eq!(2, overview.countries);
+    // DE and FR from inventory (AT never counts next to DE), CH from the business-only
+    // dimension; unresolved, absent and withdrawn geography contribute nothing.
+    assert_eq!(3, overview.countries);
     assert_eq!(6, overview.live_objects);
 }
 
@@ -512,7 +514,7 @@ async fn should_count_live_listings_created_in_the_seven_days_ending_at_as_of() 
 }
 
 #[aura_integration_test(services = [BUSINESS_SCHEMA], isolated = true)]
-async fn should_read_inventory_country_from_the_effective_geography_projection() {
+async fn should_read_source_country_from_the_effective_geography_projection() {
     let pool = get_postgres_client().await;
     let party_id = seed_party(&pool).await;
     let inventory_source = seed_source(&pool, party_id, "DEALER").await;
@@ -578,5 +580,5 @@ async fn should_read_inventory_country_from_the_effective_geography_projection()
 
     let overview = read_overview().await;
 
-    assert_eq!(1, overview.countries);
+    assert_eq!(2, overview.countries);
 }

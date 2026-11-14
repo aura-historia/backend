@@ -2,6 +2,11 @@
 
 Only document REST API contract and user-visible behavior changes here. No internal changes.
 
+## 2026-11-14 — Overview `countries` counts where sources are located (#2957)
+
+- `countries` in `GET /v1/overview` and the MCP tool `getPublicOverview` now counts the distinct countries where the counted listings' ListingSources are located: the country of the listing's effective advertised-inventory geography when it has one, otherwise the country of the source's associated business. It previously counted advertised-inventory countries only, which excluded business-only sources and understated the figure. It describes sources, not where an object is held; shipping destinations still do not count. The field name and type are unchanged, so clients need no change, but the value is usually higher. The stored figure changes with the next scheduled calculation after deployment.
+- Listing `geography` and geographic search are unchanged: a business-only association still supplies no listing geography.
+
 ## 2026-11-13 — Affiliate disclosure on provider links (#2929)
 
 - **Breaking change:** every `viewUrl` is replaced by a `viewLink` object with the same link in `url` and a new `affiliate` flag. `affiliate` is `true` when the link is an affiliate link, which can earn Aura Historia a commission when people follow it; clients should disclose it as such and mark it `rel="sponsored"`. It is `false` for links that carry only Aura Historia's tracking parameters and for links to Aura Historia itself, such as listings redacted as hidden. The provider's untagged `url` next to it is unchanged.

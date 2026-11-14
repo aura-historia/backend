@@ -58,6 +58,9 @@ impl PublicCatalogueOverviewRefresherFactory<SqlxTransaction>
 // The window is a fixed 168 hours so the session time zone cannot change its length.
 // The row lock is taken only when the aggregate finishes, and an older calculation
 // never replaces a newer one from a concurrent refresh.
+// `countries` counts where the sources of the counted listings are located: the effective
+// advertised-inventory country, otherwise the associated-business country. It makes no
+// claim about where an object is held.
 const REFRESH_PUBLIC_CATALOGUE_OVERVIEW_SQL: &str = r#"
 WITH live_groups AS (
     SELECT
@@ -65,7 +68,10 @@ WITH live_groups AS (
         source.listing_source_type,
         listing.title_language,
         listing.description_language,
-        geography.geography #>> '{inventory,country}' AS inventory_country,
+        COALESCE(
+            geography.geography #>> '{inventory,country}',
+            geography.geography #>> '{business,country}'
+        ) AS source_country,
         COUNT(*) AS live_objects,
         COUNT(*) FILTER (
             WHERE listing.created > statement_timestamp() - interval '168 hours'
@@ -101,7 +107,7 @@ calculated AS (
             WHERE listing_source_type = 'AUCTION_PLATFORM'
         )::bigint AS auction_platform_sources_indexed,
         COALESCE(SUM(live_objects), 0)::bigint AS live_objects,
-        COUNT(DISTINCT inventory_country)::bigint AS countries,
+        COUNT(DISTINCT source_country)::bigint AS countries,
         (SELECT COUNT(*) FROM languages)::bigint AS languages,
         COALESCE(SUM(new_objects), 0)::bigint AS new_objects_last_7_days
     FROM live_groups
